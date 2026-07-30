@@ -1,0 +1,29 @@
+# Render Blueprint 配置
+# 在 Render 控制台选择 "Blueprint" 并连此仓库即可一次性创建服务。
+# 注意：persistentDisk（持久盘）在免费实例上需升级到付费 plan 才会真正挂载；
+# 若未挂持久盘，SQLite 在临时磁盘上，重新部署/重启会清空——数据会丢。
+# 数据持久化推荐方案：挂一个 1GB 持久盘到 /data，并把 DB_PATH 指向 /data/data.sqlite。
+services:
+  - type: web
+    name: kaogong-review
+    runtime: node
+    plan: free
+    region: oregon           # 可选：singapore / frankfurt 等
+    branch: main
+    buildCommand: npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: JWT_SECRET
+        generateValue: true   # 首次生成后持续保留，用户 token 不会因重启失效
+      - key: DB_PATH
+        value: /data/data.sqlite
+      - key: CORS_ORIGIN
+        value: "*"
+    # 持久盘：保证云同步数据不丢（需付费 plan 才生效）
+    disk:
+      name: kaogong-data
+      mountPath: /data
+      sizeGB: 1

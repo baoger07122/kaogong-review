@@ -1,0 +1,13 @@
+{
+  "name": "kaogong-review",
+  "version": "1.0.0",
+  "private": true,
+  "description": "考公笔试复盘系统 - 前端 + Node/SQLite 云同步后端（部署到 Render）",
+  "scripts": {
+    "build": "cd server && npm install",
+    "start": "node server/server.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}
