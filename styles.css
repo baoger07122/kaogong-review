@@ -3584,3 +3584,85 @@ input, textarea, select {
   .nav-label,
   .notes-worddb-entry { animation: none !important; transition: none !important; }
 }
+
+/* ===== 常驻版本角标（左下角，方便核对是否最新版） ===== */
+.version-badge {
+  position: fixed;
+  left: 8px;
+  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  z-index: 50;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: var(--bg-secondary, #f0f2f5);
+  color: var(--text-tertiary, #888);
+  border: 0.5px solid var(--border-color, #ddd);
+  letter-spacing: .3px;
+  pointer-events: none;
+  user-select: none;
+  opacity: .8;
+}
+
+/* ===== 折叠式区块（云同步等） ===== */
+.fold-box {
+  border-radius: var(--radius-md, 12px);
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+.fold-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px var(--spacing-md);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-md);
+  color: var(--text-primary);
+  text-align: left;
+}
+.fold-head:active { background: rgba(0,0,0,.04); }
+.fold-title { font-weight: 600; flex: 0 0 auto; }
+.fold-status {
+  flex: 1 1 auto;
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  text-align: right;
+}
+.fold-arrow {
+  flex: 0 0 auto;
+  transition: transform .2s ease;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  display: inline-block;
+}
+.fold-arrow.fold-open { transform: rotate(180deg); }
+.fold-body {
+  padding: 0 var(--spacing-md) var(--spacing-md);
+}
+
+/* ===== 考点管理独立页：每考点专属错因 ===== */
+.kp-kp { margin-bottom: 6px; }
+.kp-kpreasons {
+  margin: 6px 0 8px 16px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kp-subcount {
+  font-size: 11px;
+  color: var(--color-primary);
+  background: rgba(74, 144, 226, 0.12);
+  border-radius: 10px;
+  padding: 1px 7px;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+.kp-chip--sub {
+  background: var(--bg-secondary);
+  border-style: dashed;
+}
