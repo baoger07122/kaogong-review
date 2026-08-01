@@ -310,17 +310,14 @@ input, textarea, select {
 
 /* ===== 页面标题栏 ===== */
 /* 固定区：标题 + 搜索 + 统计 打包吸顶（错题本等列表页滚动时保持可见）。
-   top:0 让吸顶区贴到屏幕最顶端；负 margin 抵消 .page 顶部预留（内容起点拉到 0），
-   padding-top 上延背景覆盖状态栏区域、内容仍在状态栏下方（初始与吸顶状态位置一致，无跳动），
-   滚动内容从任何高度经过都被吸顶区背景遮挡，不再穿出。
-   z-index 1500：盖过所有常规内容层，低于 ActionSheet(1800)/modal(12000)/导航栏(9999)。 */
+   z-index 1500：盖过所有常规内容层（标签弹层 120 / 底部操作栏 200 / 编辑器浮层 500），
+   同时低于 ActionSheet(1800)/modal(12000)/导航栏(9999)，弹层仍正常浮在最上；
+   transform 强制合成层，避免 iOS Safari 滚动时内容从吸顶区后面穿透显示。 */
 .page-sticky {
   position: sticky;
-  top: 0;
+  top: calc(var(--top-buffer) + 12px);
   z-index: 1500;
   background: var(--bg-primary);
-  margin-top: calc(-1 * (var(--top-buffer) + 12px));
-  padding-top: calc(var(--top-buffer) + 12px);
   padding-bottom: var(--spacing-sm);
   border-bottom: 0.5px solid var(--divider-color);
   box-shadow: 0 8px 20px -12px rgba(0,0,0,0.12);
@@ -338,7 +335,6 @@ input, textarea, select {
   position: fixed;
   top: 0;
   left: 0; /* 实际 left/width 由 JS 按视口校准 */
-  margin-top: 0; /* fixed 后不再需要负 margin 抵消 .page 预留 */
   padding-top: calc(var(--top-buffer) + 12px);
 }
 /* 左侧导航栏（科目/模块）同样置顶：背景上延到屏幕顶端，高度补回上移的缓冲区，
@@ -347,7 +343,6 @@ input, textarea, select {
   position: fixed;
   top: 0;
   left: 0; /* 实际 left/width 由 JS 按视口校准 */
-  margin-top: 0; /* fixed 后不再需要负 margin 抵消 .page 预留 */
   height: calc(100vh - var(--nav-height) - var(--safe-bottom));
   padding-top: calc(var(--top-buffer) + 12px);
   z-index: 1500;
@@ -3376,18 +3371,16 @@ input, textarea, select {
 
 .sidebar {
   position: sticky;
-  top: 0;
+  top: calc(var(--top-buffer) + 12px);
   flex: 0 0 auto;
   width: 80px;
-  /* 与标题栏一致：负 margin 把起点拉回屏幕顶 + padding-top 上延背景/避开状态栏；
-     高度从屏幕顶 0 算到导航栏上方 */
-  margin-top: calc(-1 * (var(--top-buffer) + 12px));
-  height: calc(100vh - var(--nav-height) - var(--safe-bottom));
+  /* 固定高度占满左侧整列，滚动时保持固定 */
+  height: calc(100vh - var(--top-buffer) - 12px - var(--nav-height) - var(--safe-bottom));
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   background: var(--bg-secondary);
   border-right: 0.5px solid var(--border-color);
-  padding: calc(var(--top-buffer) + 12px) 0 var(--spacing-sm);
+  padding: var(--spacing-sm) 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
