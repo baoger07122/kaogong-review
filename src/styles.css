@@ -309,46 +309,18 @@ input, textarea, select {
 }
 
 /* ===== 页面标题栏 ===== */
-/* 固定区：标题 + 搜索 + 统计 打包吸顶（错题本等列表页滚动时保持可见）。
-   z-index 1500：盖过所有常规内容层（标签弹层 120 / 底部操作栏 200 / 编辑器浮层 500），
-   同时低于 ActionSheet(1800)/modal(12000)/导航栏(9999)，弹层仍正常浮在最上；
-   transform 强制合成层，避免 iOS Safari 滚动时内容从吸顶区后面穿透显示。 */
+/* 固定区：标题 + 搜索 + 统计 打包吸顶（错题本等列表页滚动时保持可见） */
 .page-sticky {
   position: sticky;
   top: calc(var(--top-buffer) + 12px);
-  z-index: 1500;
+  z-index: 200;
   background: var(--bg-primary);
   padding-bottom: var(--spacing-sm);
   border-bottom: 0.5px solid var(--divider-color);
-  box-shadow: 0 8px 20px -12px rgba(0,0,0,0.12);
-  -webkit-transform: translateZ(0);
-  transform: translateZ(0);
 }
 /* 包进固定区后，内部标题不再需要自身 sticky */
 .page-sticky .page-header {
   position: static;
-}
-/* JS 吸顶兜底：iOS 个别版本 position:sticky 失效时，滚动中切换为 fixed 并插入同高占位符。
-   吸顶后 top:0 + padding-top 上延背景：把「页面顶部到手机顶端的预留空白」一并盖住，
-   滚动内容从任何高度经过都被吸顶区背景遮挡，不再穿出。 */
-.page-sticky.is-sticky-fixed {
-  position: fixed;
-  top: 0;
-  left: 0; /* 实际 left/width 由 JS 按视口校准 */
-  padding-top: calc(var(--top-buffer) + 12px);
-}
-/* 左侧导航栏（科目/模块）同样置顶：背景上延到屏幕顶端，高度补回上移的缓冲区，
-   与标题栏（.page-sticky）顶部对齐，滚动时不再悬停在中间或滚走 */
-.sidebar.is-sticky-fixed {
-  position: fixed;
-  top: 0;
-  left: 0; /* 实际 left/width 由 JS 按视口校准 */
-  height: calc(100vh - var(--nav-height) - var(--safe-bottom));
-  padding-top: calc(var(--top-buffer) + 12px);
-  z-index: 1500;
-}
-.page-sticky-placeholder {
-  visibility: hidden;
 }
 
 .page-header {
