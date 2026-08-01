@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.24';
+App.VERSION = '8.1.23';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -6253,19 +6253,14 @@ App.Pages.Errors = {
 
     const update = () => {
       if (!el.isConnected) return;
-      const rect = el.getBoundingClientRect();
-      // 纯文档流元素：当其视口顶部到达/越过屏幕顶端（≤0）时，切换为 fixed 钉在 top:0。
-      // 不再依赖 sticky 的顶层阈值——规避 iOS sticky→fixed 切换不重绘的 bug。
-      const shouldFix = rect.top <= 0;
+      const absTop = el.getBoundingClientRect().top + window.scrollY;
+      const shouldFix = (window.scrollY + TOP) > absTop + 4;
       if (shouldFix && !el.classList.contains('is-sticky-fixed')) {
-        // 文档流自然高度（无 padding-top 上延）；切 fixed 后元素因 padding-top:TOP 实际高 naturalH+TOP，
-        // 占位符须与之等高，否则吸顶条会盖住列表前 TOP 像素或列表跳动。
-        const naturalH = el.offsetHeight;
-        const naturalW = el.offsetWidth;
+        // 插入同高占位符，避免列表内容跳动（sidebar 为 flex 子项，宽度也需保持）
         placeholder = document.createElement('div');
         placeholder.className = 'page-sticky-placeholder';
-        placeholder.style.height = (naturalH + TOP) + 'px';
-        placeholder.style.width = naturalW + 'px';
+        placeholder.style.height = Math.max(0, el.offsetHeight - TOP) + 'px';
+        placeholder.style.width = el.offsetWidth + 'px';
         el.parentNode.insertBefore(placeholder, el);
         el.classList.add('is-sticky-fixed');
         const r = el.getBoundingClientRect();
@@ -6276,23 +6271,24 @@ App.Pages.Errors = {
         el.style.left = ''; el.style.width = '';
         if (placeholder) { placeholder.remove(); placeholder = null; }
       }
-      // 高度变化（搜索区展开/收起等）时同步占位符：fixed 后 offsetHeight 已含顶部上延 padding（TOP），
-      // 占位符直接跟随 fixed 真实高度，与吸顶条等高，列表位置不跳动、不被吞。
+      // 高度变化（搜索区展开/收起等）时同步占位符。
+      // 注意：fixed 时 offsetHeight 含顶部上延 padding（TOP），占位符必须保持内容高度，
+      // 否则列表位置会被额外下推而跳动。
       if (shouldFix && placeholder) {
-        const h = el.offsetHeight;
+        const h = Math.max(0, el.offsetHeight - TOP);
         if (placeholder.style.height !== h + 'px') placeholder.style.height = h + 'px';
       }
     };
 
     const onScroll = () => { update(); };
     const onResize = () => {
-      // 安全区/分屏变化时重读阈值，并先解除 fixed 状态以重测自然高度，再由 update 重新决策
+      // 安全区/分屏变化时重读阈值
       topBuffer = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top-buffer')) || 24;
       TOP = topBuffer + 12;
       if (el.classList.contains('is-sticky-fixed')) {
-        el.classList.remove('is-sticky-fixed');
-        el.style.left = ''; el.style.width = '';
-        if (placeholder) { placeholder.remove(); placeholder = null; }
+        const r = el.getBoundingClientRect();
+        el.style.left = r.left + 'px';
+        el.style.width = r.width + 'px';
       }
       update();
     };
