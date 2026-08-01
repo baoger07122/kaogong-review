@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.11';
+App.VERSION = '8.1.12';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -1545,9 +1545,19 @@ App.Components = {
       sizeBtns.push(b); sizeWrap.appendChild(b);
     });
 
+    // 手指涂鸦开关：默认关闭（仅 Pencil/鼠标），点击后允许手指绘制
+    const touchBtn = document.createElement('button');
+    touchBtn.type = 'button'; touchBtn.className = 'sketch-tool'; touchBtn.title = '手指涂鸦（默认仅 Pencil 可画）';
+    touchBtn.innerHTML = '👆';
+    touchBtn.addEventListener('click', () => {
+      touchEnabled = !touchEnabled;
+      touchBtn.classList.toggle('is-active', touchEnabled);
+    });
+
     toolbar.appendChild(penBtn); toolbar.appendChild(eraserBtn);
     toolbar.appendChild(undoBtn); toolbar.appendChild(clearBtn);
     toolbar.appendChild(colorWrap); toolbar.appendChild(sizeWrap);
+    toolbar.appendChild(touchBtn);
     wrap.appendChild(toolbar);
 
     const canvasWrap = document.createElement('div');
@@ -1568,6 +1578,7 @@ App.Components = {
     let redoStack = [];
     let initialized = false;
     let baseHasContent = false;
+    let touchEnabled = false; // 手指涂鸦开关：默认关闭，仅 Pencil/鼠标可画
     const MAX_HISTORY = 30;
 
     const scaleFactor = () => {
@@ -1739,8 +1750,8 @@ App.Components = {
     });
 
     canvas.addEventListener('pointerdown', (e) => {
-      // 仅允许 Apple Pencil（与鼠标），手指触摸不产生笔迹
-      if (e.pointerType === 'touch') return;
+      // 手指涂鸦默认关闭（仅 Pencil/鼠标可画）；开启手指开关后允许手指绘制
+      if (e.pointerType === 'touch' && !touchEnabled) return;
       e.preventDefault();
       drawing = true;
       try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
@@ -1854,6 +1865,8 @@ App.Components = {
       redo: () => { if (redoStack.length > 0) { undoStack.push(redoStack.pop()); restore(undoStack[undoStack.length - 1]); } },
       setMode: (m) => setMode(m),
       setColor: (c) => { currentColor = c; },
+      setTouchEnabled: (v) => { touchEnabled = !!v; if (touchBtn) touchBtn.classList.toggle('is-active', touchEnabled); },
+      getTouchEnabled: () => touchEnabled,
       setSize: (s) => {
         if (mode === 'eraser') currentEraserSize = s;
         else currentPenSize = s;
@@ -1891,7 +1904,8 @@ App.Components = {
         eraser: '<svg viewBox="0 0 24 24"><path d="M20 20H7L3 16C2 15 2 13 3 12L13 2L22 11L12 21C11 22 9 22 8 21L4 17"/></svg>',
         undo: '<svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9H3"/></svg>',
         redo: '<svg viewBox="0 0 24 24"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9h9"/></svg>',
-        trash: '<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>'
+        trash: '<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>',
+        touch: '<svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>'
       };
       function makeTool(iconHtml, title) {
         const b = document.createElement('button');
@@ -1904,6 +1918,8 @@ App.Components = {
       const clearBtn = makeTool(ICONS.trash, '清空');
       // 画笔调节图标：颜色 + 粗细收进此处，点击才展开底部面板
       const brushBtn = makeTool('<svg viewBox="0 0 24 24"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><circle cx="11" cy="11" r="2"/></svg>', '画笔颜色与粗细');
+      // 手指涂鸦开关：默认关闭（仅 Pencil/鼠标可画），开启后允许手指绘制
+      const touchBtn = makeTool(ICONS.touch, '手指涂鸦');
       // 退出按钮放在右上角工具栏最左侧，避免与 iPad 分屏状态/应用三点菜单冲突
       tools.appendChild(closeBtn);
       tools.appendChild(eraserBtn);
@@ -1911,11 +1927,18 @@ App.Components = {
       tools.appendChild(redoBtn);
       tools.appendChild(clearBtn);
       tools.appendChild(brushBtn);
+      tools.appendChild(touchBtn);
       bar.appendChild(tools);
 
       // 画板（透明背景，铺在整页上方）
       const pad = App.Components.sketchPad({ initial: opts.initial || null, onChange: opts.onChange });
       pad.element.classList.add('sketch-pad--overlay');
+      // 手指涂鸦开关：默认关闭，开启后允许手指绘制
+      touchBtn.addEventListener('click', () => {
+        const v = !pad.getTouchEnabled();
+        pad.setTouchEnabled(v);
+        touchBtn.classList.toggle('is-active', v);
+      });
 
       // 底部工具栏（从底部滑上）：颜色 + 笔触大小
       const sheet = document.createElement('div');
