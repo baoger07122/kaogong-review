@@ -309,14 +309,20 @@ input, textarea, select {
 }
 
 /* ===== 页面标题栏 ===== */
-/* 固定区：标题 + 搜索 + 统计 打包吸顶（错题本等列表页滚动时保持可见） */
+/* 固定区：标题 + 搜索 + 统计 打包吸顶（错题本等列表页滚动时保持可见）。
+   z-index 1500：盖过所有常规内容层（标签弹层 120 / 底部操作栏 200 / 编辑器浮层 500），
+   同时低于 ActionSheet(1800)/modal(12000)/导航栏(9999)，弹层仍正常浮在最上；
+   transform 强制合成层，避免 iOS Safari 滚动时内容从吸顶区后面穿透显示。 */
 .page-sticky {
   position: sticky;
   top: calc(var(--top-buffer) + 12px);
-  z-index: 200;
+  z-index: 1500;
   background: var(--bg-primary);
   padding-bottom: var(--spacing-sm);
   border-bottom: 0.5px solid var(--divider-color);
+  box-shadow: 0 8px 20px -12px rgba(0,0,0,0.12);
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
 }
 /* 包进固定区后，内部标题不再需要自身 sticky */
 .page-sticky .page-header {
