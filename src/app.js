@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.16';
+App.VERSION = '8.1.17';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -6165,6 +6165,10 @@ App.Pages.Errors = {
     const main = document.createElement('div');
     main.className = 'page-main';
 
+    // 页面标题 + 搜索区 + 统计卡片区 → 打包进固定区（滚动时吸顶）
+    const stickyWrap = document.createElement('div');
+    stickyWrap.className = 'page-sticky';
+
     // 页面标题
     const header = document.createElement('div');
     header.className = 'page-header';
@@ -6175,7 +6179,7 @@ App.Pages.Errors = {
         <button class="detail-header-action" id="error-more" title="更多" style="font-size:20px;padding:4px 6px;">⋮</button>
       </div>
     `;
-    main.appendChild(header);
+    stickyWrap.appendChild(header);
     header.querySelector('#error-more').addEventListener('click', (e) => {
       e.stopPropagation();
       this._showPageMenu();
@@ -6184,13 +6188,15 @@ App.Pages.Errors = {
     // 搜索区（通过右上角三点菜单展开）
     const searchArea = document.createElement('div');
     searchArea.id = 'error-search-area';
-    main.appendChild(searchArea);
+    stickyWrap.appendChild(searchArea);
 
     // 统计卡片区
     const statsRow = document.createElement('div');
     statsRow.className = 'stats-row';
     statsRow.id = 'error-stats';
-    main.appendChild(statsRow);
+    stickyWrap.appendChild(statsRow);
+
+    main.appendChild(stickyWrap);
 
     // 筛选区容器
     const filterArea = document.createElement('div');

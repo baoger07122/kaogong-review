@@ -167,8 +167,9 @@ html, body {
 body {
   min-height: 100vh;
   min-height: -webkit-fill-available;
-  padding-bottom: calc(var(--nav-height) + var(--safe-bottom));
-  overflow-x: hidden;
+  /* 注意：不要给 body 加 overflow-x: hidden——iOS Safari 上会破坏 position: sticky；
+     水平溢出已由 #app 的 overflow-x: clip 兜底。也不要加 padding-bottom——
+     所有 .page 已有预留导航栏空间的 padding，叠加会产生底部大片空白。 */
 }
 
 a {
@@ -227,9 +228,12 @@ input, textarea, select {
   bottom: 0;
   left: 0;
   right: 0;
-  height: var(--nav-height);
+  /* min-height 含安全区：iPad 横屏 home 指示条 / iPhone 底部横条区域也保持完整背景 */
+  min-height: calc(var(--nav-height) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
-  background: #FFFFFF;
+  background: var(--bg-card);
+  border-top: 0.5px solid var(--divider-color);
+  box-shadow: 0 -6px 20px rgba(0,0,0,0.04);
   display: flex;
   justify-content: space-around;
   align-items: center;
@@ -245,7 +249,7 @@ input, textarea, select {
   justify-content: center;
   gap: 5px;
   flex: 1;
-  height: 100%;
+  height: var(--nav-height);
   padding: 6px 0 4px;
   position: relative;
   transition: color 0.15s ease;
@@ -305,6 +309,20 @@ input, textarea, select {
 }
 
 /* ===== 页面标题栏 ===== */
+/* 固定区：标题 + 搜索 + 统计 打包吸顶（错题本等列表页滚动时保持可见） */
+.page-sticky {
+  position: sticky;
+  top: calc(var(--top-buffer) + 12px);
+  z-index: 200;
+  background: var(--bg-primary);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 0.5px solid var(--divider-color);
+}
+/* 包进固定区后，内部标题不再需要自身 sticky */
+.page-sticky .page-header {
+  position: static;
+}
+
 .page-header {
   position: sticky;
   top: calc(var(--top-buffer) + 12px);
@@ -3393,7 +3411,8 @@ input, textarea, select {
 .page-main {
   flex: 1 1 auto;
   min-width: 0;
-  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--spacing-md));
+  /* 底部只需少量呼吸空间，导航栏遮挡缓冲已由 .page 的 padding-bottom 承担 */
+  padding-bottom: var(--spacing-md);
 }
 
 

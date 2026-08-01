@@ -185,8 +185,9 @@ html, body {
 body {
   min-height: 100vh;
   min-height: -webkit-fill-available;
-  padding-bottom: calc(var(--nav-height) + var(--safe-bottom));
-  overflow-x: hidden;
+  /* 注意：不要给 body 加 overflow-x: hidden——iOS Safari 上会破坏 position: sticky；
+     水平溢出已由 #app 的 overflow-x: clip 兜底。也不要加 padding-bottom——
+     所有 .page 已有预留导航栏空间的 padding，叠加会产生底部大片空白。 */
 }
 
 a {
@@ -245,9 +246,12 @@ input, textarea, select {
   bottom: 0;
   left: 0;
   right: 0;
-  height: var(--nav-height);
+  /* min-height 含安全区：iPad 横屏 home 指示条 / iPhone 底部横条区域也保持完整背景 */
+  min-height: calc(var(--nav-height) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
-  background: #FFFFFF;
+  background: var(--bg-card);
+  border-top: 0.5px solid var(--divider-color);
+  box-shadow: 0 -6px 20px rgba(0,0,0,0.04);
   display: flex;
   justify-content: space-around;
   align-items: center;
@@ -263,7 +267,7 @@ input, textarea, select {
   justify-content: center;
   gap: 5px;
   flex: 1;
-  height: 100%;
+  height: var(--nav-height);
   padding: 6px 0 4px;
   position: relative;
   transition: color 0.15s ease;
@@ -323,6 +327,20 @@ input, textarea, select {
 }
 
 /* ===== 页面标题栏 ===== */
+/* 固定区：标题 + 搜索 + 统计 打包吸顶（错题本等列表页滚动时保持可见） */
+.page-sticky {
+  position: sticky;
+  top: calc(var(--top-buffer) + 12px);
+  z-index: 200;
+  background: var(--bg-primary);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 0.5px solid var(--divider-color);
+}
+/* 包进固定区后，内部标题不再需要自身 sticky */
+.page-sticky .page-header {
+  position: static;
+}
+
 .page-header {
   position: sticky;
   top: calc(var(--top-buffer) + 12px);
@@ -3411,7 +3429,8 @@ input, textarea, select {
 .page-main {
   flex: 1 1 auto;
   min-width: 0;
-  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--spacing-md));
+  /* 底部只需少量呼吸空间，导航栏遮挡缓冲已由 .page 的 padding-bottom 承担 */
+  padding-bottom: var(--spacing-md);
 }
 
 
@@ -5111,7 +5130,7 @@ input, textarea, select {
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.16';
+App.VERSION = '8.1.17';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -11273,6 +11292,10 @@ App.Pages.Errors = {
     const main = document.createElement('div');
     main.className = 'page-main';
 
+    // 页面标题 + 搜索区 + 统计卡片区 → 打包进固定区（滚动时吸顶）
+    const stickyWrap = document.createElement('div');
+    stickyWrap.className = 'page-sticky';
+
     // 页面标题
     const header = document.createElement('div');
     header.className = 'page-header';
@@ -11283,7 +11306,7 @@ App.Pages.Errors = {
         <button class="detail-header-action" id="error-more" title="更多" style="font-size:20px;padding:4px 6px;">⋮</button>
       </div>
     `;
-    main.appendChild(header);
+    stickyWrap.appendChild(header);
     header.querySelector('#error-more').addEventListener('click', (e) => {
       e.stopPropagation();
       this._showPageMenu();
@@ -11292,13 +11315,15 @@ App.Pages.Errors = {
     // 搜索区（通过右上角三点菜单展开）
     const searchArea = document.createElement('div');
     searchArea.id = 'error-search-area';
-    main.appendChild(searchArea);
+    stickyWrap.appendChild(searchArea);
 
     // 统计卡片区
     const statsRow = document.createElement('div');
     statsRow.className = 'stats-row';
     statsRow.id = 'error-stats';
-    main.appendChild(statsRow);
+    stickyWrap.appendChild(statsRow);
+
+    main.appendChild(stickyWrap);
 
     // 筛选区容器
     const filterArea = document.createElement('div');
