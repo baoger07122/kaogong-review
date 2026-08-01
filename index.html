@@ -5093,7 +5093,7 @@ input, textarea, select {
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.12';
+App.VERSION = '8.1.13';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -5214,7 +5214,9 @@ App.Utils = {
     s = s.replace(/&amp;#35;/g, '#');
     // 7) 把段落化标签后的多余空行合并
     s = s.replace(/\n{3,}/g, '\n\n');
-    return s.trim();
+    // 8) 只清理首尾的「换行」，保留行首空格/制表符缩进（trim() 会删掉首行缩进，
+    //    导致编辑器第一行缩进保存后重新打开丢失；simpleMarkdown 依赖行首空格渲染缩进）
+    return s.replace(/^\n+|\n+$/g, '');
   },
 
   // ===== ID 生成 =====
@@ -12129,6 +12131,7 @@ App.Pages.Errors = {
             module: error.module || '',
             knowledgePoints: error.knowledgePoints || [],
             errorCause: error.errorCause || '',
+            pitfall: error.pitfall || '',
             question: error.question || '',
             options: error.options || ['', '', '', ''],
             correctOption: error.correctOption || '',
