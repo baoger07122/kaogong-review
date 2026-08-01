@@ -897,6 +897,85 @@ input, textarea, select {
 
 .tag-input__field-row { margin-top: 10px; }
 
+/* ===== 标签管理入口（录入页） ===== */
+.tag-input__manage {
+  margin-top: 10px;
+}
+.tag-input__manage-btn {
+  width: 100%;
+  height: 36px;
+  border: 1px dashed var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+  font-size: var(--font-xs);
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tag-input__manage-btn:active {
+  background: var(--color-primary-light);
+  color: #FFFFFF;
+  border-color: transparent;
+}
+
+/* ===== 标签管理面板 ===== */
+.tag-manage-list {
+  max-height: 46vh;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+.tag-manage-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--divider-color);
+}
+.tag-manage-item:last-child { border-bottom: none; }
+.tag-manage-item__arrow {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.tag-manage-item__arrow:disabled {
+  opacity: 0.3;
+}
+.tag-manage-item__name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  word-break: break-word;
+}
+.tag-manage-item__action {
+  width: 32px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.tag-manage-item__action--del {
+  background: var(--color-danger-light);
+}
+.tag-manage-empty {
+  text-align: center;
+  padding: 18px 0;
+  font-size: var(--font-sm);
+  color: var(--text-tertiary);
+}
+
 /* ===== 功能图标网格 ===== */
 .feature-grid {
   display: grid;
@@ -923,7 +1002,7 @@ input, textarea, select {
 .study-cal {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
+  gap: 2px;
   padding: 0 var(--page-padding);
   margin-bottom: var(--spacing-lg);
 }
@@ -932,31 +1011,81 @@ input, textarea, select {
   font-size: var(--font-xs);
   color: var(--text-tertiary);
   font-weight: 600;
-  padding: 4px 0;
+  padding: 6px 0;
+  background: var(--bg-card);
 }
+.study-cal__dow:nth-child(1) { color: #FF3B30; }
+.study-cal__dow:nth-child(7) { color: #007AFF; }
 .study-cal__cell {
-  aspect-ratio: 1 / 1;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--divider-color);
+  min-height: 92px;
+  border-radius: 0;
+  border: none;
   background: var(--bg-card);
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 3px;
+  position: relative;
+  padding: 6px 4px 4px;
+  overflow: hidden;
+}
+.study-cal__cell--blank { background: var(--bg-card); }
+.study-cal__day {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: left;
+  line-height: 1;
+  margin-bottom: 3px;
+  margin-left: 2px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
 }
-.study-cal__cell--blank { border: none; background: transparent; }
-.study-cal__day { font-size: var(--font-sm); font-weight: 600; color: var(--text-primary); }
-.study-cal__stat { font-size: 9px; font-weight: 600; }
-.study-cal__cell.has-data.is-done { border-color: var(--color-success); background: rgba(52,199,89,0.10); }
-.study-cal__cell.has-data.is-done .study-cal__stat { color: var(--color-success); }
-.study-cal__cell.has-data.is-part { border-color: var(--color-warning); background: rgba(255,159,67,0.10); }
-.study-cal__cell.has-data.is-part .study-cal__stat { color: var(--color-warning); }
-.study-cal__cell.has-data.is-undo { border-color: var(--color-danger); background: rgba(229,57,53,0.08); }
-.study-cal__cell.has-data.is-undo .study-cal__stat { color: var(--color-danger); }
-.study-cal__cell.is-today { box-shadow: 0 0 0 2px var(--color-primary); }
+.study-cal__cell:nth-child(7n+1) .study-cal__day { color: #FF3B30; }
+.study-cal__cell:nth-child(7n) .study-cal__day { color: #007AFF; }
 .study-cal__cell.no-data .study-cal__day { color: var(--text-tertiary); }
+.study-cal__cell.is-today .study-cal__day {
+  background: #FF3B30;
+  color: #fff;
+}
+.study-cal__stat { font-size: 10px; font-weight: 600; }
+.study-cal__todos {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  overflow: hidden;
+}
+.study-cal__todo {
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--todo-color, #4A90E2) 50%, transparent);
+  color: color-mix(in srgb, var(--todo-color, #4A90E2) 60%, #000);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.study-cal__todo--done {
+  background: color-mix(in srgb, var(--todo-color, #4A90E2) 28%, transparent);
+  color: color-mix(in srgb, var(--todo-color, #4A90E2) 40%, #000);
+  text-decoration: line-through;
+  opacity: 0.85;
+}
+.study-cal__more {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-align: left;
+  padding-left: 8px;
+  line-height: 1.2;
+}
 
 .feature-grid-item__icon {
   width: 52px;
@@ -2519,12 +2648,12 @@ input, textarea, select {
 .md-preview-p { margin: 0.5em 0; line-height: 1.75; }
 .md-preview-p:first-child { margin-top: 0; }
 .md-preview-p:last-child { margin-bottom: 0; }
-.md-preview-h1, .md-preview-h2, .md-preview-h3, .md-preview-h4 { margin: 0.6em 0 0.35em; line-height: 1.35; }
-/* 与编辑页（notion-block--hN）字号/字重完全一致 */
+.md-preview-h1, .md-preview-h2, .md-preview-h3, .md-preview-h4 { margin: 0.6em 0 0.35em; line-height: 1.35; color: var(--text-primary); }
+/* 与编辑页（notion-block--hN）字号/字重/颜色完全一致 */
 .md-preview-h1 { font-size: 22px; font-weight: 700; }
 .md-preview-h2 { font-size: 20px; font-weight: 600; }
 .md-preview-h3 { font-size: 18px; font-weight: 600; }
-.md-preview-h4 { font-size: 16px; font-weight: 600; color: var(--text-secondary); }
+.md-preview-h4 { font-size: 16px; font-weight: 600; }
 .md-preview-ul, .md-preview-ol { margin: 0.4em 0; padding-left: 1.5em; line-height: 1.75; }
 .md-preview-ul li, .md-preview-ol li { margin: 0.15em 0; }
 .md-preview-blockquote {
@@ -3274,14 +3403,22 @@ input, textarea, select {
   display: grid;
   gap: 10px;
   padding: var(--spacing-sm) var(--page-padding) var(--spacing-lg);
+  /* auto-fill 让列数随容器宽度自动调整；尺寸开关控制卡片最小宽度（密度） */
+  grid-template-columns: repeat(auto-fill, minmax(var(--gallery-min-w, 220px), 1fr));
 }
-.error-gallery--sm { grid-template-columns: repeat(4, 1fr); }
-.error-gallery--md { grid-template-columns: repeat(3, 1fr); }
-.error-gallery--lg { grid-template-columns: repeat(2, 1fr); }
+.error-gallery--sm { --gallery-min-w: 170px; }
+.error-gallery--md { --gallery-min-w: 230px; }
+.error-gallery--lg { --gallery-min-w: 300px; }
+
+/* 小屏下避免列数过密，保持可读 */
 @media (max-width: 600px) {
-  .error-gallery--sm { grid-template-columns: repeat(2, 1fr); }
-  .error-gallery--md { grid-template-columns: repeat(2, 1fr); }
-  .error-gallery--lg { grid-template-columns: repeat(1, 1fr); }
+  .error-gallery--sm { --gallery-min-w: 140px; }
+  .error-gallery--md { --gallery-min-w: 160px; }
+  .error-gallery--lg { --gallery-min-w: 280px; }
+}
+@media (max-width: 400px) {
+  .error-gallery--sm { --gallery-min-w: 130px; }
+  .error-gallery--md { --gallery-min-w: 140px; }
 }
 .error-gallery-card {
   background: var(--bg-card);
@@ -3302,15 +3439,30 @@ input, textarea, select {
   line-height: 1.55;
   color: var(--text-primary);
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
   word-break: break-word;
 }
+/* 画廊卡片题目行数随窗口尺寸自适应：小=2 / 中=3 / 大=5 行 */
+.error-gallery--sm .error-gallery-card__question { -webkit-line-clamp: 2; }
+.error-gallery--lg .error-gallery-card__question { -webkit-line-clamp: 5; }
 .error-gallery-card__meta {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+/* 画廊卡片内标签过长时在卡片内换行，避免溢出窗口 */
+.error-gallery-card .tag {
+  max-width: 100%;
+  height: auto;
+  min-height: 22px;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.45;
+  border-radius: 6px;
+  padding-top: 1px;
+  padding-bottom: 1px;
 }
 .error-gallery-card__status {
   margin-top: auto;
@@ -3319,13 +3471,26 @@ input, textarea, select {
   justify-content: space-between;
   gap: 6px;
 }
+.error-gallery-card__status-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.error-gallery-card__date {
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
 .error-gallery-card__pitfall {
   font-size: var(--font-xs);
   color: var(--text-tertiary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 55%;
+  margin-top: 6px;
+  display: block;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.45;
+  max-width: 100%;
 }
 .gallery-size-switch {
   display: flex;
@@ -4630,16 +4795,7 @@ input, textarea, select {
   user-select: none;
 }
 .sketch-pad__placeholder {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-tertiary);
-  font-size: var(--font-sm);
-  pointer-events: none;
-  text-align: center;
-  padding: 16px;
+  display: none;
 }
 /* 橡皮擦范围指示圈（仅在按压时显示） */
 .sketch-pad__cursor {
@@ -4788,8 +4944,6 @@ input, textarea, select {
   border-radius: 0;
   background: transparent;
 }
-.sketch-pad--overlay .sketch-pad__placeholder { color: rgba(255, 255, 255, 0.75); }
-
 /* 详情页内的手写笔记区域 */
 .doodle-preview {
   margin-bottom: var(--spacing-md);

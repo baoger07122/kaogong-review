@@ -11,10 +11,10 @@
   <meta name="apple-mobile-web-app-title" content="考公复盘">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#4A90E2">
-  <link rel="manifest" href="manifest.json?v=62">
-  <link rel="apple-touch-icon" href="icon-180.png?v=46">
-  <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png?v=62">
-  <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png?v=62">
+  <link rel="manifest" href="manifest.json?v=67">
+  <link rel="apple-touch-icon" href="icon-180.png?v=67">
+  <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png?v=67">
+  <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png?v=67">
   <title>考公笔试复盘系统</title>
   <style>
 /* ===== 考公笔试复盘系统 - 全局样式 ===== */
@@ -915,6 +915,85 @@ input, textarea, select {
 
 .tag-input__field-row { margin-top: 10px; }
 
+/* ===== 标签管理入口（录入页） ===== */
+.tag-input__manage {
+  margin-top: 10px;
+}
+.tag-input__manage-btn {
+  width: 100%;
+  height: 36px;
+  border: 1px dashed var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+  font-size: var(--font-xs);
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tag-input__manage-btn:active {
+  background: var(--color-primary-light);
+  color: #FFFFFF;
+  border-color: transparent;
+}
+
+/* ===== 标签管理面板 ===== */
+.tag-manage-list {
+  max-height: 46vh;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+.tag-manage-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--divider-color);
+}
+.tag-manage-item:last-child { border-bottom: none; }
+.tag-manage-item__arrow {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.tag-manage-item__arrow:disabled {
+  opacity: 0.3;
+}
+.tag-manage-item__name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  word-break: break-word;
+}
+.tag-manage-item__action {
+  width: 32px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.tag-manage-item__action--del {
+  background: var(--color-danger-light);
+}
+.tag-manage-empty {
+  text-align: center;
+  padding: 18px 0;
+  font-size: var(--font-sm);
+  color: var(--text-tertiary);
+}
+
 /* ===== 功能图标网格 ===== */
 .feature-grid {
   display: grid;
@@ -941,7 +1020,7 @@ input, textarea, select {
 .study-cal {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
+  gap: 2px;
   padding: 0 var(--page-padding);
   margin-bottom: var(--spacing-lg);
 }
@@ -950,31 +1029,81 @@ input, textarea, select {
   font-size: var(--font-xs);
   color: var(--text-tertiary);
   font-weight: 600;
-  padding: 4px 0;
+  padding: 6px 0;
+  background: var(--bg-card);
 }
+.study-cal__dow:nth-child(1) { color: #FF3B30; }
+.study-cal__dow:nth-child(7) { color: #007AFF; }
 .study-cal__cell {
-  aspect-ratio: 1 / 1;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--divider-color);
+  min-height: 92px;
+  border-radius: 0;
+  border: none;
   background: var(--bg-card);
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 3px;
+  position: relative;
+  padding: 6px 4px 4px;
+  overflow: hidden;
+}
+.study-cal__cell--blank { background: var(--bg-card); }
+.study-cal__day {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: left;
+  line-height: 1;
+  margin-bottom: 3px;
+  margin-left: 2px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
 }
-.study-cal__cell--blank { border: none; background: transparent; }
-.study-cal__day { font-size: var(--font-sm); font-weight: 600; color: var(--text-primary); }
-.study-cal__stat { font-size: 9px; font-weight: 600; }
-.study-cal__cell.has-data.is-done { border-color: var(--color-success); background: rgba(52,199,89,0.10); }
-.study-cal__cell.has-data.is-done .study-cal__stat { color: var(--color-success); }
-.study-cal__cell.has-data.is-part { border-color: var(--color-warning); background: rgba(255,159,67,0.10); }
-.study-cal__cell.has-data.is-part .study-cal__stat { color: var(--color-warning); }
-.study-cal__cell.has-data.is-undo { border-color: var(--color-danger); background: rgba(229,57,53,0.08); }
-.study-cal__cell.has-data.is-undo .study-cal__stat { color: var(--color-danger); }
-.study-cal__cell.is-today { box-shadow: 0 0 0 2px var(--color-primary); }
+.study-cal__cell:nth-child(7n+1) .study-cal__day { color: #FF3B30; }
+.study-cal__cell:nth-child(7n) .study-cal__day { color: #007AFF; }
 .study-cal__cell.no-data .study-cal__day { color: var(--text-tertiary); }
+.study-cal__cell.is-today .study-cal__day {
+  background: #FF3B30;
+  color: #fff;
+}
+.study-cal__stat { font-size: 10px; font-weight: 600; }
+.study-cal__todos {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  overflow: hidden;
+}
+.study-cal__todo {
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--todo-color, #4A90E2) 50%, transparent);
+  color: color-mix(in srgb, var(--todo-color, #4A90E2) 60%, #000);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.study-cal__todo--done {
+  background: color-mix(in srgb, var(--todo-color, #4A90E2) 28%, transparent);
+  color: color-mix(in srgb, var(--todo-color, #4A90E2) 40%, #000);
+  text-decoration: line-through;
+  opacity: 0.85;
+}
+.study-cal__more {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-align: left;
+  padding-left: 8px;
+  line-height: 1.2;
+}
 
 .feature-grid-item__icon {
   width: 52px;
@@ -2537,12 +2666,12 @@ input, textarea, select {
 .md-preview-p { margin: 0.5em 0; line-height: 1.75; }
 .md-preview-p:first-child { margin-top: 0; }
 .md-preview-p:last-child { margin-bottom: 0; }
-.md-preview-h1, .md-preview-h2, .md-preview-h3, .md-preview-h4 { margin: 0.6em 0 0.35em; line-height: 1.35; }
-/* 与编辑页（notion-block--hN）字号/字重完全一致 */
+.md-preview-h1, .md-preview-h2, .md-preview-h3, .md-preview-h4 { margin: 0.6em 0 0.35em; line-height: 1.35; color: var(--text-primary); }
+/* 与编辑页（notion-block--hN）字号/字重/颜色完全一致 */
 .md-preview-h1 { font-size: 22px; font-weight: 700; }
 .md-preview-h2 { font-size: 20px; font-weight: 600; }
 .md-preview-h3 { font-size: 18px; font-weight: 600; }
-.md-preview-h4 { font-size: 16px; font-weight: 600; color: var(--text-secondary); }
+.md-preview-h4 { font-size: 16px; font-weight: 600; }
 .md-preview-ul, .md-preview-ol { margin: 0.4em 0; padding-left: 1.5em; line-height: 1.75; }
 .md-preview-ul li, .md-preview-ol li { margin: 0.15em 0; }
 .md-preview-blockquote {
@@ -3292,14 +3421,22 @@ input, textarea, select {
   display: grid;
   gap: 10px;
   padding: var(--spacing-sm) var(--page-padding) var(--spacing-lg);
+  /* auto-fill 让列数随容器宽度自动调整；尺寸开关控制卡片最小宽度（密度） */
+  grid-template-columns: repeat(auto-fill, minmax(var(--gallery-min-w, 220px), 1fr));
 }
-.error-gallery--sm { grid-template-columns: repeat(4, 1fr); }
-.error-gallery--md { grid-template-columns: repeat(3, 1fr); }
-.error-gallery--lg { grid-template-columns: repeat(2, 1fr); }
+.error-gallery--sm { --gallery-min-w: 170px; }
+.error-gallery--md { --gallery-min-w: 230px; }
+.error-gallery--lg { --gallery-min-w: 300px; }
+
+/* 小屏下避免列数过密，保持可读 */
 @media (max-width: 600px) {
-  .error-gallery--sm { grid-template-columns: repeat(2, 1fr); }
-  .error-gallery--md { grid-template-columns: repeat(2, 1fr); }
-  .error-gallery--lg { grid-template-columns: repeat(1, 1fr); }
+  .error-gallery--sm { --gallery-min-w: 140px; }
+  .error-gallery--md { --gallery-min-w: 160px; }
+  .error-gallery--lg { --gallery-min-w: 280px; }
+}
+@media (max-width: 400px) {
+  .error-gallery--sm { --gallery-min-w: 130px; }
+  .error-gallery--md { --gallery-min-w: 140px; }
 }
 .error-gallery-card {
   background: var(--bg-card);
@@ -3320,15 +3457,30 @@ input, textarea, select {
   line-height: 1.55;
   color: var(--text-primary);
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
   word-break: break-word;
 }
+/* 画廊卡片题目行数随窗口尺寸自适应：小=2 / 中=3 / 大=5 行 */
+.error-gallery--sm .error-gallery-card__question { -webkit-line-clamp: 2; }
+.error-gallery--lg .error-gallery-card__question { -webkit-line-clamp: 5; }
 .error-gallery-card__meta {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+/* 画廊卡片内标签过长时在卡片内换行，避免溢出窗口 */
+.error-gallery-card .tag {
+  max-width: 100%;
+  height: auto;
+  min-height: 22px;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.45;
+  border-radius: 6px;
+  padding-top: 1px;
+  padding-bottom: 1px;
 }
 .error-gallery-card__status {
   margin-top: auto;
@@ -3337,13 +3489,26 @@ input, textarea, select {
   justify-content: space-between;
   gap: 6px;
 }
+.error-gallery-card__status-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.error-gallery-card__date {
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
 .error-gallery-card__pitfall {
   font-size: var(--font-xs);
   color: var(--text-tertiary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 55%;
+  margin-top: 6px;
+  display: block;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.45;
+  max-width: 100%;
 }
 .gallery-size-switch {
   display: flex;
@@ -4648,16 +4813,7 @@ input, textarea, select {
   user-select: none;
 }
 .sketch-pad__placeholder {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-tertiary);
-  font-size: var(--font-sm);
-  pointer-events: none;
-  text-align: center;
-  padding: 16px;
+  display: none;
 }
 /* 橡皮擦范围指示圈（仅在按压时显示） */
 .sketch-pad__cursor {
@@ -4806,8 +4962,6 @@ input, textarea, select {
   border-radius: 0;
   background: transparent;
 }
-.sketch-pad--overlay .sketch-pad__placeholder { color: rgba(255, 255, 255, 0.75); }
-
 /* 详情页内的手写笔记区域 */
 .doodle-preview {
   margin-bottom: var(--spacing-md);
@@ -4939,7 +5093,7 @@ input, textarea, select {
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '2.6.33';
+App.VERSION = '8.1.11';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -5147,6 +5301,10 @@ App.Utils = {
 
       const content = line.content;
       const trimmed = content.trim();
+      // 缩进级（每 2 空格 / 1 制表符为一级），渲染时保留左缩进，避免详情页丢失缩进
+      const indentRaw = (content.match(/^(?: {2}|\t)+/) || [''])[0];
+      const indentLevel = indentRaw ? Math.floor(indentRaw.replace(/\t/g, '  ').length / 2) : 0;
+      const indentStyle = indentLevel > 0 ? ' style="padding-left:' + (indentLevel * 24) + 'px;"' : '';
 
       if (trimmed === '') {
         // 空白行：位于内容之间的渲染为占位（连续空行合并一个），开头/结尾不渲染
@@ -5167,14 +5325,14 @@ App.Utils = {
         continue;
       }
 
-      // 标题（兼容行首残留 &amp;#35; 被解码后的 #；纯 # 标记无文字的行直接跳过，避免显示裸 "###"）
-      const hMatch = trimmed.match(/^(#{1,4})\s+(.*)$/);
+      // 标题（兼容行首残留 &amp;#35; 被解码后的 #；兼容「####标题」无空格写法；纯 # 标记无文字的行直接跳过，避免显示裸 "###"）
+      const hMatch = trimmed.match(/^(#{1,4})\s*(.*)$/);
       if (hMatch) {
         if (hMatch[2].trim()) {
           const tag = 'h' + hMatch[1].length;
           // 双重前缀兜底：hMatch[2] 若仍以 # 开头（「### ### 标题」），剥掉多余前缀
           const htext = hMatch[2].replace(/^(#{1,4}\s)+/, '');
-          out.push('<' + tag + ' class="md-preview-' + tag + '">' + this._renderInlineMarkdown(htext) + '</' + tag + '>');
+          out.push('<' + tag + ' class="md-preview-' + tag + '"' + indentStyle + '>' + this._renderInlineMarkdown(htext) + '</' + tag + '>');
         }
         i++; continue;
       }
@@ -5187,7 +5345,7 @@ App.Utils = {
           items.push(lines[i].content.trim().replace(/^[\-\*]\s+/, ''));
           i++;
         }
-        out.push('<ul class="md-preview-ul">' + items.map(it => '<li>' + this._renderInlineMarkdown(it) + '</li>').join('') + '</ul>');
+        out.push('<ul class="md-preview-ul"' + indentStyle + '>' + items.map(it => '<li>' + this._renderInlineMarkdown(it) + '</li>').join('') + '</ul>');
         continue;
       }
 
@@ -5198,7 +5356,7 @@ App.Utils = {
           items.push(lines[i].content.trim().replace(/^\d+\.\s+/, ''));
           i++;
         }
-        out.push('<ol class="md-preview-ol">' + items.map(it => '<li>' + this._renderInlineMarkdown(it) + '</li>').join('') + '</ol>');
+        out.push('<ol class="md-preview-ol"' + indentStyle + '>' + items.map(it => '<li>' + this._renderInlineMarkdown(it) + '</li>').join('') + '</ol>');
         continue;
       }
 
@@ -5209,7 +5367,7 @@ App.Utils = {
           items.push(lines[i].content.trim().replace(/^>\s?/, ''));
           i++;
         }
-        out.push('<blockquote class="md-preview-blockquote">' + items.map(it => this._renderInlineMarkdown(it)).join('<br>') + '</blockquote>');
+        out.push('<blockquote class="md-preview-blockquote"' + indentStyle + '>' + items.map(it => this._renderInlineMarkdown(it)).join('<br>') + '</blockquote>');
         continue;
       }
 
@@ -5221,7 +5379,7 @@ App.Utils = {
       }
       const para = paraLines.join('\n').trim();
       if (para) {
-        out.push('<p class="md-preview-p">' + this._renderInlineMarkdown(para).replace(/\n/g, '<br>') + '</p>');
+        out.push('<p class="md-preview-p"' + indentStyle + '>' + this._renderInlineMarkdown(para).replace(/\n/g, '<br>') + '</p>');
       }
     }
 
@@ -6357,6 +6515,7 @@ App.Tags = (function() {
 
   // 用新顺序覆盖标签库顺序（kind: 'kp' | 'ec'），拖拽排序后调用
   async function setOrder(module, kind, orderedNames) {
+    if (!module) return; // 全部视图下错因/考点无归属模块，跳过排序持久化，避免写入 null 键污染标签库
     const names = (orderedNames || []).filter(Boolean);
     if (kind === 'kp') {
       if (!cache.knowledgePoints[module]) cache.knowledgePoints[module] = [];
@@ -6456,7 +6615,7 @@ App.Components = {
 
     const sizeWrap = document.createElement('div');
     sizeWrap.className = 'sketch-pad__sizes';
-    const penSizes = [ {n:'细', v:1.75}, {n:'中', v:3.25}, {n:'粗', v:4.25} ];
+    const penSizes = [ {n:'细', v:2.6}, {n:'中', v:3.5}, {n:'粗', v:4.25} ];
     const eraserSizes = [ {n:'细', v:36}, {n:'中', v:60}, {n:'粗', v:90} ];
     let currentPenSize = penSizes[1].v;
     let currentEraserSize = eraserSizes[0].v;
@@ -6486,10 +6645,6 @@ App.Components = {
     const canvas = document.createElement('canvas');
     canvas.className = 'sketch-pad__canvas';
     canvasWrap.appendChild(canvas);
-    const placeholder = document.createElement('div');
-    placeholder.className = 'sketch-pad__placeholder';
-    placeholder.textContent = '在此用 Pencil 手写笔记';
-    canvasWrap.appendChild(placeholder);
     const cursor = document.createElement('div');
     cursor.className = 'sketch-pad__cursor';
     canvasWrap.appendChild(cursor);
@@ -6533,9 +6688,6 @@ App.Components = {
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       if (prev) restore(prev);
     }
-    function updatePlaceholder() {
-      placeholder.style.display = (isEmpty()) ? 'flex' : 'none';
-    }
     function isEmpty() {
       return undoStack.length <= 1 && !baseHasContent;
     }
@@ -6553,7 +6705,6 @@ App.Components = {
     }
     function commit() {
       if (opts.onChange) opts.onChange(!isEmpty() ? snapshot() : null);
-      updatePlaceholder();
     }
     function pushHistory() {
       undoStack.push(snapshot());
@@ -6571,24 +6722,26 @@ App.Components = {
       cursor.style.height = (radius * 2) + 'px';
     }
 
-    // 画笔：采样去重 + 远距离插值 + 压力平滑 + 中点贝塞尔，线条顺滑无圆点
+    // 画笔：采样去重 + 远距离插值 + 压力平滑 + 三次贝塞尔（中点法）+ 段内线宽渐变
+    // 相比二次贝塞尔：曲线更贴合手写轨迹、转角更圆润；线宽渐变消除「竹节」突变感
     let lastX = 0, lastY = 0;
     let lastPressure = 0.5;
+    function penWidth(p, sf) {
+      return Math.max(1, currentPenSize * (0.55 + p * 0.75) * sf);
+    }
     function drawSmoothStroke(newPos, e) {
-      const sf = scaleFactor();
       ctx.globalCompositeOperation = 'source-over';
       ctx.strokeStyle = currentColor;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      // 压力平滑：低通滤波 + 钳制，避免 Apple Pencil 压力抖动导致线宽突变
+      // 压力平滑：低通滤波 + 钳制（加重历史权重，进一步抑制 Apple Pencil 压力抖动）
       let p = 0.5;
       if (e && e.pointerType === 'pen' && e.pressure > 0) {
-        p = e.pressure * 0.45 + lastPressure * 0.55;
+        p = e.pressure * 0.38 + lastPressure * 0.62;
         p = Math.min(1, Math.max(0.35, p));
       }
       lastPressure = p;
-      ctx.lineWidth = Math.max(1, currentPenSize * (0.55 + p * 0.75) * sf);
 
       const lastPt = points.length ? points[points.length - 1] : null;
       if (lastPt) {
@@ -6596,34 +6749,51 @@ App.Components = {
         const dy = newPos.y - lastPt.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
         // 距离过近：跳过，消除短线段堆积产生的小圆点
-        if (dist < 1.5) return;
-        // 距离过远：按 12px 步长线性插值细分，避免远点直接拉弧线「连成一团」
-        if (dist > 24) {
-          const steps = Math.ceil(dist / 12);
+        if (dist < 1.2) return;
+        // 距离过远：按 10px 步长线性插值细分，避免远点直接拉直线「连成一团」
+        if (dist > 20) {
+          const steps = Math.ceil(dist / 10);
           for (let i = 1; i <= steps; i++) {
-            points.push({ x: lastPt.x + dx * i / steps, y: lastPt.y + dy * i / steps });
+            points.push({ x: lastPt.x + dx * i / steps, y: lastPt.y + dy * i / steps, p: p });
             if (points.length >= 3) drawSegment();
           }
           return;
         }
       }
 
-      points.push(newPos);
-      if (points.length < 3) return; // 前两个点只记录，到第三个点开始曲线
+      points.push({ x: newPos.x, y: newPos.y, p: p });
+      if (points.length < 3) return; // 前两个点只记录，到第三个点开始出曲线
       drawSegment();
     }
 
+    // 三次贝塞尔中点法：以倒数第 3、2 点为控制点，从上一中点画到当前中点，
+    // 曲线再细分为 SEG 段，每段线宽在起止压力间线性渐变，粗细过渡自然无竹节
     function drawSegment() {
-      const p1 = points[points.length - 2];
-      const p2 = points[points.length - 1];
-      const midX = (p1.x + p2.x) / 2;
-      const midY = (p1.y + p2.y) / 2;
-      ctx.beginPath();
-      ctx.moveTo(lastX, lastY);
-      ctx.quadraticCurveTo(p1.x, p1.y, midX, midY);
-      ctx.stroke();
-      lastX = midX; lastY = midY;
-      points = [p1, p2];
+      const n = points.length;
+      const c1 = points[n - 3];
+      const c2 = points[n - 2];
+      const cur = points[n - 1];
+      const ex = (c2.x + cur.x) / 2;
+      const ey = (c2.y + cur.y) / 2;
+      const sf = scaleFactor();
+      const w0 = penWidth(c1.p, sf);
+      const w1 = penWidth(cur.p, sf);
+      const SEG = 8;
+      let px = lastX, py = lastY;
+      for (let i = 1; i <= SEG; i++) {
+        const t = i / SEG;
+        const mt = 1 - t;
+        const x = mt * mt * mt * lastX + 3 * mt * mt * t * c1.x + 3 * mt * t * t * c2.x + t * t * t * ex;
+        const y = mt * mt * mt * lastY + 3 * mt * mt * t * c1.y + 3 * mt * t * t * c2.y + t * t * t * ey;
+        ctx.lineWidth = w0 + (w1 - w0) * t;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        px = x; py = y;
+      }
+      lastX = ex; lastY = ey;
+      points = [c2, cur];
     }
 
     // 橡皮擦：只显示范围圈，轨迹透明；使用独立橡皮擦粗细
@@ -6691,22 +6861,32 @@ App.Components = {
       drawing = false;
       hideCursor();
       try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
-      // 收尾：把最后一段连到终点（距离过近跳过，避免小圆点；单点点击不画圆点）
+      // 收尾：把剩余一段以「线宽渐变」连到终点，压至最细形成自然笔锋
+      // 距离过近跳过，避免小圆点；单点点击不画圆点
       if (mode !== 'eraser' && points.length > 0) {
         const last = points[points.length - 1];
         const dx = last.x - lastX;
         const dy = last.y - lastY;
-        if (Math.sqrt(dx * dx + dy * dy) > 2) {
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 2) {
+          const sf = scaleFactor();
+          const w0 = penWidth(lastPressure, sf);
+          const w1 = penWidth(0.35, sf);
+          const SEG = 4;
           ctx.globalCompositeOperation = 'source-over';
           ctx.strokeStyle = currentColor;
           ctx.lineCap = 'round';
           ctx.lineJoin = 'round';
-          const sf = scaleFactor();
-          ctx.lineWidth = Math.max(1, currentPenSize * sf);
-          ctx.beginPath();
-          ctx.moveTo(lastX, lastY);
-          ctx.lineTo(last.x, last.y);
-          ctx.stroke();
+          let px = lastX, py = lastY;
+          for (let i = 1; i <= SEG; i++) {
+            const t = i / SEG;
+            ctx.lineWidth = w0 + (w1 - w0) * t;
+            ctx.beginPath();
+            ctx.moveTo(px, py);
+            ctx.lineTo(lastX + dx * t, lastY + dy * t);
+            ctx.stroke();
+            px = lastX + dx * t; py = lastY + dy * t;
+          }
         }
       }
       points = [];
@@ -6728,7 +6908,6 @@ App.Components = {
           redoStack = [];
           baseHasContent = true;
           initialized = true;
-          updatePlaceholder();
         };
         img.src = opts.initial;
       } else {
@@ -6736,7 +6915,6 @@ App.Components = {
         redoStack = [];
         baseHasContent = false;
         initialized = true;
-        updatePlaceholder();
       }
     }
     if (window.ResizeObserver) {
@@ -6758,13 +6936,12 @@ App.Components = {
           undoStack = [ snapshot() ];
           redoStack = [];
           baseHasContent = true;
-          updatePlaceholder();
         };
         img.src = dataURL;
       },
-      clear: () => { ctx.clearRect(0, 0, canvas.width, canvas.height); undoStack = [ snapshot() ]; redoStack = []; baseHasContent = false; updatePlaceholder(); },
-      undo: () => { if (undoStack.length > 1) { redoStack.push(undoStack.pop()); restore(undoStack[undoStack.length - 1]); updatePlaceholder(); } },
-      redo: () => { if (redoStack.length > 0) { undoStack.push(redoStack.pop()); restore(undoStack[undoStack.length - 1]); updatePlaceholder(); } },
+      clear: () => { ctx.clearRect(0, 0, canvas.width, canvas.height); undoStack = [ snapshot() ]; redoStack = []; baseHasContent = false; },
+      undo: () => { if (undoStack.length > 1) { redoStack.push(undoStack.pop()); restore(undoStack[undoStack.length - 1]); } },
+      redo: () => { if (redoStack.length > 0) { undoStack.push(redoStack.pop()); restore(undoStack[undoStack.length - 1]); } },
       setMode: (m) => setMode(m),
       setColor: (c) => { currentColor = c; },
       setSize: (s) => {
@@ -6851,7 +7028,7 @@ App.Components = {
         });
         colorDots.push(dot); colorWrap.appendChild(dot);
       });
-      const penSizes = [ {n:'细', v:1.75}, {n:'中', v:3.25}, {n:'粗', v:4.25} ];
+      const penSizes = [ {n:'细', v:2.6}, {n:'中', v:3.5}, {n:'粗', v:4.25} ];
       const eraserSizes = [ {n:'细', v:36}, {n:'中', v:60}, {n:'粗', v:90} ];
       let activePenSize = penSizes[1].v;
       let activeEraserSize = eraserSizes[0].v;
@@ -7627,7 +7804,144 @@ App.Components = {
     requestAnimationFrame(() => overlay.classList.add('is-visible'));
   },
 
-  // ===== 筛选标签栏 =====
+  // ===== 标签管理面板（排序 / 修改 / 删除，供录入页等场景使用）=====
+  tagManageSheet(opts) {
+    const container = document.getElementById('modal-container');
+    const overlay = document.createElement('div');
+    overlay.className = 'tag-sheet-overlay';
+    const sheet = document.createElement('div');
+    sheet.className = 'tag-sheet';
+
+    const kind = opts.kind || 'kp';
+    const module = opts.module || '';
+    const label = kind === 'kp' ? '考点' : '错因';
+    let items = (kind === 'kp'
+      ? App.Tags.getKnowledgePoints(module)
+      : App.Tags.getModuleErrorCauses(module)).slice();
+
+    function escapeHtml(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    const listWrap = document.createElement('div');
+    listWrap.className = 'tag-manage-list';
+
+    function renderList() {
+      listWrap.innerHTML = '';
+      if (items.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'tag-manage-empty';
+        empty.textContent = '暂无' + label + '标签，可先在上方输入添加';
+        listWrap.appendChild(empty);
+        return;
+      }
+      items.forEach((name, i) => {
+        const row = document.createElement('div');
+        row.className = 'tag-manage-item';
+        row.dataset.name = name;
+
+        const up = document.createElement('button');
+        up.type = 'button';
+        up.className = 'tag-manage-item__arrow';
+        up.textContent = '↑';
+        up.disabled = i === 0;
+        up.title = '上移';
+        up.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (i > 0) { const t = items.splice(i, 1)[0]; items.splice(i - 1, 0, t); renderList(); }
+        });
+
+        const down = document.createElement('button');
+        down.type = 'button';
+        down.className = 'tag-manage-item__arrow';
+        down.textContent = '↓';
+        down.disabled = i === items.length - 1;
+        down.title = '下移';
+        down.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (i < items.length - 1) { const t = items.splice(i, 1)[0]; items.splice(i + 1, 0, t); renderList(); }
+        });
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'tag-manage-item__name';
+        nameEl.textContent = name;
+
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'tag-manage-item__action';
+        editBtn.textContent = '✏️';
+        editBtn.title = '修改名称';
+        editBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const nv = window.prompt('修改「' + name + '」为：', name);
+          if (nv && nv.trim() && nv.trim() !== name) {
+            if (kind === 'kp') await App.Tags.renameKnowledgePoint(module, name, nv.trim());
+            else await App.Tags.renameModuleErrorCause(module, name, nv.trim());
+            items[i] = nv.trim();
+            App.Components.toast('已修改', 'success');
+            renderList();
+          }
+        });
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'tag-manage-item__action tag-manage-item__action--del';
+        delBtn.textContent = '🗑';
+        delBtn.title = '删除';
+        delBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const ok = await App.Components.confirm(
+            '删除' + label,
+            '确定删除「' + name + '」？该标签会从相关错题 / 笔记中一并移除。',
+            '删除', '取消', true
+          );
+          if (ok) {
+            if (kind === 'kp') await App.Tags.removeKnowledgePoint(module, name);
+            else await App.Tags.removeModuleErrorCause(module, name);
+            items = items.filter(n => n !== name);
+            App.Components.toast('已删除', 'success');
+            renderList();
+          }
+        });
+
+        row.appendChild(up);
+        row.appendChild(down);
+        row.appendChild(nameEl);
+        row.appendChild(editBtn);
+        row.appendChild(delBtn);
+        listWrap.appendChild(row);
+      });
+    }
+
+    sheet.innerHTML = `
+      <div class="tag-sheet__handle"></div>
+      <div class="tag-sheet__title">⚙ 管理${label}标签 · ${escapeHtml(module)}</div>
+      <div class="tag-sheet__hint">↑ ↓ 调整排序 · ✏️ 修改名称 · 🗑 删除标签</div>
+    `;
+    sheet.appendChild(listWrap);
+
+    const doneBtn = document.createElement('button');
+    doneBtn.className = 'tag-sheet__btn tag-sheet__btn--ghost';
+    doneBtn.textContent = '完成';
+    doneBtn.addEventListener('click', async () => {
+      if (items.length > 1) await App.Tags.setOrder(module, kind, items);
+      if (opts.onDone) opts.onDone();
+      close();
+    });
+    sheet.appendChild(doneBtn);
+    overlay.appendChild(sheet);
+
+    function close() {
+      overlay.classList.remove('is-visible');
+      setTimeout(() => overlay.remove(), 220);
+    }
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+    container.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('is-visible'));
+    renderList();
+  },
+
   // ===== 筛选标签栏 =====
   filterTags(items, selected, onChange, colorKey, longPress) {
     const bar = document.createElement('div');
@@ -7773,17 +8087,28 @@ App.Components = {
 
     const statusRow = document.createElement('div');
     statusRow.className = 'error-gallery-card__status';
+    const statusLeft = document.createElement('div');
+    statusLeft.className = 'error-gallery-card__status-left';
+    // 录入时间（年月日），位于掌握状态之前
+    if (error.createdAt) {
+      const date = document.createElement('span');
+      date.className = 'error-gallery-card__date';
+      date.textContent = App.Utils.formatDate(error.createdAt);
+      statusLeft.appendChild(date);
+    }
     const st = document.createElement('span');
     st.className = 'tag tag--' + (error.status === '已掌握' ? 'success' : 'danger');
     st.textContent = error.status || '未掌握';
-    statusRow.appendChild(st);
+    statusLeft.appendChild(st);
+    statusRow.appendChild(statusLeft);
+    card.appendChild(statusRow);
+    // 挖坑点单独一行，自动换行，不与日期/掌握状态同行
     if (error.pitfall) {
-      const pf = document.createElement('span');
+      const pf = document.createElement('div');
       pf.className = 'error-gallery-card__pitfall';
       pf.textContent = '⛏ ' + error.pitfall;
-      statusRow.appendChild(pf);
+      card.appendChild(pf);
     }
-    card.appendChild(statusRow);
 
     card.addEventListener('click', onClick);
     return card;
@@ -8148,6 +8473,32 @@ App.Components = {
     }
 
     group.appendChild(suggestWrap);
+
+    // 标签管理入口：排序 / 修改 / 删除（仅当传入 kind 时显示）
+    if (longPress && longPress.kind) {
+      const manageRow = document.createElement('div');
+      manageRow.className = 'tag-input__manage';
+      const manageBtn = document.createElement('button');
+      manageBtn.type = 'button';
+      manageBtn.className = 'tag-input__manage-btn';
+      manageBtn.textContent = '⚙ 管理' + (longPress.kind === 'kp' ? '考点' : '错因') + '标签（排序 / 修改 / 删除）';
+      manageBtn.addEventListener('click', () => {
+        App.Components.tagManageSheet({
+          kind: longPress.kind,
+          module: longPress.module,
+          onDone: () => {
+            optionSet = (longPress.kind === 'kp'
+              ? App.Tags.getKnowledgePoints(longPress.module)
+              : App.Tags.getMergedErrorCauses(longPress.module)).slice();
+            renderSuggestions();
+            renderChips();
+            if (longPress.onDone) longPress.onDone();
+          }
+        });
+      });
+      manageRow.appendChild(manageBtn);
+      group.appendChild(manageRow);
+    }
 
     function renderAll() {
       renderChips();
@@ -9193,10 +9544,10 @@ App.Components = {
 
         let type = 'text', content = line, indent = 0;
         while (content.startsWith('  ') || content.startsWith('\t')) { indent++; content = content.replace(/^[ \t]+/, ''); }
-        if (/^#{4}\s/.test(content)) { type='h4'; content = content.replace(/^#{4}\s/, ''); }
-        else if (/^#{3}\s/.test(content)) { type='h3'; content = content.replace(/^#{3}\s/, ''); }
-        else if (/^#{2}\s/.test(content)) { type='h2'; content = content.replace(/^#{2}\s/, ''); }
-        else if (/^#\s/.test(content)) { type='h1'; content = content.replace(/^#\s/, ''); }
+        if (/^#{4}\s*/.test(content)) { type='h4'; content = content.replace(/^#{4}\s*/, ''); }
+        else if (/^#{3}\s*/.test(content)) { type='h3'; content = content.replace(/^#{3}\s*/, ''); }
+        else if (/^#{2}\s*/.test(content)) { type='h2'; content = content.replace(/^#{2}\s*/, ''); }
+        else if (/^#\s*/.test(content)) { type='h1'; content = content.replace(/^#\s*/, ''); }
         else if (/^- \[[ x]\]/.test(content)) { type='todo'; content = content.replace(/^- \[[ x]\]\s?/, ''); }
         else if (/^- /.test(content)) { type='bullet'; content = content.replace(/^- /, ''); }
         else if (/^\d+\.\s/.test(content)) { type='numbered'; content = content.replace(/^\d+\.\s/, ''); }
@@ -10804,7 +11155,8 @@ App.Pages.Home = {
     addBtn.addEventListener('click', async () => {
       const text = addInput.value.trim();
       if (!text) { App.Components.toast('请输入待办内容', 'error'); return; }
-      await App.DB.addTodo({ text, type: this.todoState.type, completed: false, createdAt: new Date().toISOString() });
+      const newTodo = await App.DB.addTodo({ text, type: this.todoState.type, completed: false, createdAt: new Date().toISOString() });
+      todos.push(newTodo);
       addInput.value = '';
       App.Components.toast('已添加', 'success');
       refreshTodo();
@@ -10838,12 +11190,19 @@ App.Pages.Errors = {
     search: '',
     searchVisible: false,
     allErrors: [],
-    gallerySize: 'md'   // 画廊窗口大小: sm 小 / md 中 / lg 大
+    gallerySize: 'md',   // 画廊窗口大小: sm 小 / md 中 / lg 大
+    gallerySizeAuto: true // 是否自动根据窗口宽度选择密度（用户手动切换后变为 false）
   },
 
   async render(params) {
     const container = document.getElementById('page-errors');
     container.innerHTML = '';
+
+    // 自动模式下根据窗口宽度选择画廊密度
+    if (this.state.gallerySizeAuto) {
+      const w = window.innerWidth;
+      this.state.gallerySize = w < 600 ? 'sm' : (w < 1100 ? 'md' : 'lg');
+    }
 
     // 左侧边栏（科目）+ 主内容区
     const layout = document.createElement('div');
@@ -10937,6 +11296,18 @@ App.Pages.Errors = {
     text = text.split('\n').map(l => l.replace(/^[ \t\u3000]+/, '')).join('\n').trim();
     if (!text) return { question: '', options: [] };
 
+    // 题干规范：OCR 粘贴的题干含大量换行噪音，先把题目部分所有换行/空白合并为一行，
+    // 再单独拆出最后一句（问题，以 。！？!? 结尾）换行显示，便于看清提问
+    const breakLastSentence = (q) => {
+      if (!q) return q;
+      const t = q.replace(/\s+/g, ' ').trim();
+      const m = t.match(/^([\s\S]*?)([^。！？!?]+[。！？!?])\s*$/);
+      if (m && m[1].trim() && m[2].trim()) {
+        return m[1].trim() + '\n' + m[2].trim();
+      }
+      return t;
+    };
+
     // 2) 收集所有候选选项标记（记录字母，供序列校验）
     const candidates = [];
     let m;
@@ -10982,7 +11353,7 @@ App.Pages.Errors = {
         const end = (i + 1 < best.length) ? best[i + 1].index : text.length;
         return text.slice(start, end).trim().replace(/\s*\n\s*/g, ' ');
       });
-      return { question, options };
+      return { question: breakLastSentence(question), options };
     }
 
     // 4) 兜底一：①②③④ 行首标记作为选项
@@ -10990,7 +11361,7 @@ App.Pages.Errors = {
     const circleIdx = circleLines.findIndex(l => /^[①②③④⑤⑥⑦⑧]/.test(l));
     if (circleIdx > 0 && circleLines.slice(circleIdx).every(l => /^[①②③④⑤⑥⑦⑧]/.test(l))) {
       return {
-        question: circleLines.slice(0, circleIdx).join('\n'),
+        question: breakLastSentence(circleLines.slice(0, circleIdx).join('\n')),
         options: circleLines.slice(circleIdx).map(l => l.replace(/^[①②③④⑤⑥⑦⑧]\s*[\.、。:：]?\s*/, ''))
       };
     }
@@ -11002,9 +11373,9 @@ App.Pages.Errors = {
       for (let i = 0; i < lines.length - 1; i++) {
         if (/[？?]\s*$|（\s*）|\(\s*\)/.test(lines[i])) qEnd = i;
       }
-      return { question: lines.slice(0, qEnd + 1).join('\n'), options: lines.slice(qEnd + 1) };
+      return { question: breakLastSentence(lines.slice(0, qEnd + 1).join('\n')), options: lines.slice(qEnd + 1) };
     }
-    return { question: text, options: [] };
+    return { question: breakLastSentence(text), options: [] };
   },
 
   // ===== AI 智能拆分弹窗 =====
@@ -11184,7 +11555,6 @@ App.Pages.Errors = {
 
   renderFilters(container) {
     container.innerHTML = '';
-    if (!this.state.subject) return;
 
     const row = document.createElement('div');
     row.className = 'tag-select-row';
@@ -11239,6 +11609,7 @@ App.Pages.Errors = {
       b.title = key === 'sm' ? '小窗口' : key === 'md' ? '中窗口' : '大窗口';
       b.addEventListener('click', () => {
         this.state.gallerySize = key;
+        this.state.gallerySizeAuto = false;
         this.refreshAll();
       });
       sizeSwitch.appendChild(b);
@@ -11440,9 +11811,9 @@ App.Pages.Errors = {
     `;
     content.appendChild(headerInfo);
 
-    // 题干
+    // 题干（white-space:pre-line 保留编辑页手动换行）
     const questionEl = document.createElement('div');
-    questionEl.style.cssText = 'font-size:var(--font-md);line-height:1.7;margin-bottom:var(--spacing-md);padding:var(--spacing-md);background:var(--bg-tertiary);border-radius:var(--radius-md);';
+    questionEl.style.cssText = 'font-size:var(--font-md);line-height:1.7;margin-bottom:var(--spacing-md);padding:var(--spacing-md);background:var(--bg-tertiary);border-radius:var(--radius-md);white-space:pre-line;';
     questionEl.textContent = error.question;
     content.appendChild(questionEl);
 
@@ -11506,6 +11877,8 @@ App.Pages.Errors = {
       if (enoteEditing) return;
       enoteEditing = true;
       enoteContent.style.cursor = 'default';
+      // 替换为编辑器前先锁定当前高度，避免清空内容导致塌陷/抖动
+      enoteContent.style.minHeight = Math.max(enoteContent.offsetHeight, 60) + 'px';
       const editor = App.Components.notionEditor(error.note, false, function (content) {
         error.note = content;
       });
@@ -11553,7 +11926,9 @@ App.Pages.Errors = {
       if (noteEditing) return;
       noteEditing = true;
       noteContent.style.cursor = 'default';
-      const editor = App.Components.notionEditor(error.analysisNote, '输入解析思路...（支持 Markdown 即时预览）', function (content) {
+      // 替换为编辑器前先锁定当前高度，避免清空内容导致塌陷/抖动
+      noteContent.style.minHeight = Math.max(noteContent.offsetHeight, 60) + 'px';
+      const editor = App.Components.notionEditor(error.analysisNote, false, function (content) {
         error.analysisNote = content;
       });
       noteContent.innerHTML = '';
@@ -11985,7 +12360,7 @@ App.Pages.Errors = {
       noteLabel.textContent = '解析分析笔记';
       noteGroup.appendChild(noteLabel);
 
-      const editor = App.Components.notionEditor(formData.analysisNote, '输入解析思路...（支持 Markdown 即时预览）', function (content) {
+      const editor = App.Components.notionEditor(formData.analysisNote, false, function (content) {
         formData.analysisNote = content;
       });
       noteGroup.appendChild(editor.element);
@@ -12083,6 +12458,28 @@ App.Pages.Errors = {
     loadAndRender();
   }
 };
+
+// 错题本画廊：窗口尺寸变化时，自动模式下重新选择密度
+(function galleryResizeAuto() {
+  let resizeTimer = null;
+  function update() {
+    const page = App.Pages.Errors;
+    if (!page || !page.state || !page.state.gallerySizeAuto) return;
+    const w = window.innerWidth;
+    const size = w < 600 ? 'sm' : (w < 1100 ? 'md' : 'lg');
+    if (size !== page.state.gallerySize) {
+      page.state.gallerySize = size;
+      if (App.Router && App.Router.currentPage === 'errors' && page.refreshAll) {
+        page.refreshAll();
+      }
+    }
+  }
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(update, 250);
+  });
+})();
+
 // ===== 考公笔试复盘系统 - 笔记页面 =====
 window.App = window.App || {};
 App.Pages = App.Pages || {};
@@ -12924,23 +13321,33 @@ App.Pages.StudyStats = {
     const key = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
     const todayKey = key(now);
 
-    // 聚合每日待办
+    // 聚合每日待办（含具体事项，用于日历格子展示）
     let todos = [];
     try { todos = await App.DB.getTodos(); } catch (e) { todos = []; }
     const byDay = {};
     todos.forEach(t => {
       const k = key(new Date(t.createdAt));
-      if (!byDay[k]) byDay[k] = { total: 0, done: 0 };
+      if (!byDay[k]) byDay[k] = { total: 0, done: 0, items: [] };
       byDay[k].total++;
       if (t.completed) byDay[k].done++;
+      byDay[k].items.push(t);
     });
+
+    // 待办类型配色（与首页一致）
+    const TODO_TYPE_COLORS = {
+      study: '#4A90E2',
+      review: '#9B7BFF',
+      practice: '#FF9F43',
+      other: '#6B8EAD'
+    };
+    const escapeHtml = (str) => String(str || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
     // 头部
     const header = document.createElement('div');
     header.style.cssText = 'padding:var(--spacing-lg) var(--page-padding);padding-bottom:var(--spacing-sm);';
     header.innerHTML = `
       <div style="font-size:var(--font-3xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--spacing-sm);">学习统计</div>
-      <div style="font-size:var(--font-sm);color:var(--text-tertiary);line-height:1.6;">按日历查看每日待办的完成情况，绿色 = 全部完成，黄色 = 有未完成。</div>
+      <div style="font-size:var(--font-sm);color:var(--text-tertiary);line-height:1.6;">按日历查看每日待办，彩色标签为具体事项，绿色 = 全部完成，黄色 = 有未完成。</div>
     `;
     container.appendChild(header);
 
@@ -12989,7 +13396,17 @@ App.Pages.StudyStats = {
       if (info && info.total > 0) {
         const cls = info.done === info.total ? 'is-done' : (info.done > 0 ? 'is-part' : 'is-undo');
         cell.classList.add('has-data', cls);
-        inner += '<div class="study-cal__stat">' + info.done + '/' + info.total + '</div>';
+        inner += '<div class="study-cal__todos">';
+        const maxVisible = 5;
+        info.items.slice(0, maxVisible).forEach(t => {
+          const color = TODO_TYPE_COLORS[t.type || 'study'] || TODO_TYPE_COLORS.study;
+          const doneCls = t.completed ? ' study-cal__todo--done' : '';
+          inner += '<div class="study-cal__todo' + doneCls + '" style="--todo-color:' + color + '">' + escapeHtml(t.text) + '</div>';
+        });
+        if (info.items.length > maxVisible) {
+          inner += '<div class="study-cal__more">+' + (info.items.length - maxVisible) + '</div>';
+        }
+        inner += '</div>';
       } else {
         cell.classList.add('no-data');
       }
@@ -12998,21 +13415,10 @@ App.Pages.StudyStats = {
     }
     container.appendChild(cal);
 
-    // 今日汇总
-    const todayInfo = byDay[todayKey];
-    const summary = document.createElement('div');
-    summary.style.cssText = 'padding:var(--spacing-md) var(--page-padding);';
-    summary.innerHTML = `
-      <div style="background:var(--bg-tertiary);border-radius:var(--radius-md);padding:var(--spacing-md);">
-        <div style="font-weight:600;margin-bottom:6px;">📅 今日待办</div>
-        <div style="display:flex;gap:var(--spacing-lg);font-size:var(--font-md);">
-          <span>完成 <b style="color:var(--color-success);">${todayInfo ? todayInfo.done : 0}</b></span>
-          <span>未完成 <b style="color:var(--color-warning);">${todayInfo ? todayInfo.total - todayInfo.done : 0}</b></span>
-          <span>总计 <b>${todayInfo ? todayInfo.total : 0}</b></span>
-        </div>
-      </div>
-    `;
-    container.appendChild(summary);
+    // 底部留白
+    const spacer = document.createElement('div');
+    spacer.style.height = 'var(--spacing-xl)';
+    container.appendChild(spacer);
   }
 };
 
