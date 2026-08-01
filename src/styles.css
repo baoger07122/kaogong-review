@@ -310,12 +310,11 @@ input, textarea, select {
 
 /* ===== 页面标题栏 ===== */
 /* 固定区：标题 + 搜索 + 统计 打包吸顶（错题本等列表页滚动时保持可见）。
+   注意：默认 position: static（在文档流中），不写 sticky——彻底规避 iOS 上 sticky→fixed 切换不重绘的 bug。
+   滚动到屏幕顶端时由 JS 直接切换为 fixed（top:0，背景上延盖住顶部空白）。
    z-index 1500：盖过所有常规内容层（标签弹层 120 / 底部操作栏 200 / 编辑器浮层 500），
-   同时低于 ActionSheet(1800)/modal(12000)/导航栏(9999)，弹层仍正常浮在最上；
-   transform 强制合成层，避免 iOS Safari 滚动时内容从吸顶区后面穿透显示。 */
+   同时低于 ActionSheet(1800)/modal(12000)/导航栏(9999)，弹层仍正常浮在最上。 */
 .page-sticky {
-  position: sticky;
-  top: calc(var(--top-buffer) + 12px);
   z-index: 1500;
   background: var(--bg-primary);
   padding-bottom: var(--spacing-sm);
@@ -3370,8 +3369,8 @@ input, textarea, select {
 }
 
 .sidebar {
-  position: sticky;
-  top: calc(var(--top-buffer) + 12px);
+  /* 默认在文档流中（static），不写 sticky——彻底规避 iOS sticky→fixed 切换不重绘的 bug。
+     滚动到屏幕顶端时由 JS 直接切换为 fixed（top:0，背景上延盖住顶部空白）。 */
   flex: 0 0 auto;
   width: 80px;
   /* 固定高度占满左侧整列，滚动时保持固定 */

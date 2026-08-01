@@ -328,12 +328,11 @@ input, textarea, select {
 
 /* ===== 页面标题栏 ===== */
 /* 固定区：标题 + 搜索 + 统计 打包吸顶（错题本等列表页滚动时保持可见）。
+   注意：默认 position: static（在文档流中），不写 sticky——彻底规避 iOS 上 sticky→fixed 切换不重绘的 bug。
+   滚动到屏幕顶端时由 JS 直接切换为 fixed（top:0，背景上延盖住顶部空白）。
    z-index 1500：盖过所有常规内容层（标签弹层 120 / 底部操作栏 200 / 编辑器浮层 500），
-   同时低于 ActionSheet(1800)/modal(12000)/导航栏(9999)，弹层仍正常浮在最上；
-   transform 强制合成层，避免 iOS Safari 滚动时内容从吸顶区后面穿透显示。 */
+   同时低于 ActionSheet(1800)/modal(12000)/导航栏(9999)，弹层仍正常浮在最上。 */
 .page-sticky {
-  position: sticky;
-  top: calc(var(--top-buffer) + 12px);
   z-index: 1500;
   background: var(--bg-primary);
   padding-bottom: var(--spacing-sm);
@@ -3388,8 +3387,8 @@ input, textarea, select {
 }
 
 .sidebar {
-  position: sticky;
-  top: calc(var(--top-buffer) + 12px);
+  /* 默认在文档流中（static），不写 sticky——彻底规避 iOS sticky→fixed 切换不重绘的 bug。
+     滚动到屏幕顶端时由 JS 直接切换为 fixed（top:0，背景上延盖住顶部空白）。 */
   flex: 0 0 auto;
   width: 80px;
   /* 固定高度占满左侧整列，滚动时保持固定 */
@@ -5194,7 +5193,7 @@ input, textarea, select {
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.23';
+App.VERSION = '8.1.24';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -11444,14 +11443,19 @@ App.Pages.Errors = {
 
     const update = () => {
       if (!el.isConnected) return;
-      const absTop = el.getBoundingClientRect().top + window.scrollY;
-      const shouldFix = (window.scrollY + TOP) > absTop + 4;
+      const rect = el.getBoundingClientRect();
+      // 纯文档流元素：当其视口顶部到达/越过屏幕顶端（≤0）时，切换为 fixed 钉在 top:0。
+      // 不再依赖 sticky 的顶层阈值——规避 iOS sticky→fixed 切换不重绘的 bug。
+      const shouldFix = rect.top <= 0;
       if (shouldFix && !el.classList.contains('is-sticky-fixed')) {
-        // 插入同高占位符，避免列表内容跳动（sidebar 为 flex 子项，宽度也需保持）
+        // 文档流自然高度（无 padding-top 上延）；切 fixed 后元素因 padding-top:TOP 实际高 naturalH+TOP，
+        // 占位符须与之等高，否则吸顶条会盖住列表前 TOP 像素或列表跳动。
+        const naturalH = el.offsetHeight;
+        const naturalW = el.offsetWidth;
         placeholder = document.createElement('div');
         placeholder.className = 'page-sticky-placeholder';
-        placeholder.style.height = Math.max(0, el.offsetHeight - TOP) + 'px';
-        placeholder.style.width = el.offsetWidth + 'px';
+        placeholder.style.height = (naturalH + TOP) + 'px';
+        placeholder.style.width = naturalW + 'px';
         el.parentNode.insertBefore(placeholder, el);
         el.classList.add('is-sticky-fixed');
         const r = el.getBoundingClientRect();
@@ -11462,24 +11466,23 @@ App.Pages.Errors = {
         el.style.left = ''; el.style.width = '';
         if (placeholder) { placeholder.remove(); placeholder = null; }
       }
-      // 高度变化（搜索区展开/收起等）时同步占位符。
-      // 注意：fixed 时 offsetHeight 含顶部上延 padding（TOP），占位符必须保持内容高度，
-      // 否则列表位置会被额外下推而跳动。
+      // 高度变化（搜索区展开/收起等）时同步占位符：fixed 后 offsetHeight 已含顶部上延 padding（TOP），
+      // 占位符直接跟随 fixed 真实高度，与吸顶条等高，列表位置不跳动、不被吞。
       if (shouldFix && placeholder) {
-        const h = Math.max(0, el.offsetHeight - TOP);
+        const h = el.offsetHeight;
         if (placeholder.style.height !== h + 'px') placeholder.style.height = h + 'px';
       }
     };
 
     const onScroll = () => { update(); };
     const onResize = () => {
-      // 安全区/分屏变化时重读阈值
+      // 安全区/分屏变化时重读阈值，并先解除 fixed 状态以重测自然高度，再由 update 重新决策
       topBuffer = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top-buffer')) || 24;
       TOP = topBuffer + 12;
       if (el.classList.contains('is-sticky-fixed')) {
-        const r = el.getBoundingClientRect();
-        el.style.left = r.left + 'px';
-        el.style.width = r.width + 'px';
+        el.classList.remove('is-sticky-fixed');
+        el.style.left = ''; el.style.width = '';
+        if (placeholder) { placeholder.remove(); placeholder = null; }
       }
       update();
     };
