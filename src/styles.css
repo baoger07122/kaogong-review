@@ -3626,17 +3626,15 @@ input, textarea, select {
 .notion-editor {
   position: relative;
   min-height: 200px;
-  /* 底部预留悬浮格式栏空间，避免浮出时遮挡最后一行内容 */
-  padding-bottom: 56px;
 }
 
-/* ===== 底部悬浮格式栏（Notion 风格：编辑器最下方一横条，聚焦浮出/失焦收起） ===== */
+/* ===== 悬浮格式栏（Notion 风格：跟随输入块浮动，聚焦浮出/失焦收起） ===== */
 .notion-toolbar {
   position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: 34px;
   z-index: 600;
+  /* left/top 由 JS 跟随光标所在块动态定位 */
+  max-width: calc(100% - 16px);
+  min-width: 200px;
   display: flex;
   align-items: center;
   gap: 4px;
