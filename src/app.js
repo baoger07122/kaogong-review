@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.22';
+App.VERSION = '8.1.23';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -6224,44 +6224,58 @@ App.Pages.Errors = {
   },
 
   // ===== 吸顶区兜底（fixed 切换 + 同高占位符，不依赖 sticky） =====
-  _initStickyFallback() {
+  // 覆盖页面内所有需要置顶的元素：标题栏（.page-sticky）与左侧导航栏（.sidebar），
+  // 滚动时统一钉到屏幕最顶端（top:0 + 背景上延盖住顶部空白），内容不再从任何高度穿出。
+  _initStickyFallback(scope) {
     // 清理上一次绑定的监听与占位符
     if (this._stickyCleanup) { this._stickyCleanup(); this._stickyCleanup = null; }
     this._stickyUpdate = null;
 
-    const stickyEl = document.querySelector('#page-errors .page-sticky');
-    if (!stickyEl) return;
+    const root = document.querySelector(scope || '#page-errors');
+    if (!root) return;
+    const updaters = [];
+    const cleanups = [];
+    root.querySelectorAll('.page-sticky, .sidebar').forEach(el => {
+      const inst = this._stickyInit(el);
+      if (inst) { updaters.push(inst.update); cleanups.push(inst.cleanup); }
+    });
+    this._stickyUpdate = () => updaters.forEach(fn => fn && fn());
+    this._stickyCleanup = () => cleanups.forEach(fn => fn && fn());
+  },
 
+  // 单个元素吸顶：滚动超过阈值时切换为 fixed（top:0 由 CSS 控制），插入同高占位符防跳动
+  _stickyInit(el) {
     const rootStyle = getComputedStyle(document.documentElement);
     let topBuffer = parseFloat(rootStyle.getPropertyValue('--top-buffer')) || 24;
-    // 触发阈值：吸顶区初始顶部位置（页面顶部预留空白处）；切换后 fixed top:0 由 CSS 控制
+    // 触发阈值：元素初始顶部位置（页面顶部预留空白处）；切换后 fixed top:0 由 CSS 控制
     let TOP = topBuffer + 12;
     let placeholder = null;
 
     const update = () => {
-      if (!stickyEl.isConnected) return;
-      const absTop = stickyEl.getBoundingClientRect().top + window.scrollY;
+      if (!el.isConnected) return;
+      const absTop = el.getBoundingClientRect().top + window.scrollY;
       const shouldFix = (window.scrollY + TOP) > absTop + 4;
-      if (shouldFix && !stickyEl.classList.contains('is-sticky-fixed')) {
-        // 插入同高占位符，避免列表内容跳动
+      if (shouldFix && !el.classList.contains('is-sticky-fixed')) {
+        // 插入同高占位符，避免列表内容跳动（sidebar 为 flex 子项，宽度也需保持）
         placeholder = document.createElement('div');
         placeholder.className = 'page-sticky-placeholder';
-        placeholder.style.height = stickyEl.offsetHeight + 'px';
-        stickyEl.parentNode.insertBefore(placeholder, stickyEl);
-        stickyEl.classList.add('is-sticky-fixed');
-        const r = stickyEl.getBoundingClientRect();
-        stickyEl.style.left = r.left + 'px';
-        stickyEl.style.width = r.width + 'px';
-      } else if (!shouldFix && stickyEl.classList.contains('is-sticky-fixed')) {
-        stickyEl.classList.remove('is-sticky-fixed');
-        stickyEl.style.left = ''; stickyEl.style.width = '';
+        placeholder.style.height = Math.max(0, el.offsetHeight - TOP) + 'px';
+        placeholder.style.width = el.offsetWidth + 'px';
+        el.parentNode.insertBefore(placeholder, el);
+        el.classList.add('is-sticky-fixed');
+        const r = el.getBoundingClientRect();
+        el.style.left = r.left + 'px';
+        el.style.width = r.width + 'px';
+      } else if (!shouldFix && el.classList.contains('is-sticky-fixed')) {
+        el.classList.remove('is-sticky-fixed');
+        el.style.left = ''; el.style.width = '';
         if (placeholder) { placeholder.remove(); placeholder = null; }
       }
       // 高度变化（搜索区展开/收起等）时同步占位符。
       // 注意：fixed 时 offsetHeight 含顶部上延 padding（TOP），占位符必须保持内容高度，
       // 否则列表位置会被额外下推而跳动。
       if (shouldFix && placeholder) {
-        const h = stickyEl.offsetHeight - TOP;
+        const h = Math.max(0, el.offsetHeight - TOP);
         if (placeholder.style.height !== h + 'px') placeholder.style.height = h + 'px';
       }
     };
@@ -6271,22 +6285,24 @@ App.Pages.Errors = {
       // 安全区/分屏变化时重读阈值
       topBuffer = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top-buffer')) || 24;
       TOP = topBuffer + 12;
-      if (stickyEl.classList.contains('is-sticky-fixed')) {
-        const r = stickyEl.getBoundingClientRect();
-        stickyEl.style.left = r.left + 'px';
-        stickyEl.style.width = r.width + 'px';
+      if (el.classList.contains('is-sticky-fixed')) {
+        const r = el.getBoundingClientRect();
+        el.style.left = r.left + 'px';
+        el.style.width = r.width + 'px';
       }
       update();
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', onResize);
-    this._stickyUpdate = update;
-    this._stickyCleanup = () => {
-      window.removeEventListener('scroll', onScroll);
-      window.removeEventListener('resize', onResize);
-      if (placeholder) { placeholder.remove(); placeholder = null; }
-    };
     update();
+    return {
+      update,
+      cleanup: () => {
+        window.removeEventListener('scroll', onScroll);
+        window.removeEventListener('resize', onResize);
+        if (placeholder) { placeholder.remove(); placeholder = null; }
+      }
+    };
   },
 
   async loadData() {
@@ -7538,6 +7554,10 @@ App.Pages.Notes = {
     const main = document.createElement('div');
     main.className = 'page-main';
 
+    // 页面标题 + 搜索区 → 打包进固定区（滚动时吸顶，与错题本一致）
+    const stickyWrap = document.createElement('div');
+    stickyWrap.className = 'page-sticky';
+
     // 页面标题
     const header = document.createElement('div');
     header.className = 'page-header';
@@ -7548,7 +7568,7 @@ App.Pages.Notes = {
         <button class="detail-header-action" id="note-more" title="更多" style="font-size:20px;padding:4px 6px;">⋮</button>
       </div>
     `;
-    main.appendChild(header);
+    stickyWrap.appendChild(header);
     header.querySelector('#note-more').addEventListener('click', (e) => {
       e.stopPropagation();
       this._showPageMenu();
@@ -7557,7 +7577,9 @@ App.Pages.Notes = {
     // 搜索区（通过右上角三点菜单展开）
     const searchArea = document.createElement('div');
     searchArea.id = 'note-search-area';
-    main.appendChild(searchArea);
+    stickyWrap.appendChild(searchArea);
+
+    main.appendChild(stickyWrap);
 
     // 考点筛选条（科目-模块由侧边栏管理，与错题本一致）
     const filterArea = document.createElement('div');
@@ -7576,6 +7598,9 @@ App.Pages.Notes = {
     this.renderSubjectGrid(sidebar);
     this.renderFilters(filterArea);
     this.renderList(listArea);
+
+    // 吸顶兜底：标题栏 + 左侧导航栏 滚动时统一钉到屏幕最顶端
+    this._initStickyFallback('#page-notes');
   },
 
   async loadData() {

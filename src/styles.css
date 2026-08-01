@@ -337,6 +337,16 @@ input, textarea, select {
   left: 0; /* 实际 left/width 由 JS 按视口校准 */
   padding-top: calc(var(--top-buffer) + 12px);
 }
+/* 左侧导航栏（科目/模块）同样置顶：背景上延到屏幕顶端，高度补回上移的缓冲区，
+   与标题栏（.page-sticky）顶部对齐，滚动时不再悬停在中间或滚走 */
+.sidebar.is-sticky-fixed {
+  position: fixed;
+  top: 0;
+  left: 0; /* 实际 left/width 由 JS 按视口校准 */
+  height: calc(100vh - var(--nav-height) - var(--safe-bottom));
+  padding-top: calc(var(--top-buffer) + 12px);
+  z-index: 1500;
+}
 .page-sticky-placeholder {
   visibility: hidden;
 }
