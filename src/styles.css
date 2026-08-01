@@ -3626,19 +3626,39 @@ input, textarea, select {
 .notion-editor {
   position: relative;
   min-height: 200px;
+  /* 底部预留悬浮格式栏空间，避免浮出时遮挡最后一行内容 */
+  padding-bottom: 56px;
 }
 
-/* ===== 顶部工具栏 ===== */
+/* ===== 底部悬浮格式栏（Notion 风格：编辑器最下方一横条，聚焦浮出/失焦收起） ===== */
 .notion-toolbar {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 34px;
+  z-index: 600;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0;
+  align-items: center;
+  gap: 4px;
   padding: 6px 8px;
-  margin-bottom: 8px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.06);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  /* 默认收起：透明 + 不可点，聚焦编辑器时浮出 */
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  scrollbar-width: none;
+}
+.notion-toolbar::-webkit-scrollbar { display: none; }
+.notion-toolbar.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 .notion-tool-btn {
   min-width: 34px;

@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.13';
+App.VERSION = '8.1.14';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -3704,7 +3704,6 @@ App.Components = {
       grpHistory.appendChild(btn);
     });
     row1.appendChild(grpHistory);
-    toolbar.appendChild(row1);
 
     // --- 第二行：列表 + 缩进 + 其他工具 ---
     const row2 = document.createElement('div');
@@ -3770,7 +3769,9 @@ App.Components = {
       grpExtra.appendChild(btn);
     });
     row2.appendChild(grpExtra);
-    toolbar.appendChild(row2);
+
+    // 底部悬浮格式栏：两行分组合并为一行（横向滚动），保持全部功能
+    [grpBlock, grpInline, grpHistory, grpList, grpIndent, grpExtra].forEach(g => toolbar.appendChild(g));
 
     const blocksContainer = document.createElement('div');
     blocksContainer.className = 'notion-editor__blocks';
@@ -4609,10 +4610,23 @@ App.Components = {
       if (el) el.textContent = text;
     }
 
-    // 初始渲染
-    wrapper.appendChild(toolbar);
+    // 初始渲染：格式栏改为底部悬浮（最下方一横条），聚焦编辑器时浮出、失焦收起
     wrapper.appendChild(blocksContainer);
     wrapper.appendChild(footer);
+    wrapper.appendChild(toolbar);
+    let _toolbarTimer = null;
+    wrapper.addEventListener('focusin', (e) => {
+      if (e.target && e.target.closest && e.target.closest('.notion-editable, .notion-table td')) {
+        clearTimeout(_toolbarTimer);
+        toolbar.classList.add('is-visible');
+      }
+    });
+    wrapper.addEventListener('focusout', (e) => {
+      const next = e.relatedTarget;
+      if (next && (toolbar.contains(next) || wrapper.contains(next))) return;
+      clearTimeout(_toolbarTimer);
+      _toolbarTimer = setTimeout(() => toolbar.classList.remove('is-visible'), 220);
+    });
     reRender();
 
     // 粘贴 Markdown 自动解析（多行→拆块，单行→行内渲染）
