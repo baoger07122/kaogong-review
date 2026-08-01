@@ -328,9 +328,14 @@ input, textarea, select {
 .page-sticky .page-header {
   position: static;
 }
-/* JS 吸顶兜底：iOS 个别版本 position:sticky 失效时，滚动中切换为 fixed 并插入同高占位符 */
+/* JS 吸顶兜底：iOS 个别版本 position:sticky 失效时，滚动中切换为 fixed 并插入同高占位符。
+   吸顶后 top:0 + padding-top 上延背景：把「页面顶部到手机顶端的预留空白」一并盖住，
+   滚动内容从任何高度经过都被吸顶区背景遮挡，不再穿出。 */
 .page-sticky.is-sticky-fixed {
   position: fixed;
+  top: 0;
+  left: 0; /* 实际 left/width 由 JS 按视口校准 */
+  padding-top: calc(var(--top-buffer) + 12px);
 }
 .page-sticky-placeholder {
   visibility: hidden;

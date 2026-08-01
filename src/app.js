@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.21';
+App.VERSION = '8.1.22';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -6233,8 +6233,9 @@ App.Pages.Errors = {
     if (!stickyEl) return;
 
     const rootStyle = getComputedStyle(document.documentElement);
-    const topBuffer = parseFloat(rootStyle.getPropertyValue('--top-buffer')) || 24;
-    const TOP = topBuffer + 12; // 与 CSS .page-sticky 的 top 一致
+    let topBuffer = parseFloat(rootStyle.getPropertyValue('--top-buffer')) || 24;
+    // 触发阈值：吸顶区初始顶部位置（页面顶部预留空白处）；切换后 fixed top:0 由 CSS 控制
+    let TOP = topBuffer + 12;
     let placeholder = null;
 
     const update = () => {
@@ -6249,23 +6250,27 @@ App.Pages.Errors = {
         stickyEl.parentNode.insertBefore(placeholder, stickyEl);
         stickyEl.classList.add('is-sticky-fixed');
         const r = stickyEl.getBoundingClientRect();
-        stickyEl.style.top = TOP + 'px';
         stickyEl.style.left = r.left + 'px';
         stickyEl.style.width = r.width + 'px';
       } else if (!shouldFix && stickyEl.classList.contains('is-sticky-fixed')) {
         stickyEl.classList.remove('is-sticky-fixed');
-        stickyEl.style.top = ''; stickyEl.style.left = ''; stickyEl.style.width = '';
+        stickyEl.style.left = ''; stickyEl.style.width = '';
         if (placeholder) { placeholder.remove(); placeholder = null; }
       }
-      // 高度变化（搜索区展开/收起等）时同步占位符
+      // 高度变化（搜索区展开/收起等）时同步占位符。
+      // 注意：fixed 时 offsetHeight 含顶部上延 padding（TOP），占位符必须保持内容高度，
+      // 否则列表位置会被额外下推而跳动。
       if (shouldFix && placeholder) {
-        const h = stickyEl.offsetHeight;
+        const h = stickyEl.offsetHeight - TOP;
         if (placeholder.style.height !== h + 'px') placeholder.style.height = h + 'px';
       }
     };
 
     const onScroll = () => { update(); };
     const onResize = () => {
+      // 安全区/分屏变化时重读阈值
+      topBuffer = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top-buffer')) || 24;
+      TOP = topBuffer + 12;
       if (stickyEl.classList.contains('is-sticky-fixed')) {
         const r = stickyEl.getBoundingClientRect();
         stickyEl.style.left = r.left + 'px';
