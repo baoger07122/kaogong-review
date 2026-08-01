@@ -3628,13 +3628,13 @@ input, textarea, select {
   min-height: 200px;
 }
 
-/* ===== 悬浮格式栏（Notion 风格：跟随输入块浮动，聚焦浮出/失焦收起） ===== */
+/* ===== 悬浮格式栏（Notion 风格：悬浮在整个页面窗口最底部、导航栏上方，聚焦浮出/失焦收起） ===== */
 .notion-toolbar {
-  position: absolute;
-  z-index: 600;
-  /* left/top 由 JS 跟随光标所在块动态定位 */
-  max-width: calc(100% - 16px);
-  min-width: 200px;
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  bottom: calc(var(--nav-height) + var(--safe-bottom) + 10px);
+  z-index: 8000;
   display: flex;
   align-items: center;
   gap: 4px;

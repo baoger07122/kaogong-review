@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.15';
+App.VERSION = '8.1.16';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -4610,53 +4610,22 @@ App.Components = {
       if (el) el.textContent = text;
     }
 
-    // 初始渲染：格式栏为跟随输入块的悬浮条（聚焦浮出、失焦收起，Notion 风格）
+    // 初始渲染：格式栏悬浮在页面窗口最底部（导航栏上方），聚焦编辑器时浮出、失焦收起
     wrapper.appendChild(blocksContainer);
     wrapper.appendChild(footer);
     wrapper.appendChild(toolbar);
-
-    // ===== 悬浮格式栏跟随「光标所在块」定位 =====
-    function repositionToolbar() {
-      const be = focusedBlockEl;
-      if (!be || !wrapper.contains(be)) return;
-      const wr = wrapper.getBoundingClientRect();
-      const br = be.getBoundingClientRect();
-      const tw = toolbar.offsetWidth || 280;
-      const th = toolbar.offsetHeight || 44;
-      let left = Math.max(4, Math.min(br.left - wr.left, wr.width - tw - 4));
-      let top = br.top - wr.top - th - 8; // 优先浮在块上方
-      if (top < 4) top = br.bottom - wr.top + 8; // 上方空间不足时放块下方
-      toolbar.style.left = left + 'px';
-      toolbar.style.top = top + 'px';
-    }
     let _toolbarTimer = null;
-    let _posTimer = null;
-    function showToolbar() {
-      clearTimeout(_toolbarTimer);
-      toolbar.classList.add('is-visible');
-      repositionToolbar();
-      // 输入/滚动期间以 300ms 间隔跟随块位置，失焦即停止
-      clearInterval(_posTimer);
-      _posTimer = setInterval(() => {
-        if (!wrapper.isConnected) { clearInterval(_posTimer); return; }
-        if (toolbar.classList.contains('is-visible')) repositionToolbar();
-      }, 300);
-    }
-    function hideToolbar() {
-      clearTimeout(_toolbarTimer);
-      clearInterval(_posTimer);
-      toolbar.classList.remove('is-visible');
-    }
     wrapper.addEventListener('focusin', (e) => {
       if (e.target && e.target.closest && e.target.closest('.notion-editable, .notion-table td')) {
-        showToolbar();
+        clearTimeout(_toolbarTimer);
+        toolbar.classList.add('is-visible');
       }
     });
     wrapper.addEventListener('focusout', (e) => {
       const next = e.relatedTarget;
       if (next && (toolbar.contains(next) || wrapper.contains(next))) return;
       clearTimeout(_toolbarTimer);
-      _toolbarTimer = setTimeout(hideToolbar, 220);
+      _toolbarTimer = setTimeout(() => toolbar.classList.remove('is-visible'), 220);
     });
     reRender();
 
