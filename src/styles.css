@@ -328,6 +328,13 @@ input, textarea, select {
 .page-sticky .page-header {
   position: static;
 }
+/* JS 吸顶兜底：iOS 个别版本 position:sticky 失效时，滚动中切换为 fixed 并插入同高占位符 */
+.page-sticky.is-sticky-fixed {
+  position: fixed;
+}
+.page-sticky-placeholder {
+  visibility: hidden;
+}
 
 .page-header {
   position: sticky;

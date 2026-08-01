@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.20';
+App.VERSION = '8.1.21';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -6217,6 +6217,71 @@ App.Pages.Errors = {
     this.renderStats(statsRow);
     this.renderFilters(filterArea);
     await this.renderList(listArea);
+
+    // 吸顶兜底：iOS 个别版本 position:sticky 失效，用 fixed 方案保证滚动时
+    // 标题+搜索+统计区始终固定在顶部并完全遮挡下方内容
+    this._initStickyFallback();
+  },
+
+  // ===== 吸顶区兜底（fixed 切换 + 同高占位符，不依赖 sticky） =====
+  _initStickyFallback() {
+    // 清理上一次绑定的监听与占位符
+    if (this._stickyCleanup) { this._stickyCleanup(); this._stickyCleanup = null; }
+    this._stickyUpdate = null;
+
+    const stickyEl = document.querySelector('#page-errors .page-sticky');
+    if (!stickyEl) return;
+
+    const rootStyle = getComputedStyle(document.documentElement);
+    const topBuffer = parseFloat(rootStyle.getPropertyValue('--top-buffer')) || 24;
+    const TOP = topBuffer + 12; // 与 CSS .page-sticky 的 top 一致
+    let placeholder = null;
+
+    const update = () => {
+      if (!stickyEl.isConnected) return;
+      const absTop = stickyEl.getBoundingClientRect().top + window.scrollY;
+      const shouldFix = (window.scrollY + TOP) > absTop + 4;
+      if (shouldFix && !stickyEl.classList.contains('is-sticky-fixed')) {
+        // 插入同高占位符，避免列表内容跳动
+        placeholder = document.createElement('div');
+        placeholder.className = 'page-sticky-placeholder';
+        placeholder.style.height = stickyEl.offsetHeight + 'px';
+        stickyEl.parentNode.insertBefore(placeholder, stickyEl);
+        stickyEl.classList.add('is-sticky-fixed');
+        const r = stickyEl.getBoundingClientRect();
+        stickyEl.style.top = TOP + 'px';
+        stickyEl.style.left = r.left + 'px';
+        stickyEl.style.width = r.width + 'px';
+      } else if (!shouldFix && stickyEl.classList.contains('is-sticky-fixed')) {
+        stickyEl.classList.remove('is-sticky-fixed');
+        stickyEl.style.top = ''; stickyEl.style.left = ''; stickyEl.style.width = '';
+        if (placeholder) { placeholder.remove(); placeholder = null; }
+      }
+      // 高度变化（搜索区展开/收起等）时同步占位符
+      if (shouldFix && placeholder) {
+        const h = stickyEl.offsetHeight;
+        if (placeholder.style.height !== h + 'px') placeholder.style.height = h + 'px';
+      }
+    };
+
+    const onScroll = () => { update(); };
+    const onResize = () => {
+      if (stickyEl.classList.contains('is-sticky-fixed')) {
+        const r = stickyEl.getBoundingClientRect();
+        stickyEl.style.left = r.left + 'px';
+        stickyEl.style.width = r.width + 'px';
+      }
+      update();
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onResize);
+    this._stickyUpdate = update;
+    this._stickyCleanup = () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onResize);
+      if (placeholder) { placeholder.remove(); placeholder = null; }
+    };
+    update();
   },
 
   async loadData() {
@@ -6657,6 +6722,8 @@ App.Pages.Errors = {
       this.state.searchVisible = !this.state.searchVisible;
       const searchArea = document.getElementById('error-search-area');
       if (searchArea) this.renderSearchBar(searchArea);
+      // 吸顶区高度变化（搜索栏展开/收起），同步占位符高度
+      if (this._stickyUpdate) this._stickyUpdate();
     }
   },
 
