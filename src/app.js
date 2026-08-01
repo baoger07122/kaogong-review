@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.17';
+App.VERSION = '8.1.18';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9755,32 +9755,42 @@ App.Pages.Settings = {
     });
     dataGroup.appendChild(importItem);
 
-    // 本地自动备份记录
+    // 本地自动备份记录（折叠形式：默认只显示一行标题，点开才展开纯文字记录，无恢复按钮）
     const localBackupWrap = document.createElement('div');
     localBackupWrap.style.cssText = 'padding:4px 0 12px;';
-    localBackupWrap.innerHTML = `<div class="backup-list-title">本地自动备份记录</div><div id="local-backup-list"><span style="color:var(--text-tertiary);font-size:13px">读取中…</span></div>`;
+    localBackupWrap.innerHTML = `
+      <div class="backup-list-title backup-list-title--clickable" id="local-backup-head">
+        <span class="backup-list-title__text">本地自动备份记录</span>
+        <span class="backup-list-title__right">
+          <span class="backup-list-title__badge" id="local-backup-count">读取中…</span>
+          <span class="backup-list-title__arrow">▸</span>
+        </span>
+      </div>
+      <div id="local-backup-list" class="backup-list-body" style="display:none;"></div>
+    `;
     dataGroup.appendChild(localBackupWrap);
+    const backupHead = localBackupWrap.querySelector('#local-backup-head');
+    const backupBody = localBackupWrap.querySelector('#local-backup-list');
+    backupHead.addEventListener('click', () => {
+      const open = backupHead.classList.toggle('open');
+      backupBody.style.display = open ? 'block' : 'none';
+    });
     (async () => {
       try {
         const list = await App.DB.listAutoBackups();
+        const countEl = localBackupWrap.querySelector('#local-backup-count');
+        countEl.textContent = list.length ? `${list.length} 条` : '0 条';
         const box = localBackupWrap.querySelector('#local-backup-list');
-        if (!list.length) { box.innerHTML = '<span style="color:var(--text-tertiary);font-size:13px">暂无本地备份（修改任意数据后会自动生成）</span>'; return; }
+        if (!list.length) {
+          box.innerHTML = '<div class="backup-list-row backup-list-row--empty">暂无本地备份（修改任意数据后会自动生成）</div>';
+          return;
+        }
         box.innerHTML = '';
         list.forEach(b => {
           const row = document.createElement('div');
           row.className = 'backup-list-row';
           const d = new Date(b.ts);
           row.innerHTML = `<span>${d.toLocaleString('zh-CN', { hour12: false })}</span>`;
-          const btn = document.createElement('button');
-          btn.className = 'btn btn--outline btn--sm';
-          btn.textContent = '恢复';
-          btn.addEventListener('click', async () => {
-            const ok = await App.Components.confirm('恢复本地备份', '将用该备份覆盖当前数据，确定继续？', '恢复', '取消', true);
-            if (!ok) return;
-            try { await App.DB.restoreAutoBackup(b.key); App.Components.toast('已恢复该备份，即将刷新', 'success'); setTimeout(() => location.reload(), 1200); }
-            catch (e) { App.Components.toast('恢复失败', 'error'); }
-          });
-          row.appendChild(btn);
           box.appendChild(row);
         });
       } catch (e) { /* ignore */ }

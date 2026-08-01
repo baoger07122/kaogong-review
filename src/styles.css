@@ -2997,22 +2997,58 @@ input, textarea, select {
   color: var(--text-tertiary);
   line-height: 1.6;
 }
-/* 本地自动备份记录列表 */
+/* 本地自动备份记录列表（折叠形式） */
 .backup-list-title {
-  padding: 8px var(--spacing-lg) 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px var(--spacing-lg);
   font-size: var(--font-sm);
   font-weight: 600;
   color: var(--text-secondary);
 }
+.backup-list-title--clickable {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s;
+}
+.backup-list-title--clickable:active {
+  background: var(--bg-tertiary);
+}
+.backup-list-title__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.backup-list-title__badge {
+  font-size: var(--font-xs);
+  font-weight: 500;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+.backup-list-title__arrow {
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-tertiary);
+  transition: transform 0.2s ease;
+}
+.backup-list-title.open .backup-list-title__arrow {
+  transform: rotate(90deg);
+}
 .backup-list-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   padding: 10px var(--spacing-lg);
   border-top: 1px solid var(--divider-color);
   font-size: var(--font-sm);
   color: var(--text-secondary);
+}
+.backup-list-row--empty {
+  color: var(--text-tertiary);
 }
 
 /* ===== 导入文件隐藏 input ===== */
