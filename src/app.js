@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.18';
+App.VERSION = '8.1.19';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9795,30 +9795,6 @@ App.Pages.Settings = {
         });
       } catch (e) { /* ignore */ }
     })();
-
-    // 清空数据
-    const clearItem = document.createElement('div');
-    clearItem.className = 'settings-item';
-    clearItem.innerHTML = `
-      <span class="settings-item__label" style="color:var(--color-danger);">清空全部数据</span>
-      <span class="settings-item__value"></span>
-    `;
-    clearItem.addEventListener('click', async () => {
-      const confirmed = await App.Components.confirm(
-        '清空全部数据',
-        '此操作将永久删除所有错题、笔记、套卷和待办数据，不可恢复！\n\n建议先导出备份。',
-        '确认清空', '取消', true
-      );
-      if (confirmed) {
-        const stores = ['errors', 'notes', 'exams', 'todos', 'subject_reviews'];
-        for (const store of stores) {
-          await App.DB.clearStore(store);
-        }
-        App.Components.toast('全部数据已清空', 'success');
-        setTimeout(() => location.reload(), 1000);
-      }
-    });
-    dataGroup.appendChild(clearItem);
 
     content.appendChild(dataGroup);
 
