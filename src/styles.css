@@ -371,6 +371,7 @@ input, textarea, select {
 #page-errors.active,
 #page-notes.active {
   padding-top: 0;
+  padding-bottom: 0;
   display: flex;
   flex-direction: column;
   height: calc(100vh - var(--nav-height) - var(--safe-bottom));
@@ -381,6 +382,9 @@ input, textarea, select {
 #page-notes.active .with-sidebar {
   flex: 1;
   min-height: 0;
+  /* 覆盖全局 align-items:flex-start：子项拉伸占满高度，scroll-content 才能获得受限高度滚动 */
+  align-items: stretch;
+  overflow: hidden;
 }
 #page-errors.active .sidebar,
 #page-notes.active .sidebar {
@@ -396,6 +400,7 @@ input, textarea, select {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  height: 100%; /* 双保险：撑满容器高度，scroll-content 获得受限高度 */
   overflow: hidden;
 }
 #page-errors.active .page-sticky,
