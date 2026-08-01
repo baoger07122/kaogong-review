@@ -328,19 +328,6 @@ input, textarea, select {
 .page-sticky .page-header {
   position: static;
 }
-/* 伪元素背景上延：填充吸顶区上方到屏幕顶端的预留空白，
-   滚动内容经过这段空白时被伪元素背景遮挡，不再穿出。
-   不改变任何布局属性（margin/padding/sticky 均不动）。 */
-.page-sticky::before {
-  content: '';
-  position: absolute;
-  top: calc(-1 * (var(--top-buffer) + 12px));
-  left: 0;
-  right: 0;
-  height: calc(var(--top-buffer) + 12px);
-  background: var(--bg-primary);
-  pointer-events: none;
-}
 /* JS 吸顶兜底：iOS 个别版本 position:sticky 失效时，滚动中切换为 fixed 并插入同高占位符。
    吸顶后 top:0 + padding-top 上延背景：把「页面顶部到手机顶端的预留空白」一并盖住，
    滚动内容从任何高度经过都被吸顶区背景遮挡，不再穿出。 */
@@ -362,65 +349,6 @@ input, textarea, select {
 }
 .page-sticky-placeholder {
   visibility: hidden;
-}
-
-/* ===== 错题本/笔记页：fixed 吸顶 + 独立滚动容器 ===== */
-/* Header 用 fixed 贴屏幕物理顶端 0，侧边栏在 flex 中自然固定；
-   内容区独立滚动（JS 动态留出 Header 空间）。
-   只作用于 #page-errors 和 #page-notes，不影响其他页面。 */
-#page-errors.active,
-#page-notes.active {
-  padding-top: 0;
-  padding-bottom: 0;
-  display: flex;
-  flex-direction: column;
-  height: calc(100vh - var(--nav-height) - var(--safe-bottom));
-  max-height: calc(100vh - var(--nav-height) - var(--safe-bottom));
-  overflow: hidden;
-}
-#page-errors.active .with-sidebar,
-#page-notes.active .with-sidebar {
-  flex: 1;
-  min-height: 0;
-  /* 覆盖全局 align-items:flex-start：子项拉伸占满高度，scroll-content 才能获得受限高度滚动 */
-  align-items: stretch;
-  overflow: hidden;
-}
-#page-errors.active .sidebar,
-#page-notes.active .sidebar {
-  position: relative;
-  top: auto;
-  height: 100%;
-  padding-top: calc(var(--top-buffer) + 12px);
-}
-#page-errors.active .page-main,
-#page-notes.active .page-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  height: 100%; /* 双保险：撑满容器高度，scroll-content 获得受限高度 */
-  overflow: hidden;
-}
-#page-errors.active .page-sticky,
-#page-notes.active .page-sticky {
-  position: fixed;
-  top: 0;
-  left: 80px;
-  right: 0;
-  z-index: 1500;
-  background: var(--bg-primary);
-  padding-top: calc(var(--top-buffer) + 12px);
-  padding-bottom: var(--spacing-sm);
-  border-bottom: 0.5px solid var(--divider-color);
-  box-shadow: 0 8px 20px -12px rgba(0,0,0,0.12);
-}
-.scroll-content {
-  flex: 1;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  min-height: 0;
 }
 
 .page-header {
