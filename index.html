@@ -5528,7 +5528,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.5.0';
+App.VERSION = '8.5.1';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -7078,6 +7078,56 @@ App.Components = {
     mR.className = 'notion-mobile-toolbar__mask right';
     el.appendChild(mL); el.appendChild(scroll); el.appendChild(mR);
     document.body.appendChild(el);
+    this._mobileToolbarEl = el;
+
+    // ===== 软键盘适配（单例级，只注册一次） =====
+    // iOS Safari 键盘弹出时 visualViewport 高度缩小，同时键盘上方还有系统「上一条/下一条/完成」透明条
+    // 方案：用 visualViewport.height 计算键盘+透明条总高度，工具栏 bottom 跟随；并监听 scroll（Safari 滚动触发）
+    const isMob = window.innerWidth <= 768 || ('ontouchstart' in window);
+    let baseInnerH = window.innerHeight;   // 缓存基准视口高度（键盘弹出后 innerHeight 也可能变化）
+    let kbRaf = null;
+    const updateToolbarBottom = () => {
+      const bar = App.Components._mobileToolbarEl;
+      if (!bar || !isMob) return;
+      let kb = 0;
+      if (window.visualViewport) {
+        const vv = window.visualViewport;
+        // 键盘+系统工具条高度 = 基准视口高 - 当前可视高（含 Safari 透明条占位）
+        kb = Math.max(0, baseInnerH - vv.height);
+        // 兼容旧版 iOS：offsetTop 表示可视区相对页面的下移量，也计入
+        if (vv.offsetTop > kb) kb = vv.offsetTop;
+      }
+      bar.style.bottom = kb + 'px';
+      // 同时告知当前活动编辑器，让浮动格式栏也能适配
+      const inst = App.Components._activeMobileEditor;
+      if (inst && typeof inst._onKeyboardChange === 'function') inst._onKeyboardChange(kb);
+    };
+    const scheduleKb = () => {
+      if (kbRaf) return;
+      kbRaf = requestAnimationFrame(() => { kbRaf = null; updateToolbarBottom(); });
+    };
+    if (isMob && window.visualViewport) {
+      window.visualViewport.addEventListener('resize', scheduleKb, { passive: true });
+      window.visualViewport.addEventListener('scroll', scheduleKb, { passive: true });
+    } else if (isMob) {
+      let _lastH = window.innerHeight;
+      window.addEventListener('resize', () => {
+        const dh = Math.abs(window.innerHeight - _lastH);
+        _lastH = window.innerHeight;
+        if (dh > 150) { baseInnerH = window.innerHeight + dh; scheduleKb(); }
+        else { baseInnerH = window.innerHeight; scheduleKb(); }
+      }, { passive: true });
+    }
+    // 聚焦时也刷新一次（键盘弹出可能不触发 resize）
+    window.addEventListener('focusin', scheduleKb, { passive: true });
+    window.addEventListener('focusout', () => {
+      // 键盘收起：恢复到底部
+      if (kbRaf) cancelAnimationFrame(kbRaf);
+      kbRaf = null;
+      baseInnerH = window.innerHeight;
+      updateToolbarBottom();
+    }, { passive: true });
+
     this._mobileToolbarEl = el;
     return el;
   },
@@ -9461,33 +9511,23 @@ App.Components = {
       }
     };
 
-    // ===== 底部工具栏键盘适配：visualViewport / resize =====
+    // ===== 软键盘/系统工具条适配钩子 =====
+    // 单例工具栏已在 App.Components 层监听 visualViewport（含 Safari 透明条），
+    // 通过 _onKeyboardChange 回调通知本实例：kb > 0 表示键盘+透明条占位高度，用于浮动格式栏避让
     let _keyboardH = 0;
-    function applyToolbarBottom() {
-      if (!isMobile || !_mobileToolbar) return;
-      _mobileToolbar.style.bottom = _keyboardH + 'px';
-    }
+    _mobileInst._onKeyboardChange = (kb) => {
+      _keyboardH = kb;
+      // 格式栏打开时重新定位（避开 Safari「上/下/对号」透明条）
+      if (formatBar && formatBar.parentElement) repositionFormatBar();
+    };
+    // 键盘弹出时把聚焦块滚动到可视区
+    const _vvScrollHandler = () => {
+      if (_keyboardH > 0 && focusedBlockEl && focusedBlockEl.scrollIntoView) {
+        focusedBlockEl.scrollIntoView({ block: 'center', behavior: 'auto' });
+      }
+    };
     if (isMobile && window.visualViewport) {
-      window.visualViewport.addEventListener('resize', () => {
-        const vh = window.visualViewport.height || window.innerHeight;
-        _keyboardH = Math.max(0, window.innerHeight - vh);
-        applyToolbarBottom();
-        if (focusedBlockEl && focusedBlockEl.scrollIntoView) focusedBlockEl.scrollIntoView({ block: 'center', behavior: 'auto' });
-      });
-    } else if (isMobile) {
-      let _lastH = window.innerHeight;
-      window.addEventListener('resize', () => {
-        const dh = Math.abs(window.innerHeight - _lastH);
-        _lastH = window.innerHeight;
-        if (dh > 150) {
-          _keyboardH = dh;
-          applyToolbarBottom();
-          if (focusedBlockEl && focusedBlockEl.scrollIntoView) focusedBlockEl.scrollIntoView({ block: 'center', behavior: 'auto' });
-        } else {
-          _keyboardH = 0;
-          applyToolbarBottom();
-        }
-      });
+      window.visualViewport.addEventListener('scroll', _vvScrollHandler, { passive: true });
     }
 
     // ===== Bottom Sheet 通用：打开/关闭/下滑关闭 =====
@@ -9783,10 +9823,41 @@ App.Components = {
     }
 
     // ===== 选中文本的格式工具栏 =====
+    // 浮动格式栏定位：避开 iOS Safari「上/下/对号」透明条（键盘上方约 44px 系统条）
+    // 用 visualViewport 计算可视安全区，顶部空间不足时翻转到选区下方
+    function repositionFormatBar() {
+      if (!formatBar || !formatBar.parentElement) return;
+      const range = formatBar._range;
+      if (!range) return;
+      try {
+        const rect = range.getBoundingClientRect();
+        const wRect = wrapper.getBoundingClientRect();
+        // 可视安全区（屏幕坐标）：顶部 = 键盘/透明条顶部，底部 = 可视区底部
+        let safeTop = 0, safeBottom = window.innerHeight;
+        if (window.visualViewport) {
+          const vv = window.visualViewport;
+          safeTop = vv.offsetTop + (_keyboardH > 0 ? 48 : 0);   // Safari 透明条约 44px，留 4px 余量
+          safeBottom = vv.offsetTop + vv.height;
+        }
+        const barH = formatBar.offsetHeight || 40;
+        const preferTop = rect.top - barH - 10;   // 首选：选区上方
+        const preferBottom = rect.bottom + 10;    // 备选：选区下方
+        // 相对 wrapper 的 top
+        let top;
+        // 选区上方是否在安全区顶部以下（不被透明条/键盘遮挡）？
+        if (preferTop >= safeTop) top = preferTop;
+        else if (preferBottom + barH <= safeBottom) top = preferBottom;
+        else top = Math.max(safeTop, preferTop);  // 都放不下时尽量贴安全区顶部
+        formatBar.style.top = (top - wRect.top) + 'px';
+        formatBar.style.left = Math.max(0, (rect.left + rect.width / 2 - formatBar.offsetWidth / 2)) + 'px';
+      } catch(e) { formatBar.style.top = '40px'; formatBar.style.left = '10px'; }
+    }
+
     function showFormatBar(range) {
       hideFormatBar();
       formatBar = document.createElement('div');
       formatBar.className = 'notion-format-bar';
+      formatBar._range = range;
       const fmtTools = [
         { cmd: 'bold', icon: '<b>B</b>', title: '加粗' },
         { cmd: 'italic', icon: '<i>I</i>', title: '斜体' },
@@ -9810,11 +9881,7 @@ App.Components = {
         formatBar.appendChild(btn);
       });
       wrapper.appendChild(formatBar);
-      try {
-        const rect = range.getBoundingClientRect();
-        formatBar.style.top = (rect.top - wrapper.getBoundingClientRect().top - 42) + 'px';
-        formatBar.style.left = Math.max(0, (rect.left + rect.width / 2 - formatBar.offsetWidth / 2)) + 'px';
-      } catch(e) { formatBar.style.top = '40px'; formatBar.style.left = '10px'; }
+      repositionFormatBar();
     }
 
     function applyFormat(cmd, range) {
