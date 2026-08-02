@@ -235,7 +235,7 @@ input, textarea, select {
 #page-home,
 #page-study-stats,
 #page-kpmanage {
-  padding-top: calc(var(--top-buffer) + 12px);
+  padding-top: var(--top-buffer);
 }
 
 .page.active {
@@ -342,30 +342,30 @@ input, textarea, select {
 .page-sticky {
   position: sticky;
   /* 贴屏幕物理顶端：背景从 y=0 开始铺，盖住状态栏后方，滚动时内容被背景遮挡不穿出；
-     安全区留白转入内部 padding-top，文字仍避开状态栏与 iPad 三点。
-     补偿值 12px 与原 .page padding-top 一致——吸顶后底沿位置与旧布局完全相同。 */
+     安全区留白仅用真实 env(safe-area-inset-top)，不再额外加 12px，iPad 上直接为 0 置顶。 */
   top: 0;
-  padding-top: calc(var(--top-buffer) + 12px);
+  padding-top: var(--top-buffer);
   z-index: 200;
   background: var(--bg-primary);
   padding-bottom: var(--spacing-sm);
   border-bottom: 0.5px solid var(--divider-color);
 }
-/* 包进固定区后，内部标题不再需要自身 sticky，也不再重复顶部留白（外层已垫） */
+/* 包进固定区后，内部标题不再需要自身 sticky；外层 .page-sticky 已用真实安全区垫顶，
+   这里不再额外加顶部留白（iPad 上即 0） */
 .page-sticky .page-header {
   position: static;
-  padding-top: var(--spacing-sm);
+  padding-top: 0;
 }
 
 .page-header {
   position: sticky;
-  /* 同 .page-sticky：贴 top:0，背景从屏幕顶端铺；padding-top 多垫 top-buffer+12px，
-     保持标题文字位置与吸顶底沿和旧布局一致（二级吸顶 .tabs/.worddb-thead 无需改动） */
+  /* 同 .page-sticky：贴 top:0，背景从屏幕顶端铺；padding-top 仅用真实安全区，
+     不再额外加 12px/spacing-sm（iPad 直接为 0 置顶；手机端仅留状态栏高度） */
   top: 0;
   z-index: 100;
   background: var(--bg-primary);
   padding: var(--spacing-md) var(--page-padding);
-  padding-top: calc(var(--top-buffer) + 12px + var(--spacing-sm));
+  padding-top: var(--top-buffer);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3390,7 +3390,7 @@ input, textarea, select {
   -webkit-overflow-scrolling: touch;
   background: var(--bg-secondary);
   border-right: 0.5px solid var(--border-color);
-  padding: calc(var(--top-buffer) + 12px + var(--spacing-sm)) 0 var(--spacing-sm);
+  padding: var(--top-buffer) 0 var(--spacing-sm);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -5186,7 +5186,7 @@ input, textarea, select {
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.29';
+App.VERSION = '8.1.30';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
