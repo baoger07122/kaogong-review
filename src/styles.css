@@ -4269,7 +4269,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   -webkit-tap-highlight-color: transparent;
 }
 .notion-block:hover { background: rgba(0,0,0,0.02); }
-.notion-block:hover .notion-block__handle,
+/* 状态 1/2：手柄默认隐藏（不碍眼）；仅状态 3（选中）时显示 */
 .notion-block:hover .notion-block__indents { opacity: 1; }
 
 .notion-block__handle {
@@ -4286,19 +4286,34 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   transition: opacity 0.15s ease;
   margin-left: -2px;
   user-select: none;
-  pointer-events: auto;
+  pointer-events: none;            /* 状态 1/2 不可点（避免误触） */
   touch-action: none;              /* 触屏拖拽不触发滚动/缩放 */
 }
-/* 移动端 / 触摸设备：手柄始终显示（无 hover 概念） */
-@media (hover: none), (pointer: coarse) {
-  .notion-block__handle { opacity: 1; }
-  .notion-block:hover .notion-block__handle { opacity: 1; }
+/* 状态 3：块被选中时手柄显示且可点 */
+.notion-block.is-selected .notion-block__handle {
+  opacity: 1;
+  pointer-events: auto;
 }
 .notion-block__handle:active { cursor: grabbing; }
-/* 正在输入（块内有光标）时手柄禁用 */
+/* 正在输入（状态 2，块内有光标）时手柄保持隐藏 */
 .notion-block.is-editing .notion-block__handle {
   pointer-events: none;
-  opacity: 0.35;
+  opacity: 0;
+}
+/* 状态 3 视觉指示：左侧 3px 蓝色竖条 + 极淡蓝背景 */
+.notion-block.is-selected {
+  background: rgba(46, 170, 220, 0.05);
+}
+.notion-block.is-selected::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  width: 3px;
+  background: var(--color-primary, #2EAADC);
+  border-radius: 0 2px 2px 0;
+  pointer-events: none;
 }
 
 .notion-block__indents {

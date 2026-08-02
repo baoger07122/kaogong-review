@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.2.8';
+App.VERSION = '8.2.9';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -3840,6 +3840,39 @@ App.Components = {
     }
     function hideHandleMenu() { if (handleMenu) { handleMenu.remove(); handleMenu = null; } }
 
+    // ===== 块手柄状态机（浏览→编辑→选择→菜单） =====
+    // 状态 1 浏览：手柄隐藏；状态 2 编辑：手柄隐藏；状态 3 选择：手柄显示 + 蓝色竖条；状态 4 菜单：手柄旁弹菜单
+    // 选中块：添加 .is-selected（手柄显示 + 视觉指示），取消其他块的选中
+    function selectBlock(blockEl) {
+      blocksContainer.querySelectorAll('.notion-block.is-selected').forEach(b => {
+        if (b !== blockEl) b.classList.remove('is-selected');
+      });
+      if (blockEl) blockEl.classList.add('is-selected');
+    }
+    function clearSelected() {
+      blocksContainer.querySelectorAll('.notion-block.is-selected').forEach(b => b.classList.remove('is-selected'));
+    }
+    // 进入编辑状态（状态 2）：取消选中，手柄隐藏
+    function onBlockFocus(blockEl) {
+      if (blockEl) blockEl.classList.remove('is-selected');
+      hideHandleMenu();
+    }
+    // ESC 状态流转：菜单开→关(回状态3)；编辑中→退编辑(进状态3)；选中→取消(回状态1)
+    function handleBlockEscape() {
+      if (handleMenu && handleMenu.parentElement) { hideHandleMenu(); return true; }   // 状态 4→3
+      const ae = document.activeElement;
+      // 编辑中（contenteditable 或 table cell）：退编辑并选中所在块
+      const editingEl = ae && (ae.isContentEditable || ae.closest && ae.closest('.notion-editable, .notion-table td'));
+      if (editingEl) {
+        const be = ae.closest ? ae.closest('.notion-block') : null;
+        ae.blur();
+        if (be) selectBlock(be);     // 状态 2→3：退编辑并选中
+        return true;
+      }
+      if (blocksContainer.querySelector('.notion-block.is-selected')) { clearSelected(); return true; }  // 状态 3→1
+      return false;
+    }
+
     // ===== 顶部工具栏（苹果备忘录风格：两行分组） =====
     const toolbar = document.createElement('div');
     toolbar.className = 'notion-toolbar';
@@ -4648,10 +4681,14 @@ App.Components = {
         e.stopPropagation();
         // 刚拖拽过（本次按下发生过移动）：不弹菜单，由拖拽逻辑处理
         if (dragJustMoved) { dragJustMoved = false; return; }
-        // 正在输入文字（块内有光标）时不可选择
-        const ed = el.querySelector('.notion-editable');
-        if (ed && document.activeElement === ed) return;
-        showHandleMenu(el);
+        // 状态机：点击手柄 → 选中该块（状态 3）并切换菜单（状态 4 开/关）
+        selectBlock(el);
+        if (handleMenu && handleMenu.parentElement) {
+          // 菜单已开：再点手柄 → 关闭菜单回到状态 3
+          hideHandleMenu();
+        } else {
+          showHandleMenu(el);
+        }
       });
       // 拖拽排序：按住手柄上下拖动，显示占位线，松开交换位置（仅顶层块；toggle 子块不支持拖拽）
       handle.addEventListener('pointerdown', (e) => {
@@ -4908,7 +4945,10 @@ App.Components = {
 
       div.addEventListener('focus', () => {
         focusedBlockEl = div.closest('.notion-block');
-        if (focusedBlockEl) focusedBlockEl.classList.add('is-editing');
+        if (focusedBlockEl) {
+          focusedBlockEl.classList.add('is-editing');
+          onBlockFocus(focusedBlockEl);   // 状态 2：进入编辑，取消选中（手柄隐藏）
+        }
       });
       div.addEventListener('blur', () => {
         const be = div.closest('.notion-block');
@@ -4937,6 +4977,11 @@ App.Components = {
         const be = div.closest('.notion-block');
         const ctx = getBlockCtx(be);
         const idx = ctx ? ctx.idx : parseInt(be.dataset.index);
+        // ESC：状态机流转（编辑→选择→取消）；先于斜杠菜单处理（菜单关闭后进入选择）
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          if (handleBlockEscape()) return;
+        }
         // 斜杠菜单键盘导航优先（上下选择/回车确认/Esc 关闭）
         if (handleSlashKey(e)) return;
         if (e.key === 'Tab') {
@@ -5573,9 +5618,35 @@ App.Components = {
         toolbar.classList.remove('is-visible');
       }, 220);
     });
-    // 移动端点击编辑器区域外时，隐藏 Bottom Sheet（若打开）
+    // 移动端点击编辑器区域外时，隐藏 Bottom Sheet（若打开）；同时取消块选中（状态 1）
     document.addEventListener('click', (e) => {
-      if (!wrapper.contains(e.target)) hideAllMenus();
+      if (!wrapper.contains(e.target)) {
+        hideAllMenus();
+        clearSelected();
+      }
+    });
+    // 状态机：点击块内容区 → 进入编辑（取消选中）；点击空白区域 → 取消选中
+    wrapper.addEventListener('mousedown', (e) => {
+      const be = e.target.closest ? e.target.closest('.notion-block') : null;
+      if (!be) { clearSelected(); return; }
+      // 点击手柄不在此处理（手柄自身逻辑）
+      if (e.target.closest('.notion-block__handle')) return;
+      // 点击块内容：取消该块选中（即将进入编辑状态）
+      if (be.classList.contains('is-selected')) {
+        // 若点击的是 contenteditable 外部区域（如 toggle 箭头），也保持选中逻辑
+        const ed = be.querySelector('.notion-editable');
+        if (ed && e.target !== ed && !ed.contains(e.target)) {
+          // 点击 toggle 标题/箭头等：进入编辑态会触发 focus → onBlockFocus 取消选中
+        } else {
+          be.classList.remove('is-selected');
+        }
+      }
+    });
+    // 状态机：document 级 ESC（菜单外/非编辑态），处理 状态3→1 取消选中
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) {
+        handleBlockEscape();
+      }
     });
     reRender();
 
