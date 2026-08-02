@@ -90,9 +90,11 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
-  /* 顶部缓冲：用 max() 兜底——即便 iPad 分屏/某些配置未正确上报安全区，
-     也至少预留 24px，避开系统顶部多任务「三个点」条与状态栏遮挡。 */
-  --top-buffer: max(var(--safe-top), 24px);
+  /* 顶部缓冲：直接用系统真实安全区 env(safe-area-inset-top)。
+     不再为 iPad 分屏「三个点」多任务条预留 24px 地板——按用户要求忽略该冲突，直接置顶。
+     手机端 env() 返回真实状态栏高度（需 viewport-fit=cover，模板中已设置），
+     背景从屏幕物理顶端铺，标题仅保留极小顶部间距。 */
+  --top-buffer: var(--safe-top);
 
   /* --- 导航栏高度 --- */
   --nav-height: 56px;
@@ -5184,7 +5186,7 @@ input, textarea, select {
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.28';
+App.VERSION = '8.1.29';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
