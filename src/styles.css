@@ -169,6 +169,7 @@ html, body {
 body {
   min-height: 100vh;
   min-height: -webkit-fill-available;
+  min-height: 100dvh;
   /* 注意：不要给 body 加 overflow-x: hidden——iOS Safari 上会破坏 position: sticky；
      水平溢出已由 #app 的 overflow-x: clip 兜底。也不要加 padding-bottom——
      所有 .page 已有预留导航栏空间的 padding，叠加会产生底部大片空白。 */
@@ -198,6 +199,7 @@ input, textarea, select {
 /* ===== 应用容器 ===== */
 #app {
   min-height: 100vh;
+  min-height: 100dvh;
   position: relative;
   /* iOS Safari 中 overflow-x: hidden 会破坏 position: sticky（侧边栏固定），用 clip 不创建滚动上下文 */
   overflow-x: clip;
@@ -205,12 +207,18 @@ input, textarea, select {
 
 .page {
   display: none;
-  min-height: calc(100vh - var(--nav-height) - var(--safe-bottom));
+  /* 页面最小高度 = 整屏：内容区底沿正好落到固定底栏顶端，
+     不再凭空多出底部空白；内容不足一屏时整页恰好等于视口高度 → 不可滚动。
+     用 100dvh（动态视口高度）对齐移动端「可视区」，避免 100vh 大于可视区导致的底部多余可滚动空白。 */
+  min-height: 100vh;
+  min-height: 100dvh;
   /* 顶部不再统一预留：吸顶元素（.page-sticky/.page-header/.sidebar）已贴 top:0，
      安全区留白转移到吸顶元素内部 padding-top，背景从屏幕物理顶端开始铺，
      滚动时顶带被吸顶元素背景覆盖，内容不再从状态栏下方穿出。
      无吸顶标题栏的页面（首页/学习统计/考点管理）单独补顶部留白（见下）。 */
-  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 14px);
+  /* 底部仅预留固定底栏（nav 高度 + 底部安全区），不多留；
+     滚动范围严格等于页面内容，到底即止、无额外空白。 */
+  padding-bottom: calc(var(--nav-height) + var(--safe-bottom));
 }
 
 /* 无吸顶标题栏的页面：首元素是普通内容，需自行避开状态栏/iPad 三点 */
@@ -218,6 +226,16 @@ input, textarea, select {
 #page-study-stats,
 #page-kpmanage {
   padding-top: var(--top-buffer);
+}
+
+/* 首页：内容不超过整屏 → 锁定整屏高、禁止滚动；固定底栏以 overlay 覆盖底部，
+   不占用文档流高度，因此不再产生底部空白与可滚动区域。
+   用 100dvh 精确对齐移动端可视区，彻底消除 100vh 大于可视区带来的底部 21px 可滚动空白。 */
+#page-home {
+  height: 100vh;
+  height: 100dvh;
+  padding-bottom: 0;
+  overflow: hidden;
 }
 
 .page.active {
@@ -429,6 +447,15 @@ input, textarea, select {
 
 .page-header__back:active {
   background: var(--bg-tertiary);
+}
+
+/* iPad 分屏「三个点」多任务条位于顶部左侧，会压住返回按钮。
+   在 iPad 形态（触屏 + 宽 ≥768）下，将返回按钮在当行内右移 24px 避开冲突，
+   垂直位置保持不变（仅改 margin-left，不影响行高）。 */
+@media (min-width: 768px) and (pointer: coarse) {
+  .page-header__back {
+    margin-left: 24px;
+  }
 }
 
 /* ===== 搜索栏 ===== */
@@ -3375,7 +3402,7 @@ input, textarea, select {
   flex: 0 0 auto;
   width: 80px;
   /* 固定高度占满左侧整列，滚动时保持固定 */
-  height: calc(100vh - var(--nav-height) - var(--safe-bottom));
+  height: calc(100dvh - var(--nav-height) - var(--safe-bottom));
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   background: var(--bg-secondary);
