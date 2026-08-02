@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.2.9';
+App.VERSION = '8.2.10';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -5625,21 +5625,22 @@ App.Components = {
         clearSelected();
       }
     });
-    // 状态机：点击块内容区 → 进入编辑（取消选中）；点击空白区域 → 取消选中
+    // 状态机：点击块 → 若块不在编辑态（光标不闪动）则选中（显示手柄）；编辑态点击 → 进入编辑并取消选中
+    // 用户规则：手柄显示条件 = 块处于「非编辑态被点击选中」，而非必须按 ESC
     wrapper.addEventListener('mousedown', (e) => {
       const be = e.target.closest ? e.target.closest('.notion-block') : null;
       if (!be) { clearSelected(); return; }
       // 点击手柄不在此处理（手柄自身逻辑）
       if (e.target.closest('.notion-block__handle')) return;
-      // 点击块内容：取消该块选中（即将进入编辑状态）
-      if (be.classList.contains('is-selected')) {
-        // 若点击的是 contenteditable 外部区域（如 toggle 箭头），也保持选中逻辑
-        const ed = be.querySelector('.notion-editable');
-        if (ed && e.target !== ed && !ed.contains(e.target)) {
-          // 点击 toggle 标题/箭头等：进入编辑态会触发 focus → onBlockFocus 取消选中
-        } else {
-          be.classList.remove('is-selected');
-        }
+      // 点击 contenteditable 文字区：交给 focus 处理（进入编辑态，手柄隐藏），不在这里选中避免闪烁
+      const ed = be.querySelector('.notion-editable');
+      if (ed && (e.target === ed || (ed.contains && ed.contains(e.target)))) return;
+      if (be.classList.contains('is-editing')) {
+        // 编辑态（光标闪动）：点击非文字区（如块左侧空白）取消选中隐藏手柄
+        be.classList.remove('is-selected');
+      } else {
+        // 非编辑态（光标不闪动）：点击块的非文字区域 → 选中它（手柄显示 + 蓝色竖条）
+        selectBlock(be);
       }
     });
     // 状态机：document 级 ESC（菜单外/非编辑态），处理 状态3→1 取消选中

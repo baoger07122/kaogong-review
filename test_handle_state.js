@@ -62,16 +62,30 @@ setTimeout(() => {
     assert(!b0.classList.contains('is-selected'), '进入编辑取消选中');
     assert(b0.classList.contains('is-editing'), '进入编辑状态类');
 
-    // 状态 3：按 ESC 退编辑 → 选中（jsdom 中 contenteditable focus 的 activeElement 不可靠，
-    // 改为验证：选中态（无编辑）时手柄显示 + 视觉指示）
-    console.log('\n[3] 状态3 选择（ESC 后）');
-    b0.classList.remove('is-editing');   // 模拟 ESC 退编辑
-    b0.classList.add('is-selected');
+    // 状态 3：点击非编辑态的块 → 选中（显示手柄 + 视觉指示）；ESC 退编辑后也能选中
+    console.log('\n[3] 状态3 选择（点击非编辑态块 / ESC 后）');
+    // 先退出编辑态（模拟光标不闪动）
+    ed0.dispatchEvent(new win.FocusEvent('blur', { bubbles: true }));
+    b0.classList.remove('is-editing');
+    // 方式 A：点击非编辑态的块（块左侧空白区域，非 contenteditable）
+    const b0Blank = doc.createElement('div');
+    b0.appendChild(b0Blank);
+    b0Blank.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true }));
+    assert(b0.classList.contains('is-selected'), '点击非编辑态块 → 选中');
     const csSel = win.getComputedStyle(b0);
     assert(csSel.backgroundColor === 'rgba(46, 170, 220, 0.05)', '选中时有视觉指示背景 (' + csSel.backgroundColor + ')');
     const selHandle = win.getComputedStyle(h0);
     assert(selHandle.opacity === '1', '选中时手柄显示 (opacity:1)');
     assert(selHandle.pointerEvents === 'auto', '选中时手柄可点击');
+    // 方式 B：点击文字区 → 进入编辑态 → 手柄隐藏（光标闪动时隐藏）
+    ed0.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true }));
+    ed0.dispatchEvent(new win.FocusEvent('focus', { bubbles: true }));
+    assert(!b0.classList.contains('is-selected'), '点击文字进入编辑 → 取消选中');
+    assert(b0.classList.contains('is-editing'), '进入编辑状态类');
+    // 退出编辑（blur）后点击块空白 → 再次选中
+    ed0.dispatchEvent(new win.FocusEvent('blur', { bubbles: true }));
+    b0Blank.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true }));
+    assert(b0.classList.contains('is-selected'), '退出编辑后点击 → 再次选中');
     b0.classList.remove('is-selected');
 
     // 状态 4：点击手柄 → 打开菜单
