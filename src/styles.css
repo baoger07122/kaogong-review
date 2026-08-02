@@ -339,6 +339,14 @@ input, textarea, select {
   padding-top: 0;
 }
 
+/* 错题本：标题+统计+搜索整块不吸顶，随内容一起上滑；
+   滑出屏幕顶端时由 JS 动态叠加毛玻璃模糊（溶解效果），will-change 提示合成层 */
+#page-errors .page-sticky {
+  position: static;
+  top: auto;
+  will-change: filter, opacity;
+}
+
 .page-header {
   position: sticky;
   /* 同 .page-sticky：贴 top:0，背景从屏幕顶端铺；padding-top 仅用真实安全区，
