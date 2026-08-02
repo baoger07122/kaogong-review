@@ -3781,64 +3781,231 @@ input, textarea, select {
   pointer-events: auto;
 }
 
-/* ===== 【修复2】移动端跟随输入块浮动的迷你工具栏 ===== */
-/* 迷你工具栏：absolute 定位在编辑器容器内，跟随聚焦块上/下方 */
-.notion-mini-toolbar {
-  position: absolute;
-  z-index: 700;
+/* ===== 【修复2】Notion 移动端：底部横向滑动工具栏 + Bottom Sheet ===== */
+/* 底部工具栏：fixed 定位，横向连续滑动，左右渐变遮罩 */
+.notion-mobile-toolbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--bg-card, #FFFFFF);
+  border-top: 1px solid var(--border-color, #E8E8E8);
+  z-index: 1000;
+  display: none;   /* 桌面端默认隐藏，移动端显示 */
+}
+.notion-mobile-toolbar__scroll {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 4px 6px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  min-width: 200px;
-  max-width: calc(100% - 8px);
-  flex-wrap: wrap;
-  opacity: 0;
-  transform: translateY(-4px);
-  pointer-events: none;
-  transition: opacity 0.2s ease-out, transform 0.2s ease-out, top 0.2s ease-out, left 0.2s ease-out;
+  height: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: 0 12px;
+  gap: 4px;
 }
-.notion-mini-toolbar.is-visible {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-}
-.notion-mini-btn {
-  min-width: 32px;
-  height: 32px;
-  padding: 0 8px;
+.notion-mobile-toolbar__scroll::-webkit-scrollbar { display: none; }
+.notion-mobile-tool-btn {
+  min-width: 44px;
+  height: 44px;
+  flex-shrink: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 600;
+  color: var(--text-secondary, #6B6B6B);
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 0 4px;
+  transition: background-color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.notion-mobile-tool-btn:active { background: rgba(0, 0, 0, 0.05); }
+.notion-mobile-tool-btn svg { width: 22px; height: 22px; }
+.notion-mobile-tool-label {
+  font-size: 9px;
+  line-height: 1;
+  color: var(--text-tertiary, #9E9E9E);
+  white-space: nowrap;
+}
+/* 渐变遮罩：提示左右可滑动 */
+.notion-mobile-toolbar__mask {
+  position: absolute;
+  top: 0;
+  bottom: env(safe-area-inset-bottom);
+  width: 24px;
+  pointer-events: none;
+  z-index: 2;
+}
+.notion-mobile-toolbar__mask.left { left: 0; background: linear-gradient(to right, var(--bg-card, #FFFFFF) 0%, transparent 100%); }
+.notion-mobile-toolbar__mask.right { right: 0; background: linear-gradient(to left, var(--bg-card, #FFFFFF) 0%, transparent 100%); }
+
+/* Bottom Sheet 遮罩 + 面板 */
+.notion-mobile-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  animation: notion-sheet-fade-in 0.2s ease-out forwards;
+}
+.notion-mobile-sheet-overlay.closing { animation: notion-sheet-fade-out 0.25s ease-in forwards; }
+.notion-mobile-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-card, #FFFFFF);
+  border-radius: 16px 16px 0 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 65vh;
+  transform: translateY(100%);
+  animation: notion-sheet-slide-up 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+.notion-mobile-sheet.closing { animation: notion-sheet-slide-down 0.25s ease-in forwards; }
+.notion-mobile-sheet.is-block { height: 65vh; }
+.notion-mobile-sheet.is-format { height: 45vh; }
+.notion-mobile-sheet__handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--text-tertiary, #C0C0C0);
+  margin: 8px auto 12px;
+  flex-shrink: 0;
+}
+.notion-mobile-sheet__content {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@keyframes notion-sheet-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes notion-sheet-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes notion-sheet-slide-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes notion-sheet-slide-down { from { transform: translateY(0); } to { transform: translateY(100%); } }
+
+/* 块插入菜单：两列网格卡片 */
+.notion-mobile-sheet-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 0 16px 24px;
+}
+.notion-mobile-sheet-section-title {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--text-tertiary, #9E9E9E);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 16px 0 8px;
+}
+.notion-mobile-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-primary, #FFFFFF);
+  border: 1px solid var(--border-color, #F0F0F0);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s ease, transform 0.1s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.notion-mobile-sheet-item:active {
+  background: var(--bg-tertiary, #F7F7F7);
+  transform: scale(0.98);
+}
+.notion-mobile-sheet-item__icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary, #6B6B6B);
+  flex-shrink: 0;
+  font-size: 16px;
+}
+.notion-mobile-sheet-item__label {
+  font-size: 15px;
+  color: var(--text-primary, #37352F);
+  font-weight: 400;
+}
+.notion-mobile-sheet-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.1s ease;
+  width: 20px;
+  height: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary, #6B6B6B);
+}
+.notion-mobile-sheet-icon.t { font-family: Georgia, serif; }
+.notion-mobile-sheet-icon.h { font-size: 11px; }
+.notion-mobile-sheet-icon.b, .notion-mobile-sheet-icon.o { font-size: 12px; }
+.notion-mobile-sheet-icon.c { font-size: 12px; font-family: 'SF Mono', Menlo, monospace; }
+
+/* 文本格式菜单：单列列表 */
+.notion-mobile-fmt-title {
+  font-size: 17px;
+  font-weight: 600;
+  text-align: center;
+  padding: 12px 0;
+  color: var(--text-primary, #37352F);
+}
+.notion-mobile-fmt-list { padding-bottom: 8px; }
+.notion-mobile-fmt-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 52px;
+  padding: 0 20px;
+  border: none;
+  border-bottom: 1px solid var(--border-color, #F0F0F0);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
   -webkit-tap-highlight-color: transparent;
 }
-.notion-mini-btn:hover { background: var(--bg-tertiary); }
-.notion-mini-btn:active { background: var(--color-primary-bg); color: var(--color-primary); }
-.notion-mini-sep {
-  width: 1px;
-  align-self: stretch;
-  margin: 4px 3px;
-  background: var(--divider-color);
+.notion-mobile-fmt-item:active { background: var(--bg-tertiary, #F7F7F7); }
+.notion-mobile-fmt-item__icon {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary, #6B6B6B);
+  font-size: 16px;
+  flex-shrink: 0;
 }
-/* 移动端隐藏底部固定工具栏（迷你工具栏取代） */
+.notion-mobile-fmt-item__label { font-size: 15px; color: var(--text-primary, #37352F); flex: 1; }
+.notion-mobile-fmt-item__swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+}
+
+/* 移动端显示底部工具栏，隐藏桌面固定栏 */
 @media (max-width: 768px) {
   .notion-toolbar { display: none !important; }
+  .notion-mobile-toolbar { display: block; }
 }
 @media (hover: none), (pointer: coarse) {
   .notion-toolbar { display: none !important; }
+  .notion-mobile-toolbar { display: block; }
 }
+/* 深色模式适配（跟随 data-theme） */
+[data-theme="dark"] .notion-mobile-tool-btn:active { background: rgba(255, 255, 255, 0.08); }
+[data-theme="dark"] .notion-mobile-toolbar { border-top-color: var(--divider-color, #373737); }
 .notion-tool-btn {
   min-width: 34px;
   height: 34px;

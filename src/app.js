@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.0';
+App.VERSION = '8.5.0';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -1480,7 +1480,83 @@ App.Tags = (function() {
 // ===== 考公笔试复盘系统 - 可复用 UI 组件 =====
 window.App = window.App || {};
 
+// ===== Notion 移动端底部工具栏：单例（只构建一次，所有编辑器实例共享） =====
 App.Components = {
+  _mobileToolbarBuilt: false,        // 是否已构建
+  _activeMobileEditor: null,         // 当前活动编辑器实例（动作分发目标）
+  _mobileToolbarEl: null,            // 工具栏 DOM
+
+  // 注册当前活动编辑器（notionEditor 创建时调用）
+  _registerMobileEditor(inst) { this._activeMobileEditor = inst; },
+
+  // 构建底部工具栏 DOM（惰性单例）
+  _ensureMobileToolbar() {
+    if (this._mobileToolbarBuilt) return this._mobileToolbarEl;
+    this._mobileToolbarBuilt = true;
+    const NM_ICONS = {
+      plus: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+      textAa: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>',
+      voice: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4"/></svg>',
+      image: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
+      redo: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a9 9 0 1 0 1 4"/><polyline points="21 3 21 8 16 8"/></svg>',
+      undo: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a9 9 0 1 1-1 4"/><polyline points="3 3 3 8 8 8"/></svg>',
+      comment: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>',
+      mention: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/></svg>',
+      trash: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>',
+      indent: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h13M3 12h13M3 18h13M20 8l-4 4 4 4"/></svg>',
+      outdent: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 6h5M16 12h5M16 18h5M7 8l-4 4 4 4"/></svg>',
+      moveUp: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+      moveDown: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>',
+      more: '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
+      dismiss: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="16" height="11" rx="2"/><path d="M9 21h6M12 15v6M8 10l3 3 3-3"/></svg>',
+    };
+    const btns = [
+      { key: 'insert', icon: 'plus', title: '插入块', label: '插入' },
+      { key: 'format', icon: 'textAa', title: '文本格式', label: 'Aa' },
+      { key: 'voice', icon: 'voice', title: '语音输入', label: '语音' },
+      { key: 'image', icon: 'image', title: '图片', label: '图片' },
+      { key: 'redo', icon: 'redo', title: '重做', label: '重做' },
+      { key: 'undo', icon: 'undo', title: '撤销', label: '撤销' },
+      { key: 'comment', icon: 'comment', title: '评论', label: '评论' },
+      { key: 'mention', icon: 'mention', title: '提及', label: '提及' },
+      { key: 'delete', icon: 'trash', title: '删除块', label: '删除' },
+      { key: 'indent', icon: 'indent', title: '增加缩进', label: '缩进' },
+      { key: 'outdent', icon: 'outdent', title: '减少缩进', label: '缩出' },
+      { key: 'moveUp', icon: 'moveUp', title: '块上移', label: '上移' },
+      { key: 'moveDown', icon: 'moveDown', title: '块下移', label: '下移' },
+      { key: 'more', icon: 'more', title: '更多', label: '更多' },
+      { key: 'dismiss', icon: 'dismiss', title: '收起键盘', label: '收起' },
+    ];
+    const el = document.createElement('div');
+    el.className = 'notion-mobile-toolbar';
+    el.setAttribute('data-mobile-toolbar', '1');
+    const scroll = document.createElement('div');
+    scroll.className = 'notion-mobile-toolbar__scroll';
+    btns.forEach(x => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'notion-mobile-tool-btn';
+      btn.dataset.key = x.key;
+      btn.title = x.title;
+      btn.innerHTML = NM_ICONS[x.icon] + '<span class="notion-mobile-tool-label">' + x.label + '</span>';
+      btn.addEventListener('mousedown', (e) => e.preventDefault());
+      btn.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const inst = App.Components._activeMobileEditor;
+        if (inst && typeof inst._onMobileToolbar === 'function') inst._onMobileToolbar(x.key);
+      });
+      scroll.appendChild(btn);
+    });
+    const mL = document.createElement('div');
+    mL.className = 'notion-mobile-toolbar__mask left';
+    const mR = document.createElement('div');
+    mR.className = 'notion-mobile-toolbar__mask right';
+    el.appendChild(mL); el.appendChild(scroll); el.appendChild(mR);
+    document.body.appendChild(el);
+    this._mobileToolbarEl = el;
+    return el;
+  },
+
   // ===== 涂鸦板（支持 Apple Pencil / 触摸 / 鼠标） =====
   sketchPad(opts) {
     opts = opts || {};
@@ -3661,10 +3737,6 @@ App.Components = {
     function hideSlashMenu() { if (slashMenu) { slashMenu.remove(); slashMenu = null; } }
     function hideFormatBar() {
       if (formatBar) { formatBar.remove(); formatBar = null; }
-      // 【修复2】bubble menu 关闭后，若焦点仍在编辑器内则恢复迷你工具栏
-      if (isMobile && miniToolbar && document.activeElement && document.activeElement.closest && document.activeElement.closest('.notion-editable')) {
-        setTimeout(positionMiniToolbar, 20);
-      }
     }
     function hideHandleMenu() { if (handleMenu) { handleMenu.remove(); handleMenu = null; } }
 
@@ -3811,135 +3883,234 @@ App.Components = {
     // 底部悬浮格式栏：两行分组合并为一行（横向滚动），保持全部功能
     [grpBlock, grpInline, grpHistory, grpList, grpIndent, grpExtra].forEach(g => toolbar.appendChild(g));
 
-    // ===== 【修复2】移动端跟随输入块浮动的迷你工具栏 =====
-    // 桌面端使用底部固定工具栏；移动端（<=768px 或触屏）隐藏固定栏，改用此迷你栏
+    // ===== 【修复2】Notion 移动端：底部横向滑动工具栏（单例） + Bottom Sheet 菜单 =====
+    // 桌面端使用底部悬浮格式栏（notion-toolbar）；移动端（<=768px 或触屏）用 Notion 风格底栏
+    // 工具栏 DOM 为 App.Components 级单例（只构建一次），本实例注册为活动编辑器，按钮动作分发到 _onMobileToolbar
     const isMobile = (typeof window !== 'undefined') && (window.innerWidth <= 768 || ('ontouchstart' in window));
-    const miniToolbar = document.createElement('div');
-    miniToolbar.className = 'notion-mini-toolbar';
-    miniToolbar.setAttribute('data-mini-toolbar', '1');
-    // 迷你工具栏按钮组：格式 + 块类型 + 操作
-    const miniGroups = [
-      [
-        { cmd: 'bold', html: '<b>B</b>', title: '加粗' },
-        { cmd: 'italic', html: '<i>I</i>', title: '斜体' },
-        { cmd: 'underline', html: '<u>U</u>', title: '下划线' },
-        { cmd: 'strike', html: '<s>S</s>', title: '删除线' },
-      ],
-      [
-        { cmd: 'type-text', html: '文', title: '文本' },
-        { cmd: 'type-h1', html: 'H1', title: '一级标题' },
-        { cmd: 'type-bullet', html: '•', title: '无序列表' },
-        { cmd: 'type-todo', html: '☐', title: '待办' },
-      ],
-      [
-        { cmd: 'indent', html: '→', title: '增加缩进' },
-        { cmd: 'outdent', html: '←', title: '减少缩进' },
-        { cmd: 'delete', html: '🗑', title: '删除块' },
-      ],
-    ];
-    miniGroups.forEach((grp, gi) => {
-      if (gi > 0) {
-        const sep = document.createElement('span');
-        sep.className = 'notion-mini-sep';
-        miniToolbar.appendChild(sep);
+    let _mobileToolbar = null;
+    // 实例句柄：闭包捕获本编辑器的动作分发，注册为「当前活动编辑器」
+    const _mobileInst = { _onMobileToolbar: null };
+    if (isMobile) {
+      _mobileToolbar = App.Components._ensureMobileToolbar();
+      App.Components._registerMobileEditor(_mobileInst);
+    }
+
+    // 实例暴露给单例工具栏的动作分发入口
+    _mobileInst._onMobileToolbar = (key) => {
+      switch (key) {
+        case 'insert': openBlockSheet(); break;
+        case 'format': openFormatSheet(); break;
+        case 'redo': redo(); break;
+        case 'undo': undo(); break;
+        case 'delete': if (focusedBlockEl) deleteBlock(0, focusedBlockEl); else if (blocks.length > 1) deleteBlock(blocks.length - 1); break;
+        case 'indent': case 'outdent': {
+          const target = focusedBlockEl || wrapper.querySelector('.notion-block:last-of-type .notion-editable');
+          if (!target) return;
+          const be = target.closest('.notion-block');
+          if (!be) return;
+          const ctx = getBlockCtx(be);
+          if (!ctx) return;
+          pushUndo();
+          if (key === 'indent' && ctx.arr[ctx.idx].indent < 3) ctx.arr[ctx.idx].indent++;
+          else if (key === 'outdent' && ctx.arr[ctx.idx].indent > 0) ctx.arr[ctx.idx].indent--;
+          reRender(); notifyChange();
+          const fe = focusBlockEditable(ctx.parentIdx, ctx.idx);
+          if (fe) fe.focus();
+          break;
+        }
+        case 'moveUp': case 'moveDown': {
+          const be = focusedBlockEl ? focusedBlockEl.closest('.notion-block') : null;
+          if (!be) return;
+          const ctx = getBlockCtx(be);
+          if (!ctx) return;
+          moveBlock(ctx.idx, key === 'moveUp' ? -1 : 1, be);
+          break;
+        }
+        case 'dismiss': if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); hideAllMenus(); break;
+        case 'voice': App.Components.toast && App.Components.toast('语音输入将在后续版本支持', 'info'); break;
+        case 'image': App.Components.toast && App.Components.toast('图片上传将在后续版本支持', 'info'); break;
+        case 'comment': App.Components.toast && App.Components.toast('评论功能将在后续版本支持', 'info'); break;
+        case 'mention': App.Components.toast && App.Components.toast('提及功能将在后续版本支持', 'info'); break;
+        case 'more': App.Components.toast && App.Components.toast('更多操作即将上线', 'info'); break;
+        default: break;
       }
-      grp.forEach(x => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'notion-mini-btn';
-        btn.innerHTML = x.html;
-        btn.title = x.title;
-        btn.addEventListener('mousedown', (e) => e.preventDefault());   // 防止按钮抢走编辑焦点
-        btn.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          handleMiniCmd(x.cmd);
-          // 点击后保持块内焦点
+    };
+
+    // ===== 底部工具栏键盘适配：visualViewport / resize =====
+    let _keyboardH = 0;
+    function applyToolbarBottom() {
+      if (!isMobile || !_mobileToolbar) return;
+      _mobileToolbar.style.bottom = _keyboardH + 'px';
+    }
+    if (isMobile && window.visualViewport) {
+      window.visualViewport.addEventListener('resize', () => {
+        const vh = window.visualViewport.height || window.innerHeight;
+        _keyboardH = Math.max(0, window.innerHeight - vh);
+        applyToolbarBottom();
+        if (focusedBlockEl && focusedBlockEl.scrollIntoView) focusedBlockEl.scrollIntoView({ block: 'center', behavior: 'auto' });
+      });
+    } else if (isMobile) {
+      let _lastH = window.innerHeight;
+      window.addEventListener('resize', () => {
+        const dh = Math.abs(window.innerHeight - _lastH);
+        _lastH = window.innerHeight;
+        if (dh > 150) {
+          _keyboardH = dh;
+          applyToolbarBottom();
+          if (focusedBlockEl && focusedBlockEl.scrollIntoView) focusedBlockEl.scrollIntoView({ block: 'center', behavior: 'auto' });
+        } else {
+          _keyboardH = 0;
+          applyToolbarBottom();
+        }
+      });
+    }
+
+    // ===== Bottom Sheet 通用：打开/关闭/下滑关闭 =====
+    let sheetEl = null, sheetOverlay = null;
+    function closeSheet() {
+      if (!sheetOverlay) return;
+      const overlay = sheetOverlay, sheet = sheetEl;
+      sheetOverlay = null; sheetEl = null;
+      overlay.classList.add('closing');
+      sheet && sheet.classList.add('closing');
+      setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 260);
+    }
+    function forceCloseSheet() {
+      if (sheetOverlay) { sheetOverlay.remove(); sheetOverlay = null; sheetEl = null; }
+    }
+    function openSheet(opts) {
+      forceCloseSheet();
+      const overlay = document.createElement('div');
+      overlay.className = 'notion-mobile-sheet-overlay';
+      const sheet = document.createElement('div');
+      sheet.className = 'notion-mobile-sheet' + (opts.height ? ' ' + opts.height : '');
+      const handleBar = document.createElement('div');
+      handleBar.className = 'notion-mobile-sheet__handle';
+      sheet.appendChild(handleBar);
+      const content = document.createElement('div');
+      content.className = 'notion-mobile-sheet__content';
+      content.innerHTML = opts.bodyHtml;
+      sheet.appendChild(content);
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) closeSheet(); });
+      let startY = 0;
+      sheet.addEventListener('touchstart', (e) => { startY = e.touches[0].clientY; }, { passive: true });
+      sheet.addEventListener('touchend', (e) => {
+        const dy = e.changedTouches[0].clientY - startY;
+        if (dy > 80) closeSheet();
+      }, { passive: true });
+      overlay.appendChild(sheet);
+      document.body.appendChild(overlay);
+      sheetEl = sheet; sheetOverlay = overlay;
+      return { overlay, sheet };
+    }
+
+    // ===== 块插入菜单（Bottom Sheet，65vh，两列网格分类） =====
+    function openBlockSheet() {
+      const gridItem = (icon, label, type) =>
+        '<button class="notion-mobile-sheet-item" data-type="' + type + '">' +
+        '<span class="notion-mobile-sheet-item__icon">' + icon + '</span>' +
+        '<span class="notion-mobile-sheet-item__label">' + label + '</span></button>';
+      const headIcon = (text, cls) => '<span class="notion-mobile-sheet-icon ' + (cls || '') + '">' + text + '</span>';
+      const bodyHtml =
+        '<div class="notion-mobile-sheet-grid">' +
+          '<div class="notion-mobile-sheet-section-title">基本区块</div>' +
+          gridItem(headIcon('T', 't'), '文本', 'text') +
+          gridItem(headIcon('H₁', 'h'), '标题 1', 'h1') +
+          gridItem(headIcon('H₂', 'h'), '标题 2', 'h2') +
+          gridItem(headIcon('H₃', 'h'), '标题 3', 'h3') +
+          gridItem(headIcon('H₄', 'h'), '标题 4', 'h4') +
+          gridItem(headIcon('•', 'b'), '项目符号列表', 'bullet') +
+          gridItem(headIcon('1.', 'o'), '有序列表', 'numbered') +
+          gridItem(headIcon('☐', 't'), '待办事项', 'todo') +
+          gridItem(headIcon('▸', 't'), '折叠列表', 'toggle') +
+          gridItem(headIcon('📄', 'p'), '页面', 'page') +
+          gridItem(headIcon('💡', 'c'), '标注', 'callout') +
+          gridItem(headIcon('"', 'q'), '引用', 'quote') +
+          gridItem(headIcon('⊞', 'tb'), '表格', 'table') +
+          gridItem(headIcon('—', 'd'), '分割线', 'divider') +
+          gridItem(headIcon('🔗', 'l'), '链接到页面', 'link') +
+          '<div class="notion-mobile-sheet-section-title">媒体</div>' +
+          gridItem(headIcon('🖼', 'im'), '图片', 'image') +
+          gridItem(headIcon('▶', 'v'), '视频', 'video') +
+          gridItem(headIcon('🔊', 'a'), '音频', 'audio') +
+          gridItem(headIcon('&lt;/&gt;', 'c'), '代码', 'code') +
+          gridItem(headIcon('📎', 'f'), '文件', 'file') +
+          gridItem(headIcon('🔖', 'b'), '网页书签', 'bookmark') +
+        '</div>';
+      const { sheet } = openSheet({ height: 'is-block', bodyHtml });
+      sheet.querySelectorAll('.notion-mobile-sheet-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const type = item.dataset.type;
+          closeSheet();
+          insertBlockFromSheet(type);
+        });
+      });
+    }
+
+    // 块插入逻辑：在当前聚焦块下方插入，无聚焦块则在末尾；插入后聚焦并 onChange
+    function insertBlockFromSheet(type) {
+      let nb = null;
+      const baseTypes = { text:'text', h1:'h1', h2:'h2', h3:'h3', h4:'h4', bullet:'bullet', numbered:'numbered', todo:'todo', toggle:'toggle', quote:'quote', divider:'divider', code:'code' };
+      if (type === 'table') { nb = createBlock('table', ''); nb.tableData = [['列1','列2'],['','']]; }
+      else if (type === 'callout') { nb = createBlock('callout', ''); }
+      else if (baseTypes[type]) nb = createBlock(baseTypes[type], '');
+      else { App.Components.toast && App.Components.toast('「' + type + '」将在后续版本支持', 'info'); return; }
+
+      const be = focusedBlockEl ? focusedBlockEl.closest('.notion-block') : null;
+      if (be) {
+        const ctx = getBlockCtx(be);
+        if (ctx) {
+          pushUndo();
+          ctx.arr.splice(ctx.idx + 1, 0, nb);
+          reRender(); notifyChange();
+          const el = focusBlockEditable(ctx.parentIdx, ctx.idx + 1);
+          if (el) el.focus();
+          return;
+        }
+      }
+      pushUndo();
+      blocks.push(nb);
+      reRender(); notifyChange();
+      const el = focusBlockEditable(null, blocks.length - 1);
+      if (el) el.focus();
+    }
+
+    // ===== 文本格式菜单（Bottom Sheet，45vh，单列） =====
+    function openFormatSheet() {
+      const rowItem = (icon, label, cmd, swatch) =>
+        '<button class="notion-mobile-fmt-item" data-cmd="' + cmd + '">' +
+        '<span class="notion-mobile-fmt-item__icon">' + icon + '</span>' +
+        '<span class="notion-mobile-fmt-item__label">' + label + '</span>' +
+        (swatch ? '<span class="notion-mobile-fmt-item__swatch" style="background:' + swatch + '"></span>' : '') +
+        '</button>';
+      const bodyHtml =
+        '<div class="notion-mobile-fmt-title">格式</div>' +
+        '<div class="notion-mobile-fmt-list">' +
+          rowItem('<b>B</b>', '加粗', 'bold') +
+          rowItem('<i>I</i>', '斜体', 'italic') +
+          rowItem('<u>U</u>', '下划线', 'underline') +
+          rowItem('<s>S</s>', '删除线', 'strike') +
+          rowItem('<code>&lt;/&gt;</code>', '行内代码', 'code') +
+          rowItem('<span style="color:#E03131">A</span>', '文字颜色', 'color-red', '#E03131') +
+          rowItem('<span style="background:#FFE066;padding:0 2px;">A</span>', '背景高亮', 'bg-yellow', '#FFE066') +
+          rowItem('🔗', '添加链接', 'link') +
+        '</div>';
+      const { sheet } = openSheet({ height: 'is-format', bodyHtml });
+      sheet.querySelectorAll('.notion-mobile-fmt-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const cmd = item.dataset.cmd;
+          closeSheet();
+          const sel = window.getSelection();
+          const range = (sel && sel.rangeCount > 0) ? sel.getRangeAt(0) : null;
+          applyFormat(cmd, range);
           if (focusedBlockEl) {
             const ed = focusedBlockEl.querySelector('.notion-editable');
             if (ed) ed.focus();
           }
         });
-        miniToolbar.appendChild(btn);
-      });
-    });
-    function handleMiniCmd(cmd) {
-      if (!focusedBlockEl || !wrapper.contains(focusedBlockEl)) return;
-      if (cmd.startsWith('type-')) {
-        const typeMap = { 'type-text': 'text', 'type-h1': 'h1', 'type-bullet': 'bullet', 'type-todo': 'todo' };
-        applyBlockTypeToFocused(typeMap[cmd]);
-        return;
-      }
-      if (cmd === 'indent' || cmd === 'outdent') {
-        const ctx = getBlockCtx(focusedBlockEl);
-        if (!ctx) return;
-        const idx = ctx.idx;
-        pushUndo();
-        if (cmd === 'indent' && ctx.arr[idx].indent < 3) ctx.arr[idx].indent++;
-        else if (cmd === 'outdent' && ctx.arr[idx].indent > 0) ctx.arr[idx].indent--;
-        reRender(); notifyChange();
-        const fe = focusBlockEditable(ctx.parentIdx, idx);
-        if (fe) fe.focus();
-        return;
-      }
-      if (cmd === 'delete') {
-        deleteBlock(0, focusedBlockEl);
-        return;
-      }
-      // 格式命令
-      const sel = window.getSelection();
-      const range = (sel && sel.rangeCount > 0) ? sel.getRangeAt(0) : null;
-      applyFormat(cmd, range);
-    }
-    // 迷你工具栏定位：相对于编辑器容器（wrapper），显示在聚焦块上方，空间不足则放下方
-    let miniRaf = null;
-    function positionMiniToolbar() {
-      if (!isMobile) return;
-      if (!focusedBlockEl || !wrapper.contains(focusedBlockEl)) { miniToolbar.classList.remove('is-visible'); return; }
-      const bRect = focusedBlockEl.getBoundingClientRect();
-      const wRect = wrapper.getBoundingClientRect();
-      const relTop = bRect.top - wRect.top;
-      const relLeft = bRect.left - wRect.left;
-      const barH = miniToolbar.offsetHeight || 40;
-      let top = relTop - barH - 8;
-      if (top < 0) top = relTop + bRect.height + 8;   // 上方放不下，放块下方
-      miniToolbar.style.top = top + 'px';
-      miniToolbar.style.left = Math.max(0, relLeft) + 'px';
-      miniToolbar.classList.add('is-visible');
-    }
-    // 滚动时重算位置（rAF 节流）
-    function scheduleMiniReposition() {
-      if (!isMobile) return;
-      if (miniRaf) return;
-      miniRaf = requestAnimationFrame(() => {
-        miniRaf = null;
-        positionMiniToolbar();
       });
     }
-    // 移动端：监听滚动与 visualViewport（键盘弹出）重定位
-    if (isMobile) {
-      wrapper.addEventListener('scroll', scheduleMiniReposition, { passive: true });
-      window.addEventListener('scroll', scheduleMiniReposition, { passive: true });
-      if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', () => {
-          if (focusedBlockEl && focusedBlockEl.scrollIntoView) focusedBlockEl.scrollIntoView({ block: 'center', behavior: 'auto' });
-          scheduleMiniReposition();
-        });
-        window.visualViewport.addEventListener('scroll', scheduleMiniReposition);
-      } else {
-        // 不支持 visualViewport：resize 高度变化 >150px 视为键盘弹出
-        let _lastH = window.innerHeight;
-        window.addEventListener('resize', () => {
-          const dh = Math.abs(window.innerHeight - _lastH);
-          _lastH = window.innerHeight;
-          if (dh > 150 && focusedBlockEl && focusedBlockEl.scrollIntoView) {
-            focusedBlockEl.scrollIntoView({ block: 'center', behavior: 'auto' });
-          }
-          scheduleMiniReposition();
-        });
-      }
-    }
-    wrapper.appendChild(miniToolbar);
+
 
     const blocksContainer = document.createElement('div');
     blocksContainer.className = 'notion-editor__blocks';
@@ -4119,8 +4290,6 @@ App.Components = {
         formatBar.style.top = (rect.top - wrapper.getBoundingClientRect().top - 42) + 'px';
         formatBar.style.left = Math.max(0, (rect.left + rect.width / 2 - formatBar.offsetWidth / 2)) + 'px';
       } catch(e) { formatBar.style.top = '40px'; formatBar.style.left = '10px'; }
-      // 【修复2】bubble menu 显示时隐藏迷你工具栏（bubble 优先级更高）
-      if (miniToolbar) miniToolbar.classList.remove('is-visible');
     }
 
     function applyFormat(cmd, range) {
@@ -5270,43 +5439,24 @@ App.Components = {
       if (e.target && e.target.closest && e.target.closest('.notion-editable, .notion-table td')) {
         clearTimeout(_toolbarTimer);
         toolbar.classList.add('is-visible');
-        // 【修复2】移动端：定位迷你工具栏并显示（无选区时）
-        if (isMobile) {
-          setTimeout(() => {
-            const sel = window.getSelection();
-            const hasSelection = sel && sel.rangeCount > 0 && !sel.isCollapsed;
-            if (!hasSelection) positionMiniToolbar();
-          }, 30);
-        }
       }
     });
     wrapper.addEventListener('focusout', (e) => {
       const next = e.relatedTarget;
-      if (next && (toolbar.contains(next) || wrapper.contains(next) || (miniToolbar && miniToolbar.contains(next)))) return;
+      if (next && (toolbar.contains(next) || wrapper.contains(next))) return;
       clearTimeout(_toolbarTimer);
       _toolbarTimer = setTimeout(() => {
         toolbar.classList.remove('is-visible');
-        if (miniToolbar) miniToolbar.classList.remove('is-visible');   // 【修复2】失焦隐藏迷你栏
       }, 220);
     });
-    // 【修复2】选区出现时隐藏迷你栏（bubble menu 优先），选区消失后恢复
-    document.addEventListener('selectionchange', () => {
-      if (!isMobile || !miniToolbar) return;
-      const sel = window.getSelection();
-      const hasSel = sel && sel.rangeCount > 0 && !sel.isCollapsed;
-      if (hasSel) miniToolbar.classList.remove('is-visible');
-      else if (document.activeElement && document.activeElement.closest && document.activeElement.closest('.notion-editable')) {
-        setTimeout(positionMiniToolbar, 20);
-      }
+    // 移动端点击编辑器区域外时，隐藏 Bottom Sheet（若打开）
+    document.addEventListener('click', (e) => {
+      if (!wrapper.contains(e.target)) hideAllMenus();
     });
     reRender();
 
     // 粘贴 Markdown 自动解析（多行→拆块，单行→行内渲染）
     setupPasteHandler(wrapper);
-
-    document.addEventListener('click', (e) => {
-      if (!wrapper.contains(e.target)) hideAllMenus();
-    });
 
     const getContent = () => exportToMarkdown();
     const setContent = (val) => {
@@ -5414,6 +5564,28 @@ App.Components = {
       opts.dataMode === 'json' ? 'json' : 'md'
     );
     container.appendChild(editor.element);
+    return editor;
+  },
+
+  // ===== Notion 移动端编辑器全局入口 =====
+  // 用法（独立 HTML 接入）：
+  //   const editor = window.initNotionMobileEditor('#editor-container', {
+  //     initialBlocks: [ { type: 'text', content: '你好' } ],   // JSON 块数组
+  //     onChange: (blocks) => { /* 保存 blocks 到你的存储 */ }
+  //   });
+  //   editor.getEditorData() / editor.setEditorData([...]) / editor.getContent() / editor.setContent()
+  initNotionMobileEditor(containerSelector, options) {
+    const opts = options || {};
+    const container = typeof containerSelector === 'string'
+      ? document.querySelector(containerSelector)
+      : containerSelector;
+    if (!container) { console.error('[initNotionMobileEditor] 容器不存在:', containerSelector); return null; }
+    const editor = this.initEditor(container, {
+      initialData: opts.initialBlocks || opts.initialData || '',
+      dataMode: 'json',
+      placeholder: opts.placeholder,
+      onChange: opts.onChange,
+    });
     return editor;
   },
 
@@ -11795,6 +11967,11 @@ App.Pages.WordDB = {
     if (!str) return '';
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
+};
+
+// ===== 全局入口：Notion 移动端编辑器 =====
+window.initNotionMobileEditor = function (containerSelector, options) {
+  return App.Components.initNotionMobileEditor(containerSelector, options);
 };
 
   
