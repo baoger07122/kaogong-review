@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.2.10';
+App.VERSION = '8.2.11';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -7317,9 +7317,8 @@ App.Pages.Errors = {
     const header = document.createElement('div');
     header.className = 'page-header';
     header.innerHTML = `
-      <div class="page-header__title">错题本</div>
+      <div class="page-header__title" style="flex:1;">错题本</div>
       <div class="page-header__right" style="display:flex;align-items:center;gap:6px;">
-        <span id="error-count" style="font-size:var(--font-sm);color:var(--text-secondary);">共 0 道</span>
         <button class="detail-header-action" id="error-more" title="更多" style="font-size:20px;padding:4px 6px;">⋮</button>
       </div>
     `;
@@ -7333,12 +7332,6 @@ App.Pages.Errors = {
     const searchArea = document.createElement('div');
     searchArea.id = 'error-search-area';
     stickyWrap.appendChild(searchArea);
-
-    // 统计卡片区
-    const statsRow = document.createElement('div');
-    statsRow.className = 'stats-row';
-    statsRow.id = 'error-stats';
-    stickyWrap.appendChild(statsRow);
 
     main.appendChild(stickyWrap);
 
@@ -7358,7 +7351,6 @@ App.Pages.Errors = {
     // 加载数据并渲染
     await this.loadData();
     await this.renderSubjectGrid(sidebar);
-    this.renderStats(statsRow);
     this.renderFilters(filterArea);
     await this.renderList(listArea);
   },
@@ -7732,10 +7724,6 @@ App.Pages.Errors = {
 
     const errors = await App.DB.getErrors(filters);
 
-    // 更新标题计数
-    const countEl = document.getElementById('error-count');
-    if (countEl) countEl.textContent = '共 ' + errors.length + ' 道';
-
     if (errors.length === 0) {
       container.appendChild(App.Components.emptyState(
         '📋',
@@ -7781,13 +7769,11 @@ App.Pages.Errors = {
   refreshAll() {
     const sidebar = document.getElementById('error-sidebar');
     const searchArea = document.getElementById('error-search-area');
-    const statsRow = document.getElementById('error-stats');
     const filterArea = document.getElementById('error-filter-area');
     const listArea = document.getElementById('error-list');
 
     if (sidebar) this.renderSubjectGrid(sidebar);
     if (searchArea) this.renderSearchBar(searchArea);
-    if (statsRow) this.renderStats(statsRow);
     if (filterArea) this.renderFilters(filterArea);
     if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
   },
@@ -8614,9 +8600,8 @@ App.Pages.Notes = {
     const header = document.createElement('div');
     header.className = 'page-header';
     header.innerHTML = `
-      <div class="page-header__title">笔记</div>
+      <div class="page-header__title" style="flex:1;">笔记</div>
       <div class="page-header__right" style="display:flex;align-items:center;gap:6px;">
-        <span id="note-count" style="font-size:var(--font-sm);color:var(--text-secondary);">共 0 篇</span>
         <button class="detail-header-action" id="note-more" title="更多" style="font-size:20px;padding:4px 6px;">⋮</button>
       </div>
     `;
@@ -8778,8 +8763,7 @@ App.Pages.Notes = {
       );
     }
 
-    const countEl = document.getElementById('note-count');
-    if (countEl) countEl.textContent = '共 ' + notes.length + ' 篇';
+    // 顶部不再显示笔记统计（用户 v8.2.11 指定）
 
     // 词语库入口：言语理解（逻辑填空）专属
     if (this.state.subject === '言语理解') {
