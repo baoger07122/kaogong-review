@@ -5615,6 +5615,254 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 #page-error-form .tag-input__empty { padding: 4px 0; font-size: 11px; }
 #page-error-form .tag-input__manage { margin-top: 6px; }
 #page-error-form .tag-input__manage-btn { height: 32px; font-size: 11px; }
+
+/* ===== 【考点/错因标签管理】折叠卡片管理组件（tagManager） ===== */
+.tag-manager { width: 100%; }
+.tag-manager__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.tag-manager__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.tag-manager__edit-toggle {
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--color-primary);
+  border-radius: 15px;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tag-manager__edit-toggle.is-active {
+  background: var(--color-primary);
+  color: #fff;
+}
+.tag-manager__edit-toggle:active { transform: scale(0.95); }
+
+/* 模块折叠卡片 */
+.tag-module {
+  margin-bottom: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-card);
+}
+.tag-module-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.tag-module-header__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tag-module-arrow {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  transition: transform 0.2s ease;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.tag-module-arrow.expanded { transform: rotate(90deg); }
+.tag-module-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tag-module-count {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  background: var(--bg-primary);
+  padding: 2px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+.tag-module-content {
+  padding: 12px;
+  display: none;
+}
+.tag-module-content.expanded { display: block; }
+
+/* 分类小标题（📍考点 / ⚠️错因） */
+.tag-subsection-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 4px 0 8px;
+}
+
+/* 标签云（平铺） */
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 36px;
+  align-items: center;
+}
+.tag-cloud__empty {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-size: 13px;
+  line-height: 1.2;
+  border: 1px dashed var(--border-color);
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.tag-pill:hover { border-color: var(--color-primary); color: var(--color-primary); }
+.tag-pill.is-dragging { opacity: 0.45; transform: scale(1.05); }
+.tag-pill.is-over { border-color: var(--color-primary); background: var(--color-primary-bg); }
+
+/* 编辑模式 */
+.tag-manager.edit-mode .tag-pill {
+  border-style: solid;
+  border-color: var(--border-color);
+  padding-right: 24px;   /* 留出拖拽把手空间 */
+}
+.tag-drag-handle {
+  display: none;
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  letter-spacing: -1px;
+  cursor: grab;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;   /* 让点击穿透到 pill（pill 本身 draggable） */
+}
+.tag-manager.edit-mode .tag-drag-handle { display: flex; }
+.tag-delete-btn {
+  display: none;
+  position: absolute;
+  right: -6px;
+  top: -6px;
+  width: 16px;
+  height: 16px;
+  background: var(--color-danger);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+}
+.tag-manager.edit-mode .tag-delete-btn { display: flex; }
+.tag-delete-btn:active { transform: scale(0.9); }
+
+/* 添加标签 */
+.tag-add-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-size: 13px;
+  border: 1px dashed var(--color-primary);
+  color: var(--color-primary);
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tag-add-btn:active { background: var(--color-primary-bg); }
+.tag-add-input-row {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  width: 100%;
+}
+.tag-add-input-row.show { display: flex; }
+.tag-add-input-row input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 14px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+.tag-add-input-row input:focus { border-color: var(--color-primary); outline: none; }
+.tag-add-input-row button {
+  height: 36px;
+  padding: 0 14px;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* 编辑模式提示条 */
+.tag-manager__hint {
+  padding: 10px 16px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: center;
+  background: var(--bg-tertiary);
+  margin: 4px 0 12px;
+  border-radius: 8px;
+}
+
+/* 编辑页建议标签「展开全部」按钮 */
+.tag-input__more {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--color-primary);
+  background: var(--color-primary-bg);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.tag-input__more:active { opacity: 0.8; }
+
+/* 深色模式 */
+[data-theme="dark"] .tag-module { border-color: var(--border-color); }
+[data-theme="dark"] .tag-module-header { background: var(--bg-tertiary); }
+[data-theme="dark"] .tag-pill { background: var(--bg-card); border-color: var(--border-color); color: var(--text-secondary); }
+[data-theme="dark"] .tag-pill:hover { border-color: var(--color-primary); color: var(--color-primary); }
 </style>
 </head>
 <body>
@@ -5695,7 +5943,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.2.12';
+App.VERSION = '8.2.13';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9194,6 +9442,10 @@ App.Components = {
       });
     }
 
+    // 建议标签展开/折叠状态（超过 SUGGEST_COLLAPSE 个时默认折叠，点击展开）
+    let suggestExpanded = false;
+    const SUGGEST_COLLAPSE = 6;
+
     function renderSuggestions() {
       suggestWrap.innerHTML = '';
       const suggestions = optionSet.filter(o => !selected.includes(o));
@@ -9202,7 +9454,8 @@ App.Components = {
         return;
       }
       suggestWrap.style.display = 'flex';
-      suggestions.forEach(opt => {
+      const visible = suggestExpanded ? suggestions : suggestions.slice(0, SUGGEST_COLLAPSE);
+      visible.forEach(opt => {
         const tag = document.createElement('span');
         tag.className = 'tag-input__suggestion';
         tag.textContent = opt;
@@ -9217,6 +9470,19 @@ App.Components = {
         }
         suggestWrap.appendChild(tag);
       });
+      // 展开/收起按钮（标���多时折叠，避免挤压表单）
+      if (suggestions.length > SUGGEST_COLLAPSE) {
+        const more = document.createElement('span');
+        more.className = 'tag-input__more';
+        more.textContent = suggestExpanded
+          ? '收起 ▲'
+          : '展开全部（+' + (suggestions.length - SUGGEST_COLLAPSE) + '）▼';
+        more.addEventListener('click', () => {
+          suggestExpanded = !suggestExpanded;
+          renderSuggestions();
+        });
+        suggestWrap.appendChild(more);
+      }
     }
 
     function addValue(raw) {
@@ -9309,6 +9575,265 @@ App.Components = {
     }
 
     return group;
+  },
+
+  // ===== 【考点/错因标签管理组件】管理页用（折叠模块卡片 + 编辑模式拖拽排序/删除/添加）=====
+  // opts: { title, kinds: ['kp','ec'], subtitle }  kinds 决定管理哪几类标签（考点 kp / 错因 ec，均按模块）
+  // 数据对接 App.Tags（考点 App.Tags.getKnowledgePoints / 错因 App.Tags.getModuleErrorCauses），
+  // 所有增删/排序操作即时持久化（复用 App.Tags 存储，与已录错题/笔记数据一致）
+  tagManager(container, opts) {
+    opts = opts || {};
+    const kinds = opts.kinds && opts.kinds.length ? opts.kinds : ['kp'];
+    const state = { edit: false, expanded: {} };   // expanded: { 'kp:模块名': true }
+
+    const KIND_META = {
+      kp: {
+        label: '📍 考点',
+        get: (m) => App.Tags.getKnowledgePoints(m),
+        add: (m, v) => App.Tags.addKnowledgePoint(m, v),
+        remove: (m, v) => App.Tags.removeKnowledgePoint(m, v),
+        setOrder: (m, arr) => App.Tags.setOrder(m, 'kp', arr),
+        confirmText: '删除考点「{v}」？已录入错题 / 笔记中的该标签保留，仅从标签库移除。'
+      },
+      ec: {
+        label: '⚠️ 错因',
+        get: (m) => App.Tags.getModuleErrorCauses(m),
+        add: (m, v) => App.Tags.addModuleErrorCause(m, v),
+        remove: (m, v) => App.Tags.removeModuleErrorCause(m, v),
+        setOrder: (m, arr) => App.Tags.setOrder(m, 'ec', arr),
+        confirmText: '删除错因「{v}」？仅从该模块错因库移除。'
+      }
+    };
+
+    // 收集全部模块（科目 → 模块，去重）
+    function collectModules() {
+      const mods = [];
+      App.Constants.SUBJECTS.forEach(s => {
+        App.Constants.getModules(s.name).forEach(m => {
+          if (!mods.includes(m)) mods.push(m);
+        });
+      });
+      return mods;
+    }
+    const modules = collectModules();
+    const expKey = (kind, mod) => kind + ':' + mod;
+    const isExpanded = (kind, mod) => state.expanded[expKey(kind, mod)] !== false;   // 默认展开
+
+    function render() {
+      container.innerHTML = '';
+      container.className = 'tag-manager' + (state.edit ? ' edit-mode' : '');
+
+      // 顶部工具条：标题 + 编辑/完成切换
+      const bar = document.createElement('div');
+      bar.className = 'tag-manager__bar';
+      const title = document.createElement('div');
+      title.className = 'tag-manager__title';
+      title.textContent = opts.title || '管理标签';
+      const toggleBtn = document.createElement('button');
+      toggleBtn.type = 'button';
+      toggleBtn.className = 'tag-manager__edit-toggle' + (state.edit ? ' is-active' : '');
+      toggleBtn.textContent = state.edit ? '完成' : '编辑';
+      toggleBtn.addEventListener('click', () => {
+        state.edit = !state.edit;
+        render();
+        if (!state.edit && opts.onDone) opts.onDone();
+      });
+      bar.appendChild(title);
+      bar.appendChild(toggleBtn);
+      container.appendChild(bar);
+
+      // 模块折叠卡片
+      modules.forEach(mod => {
+        const modEl = document.createElement('div');
+        modEl.className = 'tag-module';
+
+        const modHead = document.createElement('div');
+        modHead.className = 'tag-module-header';
+        const headLeft = document.createElement('div');
+        headLeft.className = 'tag-module-header__left';
+        const arrow = document.createElement('span');
+        arrow.className = 'tag-module-arrow' + (isExpanded('kp', mod) ? ' expanded' : '');
+        arrow.textContent = '▶';
+        const nameEl = document.createElement('span');
+        nameEl.className = 'tag-module-name';
+        nameEl.textContent = mod;
+        headLeft.appendChild(arrow);
+        headLeft.appendChild(nameEl);
+        // 数量徽章（考点+错因总数）
+        let total = 0;
+        kinds.forEach(k => { total += KIND_META[k].get(mod).length; });
+        const countEl = document.createElement('span');
+        countEl.className = 'tag-module-count';
+        countEl.textContent = total + ' 个';
+        modHead.appendChild(headLeft);
+        modHead.appendChild(countEl);
+        // 折叠切换：点击头部任意处
+        modHead.addEventListener('click', () => {
+          const anyExpanded = kinds.some(k => isExpanded(k, mod));
+          kinds.forEach(k => { state.expanded[expKey(k, mod)] = !anyExpanded; });
+          render();
+        });
+        modEl.appendChild(modHead);
+
+        // 内容：每类标签一个区块（标签云 + 添加输入行）
+        const modContent = document.createElement('div');
+        modContent.className = 'tag-module-content';
+        const anyExpanded = kinds.some(k => isExpanded(k, mod));
+        if (anyExpanded) modContent.classList.add('expanded');
+
+        kinds.forEach(kind => {
+          const meta = KIND_META[kind];
+          const tagNames = meta.get(mod);
+
+          const secLabel = document.createElement('div');
+          secLabel.className = 'tag-subsection-label';
+          secLabel.textContent = meta.label;
+          modContent.appendChild(secLabel);
+
+          const cloud = document.createElement('div');
+          cloud.className = 'tag-cloud';
+          if (tagNames.length === 0) {
+            const empty = document.createElement('span');
+            empty.className = 'tag-cloud__empty';
+            empty.textContent = '暂无' + (kind === 'kp' ? '考点' : '错因');
+            cloud.appendChild(empty);
+          } else {
+            tagNames.forEach((name) => {
+              const pill = document.createElement('div');
+              pill.className = 'tag-pill';
+              pill.dataset.name = name;
+              pill.dataset.kind = kind;
+              pill.dataset.mod = mod;
+              pill.draggable = state.edit;
+              const nameSpan = document.createElement('span');
+              nameSpan.className = 'tag-pill__name';
+              nameSpan.textContent = name;
+              pill.appendChild(nameSpan);
+              if (state.edit) {
+                const handle = document.createElement('span');
+                handle.className = 'tag-drag-handle';
+                handle.textContent = '⋮⋮';
+                const delBtn = document.createElement('span');
+                delBtn.className = 'tag-delete-btn';
+                delBtn.textContent = '×';
+                delBtn.addEventListener('click', async (e) => {
+                  e.stopPropagation();
+                  const ok = await App.Components.confirm(
+                    '删除' + (kind === 'kp' ? '考点' : '错因'),
+                    meta.confirmText.replace('{v}', name),
+                    '删除', '取消', true
+                  );
+                  if (ok) {
+                    await meta.remove(mod, name);
+                    render();
+                  }
+                });
+                pill.appendChild(handle);
+                pill.appendChild(delBtn);
+                bindDrag(pill, kind, mod, cloud);
+              }
+              cloud.appendChild(pill);
+            });
+          }
+
+          // 添加按钮（编辑模式） + 输入行
+          if (state.edit) {
+            const addBtn = document.createElement('div');
+            addBtn.className = 'tag-add-btn';
+            addBtn.textContent = '+ 添加';
+            const inputRow = document.createElement('div');
+            inputRow.className = 'tag-add-input-row';
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.placeholder = '输入' + (kind === 'kp' ? '考点' : '错因') + '名称，回车添加';
+            const confirmBtn = document.createElement('button');
+            confirmBtn.type = 'button';
+            confirmBtn.textContent = '添加';
+            const doAdd = async () => {
+              const v = input.value.trim();
+              if (!v) return;
+              if (meta.get(mod).includes(v)) { App.Components.toast('已存在同名' + (kind === 'kp' ? '考点' : '错因'), 'error'); return; }
+              await meta.add(mod, v);
+              input.value = '';
+              inputRow.classList.remove('show');
+              addBtn.style.display = '';
+              render();
+            };
+            input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doAdd(); } });
+            confirmBtn.addEventListener('click', doAdd);
+            inputRow.appendChild(input);
+            inputRow.appendChild(confirmBtn);
+            addBtn.addEventListener('click', () => {
+              inputRow.classList.add('show');
+              addBtn.style.display = 'none';
+              input.focus();
+            });
+            cloud.appendChild(addBtn);
+            modContent.appendChild(inputRow);
+          }
+          modContent.appendChild(cloud);
+        });
+
+        modEl.appendChild(modContent);
+        container.appendChild(modEl);
+      });
+
+      // 编辑模式提示
+      if (state.edit) {
+        const hint = document.createElement('div');
+        hint.className = 'tag-manager__hint';
+        hint.textContent = '💡 按住标签右侧 ⋮⋮ 拖动排序，点击 × 删除标签，+ 添加 新增标签（操作即时保存）';
+        container.appendChild(hint);
+      }
+    }
+
+    // 同模块内拖拽排序（HTML5 DnD；顺序即时持久化）
+    // 拖拽数据用组件级共享变量传递（源 pill dragstart 写入、目标 pill drop 读取；
+    // 不依赖 dataTransfer，jsdom/低版本浏览器更稳，真实浏览器两者一致）
+    let sharedDragData = null;
+    function bindDrag(pill, kind, mod, cloud) {
+      pill.addEventListener('dragstart', (e) => {
+        sharedDragData = { kind, mod, name: pill.dataset.name };
+        try {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', JSON.stringify(sharedDragData));
+        } catch (err) { /* dataTransfer 不可用时忽略 */ }
+        setTimeout(() => pill.classList.add('is-dragging'), 0);
+      });
+      pill.addEventListener('dragend', () => {
+        pill.classList.remove('is-dragging');
+        sharedDragData = null;
+        cloud.querySelectorAll('.tag-pill').forEach(p => p.classList.remove('is-over'));
+      });
+      pill.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (!sharedDragData) return;
+        try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
+        pill.classList.add('is-over');
+      });
+      pill.addEventListener('dragleave', () => pill.classList.remove('is-over'));
+      pill.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        pill.classList.remove('is-over');
+        const data = sharedDragData;   // 源 pill dragstart 时写入
+        sharedDragData = null;
+        if (!data) return;
+        if (data.kind !== kind || data.mod !== mod || data.name === pill.dataset.name) return;   // 禁止跨模块/跨类
+        const meta = KIND_META[kind];
+        const arr = meta.get(mod);
+        const from = arr.indexOf(data.name);
+        const to = arr.indexOf(pill.dataset.name);
+        if (from < 0 || to < 0 || from === to) return;
+        arr.splice(from, 1);
+        arr.splice(to, 0, data.name);
+        await meta.setOrder(mod, arr);
+        render();
+      });
+    }
+
+    render();
+    return { getState: () => state };
   },
 
   // ===== 表单输入框 =====
@@ -16850,338 +17375,27 @@ App.Pages.KpManage = {
   render(params) {
     const container = document.getElementById('page-kpmanage');
     container.innerHTML = '';
-    this._state = this._state || { expanded: {} };
-    const expanded = this._state.expanded;
 
     // 头部说明
     const header = document.createElement('div');
     header.style.cssText = 'padding:var(--spacing-lg) var(--page-padding);padding-bottom:var(--spacing-sm);';
     header.innerHTML = `
-      <div style="font-size:var(--font-3xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--spacing-sm);">考点管理</div>
+      <div style="font-size:var(--font-3xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--spacing-sm);">考点 / 错因管理</div>
       <div style="font-size:var(--font-sm);color:var(--text-tertiary);line-height:1.6;">
         考点按「科目 → 模块」分级管理；错因<b>按模块独立管理</b>，在模块内增删的错因仅属于该模块、与其它模块互不互通。
       </div>
     `;
     container.appendChild(header);
 
-    const tree = document.createElement('div');
-    tree.className = 'kp-tree is-managed';
-    tree.style.padding = '0 var(--page-padding) var(--spacing-xl)';
-    container.appendChild(tree);
-
-    // 模块错因：chip（仅管理态下显示修改 / 删除）
-    const buildModuleCauseChip = (module, reason) => {
-      const chip = document.createElement('div');
-      chip.className = 'kp-chip kp-chip--sub';
-      chip.dataset.name = reason;
-      chip.dataset.kind = 'ec';
-      const nameEl = document.createElement('span');
-      nameEl.className = 'kp-chip__name';
-      nameEl.textContent = reason;
-      chip.appendChild(nameEl);
-      if (expanded['manage:' + module]) {
-        const actions = document.createElement('span');
-        actions.className = 'kp-chip__actions';
-        const editBtn = document.createElement('button');
-        editBtn.className = 'kp-chip__btn kp-chip__edit';
-        editBtn.textContent = '修改';
-        editBtn.addEventListener('click', (e) => { e.stopPropagation(); startModuleCauseEdit(chip, module, reason); });
-        const delBtn = document.createElement('button');
-        delBtn.className = 'kp-chip__btn kp-chip__del';
-        delBtn.textContent = '删除';
-        delBtn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          const ok = await App.Components.confirm('删除错因', '确定删除该模块错因「' + reason + '」？', '删除', '取消', true);
-          if (ok) { await App.Tags.removeModuleErrorCause(module, reason); App.Pages.KpManage.render({}); }
-        });
-        actions.appendChild(editBtn);
-        actions.appendChild(delBtn);
-        chip.appendChild(actions);
-      }
-      return chip;
-    };
-    const startModuleCauseEdit = (chip, module, oldName) => {
-      chip.classList.add('kp-chip--editing');
-      chip.innerHTML = '';
-      const input = document.createElement('input');
-      input.className = 'kp-edit-input';
-      input.value = oldName;
-      const saveBtn = document.createElement('button');
-      saveBtn.className = 'kp-chip__btn kp-save';
-      saveBtn.textContent = '保存';
-      const cancelBtn = document.createElement('button');
-      cancelBtn.className = 'kp-chip__btn kp-cancel';
-      cancelBtn.textContent = '取消';
-      saveBtn.addEventListener('click', async () => {
-        const v = input.value.trim();
-        if (v) await App.Tags.renameModuleErrorCause(module, oldName, v);
-        App.Pages.KpManage.render({});
-      });
-      cancelBtn.addEventListener('click', () => App.Pages.KpManage.render({}));
-      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveBtn.click(); else if (e.key === 'Escape') cancelBtn.click(); });
-      chip.appendChild(input); chip.appendChild(saveBtn); chip.appendChild(cancelBtn);
-      input.focus(); input.select();
-    };
-
-    // 考点：chip（仅管理态下显示修改 / 删除，平时保持简洁）
-    const buildKpChip = (module, name) => {
-      const chip = document.createElement('div');
-      chip.className = 'kp-chip';
-      chip.dataset.name = name;
-      chip.dataset.kind = 'kp';
-      const nameEl = document.createElement('span');
-      nameEl.className = 'kp-chip__name';
-      nameEl.textContent = name;
-      chip.appendChild(nameEl);
-      if (expanded['manage:' + module]) {
-        const actions = document.createElement('span');
-        actions.className = 'kp-chip__actions';
-        const editBtn = document.createElement('button');
-        editBtn.className = 'kp-chip__btn kp-chip__edit';
-        editBtn.textContent = '修改';
-        editBtn.addEventListener('click', (e) => { e.stopPropagation(); startKpEdit(chip, module, name); });
-        const delBtn = document.createElement('button');
-        delBtn.className = 'kp-chip__btn kp-chip__del';
-        delBtn.textContent = '删除';
-        delBtn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          const ok = await App.Components.confirm('删除考点', '确定删除考点「' + name + '」？已录入错题 / 笔记中的该标签也会一并移除。', '删除', '取消', true);
-          if (ok) { await App.Tags.removeKnowledgePoint(module, name); App.Pages.KpManage.render({}); }
-        });
-        actions.appendChild(editBtn);
-        actions.appendChild(delBtn);
-        chip.appendChild(actions);
-      }
-      return chip;
-    };
-    // ===== 长按拖拽排序（考点/错因 chip，管理态下生效）=====
-    function bindChipDrag(chip, module, kind, wrap) {
-      let timer = null, dragging = false, pointerId = null, lastY = 0;
-      let ghost = null, ph = null;
-      chip.addEventListener('pointerdown', (e) => {
-        if (e.target.closest('button')) return;
-        if (e.pointerType === 'mouse' && e.button !== 0) return;
-        pointerId = e.pointerId;
-        lastY = e.clientY;
-        timer = setTimeout(() => {
-          timer = null;
-          if (!chip.isConnected) return;
-          dragging = true;
-          const rect = chip.getBoundingClientRect();
-          const wrapRect = wrap.getBoundingClientRect();
-          ghost = chip.cloneNode(true);
-          ghost.classList.remove('kp-chip--ghost');
-          ghost.classList.add('kp-chip--ghost');
-          ghost.style.width = rect.width + 'px';
-          ghost.style.height = rect.height + 'px';
-          ghost.style.top = (rect.top - wrapRect.top + wrap.scrollTop) + 'px';
-          ghost.style.left = (rect.left - wrapRect.left) + 'px';
-          ph = document.createElement('div');
-          ph.className = 'kp-chip kp-chip--placeholder';
-          ph.style.width = rect.width + 'px';
-          ph.style.height = rect.height + 'px';
-          wrap.appendChild(ghost);
-          chip.style.visibility = 'hidden';
-          wrap.insertBefore(ph, chip);
-        }, 500);
-      });
-      const onMove = (ev) => {
-        if (ev.pointerId !== pointerId) return;
-        if (timer && Math.abs(ev.clientY - lastY) > 14) { clearTimeout(timer); timer = null; }
-        if (!dragging || !ghost) return;
-        const wrapRect = wrap.getBoundingClientRect();
-        const dy = ev.clientY - lastY;
-        ghost.style.top = (parseFloat(ghost.style.top) + dy) + 'px';
-        lastY = ev.clientY;
-        const siblings = Array.from(wrap.children).filter(c => c !== ghost && c !== ph && !c.classList.contains('kp-empty'));
-        let inserted = false;
-        for (let i = 0; i < siblings.length; i++) {
-          const rc = siblings[i].getBoundingClientRect();
-          if (ev.clientY < rc.top + rc.height / 2) { wrap.insertBefore(ph, siblings[i]); inserted = true; break; }
-        }
-        if (!inserted) wrap.appendChild(ph);
-      };
-      const cleanup = (ev, finish) => {
-        if (ev.pointerId !== pointerId) return;
-        clearTimeout(timer);
-        document.removeEventListener('pointermove', onMove);
-        document.removeEventListener('pointerup', onEnd);
-        document.removeEventListener('pointercancel', onCancel);
-        if (!dragging) return;
-        dragging = false;
-        if (ghost) { ghost.remove(); ghost = null; }
-        if (ph) { ph.replaceWith(chip); ph = null; chip.style.visibility = ''; }
-        if (finish) {
-          const order = Array.from(wrap.children)
-            .filter(c => c.classList.contains('kp-chip') && !c.classList.contains('kp-chip--placeholder') && c.dataset.name)
-            .map(c => c.dataset.name);
-          if (order.length > 1) {
-            App.Tags.setOrder(module, kind, order).then(() => App.Components.toast('已排序', 'success'));
-          }
-        }
-      };
-      const onEnd = (ev) => cleanup(ev, true);
-      const onCancel = (ev) => cleanup(ev, false);
-      document.addEventListener('pointermove', onMove);
-      document.addEventListener('pointerup', onEnd);
-      document.addEventListener('pointercancel', onCancel);
-    }
-
-    const startKpEdit = (chip, module, oldName) => {
-      chip.classList.add('kp-chip--editing');
-      chip.innerHTML = ' ';
-      const input = document.createElement('input');
-      input.className = 'kp-edit-input';
-      input.value = oldName;
-      const saveBtn = document.createElement('button');
-      saveBtn.className = 'kp-chip__btn kp-save';
-      saveBtn.textContent = '保存';
-      const cancelBtn = document.createElement('button');
-      cancelBtn.className = 'kp-chip__btn kp-cancel';
-      cancelBtn.textContent = '取消';
-      saveBtn.addEventListener('click', async () => {
-        const v = input.value.trim();
-        if (v) await App.Tags.renameKnowledgePoint(module, oldName, v);
-        App.Pages.KpManage.render({});
-      });
-      cancelBtn.addEventListener('click', () => App.Pages.KpManage.render({}));
-      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveBtn.click(); else if (e.key === 'Escape') cancelBtn.click(); });
-      chip.appendChild(input); chip.appendChild(saveBtn); chip.appendChild(cancelBtn);
-      input.focus(); input.select();
-    };
-
-    // 模块块（含「考点区」与「该模块错因区」，两者均可增删）
-    const buildModuleBlock = (mod) => {
-      const modEl = document.createElement('div');
-      modEl.className = 'kp-module';
-      if (expanded['m:' + mod]) modEl.classList.add('is-open');
-      const modHead = document.createElement('div');
-      modHead.className = 'kp-module__head';
-      const kps = App.Tags.getKnowledgePoints(mod);
-      const causes = App.Tags.getModuleErrorCauses(mod);
-      modHead.innerHTML = '<span class="kp-arrow">▸</span><span class="kp-module__title">' + mod + '</span><span class="kp-count">' + kps.length + ' 考点 · ' + causes.length + ' 错因</span>';
-      const manageBtn = document.createElement('button');
-      manageBtn.className = 'kp-manage-btn' + (expanded['manage:' + mod] ? ' is-active' : '');
-      manageBtn.textContent = expanded['manage:' + mod] ? '完成' : '✎ 管理';
-      manageBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        expanded['m:' + mod] = true;
-        expanded['manage:' + mod] = !expanded['manage:' + mod];
-        App.Pages.KpManage.render({});
-      });
-      modHead.appendChild(manageBtn);
-      modHead.addEventListener('click', () => { expanded['m:' + mod] = !expanded['m:' + mod]; App.Pages.KpManage.render({}); });
-      modEl.appendChild(modHead);
-      const modBody = document.createElement('div');
-      modBody.className = 'kp-module__body';
-
-      // —— 考点区 ——
-      const kpSection = document.createElement('div');
-      kpSection.className = 'kp-subsection';
-      const kpLabel = document.createElement('div');
-      kpLabel.className = 'kp-subsection__label';
-      kpLabel.textContent = '📍 考点';
-      kpSection.appendChild(kpLabel);
-      const chipsWrap = document.createElement('div');
-      chipsWrap.className = 'kp-chips';
-      if (kps.length === 0) {
-        const empty = document.createElement('span');
-        empty.className = 'kp-empty';
-        empty.textContent = '暂无考点';
-        chipsWrap.appendChild(empty);
-      } else {
-        kps.forEach(kp => {
-          const c = buildKpChip(mod, kp);
-          chipsWrap.appendChild(c);
-          if (expanded['manage:' + mod]) bindChipDrag(c, mod, 'kp', chipsWrap);
-        });
-      }
-      kpSection.appendChild(chipsWrap);
-      const addRow = document.createElement('div');
-      addRow.className = 'kp-add-row';
-      const addInput = document.createElement('input');
-      addInput.className = 'form-input';
-      addInput.placeholder = '新增考点...';
-      addInput.style.flex = '1';
-      const addBtn = document.createElement('button');
-      addBtn.className = 'btn btn--outline btn--sm';
-      addBtn.textContent = '添加';
-      addBtn.type = 'button';
-      addBtn.addEventListener('click', async () => {
-        const v = addInput.value.trim();
-        if (!v) return;
-        await App.Tags.addKnowledgePoint(mod, v);
-        App.Pages.KpManage.render({});
-      });
-      addInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); } });
-      addRow.appendChild(addInput);
-      addRow.appendChild(addBtn);
-      kpSection.appendChild(addRow);
-      modBody.appendChild(kpSection);
-
-      // —— 该模块错因区 ——
-      const causeSection = document.createElement('div');
-      causeSection.className = 'kp-subsection';
-      const causeLabel = document.createElement('div');
-      causeLabel.className = 'kp-subsection__label';
-      causeLabel.textContent = '⚠️ 该模块错因';
-      causeSection.appendChild(causeLabel);
-      const causeChipsWrap = document.createElement('div');
-      causeChipsWrap.className = 'kp-chips';
-      if (causes.length === 0) {
-        const empty = document.createElement('span');
-        empty.className = 'kp-empty';
-        empty.textContent = '暂无模块错因';
-        causeChipsWrap.appendChild(empty);
-      } else {
-        causes.forEach(ec => {
-          const c = buildModuleCauseChip(mod, ec);
-          causeChipsWrap.appendChild(c);
-          if (expanded['manage:' + mod]) bindChipDrag(c, mod, 'ec', causeChipsWrap);
-        });
-      }
-      causeSection.appendChild(causeChipsWrap);
-      const causeAddRow = document.createElement('div');
-      causeAddRow.className = 'kp-add-row';
-      const causeInput = document.createElement('input');
-      causeInput.className = 'form-input';
-      causeInput.placeholder = '新增该模块错因...';
-      causeInput.style.flex = '1';
-      const causeAddBtn = document.createElement('button');
-      causeAddBtn.className = 'btn btn--outline btn--sm';
-      causeAddBtn.textContent = '添加';
-      causeAddBtn.type = 'button';
-      causeAddBtn.addEventListener('click', async () => {
-        const v = causeInput.value.trim();
-        if (!v) return;
-        await App.Tags.addModuleErrorCause(mod, v);
-        App.Pages.KpManage.render({});
-      });
-      causeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); causeAddBtn.click(); } });
-      causeAddRow.appendChild(causeInput);
-      causeAddRow.appendChild(causeAddBtn);
-      causeSection.appendChild(causeAddRow);
-      modBody.appendChild(causeSection);
-
-      modEl.appendChild(modBody);
-      return modEl;
-    };
-
-    // 科目块
-    App.Constants.SUBJECTS.forEach(subject => {
-      const subjEl = document.createElement('div');
-      subjEl.className = 'kp-subject';
-      if (expanded['s:' + subject.name]) subjEl.classList.add('is-open');
-      const subjHead = document.createElement('div');
-      subjHead.className = 'kp-subject__head';
-      subjHead.innerHTML = '<span class="kp-arrow">▸</span><span class="kp-subject__icon">' + subject.icon + '</span><span class="kp-subject__title">' + subject.name + '</span>';
-      subjHead.addEventListener('click', () => { expanded['s:' + subject.name] = !expanded['s:' + subject.name]; App.Pages.KpManage.render({}); });
-      subjEl.appendChild(subjHead);
-      const subjBody = document.createElement('div');
-      subjBody.className = 'kp-subject__body';
-      App.Constants.getModules(subject.name).forEach(mod => subjBody.appendChild(buildModuleBlock(mod)));
-      subjEl.appendChild(subjBody);
-      tree.appendChild(subjEl);
+    // 折叠卡片式管理组件（考点 + 错因，编辑模式支持拖拽排序 / 删除 / 添加）
+    const mgrWrap = document.createElement('div');
+    mgrWrap.className = 'tag-manager-wrap';
+    mgrWrap.style.cssText = 'padding:0 var(--page-padding) var(--spacing-xl);';
+    container.appendChild(mgrWrap);
+    App.Components.tagManager(mgrWrap, {
+      title: '标签管理',
+      kinds: ['kp', 'ec'],
+      onDone: () => {}
     });
   }
 };

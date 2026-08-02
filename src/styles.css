@@ -5597,3 +5597,251 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 #page-error-form .tag-input__empty { padding: 4px 0; font-size: 11px; }
 #page-error-form .tag-input__manage { margin-top: 6px; }
 #page-error-form .tag-input__manage-btn { height: 32px; font-size: 11px; }
+
+/* ===== 【考点/错因标签管理】折叠卡片管理组件（tagManager） ===== */
+.tag-manager { width: 100%; }
+.tag-manager__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.tag-manager__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.tag-manager__edit-toggle {
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--color-primary);
+  border-radius: 15px;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tag-manager__edit-toggle.is-active {
+  background: var(--color-primary);
+  color: #fff;
+}
+.tag-manager__edit-toggle:active { transform: scale(0.95); }
+
+/* 模块折叠卡片 */
+.tag-module {
+  margin-bottom: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-card);
+}
+.tag-module-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.tag-module-header__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tag-module-arrow {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  transition: transform 0.2s ease;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.tag-module-arrow.expanded { transform: rotate(90deg); }
+.tag-module-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tag-module-count {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  background: var(--bg-primary);
+  padding: 2px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+.tag-module-content {
+  padding: 12px;
+  display: none;
+}
+.tag-module-content.expanded { display: block; }
+
+/* 分类小标题（📍考点 / ⚠️错因） */
+.tag-subsection-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 4px 0 8px;
+}
+
+/* 标签云（平铺） */
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 36px;
+  align-items: center;
+}
+.tag-cloud__empty {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-size: 13px;
+  line-height: 1.2;
+  border: 1px dashed var(--border-color);
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.tag-pill:hover { border-color: var(--color-primary); color: var(--color-primary); }
+.tag-pill.is-dragging { opacity: 0.45; transform: scale(1.05); }
+.tag-pill.is-over { border-color: var(--color-primary); background: var(--color-primary-bg); }
+
+/* 编辑模式 */
+.tag-manager.edit-mode .tag-pill {
+  border-style: solid;
+  border-color: var(--border-color);
+  padding-right: 24px;   /* 留出拖拽把手空间 */
+}
+.tag-drag-handle {
+  display: none;
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  letter-spacing: -1px;
+  cursor: grab;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;   /* 让点击穿透到 pill（pill 本身 draggable） */
+}
+.tag-manager.edit-mode .tag-drag-handle { display: flex; }
+.tag-delete-btn {
+  display: none;
+  position: absolute;
+  right: -6px;
+  top: -6px;
+  width: 16px;
+  height: 16px;
+  background: var(--color-danger);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+}
+.tag-manager.edit-mode .tag-delete-btn { display: flex; }
+.tag-delete-btn:active { transform: scale(0.9); }
+
+/* 添加标签 */
+.tag-add-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-size: 13px;
+  border: 1px dashed var(--color-primary);
+  color: var(--color-primary);
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tag-add-btn:active { background: var(--color-primary-bg); }
+.tag-add-input-row {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  width: 100%;
+}
+.tag-add-input-row.show { display: flex; }
+.tag-add-input-row input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 14px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+.tag-add-input-row input:focus { border-color: var(--color-primary); outline: none; }
+.tag-add-input-row button {
+  height: 36px;
+  padding: 0 14px;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* 编辑模式提示条 */
+.tag-manager__hint {
+  padding: 10px 16px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: center;
+  background: var(--bg-tertiary);
+  margin: 4px 0 12px;
+  border-radius: 8px;
+}
+
+/* 编辑页建议标签「展开全部」按钮 */
+.tag-input__more {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--color-primary);
+  background: var(--color-primary-bg);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.tag-input__more:active { opacity: 0.8; }
+
+/* 深色模式 */
+[data-theme="dark"] .tag-module { border-color: var(--border-color); }
+[data-theme="dark"] .tag-module-header { background: var(--bg-tertiary); }
+[data-theme="dark"] .tag-pill { background: var(--bg-card); border-color: var(--border-color); color: var(--text-secondary); }
+[data-theme="dark"] .tag-pill:hover { border-color: var(--color-primary); color: var(--color-primary); }
