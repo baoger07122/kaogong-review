@@ -3745,6 +3745,9 @@ input, textarea, select {
 .notion-editor {
   position: relative;
   min-height: 200px;
+  max-width: 720px;               /* 最大宽度 720px，居中 */
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* ===== 悬浮格式栏（Notion 风格：悬浮在整个页面窗口最底部、导航栏上方，聚焦浮出/失焦收起） ===== */
@@ -3813,7 +3816,7 @@ input, textarea, select {
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
   padding: 4px;
   min-width: 120px;
-  animation: notion-fade-in 0.1s ease;
+  animation: notion-fade-in 0.2s ease-out;   /* 上浮淡入 200ms */
 }
 .notion-handle-item {
   padding: 8px 12px;
@@ -3829,6 +3832,34 @@ input, textarea, select {
   cursor: default;
   pointer-events: none;
 }
+.notion-handle-item.ne-current { color: var(--color-primary); font-weight: 600; }
+.notion-handle-item.ne-has-sub::after {
+  content: '▸';
+  float: right;
+  color: var(--text-tertiary);
+  margin-left: 12px;
+}
+.notion-convert-sub {
+  border-top: 1px solid var(--divider-color);
+  margin-top: 2px;
+  padding-top: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.notion-convert-sub .notion-handle-item { padding-left: 24px; font-size: var(--font-xs); }
+
+/* 拖拽排序：占位线 + 拖拽中的原块 */
+.notion-drag-placeholder {
+  height: 3px;
+  margin: 1px 0 1px 22px;
+  background: var(--color-primary);
+  border-radius: 2px;
+  opacity: 0.7;
+  animation: notion-fade-in 0.15s ease;
+}
+.notion-block.ne-dragging { opacity: 0.35; }
+body.ne-dragging-active { cursor: grabbing; user-select: none; }
+body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 
 /* ===== 高亮提示块 ===== */
 .notion-callout {
@@ -3896,7 +3927,7 @@ input, textarea, select {
   display: flex;
   align-items: flex-start;
   gap: 0;
-  padding: 2px 0;
+  padding: 4px 0;                  /* 块间距 4-8px */
   transition: background 0.1s ease;
   -webkit-tap-highlight-color: transparent;
 }
@@ -3919,6 +3950,12 @@ input, textarea, select {
   margin-left: -2px;
   user-select: none;
   pointer-events: auto;
+  touch-action: none;              /* 触屏拖拽不触发滚动/缩放 */
+}
+/* 移动端 / 触摸设备：手柄始终显示（无 hover 概念） */
+@media (hover: none), (pointer: coarse) {
+  .notion-block__handle { opacity: 1; }
+  .notion-block:hover .notion-block__handle { opacity: 1; }
 }
 .notion-block__handle:active { cursor: grabbing; }
 /* 正在输入（块内有光标）时手柄禁用 */
@@ -4150,9 +4187,9 @@ input, textarea, select {
   overflow-y: auto;
   width: 260px;
   padding: 6px 0;
-  animation: notion-fade-in 0.12s ease;
+  animation: notion-fade-in 0.2s ease-out;   /* 上浮淡入 200ms */
 }
-@keyframes notion-fade-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes notion-fade-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 
 .notion-slash-item {
   display: flex;
@@ -4163,7 +4200,7 @@ input, textarea, select {
   transition: background 0.08s ease;
   -webkit-tap-highlight-color: transparent;
 }
-.notion-slash-item:active, .notion-slash-item:hover { background: var(--bg-tertiary); }
+.notion-slash-item:active, .notion-slash-item:hover, .notion-slash-item.ne-active { background: var(--bg-tertiary); }
 .notion-slash-icon {
   width: 36px;
   height: 36px;
@@ -4204,7 +4241,16 @@ input, textarea, select {
   border-radius: 8px;
   padding: 3px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-  animation: notion-fade-in 0.1s ease;
+  animation: notion-fade-in 0.2s ease-out;   /* 上浮淡入 200ms */
+  /* 移动端适当缩小 */
+  flex-wrap: nowrap;
+  max-width: calc(100vw - 16px);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+@media (hover: none), (pointer: coarse) {
+  .notion-format-bar { padding: 2px; border-radius: 6px; }
+  .notion-fmt-btn { padding: 4px 6px; min-width: 26px; font-size: 12px; }
 }
 .notion-fmt-btn {
   border: none;
