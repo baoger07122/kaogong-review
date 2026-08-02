@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.19';
+App.VERSION = '8.1.28';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9094,10 +9094,9 @@ App.Pages.Workspace = {
     this.state.subject = params.subject || App.Constants.SUBJECTS[0].name;
     this.state.activeTab = parseInt(params.tab) || 0;
 
-    // 返回栏
+    // 返回栏（padding 由 .page-header 统一 CSS 控制：贴顶 + 安全区留白，勿用 inline 覆盖）
     const header = document.createElement('div');
     header.className = 'page-header';
-    header.style.padding = 'var(--spacing-sm) var(--page-padding)';
 
     const backBtn = document.createElement('button');
     backBtn.className = 'page-header__back';

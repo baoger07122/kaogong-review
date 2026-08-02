@@ -222,9 +222,18 @@ input, textarea, select {
 .page {
   display: none;
   min-height: calc(100vh - var(--nav-height) - var(--safe-bottom));
-  /* 顶部预留缓冲，避开 iPad 分屏的「三个点」多任务条；底部预留给固定导航栏 */
-  padding-top: calc(var(--top-buffer) + 12px);
+  /* 顶部不再统一预留：吸顶元素（.page-sticky/.page-header/.sidebar）已贴 top:0，
+     安全区留白转移到吸顶元素内部 padding-top，背景从屏幕物理顶端开始铺，
+     滚动时顶带被吸顶元素背景覆盖，内容不再从状态栏下方穿出。
+     无吸顶标题栏的页面（首页/学习统计/考点管理）单独补顶部留白（见下）。 */
   padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 14px);
+}
+
+/* 无吸顶标题栏的页面：首元素是普通内容，需自行避开状态栏/iPad 三点 */
+#page-home,
+#page-study-stats,
+#page-kpmanage {
+  padding-top: calc(var(--top-buffer) + 12px);
 }
 
 .page.active {
@@ -330,28 +339,35 @@ input, textarea, select {
 /* 固定区：标题 + 搜索 + 统计 打包吸顶（错题本等列表页滚动时保持可见） */
 .page-sticky {
   position: sticky;
-  top: calc(var(--top-buffer) + 12px);
+  /* 贴屏幕物理顶端：背景从 y=0 开始铺，盖住状态栏后方，滚动时内容被背景遮挡不穿出；
+     安全区留白转入内部 padding-top，文字仍避开状态栏与 iPad 三点。
+     补偿值 12px 与原 .page padding-top 一致——吸顶后底沿位置与旧布局完全相同。 */
+  top: 0;
+  padding-top: calc(var(--top-buffer) + 12px);
   z-index: 200;
   background: var(--bg-primary);
   padding-bottom: var(--spacing-sm);
   border-bottom: 0.5px solid var(--divider-color);
 }
-/* 包进固定区后，内部标题不再需要自身 sticky */
+/* 包进固定区后，内部标题不再需要自身 sticky，也不再重复顶部留白（外层已垫） */
 .page-sticky .page-header {
   position: static;
+  padding-top: var(--spacing-sm);
 }
 
 .page-header {
   position: sticky;
-  top: calc(var(--top-buffer) + 12px);
+  /* 同 .page-sticky：贴 top:0，背景从屏幕顶端铺；padding-top 多垫 top-buffer+12px，
+     保持标题文字位置与吸顶底沿和旧布局一致（二级吸顶 .tabs/.worddb-thead 无需改动） */
+  top: 0;
   z-index: 100;
   background: var(--bg-primary);
   padding: var(--spacing-md) var(--page-padding);
-  padding-top: var(--spacing-sm);
+  padding-top: calc(var(--top-buffer) + 12px + var(--spacing-sm));
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 48px; /* iOS 触控最小高度 + 避开顶部多任务条 */
+  min-height: 48px; /* iOS 触控最小高度 */
 }
 
 .page-header__title {
@@ -3361,16 +3377,18 @@ input, textarea, select {
 
 .sidebar {
   position: sticky;
-  top: calc(var(--top-buffer) + 12px);
+  /* 贴屏幕物理顶端：背景从 y=0 铺（盖住状态栏后方左侧条），首项文字仍避开状态栏；
+     top:0 后高度=视口高-底部导航，底沿与旧布局一致 */
+  top: 0;
   flex: 0 0 auto;
   width: 80px;
   /* 固定高度占满左侧整列，滚动时保持固定 */
-  height: calc(100vh - var(--top-buffer) - 12px - var(--nav-height) - var(--safe-bottom));
+  height: calc(100vh - var(--nav-height) - var(--safe-bottom));
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   background: var(--bg-secondary);
   border-right: 0.5px solid var(--border-color);
-  padding: var(--spacing-sm) 0;
+  padding: calc(var(--top-buffer) + 12px + var(--spacing-sm)) 0 var(--spacing-sm);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -5166,7 +5184,7 @@ input, textarea, select {
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.1.19';
+App.VERSION = '8.1.28';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -14257,10 +14275,9 @@ App.Pages.Workspace = {
     this.state.subject = params.subject || App.Constants.SUBJECTS[0].name;
     this.state.activeTab = parseInt(params.tab) || 0;
 
-    // 返回栏
+    // 返回栏（padding 由 .page-header 统一 CSS 控制：贴顶 + 安全区留白，勿用 inline 覆盖）
     const header = document.createElement('div');
     header.className = 'page-header';
-    header.style.padding = 'var(--spacing-sm) var(--page-padding)';
 
     const backBtn = document.createElement('button');
     backBtn.className = 'page-header__back';
