@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.5.1';
+App.VERSION = '8.6.0';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -1538,13 +1538,23 @@ App.Components = {
       btn.className = 'notion-mobile-tool-btn';
       btn.dataset.key = x.key;
       btn.title = x.title;
-      btn.innerHTML = NM_ICONS[x.icon] + '<span class="notion-mobile-tool-label">' + x.label + '</span>';
+      btn.innerHTML = NM_ICONS[x.icon];   // 纯图标，无文字标签
       btn.addEventListener('mousedown', (e) => e.preventDefault());
       btn.addEventListener('click', (e) => {
         e.preventDefault(); e.stopPropagation();
         const inst = App.Components._activeMobileEditor;
         if (inst && typeof inst._onMobileToolbar === 'function') inst._onMobileToolbar(x.key);
       });
+      // 长按显示功能提示（500ms），提升纯图标工具栏的可发现性
+      let pressTimer = null;
+      btn.addEventListener('touchstart', () => {
+        pressTimer = setTimeout(() => {
+          if (App.Components.toast && x.title) App.Components.toast(x.title, 'info');
+        }, 500);
+      }, { passive: true });
+      btn.addEventListener('touchend', () => clearTimeout(pressTimer), { passive: true });
+      btn.addEventListener('touchmove', () => clearTimeout(pressTimer), { passive: true });
+      btn.addEventListener('touchcancel', () => clearTimeout(pressTimer), { passive: true });
       scroll.appendChild(btn);
     });
     const mL = document.createElement('div');
@@ -1557,10 +1567,17 @@ App.Components = {
 
     // ===== 软键盘适配（单例级，只注册一次） =====
     // iOS Safari 键盘弹出时 visualViewport 高度缩小，同时键盘上方还有系统「上一条/下一条/完成」透明条
-    // 方案：用 visualViewport.height 计算键盘+透明条总高度，工具栏 bottom 跟随；并监听 scroll（Safari 滚动触发）
+    // 悬浮卡片：键盘弹出时 bottom = 键盘高度 + 16px（悬浮在键盘上方），收起时 bottom = safe-bottom + 16px
     const isMob = window.innerWidth <= 768 || ('ontouchstart' in window);
     let baseInnerH = window.innerHeight;   // 缓存基准视口高度（键盘弹出后 innerHeight 也可能变化）
     let kbRaf = null;
+    const SAFE_BOTTOM = (() => {
+      // 读取 CSS 变量 --safe-bottom（若有），否则默认 0
+      try {
+        const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-bottom'));
+        return isNaN(v) ? 0 : v;
+      } catch (e) { return 0; }
+    })();
     const updateToolbarBottom = () => {
       const bar = App.Components._mobileToolbarEl;
       if (!bar || !isMob) return;
@@ -1572,7 +1589,8 @@ App.Components = {
         // 兼容旧版 iOS：offsetTop 表示可视区相对页面的下移量，也计入
         if (vv.offsetTop > kb) kb = vv.offsetTop;
       }
-      bar.style.bottom = kb + 'px';
+      // 悬浮卡片：键盘弹出 bottom = kb+16；收起 bottom = SAFE_BOTTOM+16
+      bar.style.bottom = (kb > 0 ? kb + 16 : SAFE_BOTTOM + 16) + 'px';
       // 同时告知当前活动编辑器，让浮动格式栏也能适配
       const inst = App.Components._activeMobileEditor;
       if (inst && typeof inst._onKeyboardChange === 'function') inst._onKeyboardChange(kb);
@@ -1604,6 +1622,8 @@ App.Components = {
     }, { passive: true });
 
     this._mobileToolbarEl = el;
+    // 初始化定位（悬浮间距 16px）
+    updateToolbarBottom();
     return el;
   },
 
@@ -3992,9 +4012,16 @@ App.Components = {
     let _keyboardH = 0;
     _mobileInst._onKeyboardChange = (kb) => {
       _keyboardH = kb;
+      // 编辑器容器底部留白：悬浮卡片高度(56) + 底部间距(16) + 键盘高度，避免内容被遮
+      try {
+        const tbH = 56, tbMargin = 16;
+        wrapper.style.paddingBottom = (tbH + tbMargin + 20 + kb) + 'px';
+      } catch (e) {}
       // 格式栏打开时重新定位（避开 Safari「上/下/对号」透明条）
       if (formatBar && formatBar.parentElement) repositionFormatBar();
     };
+    // 初始留白（无键盘时：56 + 16 + 20）
+    try { wrapper.style.paddingBottom = '92px'; } catch (e) {}
     // 键盘弹出时把聚焦块滚动到可视区
     const _vvScrollHandler = () => {
       if (_keyboardH > 0 && focusedBlockEl && focusedBlockEl.scrollIntoView) {

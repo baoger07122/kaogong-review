@@ -3781,19 +3781,40 @@ input, textarea, select {
   pointer-events: auto;
 }
 
-/* ===== 【修复2】Notion 移动端：底部横向滑动工具栏 + Bottom Sheet ===== */
-/* 底部工具栏：fixed 定位，横向连续滑动，左右渐变遮罩 */
+/* ===== 【修复2】Notion 移动端：纯图标悬浮卡片工具栏（App 级视觉效果） ===== */
+/* 悬浮卡片：左右留边 + 底部留距 + 大圆角 + 毛玻璃 + 多层阴影，像素级还原原生 App */
 .notion-mobile-toolbar {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  left: 16px;                    /* 左右留边距 → 居中悬浮感 */
+  right: 16px;
+  bottom: 16px;                  /* 底部留间距 → 悬浮而非贴死 */
   height: 56px;
-  padding-bottom: env(safe-area-inset-bottom);
-  background: var(--bg-card, #FFFFFF);
-  border-top: 1px solid var(--border-color, #E8E8E8);
+  border-radius: 20px;           /* 大圆角 → App 卡片感 */
+  background: rgba(255, 255, 255, 0.95);
+  -webkit-backdrop-filter: blur(20px);   /* 毛玻璃 → iOS 原生质感 */
+  backdrop-filter: blur(20px);
+  box-shadow:                    /* 多层阴影 → 悬浮层次感 */
+    0 4px 20px rgba(0, 0, 0, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(0, 0, 0, 0.04); /* 极淡边框 → 精致感 */
   z-index: 1000;
-  display: none;   /* 桌面端默认隐藏，移动端显示 */
+  display: none;                 /* 桌面端默认隐藏，移动端显示 */
+  /* iOS 防止 fixed 元素闪烁 */
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  /* 键盘弹出/收起时的平滑过渡 */
+  transition: bottom 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+[data-theme="dark"] .notion-mobile-toolbar {
+  background: rgba(30, 30, 30, 0.95);
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.3),
+    0 1px 3px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 .notion-mobile-toolbar__scroll {
   display: flex;
@@ -3802,47 +3823,59 @@ input, textarea, select {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  padding: 0 12px;
-  gap: 4px;
+  padding: 0 8px;
+  gap: 0;
+  border-radius: 20px;           /* 内部滚动区与卡片同圆角 */
 }
 .notion-mobile-toolbar__scroll::-webkit-scrollbar { display: none; }
+/* 纯图标按钮：flex 均分，视觉上只占图标大小，点击区 44x44 */
 .notion-mobile-tool-btn {
+  flex: 1;
   min-width: 44px;
-  height: 44px;
-  flex-shrink: 0;
+  max-width: 56px;
+  height: 100%;
   border: none;
-  border-radius: 8px;
-  background: transparent;
+  border-radius: 16px;
+  background: none;
   color: var(--text-secondary, #6B6B6B);
   cursor: pointer;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
-  padding: 0 4px;
-  transition: background-color 0.15s ease;
+  padding: 0;
   -webkit-tap-highlight-color: transparent;
 }
-.notion-mobile-tool-btn:active { background: rgba(0, 0, 0, 0.05); }
-.notion-mobile-tool-btn svg { width: 22px; height: 22px; }
-.notion-mobile-tool-label {
-  font-size: 9px;
-  line-height: 1;
-  color: var(--text-tertiary, #9E9E9E);
-  white-space: nowrap;
+.notion-mobile-tool-btn svg {
+  width: 24px;
+  height: 24px;
+  color: var(--text-secondary, #6B6B6B);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  transition: color 0.15s ease, transform 0.1s ease;
 }
-/* 渐变遮罩：提示左右可滑动 */
+.notion-mobile-tool-btn:active { background: rgba(0, 0, 0, 0.05); }
+.notion-mobile-tool-btn:active svg {
+  transform: scale(0.88);        /* 按下缩放反馈 */
+  color: var(--color-primary, #2EAADC);
+}
+.notion-mobile-tool-btn:disabled svg { opacity: 0.3; }
+/* 文字标签隐藏（纯图标模式） */
+.notion-mobile-tool-label { display: none; }
+/* 渐变遮罩：提示左右可滑动（跟随卡片圆角，内缩避免盖住圆角） */
 .notion-mobile-toolbar__mask {
   position: absolute;
   top: 0;
-  bottom: env(safe-area-inset-bottom);
-  width: 24px;
+  bottom: 0;
+  width: 20px;
   pointer-events: none;
   z-index: 2;
+  border-radius: 20px;
 }
-.notion-mobile-toolbar__mask.left { left: 0; background: linear-gradient(to right, var(--bg-card, #FFFFFF) 0%, transparent 100%); }
-.notion-mobile-toolbar__mask.right { right: 0; background: linear-gradient(to left, var(--bg-card, #FFFFFF) 0%, transparent 100%); }
+.notion-mobile-toolbar__mask.left { left: 8px; background: linear-gradient(to right, rgba(255, 255, 255, 0.95) 0%, transparent 100%); }
+.notion-mobile-toolbar__mask.right { right: 8px; background: linear-gradient(to left, rgba(255, 255, 255, 0.95) 0%, transparent 100%); }
+[data-theme="dark"] .notion-mobile-toolbar__mask.left { background: linear-gradient(to right, rgba(30, 30, 30, 0.95) 0%, transparent 100%); }
+[data-theme="dark"] .notion-mobile-toolbar__mask.right { background: linear-gradient(to left, rgba(30, 30, 30, 0.95) 0%, transparent 100%); }
 
 /* Bottom Sheet 遮罩 + 面板 */
 .notion-mobile-sheet-overlay {

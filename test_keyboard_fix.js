@@ -70,7 +70,7 @@ setTimeout(() => {
     console.log('\n[1] 底部工具栏键盘上浮');
     const tb = doc.querySelector('.notion-mobile-toolbar');
     assert(!!tb, '底部工具栏已挂载');
-    assert(tb.style.bottom === '' || tb.style.bottom === '0px', '初始 bottom=0 (' + tb.style.bottom + ')');
+    assert(parseInt(tb.style.bottom) === 16, '初始 bottom=16px 悬浮间距 (' + tb.style.bottom + ')');
 
     // 3. 模拟键盘弹出：可视高 844→400（键盘+透明条约 444px）
     win.__simKeyboard(400, 0);
@@ -78,10 +78,10 @@ setTimeout(() => {
       assert(parseInt(tb.style.bottom) >= 400, '键盘弹出后工具栏 bottom 跟随上浮 (' + tb.style.bottom + ')');
       assert(parseInt(tb.style.bottom) >= 444 - 1, '含 Safari 透明条占位（bottom >= 444）(' + tb.style.bottom + ')');
 
-      // 4. 键盘收起恢复
+      // 4. 键盘收起恢复（悬浮卡片：收起后 bottom = 16px 悬浮间距）
       win.__simKeyboardClose();
       setTimeout(() => {
-        assert(parseInt(tb.style.bottom) === 0 || tb.style.bottom === '', '键盘收起后 bottom 归零 (' + tb.style.bottom + ')');
+        assert(parseInt(tb.style.bottom) === 16, '键盘收起后 bottom 回到悬浮间距 16px (' + tb.style.bottom + ')');
 
         // 5. 浮动格式栏避让透明条
         console.log('\n[2] 浮动格式栏避让 Safari 透明条');
