@@ -5548,7 +5548,74 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   border: 1px dashed var(--divider-color);
 }
 .doodle-preview--collapsed { display: none; }
-  </style>
+  
+/* ===== 添加错题页（#page-error-form）紧凑化 =====
+   用户要求（v8.2.12）：页面整体缩小 20-30%，一屏能看到更多字段。
+   仅作用域到添加错题页，不影响笔记/套卷等其他表单页。 */
+#page-error-form {
+  font-size: 15px;   /* 页面基础字号 16→15 */
+}
+/* 表单容器内边距缩小 */
+#page-error-form .form-page {
+  padding: 10px 12px;
+  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 90px);
+}
+/* 表单项间距 16→12px */
+#page-error-form .form-group {
+  margin-bottom: 12px;
+}
+/* 标签 12px、下边距 8→6px */
+#page-error-form .form-label {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+/* 输入框/下拉：高约 48-52 → 36px，内边距收窄 */
+#page-error-form .form-input,
+#page-error-form .form-textarea,
+#page-error-form .form-select {
+  padding: 7px 12px;
+  font-size: 14px;
+  border-radius: 8px;
+  min-height: 36px;
+}
+#page-error-form .form-textarea {
+  min-height: 64px;   /* 题干/解析多行区 80→64 */
+  padding: 9px 12px;
+  line-height: 1.5;
+}
+/* 按钮：44 → 38px（含 AI 智能拆分按钮） */
+#page-error-form .btn {
+  height: 38px;
+  font-size: 13px;
+  padding: 0 16px;
+}
+#page-error-form .btn[style*="margin-bottom"] { margin-bottom: 10px !important; }/* 顶部导航：48 → 44px 高，标题 20 → 17px */
+#page-error-form .page-header {
+  min-height: 44px;
+  padding-top: var(--top-buffer);
+}
+#page-error-form .page-header__title {
+  font-size: 17px;
+}
+#page-error-form .page-header__back svg {
+  width: 18px;
+  height: 18px;
+}
+/* 选项输入区：每行间距 6 → 4px，字母 20px 宽 */
+#page-error-form .error-form-option-input { margin-bottom: 4px !important; }
+/* 正确选项/你的选项 并排间距 12 → 8px */
+#page-error-form .error-form-select-row { gap: 8px; }
+/* 标签输入区紧凑化（考点/错因） */
+#page-error-form .tag-input__chips { gap: 6px; min-height: 26px; }
+#page-error-form .tag-input__chip,
+#page-error-form .tag-input__suggestion { height: 26px; font-size: 11px; padding: 0 10px; }
+#page-error-form .tag-input__field-row { margin-top: 6px; }
+#page-error-form .tag-input__suggestions { margin-top: 6px; gap: 6px; }
+#page-error-form .tag-input__empty { padding: 4px 0; font-size: 11px; }
+#page-error-form .tag-input__manage { margin-top: 6px; }
+#page-error-form .tag-input__manage-btn { height: 32px; font-size: 11px; }
+</style>
 </head>
 <body>
   <div id="app">
@@ -5628,7 +5695,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.2.11';
+App.VERSION = '8.2.12';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -14004,7 +14071,7 @@ App.Pages.Errors = {
 
       ['A', 'B', 'C', 'D'].forEach((letter, idx) => {
         const input = document.createElement('input');
-        input.className = 'form-input';
+        input.className = 'form-input error-form-option-input';
         input.style.marginBottom = '6px';
         input.placeholder = '选项 ' + letter;
         input.value = formData.options[idx] || '';
@@ -14026,6 +14093,7 @@ App.Pages.Errors = {
 
       // 正确选项 + 错误选项
       const selectRow = document.createElement('div');
+      selectRow.className = 'error-form-select-row';
       selectRow.style.cssText = 'display:flex;gap:var(--spacing-md);';
       selectRow.appendChild(App.Components.formSelector(
         '正确选项',

@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.2.11';
+App.VERSION = '8.2.12';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -8379,7 +8379,7 @@ App.Pages.Errors = {
 
       ['A', 'B', 'C', 'D'].forEach((letter, idx) => {
         const input = document.createElement('input');
-        input.className = 'form-input';
+        input.className = 'form-input error-form-option-input';
         input.style.marginBottom = '6px';
         input.placeholder = '选项 ' + letter;
         input.value = formData.options[idx] || '';
@@ -8401,6 +8401,7 @@ App.Pages.Errors = {
 
       // 正确选项 + 错误选项
       const selectRow = document.createElement('div');
+      selectRow.className = 'error-form-select-row';
       selectRow.style.cssText = 'display:flex;gap:var(--spacing-md);';
       selectRow.appendChild(App.Components.formSelector(
         '正确选项',
