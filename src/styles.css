@@ -398,8 +398,29 @@ body.ipad-split .page-header__inner {
   max-width: 100%;
   padding: 0 24px;
 }
-body.ipad-split .page-header {
-  padding-left: 8px;   /* 避开分屏指示条（左侧系统条） */
+/* 分屏时返回按钮右移避开系统指示条（只动按钮，不动标题栏/页面） */
+body.ipad-split .page-header__back {
+  margin-left: 24px;
+  transition: margin-left 0.2s ease;
+}
+/* Slide Over / 窄窗口分屏（<=400px）：指示条更占空间，再让一点 */
+@media screen and (max-width: 400px) {
+  body.ipad-split .page-header__back {
+    margin-left: 32px;
+  }
+}
+/* 返回按钮点击热区扩大（分屏时更易误触，扩大可点区但视觉不变） */
+.page-header__back {
+  position: relative;
+}
+.page-header__back::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  right: -8px;
+  bottom: -8px;
+  pointer-events: none;   /* 不拦截自身 SVG 点击，仅扩展热区 */
 }
 
 .page-header__title {

@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.2.7';
+App.VERSION = '8.2.8';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -1626,19 +1626,32 @@ App.Components = {
     updateToolbarBottom();
 
     // ===== iPad 横屏/分屏自适应检测（单例级） =====
-    // 分屏检测：iPad 且窗口宽度 < 1024 时加 .ipad-split，内容/工具栏放宽到接近全宽
+    // 分屏检测（精准版）：iPad 物理尺寸 screen.width/height 固定，分屏时 window.innerWidth 明显变小
+    // 用「窗口宽与任一屏幕边长的差 > 80px」判断，覆盖横屏分屏、竖屏分屏、Slide Over、Stage Manager
+    // screen.width 在个别环境为 0/undefined 时退化为 width < 1024 兜底
     const detectIpadSplit = () => {
       const isIpad = /iPad/.test(navigator.userAgent) ||
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-      const width = window.innerWidth;
-      if (isIpad && width < 1024) {
-        document.body.classList.add('ipad-split');
+      if (!isIpad) { document.body.classList.remove('ipad-split'); return; }
+      const w = window.innerWidth;
+      const sw = (screen && screen.width) || 0;
+      const sh = (screen && screen.height) || 0;
+      let isSplit = false;
+      if (sw > 0 && sh > 0) {
+        isSplit = Math.abs(w - sw) > 80 || Math.abs(w - sh) > 80;
       } else {
-        document.body.classList.remove('ipad-split');
+        isSplit = w < 1024;   // screen 不可用时兜底
       }
+      if (isSplit) document.body.classList.add('ipad-split');
+      else document.body.classList.remove('ipad-split');
     };
-    window.addEventListener('resize', detectIpadSplit, { passive: true });
-    window.addEventListener('orientationchange', () => setTimeout(detectIpadSplit, 100), { passive: true });
+    let _splitTimer = null;
+    const scheduleSplitDetect = () => {
+      clearTimeout(_splitTimer);
+      _splitTimer = setTimeout(detectIpadSplit, 100);   // 防抖，iPad 分屏动画约 300ms
+    };
+    window.addEventListener('resize', scheduleSplitDetect, { passive: true });
+    window.addEventListener('orientationchange', () => setTimeout(detectIpadSplit, 300), { passive: true });
     detectIpadSplit();
 
     return el;
