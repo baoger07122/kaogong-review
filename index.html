@@ -246,12 +246,19 @@ input, textarea, select {
   padding-top: var(--top-buffer);
 }
 
-/* 首页：内容不超过整屏 → 锁定整屏高、禁止滚动；固定底栏以 overlay 覆盖底部，
-   不占用文档流高度，因此不再产生底部空白与可滚动区域。
-   用 100dvh 精确对齐移动端可视区，彻底消除 100vh 大于可视区带来的底部 21px 可滚动空白。 */
+/* 首页：彻底脱离文档滚动流——fixed 铺满可视视口（top:0+bottom:0），
+   高度永远=可见屏幕、不撑高文档 → 任何设备/任何 iOS 版本都不可滚动。
+   背景从屏幕顶端铺起；固定底栏以 overlay 覆盖底部，不占用文档流高度。
+   不用 100vh/100dvh：iOS 上 100vh 解析为大视口（含地址栏区域）、dvh 随地址栏收起动态变大，
+   都会让文档比可见屏高，造成「固定页仍可滚动」。
+   min-height:0 覆盖全局 .page 的 min-height:100dvh。 */
 #page-home {
-  height: 100vh;
-  height: 100dvh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  min-height: 0;
   padding-bottom: 0;
   overflow: hidden;
 }
@@ -375,12 +382,10 @@ input, textarea, select {
   padding-top: 0;
 }
 
-/* 错题本：标题+统计+搜索整块不吸顶，随内容一起上滑；
-   滑出屏幕顶端时由 JS 动态叠加毛玻璃模糊（溶解效果），will-change 提示合成层 */
+/* 错题本：标题+统计+搜索整块不吸顶，随内容一起上滑（用户 v8.1.31 指定；模糊动画已按用户要求移除） */
 #page-errors .page-sticky {
   position: static;
   top: auto;
-  will-change: filter, opacity;
 }
 
 .page-header {
@@ -468,10 +473,14 @@ input, textarea, select {
 }
 
 /* iPad 分屏「三个点」多任务条位于顶部左侧，会压住返回按钮。
-   在 iPad 形态（触屏 + 宽 ≥768）下，将返回按钮在当行内右移 24px 避开冲突，
-   垂直位置保持不变（仅改 margin-left，不影响行高）。 */
+   在 iPad 形态（触屏 + 宽 ≥768）下，将错题/笔记的详情页与编辑页左上角返回按钮
+   在当行内右移 24px 避开冲突，垂直位置保持不变（仅改 margin-left，不影响行高）。
+   其余带返回按钮的页面（workspace、套卷详情、词库导入等）不受影响。 */
 @media (min-width: 768px) and (pointer: coarse) {
-  .page-header__back {
+  #page-error-detail .page-header__back,
+  #page-error-form .page-header__back,
+  #page-note-detail .page-header__back,
+  #page-note-form .page-header__back {
     margin-left: 24px;
   }
 }
@@ -5221,7 +5230,7 @@ input, textarea, select {
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.2.4';
+App.VERSION = '8.2.5';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -11435,43 +11444,6 @@ App.Pages.Errors = {
     this.renderStats(statsRow);
     this.renderFilters(filterArea);
     await this.renderList(listArea);
-
-    // 标题+统计不再吸顶：随内容一起上滑；滑出屏幕顶端时叠加毛玻璃模糊（溶解效果）
-    this._bindBlurScroll();
-    this._updateHeaderBlur();
-  },
-
-  // 仅绑定一次全局滚动监听（rAF 节流），所有页面共享，内部按当前激活页判断是否生效
-  _bindBlurScroll() {
-    if (this._blurScrollBound) return;
-    this._blurScrollBound = true;
-    let ticking = false;
-    const handler = () => {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(() => { this._updateHeaderBlur(); ticking = false; });
-    };
-    window.addEventListener('scroll', handler, { passive: true });
-    window.addEventListener('resize', handler, { passive: true });
-    window.addEventListener('hashchange', handler, { passive: true });
-  },
-
-  // 计算标题块(.page-sticky)越过屏幕顶端的距离，按比例施加模糊+淡出，形成溶解效果
-  _updateHeaderBlur() {
-    const page = document.getElementById('page-errors');
-    if (!page || !page.classList.contains('active')) return;
-    const el = page.querySelector('.page-sticky');
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const d = -rect.top; // 标题块顶边已越过屏幕顶端的距离(px)
-    if (d <= 0) {
-      if (el.style.filter) { el.style.filter = ''; el.style.opacity = ''; }
-      return;
-    }
-    const h = el.offsetHeight || 1;
-    const blurPx = Math.min(d / 5, 16);                 // 滚动越远越模糊，上限 16px
-    el.style.filter = 'blur(' + blurPx + 'px)';
-    el.style.opacity = String(Math.max(0, 1 - d / h));  // 随块体离顶而淡出溶解
   },
 
   async loadData() {

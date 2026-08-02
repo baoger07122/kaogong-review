@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.2.4';
+App.VERSION = '8.2.5';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -6217,43 +6217,6 @@ App.Pages.Errors = {
     this.renderStats(statsRow);
     this.renderFilters(filterArea);
     await this.renderList(listArea);
-
-    // 标题+统计不再吸顶：随内容一起上滑；滑出屏幕顶端时叠加毛玻璃模糊（溶解效果）
-    this._bindBlurScroll();
-    this._updateHeaderBlur();
-  },
-
-  // 仅绑定一次全局滚动监听（rAF 节流），所有页面共享，内部按当前激活页判断是否生效
-  _bindBlurScroll() {
-    if (this._blurScrollBound) return;
-    this._blurScrollBound = true;
-    let ticking = false;
-    const handler = () => {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(() => { this._updateHeaderBlur(); ticking = false; });
-    };
-    window.addEventListener('scroll', handler, { passive: true });
-    window.addEventListener('resize', handler, { passive: true });
-    window.addEventListener('hashchange', handler, { passive: true });
-  },
-
-  // 计算标题块(.page-sticky)越过屏幕顶端的距离，按比例施加模糊+淡出，形成溶解效果
-  _updateHeaderBlur() {
-    const page = document.getElementById('page-errors');
-    if (!page || !page.classList.contains('active')) return;
-    const el = page.querySelector('.page-sticky');
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const d = -rect.top; // 标题块顶边已越过屏幕顶端的距离(px)
-    if (d <= 0) {
-      if (el.style.filter) { el.style.filter = ''; el.style.opacity = ''; }
-      return;
-    }
-    const h = el.offsetHeight || 1;
-    const blurPx = Math.min(d / 5, 16);                 // 滚动越远越模糊，上限 16px
-    el.style.filter = 'blur(' + blurPx + 'px)';
-    el.style.opacity = String(Math.max(0, 1 - d / h));  // 随块体离顶而淡出溶解
   },
 
   async loadData() {
