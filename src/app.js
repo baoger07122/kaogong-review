@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.2.6';
+App.VERSION = '8.2.7';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -1624,6 +1624,23 @@ App.Components = {
     this._mobileToolbarEl = el;
     // 初始化定位（悬浮间距 16px）
     updateToolbarBottom();
+
+    // ===== iPad 横屏/分屏自适应检测（单例级） =====
+    // 分屏检测：iPad 且窗口宽度 < 1024 时加 .ipad-split，内容/工具栏放宽到接近全宽
+    const detectIpadSplit = () => {
+      const isIpad = /iPad/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      const width = window.innerWidth;
+      if (isIpad && width < 1024) {
+        document.body.classList.add('ipad-split');
+      } else {
+        document.body.classList.remove('ipad-split');
+      }
+    };
+    window.addEventListener('resize', detectIpadSplit, { passive: true });
+    window.addEventListener('orientationchange', () => setTimeout(detectIpadSplit, 100), { passive: true });
+    detectIpadSplit();
+
     return el;
   },
 
@@ -5859,12 +5876,15 @@ App.Components = {
   pageHeader(title, rightText, onRightClick) {
     const header = document.createElement('div');
     header.className = 'page-header';
+    // 【iPad 横屏对齐】inner 容器：背景全宽，内容限宽居中（与编辑器/工具栏同宽）
+    const inner = document.createElement('div');
+    inner.className = 'page-header__inner';
 
     const backBtn = document.createElement('button');
     backBtn.className = 'page-header__back';
     backBtn.innerHTML = '<svg width="10" height="18" viewBox="0 0 10 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1L1 9l7 8"/></svg>';
     backBtn.addEventListener('click', () => App.Router.back());
-    header.appendChild(backBtn);
+    inner.appendChild(backBtn);
 
     const titleEl = document.createElement('div');
     titleEl.className = 'page-header__title';
@@ -5872,7 +5892,7 @@ App.Components = {
     titleEl.style.flex = '1';
     titleEl.style.textAlign = 'center';
     titleEl.style.fontSize = 'var(--font-lg)';
-    header.appendChild(titleEl);
+    inner.appendChild(titleEl);
 
     const rightEl = document.createElement('div');
     rightEl.className = 'page-header__right';
@@ -5883,8 +5903,9 @@ App.Components = {
         rightEl.addEventListener('click', onRightClick);
       }
     }
-    header.appendChild(rightEl);
+    inner.appendChild(rightEl);
 
+    header.appendChild(inner);
     return header;
   },
 

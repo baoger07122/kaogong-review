@@ -381,8 +381,25 @@ input, textarea, select {
   padding-top: var(--top-buffer);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   min-height: 48px; /* iOS 触控最小高度 */
+}
+/* 【iPad 横屏对齐】inner 容器：背景全宽（header 全宽），内容限宽居中，与编辑器/工具栏同宽 */
+.page-header__inner {
+  width: 100%;
+  max-width: min(var(--content-max-width, 720px), calc(100% - var(--content-padding, 16px) * 2));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 auto;
+}
+/* iPad 分屏模式：内容全宽但保持 padding */
+body.ipad-split .page-header__inner {
+  max-width: 100%;
+  padding: 0 24px;
+}
+body.ipad-split .page-header {
+  padding-left: 8px;   /* 避开分屏指示条（左侧系统条） */
 }
 
 .page-header__title {
@@ -3745,9 +3762,13 @@ input, textarea, select {
 .notion-editor {
   position: relative;
   min-height: 200px;
-  max-width: 720px;               /* 最大宽度 720px，居中 */
+  max-width: min(var(--content-max-width, 720px), calc(100% - var(--content-padding, 16px) * 2));   /* 与页头/工具栏同宽居中 */
   margin-left: auto;
   margin-right: auto;
+}
+/* iPad 分屏模式：编辑器接近全宽 */
+body.ipad-split .notion-editor {
+  max-width: 100%;
 }
 
 /* ===== 悬浮格式栏（Notion 风格：悬浮在整个页面窗口最底部、导航栏上方，聚焦浮出/失焦收起） ===== */
@@ -3782,12 +3803,17 @@ input, textarea, select {
 }
 
 /* ===== 【修复2】Notion 移动端：纯图标悬浮卡片工具栏（App 级视觉效果） ===== */
-/* 悬浮卡片：左右留边 + 底部留距 + 大圆角 + 毛玻璃 + 多层阴影，像素级还原原生 App */
+/* 悬浮卡片：真正居中（fixed 元素用 left:50% + translateX(-50%) 居中，margin:auto 对 fixed 无效）
+   宽度响应式：min(680px, calc(100% - 32px)) —— iPad 横屏全屏 680px 居中，分屏/手机自动适应 */
+:root {
+  --content-max-width: 720px;    /* 统一内容宽度：标题栏 / 编辑器 / 工具栏对齐基准 */
+  --content-padding: 16px;
+}
 .notion-mobile-toolbar {
   position: fixed;
-  left: 16px;                    /* 左右留边距 → 居中悬浮感 */
-  right: 16px;
+  left: 50%;                     /* 关键：fixed 居中定位 */
   bottom: 16px;                  /* 底部留间距 → 悬浮而非贴死 */
+  width: min(680px, calc(100% - 32px));  /* 响应式宽度：大屏限宽，小屏自适应 */
   height: 56px;
   border-radius: 20px;           /* 大圆角 → App 卡片感 */
   background: rgba(255, 255, 255, 0.95);
@@ -3800,13 +3826,18 @@ input, textarea, select {
   border: 1px solid rgba(0, 0, 0, 0.04); /* 极淡边框 → 精致感 */
   z-index: 1000;
   display: none;                 /* 桌面端默认隐藏，移动端显示 */
-  /* iOS 防止 fixed 元素闪烁 */
-  -webkit-transform: translateZ(0);
-  transform: translateZ(0);
+  /* 居中 transform + iOS 防闪烁（合并，避免覆盖） */
+  -webkit-transform: translateX(-50%) translateZ(0);
+  transform: translateX(-50%) translateZ(0);
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
   /* 键盘弹出/收起时的平滑过渡 */
   transition: bottom 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+/* iPad 分屏模式（宽度 < 1024）：工具栏接近全宽，圆角略小 */
+body.ipad-split .notion-mobile-toolbar {
+  width: calc(100% - 32px);
+  border-radius: 16px;
 }
 [data-theme="dark"] .notion-mobile-toolbar {
   background: rgba(30, 30, 30, 0.95);
