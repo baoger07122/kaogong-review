@@ -87,7 +87,9 @@ setTimeout(() => {
     assert(todo && todo.checked === true, 'todo checked 往返正确');
     const toggle = dataOut.find(b => b.id === 'a5');
     assert(toggle && toggle.type === 'toggle' && toggle.collapsed === true, 'toggle collapsed 往返正确');
-    assert(toggle && toggle.content === '折叠标题' && toggle.detail === '折叠详情内容', 'toggle summary/detail 往返正确');
+    // 新版行为：旧 detail 格式迁移为 children 文本子块，同时保留 detail 字段
+    assert(toggle && toggle.content === '折叠标题', 'toggle summary 往返正确');
+    assert(toggle && Array.isArray(toggle.children) && toggle.children.length === 1 && toggle.children[0].content === '折叠详情内容', 'toggle 旧 detail 迁移为 children (' + JSON.stringify(toggle && toggle.children) + ')');
     const textB = dataOut.find(b => b.id === 'a2');
     assert(textB && textB.indent === 1, 'indent 往返正确');
     const codeB = dataOut.find(b => b.id === 'a8');
@@ -104,10 +106,14 @@ setTimeout(() => {
     console.log('\n[4] DOM 结构');
     const editable = container.querySelector('.notion-editable');
     assert(!!editable, '存在可编辑块');
-    const blocks = container.querySelectorAll('.notion-block');
-    assert(blocks.length === 8, '渲染 8 个块 DOM');
+    // 顶层块 8 个（不含 toggle 内的子块 DOM）
+    const topBlocks = container.querySelectorAll('.notion-block:not(.notion-block--child)');
+    assert(topBlocks.length === 8, '渲染 8 个顶层块 DOM (' + topBlocks.length + ')');
+    // toggle 的子块容器内还有一个迁移出的文本子块
+    const childBlocksInToggle = container.querySelectorAll('.notion-toggle__children .notion-block');
+    assert(childBlocksInToggle.length === 1, 'toggle 迁移出 1 个子块 DOM (' + childBlocksInToggle.length + ')');
     const handles = container.querySelectorAll('.notion-block__handle');
-    assert(handles.length === 8, '每个块都有手柄');
+    assert(handles.length >= 8, '每个块都有手柄 (' + handles.length + ')');
 
     // ===== 5. onChange 回调（md 模式） =====
     console.log('\n[5] onChange 回调');
@@ -202,6 +208,86 @@ setTimeout(() => {
     copyItem.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
     const data4 = ed4.getEditorData();
     assert(data4.length === 3 && data4[1].content === '第一行', '复制块后数量 3 且复制内容正确');
+
+    // ===== 9. Toggle children 递归渲染 =====
+    console.log('\n[9] Toggle children 递归');
+    const ed5 = App.Components.initEditor(doc.createElement('div'), {
+      initialData: [
+        { id: 't1', type: 'toggle', content: '折叠标题', collapsed: false, indent: 0, props: {}, children: [
+          { id: 'c1', type: 'text', content: '子块1', indent: 0, props: {} },
+          { id: 'c2', type: 'bullet', content: '子列表', indent: 0, props: {} },
+          { id: 'c3', type: 'toggle', content: '子折叠', collapsed: true, indent: 0, props: {}, children: [
+            { id: 'c4', type: 'text', content: '孙子块', indent: 0, props: {} },
+          ] },
+        ] },
+        { id: 't2', type: 'text', content: '普通块', indent: 0, props: {} },
+      ],
+      onChange: () => {},
+    });
+    const ed5Wrap = doc.createElement('div');
+    doc.body.appendChild(ed5Wrap);
+    ed5Wrap.appendChild(ed5.element);
+    // 递归渲染检查：顶层块 + 子块容器
+    const toggleEl = ed5Wrap.querySelector('.notion-block[data-index="0"]');
+    assert(!!toggleEl, 'toggle 顶层块存在');
+    const childWrap = toggleEl.querySelector('.notion-toggle__children');
+    assert(!!childWrap, 'toggle 子块容器存在');
+    const childBlocks = childWrap.querySelectorAll(':scope > .notion-block');
+    assert(childBlocks.length === 3, '子块容器内有 3 个直接子块 (' + childBlocks.length + ')');
+    const childToggle = childWrap.querySelector('.notion-toggle__children');
+    assert(!!childToggle, '嵌套 toggle 的子容器存在');
+    // 子块有 data-pidx 标记
+    const firstChild = childBlocks[0];
+    assert(firstChild.dataset.pidx === '0', '子块带 data-pidx 标记');
+    // 折叠状态：顶层展开、嵌套折叠
+    const nestedWrap = childToggle;
+    assert(nestedWrap.style.display === 'none', '嵌套 toggle 折叠时子容器隐藏');
+    // children JSON 往返
+    const d5 = ed5.getEditorData();
+    const t1 = d5.find(b => b.id === 't1');
+    assert(t1 && Array.isArray(t1.children) && t1.children.length === 3, 'getEditorData 输出 children');
+    assert(t1 && t1.children[2].children[0].content === '孙子块', 'children 递归输出');
+    // Markdown 导出（> 前缀）
+    const md5 = ed5.getContent();
+    assert(md5.indexOf('> ▸ 折叠标题') >= 0, 'toggle 导出标题');
+    assert(md5.indexOf('> > ▸ 子折叠') >= 0 || md5.indexOf('> ▸ 子折叠') >= 0, '嵌套 toggle 导出');
+
+    // ===== 10. 旧数据迁移（无 children 的 toggle） =====
+    console.log('\n[10] 旧数据迁移');
+    const ed6 = App.Components.initEditor(doc.createElement('div'), {
+      initialData: [
+        { id: 'o1', type: 'toggle', content: '旧折叠', detail: '旧详情内容', collapsed: false, indent: 0, props: {} },
+      ],
+      onChange: () => {},
+    });
+    const d6 = ed6.getEditorData();
+    const o1 = d6.find(b => b.id === 'o1');
+    assert(o1 && Array.isArray(o1.children), '旧 toggle 迁移出 children');
+    assert(o1 && o1.children.length === 1 && o1.children[0].content === '旧详情内容', '旧 detail 迁移为文本子块 (' + JSON.stringify(o1 && o1.children) + ')');
+
+    // ===== 11. 子块内 Enter 新建 / 移动端迷你工具栏 =====
+    console.log('\n[11] 子块编辑与迷你工具栏');
+    // 子块内按 Enter 拆分（模拟）
+    const childEditable = ed5Wrap.querySelector('.notion-toggle__children .notion-block[data-index="0"] .notion-editable');
+    childEditable.focus();
+    childEditable.textContent = '拆分前';
+    const r = doc.createRange();
+    r.selectNodeContents(childEditable);
+    r.collapse(false);
+    const sel5 = win.getSelection();
+    sel5.removeAllRanges();
+    sel5.addRange(r);
+    // 让编辑器感知聚焦块
+    childEditable.dispatchEvent(new win.FocusEvent('focusin', { bubbles: true }));
+    childEditable.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    const d5b = ed5.getEditorData();
+    const t1b = d5b.find(b => b.id === 't1');
+    assert(t1b.children.length === 4, '子块内 Enter 后 children 变 4 个 (' + t1b.children.length + ')');
+    // 迷你工具栏元素存在（jsdom 里 window.innerWidth 默认 1024，需模拟移动端）
+    const miniToolbar = ed5Wrap.querySelector('.notion-mini-toolbar');
+    assert(!!miniToolbar, '迷你工具栏 DOM 存在');
+    const miniBtns = miniToolbar.querySelectorAll('.notion-mini-btn');
+    assert(miniBtns.length >= 10, '迷你工具栏按钮完整 (' + miniBtns.length + ' 个)');
 
     console.log('\n===== 结果: ' + pass + ' 通过, ' + fail + ' 失败 =====');
     process.exit(fail > 0 ? 1 : 0);

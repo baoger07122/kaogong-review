@@ -3780,6 +3780,65 @@ input, textarea, select {
   transform: translateY(0);
   pointer-events: auto;
 }
+
+/* ===== 【修复2】移动端跟随输入块浮动的迷你工具栏 ===== */
+/* 迷你工具栏：absolute 定位在编辑器容器内，跟随聚焦块上/下方 */
+.notion-mini-toolbar {
+  position: absolute;
+  z-index: 700;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  min-width: 200px;
+  max-width: calc(100% - 8px);
+  flex-wrap: wrap;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 0.2s ease-out, transform 0.2s ease-out, top 0.2s ease-out, left 0.2s ease-out;
+}
+.notion-mini-toolbar.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.notion-mini-btn {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.notion-mini-btn:hover { background: var(--bg-tertiary); }
+.notion-mini-btn:active { background: var(--color-primary-bg); color: var(--color-primary); }
+.notion-mini-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 4px 3px;
+  background: var(--divider-color);
+}
+/* 移动端隐藏底部固定工具栏（迷你工具栏取代） */
+@media (max-width: 768px) {
+  .notion-toolbar { display: none !important; }
+}
+@media (hover: none), (pointer: coarse) {
+  .notion-toolbar { display: none !important; }
+}
 .notion-tool-btn {
   min-width: 34px;
   height: 34px;
@@ -3882,30 +3941,56 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 
 /* ===== 折叠块 ===== */
 .notion-toggle { width: 100%; }
-.notion-toggle__arrow {
-  display: inline-block;
-  width: 18px;
-  color: var(--text-tertiary);
+.notion-toggle__header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+}
+.notion-toggle__arrow-zone {
+  width: 24px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
   cursor: pointer;
   user-select: none;
-  font-size: 12px;
-  transition: transform 0.12s ease;
+  border-radius: 4px;
+}
+.notion-toggle__arrow-zone:active { background: var(--bg-tertiary); }
+.notion-toggle__arrow {
+  display: inline-block;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+  /* 用 Unicode 字符（▶/▼）代替 border 三角形 */
 }
 .notion-toggle__summary {
-  display: inline-block;
+  flex: 1;
   outline: none;
   font-weight: 600;
   color: var(--text-primary);
-  vertical-align: top;
   min-width: 40px;
-  margin-left: 2px;
+  padding: 2px 0;
+  cursor: text;
 }
 .notion-toggle__summary:empty::before {
   content: attr(placeholder);
   color: var(--text-tertiary);
   font-weight: 400;
 }
-.notion-toggle__detail { margin: 2px 0 2px 22px; }
+/* 【修复1】子块容器：24px 左缩进 + 浅灰左边线（视觉层级） */
+.notion-toggle__children {
+  margin-left: 24px;
+  border-left: 2px solid var(--divider-color);
+  padding-left: 4px;
+}
+.notion-block--child .notion-block__handle {
+  margin-left: -2px;
+}
+.notion-toggle__detail { display: none; }   /* 旧版 detail 已废弃 */
 
 /* ===== 底部字数 / 保存状态 ===== */
 .notion-editor__footer {
