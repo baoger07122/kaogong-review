@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.3.3';
+App.VERSION = '8.3.4';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -85,6 +85,12 @@ App.Constants = {
 App.Constants.getModules = function(subject) {
   return this.MODULES[subject] || [];
 };
+
+// ===== 工具函数：扁平科目（仅科目一层级，无模块细分；如资料分析） =====
+App.Constants.isFlatSubject = function(subject) {
+  return this.FLAT_SUBJECTS ? this.FLAT_SUBJECTS.indexOf(subject) !== -1 : false;
+};
+App.Constants.FLAT_SUBJECTS = ['资料分析'];
 
 // ===== 工具函数：根据模块获取考点 =====
 App.Constants.getKnowledgePoints = function(module) {
@@ -1518,6 +1524,32 @@ App.Tags = (function() {
     return getModuleErrorCauses(module);
   }
 
+  // ===== 扁平科目（仅科目层，无模块细分；如资料分析） =====
+  // 该科目所有模块的考点并集（保序去重）
+  function getSubjectKnowledgePoints(subject) {
+    const out = [];
+    (App.Constants.getModules(subject) || []).forEach(m => {
+      getKnowledgePoints(m).forEach(k => { if (out.indexOf(k) === -1) out.push(k); });
+    });
+    return out;
+  }
+  // 该科目所有模块的错因并集（保序去重）
+  function getSubjectErrorCauses(subject) {
+    const out = [];
+    (App.Constants.getModules(subject) || []).forEach(m => {
+      getModuleErrorCauses(m).forEach(c => { if (out.indexOf(c) === -1) out.push(c); });
+    });
+    return out;
+  }
+  // 添加考点：同步到该科目所有模块
+  async function addSubjectKnowledgePoint(subject, kp) {
+    for (const m of (App.Constants.getModules(subject) || [])) await addKnowledgePoint(m, kp);
+  }
+  // 添加错因：同步到该科目所有模块
+  async function addSubjectErrorCause(subject, reason) {
+    for (const m of (App.Constants.getModules(subject) || [])) await addModuleErrorCause(m, reason);
+  }
+
   // 用新顺序覆盖标签库顺序（kind: 'kp' | 'ec'），拖拽排序后调用
   async function setOrder(module, kind, orderedNames) {
     if (!module) return; // 全部视图下错因/考点无归属模块，跳过排序持久化，避免写入 null 键污染标签库
@@ -1566,6 +1598,10 @@ App.Tags = (function() {
     getMergedErrorCauses,
     getKnowledgePointSuggestions,
     getErrorCauseSuggestions,
+    getSubjectKnowledgePoints,
+    getSubjectErrorCauses,
+    addSubjectKnowledgePoint,
+    addSubjectErrorCause,
     getAllModules,
     isLoaded: () => loaded
   };
@@ -2453,6 +2489,10 @@ App.Components = {
     title.textContent = (opts.kind === 'kp' ? '考点标签：' : '错因标签：') + opts.name;
     panel.appendChild(title);
 
+    // 扁平科目（资料分析）：操作同步到该科目所有模块
+    const flatSub = App.Constants.isFlatSubject(opts.module);
+    const mods = flatSub ? App.Constants.getModules(opts.module) : [opts.module];
+
     const moveUpBtn = document.createElement('button');
     moveUpBtn.className = 'btn btn--outline btn--full';
     moveUpBtn.style.marginBottom = '8px';
@@ -2487,8 +2527,8 @@ App.Components = {
 
     const doMove = async (dir) => {
       overlay.remove();
-      if (opts.kind === 'kp') await App.Tags.moveKnowledgePoint(opts.module, opts.name, dir);
-      else await App.Tags.moveModuleErrorCause(opts.module, opts.name, dir);
+      if (opts.kind === 'kp') for (const m of mods) await App.Tags.moveKnowledgePoint(m, opts.name, dir);
+      else for (const m of mods) await App.Tags.moveModuleErrorCause(m, opts.name, dir);
       App.Components.toast('已排序', 'success');
       if (opts.onDone) opts.onDone();
     };
@@ -2499,8 +2539,8 @@ App.Components = {
       overlay.remove();
       const nv = window.prompt('修改名称为：', opts.name);
       if (nv && nv.trim() && nv.trim() !== opts.name) {
-        if (opts.kind === 'kp') await App.Tags.renameKnowledgePoint(opts.module, opts.name, nv.trim());
-        else await App.Tags.renameModuleErrorCause(opts.module, opts.name, nv.trim());
+        if (opts.kind === 'kp') for (const m of mods) await App.Tags.renameKnowledgePoint(m, opts.name, nv.trim());
+        else for (const m of mods) await App.Tags.renameModuleErrorCause(m, opts.name, nv.trim());
         App.Components.toast('已修改', 'success');
         if (opts.onDone) opts.onDone();
       }
@@ -2513,8 +2553,8 @@ App.Components = {
         '删除', '取消', true
       );
       if (ok) {
-        if (opts.kind === 'kp') await App.Tags.purgeKnowledgePoint(opts.module, opts.name);
-        else await App.Tags.purgeModuleErrorCause(opts.module, opts.name);
+        if (opts.kind === 'kp') for (const m of mods) await App.Tags.purgeKnowledgePoint(m, opts.name);
+        else for (const m of mods) await App.Tags.purgeModuleErrorCause(m, opts.name);
         App.Components.toast('已删除', 'success');
         if (opts.onDone) opts.onDone();
       }
@@ -3019,9 +3059,12 @@ App.Components = {
     const kind = opts.kind || 'kp';
     const module = opts.module || '';
     const label = kind === 'kp' ? '考点' : '错因';
+    // 扁平科目（资料分析）：显示该科目所有模块的合并标签，操作同步到所有模块
+    const flatSub = App.Constants.isFlatSubject(module);
+    const mods = flatSub ? App.Constants.getModules(module) : [module];
     let items = (kind === 'kp'
-      ? App.Tags.getKnowledgePoints(module)
-      : App.Tags.getModuleErrorCauses(module)).slice();
+      ? (flatSub ? App.Tags.getSubjectKnowledgePoints(module) : App.Tags.getKnowledgePoints(module))
+      : (flatSub ? App.Tags.getSubjectErrorCauses(module) : App.Tags.getModuleErrorCauses(module))).slice();
 
     function escapeHtml(s) {
       return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -3079,8 +3122,8 @@ App.Components = {
           e.stopPropagation();
           const nv = window.prompt('修改「' + name + '」为：', name);
           if (nv && nv.trim() && nv.trim() !== name) {
-            if (kind === 'kp') await App.Tags.renameKnowledgePoint(module, name, nv.trim());
-            else await App.Tags.renameModuleErrorCause(module, name, nv.trim());
+            if (kind === 'kp') for (const m of mods) await App.Tags.renameKnowledgePoint(m, name, nv.trim());
+            else for (const m of mods) await App.Tags.renameModuleErrorCause(m, name, nv.trim());
             items[i] = nv.trim();
             App.Components.toast('已修改', 'success');
             renderList();
@@ -3100,8 +3143,8 @@ App.Components = {
             '删除', '取消', true
           );
           if (ok) {
-            if (kind === 'kp') await App.Tags.removeKnowledgePoint(module, name);
-            else await App.Tags.removeModuleErrorCause(module, name);
+            if (kind === 'kp') for (const m of mods) await App.Tags.removeKnowledgePoint(m, name);
+            else for (const m of mods) await App.Tags.removeModuleErrorCause(m, name);
             items = items.filter(n => n !== name);
             App.Components.toast('已删除', 'success');
             renderList();
@@ -3128,7 +3171,7 @@ App.Components = {
     doneBtn.className = 'tag-sheet__btn tag-sheet__btn--ghost';
     doneBtn.textContent = '完成';
     doneBtn.addEventListener('click', async () => {
-      if (items.length > 1) await App.Tags.setOrder(module, kind, items);
+      if (items.length > 1) { for (const m of mods) await App.Tags.setOrder(m, kind, items); }
       if (opts.onDone) opts.onDone();
       close();
     });
@@ -3616,8 +3659,8 @@ App.Components = {
         if (longPress && longPress.kind) {
           App.Components.bindTagLongPress(tag, longPress.kind, longPress.module, opt, () => {
             optionSet = (longPress.kind === 'kp'
-              ? App.Tags.getKnowledgePoints(longPress.module)
-              : App.Tags.getMergedErrorCauses(longPress.module)).slice();
+              ? (App.Constants.isFlatSubject(longPress.module) ? App.Tags.getSubjectKnowledgePoints(longPress.module) : App.Tags.getKnowledgePoints(longPress.module))
+              : (App.Constants.isFlatSubject(longPress.module) ? App.Tags.getSubjectErrorCauses(longPress.module) : App.Tags.getMergedErrorCauses(longPress.module))).slice();
             renderSuggestions();
           });
         }
@@ -3710,8 +3753,8 @@ App.Components = {
           module: longPress.module,
           onDone: () => {
             optionSet = (longPress.kind === 'kp'
-              ? App.Tags.getKnowledgePoints(longPress.module)
-              : App.Tags.getMergedErrorCauses(longPress.module)).slice();
+              ? (App.Constants.isFlatSubject(longPress.module) ? App.Tags.getSubjectKnowledgePoints(longPress.module) : App.Tags.getKnowledgePoints(longPress.module))
+              : (App.Constants.isFlatSubject(longPress.module) ? App.Tags.getSubjectErrorCauses(longPress.module) : App.Tags.getMergedErrorCauses(longPress.module))).slice();
             renderSuggestions();
             renderChips();
             if (longPress.onDone) longPress.onDone();
@@ -6439,8 +6482,8 @@ App.Components = {
         if (longPress && longPress.kind && opt.value !== '__custom__') {
           App.Components.bindTagLongPress(item, longPress.kind, longPress.module, opt.label, () => {
             const lib = longPress.kind === 'kp'
-              ? App.Tags.getKnowledgePoints(longPress.module)
-              : App.Tags.getMergedErrorCauses(longPress.module);
+              ? (App.Constants.isFlatSubject(longPress.module) ? App.Tags.getSubjectKnowledgePoints(longPress.module) : App.Tags.getKnowledgePoints(longPress.module))
+              : (App.Constants.isFlatSubject(longPress.module) ? App.Tags.getSubjectErrorCauses(longPress.module) : App.Tags.getMergedErrorCauses(longPress.module));
             const rows = Array.from(list.children);
             rows.sort((a, b) => {
               const la = ((a.querySelector('.cp-item-label') || {}).textContent || '');
@@ -7889,13 +7932,15 @@ App.Pages.Errors = {
     this.state.allErrors = await App.DB.getErrors();
   },
 
-  // 合并「本模块库 + 数据中已用值」得到可筛选的考点列表
+  // 合并「本模块库 + 数据中已用值」得到可筛选的考点列表（扁平科目传科目名，合并该科目所有模块）
   getDistinctKnowledgePoints(module) {
     const used = new Set();
     this.state.allErrors.forEach(e => {
-      if (e.module === module) (e.knowledgePoints || []).forEach(kp => used.add(kp));
+      if (e.module === module || (App.Constants.isFlatSubject(module) && e.subject === module)) (e.knowledgePoints || []).forEach(kp => used.add(kp));
     });
-    const lib = App.Tags.getKnowledgePoints(module);
+    const lib = App.Constants.isFlatSubject(module)
+      ? App.Tags.getSubjectKnowledgePoints(module)
+      : App.Tags.getKnowledgePoints(module);
     return Array.from(new Set([...lib, ...used]));
   },
 
@@ -8113,8 +8158,8 @@ App.Pages.Errors = {
       });
       container.appendChild(row);
 
-      // 模块（仅在该科目展开时显示，作为左侧二级导航）
-      if (expanded) {
+      // 模块（仅在该科目展开时显示，作为左侧二级导航；扁平科目如资料分析无模块层，不显示）
+      if (expanded && !App.Constants.isFlatSubject(s.name)) {
         modules.forEach(mod => {
           const mCount = this.state.allErrors.filter(e => e.subject === s.name && e.module === mod).length;
           const sub = document.createElement('div');
@@ -8180,9 +8225,9 @@ App.Pages.Errors = {
     const row = document.createElement('div');
     row.className = 'tag-select-row';
 
-    // 考点筛选（模块已在左侧导航选择）
-    if (this.state.module) {
-      const kps = this.getDistinctKnowledgePoints(this.state.module);
+    // 考点筛选（模块已在左侧导航选择；扁平科目如资料分析按科目级考点筛选）
+    if (this.state.module || App.Constants.isFlatSubject(this.state.subject)) {
+      const kps = this.getDistinctKnowledgePoints(this.state.module || this.state.subject);
       row.appendChild(App.Components.tagSelect(
         kps.map(k => ({ name: k })),
         this.state.knowledgePoint,
@@ -8190,7 +8235,7 @@ App.Pages.Errors = {
           this.state.knowledgePoint = (this.state.knowledgePoint === kp) ? null : kp;
           this.refreshFiltersAndList();
         },
-        { kind: 'kp', module: this.state.module, onDone: () => this.refreshFiltersAndList(), placeholder: '考点' }
+        { kind: 'kp', module: this.state.module || this.state.subject, onDone: () => this.refreshFiltersAndList(), placeholder: '考点' }
       ));
     }
 
@@ -8803,7 +8848,7 @@ App.Pages.Errors = {
         isEdit ? '编辑错题' : '添加错题',
         isEdit ? '保存' : '提交',
         async () => {
-          if (!formData.subject || !formData.module || formData.knowledgePoints.length === 0 || !formData.errorCause || !formData.question) {
+          if (!formData.subject || (!App.Constants.isFlatSubject(formData.subject) && !formData.module) || formData.knowledgePoints.length === 0 || !formData.errorCause || !formData.question) {
             App.Components.toast('请先完成必填项', 'error');
             return;
           }
@@ -8828,8 +8873,9 @@ App.Pages.Errors = {
         true
       ));
 
-      // 模块
-      if (formData.subject) {
+      // 模块（扁平科目如资料分析：无模块层，直接跳到考点/错因）
+      const isFlatError = App.Constants.isFlatSubject(formData.subject);
+      if (formData.subject && !isFlatError) {
         form.appendChild(App.Components.formSelector(
           '模块',
           App.Constants.getModules(formData.subject),
@@ -8843,32 +8889,32 @@ App.Pages.Errors = {
         ));
       }
 
-      // 考点
-      if (formData.module) {
+      // 考点（扁平科目用科目级合并标签）
+      if (formData.module || (isFlatError && formData.subject)) {
         form.appendChild(App.Components.tagInput(
           '考点',
-          App.Tags.getKnowledgePointSuggestions(formData.module),
+          isFlatError ? App.Tags.getSubjectKnowledgePoints(formData.subject) : App.Tags.getKnowledgePointSuggestions(formData.module),
           formData.knowledgePoints,
           (val) => { formData.knowledgePoints = val; },
           3,
           true,
           '输入自定义考点，回车添加',
-          (v) => App.Tags.addKnowledgePoint(formData.module, v),
-          { kind: 'kp', module: formData.module, onDone: () => buildForm() }
+          (v) => isFlatError ? App.Tags.addSubjectKnowledgePoint(formData.subject, v) : App.Tags.addKnowledgePoint(formData.module, v),
+          { kind: 'kp', module: isFlatError ? formData.subject : formData.module, onDone: () => buildForm() }
         ));
       }
 
-      // 错因（仅该模块的专属错因）
+      // 错因（扁平科目用科目级合并标签；仅该模块的专属错因）
       form.appendChild(App.Components.tagInput(
         '错因',
-        App.Tags.getMergedErrorCauses(formData.module),
+        isFlatError ? App.Tags.getSubjectErrorCauses(formData.subject) : App.Tags.getMergedErrorCauses(formData.module),
         formData.errorCause ? [formData.errorCause] : [],
         (val) => { formData.errorCause = val[0] || ''; },
         1,
         true,
         '选择或输入错因，回车添加',
-        (v) => App.Tags.addModuleErrorCause(formData.module, v),
-        { kind: 'ec', module: formData.module, onDone: () => buildForm() }
+        (v) => isFlatError ? App.Tags.addSubjectErrorCause(formData.subject, v) : App.Tags.addModuleErrorCause(formData.module, v),
+        { kind: 'ec', module: isFlatError ? formData.subject : formData.module, onDone: () => buildForm() }
       ));
 
       // 挖坑点（简短文字，不需要格式，不参与筛选）
@@ -9059,7 +9105,7 @@ App.Pages.Errors = {
       if (formData._getNote) formData.analysisNote = formData._getNote();
       if (formData._getENote) formData.note = formData._getENote();
       if (!formData.subject) { App.Components.toast('请选择科目', 'error'); return; }
-      if (!formData.module) { App.Components.toast('请选择模块', 'error'); return; }
+      if (!App.Constants.isFlatSubject(formData.subject) && !formData.module) { App.Components.toast('请选择模块', 'error'); return; }
       if (formData.knowledgePoints.length === 0) { App.Components.toast('请选择考点', 'error'); return; }
       if (!formData.errorCause) { App.Components.toast('请选择错因', 'error'); return; }
       if (!formData.question.trim()) { App.Components.toast('请输入题目', 'error'); return; }
@@ -9224,7 +9270,7 @@ App.Pages.Notes = {
       });
       container.appendChild(row);
 
-      if (expanded) {
+      if (expanded && !App.Constants.isFlatSubject(s.name)) {
         modules.forEach(mod => {
           const mCount = this.state.allNotes.filter(n => n.subject === s.name && n.module === mod).length;
           const sub = document.createElement('div');
@@ -9259,8 +9305,10 @@ App.Pages.Notes = {
     scope.forEach(n => { if (n.knowledgePoint) usedKps.add(n.knowledgePoint); });
     if (!usedKps.size) return;
 
-    // 考点顺序跟随标签库（排序后立即生效）
-    const libOrder = App.Tags.getKnowledgePoints(this.state.module);
+    // 考点顺序跟随标签库（排序后立即生效；扁平科目用科目级合并标签）
+    const libOrder = App.Constants.isFlatSubject(this.state.subject)
+      ? App.Tags.getSubjectKnowledgePoints(this.state.subject)
+      : App.Tags.getKnowledgePoints(this.state.module);
     const kpItems = libOrder.filter(k => usedKps.has(k)).map(k => ({ name: k })).concat(
       Array.from(usedKps).filter(k => !libOrder.includes(k)).map(k => ({ name: k }))
     );
@@ -9273,7 +9321,7 @@ App.Pages.Notes = {
         this.state.knowledgePoint = (this.state.knowledgePoint === kp) ? null : kp;
         this.refreshFiltersAndList();
       },
-      { kind: 'kp', module: this.state.module, onDone: () => this.refreshFiltersAndList(), placeholder: '考点' }
+      { kind: 'kp', module: this.state.module || this.state.subject, onDone: () => this.refreshFiltersAndList(), placeholder: '考点' }
     ));
     container.appendChild(row);
   },
@@ -9744,12 +9792,31 @@ App.Pages.Notes = {
         const sOpt = App.Constants.SUBJECTS.map(s => ({
           icon: '<span style="font-size:22px">' + s.icon + '</span>',
           label: s.name,
-          desc: '选择「' + s.name + '」模块',
+          desc: App.Constants.isFlatSubject(s.name) ? '选择「' + s.name + '」考点' : '选择「' + s.name + '」模块',
           value: s.name
         }));
         const s = await App.Components.centeredPicker(sOpt, '选择科目', '请先选择考试科目，再选择具体模块和考点');
         if (!s) return;
         formData.subject = s; formData.module = ''; formData.knowledgePoint = '';
+
+        // 扁平科目（资料分析）：无模块层，直接选考点
+        if (App.Constants.isFlatSubject(s)) {
+          const kps = App.Tags.getSubjectKnowledgePoints(s);
+          const kOpt = kps.map(k => ({
+            icon: '🏷️',
+            label: k,
+            desc: s + ' — ' + k,
+            value: k
+          }));
+          kOpt.push({ icon: '✏️', label: '+ 自定义考点', desc: '手动输入新考点名称', value: '__custom__' });
+          const k = await App.Components.centeredPicker(kOpt, '选择考点', '选择或自定义「' + s + '」的考点', { kind: 'kp', module: s });
+          if (k === '__custom__') {
+            const name = prompt('输入自定义考点名称：');
+            if (name && name.trim()) { formData.knowledgePoint = name.trim(); App.Tags.addSubjectKnowledgePoint(s, name.trim()); }
+          } else if (k) { formData.knowledgePoint = k; }
+          updateCatLabel();
+          return;
+        }
 
         // 模块选择
         const mods = App.Constants.getModules(s);
