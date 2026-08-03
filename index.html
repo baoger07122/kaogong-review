@@ -6268,6 +6268,96 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .notion-editable .mformula { user-select: all; -webkit-user-select: all; cursor: default; }
 /* 预览页（md-preview）内公式 */
 .md-preview-p .mformula--block { font-size: 1.05em; }
+
+/* ===== 【图片块】Notion 编辑器图片块（空占位 / 已加载 / 预览） ===== */
+.notion-image { width: 100%; }
+/* 空图片块占位 */
+.notion-image__placeholder {
+  background: #F8FAFC;
+  border: 1.5px dashed #D1D5DB;
+  border-radius: 8px;
+  padding: 26px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.notion-image__placeholder:active { background: #F1F5F9; }
+.notion-image__ph-icon { font-size: 28px; margin-bottom: 6px; }
+.notion-image__ph-title { font-size: 14px; color: var(--text-secondary, #4B5563); font-weight: 500; }
+.notion-image__ph-sub { font-size: 12px; color: #9CA3AF; margin-top: 4px; }
+.notion-image__ph-or { font-size: 12px; color: #9CA3AF; margin: 12px 0 2px; letter-spacing: 1px; }
+/* URL 输入行 */
+.notion-image__url-row { display: flex; gap: 8px; margin-top: 10px; }
+.notion-image__url-input {
+  flex: 1; min-width: 0; height: 36px; padding: 0 12px;
+  border: 1px solid var(--border-color, #E5E7EB); border-radius: 8px;
+  font-size: 14px; background: var(--bg-card, #fff); color: var(--text-primary, #1F2937);
+}
+.notion-image__url-input:focus { border-color: #3B82F6; outline: none; }
+.notion-image__url-btn {
+  height: 36px; padding: 0 16px; border: none; border-radius: 8px;
+  background: #3B82F6; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+  flex-shrink: 0;
+}
+/* 已加载图片 */
+.notion-image__box { margin: 4px 0; }
+.notion-image__imgwrap {
+  position: relative; border-radius: 8px; overflow: hidden;
+  border: 1.5px solid transparent; transition: border-color 0.15s ease;
+}
+.notion-block.is-selected .notion-image__imgwrap { border-color: #3B82F6; }
+.notion-image__img {
+  display: block; width: 100%; border-radius: 8px; max-height: 480px; object-fit: contain;
+  background: #F8FAFC; cursor: zoom-in; user-select: none; -webkit-user-select: none;
+}
+/* 加载失败占位 */
+.notion-image__err { padding: 28px 16px; text-align: center; background: #F8FAFC; border-radius: 8px; }
+.notion-image__err-icon { font-size: 26px; }
+.notion-image__err-text { font-size: 13px; color: var(--text-secondary, #6B7280); margin-top: 6px; }
+.notion-image__err-url {
+  font-size: 11px; color: #9CA3AF; margin-top: 4px; word-break: break-all;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.notion-image__err-btn {
+  margin-top: 10px; height: 30px; padding: 0 14px; border: 1px solid #3B82F6;
+  border-radius: 15px; background: transparent; color: #3B82F6; font-size: 12px; cursor: pointer;
+}
+/* caption（图片下方说明） */
+.notion-image__caption {
+  min-height: 22px; padding: 4px 8px; margin-top: 2px; text-align: center;
+  font-size: 14px; color: #6B7280; outline: none; cursor: text; border-radius: 6px;
+}
+.notion-image__caption:focus { background: #F8FAFC; }
+.notion-image__caption:empty::before { content: '添加说明...'; color: #9CA3AF; }
+/* 对齐切换条 */
+.notion-image__align-bar { display: flex; justify-content: center; gap: 4px; margin-top: 2px; opacity: 0; transition: opacity 0.15s ease; }
+.notion-block.is-selected .notion-image__align-bar, .notion-block:hover .notion-image__align-bar { opacity: 1; }
+.notion-image__align-btn {
+  width: 30px; height: 26px; border: none; border-radius: 6px; background: transparent;
+  color: #9CA3AF; font-size: 12px; cursor: pointer;
+}
+.notion-image__align-btn.is-active { background: #EFF6FF; color: #3B82F6; }
+.notion-block.is-selected .notion-image__align-btn.is-active { background: rgba(59,130,246,0.12); }
+/* 拖拽上传高亮 */
+.notion-editor.ne-drag-over { outline: 2px dashed #3B82F6; outline-offset: -4px; border-radius: 10px; }
+/* 全屏预览 */
+.notion-image-preview {
+  position: fixed; inset: 0; z-index: 1500;
+  background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.2s ease;
+}
+.notion-image-preview.is-visible { opacity: 1; }
+.notion-image-preview__img {
+  max-width: 92vw; max-height: 92vh; border-radius: 8px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5); cursor: zoom-out;
+  touch-action: pan-x pan-y;
+}
+/* 深色模式 */
+[data-theme="dark"] .notion-image__placeholder { background: var(--bg-tertiary); border-color: var(--border-color); }
+[data-theme="dark"] .notion-image__img { background: var(--bg-tertiary); }
+[data-theme="dark"] .notion-image__err { background: var(--bg-tertiary); }
+[data-theme="dark"] .notion-image__caption:focus { background: var(--bg-tertiary); }
 </style>
 </head>
 <body>
@@ -6350,7 +6440,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.3.4';
+App.VERSION = '8.3.5';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -10620,12 +10710,14 @@ App.Components = {
     const TYPE_MAP_OUT = {
       text: 'text', h1: 'heading1', h2: 'heading2', h3: 'heading3', h4: 'heading4',
       bullet: 'bulletList', numbered: 'orderedList', todo: 'todo', toggle: 'toggle',
-      quote: 'quote', divider: 'divider', code: 'code', callout: 'callout', table: 'table'
+      quote: 'quote', divider: 'divider', code: 'code', callout: 'callout', table: 'table',
+      image: 'image'
     };
     const TYPE_MAP_IN = {
       text: 'text', heading1: 'h1', heading2: 'h2', heading3: 'h3', heading4: 'h4',
       bulletList: 'bullet', orderedList: 'numbered', todo: 'todo', toggle: 'toggle',
-      quote: 'quote', divider: 'divider', code: 'code', callout: 'callout', table: 'table'
+      quote: 'quote', divider: 'divider', code: 'code', callout: 'callout', table: 'table',
+      image: 'image'
     };
 
     // dataMode: 'md'（默认，回调 Markdown 字符串）| 'json'（回调 JSON 块数组）
@@ -11173,6 +11265,7 @@ App.Components = {
         { type: 'code', icon: '</>', label: '代码块', desc: '等宽字体代码' },
         { type: 'callout', icon: '💡', label: '高亮提示', desc: '带背景的提示框' },
         { type: 'table', icon: '⊞', label: '表格', desc: '两列简单表格' },
+        { type: 'image', icon: '🖼️', label: '图片', desc: '上传或粘贴图片' },
         { type: 'link-note', icon: '🔗', label: '链接笔记', desc: '插入已有笔记链接' },
         { type: 'link-error', icon: '🔗', label: '链接错题', desc: '插入已有错题链接' },
       ];
@@ -11461,6 +11554,7 @@ App.Components = {
           { t: 'h3', l: 'H₃ 三级标题' }, { t: 'h4', l: 'H₄ 四级标题' },
           { t: 'bullet', l: '• 无序列表' }, { t: 'numbered', l: '1. 有序列表' }, { t: 'todo', l: '☐ 待办' },
           { t: 'toggle', l: '▸ 折叠块' }, { t: 'quote', l: '" 引用' }, { t: 'code', l: '</> 代码块' },
+          { t: 'image', l: '🖼️ 图片' },
         ];
         types.forEach(x => {
           const it = document.createElement('div');
@@ -11643,6 +11737,8 @@ App.Components = {
         box.appendChild(emoji);
         box.appendChild(createEditable(block));
         content.appendChild(box);
+      } else if (block.type === 'image') {
+        renderImageBlock(content, block);
       } else if (block.type === 'toggle') {
         // 【修复1】toggle 折叠块：标题行 + 子块容器（children 递归渲染）
         const box = document.createElement('div');
@@ -11720,7 +11816,236 @@ App.Components = {
       return el;
     }
 
-    // ===== 行内 Markdown → HTML（支持 **bold** *italic* ~~strike~~ `code` ==highlight== [link](url) ）=====
+    // ===== 图片块渲染（空占位 / 已加载 + caption + 对齐 + 双击预览 + 加载失败兜底） =====
+    function renderImageBlock(content, block) {
+      const wrap = document.createElement('div');
+      wrap.className = 'notion-image';
+      // 图片块无 contenteditable：自身可聚焦，支持 Enter 新建块 / Backspace 删除（选中态下）
+      wrap.tabIndex = -1;
+      wrap.addEventListener('keydown', (e) => {
+        const be = wrap.closest('.notion-block');
+        if (!be || !be.classList.contains('is-selected')) return;
+        if (e.key === 'Enter' && !e.isComposing) {
+          e.preventDefault();
+          pushUndo();
+          const ctx = getBlockCtx(be);
+          if (ctx) {
+            const nb = createBlock('text', '');
+            nb.indent = ctx.arr[ctx.idx].indent || 0;
+            ctx.arr.splice(ctx.idx + 1, 0, nb);
+            reRender();
+            const el = focusBlockEditable(ctx.parentIdx, ctx.idx + 1);
+            if (el) el.focus();
+          }
+          notifyChange();
+        } else if (e.key === 'Backspace' || e.key === 'Delete') {
+          e.preventDefault();
+          deleteBlock(parseInt(be.dataset.index), be);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          clearSelected();
+        }
+      });
+      // 点击图片块空白区域 → 选中（保持与其他块一致的选中交互）
+      wrap.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.notion-image__url-input') || e.target.closest('.notion-image__url-btn')) return;
+        if (e.target === wrap || e.target.closest('.notion-image__caption') || e.target.closest('.notion-image__align-bar')) {
+          e.preventDefault();
+          const be = wrap.closest('.notion-block');
+          if (be) { selectBlock(be); wrap.focus(); }
+        }
+      });
+
+      const data = block.imgData || {};
+      if (!data.src) {
+        // —— 空图片块：点击上传 / 拖入 / 粘贴 / 输入 URL ——
+        const placeholder = document.createElement('div');
+        placeholder.className = 'notion-image__placeholder';
+        placeholder.innerHTML = `
+          <div class="notion-image__ph-icon">🖼️</div>
+          <div class="notion-image__ph-title">拖入图片、粘贴或点击上传</div>
+          <div class="notion-image__ph-sub">支持 JPG、PNG、GIF、WebP</div>
+          <div class="notion-image__ph-or">──────── 或 ────────</div>
+        `;
+        const urlRow = document.createElement('div');
+        urlRow.className = 'notion-image__url-row';
+        const urlInput = document.createElement('input');
+        urlInput.type = 'text';
+        urlInput.className = 'notion-image__url-input';
+        urlInput.placeholder = '输入图片链接...';
+        urlInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.isComposing) {
+            e.preventDefault();
+            const v = urlInput.value.trim();
+            if (!v) return;
+            pushUndo();
+            block.imgData = { src: v, alt: '', caption: '', width: '100%', align: 'center' };
+            reRender(); notifyChange();
+          }
+        });
+        const urlBtn = document.createElement('button');
+        urlBtn.type = 'button';
+        urlBtn.className = 'notion-image__url-btn';
+        urlBtn.textContent = '嵌入';
+        urlBtn.addEventListener('click', () => {
+          const v = urlInput.value.trim();
+          if (!v) return;
+          pushUndo();
+          block.imgData = { src: v, alt: '', caption: '', width: '100%', align: 'center' };
+          reRender(); notifyChange();
+        });
+        urlRow.appendChild(urlInput);
+        urlRow.appendChild(urlBtn);
+
+        // 点击占位 → 唤起系统文件选择器（移动端自动调起相册/拍照）
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = 'image/*';
+        fileInput.style.display = 'none';
+        const pickFile = () => fileInput.click();
+        placeholder.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (e.target.closest('.notion-image__url-input') || e.target.closest('.notion-image__url-btn')) return;
+          pickFile();
+        });
+        fileInput.addEventListener('change', () => {
+          const f = fileInput.files && fileInput.files[0];
+          fileInput.value = '';
+          if (f) handleImageFile(f, block);
+        });
+        wrap.appendChild(placeholder);
+        wrap.appendChild(urlRow);
+        wrap.appendChild(fileInput);
+        content.appendChild(wrap);
+        return;
+      }
+
+      // —— 已加载图片 ——
+      // 对齐
+      wrap.style.textAlign = data.align || 'center';
+      // 图片容器（宽度控制 + 双击预览 + 拖拽角标）
+      const imgBox = document.createElement('div');
+      imgBox.className = 'notion-image__box' + (data.align === 'left' ? ' align-left' : data.align === 'right' ? ' align-right' : '');
+      const imgWrap = document.createElement('div');
+      imgWrap.className = 'notion-image__imgwrap';
+      imgWrap.style.width = data.width || '100%';
+      imgWrap.style.maxWidth = '100%';
+      imgWrap.style.margin = data.align === 'left' ? '0 auto 0 0' : data.align === 'right' ? '0 0 0 auto' : '0 auto';
+
+      const img = document.createElement('img');
+      img.className = 'notion-image__img';
+      img.src = data.src;
+      img.alt = data.alt || '';
+      img.draggable = false;   // 避免与块拖拽冲突
+      // 加载失败：占位 + 重载 + 允许改链接
+      img.addEventListener('error', () => {
+        imgWrap.classList.add('is-error');
+        imgWrap.innerHTML = `
+          <div class="notion-image__err">
+            <div class="notion-image__err-icon">🖼️</div>
+            <div class="notion-image__err-text">图片加载失败</div>
+            <div class="notion-image__err-url">${App.Utils._escapeHtml(data.src)}</div>
+            <button type="button" class="notion-image__err-btn">重新加载</button>
+          </div>
+        `;
+        const retryBtn = imgWrap.querySelector('.notion-image__err-btn');
+        if (retryBtn) retryBtn.addEventListener('click', () => {
+          imgWrap.classList.remove('is-error');
+          imgWrap.innerHTML = '';
+          imgWrap.appendChild(img);
+          img.src = data.src;
+        });
+      });
+      // 单击：选中块（不放大）
+      img.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const be = img.closest('.notion-block');
+        if (be) selectBlock(be);
+      });
+      // 双击：全屏预览
+      img.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        openImagePreview(data.src, data.alt || '');
+      });
+      imgWrap.appendChild(img);
+      imgBox.appendChild(imgWrap);
+
+      // caption（图片下方说明，点击可编辑）
+      const caption = document.createElement('div');
+      caption.className = 'notion-image__caption';
+      caption.textContent = data.caption || '';
+      caption.contentEditable = true;
+      caption.addEventListener('input', () => {
+        block.imgData = block.imgData || {};
+        block.imgData.caption = caption.textContent;
+        notifyChange();
+      });
+      // 编辑 caption 时防止触发块拖拽/选中
+      caption.addEventListener('mousedown', (e) => e.stopPropagation());
+      imgBox.appendChild(caption);
+
+      // 对齐切换（左/中/右）
+      const alignBar = document.createElement('div');
+      alignBar.className = 'notion-image__align-bar';
+      [['left','⬅'],['center','⬌'],['right','➡']].forEach(([align, ic]) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'notion-image__align-btn' + ((data.align || 'center') === align ? ' is-active' : '');
+        b.textContent = ic;
+        b.title = align === 'left' ? '左对齐' : align === 'right' ? '右对齐' : '居中';
+        b.addEventListener('click', (e) => {
+          e.stopPropagation();
+          pushUndo();
+          block.imgData = block.imgData || {};
+          block.imgData.align = align;
+          reRender(); notifyChange();
+        });
+        alignBar.appendChild(b);
+      });
+      imgBox.appendChild(alignBar);
+
+      content.appendChild(imgBox);
+      content.appendChild(wrap);
+    }
+
+    // 处理选中的图片文件：大小校验 → Base64 → 写入块
+    function handleImageFile(file, block) {
+      if (!file || !/^image\//.test(file.type)) {
+        App.Components.toast('仅支持图片格式', 'error');
+        return;
+      }
+      // Base64 过大（>2MB）提示（localStorage 上限 5MB，留余量）
+      if (file.size > 2 * 1024 * 1024) {
+        App.Components.toast('图片过大（>2MB），建议压缩或使用图床链接', 'error');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        pushUndo();
+        block.imgData = { src: reader.result, alt: '', caption: '', width: '100%', align: 'center' };
+        reRender(); notifyChange();
+      };
+      reader.onerror = () => App.Components.toast('图片读取失败，请重试', 'error');
+      reader.readAsDataURL(file);
+    }
+
+    // 全屏图片预览（遮罩 + 居中 + 点击关闭；双击图片触发）
+    function openImagePreview(src, alt) {
+      const overlay = document.createElement('div');
+      overlay.className = 'notion-image-preview';
+      const img = document.createElement('img');
+      img.className = 'notion-image-preview__img';
+      img.src = src;
+      img.alt = alt || '';
+      const close = () => overlay.remove();
+      overlay.appendChild(img);
+      overlay.addEventListener('click', (e) => { if (e.target === overlay || e.target === img) close(); });
+      document.getElementById('modal-container').appendChild(overlay);
+      requestAnimationFrame(() => overlay.classList.add('is-visible'));
+    }
+
+
     function renderInlineMarkdown(text) {
       if (!text) return '';
       let html = text
@@ -11771,6 +12096,25 @@ App.Components = {
             text = (tmp.textContent || '').replace(/\u200b/g, '');
           }
         }
+        // 剪贴板包含图片文件 → 在光标处创建图片块（优先于文本判断；非图片文件拒绝）
+        const imgFile = Array.from(clipboardData.items || []).map(it => it.kind === 'file' ? it.getAsFile() : null).find(Boolean);
+        if (imgFile) {
+          e.preventDefault();
+          if (!/^image\//.test(imgFile.type)) { App.Components.toast('仅支持图片格式', 'error'); return; }
+          const focused = focusedBlockEl ? focusedBlockEl.closest('.notion-block') : null;
+          const pctx = focused ? getBlockCtx(focused) : null;
+          const arr = pctx ? pctx.arr : blocks;
+          const insertIdx = pctx ? pctx.idx : blocks.length - 1;
+          const parentIdx = pctx ? pctx.parentIdx : null;
+          const nb = createBlock('image', '');
+          if (parentIdx !== null) nb.indent = (arr[insertIdx] || {}).indent || 0;
+          pushUndo();
+          arr.splice(insertIdx, 0, nb);
+          reRender();
+          handleImageFile(imgFile, nb);
+          return;
+        }
+
         if (!text) return;
 
         // 如果粘贴的是多行 Markdown（含块级语法），替换当前块为解析后的多块
@@ -11999,7 +12343,7 @@ App.Components = {
       if (!block) return;
       // toggle 本身：标题由 summary 单独同步，children 由子块各自同步
       if (block.type === 'toggle') return;
-      if (block.type === 'divider' || block.type === 'table') return;
+      if (block.type === 'divider' || block.type === 'table' || block.type === 'image') return;
       const editable = blockEl.querySelector('.notion-editable');
       if (!editable) return;
       block.content = getBlockText(editable);
@@ -12022,6 +12366,18 @@ App.Components = {
       ctx.arr[idx].indent = oldBlock.indent;
       ctx.arr[idx].checked = oldBlock.checked;
       if (newType === 'toggle') { ctx.arr[idx].summary = carry; ctx.arr[idx].content = ''; }
+      // 图片块：丢弃文本，保留 caption 到 content（转换回文本时还原）
+      if (newType === 'image') {
+        ctx.arr[idx].content = '';
+        ctx.arr[idx].html = '';
+        ctx.arr[idx].imgData = null;
+      }
+      // 图片块转回文本：丢弃图片，保留 caption 文字
+      if (oldBlock.type === 'image' && newType !== 'image') {
+        ctx.arr[idx].content = (oldBlock.imgData && oldBlock.imgData.caption) || '';
+        ctx.arr[idx].html = renderInlineMarkdown(ctx.arr[idx].content);
+        ctx.arr[idx].imgData = null;
+      }
       reRender();
       const newEl = focusBlockEditable(ctx.parent ? ctx.parentIdx : null, idx);
       void newEl;
@@ -12215,6 +12571,8 @@ App.Components = {
       const b = { id: genBlockId(), type, content: content || '', html: '', indent: 0, color: '', checked: false, collapsed: false, emoji: '💡', summary: '' };
       // 【修复1】toggle 块默认带 children 子块数组（格式同主 blocks 数组）
       if (type === 'toggle') b.children = [];
+      // 图片块：imgData = { src, alt, caption, width, align }
+      if (type === 'image') b.imgData = null;
       return b;
     }
 
@@ -12287,6 +12645,14 @@ App.Components = {
       function parseSingleLineToBlock(raw) {
         let type = 'text', content = raw, indent = 0;
         while (content.startsWith('  ') || content.startsWith('\t')) { indent++; content = content.replace(/^[ \t]+/, ''); }
+        // 图片行 ![alt](url) → image 块
+        const imgMatch = content.match(/^!\[([^\]]*)\]\(([^)]+)\)\s*$/);
+        if (imgMatch) {
+          const blk = createBlock('image', '');
+          blk.indent = indent;
+          blk.imgData = { src: imgMatch[2], alt: imgMatch[1] || '', caption: '', width: '100%', align: 'center' };
+          return blk;
+        }
         if (/^#{4}\s*/.test(content)) { type='h4'; content = content.replace(/^#{4}\s*/, ''); }
         else if (/^#{3}\s*/.test(content)) { type='h3'; content = content.replace(/^#{3}\s*/, ''); }
         else if (/^#{2}\s*/.test(content)) { type='h2'; content = content.replace(/^#{2}\s*/, ''); }
@@ -12346,6 +12712,15 @@ App.Components = {
 
         let type = 'text', content = line, indent = 0;
         while (content.startsWith('  ') || content.startsWith('\t')) { indent++; content = content.replace(/^[ \t]+/, ''); }
+        // 图片行 ![alt](url) → image 块
+        const imgMatch = content.match(/^!\[([^\]]*)\]\(([^)]+)\)\s*$/);
+        if (imgMatch) {
+          const imgBlk = createBlock('image', '');
+          imgBlk.indent = indent;
+          imgBlk.imgData = { src: imgMatch[2], alt: imgMatch[1] || '', caption: '', width: '100%', align: 'center' };
+          result.push(imgBlk);
+          return;
+        }
         if (/^#{4}\s*/.test(content)) { type='h4'; content = content.replace(/^#{4}\s*/, ''); }
         else if (/^#{3}\s*/.test(content)) { type='h3'; content = content.replace(/^#{3}\s*/, ''); }
         else if (/^#{2}\s*/.test(content)) { type='h2'; content = content.replace(/^#{2}\s*/, ''); }
@@ -12475,6 +12850,17 @@ App.Components = {
           case 'divider': lines.push('---'); break;
           case 'code': lines.push('```' + '\n' + (b.content || '') + '\n```'); break;
           case 'table': if (b.tableData) b.tableData.forEach(r => lines.push('| ' + r.join(' | ') + ' |')); break;
+          case 'image': {
+            // 图片块：![alt](src)，caption 作为下一行文本保留
+            const d = b.imgData || {};
+            if (d.src) {
+              lines.push(pad + '![' + (d.alt || '') + '](' + d.src + ')');
+              if (d.caption && d.caption.trim()) lines.push(pad + d.caption);
+            } else {
+              lines.push(pad + (d.caption || ''));
+            }
+            break;
+          }
           default: lines.push(pad + md); break;
         }
       };
@@ -12571,6 +12957,43 @@ App.Components = {
     // 粘贴 Markdown 自动解析（多行→拆块，单行→行内渲染）
     setupPasteHandler(wrapper);
 
+    // ===== 拖拽上传图片：拖入编辑器区域 → 在释放位置创建图片块 =====
+    let dragDepth = 0;
+    wrapper.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      dragDepth++;
+      wrapper.classList.add('ne-drag-over');
+    });
+    wrapper.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    });
+    wrapper.addEventListener('dragleave', () => {
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) wrapper.classList.remove('ne-drag-over');
+    });
+    wrapper.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dragDepth = 0;
+      wrapper.classList.remove('ne-drag-over');
+      const files = e.dataTransfer && e.dataTransfer.files;
+      if (!files || files.length === 0) return;
+      const imgFile = Array.from(files).find(f => /^image\//.test(f.type));
+      if (!imgFile) { App.Components.toast('仅支持图片格式', 'error'); return; }
+      // 插入位置：拖放点所在块之后；无块则末尾
+      let insertIdx = blocks.length - 1;
+      const target = e.target && e.target.closest ? e.target.closest('.notion-block') : null;
+      if (target) {
+        const pctx = getBlockCtx(target);
+        if (pctx) { insertIdx = pctx.idx; const nb = createBlock('image', ''); pushUndo(); pctx.arr.splice(pctx.idx + 1, 0, nb); reRender(); handleImageFile(imgFile, nb); return; }
+      }
+      pushUndo();
+      const nb = createBlock('image', '');
+      blocks.splice(insertIdx + 1, 0, nb);
+      reRender();
+      handleImageFile(imgFile, nb);
+    });
+
     const getContent = () => exportToMarkdown();
     const setContent = (val) => {
       blocks = val ? parseMarkdownToBlocks(val) : [createBlock('text', '')];
@@ -12605,6 +13028,8 @@ App.Components = {
       if (b.type === 'table') out.tableData = b.tableData || [['列1','列2'],['','']];
       // 高亮提示块图标
       if (b.type === 'callout') out.emoji = b.emoji || '💡';
+      // 图片块数据
+      if (b.type === 'image') out.imgData = b.imgData || null;
       return out;
     }
 
@@ -12646,6 +13071,7 @@ App.Components = {
       if (item.props) { b.color = item.props.color || ''; }
       if (item.type === 'table') b.tableData = item.tableData || [['列1','列2'],['','']];
       if (item.type === 'callout') b.emoji = item.emoji || '💡';
+      if (item.type === 'image') b.imgData = item.imgData || null;
       return b;
     }
 

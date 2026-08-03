@@ -6250,3 +6250,93 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .notion-editable .mformula { user-select: all; -webkit-user-select: all; cursor: default; }
 /* 预览页（md-preview）内公式 */
 .md-preview-p .mformula--block { font-size: 1.05em; }
+
+/* ===== 【图片块】Notion 编辑器图片块（空占位 / 已加载 / 预览） ===== */
+.notion-image { width: 100%; }
+/* 空图片块占位 */
+.notion-image__placeholder {
+  background: #F8FAFC;
+  border: 1.5px dashed #D1D5DB;
+  border-radius: 8px;
+  padding: 26px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.notion-image__placeholder:active { background: #F1F5F9; }
+.notion-image__ph-icon { font-size: 28px; margin-bottom: 6px; }
+.notion-image__ph-title { font-size: 14px; color: var(--text-secondary, #4B5563); font-weight: 500; }
+.notion-image__ph-sub { font-size: 12px; color: #9CA3AF; margin-top: 4px; }
+.notion-image__ph-or { font-size: 12px; color: #9CA3AF; margin: 12px 0 2px; letter-spacing: 1px; }
+/* URL 输入行 */
+.notion-image__url-row { display: flex; gap: 8px; margin-top: 10px; }
+.notion-image__url-input {
+  flex: 1; min-width: 0; height: 36px; padding: 0 12px;
+  border: 1px solid var(--border-color, #E5E7EB); border-radius: 8px;
+  font-size: 14px; background: var(--bg-card, #fff); color: var(--text-primary, #1F2937);
+}
+.notion-image__url-input:focus { border-color: #3B82F6; outline: none; }
+.notion-image__url-btn {
+  height: 36px; padding: 0 16px; border: none; border-radius: 8px;
+  background: #3B82F6; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+  flex-shrink: 0;
+}
+/* 已加载图片 */
+.notion-image__box { margin: 4px 0; }
+.notion-image__imgwrap {
+  position: relative; border-radius: 8px; overflow: hidden;
+  border: 1.5px solid transparent; transition: border-color 0.15s ease;
+}
+.notion-block.is-selected .notion-image__imgwrap { border-color: #3B82F6; }
+.notion-image__img {
+  display: block; width: 100%; border-radius: 8px; max-height: 480px; object-fit: contain;
+  background: #F8FAFC; cursor: zoom-in; user-select: none; -webkit-user-select: none;
+}
+/* 加载失败占位 */
+.notion-image__err { padding: 28px 16px; text-align: center; background: #F8FAFC; border-radius: 8px; }
+.notion-image__err-icon { font-size: 26px; }
+.notion-image__err-text { font-size: 13px; color: var(--text-secondary, #6B7280); margin-top: 6px; }
+.notion-image__err-url {
+  font-size: 11px; color: #9CA3AF; margin-top: 4px; word-break: break-all;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.notion-image__err-btn {
+  margin-top: 10px; height: 30px; padding: 0 14px; border: 1px solid #3B82F6;
+  border-radius: 15px; background: transparent; color: #3B82F6; font-size: 12px; cursor: pointer;
+}
+/* caption（图片下方说明） */
+.notion-image__caption {
+  min-height: 22px; padding: 4px 8px; margin-top: 2px; text-align: center;
+  font-size: 14px; color: #6B7280; outline: none; cursor: text; border-radius: 6px;
+}
+.notion-image__caption:focus { background: #F8FAFC; }
+.notion-image__caption:empty::before { content: '添加说明...'; color: #9CA3AF; }
+/* 对齐切换条 */
+.notion-image__align-bar { display: flex; justify-content: center; gap: 4px; margin-top: 2px; opacity: 0; transition: opacity 0.15s ease; }
+.notion-block.is-selected .notion-image__align-bar, .notion-block:hover .notion-image__align-bar { opacity: 1; }
+.notion-image__align-btn {
+  width: 30px; height: 26px; border: none; border-radius: 6px; background: transparent;
+  color: #9CA3AF; font-size: 12px; cursor: pointer;
+}
+.notion-image__align-btn.is-active { background: #EFF6FF; color: #3B82F6; }
+.notion-block.is-selected .notion-image__align-btn.is-active { background: rgba(59,130,246,0.12); }
+/* 拖拽上传高亮 */
+.notion-editor.ne-drag-over { outline: 2px dashed #3B82F6; outline-offset: -4px; border-radius: 10px; }
+/* 全屏预览 */
+.notion-image-preview {
+  position: fixed; inset: 0; z-index: 1500;
+  background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.2s ease;
+}
+.notion-image-preview.is-visible { opacity: 1; }
+.notion-image-preview__img {
+  max-width: 92vw; max-height: 92vh; border-radius: 8px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5); cursor: zoom-out;
+  touch-action: pan-x pan-y;
+}
+/* 深色模式 */
+[data-theme="dark"] .notion-image__placeholder { background: var(--bg-tertiary); border-color: var(--border-color); }
+[data-theme="dark"] .notion-image__img { background: var(--bg-tertiary); }
+[data-theme="dark"] .notion-image__err { background: var(--bg-tertiary); }
+[data-theme="dark"] .notion-image__caption:focus { background: var(--bg-tertiary); }
