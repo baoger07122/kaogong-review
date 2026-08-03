@@ -23,7 +23,7 @@
   /* --- 背景色（纯白背景） --- */
   --bg-primary: #FFFFFF;
   --bg-secondary: #FFFFFF;
-  --bg-tertiary: #F5F6F8;
+  --bg-tertiary: #F8FAFC;
   --bg-card: #FFFFFF;
   --bg-overlay: rgba(0,0,0,0.3);
 
@@ -228,21 +228,14 @@ input, textarea, select {
   padding-top: var(--top-buffer);
 }
 
-/* 首页：彻底脱离文档滚动流——fixed 铺满可视视口（top:0+bottom:0），
-   高度永远=可见屏幕、不撑高文档 → 任何设备/任何 iOS 版本都不可滚动。
-   背景从屏幕顶端铺起；固定底栏以 overlay 覆盖底部，不占用文档流高度。
-   不用 100vh/100dvh：iOS 上 100vh 解析为大视口（含地址栏区域）、dvh 随地址栏收起动态变大，
-   都会让文档比可见屏高，造成「固定页仍可滚动」。
-   min-height:0 覆盖全局 .page 的 min-height:100dvh。 */
+/* 首页：正常文档流、内容可上下滑动（用户 v8.3.1 指定修复无法滑动问题）；
+   背景纯白从顶部铺起，底部预留固定底栏空间 */
 #page-home {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  min-height: 0;
-  padding-bottom: 0;
-  overflow: hidden;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-bottom: calc(var(--nav-height) + var(--safe-bottom));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .page.active {
@@ -5949,3 +5942,256 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 /* 深色模式科目卡片 */
 [data-theme="dark"] .tag-subject { border-color: var(--border-color); }
 [data-theme="dark"] .tag-subject-header { background: var(--bg-tertiary); }
+
+/* ===== 【速算练习】速算练习模块（蓝白风格，与全局统一） ===== */
+.sc-page {
+  padding: 16px 16px calc(var(--nav-height) + var(--safe-bottom) + 24px);
+  background: var(--bg-primary);
+}
+.sc-section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 18px 2px 10px;
+}
+.sc-section-title:first-child { margin-top: 6px; }
+
+/* 题型选择：2 列网格 */
+.sc-type-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.sc-type-item {
+  background: var(--bg-tertiary);
+  border: 1.5px solid transparent;
+  border-radius: 12px;
+  padding: 18px 10px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.15s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.sc-type-item:active { transform: scale(0.97); }
+.sc-type-item.selected {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: #3B82F6;
+  color: #3B82F6;
+  font-weight: 600;
+}
+
+/* 模式选择 */
+.sc-mode-row { display: flex; flex-direction: column; gap: 10px; }
+.sc-mode-opt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-tertiary);
+  border: 1.5px solid transparent;
+  border-radius: 12px;
+  padding: 14px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.15s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.sc-mode-opt:active { transform: scale(0.97); }
+.sc-mode-opt.selected {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: #3B82F6;
+}
+.sc-mode-opt__radio {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--text-tertiary);
+  flex-shrink: 0;
+  position: relative;
+  transition: all 0.15s ease;
+}
+.sc-mode-opt.selected .sc-mode-opt__radio { border-color: #3B82F6; }
+.sc-mode-opt.selected .sc-mode-opt__radio::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: #3B82F6;
+}
+.sc-mode-opt__name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.sc-mode-opt__desc { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; }
+
+/* 操作按钮 */
+.sc-btn-row { display: flex; gap: 12px; margin-top: 24px; }
+.sc-btn {
+  flex: 1;
+  height: 46px;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.1s ease, opacity 0.1s ease;
+}
+.sc-btn:active { transform: scale(0.97); }
+.sc-btn--primary { background: #3B82F6; color: #FFFFFF; }
+.sc-btn--outline { background: #FFFFFF; color: #3B82F6; border: 1.5px solid #3B82F6; }
+
+/* 练习页 */
+.sc-practice-head {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--bg-primary);
+  border-bottom: 0.5px solid var(--divider-color);
+}
+.sc-back-btn {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-size: 15px;
+  padding: 6px 8px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sc-progress { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.sc-timer {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 52px;
+  text-align: right;
+}
+.sc-practice { padding: 28px 20px; }
+.sc-practice__type {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin-bottom: 20px;
+}
+.sc-practice__expr {
+  text-align: center;
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+  margin-bottom: 28px;
+  word-break: break-all;
+}
+.sc-practice__input-wrap { text-align: center; margin-bottom: 18px; }
+.sc-practice__input {
+  width: 200px;
+  height: 52px;
+  text-align: center;
+  font-size: 26px;
+  font-weight: 600;
+  border: 1.5px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  outline: none;
+}
+.sc-practice__input:focus { border-color: #3B82F6; }
+.sc-practice__input:disabled { opacity: 0.6; }
+.sc-submit-btn { width: 100%; }
+.sc-next-btn { width: 100%; margin-top: 12px; }
+.sc-practice__feedback { text-align: center; margin-top: 18px; min-height: 30px; }
+.sc-fb { font-size: 16px; font-weight: 600; }
+.sc-fb--ok { color: #10B981; }
+.sc-fb--no { color: #EF4444; }
+
+/* 结果页 */
+.sc-result-overview {
+  background: var(--bg-tertiary);
+  border-radius: 14px;
+  padding: 22px 16px;
+  text-align: center;
+  margin-bottom: 8px;
+}
+.sc-result-score {
+  font-size: 44px;
+  font-weight: 700;
+  color: #3B82F6;
+  line-height: 1;
+}
+.sc-result-score__unit { font-size: 20px; }
+.sc-result-score__label { font-size: 14px; color: var(--text-secondary); margin-top: 6px; }
+.sc-result-score__meta { font-size: 12px; color: var(--text-tertiary); margin-top: 4px; }
+.sc-result-list {
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.sc-result-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 0.5px solid var(--divider-color);
+  font-size: 13px;
+}
+.sc-result-row:last-child { border-bottom: none; }
+.sc-result-row__no {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bg-primary);
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.sc-result-row__expr { flex: 1; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-result-row__ans { color: var(--text-secondary); flex-shrink: 0; }
+.sc-result-row__mark { font-weight: 700; flex-shrink: 0; }
+.sc-result-row__mark.ok { color: #10B981; }
+.sc-result-row__mark.no { color: #EF4444; }
+
+/* 历史记录页 */
+.sc-hist-list { display: flex; flex-direction: column; gap: 10px; }
+.sc-hist-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  overflow: hidden;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+}
+.sc-hist-row__main { flex: 1; padding: 14px; min-width: 0; }
+.sc-hist-row__title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.sc-hist-row__sub { font-size: 12px; color: var(--text-tertiary); margin-top: 4px; }
+.sc-hist-del {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 72px;
+  border: none;
+  background: #EF4444;
+  color: #FFF;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sc-empty {
+  text-align: center;
+  color: var(--text-tertiary);
+  padding: 60px 20px;
+  font-size: 14px;
+}

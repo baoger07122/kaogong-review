@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.2.14';
+App.VERSION = '8.3.1';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -6986,6 +6986,9 @@ App.Router = {
       case 'worddb':
         if (App.Pages.WordDB && App.Pages.WordDB.render) await App.Pages.WordDB.render(params);
         break;
+      case 'speed-calc':
+        if (App.Pages.SpeedCalc && App.Pages.SpeedCalc.render) await App.Pages.SpeedCalc.render(params);
+        break;
     }
   },
 
@@ -7171,7 +7174,7 @@ App.Pages.Home = {
 
     const features = [
       { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="13" y2="18"/></svg>', label: '学习统计', color: '#4A90E2', action: () => App.Router.navigate('study-stats') },
-      { icon: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="12,2 15,9 22,9 16,14 18,22 12,17 6,22 8,14 2,9 9,9"/></svg>', label: '错题收藏', color: '#FF9F43', action: () => App.Router.navigate('errors') },
+      { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="10" y2="14"/><line x1="13" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="10" y2="18"/><line x1="13" y1="18" x2="16" y2="18"/></svg>', label: '速算练习', color: '#3B82F6', action: () => App.Router.navigate('speed-calc') },
       { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>', label: '时政常识', color: '#F5C842', action: () => App.Router.navigate('notes?subject=' + encodeURIComponent('常识判断')) },
       { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>', label: '考点管理', color: '#5B9BD5', action: () => App.Router.navigate('kpmanage') },
       { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="18" y="3" width="4" height="18"/><rect x="10" y="8" width="4" height="13"/><rect x="2" y="13" width="4" height="8"/></svg>', label: '学习周报', color: '#9B7BFF', action: () => App.Router.navigate('workspace') }
@@ -12244,3 +12247,461 @@ window.initNotionMobileEditor = function (containerSelector, options) {
       });
     }
   
+// ===== 【速算练习】速算练习模块（题型选择 / 练习 / 结果 / 历史） =====
+// 数据存 localStorage（key: speedCalcHistory），配色统一用系统变量（蓝白风格）
+App.Pages.SpeedCalc = {
+  state: {
+    view: 'home',        // home | practice | result | history
+    type: null,          // 题型 key（TYPES 的键）
+    mode: 'train',       // train 训练（逐题显示答案）| race 竞速（10 题统一结果）
+    questions: [],       // [{expr, answer, user, correct}]
+    idx: 0,
+    startTime: 0,
+    timerId: null,
+    elapsed: 0
+  },
+
+  HISTORY_KEY: 'speedCalcHistory',
+
+  // 题型定义（12 种，name 用于展示 / gen 生成题目）
+  TYPES: {
+    add3:    { name: '三位数加法',     gen: () => { const a = randInt(100, 999), b = randInt(100, 999); return makeQ(a + ' + ' + b, a + b); } },
+    sub3:    { name: '三位数减法',     gen: () => { const a = randInt(300, 999), b = randInt(100, a - 1); return makeQ(a + ' - ' + b, a - b); } },
+    addsub3: { name: '三位数加减',     gen: () => { const a = randInt(100, 999), b = randInt(100, 999); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } },
+    add4:    { name: '四数相加',       gen: () => { const arr = [randInt(10, 99), randInt(10, 99), randInt(10, 99), randInt(10, 99)]; return makeQ(arr.join(' + '), arr.reduce((s, x) => s + x, 0)); } },
+    mul3x1:  { name: '三位数乘一位数', gen: () => { const a = randInt(100, 999), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
+    div3x1:  { name: '三位数除一位数', gen: () => { const d = randInt(2, 9), q = randInt(100, 999); return makeQ((d * q) + ' ÷ ' + d, q); } },
+    mul2x2:  { name: '两位数乘两位数', gen: () => { const a = randInt(11, 99), b = randInt(11, 99); return makeQ(a + ' × ' + b, a * b); } },
+    big9:    { name: '大九九乘法表',   gen: () => { const a = randInt(11, 19), b = randInt(11, 19); return makeQ(a + ' × ' + b, a * b); } },
+    mulEst:  { name: '乘法估算',       gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } },
+    div5x3:  { name: '五位数除三位数', gen: () => { const d = randInt(100, 999), q = randInt(100, 999); return makeQ((d * q) + ' ÷ ' + d, q); } },
+    base:    { name: '求基期量',       gen: () => { const b = randInt(100, 9999), r = randInt(2, 30), cur = Math.round(b * (100 + r) / 100), ans = Math.round(cur * 100 / (100 + r)); return makeQ('现期量 ' + cur + '，同比增长 ' + r + '%，求基期量', ans); } },
+    growth:  { name: '求增长量',       gen: () => { const b = randInt(100, 9999), r = randInt(2, 30); return makeQ('基期量 ' + b + '，同比增长 ' + r + '%，求增长量', Math.round(b * r / 100)); } }
+  },
+
+  loadHistory() {
+    try { return JSON.parse(localStorage.getItem(this.HISTORY_KEY)) || []; }
+    catch (e) { return []; }
+  },
+  saveHistory(list) {
+    try { localStorage.setItem(this.HISTORY_KEY, JSON.stringify(list)); } catch (e) {}
+  },
+
+  async render(params) {
+    const container = document.getElementById('page-speed-calc');
+    container.innerHTML = '';
+    // 清理计时器
+    if (this.state.timerId) { clearInterval(this.state.timerId); this.state.timerId = null; }
+    const view = this.state.view;
+    if (view === 'home') this.renderHome(container);
+    else if (view === 'practice') this.renderPractice(container);
+    else if (view === 'result') this.renderResult(container);
+    else if (view === 'history') this.renderHistory(container);
+  },
+
+  show(view) {
+    this.state.view = view;
+    if (view !== 'practice' && this.state.timerId) { clearInterval(this.state.timerId); this.state.timerId = null; }
+    this.render({});
+  },
+
+  // ===== 视图：题型选择首页 =====
+  renderHome(container) {
+    const self = this;
+    container.appendChild(App.Components.pageHeader('速算练习', null, null));
+
+    const body = document.createElement('div');
+    body.className = 'sc-page';
+
+    // 题型选择（2 列网格，单选）
+    const typeTitle = document.createElement('div');
+    typeTitle.className = 'sc-section-title';
+    typeTitle.textContent = '选择题型';
+    body.appendChild(typeTitle);
+
+    const grid = document.createElement('div');
+    grid.className = 'sc-type-grid';
+    const typeKeys = Object.keys(this.TYPES);
+    typeKeys.forEach(key => {
+      const item = document.createElement('div');
+      item.className = 'sc-type-item' + (this.state.type === key ? ' selected' : '');
+      item.dataset.type = key;
+      item.innerHTML = '<span class="sc-type-item__name">' + this.TYPES[key].name + '</span>';
+      item.addEventListener('click', () => {
+        this.state.type = key;
+        // 选中态切换动画
+        grid.querySelectorAll('.sc-type-item').forEach(x => x.classList.remove('selected'));
+        item.classList.add('selected');
+      });
+      grid.appendChild(item);
+    });
+    body.appendChild(grid);
+
+    // 模式选择（训练 / 竞速 单选）
+    const modeTitle = document.createElement('div');
+    modeTitle.className = 'sc-section-title';
+    modeTitle.textContent = '选择模式';
+    body.appendChild(modeTitle);
+
+    const modeRow = document.createElement('div');
+    modeRow.className = 'sc-mode-row';
+    [['train', '训练模式', '每道题显示答案'], ['race', '竞速模式', '10 题一组统一评分']].forEach(m => {
+      const opt = document.createElement('div');
+      opt.className = 'sc-mode-opt' + (this.state.mode === m[0] ? ' selected' : '');
+      opt.dataset.mode = m[0];
+      opt.innerHTML = '<div class="sc-mode-opt__radio"></div><div><div class="sc-mode-opt__name">' + m[1] + '</div><div class="sc-mode-opt__desc">' + m[2] + '</div></div>';
+      opt.addEventListener('click', () => {
+        this.state.mode = m[0];
+        modeRow.querySelectorAll('.sc-mode-opt').forEach(x => x.classList.remove('selected'));
+        opt.classList.add('selected');
+      });
+      modeRow.appendChild(opt);
+    });
+    body.appendChild(modeRow);
+
+    // 操作按钮
+    const btnRow = document.createElement('div');
+    btnRow.className = 'sc-btn-row';
+    const startBtn = document.createElement('button');
+    startBtn.type = 'button';
+    startBtn.className = 'sc-btn sc-btn--primary';
+    startBtn.textContent = '开始练习';
+    startBtn.addEventListener('click', () => {
+      if (!this.state.type) { App.Components.toast('请先选择题型', 'error'); return; }
+      this.startPractice();
+    });
+    const histBtn = document.createElement('button');
+    histBtn.type = 'button';
+    histBtn.className = 'sc-btn sc-btn--outline';
+    histBtn.textContent = '历史记录';
+    histBtn.addEventListener('click', () => this.show('history'));
+    btnRow.appendChild(startBtn);
+    btnRow.appendChild(histBtn);
+    body.appendChild(btnRow);
+
+    container.appendChild(body);
+  },
+
+  // 开始练习：生成 10 题并进入练习视图
+  startPractice() {
+    const gen = this.TYPES[this.state.type].gen;
+    this.state.questions = [];
+    for (let i = 0; i < 10; i++) this.state.questions.push(gen());
+    this.state.questions.forEach(q => { q.user = ''; q.correct = null; });
+    this.state.idx = 0;
+    this.state.startTime = Date.now();
+    this.state.elapsed = 0;
+    this.show('practice');
+  },
+
+  // ===== 视图：练习 =====
+  renderPractice(container) {
+    const self = this;
+    const q = this.state.questions[this.state.idx];
+    const total = this.state.questions.length;
+    const submitted = q.correct !== null;
+
+    const header = document.createElement('div');
+    header.className = 'sc-practice-head';
+    header.innerHTML = '<button class="sc-back-btn" type="button">‹ 返回</button><div class="sc-progress">第 ' + (this.state.idx + 1) + '/' + total + ' 题</div><div class="sc-timer" id="sc-timer">00:00</div>';
+    header.querySelector('.sc-back-btn').addEventListener('click', () => {
+      if (confirm('确定退出本次练习？')) this.show('home');
+    });
+    container.appendChild(header);
+
+    // 计时器（interval 只刷新显示，时长以 startTime 差值计算）
+    const tick = () => {
+      const el = container.querySelector('#sc-timer');
+      if (el) el.textContent = fmtTime(Math.floor((Date.now() - this.state.startTime) / 1000));
+    };
+    tick();
+    this.state.timerId = setInterval(tick, 1000);
+
+    const body = document.createElement('div');
+    body.className = 'sc-practice';
+
+    // 题型标签
+    const tag = document.createElement('div');
+    tag.className = 'sc-practice__type';
+    tag.textContent = this.TYPES[this.state.type].name + ' · ' + (this.state.mode === 'race' ? '竞速' : '训练');
+    body.appendChild(tag);
+
+    // 题目（大字号居中）
+    const expr = document.createElement('div');
+    expr.className = 'sc-practice__expr';
+    expr.textContent = q.expr;
+    body.appendChild(expr);
+
+    // 答案输入
+    const inputWrap = document.createElement('div');
+    inputWrap.className = 'sc-practice__input-wrap';
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.inputMode = 'numeric';
+    input.pattern = '[0-9]*';
+    input.className = 'sc-practice__input';
+    input.placeholder = '输入答案';
+    input.value = q.user || '';
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); submit(); }
+    });
+    inputWrap.appendChild(input);
+    body.appendChild(inputWrap);
+
+    // 反馈区（训练模式：提交后显示对错 + 正确答案）
+    const feedback = document.createElement('div');
+    feedback.className = 'sc-practice__feedback';
+
+    const submit = () => {
+      const val = parseInt(input.value, 10);
+      if (isNaN(val)) { App.Components.toast('请输入答案', 'error'); return; }
+      q.user = val;
+      q.correct = val === q.answer;
+      if (this.state.mode === 'race') {
+        // 竞速：不显示对错，直接下一题
+        this.next();
+      } else {
+        // 训练：立即显示对错和正确答案
+        feedback.innerHTML = q.correct
+          ? '<div class="sc-fb sc-fb--ok">✓ 回答正确</div>'
+          : '<div class="sc-fb sc-fb--no">✗ 正确答案：' + q.answer + '</div>';
+        input.disabled = true;
+        const nextBtn = document.createElement('button');
+        nextBtn.type = 'button';
+        nextBtn.className = 'sc-btn sc-btn--primary sc-next-btn';
+        nextBtn.textContent = this.state.idx >= total - 1 ? '查看结果' : '下一题';
+        nextBtn.addEventListener('click', () => this.next());
+        body.appendChild(nextBtn);
+      }
+    };
+
+    const submitBtn = document.createElement('button');
+    submitBtn.type = 'button';
+    submitBtn.className = 'sc-btn sc-btn--primary sc-submit-btn';
+    submitBtn.textContent = '提交';
+    submitBtn.addEventListener('click', submit);
+    body.appendChild(submitBtn);
+    body.appendChild(feedback);
+
+    container.appendChild(body);
+    if (!submitted) input.focus();
+  },
+
+  // 下一题 / 完成
+  next() {
+    const total = this.state.questions.length;
+    if (this.state.idx >= total - 1) {
+      this.finish();
+    } else {
+      this.state.idx++;
+      this.render({});
+    }
+  },
+
+  // 完成：统计 + 存历史 + 结果页
+  finish() {
+    if (this.state.timerId) { clearInterval(this.state.timerId); this.state.timerId = null; }
+    this.state.elapsed = Math.round((Date.now() - this.state.startTime) / 1000);
+
+    const correctCount = this.state.questions.filter(q => q.correct === true).length;
+    const record = {
+      id: 'sc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      type: this.TYPES[this.state.type].name,
+      mode: this.state.mode === 'race' ? '竞速模式' : '训练模式',
+      date: new Date().toISOString(),
+      correctCount: correctCount,
+      totalCount: this.state.questions.length,
+      duration: this.state.elapsed
+    };
+    const list = this.loadHistory();
+    list.unshift(record);
+    this.saveHistory(list.slice(0, 200));   // 最多保留 200 条
+
+    this.show('result');
+  },
+
+  // ===== 视图：结果页 =====
+  renderResult(container) {
+    const self = this;
+    const qs = this.state.questions;
+    const correctCount = qs.filter(q => q.correct === true).length;
+    const total = qs.length;
+    const pct = Math.round(correctCount / total * 100);
+
+    container.appendChild(App.Components.pageHeader('练习结果', null, null));
+
+    const body = document.createElement('div');
+    body.className = 'sc-page';
+
+    // 概览卡片
+    const overview = document.createElement('div');
+    overview.className = 'sc-result-overview';
+    overview.innerHTML =
+      '<div class="sc-result-score">' + pct + '<span class="sc-result-score__unit">%</span></div>' +
+      '<div class="sc-result-score__label">正确率 ' + correctCount + '/' + total + '</div>' +
+      '<div class="sc-result-score__meta">' + fmtTime(this.state.elapsed) + ' · ' + this.TYPES[this.state.type].name + ' · ' + (this.state.mode === 'race' ? '竞速' : '训练') + '</div>';
+    body.appendChild(overview);
+
+    // 每题列表
+    const listTitle = document.createElement('div');
+    listTitle.className = 'sc-section-title';
+    listTitle.textContent = '答题明细';
+    body.appendChild(listTitle);
+
+    const list = document.createElement('div');
+    list.className = 'sc-result-list';
+    qs.forEach((q, i) => {
+      const row = document.createElement('div');
+      row.className = 'sc-result-row';
+      row.innerHTML =
+        '<span class="sc-result-row__no">' + (i + 1) + '</span>' +
+        '<span class="sc-result-row__expr">' + q.expr + '</span>' +
+        '<span class="sc-result-row__ans">' + (q.correct ? '' : '你答 ' + (q.user !== undefined && q.user !== '' ? q.user : '—') + ' / ') + q.answer + '</span>' +
+        '<span class="sc-result-row__mark ' + (q.correct ? 'ok' : 'no') + '">' + (q.correct ? '✓' : '✗') + '</span>';
+      list.appendChild(row);
+    });
+    body.appendChild(list);
+
+    // 操作
+    const btnRow = document.createElement('div');
+    btnRow.className = 'sc-btn-row';
+    const againBtn = document.createElement('button');
+    againBtn.type = 'button';
+    againBtn.className = 'sc-btn sc-btn--primary';
+    againBtn.textContent = '再练一次';
+    againBtn.addEventListener('click', () => this.startPractice());
+    const homeBtn = document.createElement('button');
+    homeBtn.type = 'button';
+    homeBtn.className = 'sc-btn sc-btn--outline';
+    homeBtn.textContent = '返回首页';
+    homeBtn.addEventListener('click', () => this.show('home'));
+    btnRow.appendChild(againBtn);
+    btnRow.appendChild(homeBtn);
+    body.appendChild(btnRow);
+
+    container.appendChild(body);
+  },
+
+  // ===== 视图：历史记录（倒序 + 左滑删除） =====
+  renderHistory(container) {
+    const self = this;
+    container.appendChild(App.Components.pageHeader('历史记录', null, null));
+
+    const body = document.createElement('div');
+    body.className = 'sc-page';
+
+    const list = this.loadHistory();
+    if (list.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'sc-empty';
+      empty.textContent = '暂无练习记录，快去练一练吧';
+      body.appendChild(empty);
+    } else {
+      const rows = document.createElement('div');
+      rows.className = 'sc-hist-list';
+      list.forEach((r, idx) => {
+        const row = document.createElement('div');
+        row.className = 'sc-hist-row';
+        row.dataset.idx = idx;
+        row.innerHTML =
+          '<div class="sc-hist-row__main">' +
+            '<div class="sc-hist-row__title">' + esc(r.type) + ' · ' + esc(r.mode) + '</div>' +
+            '<div class="sc-hist-row__sub">' + fmtDate(r.date) + ' · 正确率 ' + r.correctCount + '/' + r.totalCount + ' · 用时 ' + fmtTime(r.duration || 0) + '</div>' +
+          '</div>' +
+          '<button class="sc-hist-del" type="button">删除</button>';
+        // 左滑删除：左滑超阈值显示删除按钮，点击确认删除
+        bindSwipeDelete(row, rows, () => {
+          const ok2 = confirm('删除这条练习记录？');
+          if (ok2) {
+            const arr = this.loadHistory();
+            arr.splice(idx, 1);
+            this.saveHistory(arr);
+            this.render({});
+          }
+        });
+        rows.appendChild(row);
+      });
+      body.appendChild(rows);
+    }
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'sc-btn-row';
+    const backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'sc-btn sc-btn--outline';
+    backBtn.textContent = '返回练习首页';
+    backBtn.addEventListener('click', () => this.show('home'));
+    btnRow.appendChild(backBtn);
+    body.appendChild(btnRow);
+
+    container.appendChild(body);
+  }
+};
+
+// ===== 速算工具函数 =====
+function randInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+function makeQ(expr, answer) {
+  return { expr: expr, answer: answer, user: '', correct: null };
+}
+function fmtTime(sec) {
+  sec = Math.max(0, sec || 0);
+  var m = Math.floor(sec / 60);
+  var s = sec % 60;
+  return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+}
+function fmtDate(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+function esc(str) {
+  return String(str == null ? '' : str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+// 左滑显示删除按钮（滑动行，露出右侧删除钮；松开回弹/保持）
+function bindSwipeDelete(row, listEl, onDelete) {
+  var startX = 0, startY = 0, dx = 0, dragging = false;
+  var DEL_W = 72;
+  row.addEventListener('touchstart', function (e) {
+    if (e.touches.length !== 1) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    dragging = true;
+    dx = 0;
+    listEl.querySelectorAll('.sc-hist-row').forEach(function (r) {
+      if (r !== row && r.classList.contains('open')) { r.classList.remove('open'); r.style.transform = ''; }
+    });
+  }, { passive: true });
+  row.addEventListener('touchmove', function (e) {
+    if (!dragging || e.touches.length !== 1) return;
+    var x = e.touches[0].clientX;
+    var y = e.touches[0].clientY;
+    if (Math.abs(y - startY) > Math.abs(x - startX)) { dragging = false; return; }   // 纵向滚动不触发
+    var cur = Math.min(0, Math.max(-DEL_W, x - startX + dx));
+    row.style.transform = 'translateX(' + cur + 'px)';
+    row.style.transition = 'none';
+  }, { passive: true });
+  row.addEventListener('touchend', function (e) {
+    if (!dragging) return;
+    dragging = false;
+    var t = e.changedTouches[0].clientX - startX + dx;
+    row.style.transition = 'transform 0.2s ease';
+    if (t < -DEL_W / 2) {
+      row.classList.add('open');
+      row.style.transform = 'translateX(-' + DEL_W + 'px)';
+      dx = -DEL_W;
+    } else {
+      row.classList.remove('open');
+      row.style.transform = '';
+      dx = 0;
+    }
+  }, { passive: true });
+  var delBtn = row.querySelector('.sc-hist-del');
+  if (delBtn) {
+    delBtn.addEventListener('click', function () {
+      onDelete();
+    });
+  }
+}
