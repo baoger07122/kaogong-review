@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.3.6';
+App.VERSION = '8.3.7';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -8845,6 +8845,30 @@ App.Pages.Errors = {
     questionEl.textContent = error.question;
     content.appendChild(questionEl);
 
+    // 图片（有图才展示；点击全屏预览）
+    if (error.image) {
+      const imgWrap = document.createElement('div');
+      imgWrap.style.cssText = 'margin-bottom:var(--spacing-md);text-align:center;';
+      const img = document.createElement('img');
+      img.className = 'error-detail-image';
+      img.src = error.image;
+      img.alt = '错题图片';
+      img.addEventListener('click', () => {
+        const overlay = document.createElement('div');
+        overlay.className = 'notion-image-preview';
+        const big = document.createElement('img');
+        big.className = 'notion-image-preview__img';
+        big.src = error.image;
+        const close = () => overlay.remove();
+        overlay.appendChild(big);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay || e.target === big) close(); });
+        document.getElementById('modal-container').appendChild(overlay);
+        requestAnimationFrame(() => overlay.classList.add('is-visible'));
+      });
+      imgWrap.appendChild(img);
+      content.appendChild(imgWrap);
+    }
+
     // 选项
     const optionsList = document.createElement('div');
     optionsList.className = 'options-list';
@@ -9112,6 +9136,7 @@ App.Pages.Errors = {
       knowledgePoints: [],
       errorCause: '',
       pitfall: '',
+      image: '',
       question: '',
       options: ['', '', '', ''],
       correctOption: '',
@@ -9135,6 +9160,7 @@ App.Pages.Errors = {
             knowledgePoints: error.knowledgePoints || [],
             errorCause: error.errorCause || '',
             pitfall: error.pitfall || '',
+            image: error.image || '',
             question: error.question || '',
             options: error.options || ['', '', '', ''],
             correctOption: error.correctOption || '',
@@ -9167,6 +9193,7 @@ App.Pages.Errors = {
                 knowledgePoints: error.knowledgePoints || [],
                 errorCause: error.errorCause || '',
                 pitfall: error.pitfall || '',
+                image: error.image || '',
                 question: error.question || '',
                 options: error.options || ['', '', '', ''],
                 correctOption: error.correctOption || '',
@@ -9293,6 +9320,76 @@ App.Pages.Errors = {
         (val) => { formData.pitfall = val; },
         'input'
       ));
+
+      // 图片（可选）：点击插入；有图展示，无图仅显示按钮（不占位）
+      const imgGroup = document.createElement('div');
+      imgGroup.className = 'form-group';
+      const imgLabel = document.createElement('label');
+      imgLabel.className = 'form-label';
+      imgLabel.textContent = '图片（可选）';
+      imgGroup.appendChild(imgLabel);
+
+      const imgFileInput = document.createElement('input');
+      imgFileInput.type = 'file';
+      imgFileInput.accept = 'image/*';
+      imgFileInput.style.display = 'none';
+      const pickImg = () => imgFileInput.click();
+      const readImg = (file) => {
+        if (!file || !/^image\//.test(file.type)) { App.Components.toast('仅支持图片格式', 'error'); return; }
+        if (file.size > 2 * 1024 * 1024) { App.Components.toast('图片过大（>2MB），建议压缩后重试', 'error'); return; }
+        const reader = new FileReader();
+        reader.onload = () => { formData.image = reader.result; buildForm(); };
+        reader.onerror = () => App.Components.toast('图片读取失败，请重试', 'error');
+        reader.readAsDataURL(file);
+      };
+      imgFileInput.addEventListener('change', () => {
+        const f = imgFileInput.files && imgFileInput.files[0];
+        imgFileInput.value = '';
+        if (f) readImg(f);
+      });
+      imgGroup.appendChild(imgFileInput);
+
+      if (formData.image) {
+        // 有图：展示缩略图 + 更换 / 删除
+        const imgWrap = document.createElement('div');
+        imgWrap.className = 'error-form-image';
+        const img = document.createElement('img');
+        img.className = 'error-form-image__img';
+        img.src = formData.image;
+        img.alt = '错题图片';
+        img.addEventListener('click', () => pickImg());
+        const btnRow = document.createElement('div');
+        btnRow.className = 'error-form-image__btns';
+        const replaceBtn = document.createElement('button');
+        replaceBtn.type = 'button';
+        replaceBtn.className = 'btn btn--outline';
+        replaceBtn.textContent = '🔄 更换';
+        replaceBtn.addEventListener('click', (e) => { e.stopPropagation(); pickImg(); });
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'btn btn--danger';
+        delBtn.textContent = '🗑 删除';
+        delBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          formData.image = '';
+          buildForm();
+        });
+        btnRow.appendChild(replaceBtn);
+        btnRow.appendChild(delBtn);
+        imgWrap.appendChild(img);
+        imgWrap.appendChild(btnRow);
+        imgGroup.appendChild(imgWrap);
+      } else {
+        // 无图：仅「插入图片」按钮，不占位
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.className = 'btn btn--outline btn--full';
+        addBtn.style.marginBottom = 'var(--spacing-md)';
+        addBtn.innerHTML = '🖼️ 插入图片';
+        addBtn.addEventListener('click', (e) => { e.stopPropagation(); pickImg(); });
+        imgGroup.appendChild(addBtn);
+      }
+      form.appendChild(imgGroup);
 
       // AI 智能拆分（题干 + 选项）
       const aiBtn = document.createElement('button');
@@ -9448,6 +9545,7 @@ App.Pages.Errors = {
         subject: formData.subject, module: formData.module,
         knowledgePoints: formData.knowledgePoints, errorCause: formData.errorCause,
         pitfall: formData.pitfall || '',
+        image: formData.image || '',
         question: formData.question, options: formData.options.filter(o => o.trim()),
         correctOption: formData.correctOption, userOption: formData.userOption || '',
         accuracy: parseInt(formData.accuracy) || 0,

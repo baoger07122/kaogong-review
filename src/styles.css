@@ -6334,3 +6334,34 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 [data-theme="dark"] .notion-image__img { background: var(--bg-tertiary); }
 [data-theme="dark"] .notion-image__err { background: var(--bg-tertiary); }
 [data-theme="dark"] .notion-image__caption:focus { background: var(--bg-tertiary); }
+
+/* ===== 【错题图片】添加错题页图片模块 + 详情页图片展示 ===== */
+/* 表单内图片（有图展示） */
+.error-form-image { text-align: center; }
+.error-form-image__img {
+  display: block; max-width: 100%; max-height: 320px; margin: 0 auto;
+  border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  object-fit: contain;
+}
+.error-form-image__btns {
+  display: flex; gap: 10px; justify-content: center; margin-top: 10px;
+}
+.error-form-image__btns .btn {
+  height: 36px; padding: 0 18px; font-size: 13px; border-radius: 8px;
+}
+/* 详情页图片 */
+.error-detail-image {
+  display: block; max-width: 100%; max-height: 320px; margin: 0 auto;
+  border-radius: 10px; cursor: zoom-in;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  object-fit: contain;
+}
+/* 深色模式 */
+[data-theme="dark"] .error-form-image__img,
+[data-theme="dark"] .error-detail-image {
+  border-color: var(--border-color);
+  background: var(--bg-tertiary);
+}
