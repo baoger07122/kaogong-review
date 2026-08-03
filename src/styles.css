@@ -5845,3 +5845,107 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 [data-theme="dark"] .tag-module-header { background: var(--bg-tertiary); }
 [data-theme="dark"] .tag-pill { background: var(--bg-card); border-color: var(--border-color); color: var(--text-secondary); }
 [data-theme="dark"] .tag-pill:hover { border-color: var(--color-primary); color: var(--color-primary); }
+
+/* ===== 【标签管理】科目→模块→标签 三级结构 ===== */
+/* 科目折叠卡片 */
+.tag-subject {
+  margin-bottom: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-card);
+}
+.tag-subject-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.tag-subject-header:active { background: var(--bg-primary); }
+.tag-subject-header__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.tag-subject-arrow {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  transition: transform 0.2s ease;
+  display: inline-block;
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.tag-subject-arrow.expanded { transform: rotate(90deg); }
+.tag-subject-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tag-subject-count {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  background: var(--bg-primary);
+  padding: 4px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+.tag-subject-content {
+  display: none;
+  padding: 10px 12px 12px;
+}
+.tag-subject-content.expanded { display: block; }
+
+/* 模块卡片嵌套在科目内更紧凑 */
+.tag-subject-content .tag-module { margin-bottom: 8px; border-radius: 10px; }
+
+/* 分类标题（📍 考点 / ⚠️ 错因） */
+.tag-category-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 10px 0 8px;
+}
+.tag-category-title:first-child { margin-top: 0; }
+
+/* 编辑模式：点击标签文字改名（虚线提示可点） */
+.tag-pill__name.is-editable {
+  cursor: pointer;
+  text-decoration: underline dotted var(--text-tertiary);
+  text-underline-offset: 3px;
+}
+.tag-pill.editing {
+  padding: 2px;
+  border: none;
+  background: transparent;
+  cursor: default;
+}
+.tag-pill.editing input {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--color-primary);
+  border-radius: 16px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  outline: none;
+  width: auto;
+  min-width: 120px;
+}
+
+/* 深色模式科目卡片 */
+[data-theme="dark"] .tag-subject { border-color: var(--border-color); }
+[data-theme="dark"] .tag-subject-header { background: var(--bg-tertiary); }
