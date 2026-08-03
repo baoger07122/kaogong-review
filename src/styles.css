@@ -391,14 +391,21 @@ body.ipad-split .page-header__inner {
   max-width: 100%;
   padding: 0 24px;
 }
-/* 分屏时返回按钮右移避开系统指示条（只动按钮，不动标题栏/页面） */
-body.ipad-split .page-header__back {
+/* 分屏时返回按钮右移避开系统指示条（只动按钮，不动标题栏/页面）。
+   限定错题/笔记的详情页与编辑页四个页面（workspace、套卷详情等不受影响）。 */
+body.ipad-split #page-error-detail .page-header__back,
+body.ipad-split #page-error-form .page-header__back,
+body.ipad-split #page-note-detail .page-header__back,
+body.ipad-split #page-note-form .page-header__back {
   margin-left: 24px;
   transition: margin-left 0.2s ease;
 }
 /* Slide Over / 窄窗口分屏（<=400px）：指示条更占空间，再让一点 */
 @media screen and (max-width: 400px) {
-  body.ipad-split .page-header__back {
+  body.ipad-split #page-error-detail .page-header__back,
+  body.ipad-split #page-error-form .page-header__back,
+  body.ipad-split #page-note-detail .page-header__back,
+  body.ipad-split #page-note-form .page-header__back {
     margin-left: 32px;
   }
 }
@@ -483,19 +490,6 @@ body.ipad-split .page-header__back {
 
 .page-header__back:active {
   background: var(--bg-tertiary);
-}
-
-/* iPad 分屏「三个点」多任务条位于顶部左侧，会压住返回按钮。
-   在 iPad 形态（触屏 + 宽 ≥768）下，将错题/笔记的详情页与编辑页左上角返回按钮
-   在当行内右移 24px 避开冲突，垂直位置保持不变（仅改 margin-left，不影响行高）。
-   其余带返回按钮的页面（workspace、套卷详情、词库导入等）不受影响。 */
-@media (min-width: 768px) and (pointer: coarse) {
-  #page-error-detail .page-header__back,
-  #page-error-form .page-header__back,
-  #page-note-detail .page-header__back,
-  #page-note-form .page-header__back {
-    margin-left: 24px;
-  }
 }
 
 /* ===== 搜索栏 ===== */

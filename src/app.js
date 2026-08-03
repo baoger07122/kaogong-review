@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.3.5';
+App.VERSION = '8.3.6';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -1755,9 +1755,8 @@ App.Components = {
     updateToolbarBottom();
 
     // ===== iPad 横屏/分屏自适应检测（单例级） =====
-    // 分屏检测（精准版）：iPad 物理尺寸 screen.width/height 固定，分屏时 window.innerWidth 明显变小
-    // 用「窗口宽与任一屏幕边长的差 > 80px」判断，覆盖横屏分屏、竖屏分屏、Slide Over、Stage Manager
-    // screen.width 在个别环境为 0/undefined 时退化为 width < 1024 兜底
+    // 分屏检测（精准版）：分屏 = innerWidth 明显小于屏幕较短边长（宽度被压缩）。
+    // 覆盖横屏分屏、竖屏分屏、Slide Over、Stage Manager；全屏不误判（见全局检测注释）。
     const detectIpadSplit = () => {
       const isIpad = /iPad/.test(navigator.userAgent) ||
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -1767,7 +1766,7 @@ App.Components = {
       const sh = (screen && screen.height) || 0;
       let isSplit = false;
       if (sw > 0 && sh > 0) {
-        isSplit = Math.abs(w - sw) > 80 || Math.abs(w - sh) > 80;
+        isSplit = w < Math.min(sw, sh) - 80;
       } else {
         isSplit = w < 1024;   // screen 不可用时兜底
       }
@@ -7565,6 +7564,39 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 初始化主题
   App.Utils.Theme.init();
+
+  // ===== iPad 分屏检测（全局级，启动即执行，不依赖编辑器初始化） =====
+  // 分屏/Stage Manager 下 iPad 系统「三点」多任务条位于左上角，会压住页面返回按钮。
+  // 检测到分屏时给 body 加 ipad-split class → 返回按钮 margin-left 右移避开（见 styles.css）。
+  // 之前该检测放在移动端工具栏构建内（惰性），详情页/编辑页无编辑器时不执行 → 分屏下返回键被遮挡。
+  // 判定：分屏 = innerWidth 明显小于屏幕较短的边长（宽度方向被压缩）。
+  // 注意不能简单用「innerWidth 与任一屏幕边长的差 > 80」——竖屏全屏时 innerWidth==screen.width
+  // 但 < screen.height，会被误判为分屏；用 min(sw,sh) 作基准可同时覆盖竖屏/横屏分屏且全屏不误判。
+  const _detectIpadSplitGlobal = () => {
+    try {
+      const isIpad = /iPad/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (!isIpad) { document.body.classList.remove('ipad-split'); return; }
+      const w = window.innerWidth;
+      const sw = (screen && screen.width) || 0;
+      const sh = (screen && screen.height) || 0;
+      let isSplit = false;
+      if (sw > 0 && sh > 0) {
+        isSplit = w < Math.min(sw, sh) - 80;
+      } else {
+        isSplit = w < 1024;   // screen 不可用时兜底
+      }
+      if (isSplit) document.body.classList.add('ipad-split');
+      else document.body.classList.remove('ipad-split');
+    } catch (e) {}
+  };
+  _detectIpadSplitGlobal();
+  let _splitGlobalTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(_splitGlobalTimer);
+    _splitGlobalTimer = setTimeout(_detectIpadSplitGlobal, 100);
+  }, { passive: true });
+  window.addEventListener('orientationchange', () => setTimeout(_detectIpadSplitGlobal, 300), { passive: true });
 
   // 初始化数据库
   try {
