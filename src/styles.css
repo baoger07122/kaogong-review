@@ -6365,3 +6365,96 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   border-color: var(--border-color);
   background: var(--bg-tertiary);
 }
+
+/* ===== 【错题多图】表单多图网格 + 详情页/画廊多图宽度自适应 ===== */
+/* 表单：多图网格 + 逐张删除 */
+.error-form-image__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.error-form-image__item {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  aspect-ratio: 1 / 1;              /* 方形缩略图，宽度自适应 */
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+}
+.error-form-image__item .error-form-image__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;                 /* 压缩保持宽高比，填满格子 */
+  display: block;
+  border-radius: 0;
+  max-height: none;
+  cursor: pointer;
+}
+.error-form-image__del {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+.error-form-image__del:active { background: rgba(220,38,38,0.85); }
+
+/* 详情页：多图网格，宽度固定 100%，图片压缩保持比例 */
+.error-detail-images {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  margin-bottom: var(--spacing-md);
+  width: 100%;
+}
+.error-detail-images .error-detail-image {
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+  object-fit: contain;               /* 压缩保持宽高比，宽度适应容器 */
+  display: block;
+  border-radius: 10px;
+  cursor: zoom-in;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+}
+
+/* 画廊卡片：多图横向排布，宽度固定，压缩适应 */
+.error-gallery-card__imgwrap {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+  width: 100%;
+  overflow: hidden;
+}
+.error-gallery-card__img {
+  flex: 1;
+  min-width: 0;
+  height: 120px;
+  object-fit: cover;                 /* 压缩保持宽高比，宽度适应卡片 */
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  cursor: zoom-in;
+}
+.error-gallery-card__imgmore {
+  align-self: center;
+  flex-shrink: 0;
+  min-width: 36px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}

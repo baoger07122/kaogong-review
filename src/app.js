@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.3.8';
+App.VERSION = '8.3.9';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -3315,28 +3315,38 @@ App.Components = {
     const card = document.createElement('div');
     card.className = 'error-gallery-card';
 
-    // 图片（有图才展示；位于题目上方）
-    if (error.image) {
+    // 图片（多张；位于题目上方；宽度自适应；最多显示前 3 张，其余 +N）
+    const cardImages = (error.images && error.images.length) ? error.images : (error.image ? [error.image] : []);
+    if (cardImages.length) {
       const imgWrap = document.createElement('div');
       imgWrap.className = 'error-gallery-card__imgwrap';
-      const img = document.createElement('img');
-      img.className = 'error-gallery-card__img';
-      img.src = error.image;
-      img.alt = '错题图片';
-      img.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const overlay = document.createElement('div');
-        overlay.className = 'notion-image-preview';
-        const big = document.createElement('img');
-        big.className = 'notion-image-preview__img';
-        big.src = error.image;
-        const close = () => overlay.remove();
-        overlay.appendChild(big);
-        overlay.addEventListener('click', (ev) => { if (ev.target === overlay || ev.target === big) close(); });
-        document.getElementById('modal-container').appendChild(overlay);
-        requestAnimationFrame(() => overlay.classList.add('is-visible'));
+      const shown = cardImages.slice(0, 3);
+      shown.forEach((src, i) => {
+        const img = document.createElement('img');
+        img.className = 'error-gallery-card__img';
+        img.src = src;
+        img.alt = '错题图片' + (i + 1);
+        img.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const overlay = document.createElement('div');
+          overlay.className = 'notion-image-preview';
+          const big = document.createElement('img');
+          big.className = 'notion-image-preview__img';
+          big.src = src;
+          const close = () => overlay.remove();
+          overlay.appendChild(big);
+          overlay.addEventListener('click', (ev) => { if (ev.target === overlay || ev.target === big) close(); });
+          document.getElementById('modal-container').appendChild(overlay);
+          requestAnimationFrame(() => overlay.classList.add('is-visible'));
+        });
+        imgWrap.appendChild(img);
       });
-      imgWrap.appendChild(img);
+      if (cardImages.length > 3) {
+        const more = document.createElement('span');
+        more.className = 'error-gallery-card__imgmore';
+        more.textContent = '+' + (cardImages.length - 3);
+        imgWrap.appendChild(more);
+      }
       card.appendChild(imgWrap);
     }
 
@@ -8923,27 +8933,30 @@ App.Pages.Errors = {
     `;
     content.appendChild(headerInfo);
 
-    // 图片（有图才展示；位于题目上方；点击全屏预览）
-    if (error.image) {
+    // 图片（多张，有图才展示；位于题目上方；点击全屏预览；宽度自适应压缩）
+    const errorImages = (error.images && error.images.length) ? error.images : (error.image ? [error.image] : []);
+    if (errorImages.length) {
       const imgWrap = document.createElement('div');
-      imgWrap.style.cssText = 'margin-bottom:var(--spacing-md);text-align:center;';
-      const img = document.createElement('img');
-      img.className = 'error-detail-image';
-      img.src = error.image;
-      img.alt = '错题图片';
-      img.addEventListener('click', () => {
-        const overlay = document.createElement('div');
-        overlay.className = 'notion-image-preview';
-        const big = document.createElement('img');
-        big.className = 'notion-image-preview__img';
-        big.src = error.image;
-        const close = () => overlay.remove();
-        overlay.appendChild(big);
-        overlay.addEventListener('click', (e) => { if (e.target === overlay || e.target === big) close(); });
-        document.getElementById('modal-container').appendChild(overlay);
-        requestAnimationFrame(() => overlay.classList.add('is-visible'));
+      imgWrap.className = 'error-detail-images';
+      errorImages.forEach((src, i) => {
+        const img = document.createElement('img');
+        img.className = 'error-detail-image';
+        img.src = src;
+        img.alt = '错题图片' + (i + 1);
+        img.addEventListener('click', () => {
+          const overlay = document.createElement('div');
+          overlay.className = 'notion-image-preview';
+          const big = document.createElement('img');
+          big.className = 'notion-image-preview__img';
+          big.src = src;
+          const close = () => overlay.remove();
+          overlay.appendChild(big);
+          overlay.addEventListener('click', (e) => { if (e.target === overlay || e.target === big) close(); });
+          document.getElementById('modal-container').appendChild(overlay);
+          requestAnimationFrame(() => overlay.classList.add('is-visible'));
+        });
+        imgWrap.appendChild(img);
       });
-      imgWrap.appendChild(img);
       content.appendChild(imgWrap);
     }
 
@@ -9040,57 +9053,6 @@ App.Pages.Errors = {
         this.renderDetail(params);
       });
       cancelBtn.addEventListener('click', () => { this.renderDetail(params); });
-    });
-
-    // 解析分析笔记
-    const noteTitle = document.createElement('div');
-    noteTitle.style.cssText = 'font-size:var(--font-sm);font-weight:600;color:var(--text-secondary);margin:var(--spacing-md) 0 var(--spacing-sm);';
-    noteTitle.innerHTML = '📝 解析分析笔记 <span style="font-weight:400;color:var(--text-tertiary);font-size:var(--font-xs);">（点击可编辑）</span>';
-    content.appendChild(noteTitle);
-
-    const noteContent = document.createElement('div');
-    noteContent.className = 'card';
-    noteContent.style.cssText = 'margin:0 0 4px 0;line-height:1.7;min-height:60px;cursor:pointer;';
-    noteContent.innerHTML = error.analysisNote
-      ? App.Utils.simpleMarkdown(error.analysisNote)
-      : '<span style="color:var(--text-tertiary);">点击添加解析笔记</span>';
-    content.appendChild(noteContent);
-
-    // 点击就地编辑解析笔记
-    let noteEditing = false;
-    noteContent.addEventListener('click', () => {
-      if (noteEditing) return;
-      noteEditing = true;
-      noteContent.style.cursor = 'default';
-      // 替换为编辑器前先锁定当前高度，避免清空内容导致塌陷/抖动
-      noteContent.style.minHeight = Math.max(noteContent.offsetHeight, 60) + 'px';
-      const editor = App.Components.notionEditor(error.analysisNote, false, function (content) {
-        error.analysisNote = content;
-      });
-      noteContent.innerHTML = '';
-      noteContent.appendChild(editor.element);
-
-      const actions = document.createElement('div');
-      actions.style.cssText = 'display:flex;gap:8px;margin-top:8px;';
-      const saveBtn = document.createElement('button');
-      saveBtn.className = 'btn btn--primary btn--sm';
-      saveBtn.textContent = '保存';
-      const cancelBtn = document.createElement('button');
-      cancelBtn.className = 'btn btn--outline btn--sm';
-      cancelBtn.textContent = '取消';
-      actions.appendChild(saveBtn);
-      actions.appendChild(cancelBtn);
-      noteContent.appendChild(actions);
-
-      saveBtn.addEventListener('click', async () => {
-        error.analysisNote = editor.getContent();
-        await App.DB.updateError(error);
-        App.Components.toast('已保存 ✓', 'success');
-        this.renderDetail(params);
-      });
-      cancelBtn.addEventListener('click', () => {
-        this.renderDetail(params);
-      });
     });
 
     // 底部独立手写笔记区域（始终显示，点击可编辑）
@@ -9220,13 +9182,12 @@ App.Pages.Errors = {
       knowledgePoints: [],
       errorCause: '',
       pitfall: '',
-      image: '',
+      images: [],
       question: '',
       options: ['', '', '', ''],
       correctOption: '',
       userOption: '',
       accuracy: '',
-      analysisNote: '',
       note: '',
       questionSource: '',
       status: '未掌握',
@@ -9244,13 +9205,12 @@ App.Pages.Errors = {
             knowledgePoints: error.knowledgePoints || [],
             errorCause: error.errorCause || '',
             pitfall: error.pitfall || '',
-            image: error.image || '',
+            images: (error.images && error.images.length) ? error.images.slice() : (error.image ? [error.image] : []),
             question: error.question || '',
             options: error.options || ['', '', '', ''],
             correctOption: error.correctOption || '',
             userOption: error.userOption || '',
             accuracy: error.accuracy !== undefined ? String(error.accuracy) : '',
-            analysisNote: error.analysisNote || '',
             note: error.note || '',
             questionSource: error.questionSource || '',
             status: error.status || '未掌握',
@@ -9277,13 +9237,12 @@ App.Pages.Errors = {
                 knowledgePoints: error.knowledgePoints || [],
                 errorCause: error.errorCause || '',
                 pitfall: error.pitfall || '',
-                image: error.image || '',
+                images: (error.images && error.images.length) ? error.images.slice() : (error.image ? [error.image] : []),
                 question: error.question || '',
                 options: error.options || ['', '', '', ''],
                 correctOption: error.correctOption || '',
                 userOption: error.userOption || '',
                 accuracy: error.accuracy !== undefined ? String(error.accuracy) : '',
-                analysisNote: error.analysisNote || '',
                 note: error.note || '',
                 questionSource: error.questionSource || '',
                 status: error.status || '未掌握',
@@ -9405,7 +9364,7 @@ App.Pages.Errors = {
         'input'
       ));
 
-      // 图片（可选）：点击插入；有图展示，无图仅显示按钮（不占位）
+      // 图片（可选）：支持多张；点击插入，逐张删除
       const imgGroup = document.createElement('div');
       imgGroup.className = 'form-group';
       const imgLabel = document.createElement('label');
@@ -9416,53 +9375,70 @@ App.Pages.Errors = {
       const imgFileInput = document.createElement('input');
       imgFileInput.type = 'file';
       imgFileInput.accept = 'image/*';
+      imgFileInput.multiple = true;   // 支持一次选多张
       imgFileInput.style.display = 'none';
       const pickImg = () => imgFileInput.click();
       const readImg = (file) => {
-        if (!file || !/^image\//.test(file.type)) { App.Components.toast('仅支持图片格式', 'error'); return; }
-        if (file.size > 2 * 1024 * 1024) { App.Components.toast('图片过大（>2MB），建议压缩后重试', 'error'); return; }
-        const reader = new FileReader();
-        reader.onload = () => { formData.image = reader.result; buildForm(); };
-        reader.onerror = () => App.Components.toast('图片读取失败，请重试', 'error');
-        reader.readAsDataURL(file);
+        return new Promise((resolve) => {
+          if (!file || !/^image\//.test(file.type)) { App.Components.toast('仅支持图片格式', 'error'); resolve(false); return; }
+          if (file.size > 2 * 1024 * 1024) { App.Components.toast('图片过大（>2MB），建议压缩后重试', 'error'); resolve(false); return; }
+          const reader = new FileReader();
+          reader.onload = () => { resolve(reader.result); };
+          reader.onerror = () => { App.Components.toast('图片读取失败，请重试', 'error'); resolve(false); };
+          reader.readAsDataURL(file);
+        });
       };
-      imgFileInput.addEventListener('change', () => {
-        const f = imgFileInput.files && imgFileInput.files[0];
+      imgFileInput.addEventListener('change', async () => {
+        const files = imgFileInput.files ? Array.from(imgFileInput.files) : [];
         imgFileInput.value = '';
-        if (f) readImg(f);
+        if (files.length === 0) return;
+        // 一次选多张：逐张读取并追加
+        for (const f of files) {
+          const dataUrl = await readImg(f);
+          if (dataUrl) {
+            if (!Array.isArray(formData.images)) formData.images = [];
+            formData.images.push(dataUrl);
+          }
+        }
+        buildForm();
       });
       imgGroup.appendChild(imgFileInput);
 
-      if (formData.image) {
-        // 有图：展示缩略图 + 更换 / 删除
-        const imgWrap = document.createElement('div');
-        imgWrap.className = 'error-form-image';
-        const img = document.createElement('img');
-        img.className = 'error-form-image__img';
-        img.src = formData.image;
-        img.alt = '错题图片';
-        img.addEventListener('click', () => pickImg());
-        const btnRow = document.createElement('div');
-        btnRow.className = 'error-form-image__btns';
-        const replaceBtn = document.createElement('button');
-        replaceBtn.type = 'button';
-        replaceBtn.className = 'btn btn--outline';
-        replaceBtn.textContent = '🔄 更换';
-        replaceBtn.addEventListener('click', (e) => { e.stopPropagation(); pickImg(); });
-        const delBtn = document.createElement('button');
-        delBtn.type = 'button';
-        delBtn.className = 'btn btn--danger';
-        delBtn.textContent = '🗑 删除';
-        delBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          formData.image = '';
-          buildForm();
+      // 已添加图片网格（多张）
+      const imgList = Array.isArray(formData.images) ? formData.images : [];
+      if (imgList.length > 0) {
+        const grid = document.createElement('div');
+        grid.className = 'error-form-image__grid';
+        imgList.forEach((src, idx) => {
+          const item = document.createElement('div');
+          item.className = 'error-form-image__item';
+          const img = document.createElement('img');
+          img.className = 'error-form-image__img';
+          img.src = src;
+          img.alt = '错题图片' + (idx + 1);
+          const delBtn = document.createElement('button');
+          delBtn.type = 'button';
+          delBtn.className = 'error-form-image__del';
+          delBtn.textContent = '×';
+          delBtn.title = '删除这张图片';
+          delBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            formData.images.splice(idx, 1);
+            buildForm();
+          });
+          item.appendChild(img);
+          item.appendChild(delBtn);
+          grid.appendChild(item);
         });
-        btnRow.appendChild(replaceBtn);
-        btnRow.appendChild(delBtn);
-        imgWrap.appendChild(img);
-        imgWrap.appendChild(btnRow);
-        imgGroup.appendChild(imgWrap);
+        imgGroup.appendChild(grid);
+        // 继续添加按钮（追加，不替换）
+        const moreBtn = document.createElement('button');
+        moreBtn.type = 'button';
+        moreBtn.className = 'btn btn--outline btn--full';
+        moreBtn.style.marginTop = 'var(--spacing-sm)';
+        moreBtn.innerHTML = '➕ 继续添加图片';
+        moreBtn.addEventListener('click', (e) => { e.stopPropagation(); pickImg(); });
+        imgGroup.appendChild(moreBtn);
       } else {
         // 无图：仅「插入图片」按钮，不占位
         const addBtn = document.createElement('button');
@@ -9564,22 +9540,7 @@ App.Pages.Errors = {
         false
       ));
 
-      // 解析笔记
-      const noteGroup = document.createElement('div');
-      noteGroup.className = 'form-group';
-      const noteLabel = document.createElement('label');
-      noteLabel.className = 'form-label';
-      noteLabel.textContent = '解析分析笔记';
-      noteGroup.appendChild(noteLabel);
-
-      const editor = App.Components.notionEditor(formData.analysisNote, false, function (content) {
-        formData.analysisNote = content;
-      });
-      noteGroup.appendChild(editor.element);
-      formData._getNote = editor.getContent;
-      form.appendChild(noteGroup);
-
-      // 错题笔记（个人复盘心得，区别于解析分析）
+      // 错题笔记（个人复盘心得）
       const enoteGroup = document.createElement('div');
       enoteGroup.className = 'form-group';
       const enoteLabel = document.createElement('label');
@@ -9598,7 +9559,6 @@ App.Pages.Errors = {
 
       // 草稿自动暂存（localStorage 兜底）+ 触发 DB 自动保存
       App.Draft.autoSaveForm('error', formData._formId, container, function () {
-        if (formData._getNote) { try { formData.analysisNote = formData._getNote(); } catch (e) {} }
         if (formData._getENote) { try { formData.note = formData._getENote(); } catch (e) {} }
         debouncedSaveToDB();
         return JSON.parse(JSON.stringify(formData));
@@ -9621,7 +9581,6 @@ App.Pages.Errors = {
     }
 
     const submitFormInternal = async () => {
-      if (formData._getNote) formData.analysisNote = formData._getNote();
       if (formData._getENote) formData.note = formData._getENote();
       App.Utils.rememberSelect.set('error', formData.subject, formData.module);
 
@@ -9629,11 +9588,11 @@ App.Pages.Errors = {
         subject: formData.subject, module: formData.module,
         knowledgePoints: formData.knowledgePoints, errorCause: formData.errorCause,
         pitfall: formData.pitfall || '',
-        image: formData.image || '',
+        images: formData.images && formData.images.length ? formData.images.slice() : [],
         question: formData.question, options: formData.options.filter(o => o.trim()),
         correctOption: formData.correctOption, userOption: formData.userOption || '',
         accuracy: parseInt(formData.accuracy) || 0,
-        analysisNote: formData.analysisNote || '', note: formData.note || '',
+        note: formData.note || '',
         questionSource: formData.questionSource || '',
         status: formData.status || '未掌握', sourceExamId: formData.sourceExamId || null,
       };
@@ -9652,7 +9611,6 @@ App.Pages.Errors = {
 
     const submitForm = async () => {
       clearTimeout(_errSaveTimer);
-      if (formData._getNote) formData.analysisNote = formData._getNote();
       if (formData._getENote) formData.note = formData._getENote();
       if (!formData.subject) { App.Components.toast('请选择科目', 'error'); return; }
       if (!App.Constants.isFlatSubject(formData.subject) && !formData.module) { App.Components.toast('请选择模块', 'error'); return; }

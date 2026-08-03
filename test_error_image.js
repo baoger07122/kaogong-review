@@ -1,4 +1,4 @@
-/* 错题表单图片模块专项测试 */
+/* 错题表单多图 + 删除解析笔记 专项测试 */
 const { JSDOM } = require('jsdom');
 const fs = require('fs');
 const html = fs.readFileSync('index.html', 'utf8');
@@ -51,7 +51,7 @@ setTimeout(async () => {
   App.Components.toast = () => {};
 
   try {
-    console.log('[1] 无图：表单显示插入按钮，无占位');
+    console.log('[1] 无图：显示插入按钮，无占位，可多选');
     const page = doc.getElementById('page-error-form');
     await App.Pages.Errors.renderForm.call(App.Pages.Errors, {});
     await new Promise(r => setTimeout(r, 400));
@@ -59,58 +59,36 @@ setTimeout(async () => {
     assert(!!imgLabel, '「图片」标签存在');
     const addBtn = Array.from(page.querySelectorAll('button')).find(b => b.textContent.includes('插入图片'));
     assert(!!addBtn, '无图时显示「🖼️ 插入图片」按钮');
-    assert(!page.querySelector('.error-form-image__img'), '无图时不显示图片');
-    assert(!page.querySelector('.error-form-image__btns'), '无图时不显示更换/删除按钮');
+    assert(!page.querySelector('.error-form-image__grid'), '无图时不显示图片网格');
     const fileInput = page.querySelector('input[type=file][accept="image/*"]');
-    assert(!!fileInput, '隐藏 file input 存在 (accept=image/*)');
+    assert(!!fileInput, '隐藏 file input 存在');
+    assert(fileInput.multiple === true, '支持多选 (multiple)');
 
-    console.log('\n[2] 有图：展示图片 + 更换/删除');
-    // 通过模拟点击插入图片（FileReader mock）
-    const btn = Array.from(page.querySelectorAll('button')).find(b => b.textContent.includes('插入图片'));
-    btn.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
-    // file input change 事件模拟
+    console.log('\n[2] 插入多张图片：网格展示 + 逐张删除');
+    // 依次插入 3 张
     const fi = page.querySelector('input[type=file][accept="image/*"]');
-    // 直接触发 change：jsdom 无法设置 files，改用 FileReader 直测——验证组件逻辑：模拟文件选择
-    // 通过 Object.defineProperty 设置 files
-    try {
-      Object.defineProperty(fi, 'files', { value: [{ name: 'photo.png', type: 'image/png', size: 1024 }], configurable: true });
-      fi.dispatchEvent(new win.Event('change', { bubbles: true }));
-      await new Promise(r => setTimeout(r, 100));
-      const imgEl = page.querySelector('.error-form-image__img');
-      assert(!!imgEl, '插入后展示图片');
-      assert(imgEl.src.startsWith('data:image/png'), '图片为 Base64 dataURL');
-      assert(!!page.querySelector('.error-form-image__btns'), '显示更换/删除按钮');
-    } catch (e) {
-      console.log('  ✗ file input 模拟失败:', e.message);
-      fail++;
-    }
-
-    console.log('\n[3] 删除图片回到无图态');
-    if (page.querySelector('.error-form-image__btns')) {
-      const delBtn = Array.from(page.querySelectorAll('.error-form-image__btns button')).find(b => b.textContent.includes('删除'));
-      delBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
-      await new Promise(r => setTimeout(r, 50));
-      assert(!page.querySelector('.error-form-image__img'), '删除后图片消失');
-      assert(!!Array.from(page.querySelectorAll('button')).find(b => b.textContent.includes('插入图片')), '删除后回到插入按钮');
-    }
-
-    console.log('\n[4] 提交保存 image 字段');
-    // 重置表单（重新渲染干净状态）
-    await App.Pages.Errors.renderForm.call(App.Pages.Errors, {});
-    await new Promise(r => setTimeout(r, 400));
-    // 重新插入图片
-    const btn2 = Array.from(page.querySelectorAll('button')).find(b => b.textContent.includes('插入图片'));
-    btn2.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
-    const fi2 = page.querySelector('input[type=file][accept="image/*"]');
-    if (fi2) {
+    for (let i = 0; i < 3; i++) {
       try {
-        Object.defineProperty(fi2, 'files', { value: [{ name: 'photo2.png', type: 'image/png', size: 1024 }], configurable: true });
-        fi2.dispatchEvent(new win.Event('change', { bubbles: true }));
-        await new Promise(r => setTimeout(r, 150));
-      } catch (e) { console.log('  ⚠ 图片插入模拟失败:', e.message); }
+        Object.defineProperty(fi, 'files', { value: [{ name: 'img' + i + '.png', type: 'image/png', size: 1024 }], configurable: true });
+        fi.dispatchEvent(new win.Event('change', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 80));
+      } catch (e) { console.log('  ⚠ 插入模拟失败:', e.message); }
     }
-    assert(!!page.querySelector('.error-form-image__img'), '重新插入后展示图片');
-    // 填必填项（每次操作后重新查询 select，等待 buildForm 完成）
+    const grid = page.querySelector('.error-form-image__grid');
+    assert(!!grid, '图片网格出现');
+    const items = grid.querySelectorAll('.error-form-image__item');
+    assert(items.length === 3, '3 张图片都在网格中');
+    assert(!!page.querySelector('.error-form-image__del'), '每张有删除按钮');
+    assert(!!Array.from(page.querySelectorAll('button')).find(b => b.textContent.includes('继续添加图片')), '显示「继续添加图片」按钮');
+    // 删除第 2 张
+    const delBtns = grid.querySelectorAll('.error-form-image__del');
+    delBtns[1].dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 50));
+    const items2 = page.querySelector('.error-form-image__grid').querySelectorAll('.error-form-image__item');
+    assert(items2.length === 2, '删除后剩 2 张');
+
+    console.log('\n[3] 提交保存 images 数组');
+    // 填必填项并提交
     const setSel = (idx, val) => {
       const s = page.querySelectorAll('.form-select')[idx];
       if (!s) return false;
@@ -123,14 +101,12 @@ setTimeout(async () => {
     await new Promise(r => setTimeout(r, 500));
     setSel(1, '逻辑填空');
     await new Promise(r => setTimeout(r, 500));
-    // 考点输入（tagInput 输入行）
     const kpInput = page.querySelector('.tag-input__field-row .form-input');
     if (kpInput) {
       kpInput.value = '语境分析';
       kpInput.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
       await new Promise(r => setTimeout(r, 80));
     }
-    // 错因输入（最后一个 tag-input 输入行）
     const ecInputs = page.querySelectorAll('.tag-input__field-row .form-input');
     const ecInput = ecInputs[ecInputs.length - 1];
     if (ecInput) {
@@ -138,37 +114,79 @@ setTimeout(async () => {
       ecInput.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
       await new Promise(r => setTimeout(r, 80));
     }
-    // 题目
     const qInput = Array.from(page.querySelectorAll('textarea')).find(t => t.placeholder.includes('题干'));
-    if (qInput) { qInput.value = '这是一道测试题'; qInput.dispatchEvent(new win.Event('input', { bubbles: true })); }
-    // 选项 A
+    if (qInput) { qInput.value = '多图测试题'; qInput.dispatchEvent(new win.Event('input', { bubbles: true })); }
     const optInputs = page.querySelectorAll('.error-form-option-input');
-    if (optInputs[0]) { optInputs[0].value = '选项A内容'; optInputs[0].dispatchEvent(new win.Event('input', { bubbles: true })); }
-    // 正确选项 select（第三个 select，值 A）
+    if (optInputs[0]) { optInputs[0].value = 'A选项'; optInputs[0].dispatchEvent(new win.Event('input', { bubbles: true })); }
     setSel(2, 'A');
     await new Promise(r => setTimeout(r, 300));
-    // 提交（页头右侧是 div 不是 button）
     let lastToast = '';
     App.Components.toast = (m) => { lastToast = m; };
-    const submitEl = Array.from(page.querySelectorAll('.page-header__right, .page-header__title, div')).find(b => b.textContent.trim() === '提交' && b.className.includes('page-header__right'));
+    const submitEl = Array.from(page.querySelectorAll('.page-header__right, div')).find(b => b.textContent.trim() === '提交' && b.className.includes('page-header__right'));
     if (submitEl) {
       submitEl.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
       await new Promise(r => setTimeout(r, 500));
-      console.log('  提交后 toast:', lastToast || '(无)');
-    } else {
-      console.log('  ✗ 提交按钮未找到');
     }
     const saved = dbStore['errors::err1'];
     if (saved) {
-      assert(saved.image && saved.image.startsWith('data:image/png'), '保存的错题含 image 字段(Base64)');
-      assert(saved.question === '这是一道测试题', '保存的题目正确');
-      console.log('  saved.image 前缀:', saved.image.slice(0, 30));
+      assert(Array.isArray(saved.images) && saved.images.length === 2, '保存 images 数组含 2 张');
+      assert(saved.images.every(s => s.startsWith('data:image/png')), '均为 Base64 dataURL');
+      assert(saved.analysisNote === undefined, '不再保存 analysisNote 字段');
+      assert(saved.question === '多图测试题', '题目正确保存');
+      console.log('  images[0] 前缀:', saved.images[0].slice(0, 30));
     } else {
-      console.log('  ✗ 错题未保存成功');
+      console.log('  ✗ 错题未保存成功, toast:', lastToast);
       fail++;
     }
 
-    console.log('\n===== 错题图片模块专项: ' + pass + ' 通过, ' + fail + ' 失败 =====');
+    console.log('\n[4] 表单无「解析分析笔记」模块');
+    await App.Pages.Errors.renderForm.call(App.Pages.Errors, {});
+    await new Promise(r => setTimeout(r, 400));
+    const noteLabel = Array.from(page.querySelectorAll('.form-label')).find(l => l.textContent.includes('解析分析笔记'));
+    assert(!noteLabel, '表单无「解析分析笔记」标签');
+    assert(!!Array.from(page.querySelectorAll('.form-label')).find(l => l.textContent.includes('错题笔记')), '「错题笔记」仍在');
+
+    console.log('\n[5] 详情页：多图展示 + 无解析笔记');
+    await App.Pages.Errors.renderDetail.call(App.Pages.Errors, {
+      id: 'd1'
+    });
+    // mock DB.get 返回多图数据
+    const origGet = App.DB.get;
+    App.DB.get = async (t, id) => {
+      if (t === 'errors' && id === 'd1') {
+        return { id: 'd1', subject: '言语理解', module: '逻辑填空', knowledgePoints: ['考点'], errorCause: '错因',
+          question: '详情题', images: ['data:image/png;base64,A', 'data:image/png;base64,B'], status: '未掌握',
+          analysisNote: '旧解析内容' };
+      }
+      return origGet(t, id);
+    };
+    await App.Pages.Errors.renderDetail.call(App.Pages.Errors, { id: 'd1' });
+    await new Promise(r => setTimeout(r, 100));
+    const dPage = doc.getElementById('page-error-detail');
+    const imgs = dPage.querySelectorAll('.error-detail-images .error-detail-image');
+    assert(imgs.length === 2, '详情页展示 2 张图片');
+    assert(!dPage.textContent.includes('解析分析笔记'), '详情页无解析分析笔记');
+    assert(!dPage.textContent.includes('旧解析内容'), '旧 analysisNote 内容不再展示');
+
+    console.log('\n[6] 画廊卡片：多图 + 宽度自适应');
+    const card = App.Components.galleryErrorCard({
+      knowledgePoints: ['考点'], errorCause: '错因', question: '题',
+      images: ['data:image/png;base64,A', 'data:image/png;base64,B', 'data:image/png;base64,C', 'data:image/png;base64,D'],
+      status: '未掌握', createdAt: new Date().toISOString()
+    }, () => {});
+    const cardImgs = card.querySelectorAll('.error-gallery-card__img');
+    assert(cardImgs.length === 3, '卡片最多显示 3 张');
+    assert(!!card.querySelector('.error-gallery-card__imgmore'), '多余图片显示 +N');
+    assert(card.querySelector('.error-gallery-card__imgmore').textContent === '+1', '+N 数量正确');
+    assert(!!card.querySelector('.error-gallery-card__cause'), '错因标签仍在');
+    // 单图旧数据兼容
+    const card2 = App.Components.galleryErrorCard({
+      knowledgePoints: [], errorCause: '', question: '题',
+      image: 'data:image/png;base64,OLD', status: '未掌握'
+    }, () => {});
+    assert(card2.querySelectorAll('.error-gallery-card__img').length === 1, '旧 image 单图兼容');
+
+    console.log('\n===== 错题多图+删解析笔记专项: ' + pass + ' 通过, ' + fail + ' 失败 =====');
     process.exit(fail > 0 ? 1 : 0);
   } catch (e) {
     console.error('测试异常:', e && e.stack || e);
