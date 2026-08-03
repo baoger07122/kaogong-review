@@ -19,9 +19,12 @@ const css = fs.readFileSync(path.join(root, 'src', 'styles.css'), 'utf8');
 const js = fs.readFileSync(path.join(root, 'src', 'app.js'), 'utf8');
 const template = fs.readFileSync(path.join(root, 'src', 'index.template.html'), 'utf8');
 
+// 注意：必须用「函数替换」而非字符串替换——JS/CSS 源码里的 '$'（如公式渲染的 '$...$'）
+// 若作为字符串 replace 的替换串，会触发 $' / $& / $` 等特殊模式，把内容替换成 </body></html> 等，
+// 导致产物语法错误。函数 replacer 不做任何 $ 处理，原样拼接。
 const out = template
-  .replace('<!--BUILD_CSS-->', '<style>' + css + '</style>')
-  .replace('<!--BUILD_JS-->', '<script>' + js + '</script>');
+  .replace('<!--BUILD_CSS-->', () => '<style>' + css + '</style>')
+  .replace('<!--BUILD_JS-->', () => '<script>' + js + '</script>');
 
 fs.writeFileSync(path.join(root, 'index.html'), out);
 console.log('✓ 已生成 index.html (' + (out.length / 1024).toFixed(0) + ' KB)');

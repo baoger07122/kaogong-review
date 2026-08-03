@@ -6195,3 +6195,58 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   padding: 60px 20px;
   font-size: 14px;
 }
+
+/* ===== 【Markdown 公式】轻量 LaTeX 渲染（$...$ 行内 / $$...$$ 块级） ===== */
+.mformula {
+  font-family: 'Times New Roman', 'STIX Two Math', 'Cambria Math', Georgia, serif;
+  color: var(--text-primary);
+  white-space: nowrap;
+  padding: 0 1px;
+}
+.mformula sup, .mformula sub {
+  font-size: 0.68em;
+  line-height: 0;
+}
+.mformula sup { vertical-align: 0.55em; }
+.mformula sub { vertical-align: -0.35em; }
+.mformula--block {
+  display: block;
+  text-align: center;
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-size: 1.05em;
+}
+/* 分数 */
+.mf-frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: middle;
+  margin: 0 2px;
+}
+.mf-num {
+  border-bottom: 1px solid currentColor;
+  padding: 0 4px 2px;
+  line-height: 1.15;
+}
+.mf-den { padding: 2px 4px 0; line-height: 1.15; }
+/* 根号（√ + 上划线） */
+.mf-sqrt { display: inline-flex; align-items: center; vertical-align: middle; }
+.mf-sqrt::before { content: '√'; font-size: 1.05em; transform: translateY(-0.02em); }
+.mf-sqrt__body { border-top: 1px solid currentColor; padding: 0 3px; line-height: 1.3; }
+.mf-sqrt__root { font-size: 0.65em; margin-right: 1px; }
+/* 符号/运算符/文字/间距 */
+.mf-sym { font-style: italic; }
+.mf-op { }
+.mf-text { font-style: normal; font-family: inherit; }
+.mf-space { display: inline-block; width: 0.35em; }
+.mf-space--q { width: 1em; }
+.mf-bracket { font-size: 1.1em; }
+/* 编辑器中公式为只读整体（点击可选中，内部不可改） */
+.notion-editable .mformula { user-select: all; -webkit-user-select: all; cursor: default; }
+/* 预览页（md-preview）内公式 */
+.md-preview-p .mformula--block { font-size: 1.05em; }

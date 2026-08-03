@@ -6213,6 +6213,61 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   padding: 60px 20px;
   font-size: 14px;
 }
+
+/* ===== 【Markdown 公式】轻量 LaTeX 渲染（$...$ 行内 / $$...$$ 块级） ===== */
+.mformula {
+  font-family: 'Times New Roman', 'STIX Two Math', 'Cambria Math', Georgia, serif;
+  color: var(--text-primary);
+  white-space: nowrap;
+  padding: 0 1px;
+}
+.mformula sup, .mformula sub {
+  font-size: 0.68em;
+  line-height: 0;
+}
+.mformula sup { vertical-align: 0.55em; }
+.mformula sub { vertical-align: -0.35em; }
+.mformula--block {
+  display: block;
+  text-align: center;
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-size: 1.05em;
+}
+/* 分数 */
+.mf-frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: middle;
+  margin: 0 2px;
+}
+.mf-num {
+  border-bottom: 1px solid currentColor;
+  padding: 0 4px 2px;
+  line-height: 1.15;
+}
+.mf-den { padding: 2px 4px 0; line-height: 1.15; }
+/* 根号（√ + 上划线） */
+.mf-sqrt { display: inline-flex; align-items: center; vertical-align: middle; }
+.mf-sqrt::before { content: '√'; font-size: 1.05em; transform: translateY(-0.02em); }
+.mf-sqrt__body { border-top: 1px solid currentColor; padding: 0 3px; line-height: 1.3; }
+.mf-sqrt__root { font-size: 0.65em; margin-right: 1px; }
+/* 符号/运算符/文字/间距 */
+.mf-sym { font-style: italic; }
+.mf-op { }
+.mf-text { font-style: normal; font-family: inherit; }
+.mf-space { display: inline-block; width: 0.35em; }
+.mf-space--q { width: 1em; }
+.mf-bracket { font-size: 1.1em; }
+/* 编辑器中公式为只读整体（点击可选中，内部不可改） */
+.notion-editable .mformula { user-select: all; -webkit-user-select: all; cursor: default; }
+/* 预览页（md-preview）内公式 */
+.md-preview-p .mformula--block { font-size: 1.05em; }
 </style>
 </head>
 <body>
@@ -6295,7 +6350,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.3.1';
+App.VERSION = '8.3.2';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -6409,7 +6464,9 @@ App.Utils = {
     s = s.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)));
     s = s.replace(/&#[xX]([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
     // 4) 去掉零宽字符与不可见控制符
-    s = s.replace(/[\u200b\u200c\u200d\ufeff\u2060\xfeff]/g, '');
+    // 注意：\xfeff 是 2 位 hex 转义（\xfe=þ + 字面 ff），会误删字母 f！
+    // 必须用 \ufeff（4 位 hex，U+FEFF BOM），已与前面重复则只保留一个
+    s = s.replace(/[\u200b\u200c\u200d\ufeff\u2060]/g, '');
     // 5) 若行被 <p>/<div> 等块级标签包裹，去掉标签并在边界补换行
     s = s.replace(/<(p|div|section|article|header|footer|main|blockquote|pre)[^>]*>([\s\S]*?)<\/\1\s*>/gi, '\n$2\n');
     // 6) 如果 # 被编码成 &amp;#35;（二次编码），还原
@@ -6518,6 +6575,25 @@ App.Utils = {
       }
       if (trimmed === '---') { out.push('<hr class="md-preview-hr">'); i++; continue; }
 
+      // 块级公式 $$...$$（支持跨行：从 $$ 开头收集到 $$ 结尾）
+      if (/^\$\$/.test(trimmed)) {
+        let latex = trimmed.replace(/^\$\$/, '');
+        let j = i;
+        if (/\$\$$/.test(trimmed)) {
+          latex = trimmed.replace(/^\$\$/, '').replace(/\$\$$/, '');
+        } else {
+          j++;
+          while (j < lines.length) {
+            latex += '\n' + lines[j].content;
+            if (/\$\$$/.test(lines[j].content)) { latex = latex.replace(/\$\$$/, ''); break; }
+            j++;
+          }
+        }
+        out.push('<div class="mformula mformula--block" data-latex="' + encodeURIComponent(latex) + '">' + this.renderLatex(latex) + '</div>');
+        i = j + 1;
+        continue;
+      }
+
       // 表格（连续 |...| 行）
       if (/^\s*\|.*\|\s*$/.test(content)) {
         const tableLines = [];
@@ -6595,9 +6671,81 @@ App.Utils = {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   },
 
+  // ===== 轻量 LaTeX 公式渲染（离线可用，零依赖；支持考公常用公式） =====
+  // 语法：\frac{分子}{分母}、^上标/_下标（可 {组}）、\sqrt[n]{x}、\alpha 等希腊字母、
+  //       \times \div \pm \leq \geq \approx \cdot \sum \int \infty \to 等运算符、\text{中文}
+  renderLatex(src) {
+    if (!src) return '';
+    const GREEK = { alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', zeta: 'ζ', eta: 'η', theta: 'θ', iota: 'ι', kappa: 'κ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', rho: 'ρ', sigma: 'σ', tau: 'τ', upsilon: 'υ', phi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω', Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π', Sigma: 'Σ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω' };
+    const OPS = { times: '×', div: '÷', pm: '±', mp: '∓', cdot: '·', leq: '≤', geq: '≥', neq: '≠', approx: '≈', sim: '∼', equiv: '≡', in: '∈', notin: '∉', subset: '⊂', supset: '⊃', subseteq: '⊆', supseteq: '⊇', cup: '∪', cap: '∩', sum: '∑', prod: '∏', int: '∫', infty: '∞', partial: '∂', nabla: '∇', forall: '∀', exists: '∃', emptyset: '∅', to: '→', rightarrow: '→', leftarrow: '←', Rightarrow: '⇒', Leftarrow: '⇐', leftrightarrow: '↔', cdots: '⋯', ldots: '…', prime: '′', degree: '°', angle: '∠', perp: '⊥', parallel: '∥', uparrow: '↑', downarrow: '↓', because: '∵', therefore: '∴' };
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    let pos = 0;
+
+    function readGroup() {
+      pos++;   // 跳过 {
+      let out = '';
+      while (pos < src.length && src[pos] !== '}') out += readUnit();
+      if (pos < src.length) pos++;   // 消费 }
+      return out;
+    }
+    function readUnit() {
+      const c = src[pos];
+      if (c === '\\') {
+        pos++;
+        let cmd = '';
+        while (pos < src.length && /[a-zA-Z]/.test(src[pos])) { cmd += src[pos]; pos++; }
+        const skipWs = () => { while (pos < src.length && /\s/.test(src[pos])) pos++; };
+        if (cmd === 'frac') {
+          skipWs(); let num = ''; if (src[pos] === '{') num = readGroup();
+          skipWs(); let den = ''; if (src[pos] === '{') den = readGroup();
+          return '<span class="mf-frac"><span class="mf-num">' + (num || '&nbsp;') + '</span><span class="mf-den">' + (den || '&nbsp;') + '</span></span>';
+        }
+        if (cmd === 'sqrt') {
+          skipWs(); let root = '';
+          if (src[pos] === '[') { const end = src.indexOf(']', pos); if (end > -1) { root = src.slice(pos + 1, end); pos = end + 1; } }
+          skipWs(); let body = ''; if (src[pos] === '{') body = readGroup();
+          return '<span class="mf-sqrt">' + (root ? '<span class="mf-sqrt__root">' + esc(root) + '</span>' : '') + '<span class="mf-sqrt__body">' + (body || '&nbsp;') + '</span></span>';
+        }
+        if (cmd === 'left' || cmd === 'right') {
+          skipWs();
+          const ch = src[pos] || ''; pos++;
+          const map = { '(': '(', ')': ')', '[': '[', ']': ']', '\\': '|', '.': '' };
+          return '<span class="mf-bracket">' + (map[ch] !== undefined ? esc(map[ch]) : '') + '</span>';
+        }
+        if (cmd === 'text') { skipWs(); if (src[pos] === '{') return '<span class="mf-text">' + readGroup() + '</span>'; return ''; }
+        if (cmd === ' ' || cmd === ',') return '<span class="mf-space"></span>';
+        if (cmd === 'quad') return '<span class="mf-space mf-space--q"></span>';
+        if (GREEK[cmd]) return '<span class="mf-sym">' + GREEK[cmd] + '</span>';
+        if (OPS[cmd]) return '<span class="mf-op">' + OPS[cmd] + '</span>';
+        if (!cmd && pos < src.length) { const s2 = src[pos]; pos++; return esc(s2); }   // \ 后跟符号（\{ \} \$ \% \#）
+        return esc('\\' + cmd);   // 未知命令原样保留
+      }
+      if (c === '{') return readGroup();
+      if (c === '}') { pos++; return ''; }
+      if (c === '^' || c === '_') {
+        const isSup = c === '^'; pos++;
+        let arg = '';
+        if (src[pos] === '{') arg = readGroup();
+        else if (src[pos] === '\\') arg = readUnit();
+        else if (pos < src.length) { arg = esc(src[pos]); pos++; }
+        return isSup ? '<sup>' + arg + '</sup>' : '<sub>' + arg + '</sub>';
+      }
+      if (c === ' ') { pos++; return '<span class="mf-space"></span>'; }
+      pos++;
+      return esc(c);
+    }
+    let result = '';
+    while (pos < src.length) result += readUnit();
+    return result;
+  },
+
   _renderInlineMarkdown(text) {
     if (!text) return '';
     return this._escapeHtml(text)
+      // 块级公式 $$...$$
+      .replace(/\$\$([\s\S]+?)\$\$/g, (m, latex) => '<div class="mformula mformula--block" data-latex="' + encodeURIComponent(latex) + '">' + this.renderLatex(latex) + '</div>')
+      // 行内公式 $...$（至少 2 个字符，避免误伤货币/编号）
+      .replace(/\$([^\$\n]{2,})\$/g, (m, latex) => '<span class="mformula" data-latex="' + encodeURIComponent(latex) + '">' + this.renderLatex(latex) + '</span>')
       .replace(/`([^`\n]+)`/g, '<code class="md-preview-code-inline">$1</code>')
       .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="md-preview-img">')
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
@@ -11498,6 +11646,10 @@ App.Components = {
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')  // 先转义 HTML 实体
         // 行内代码（必须在最前面，避免内部格式被处理）
         .replace(/`([^`\n]+)`/g, '<code class="notion-inline-code">$1</code>')
+        // 块级公式 $$...$$
+        .replace(/\$\$([\s\S]+?)\$\$/g, (m, latex) => '<div class="mformula mformula--block" contenteditable="false" data-latex="' + encodeURIComponent(latex) + '">' + App.Utils.renderLatex(latex) + '</div>')
+        // 行内公式 $...$（至少 2 个字符，避免误伤货币/编号）
+        .replace(/\$([^\$\n]{2,})\$/g, (m, latex) => '<span class="mformula" contenteditable="false" data-latex="' + encodeURIComponent(latex) + '">' + App.Utils.renderLatex(latex) + '</span>')
         // 图片 ![alt](url)
         .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;border-radius:4px;">')
         // 链接 [text](url)
@@ -12155,6 +12307,15 @@ App.Components = {
         if (node.nodeType !== 1) return '';
         const tag = node.tagName.toLowerCase();
         const inner = Array.from(node.childNodes).map(n => walk(n, false)).join('');
+        // 公式（$...$ 行内 / $$...$$ 块级）：从 data-latex 还原源码，保证 Markdown 往返不丢
+        if (node.classList && node.classList.contains('mformula')) {
+          const raw = node.getAttribute('data-latex');
+          if (raw) {
+            let latex;
+            try { latex = decodeURIComponent(raw); } catch (e) { latex = raw; }
+            return node.classList.contains('mformula--block') ? '$$' + latex + '$$' : '$' + latex + '$';
+          }
+        }
         // 块级标签（富文本粘贴产生的 <div>/<p>/<li> 等）：前后补换行，避免导出时合并成单行。
         // 根 div 除外——否则单块导出会多出前后换行，把 "### 标题" 拆成 "### " + "标题" 两行
         if (!isRoot && ['div','p','li','h1','h2','h3','h4','h5','h6','blockquote','pre','ul','ol','tr','td','th','section','article','header','footer'].indexOf(tag) !== -1) {
