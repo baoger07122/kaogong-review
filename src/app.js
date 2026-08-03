@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.1';
+App.VERSION = '8.4.2';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -3425,6 +3425,121 @@ App.Components = {
 
     card.addEventListener('click', onClick);
     return card;
+  },
+
+  // ===== JS 瀑布流容器（方案 B）=====
+  // 核心：N 个 flex 列，卡片 append 到当前最矮列；resize 防抖重排列数（手机2/平板3/桌面4）
+  masonryGrid(container, opts) {
+    const o = opts || {};
+    const build = () => {
+      const wrap = document.createElement('div');
+      wrap.className = 'error-masonry';
+      container.appendChild(wrap);
+      return wrap;
+    };
+    let wrap = build();
+    let columns = 0;
+    let colEls = [];
+    let colHeights = [];
+    let cards = [];   // 当前已渲染的卡片数据
+
+    const getColumnCount = () => {
+      const w = window.innerWidth;
+      if (w >= 1024) return 4;
+      if (w >= 768) return 3;
+      return 2;
+    };
+
+    const initColumns = () => {
+      wrap.innerHTML = '';
+      colEls = [];
+      colHeights = [];
+      columns = getColumnCount();
+      for (let i = 0; i < columns; i++) {
+        const col = document.createElement('div');
+        col.className = 'error-masonry__col';
+        wrap.appendChild(col);
+        colEls.push(col);
+        colHeights.push(0);
+      }
+    };
+
+    // 创建单张卡片（复用 galleryErrorCard 展示规则）
+    const createCard = (error) => {
+      const card = App.Components.galleryErrorCard(
+        error,
+        () => { if (o.onOpen) o.onOpen(error); }
+      );
+      card.classList.add('error-masonry__card');
+      // 图片懒加载：首图 lazy（jsdom 用 setAttribute 确保属性可见）
+      const imgs = card.querySelectorAll('img');
+      imgs.forEach((img, i) => {
+        if (i === 0) {
+          try { img.setAttribute('loading', 'lazy'); } catch (e) { img.loading = 'lazy'; }
+        }
+      });
+      return card;
+    };
+
+    // 追加卡片到最矮列
+    const appendCard = (error) => {
+      const card = createCard(error);
+      const minH = Math.min.apply(null, colHeights);
+      const idx = colHeights.indexOf(minH);
+      colEls[idx].appendChild(card);
+      // 估算高度：图片区(有图约240px) + 文字区(约90px) + 间距
+      const cardImages = (error.images && error.images.length) ? error.images : (error.image ? [error.image] : []);
+      const estH = (cardImages.length ? 220 : 0) + 96;
+      colHeights[idx] += estH + 12;
+      return card;
+    };
+
+    // 图片加载后校正列高（reflow 排序更准确）
+    const recalc = () => {
+      colHeights = colEls.map(c => c.offsetHeight || 0);
+    };
+
+    // 渲染（替换或追加）
+    const render = (items, append) => {
+      if (!append) { cards = items.slice(); initColumns(); }
+      else { cards = cards.concat(items); }
+      items.forEach(error => {
+        const card = appendCard(error);
+        // 图片加载完成校正高度
+        const img = card.querySelector('img');
+        if (img) {
+          img.addEventListener('load', () => recalc(), { once: true });
+          img.addEventListener('error', () => recalc(), { once: true });
+        }
+      });
+      // 等待所有图加载后做一次校正，让卡片贴齐
+      setTimeout(recalc, 300);
+    };
+
+    // 清空（筛选变化时重建）
+    const clear = () => { cards = []; initColumns(); };
+
+    // 窗口 resize 防抖重排
+    let resizeTimer = null;
+    const onResize = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        const newCols = getColumnCount();
+        if (newCols !== columns && cards.length) {
+          render(cards, false);
+        }
+      }, 250);
+    };
+    window.addEventListener('resize', onResize);
+
+    // 销毁（页面切换时解绑）
+    const destroy = () => {
+      window.removeEventListener('resize', onResize);
+      clearTimeout(resizeTimer);
+    };
+
+    render([], false);
+    return { render, clear, destroy, recalc, getColumnCount };
   },
 
   // ===== 套卷卡片 =====
@@ -7500,6 +7615,12 @@ App.Router = {
       p.classList.remove('active');
     });
 
+    // 离开错题本时销毁瀑布流实例（解绑 resize 监听，防内存泄漏）
+    if (base !== 'errors' && App.Pages.Errors && App.Pages.Errors._masonryInst) {
+      try { App.Pages.Errors._masonryInst.destroy(); } catch (e) {}
+      App.Pages.Errors._masonryInst = null;
+    }
+
     // 显示目标页面
     const pageEl = document.getElementById('page-' + base);
     if (pageEl) {
@@ -8904,19 +9025,19 @@ App.Pages.Errors = {
       return;
     }
 
-    // Notion 画廊模式：网格卡片，右侧可切换小/中/大窗口
-    const size = this.state.gallerySize || 'md';
-    const gallery = document.createElement('div');
-    gallery.className = 'error-gallery error-gallery--' + size;
-
-    errors.forEach((error) => {
-      const card = App.Components.galleryErrorCard(
-        error,
-        () => App.Router.navigate('error-detail?id=' + error.id)
-      );
-      gallery.appendChild(card);
+    // JS 瀑布流模式：多列卡片（手机2/平板3/桌面4列），卡片放入最矮列，图片懒加载
+    const masonryWrap = document.createElement('div');
+    masonryWrap.className = 'error-masonry-wrap';
+    container.appendChild(masonryWrap);
+    // 先销毁旧实例（若存在）
+    if (this._masonryInst) { try { this._masonryInst.destroy(); } catch (e) {} this._masonryInst = null; }
+    const inst = App.Components.masonryGrid(masonryWrap, {
+      onOpen: (error) => App.Router.navigate('error-detail?id=' + error.id)
     });
-    container.appendChild(gallery);
+    this._masonryInst = inst;
+    inst.render(errors, false);
+    // 列表区存引用，供局部刷新后再次挂载
+    masonryWrap.dataset.masonry = '1';
   },
 
   // 局部刷新：筛选条即时切换不动画，列表仅做进入动画

@@ -6578,3 +6578,53 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 [data-theme="dark"] .todo-info-panel { background: var(--bg-tertiary); }
 [data-theme="dark"] .todo-info-panel__note,
 [data-theme="dark"] .todo-info-panel__time { background: var(--bg-card); }
+
+/* ===== 【JS 瀑布流】错题本列表 ===== */
+.error-masonry-wrap { width: 100%; }
+.error-masonry {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;   /* 关键：列顶部对齐 */
+  padding: 2px 0;
+}
+.error-masonry__col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;             /* 防止 flex 子项溢出 */
+}
+.error-masonry__card {
+  width: 100%;
+  break-inside: avoid;
+  margin: 0;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.error-masonry__card:active {
+  transform: scale(0.98);
+}
+/* 瀑布流卡片图片：宽100% 高自适应，最大高 500px 防超长截图撑破 */
+.error-masonry__card .error-gallery-card__imgwrap {
+  flex-direction: column;   /* 多图纵排，高度自然撑开 */
+  gap: 8px;
+}
+.error-masonry__card .error-gallery-card__img {
+  width: 100%;
+  height: auto;
+  max-height: 500px;
+  object-fit: contain;      /* 图片压缩保持比例，宽度适应 */
+  border-radius: 10px;
+  margin: 0;
+}
+.error-masonry__card .error-gallery-card__imgmore {
+  align-self: flex-start;
+  margin-left: 4px;
+}
+/* 响应式间距 */
+@media (min-width: 768px) {
+  .error-masonry { gap: 16px; }
+  .error-masonry__col { gap: 16px; }
+}
+@media (min-width: 1024px) {
+  .error-masonry-wrap { max-width: 1200px; margin: 0 auto; }
+}
