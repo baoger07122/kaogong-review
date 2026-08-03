@@ -6728,7 +6728,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.2';
+App.VERSION = '8.4.3';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -7036,8 +7036,22 @@ App.Utils = {
       }
 
       // 普通段落（合并连续非空行；块内软换行保留为 <br>，不再被空格吞掉）
+      // 关键：遇到新的块级标记（标题/列表/引用/公式/分隔线/表格）立即结束段落，
+      // 否则编辑器导出（块间无空行）会把「- 列表项」等吞进段落导致列表不渲染。
+      const isNewBlockStart = (line) => {
+        const t = line.content.trim();
+        if (!t) return true;
+        if (/^(#{1,4})\s/.test(t)) return true;
+        if (/^[\-\*]\s+/.test(t)) return true;
+        if (/^\d+\.\s+/.test(t)) return true;
+        if (/^>\s?/.test(t)) return true;
+        if (/^\$\$/.test(t)) return true;
+        if (t === '---') return true;
+        if (/^\s*\|.*\|\s*$/.test(line.content)) return true;
+        return false;
+      };
       const paraLines = [];
-      while (i < lines.length && lines[i].type === 'normal' && lines[i].content.trim() !== '') {
+      while (i < lines.length && lines[i].type === 'normal' && lines[i].content.trim() !== '' && !isNewBlockStart(lines[i])) {
         paraLines.push(lines[i].content);
         i++;
       }
