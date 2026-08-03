@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.3.9';
+App.VERSION = '8.4.0';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -929,7 +929,7 @@ App.DB = (function() {
     todo.completed = todo.completed || false;
     todo.status = todo.status || (todo.completed ? 'completed' : 'pending');
     todo.note = todo.note || '';
-    todo.type = todo.type || 'study';
+    todo.type = todo.type || 'yanyu';
     todo.createdAt = todo.createdAt || new Date().toISOString();
     todo.updatedAt = todo.updatedAt || new Date().toISOString();
     if (todo.completed && !todo.completedAt) todo.completedAt = todo.updatedAt;
@@ -940,7 +940,7 @@ App.DB = (function() {
     todo.updatedAt = new Date().toISOString();
     todo.status = todo.status || (todo.completed ? 'completed' : 'pending');
     todo.note = todo.note || '';
-    todo.type = todo.type || 'study';
+    todo.type = todo.type || 'yanyu';
     if (todo.completed && !todo.completedAt) todo.completedAt = todo.updatedAt;
     if (!todo.completed) todo.completedAt = null;
     return put('todos', todo);
@@ -2475,6 +2475,44 @@ App.Components = {
     });
   },
 
+  // ===== 文本输入弹窗（返回输入的字符串；取消返回 null）=====
+  prompt(title, message, placeholder, confirmText) {
+    return new Promise((resolve) => {
+      const container = document.getElementById('modal-container');
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+
+      overlay.innerHTML = `
+        <div class="modal-dialog">
+          <div class="modal-dialog__header">
+            <div class="modal-dialog__title">${title}</div>
+          </div>
+          <div class="modal-dialog__body">${message}</div>
+          <div class="modal-dialog__input">
+            <input type="text" placeholder="${placeholder || '请输入...'}" value="">
+          </div>
+          <div class="modal-dialog__actions">
+            <button class="btn-cancel">取消</button>
+            <button class="btn-confirm">${confirmText || '确认'}</button>
+          </div>
+        </div>
+      `;
+
+      const input = overlay.querySelector('.modal-dialog__input input');
+      const confirmBtn = overlay.querySelector('.btn-confirm');
+      const cancelBtn = overlay.querySelector('.btn-cancel');
+      const finish = (val) => { overlay.remove(); resolve(val); };
+      const submit = () => { const v = input.value.trim(); if (v) finish(v); };
+      setTimeout(() => { input.focus(); }, 0);
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) finish(null); });
+      cancelBtn.addEventListener('click', () => finish(null));
+      confirmBtn.addEventListener('click', submit);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); e.stopPropagation(); });
+
+      container.appendChild(overlay);
+    });
+  },
+
   // ===== 标签长按菜单：修改名称 / 删除标签（删除会同步清理所有引用）=====
   openTagMenu(opts) {
     // opts: { kind: 'kp'|'ec', module, name, onDone }
@@ -3355,48 +3393,35 @@ App.Components = {
     question.textContent = error.question || '';
     card.appendChild(question);
 
+    // 考点 + 错因 同一行（考点在前，错因在后，flex-wrap 自动换行）
+    const tagRow = document.createElement('div');
+    tagRow.className = 'error-gallery-card__tagrow';
     const kps = (error.knowledgePoints || []).slice(0, 4);
-    const meta = document.createElement('div');
-    meta.className = 'error-gallery-card__meta';
     kps.forEach(kp => {
       const t = document.createElement('span');
       t.className = 'tag tag--neutral';
       t.textContent = kp;
-      meta.appendChild(t);
+      tagRow.appendChild(t);
     });
-    card.appendChild(meta);
-
-    // 错因标签：位于考点之下，单独一行（仅展示，不显示掌握状态标签）
     if (error.errorCause) {
-      const causeRow = document.createElement('div');
-      causeRow.className = 'error-gallery-card__cause';
       const ct = document.createElement('span');
       ct.className = 'tag tag--neutral tag--cause';
       ct.textContent = error.errorCause;
-      causeRow.appendChild(ct);
-      card.appendChild(causeRow);
+      tagRow.appendChild(ct);
     }
-
-    const statusRow = document.createElement('div');
-    statusRow.className = 'error-gallery-card__status';
-    const statusLeft = document.createElement('div');
-    statusLeft.className = 'error-gallery-card__status-left';
-    // 录入时间（年月日）
-    if (error.createdAt) {
-      const date = document.createElement('span');
-      date.className = 'error-gallery-card__date';
-      date.textContent = App.Utils.formatDate(error.createdAt);
-      statusLeft.appendChild(date);
-    }
-    statusRow.appendChild(statusLeft);
-    card.appendChild(statusRow);
-    // 挖坑点单独一行，自动换行，不与日期/掌握状态同行
+    card.appendChild(tagRow);
+    // 挖坑点单独一行，自动换行
     if (error.pitfall) {
       const pf = document.createElement('div');
       pf.className = 'error-gallery-card__pitfall';
       pf.textContent = '⛏ ' + error.pitfall;
       card.appendChild(pf);
     }
+    // 录入时间（年月日）——最后一行
+    const dateEl = document.createElement('div');
+    dateEl.className = 'error-gallery-card__date';
+    if (error.createdAt) dateEl.textContent = App.Utils.formatDate(error.createdAt);
+    card.appendChild(dateEl);
 
     card.addEventListener('click', onClick);
     return card;
@@ -7872,12 +7897,15 @@ App.Pages.Home = {
     container.appendChild(statsRow);
 
     // ===== 7. 今日待办（丰富版） =====
-    if (!this.todoState) this.todoState = { filter: 'all', type: 'study', statsMode: null, dateFilter: 'today', filterOpen: false };
+    if (!this.todoState) this.todoState = { filter: 'all', type: 'yanyu', statsMode: null, dateFilter: 'today', filterOpen: false };
     const TODO_TYPES = [
-      { key: 'study', icon: '📚', label: '学习' },
-      { key: 'review', icon: '🔁', label: '复习' },
-      { key: 'practice', icon: '✍️', label: '练习' },
-      { key: 'other', icon: '📌', label: '其他' }
+      { key: 'yanyu', icon: '📖', label: '言语' },
+      { key: 'ziliao', icon: '📊', label: '资料' },
+      { key: 'panduan', icon: '🧩', label: '判断' },
+      { key: 'shuliang', icon: '🔢', label: '数量' },
+      { key: 'changshi', icon: '🌍', label: '常识' },
+      { key: 'zhengzhi', icon: '🏛️', label: '政治' },
+      { key: 'shenlun', icon: '✍️', label: '申论' }
     ];
     const TODO_STATUS = [
       { key: 'pending', label: '未完成', color: '#FF9500' },
@@ -7885,12 +7913,23 @@ App.Pages.Home = {
       { key: 'completed', label: '已完成', color: '#34C759' },
       { key: 'flagged', label: '重要', color: '#FF3B30' }
     ];
+    // 旧类型（学习/复习/练习/其他）→ 新科目映射；未知类型兜底言语
+    const LEGACY_TODO_TYPE_MAP = { study: 'yanyu', review: 'yanyu', practice: 'yanyu', other: 'yanyu' };
+    const typeKeyOf = (todo) => {
+      const raw = todo.type || 'yanyu';
+      return TODO_TYPES.some(t => t.key === raw) ? raw : (LEGACY_TODO_TYPE_MAP[raw] || 'yanyu');
+    };
     const statusOf = (todo) => {
       if (todo.status && TODO_STATUS.some(s => s.key === todo.status)) return todo.status;
       return todo.completed ? 'completed' : 'pending';
     };
-    const completedCount = todos.filter(t => t.completed).length;
-    const totalCount = todos.length;
+    // 今日统计口径：只统计今日创建的待办（与「今日待办」列表一致）
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const todayKey = (() => { const d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); })();
+    const isTodayTodo = (t) => { const d = new Date(t.createdAt); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) === todayKey; };
+    const todayTodos = todos.filter(isTodayTodo);
+    const completedCount = todayTodos.filter(t => t.completed).length;
+    const totalCount = todayTodos.length;
     const pct = totalCount > 0 ? Math.round(completedCount / totalCount * 100) : 0;
 
     const todoWrap = document.createElement('div');
@@ -8086,6 +8125,11 @@ App.Pages.Home = {
     const fillTodoList = (card) => {
       card.innerHTML = '';
       let listTodos = todos.slice();
+      // 已完成事项默认移到最下方（勾选完成后自动下沉）
+      listTodos.sort((a, b) => {
+        if (a.completed !== b.completed) return a.completed ? 1 : -1;
+        return new Date(b.createdAt) - new Date(a.createdAt);
+      });
     const nowDate = new Date();
     const todayStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate());
     const weekStart = new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
@@ -8111,7 +8155,7 @@ App.Pages.Home = {
       listTodos.forEach(todo => {
         const item = document.createElement('div');
         item.className = 'todo-item' + (todo.completed ? ' completed' : '');
-        const typeIcon = (TODO_TYPES.find(function (t) { return t.key === (todo.type || 'study'); }) || TODO_TYPES[0]).icon;
+        const typeIcon = (TODO_TYPES.find(function (t) { return t.key === typeKeyOf(todo); }) || TODO_TYPES[0]).icon;
         const checkbox = document.createElement('div');
         checkbox.className = 'todo-checkbox' + (todo.completed ? ' checked' : '');
         checkbox.textContent = todo.completed ? '✓' : '';
@@ -8232,14 +8276,94 @@ App.Pages.Home = {
 
         item.appendChild(checkbox);
         item.appendChild(content);
+
+        // 右侧信息图标：点击查看备注 + 修改时间（可编辑时间）
+        const infoBtn = document.createElement('div');
+        infoBtn.className = 'todo-info-btn';
+        infoBtn.textContent = 'ⓘ';
+        infoBtn.title = '备注与时间';
+        infoBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const itemEl = item;
+          // 备注/时间编辑面板
+          const infoPanel = document.createElement('div');
+          infoPanel.className = 'todo-info-panel';
+          const lbl = document.createElement('div');
+          lbl.className = 'todo-info-panel__label';
+          lbl.textContent = '备注';
+          const noteInput = document.createElement('textarea');
+          noteInput.className = 'todo-info-panel__note';
+          noteInput.placeholder = '添加备注...';
+          noteInput.value = todo.note || '';
+          const timeLbl = document.createElement('div');
+          timeLbl.className = 'todo-info-panel__label';
+          timeLbl.textContent = '待办时间';
+          const timeInput = document.createElement('input');
+          timeInput.type = 'datetime-local';
+          timeInput.className = 'todo-info-panel__time';
+          timeInput.value = (() => {
+            const d = new Date(todo.createdAt || Date.now());
+            const p = (n) => String(n).padStart(2, '0');
+            return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+          })();
+          const actions = document.createElement('div');
+          actions.className = 'todo-info-panel__actions';
+          const saveBtn = document.createElement('button');
+          saveBtn.type = 'button';
+          saveBtn.className = 'todo-info-panel__btn todo-info-panel__btn--save';
+          saveBtn.textContent = '保存';
+          const cancelBtn = document.createElement('button');
+          cancelBtn.type = 'button';
+          cancelBtn.className = 'todo-info-panel__btn';
+          cancelBtn.textContent = '取消';
+          actions.appendChild(saveBtn);
+          actions.appendChild(cancelBtn);
+          infoPanel.appendChild(lbl);
+          infoPanel.appendChild(noteInput);
+          infoPanel.appendChild(timeLbl);
+          infoPanel.appendChild(timeInput);
+          infoPanel.appendChild(actions);
+          itemEl.appendChild(infoPanel);
+          // 面板定位：放在 item 下方
+          setTimeout(() => { noteInput.focus(); }, 0);
+          const closePanel = () => { if (infoPanel.parentNode) infoPanel.remove(); };
+          cancelBtn.addEventListener('click', (e) => { e.stopPropagation(); closePanel(); });
+          saveBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const newNote = noteInput.value.trim();
+            let newDate = null;
+            if (timeInput.value) {
+              newDate = new Date(timeInput.value);
+              if (!isNaN(newDate.getTime())) {
+                // 本地时间转 ISO（补时区）
+                newDate = new Date(newDate.getTime() - newDate.getTimezoneOffset() * 60000);
+              } else newDate = null;
+            }
+            let changed = false;
+            if (newNote !== (todo.note || '')) { todo.note = newNote; changed = true; }
+            if (newDate && new Date(todo.createdAt).getTime() !== newDate.getTime()) { todo.createdAt = newDate.toISOString(); changed = true; }
+            if (changed) {
+              await App.DB.updateTodo(todo);
+              App.Components.toast('已保存 ✓', 'success');
+              closePanel();
+              refreshTodo();
+            } else {
+              closePanel();
+            }
+          });
+          infoPanel.addEventListener('click', (e) => e.stopPropagation());
+        });
+        item.appendChild(infoBtn);
+
         card.appendChild(item);
       });
     }
     };
     // 轻量刷新：只更新计数、进度条和列表，绝不整页重绘
     const refreshTodo = () => {
-      const cc = todos.filter(t => t.completed).length;
-      const tc = todos.length;
+      const todayList = todos.filter(isTodayTodo);
+      const cc = todayList.filter(t => t.completed).length;
+      const tc = todayList.length;
       const pp = tc > 0 ? Math.round(cc / tc * 100) : 0;
       const cnt = document.getElementById('todo-count-text');
       if (cnt) cnt.textContent = cc + '/' + tc;
@@ -10523,12 +10647,21 @@ App.Pages.StudyStats = {
       byDay[k].items.push(t);
     });
 
-    // 待办类型配色（与首页一致）
+    // 待办类型配色（与首页一致，科目色）
     const TODO_TYPE_COLORS = {
-      study: '#4A90E2',
-      review: '#9B7BFF',
-      practice: '#FF9F43',
-      other: '#6B8EAD'
+      yanyu: '#4A90E2',
+      ziliao: '#34C759',
+      panduan: '#9B7BFF',
+      shuliang: '#FF9F43',
+      changshi: '#6B8EAD',
+      zhengzhi: '#E03131',
+      shenlun: '#F08C00'
+    };
+    const LEGACY_COLOR_MAP = { study: 'yanyu', review: 'yanyu', practice: 'yanyu', other: 'yanyu' };
+    const typeColorOf = (t) => {
+      const raw = t.type || 'yanyu';
+      const k = TODO_TYPE_COLORS[raw] ? raw : (LEGACY_COLOR_MAP[raw] || 'yanyu');
+      return TODO_TYPE_COLORS[k];
     };
     const escapeHtml = (str) => String(str || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -10589,7 +10722,7 @@ App.Pages.StudyStats = {
         inner += '<div class="study-cal__todos">';
         const maxVisible = 5;
         info.items.slice(0, maxVisible).forEach(t => {
-          const color = TODO_TYPE_COLORS[t.type || 'study'] || TODO_TYPE_COLORS.study;
+          const color = typeColorOf(t);
           const doneCls = t.completed ? ' study-cal__todo--done' : '';
           inner += '<div class="study-cal__todo' + doneCls + '" style="--todo-color:' + color + '">' + escapeHtml(t.text) + '</div>';
         });
@@ -10601,6 +10734,22 @@ App.Pages.StudyStats = {
         cell.classList.add('no-data');
       }
       cell.innerHTML = inner;
+      // 点击日期格子（含空白处）→ 在当天新建待办
+      cell.addEventListener('click', async (e) => {
+        // 点击具体待办条目不新建（可在此处跳转/查看），仅空白处新建
+        if (e.target.closest('.study-cal__todo') || e.target.closest('.study-cal__more')) return;
+        const text = await App.Components.prompt('新建待办', '给 ' + k + ' 添加待办事项', '输入待办内容...', '添加');
+        if (text && text.trim()) {
+          const newTodo = await App.DB.addTodo({
+            text: text.trim(),
+            type: 'yanyu',
+            completed: false,
+            createdAt: new Date(k + 'T' + pad(new Date().getHours()) + ':' + pad(new Date().getMinutes()) + ':00').toISOString()
+          });
+          App.Components.toast('已添加 ✓', 'success');
+          this.render({});
+        }
+      });
       cal.appendChild(cell);
     }
     container.appendChild(cal);

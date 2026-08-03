@@ -59,17 +59,15 @@ setTimeout(async () => {
       createdAt: new Date().toISOString()
     }, () => {});
     assert(!!card.querySelector('.error-gallery-card__img'), '卡片展示图片');
-    assert(!!card.querySelector('.error-gallery-card__cause'), '错因标签行存在');
-    assert(card.querySelector('.error-gallery-card__cause').textContent.includes('词义偏差'), '错因标签内容正确');
+    const tagRow = card.querySelector('.error-gallery-card__tagrow');
+    assert(!!tagRow, '考点+错因标签行存在');
+    assert(tagRow.textContent.includes('词义偏差'), '错因标签内容正确');
     assert(!card.textContent.includes('未掌握') && !card.textContent.includes('已掌握'), '不显示掌握状态标签');
-    // 错因在考点之下
-    const meta = card.querySelector('.error-gallery-card__meta');
-    const cause = card.querySelector('.error-gallery-card__cause');
-    assert(!!meta && !!cause, '考点行与错因行都存在');
-    if (meta && cause) {
-      const cmp = meta.compareDocumentPosition(cause);
-      assert((cmp & win.Node.DOCUMENT_POSITION_FOLLOWING) !== 0, '错因位于考点下方');
-    }
+    // 考点在前、错因在后（同行）
+    const tagTags = Array.from(tagRow.querySelectorAll('.tag'));
+    const kpIdx = tagTags.findIndex(t => t.textContent === '语境分析');
+    const causeIdx = tagTags.findIndex(t => t.textContent === '词义偏差');
+    assert(kpIdx >= 0 && causeIdx >= 0 && kpIdx < causeIdx, '考点在前、错因在后');
 
     console.log('\n[3] 编辑器：下键切换下一行');
     const holder = doc.createElement('div');

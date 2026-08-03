@@ -178,7 +178,8 @@ setTimeout(async () => {
     assert(cardImgs.length === 3, '卡片最多显示 3 张');
     assert(!!card.querySelector('.error-gallery-card__imgmore'), '多余图片显示 +N');
     assert(card.querySelector('.error-gallery-card__imgmore').textContent === '+1', '+N 数量正确');
-    assert(!!card.querySelector('.error-gallery-card__cause'), '错因标签仍在');
+    assert(!!card.querySelector('.error-gallery-card__tagrow'), '考点+错因标签行存在');
+    assert(Array.from(card.querySelectorAll('.error-gallery-card__tagrow .tag')).some(t => t.textContent === '错因'), '错因标签仍在');
     // 单图旧数据兼容
     const card2 = App.Components.galleryErrorCard({
       knowledgePoints: [], errorCause: '', question: '题',
