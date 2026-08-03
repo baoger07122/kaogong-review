@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.3.2';
+App.VERSION = '8.3.3';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -3776,9 +3776,29 @@ App.Components = {
     // 科目：第一个默认展开，其余折叠；模块：默认全部折叠
     const isSubOpen = (sub, idx) => (state.expanded[subKey(sub.name)] !== undefined ? state.expanded[subKey(sub.name)] : idx === 0);
     const isModOpen = (sub, mod) => state.expanded[modKey(sub, mod)] === true;
-    const tagCount = (sub, mod) => {
+    // 【扁平科目】仅科目一层级，不显示模块细分（如资料分析：4 个模块标签相同，
+    // 管理页合并展示，编辑操作同步到该科目所有模块，错题编辑页按模块选标签仍可见）
+    const FLAT_SUBJECTS = ['资料分析'];
+    const isFlatSub = (subName) => FLAT_SUBJECTS.indexOf(subName) !== -1;
+    // 某科目某分类的标签集合：扁平科目 = 所有模块并集（保序去重）；普通科目 = 指定模块
+    const getTags = (sub, mods, kind) => {
+      const meta = KIND_META[kind];
+      if (isFlatSub(sub.name)) {
+        const out = [];
+        mods.forEach(m => meta.get(m).forEach(n => { if (out.indexOf(n) === -1) out.push(n); }));
+        return out;
+      }
+      return meta.get(mods[0]);
+    };
+    // 科目头部标签计数：扁平科目 = 合并去重后数量
+    const tagCount = (sub) => {
+      if (isFlatSub(sub.name)) {
+        let n = 0;
+        kinds.forEach(k => { n += getTags(sub, sub.modules, k).length; });
+        return n;
+      }
       let n = 0;
-      kinds.forEach(k => { n += KIND_META[k].get(mod).length; });
+      sub.modules.forEach(m => kinds.forEach(k => { n += KIND_META[k].get(m).length; }));
       return n;
     };
 
@@ -3802,16 +3822,20 @@ App.Components = {
       }
     }
 
-    // 提交改名：写入 App.Tags（即时持久化）
+    // 提交改名：写入 App.Tags（即时持久化；扁平科目同步到该科目所有模块）
     function commitEdit(sub, mod, kind, oldName, newName) {
       state.editing = null;
       newName = (newName || '').trim();
       if (newName && newName !== oldName) {
         const meta = KIND_META[kind];
-        if (meta.get(mod).includes(newName)) {
+        const subObj = subjects.find(s => s.name === sub);
+        const mods = subObj && isFlatSub(sub) ? subObj.modules : [mod];
+        const exists = getTags({ name: sub, modules: subObj ? subObj.modules : [mod] }, mods, kind).includes(newName);
+        if (exists) {
           App.Components.toast('已存在同名' + (kind === 'kp' ? '考点' : '错因'), 'error');
         } else {
-          meta.rename(mod, oldName, newName);
+          // 扁平科目：对所有含旧名的模块改名；普通科目：单模块
+          mods.forEach(m => { if (meta.get(m).includes(oldName)) meta.rename(m, oldName, newName); });
         }
       }
       render();
@@ -3854,8 +3878,7 @@ App.Components = {
         subName.textContent = sub.icon ? sub.icon + ' ' + sub.name : sub.name;
         subLeft.appendChild(subArrow);
         subLeft.appendChild(subName);
-        let subTotal = 0;
-        sub.modules.forEach(m => { subTotal += tagCount(sub.name, m); });
+        const subTotal = tagCount(sub);
         const subCount = document.createElement('span');
         subCount.className = 'tag-subject-count';
         subCount.textContent = subTotal + ' 个';
@@ -3878,161 +3901,50 @@ App.Components = {
           subContent.appendChild(empty);
         }
 
-        sub.modules.forEach(mod => {
-          const modEl = document.createElement('div');
-          modEl.className = 'tag-module';
+        if (isFlatSub(sub.name)) {
+          // 【扁平科目】仅科目一层级：直接渲染考点/错因两个标签云（合并该科目所有模块的标签）
+          kinds.forEach(kind => renderKindCloud(subContent, sub, sub.modules, kind));
+        } else {
+          sub.modules.forEach(mod => {
+            const modEl = document.createElement('div');
+            modEl.className = 'tag-module';
 
-          // 模块头部
-          const modHead = document.createElement('div');
-          modHead.className = 'tag-module-header';
-          const modLeft = document.createElement('div');
-          modLeft.className = 'tag-module-header__left';
-          const modArrow = document.createElement('span');
-          modArrow.className = 'tag-module-arrow' + (isModOpen(sub.name, mod) ? ' expanded' : '');
-          modArrow.textContent = '▶';
-          const modName = document.createElement('span');
-          modName.className = 'tag-module-name';
-          modName.textContent = mod;
-          modLeft.appendChild(modArrow);
-          modLeft.appendChild(modName);
-          const modCount = document.createElement('span');
-          modCount.className = 'tag-module-count';
-          modCount.textContent = tagCount(sub.name, mod) + ' 个';
-          modHead.appendChild(modLeft);
-          modHead.appendChild(modCount);
-          modHead.addEventListener('click', () => {
-            state.expanded[modKey(sub.name, mod)] = !isModOpen(sub.name, mod);
-            render();
+            // 模块头部
+            const modHead = document.createElement('div');
+            modHead.className = 'tag-module-header';
+            const modLeft = document.createElement('div');
+            modLeft.className = 'tag-module-header__left';
+            const modArrow = document.createElement('span');
+            modArrow.className = 'tag-module-arrow' + (isModOpen(sub.name, mod) ? ' expanded' : '');
+            modArrow.textContent = '▶';
+            const modName = document.createElement('span');
+            modName.className = 'tag-module-name';
+            modName.textContent = mod;
+            modLeft.appendChild(modArrow);
+            modLeft.appendChild(modName);
+            const modCount = document.createElement('span');
+            modCount.className = 'tag-module-count';
+            let modTotal = 0;
+            kinds.forEach(k => { modTotal += KIND_META[k].get(mod).length; });
+            modCount.textContent = modTotal + ' 个';
+            modHead.appendChild(modLeft);
+            modHead.appendChild(modCount);
+            modHead.addEventListener('click', () => {
+              state.expanded[modKey(sub.name, mod)] = !isModOpen(sub.name, mod);
+              render();
+            });
+            modEl.appendChild(modHead);
+
+            // 模块内容（考点 + 错因 两个标签云）
+            const modContent = document.createElement('div');
+            modContent.className = 'tag-module-content' + (isModOpen(sub.name, mod) ? ' expanded' : '');
+
+            kinds.forEach(kind => renderKindCloud(modContent, sub, [mod], kind));
+
+            modEl.appendChild(modContent);
+            subContent.appendChild(modEl);
           });
-          modEl.appendChild(modHead);
-
-          // 模块内容（考点 + 错因 两个标签云）
-          const modContent = document.createElement('div');
-          modContent.className = 'tag-module-content' + (isModOpen(sub.name, mod) ? ' expanded' : '');
-
-          kinds.forEach(kind => {
-            const meta = KIND_META[kind];
-            const tagNames = meta.get(mod);
-
-            const catTitle = document.createElement('div');
-            catTitle.className = 'tag-category-title';
-            catTitle.textContent = meta.label;
-            modContent.appendChild(catTitle);
-
-            const cloud = document.createElement('div');
-            cloud.className = 'tag-cloud';
-            if (tagNames.length === 0) {
-              const empty = document.createElement('span');
-              empty.className = 'tag-cloud__empty';
-              empty.textContent = '暂无' + (kind === 'kp' ? '考点' : '错因');
-              cloud.appendChild(empty);
-            } else {
-              tagNames.forEach((name) => {
-                const isEditing = state.editing === editKey(sub.name, mod, kind, name);
-                const pill = document.createElement('div');
-                pill.className = 'tag-pill' + (isEditing ? ' editing' : '');
-                pill.dataset.name = name;
-                pill.dataset.kind = kind;
-                pill.dataset.mod = mod;
-                pill.dataset.sub = sub.name;
-                pill.draggable = state.edit && !isEditing;
-
-                if (isEditing) {
-                  // 改名输入框
-                  const input = document.createElement('input');
-                  input.type = 'text';
-                  input.value = name;
-                  pill.appendChild(input);
-                  setTimeout(() => { input.focus(); input.select(); }, 0);
-                  let done = false;
-                  const save = () => {
-                    if (done) return;
-                    done = true;
-                    commitEdit(sub.name, mod, kind, name, input.value);
-                  };
-                  input.addEventListener('blur', save);
-                  input.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); save(); }
-                    else if (e.key === 'Escape') { e.preventDefault(); done = true; state.editing = null; render(); }
-                  });
-                } else {
-                  const nameSpan = document.createElement('span');
-                  nameSpan.className = 'tag-pill__name' + (state.edit ? ' is-editable' : '');
-                  nameSpan.textContent = name;
-                  pill.appendChild(nameSpan);
-                  if (state.edit) {
-                    // 编辑模式：点击标签文字 → 改名
-                    nameSpan.addEventListener('click', (e) => {
-                      e.stopPropagation();
-                      if (state.editing) commitEditFromDom();
-                      state.editing = editKey(sub.name, mod, kind, name);
-                      render();
-                    });
-                    const handle = document.createElement('span');
-                    handle.className = 'tag-drag-handle';
-                    handle.textContent = '⋮⋮';
-                    const delBtn = document.createElement('span');
-                    delBtn.className = 'tag-delete-btn';
-                    delBtn.textContent = '×';
-                    delBtn.addEventListener('click', async (e) => {
-                      e.stopPropagation();
-                      const ok = await App.Components.confirm(
-                        '删除' + (kind === 'kp' ? '考点' : '错因'),
-                        meta.confirmText.replace('{v}', name),
-                        '删除', '取消', true
-                      );
-                      if (ok) { await meta.remove(mod, name); render(); }
-                    });
-                    pill.appendChild(handle);
-                    pill.appendChild(delBtn);
-                    bindDrag(pill, kind, sub.name, mod, cloud);
-                  }
-                }
-                cloud.appendChild(pill);
-              });
-            }
-
-            // 添加按钮（编辑模式） + 输入行
-            if (state.edit) {
-              const addBtn = document.createElement('div');
-              addBtn.className = 'tag-add-btn';
-              addBtn.textContent = '+ 添加';
-              const inputRow = document.createElement('div');
-              inputRow.className = 'tag-add-input-row';
-              const input = document.createElement('input');
-              input.type = 'text';
-              input.placeholder = '输入' + (kind === 'kp' ? '考点' : '错因') + '名称，回车添加';
-              const confirmBtn = document.createElement('button');
-              confirmBtn.type = 'button';
-              confirmBtn.textContent = '添加';
-              const doAdd = async () => {
-                const v = input.value.trim();
-                if (!v) return;
-                if (meta.get(mod).includes(v)) { App.Components.toast('已存在同名' + (kind === 'kp' ? '考点' : '错因'), 'error'); return; }
-                await meta.add(mod, v);
-                input.value = '';
-                inputRow.classList.remove('show');
-                addBtn.style.display = '';
-                render();
-              };
-              input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doAdd(); } });
-              confirmBtn.addEventListener('click', doAdd);
-              inputRow.appendChild(input);
-              inputRow.appendChild(confirmBtn);
-              addBtn.addEventListener('click', () => {
-                inputRow.classList.add('show');
-                addBtn.style.display = 'none';
-                input.focus();
-              });
-              cloud.appendChild(addBtn);
-              modContent.appendChild(inputRow);
-            }
-            modContent.appendChild(cloud);
-          });
-
-          modEl.appendChild(modContent);
-          subContent.appendChild(modEl);
-        });
+        }
 
         subEl.appendChild(subContent);
         container.appendChild(subEl);
@@ -4047,12 +3959,137 @@ App.Components = {
       }
     }
 
+    // 渲染一个分类（考点 / 错因）的标签云
+    // container: 父容器；sub: 科目对象；mods: 目标模块数组（普通科目=[mod]，扁平科目=该科目所有模块）
+    function renderKindCloud(container, sub, mods, kind) {
+      const meta = KIND_META[kind];
+      const flat = isFlatSub(sub.name);
+      const tagNames = getTags(sub, mods, kind);
+      const modRef = flat ? sub.name : mods[0];   // 扁平科目统一用科目名作 mod 引用（便于 commitEdit/bindDrag 识别）
+
+      const catTitle = document.createElement('div');
+      catTitle.className = 'tag-category-title';
+      catTitle.textContent = meta.label;
+      container.appendChild(catTitle);
+
+      const cloud = document.createElement('div');
+      cloud.className = 'tag-cloud';
+      if (tagNames.length === 0) {
+        const empty = document.createElement('span');
+        empty.className = 'tag-cloud__empty';
+        empty.textContent = '暂无' + (kind === 'kp' ? '考点' : '错因');
+        cloud.appendChild(empty);
+      } else {
+        tagNames.forEach((name) => {
+          const isEditing = state.editing === editKey(sub.name, modRef, kind, name);
+          const pill = document.createElement('div');
+          pill.className = 'tag-pill' + (isEditing ? ' editing' : '');
+          pill.dataset.name = name;
+          pill.dataset.kind = kind;
+          pill.dataset.mod = modRef;
+          pill.dataset.sub = sub.name;
+          pill.draggable = state.edit && !isEditing;
+
+          if (isEditing) {
+            // 改名输入框
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = name;
+            pill.appendChild(input);
+            setTimeout(() => { input.focus(); input.select(); }, 0);
+            let done = false;
+            const save = () => {
+              if (done) return;
+              done = true;
+              commitEdit(sub.name, modRef, kind, name, input.value);
+            };
+            input.addEventListener('blur', save);
+            input.addEventListener('keydown', (e) => {
+              if (e.key === 'Enter') { e.preventDefault(); save(); }
+              else if (e.key === 'Escape') { e.preventDefault(); done = true; state.editing = null; render(); }
+            });
+          } else {
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'tag-pill__name' + (state.edit ? ' is-editable' : '');
+            nameSpan.textContent = name;
+            pill.appendChild(nameSpan);
+            if (state.edit) {
+              // 编辑模式：点击标签文字 → 改名
+              nameSpan.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (state.editing) commitEditFromDom();
+                state.editing = editKey(sub.name, modRef, kind, name);
+                render();
+              });
+              const handle = document.createElement('span');
+              handle.className = 'tag-drag-handle';
+              handle.textContent = '⋮⋮';
+              const delBtn = document.createElement('span');
+              delBtn.className = 'tag-delete-btn';
+              delBtn.textContent = '×';
+              delBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const ok = await App.Components.confirm(
+                  '删除' + (kind === 'kp' ? '考点' : '错因'),
+                  meta.confirmText.replace('{v}', name),
+                  '删除', '取消', true
+                );
+                if (ok) { for (const m of mods) await meta.remove(m, name); render(); }
+              });
+              pill.appendChild(handle);
+              pill.appendChild(delBtn);
+              bindDrag(pill, kind, sub.name, mods, cloud);
+            }
+          }
+          cloud.appendChild(pill);
+        });
+      }
+
+      // 添加按钮（编辑模式） + 输入行
+      if (state.edit) {
+        const addBtn = document.createElement('div');
+        addBtn.className = 'tag-add-btn';
+        addBtn.textContent = '+ 添加';
+        const inputRow = document.createElement('div');
+        inputRow.className = 'tag-add-input-row';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = '输入' + (kind === 'kp' ? '考点' : '错因') + '名称，回车添加';
+        const confirmBtn = document.createElement('button');
+        confirmBtn.type = 'button';
+        confirmBtn.textContent = '添加';
+        const doAdd = async () => {
+          const v = input.value.trim();
+          if (!v) return;
+          if (tagNames.includes(v)) { App.Components.toast('已存在同名' + (kind === 'kp' ? '考点' : '错因'), 'error'); return; }
+          for (const m of mods) await meta.add(m, v);
+          input.value = '';
+          inputRow.classList.remove('show');
+          addBtn.style.display = '';
+          render();
+        };
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doAdd(); } });
+        confirmBtn.addEventListener('click', doAdd);
+        inputRow.appendChild(input);
+        inputRow.appendChild(confirmBtn);
+        addBtn.addEventListener('click', () => {
+          inputRow.classList.add('show');
+          addBtn.style.display = 'none';
+          input.focus();
+        });
+        cloud.appendChild(addBtn);
+        container.appendChild(inputRow);
+      }
+      container.appendChild(cloud);
+    }
+
     // 同模块同类型内拖拽排序（HTML5 DnD；顺序即时持久化）
     // 拖拽数据用组件级共享变量传递（源 pill dragstart 写入、目标 pill drop 读取）
     let sharedDragData = null;
-    function bindDrag(pill, kind, sub, mod, cloud) {
+    function bindDrag(pill, kind, sub, mods, cloud) {
+      const flat = isFlatSub(sub);
       pill.addEventListener('dragstart', (e) => {
-        sharedDragData = { kind, mod, name: pill.dataset.name };
+        sharedDragData = { kind, mod: pill.dataset.mod, name: pill.dataset.name };
         try {
           e.dataTransfer.effectAllowed = 'move';
           e.dataTransfer.setData('text/plain', JSON.stringify(sharedDragData));
@@ -4078,15 +4115,16 @@ App.Components = {
         const data = sharedDragData;
         sharedDragData = null;
         if (!data) return;
-        if (data.kind !== kind || data.mod !== mod || data.name === pill.dataset.name) return;   // 禁止跨模块/跨类
+        // 禁止跨科目/跨类型；扁平科目内 mod 引用统一为科目名，天然同组
+        if (data.kind !== kind || data.mod !== pill.dataset.mod || data.name === pill.dataset.name) return;
         const meta = KIND_META[kind];
-        const arr = meta.get(mod);
+        const arr = getTags({ name: sub, modules: mods }, mods, kind).slice();
         const from = arr.indexOf(data.name);
         const to = arr.indexOf(pill.dataset.name);
         if (from < 0 || to < 0 || from === to) return;
         arr.splice(from, 1);
         arr.splice(to, 0, data.name);
-        await meta.setOrder(mod, arr);
+        for (const m of mods) await meta.setOrder(m, arr);
         render();
       });
     }

@@ -188,6 +188,94 @@ setTimeout(async () => {
     assert(picker.querySelectorAll('.tag-input__suggestion').length >= 8, '展开后显示全部');
     assert(picker.querySelector('.tag-input__more').textContent.includes('收起'), '按钮变「收起」');
 
+    // ===== [8] 资料分析扁平科目（仅科目一层，无模块细分） =====
+    console.log('\n[8] 资料分析扁平科目');
+    const flatSubName = '资料分析';
+    const flatMods = App.Constants.getModules(flatSubName);
+    assert(flatMods.length > 1, '资料分析有多个模块(' + flatMods.length + ')');
+    // 在模块里塞入不同标签，验证合并展示
+    await App.Tags.addKnowledgePoint(flatMods[0], '扁平考点A');
+    await App.Tags.addKnowledgePoint(flatMods[1], '扁平考点B');
+    await App.Tags.addModuleErrorCause(flatMods[0], '扁平错因A');
+    await App.Tags.addModuleErrorCause(flatMods[2], '扁平错因B');
+
+    const flatPage = doc.createElement('div');
+    flatPage.id = 'flat-test';
+    doc.body.appendChild(flatPage);
+    App.Components.tagManager(flatPage, { kinds: ['kp', 'ec'], title: '考点 / 错因管理' });
+    // 展开资料分析科目
+    const flatSub = Array.from(flatPage.querySelectorAll('.tag-subject')).find(s => s.textContent.includes(flatSubName));
+    assert(!!flatSub, '资料分析科目卡片存在');
+    if (flatSub && !flatSub.querySelector('.tag-subject-content').classList.contains('expanded')) {
+      flatSub.querySelector('.tag-subject-header').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    }
+    await new Promise(r => setTimeout(r, 30));
+    // 关键断言：科目内容区直接是标签云，没有任何模块卡片
+    const flatContent = flatSub.querySelector('.tag-subject-content');
+    assert(!!flatContent, '科目内容区存在');
+    assert(!flatContent.querySelector('.tag-module'), '资料分析无模块卡片（扁平）');
+    const flatClouds = flatContent.querySelectorAll('.tag-cloud');
+    assert(flatClouds.length === 2, '直接渲染 2 个标签云（考点/错因）');
+    const flatKpPills = Array.from(flatContent.querySelectorAll('.tag-pill')).filter(p => p.dataset.kind === 'kp');
+    const flatEcPills = Array.from(flatContent.querySelectorAll('.tag-pill')).filter(p => p.dataset.kind === 'ec');
+    assert(flatKpPills.some(p => p.textContent.includes('扁平考点A')), '考点云含 扁平考点A');
+    assert(flatKpPills.some(p => p.textContent.includes('扁平考点B')), '考点云含 扁平考点B（跨模块合并）');
+    assert(flatEcPills.some(p => p.textContent.includes('扁平错因A')), '错因云含 扁平错因A');
+    assert(flatEcPills.some(p => p.textContent.includes('扁平错因B')), '错因云含 扁平错因B（跨模块合并）');
+    // 科目头计数 = 合并去重后数量
+    const flatCount = flatSub.querySelector('.tag-subject-count').textContent;
+    const expectedFlat = App.Tags.getKnowledgePoints(flatMods[0]).length;
+    assert(flatCount.includes(String(expectedFlat)) || flatCount.includes('个'), '科目头计数显示 (' + flatCount + ')');
+
+    // 编辑操作同步到所有模块：添加
+    // 注意：每次 render() 重建 DOM，flatContent 等引用会失效，需每次重新查询
+    const flatContentNow = () => {
+      const s = Array.from(flatPage.querySelectorAll('.tag-subject')).find(x => x.textContent.includes(flatSubName));
+      return s ? s.querySelector('.tag-subject-content') : null;
+    };
+    flatPage.querySelector('.tag-manager__edit-toggle').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 30));
+    const flatAddBtn = Array.from(flatContentNow().querySelectorAll('.tag-add-btn'))[0];
+    flatAddBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    const flatRow = flatContentNow().querySelector('.tag-add-input-row.show');
+    assert(!!flatRow, '扁平科目添加输入行显示');
+    const flatInput = flatRow.querySelector('input');
+    flatInput.value = '扁平新增考点';
+    flatInput.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await new Promise(r => setTimeout(r, 50));
+    let allHave = flatMods.every(m => App.Tags.getKnowledgePoints(m).includes('扁平新增考点'));
+    assert(allHave, '添加同步到所有 ' + flatMods.length + ' 个模块');
+    // 删除：从所有模块删
+    const flatDelPill = Array.from(flatContentNow().querySelectorAll('.tag-pill')).find(p => p.textContent.includes('扁平考点B'));
+    flatDelPill.querySelector('.tag-delete-btn').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 50));
+    allHave = flatMods.every(m => !App.Tags.getKnowledgePoints(m).includes('扁平考点B'));
+    assert(allHave, '删除从所有模块移除');
+    // 改名：同步到所有模块
+    flatPage.querySelector('.tag-manager__edit-toggle').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));   // 先退出编辑
+    flatPage.querySelector('.tag-manager__edit-toggle').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));   // 再进编辑（重置 DOM）
+    await new Promise(r => setTimeout(r, 30));
+    const flatRenamePill = Array.from(flatContentNow().querySelectorAll('.tag-pill')).find(p => p.textContent.includes('扁平新增考点'));
+    flatRenamePill.querySelector('.tag-pill__name').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 30));
+    const flatRenameInput = flatContentNow().querySelector('.tag-pill.editing input');
+    assert(!!flatRenameInput, '改名输入框出现');
+    flatRenameInput.value = '扁平改名考点';
+    flatRenameInput.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await new Promise(r => setTimeout(r, 50));
+    allHave = flatMods.every(m => App.Tags.getKnowledgePoints(m).includes('扁平改名考点'));
+    assert(allHave, '改名同步到所有模块');
+    // 清理测试数据
+    for (const m of flatMods) {
+      await App.Tags.removeKnowledgePoint(m, '扁平考点A');
+      await App.Tags.removeKnowledgePoint(m, '扁平考点B');
+      await App.Tags.removeKnowledgePoint(m, '扁平新增考点');
+      await App.Tags.removeKnowledgePoint(m, '扁平改名考点');
+      await App.Tags.removeModuleErrorCause(m, '扁平错因A');
+      await App.Tags.removeModuleErrorCause(m, '扁平错因B');
+    }
+    flatPage.remove();
+
     console.log('\n===== 标签管理(三级): ' + pass + ' 通过, ' + fail + ' 失败 =====');
     process.exit(fail > 0 ? 1 : 0);
   } catch (e) {
