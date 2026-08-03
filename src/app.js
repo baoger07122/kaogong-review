@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.3.7';
+App.VERSION = '8.3.8';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -3315,6 +3315,31 @@ App.Components = {
     const card = document.createElement('div');
     card.className = 'error-gallery-card';
 
+    // 图片（有图才展示；位于题目上方）
+    if (error.image) {
+      const imgWrap = document.createElement('div');
+      imgWrap.className = 'error-gallery-card__imgwrap';
+      const img = document.createElement('img');
+      img.className = 'error-gallery-card__img';
+      img.src = error.image;
+      img.alt = '错题图片';
+      img.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const overlay = document.createElement('div');
+        overlay.className = 'notion-image-preview';
+        const big = document.createElement('img');
+        big.className = 'notion-image-preview__img';
+        big.src = error.image;
+        const close = () => overlay.remove();
+        overlay.appendChild(big);
+        overlay.addEventListener('click', (ev) => { if (ev.target === overlay || ev.target === big) close(); });
+        document.getElementById('modal-container').appendChild(overlay);
+        requestAnimationFrame(() => overlay.classList.add('is-visible'));
+      });
+      imgWrap.appendChild(img);
+      card.appendChild(imgWrap);
+    }
+
     const question = document.createElement('div');
     question.className = 'error-gallery-card__question';
     question.textContent = error.question || '';
@@ -3331,21 +3356,28 @@ App.Components = {
     });
     card.appendChild(meta);
 
+    // 错因标签：位于考点之下，单独一行（仅展示，不显示掌握状态标签）
+    if (error.errorCause) {
+      const causeRow = document.createElement('div');
+      causeRow.className = 'error-gallery-card__cause';
+      const ct = document.createElement('span');
+      ct.className = 'tag tag--neutral tag--cause';
+      ct.textContent = error.errorCause;
+      causeRow.appendChild(ct);
+      card.appendChild(causeRow);
+    }
+
     const statusRow = document.createElement('div');
     statusRow.className = 'error-gallery-card__status';
     const statusLeft = document.createElement('div');
     statusLeft.className = 'error-gallery-card__status-left';
-    // 录入时间（年月日），位于掌握状态之前
+    // 录入时间（年月日）
     if (error.createdAt) {
       const date = document.createElement('span');
       date.className = 'error-gallery-card__date';
       date.textContent = App.Utils.formatDate(error.createdAt);
       statusLeft.appendChild(date);
     }
-    const st = document.createElement('span');
-    st.className = 'tag tag--' + (error.status === '已掌握' ? 'success' : 'danger');
-    st.textContent = error.status || '未掌握';
-    statusLeft.appendChild(st);
     statusRow.appendChild(statusLeft);
     card.appendChild(statusRow);
     // 挖坑点单独一行，自动换行，不与日期/掌握状态同行
@@ -4504,6 +4536,25 @@ App.Components = {
     });
     row1.appendChild(grpHistory);
 
+    // 本行换行（软回车）：在本行内添加内容，不跳转到下一行（等价 Shift+Enter）
+    const grpNewline = document.createElement('div');
+    grpNewline.className = 'notion-toolbar__grp';
+    const newlineBtn = document.createElement('button');
+    newlineBtn.className = 'notion-tool-btn notion-tool-btn--svg';
+    newlineBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h10"/><path d="M4 18h6"/><path d="M17 14v6"/><path d="M17 14l-3 3 3 3"/></svg>';
+    newlineBtn.title = '本行换行（不新建段落）';
+    newlineBtn.addEventListener('click', () => {
+      const ed = focusedBlockEl ? focusedBlockEl.querySelector('.notion-editable') : null;
+      if (ed) { pushUndo(); insertSoftBreak(ed); ed.focus(); }
+      else {
+        // 无聚焦块：聚焦最后一个块的编辑区再软回车
+        const all = blocksContainer.querySelectorAll('.notion-editable');
+        if (all.length) { const last = all[all.length - 1]; last.focus(); placeCaretAtEnd(last); pushUndo(); insertSoftBreak(last); }
+      }
+    });
+    grpNewline.appendChild(newlineBtn);
+    row1.appendChild(grpNewline);
+
     // --- 第二行：列表 + 缩进 + 其他工具 ---
     const row2 = document.createElement('div');
     row2.className = 'notion-toolbar__row';
@@ -4527,15 +4578,20 @@ App.Components = {
     row2.appendChild(grpList);
 
     // 缩进组（从每行左侧迁移过来）
+    // 【修复】缩进/缩出图标明显区分：缩出 = 左箭头+右移块形；缩进 = 右箭头+左移块形
     const grpIndent = document.createElement('div');
     grpIndent.className = 'notion-toolbar__grp';
+    const INDENT_ICONS = {
+      outdent: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l-5 6 5 6"/><path d="M5 4v16"/><rect x="13" y="5" width="8" height="14" rx="1"/></svg>',
+      indent: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l5 6-5 6"/><path d="M19 4v16"/><rect x="3" y="5" width="8" height="14" rx="1"/></svg>',
+    };
     [
-      { b: '◀', action: 'outdent', title: '缩出' },
-      { b: '▶', action: 'indent', title: '缩进' },
+      { icon: INDENT_ICONS.outdent, action: 'outdent', title: '减少缩进（后退）' },
+      { icon: INDENT_ICONS.indent, action: 'indent', title: '增加缩进' },
     ].forEach(x => {
       const btn = document.createElement('button');
-      btn.className = 'notion-tool-btn';
-      btn.textContent = x.b;
+      btn.className = 'notion-tool-btn notion-tool-btn--svg';
+      btn.innerHTML = x.icon;
       btn.title = x.title;
       btn.addEventListener('click', () => {
           if (!focusedBlockEl) return;
@@ -4572,7 +4628,7 @@ App.Components = {
     row2.appendChild(grpExtra);
 
     // 底部悬浮格式栏：两行分组合并为一行（横向滚动），保持全部功能
-    [grpBlock, grpInline, grpHistory, grpList, grpIndent, grpExtra].forEach(g => toolbar.appendChild(g));
+    [grpBlock, grpInline, grpHistory, grpNewline, grpList, grpIndent, grpExtra].forEach(g => toolbar.appendChild(g));
 
     // ===== 【修复2】Notion 移动端：底部横向滑动工具栏（单例） + Bottom Sheet 菜单 =====
     // 桌面端使用底部悬浮格式栏（notion-toolbar）；移动端（<=768px 或触屏）用 Notion 风格底栏
@@ -5798,6 +5854,34 @@ App.Components = {
         }
         // 斜杠菜单键盘导航优先（上下选择/回车确认/Esc 关闭）
         if (handleSlashKey(e)) return;
+        // 【下键/上键】光标已到本块行尾（下键）或行首（上键）时，跳到下一块/上一块
+        if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.shiftKey) {
+          let shouldJump = false;
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            const caretOffset = range.startOffset;
+            const totalLen = div.textContent.length;
+            if (e.key === 'ArrowDown' && caretOffset >= totalLen) shouldJump = true;
+            if (e.key === 'ArrowUp' && caretOffset <= 0) shouldJump = true;
+          } else {
+            // 无选区（jsdom/失焦边缘）：默认视为位于行尾，直接跳块
+            shouldJump = true;
+          }
+          if (shouldJump) {
+            e.preventDefault();
+            // 计算目标：顶层块按 data-index，toggle 子块按 data-pidx/data-index
+            const allEd = Array.from(blocksContainer.querySelectorAll('.notion-editable'));
+            const cur = div;
+            const pos = allEd.indexOf(cur);
+            if (pos >= 0) {
+              const target = e.key === 'ArrowDown' ? allEd[pos + 1] : allEd[pos - 1];
+              if (target) { target.focus(); placeCaretAtEnd(target); }
+            }
+            return;
+          }
+          // 不在边界：交给默认行为（光标在行内上下移动）
+        }
         if (e.key === 'Tab') {
           // Tab 增加缩进（子块/顶层块均有效），Shift+Tab 减少缩进
           e.preventDefault();
@@ -6391,10 +6475,10 @@ App.Components = {
       const exportBlock = (b, pad, counter) => {
         const md = htmlToInlineMarkdown(b.html || b.content);
         switch(b.type) {
-          case 'h1': if (md.trim()) lines.push(pad + '# ' + md.replace(/^(#{1,4}\s)+/, '')); break;
-          case 'h2': if (md.trim()) lines.push(pad + '## ' + md.replace(/^(#{1,4}\s)+/, '')); break;
-          case 'h3': if (md.trim()) lines.push(pad + '### ' + md.replace(/^(#{1,4}\s)+/, '')); break;
-          case 'h4': if (md.trim()) lines.push(pad + '#### ' + md.replace(/^(#{1,4}\s)+/, '')); break;
+          case 'h1': if (md.trim()) lines.push(pad + '# ' + md.replace(/\s*\n+\s*/g, ' ').replace(/^(#{1,4}\s)+/, '').trim()); break;
+          case 'h2': if (md.trim()) lines.push(pad + '## ' + md.replace(/\s*\n+\s*/g, ' ').replace(/^(#{1,4}\s)+/, '').trim()); break;
+          case 'h3': if (md.trim()) lines.push(pad + '### ' + md.replace(/\s*\n+\s*/g, ' ').replace(/^(#{1,4}\s)+/, '').trim()); break;
+          case 'h4': if (md.trim()) lines.push(pad + '#### ' + md.replace(/\s*\n+\s*/g, ' ').replace(/^(#{1,4}\s)+/, '').trim()); break;
           case 'bullet': lines.push(pad + '- ' + md); break;
           case 'numbered': counter.n++; lines.push(pad + counter.n + '. ' + md); break;
           case 'todo': lines.push(pad + '- [' + (b.checked ? 'x' : ' ') + '] ' + md); break;
@@ -8839,13 +8923,7 @@ App.Pages.Errors = {
     `;
     content.appendChild(headerInfo);
 
-    // 题干（white-space:pre-line 保留编辑页手动换行）
-    const questionEl = document.createElement('div');
-    questionEl.style.cssText = 'font-size:var(--font-md);line-height:1.7;margin-bottom:var(--spacing-md);padding:var(--spacing-md);background:var(--bg-tertiary);border-radius:var(--radius-md);white-space:pre-line;';
-    questionEl.textContent = error.question;
-    content.appendChild(questionEl);
-
-    // 图片（有图才展示；点击全屏预览）
+    // 图片（有图才展示；位于题目上方；点击全屏预览）
     if (error.image) {
       const imgWrap = document.createElement('div');
       imgWrap.style.cssText = 'margin-bottom:var(--spacing-md);text-align:center;';
@@ -8868,6 +8946,12 @@ App.Pages.Errors = {
       imgWrap.appendChild(img);
       content.appendChild(imgWrap);
     }
+
+    // 题干（white-space:pre-line 保留编辑页手动换行）
+    const questionEl = document.createElement('div');
+    questionEl.style.cssText = 'font-size:var(--font-md);line-height:1.7;margin-bottom:var(--spacing-md);padding:var(--spacing-md);background:var(--bg-tertiary);border-radius:var(--radius-md);white-space:pre-line;';
+    questionEl.textContent = error.question;
+    content.appendChild(questionEl);
 
     // 选项
     const optionsList = document.createElement('div');

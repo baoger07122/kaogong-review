@@ -2750,7 +2750,7 @@ body.ipad-split #page-note-form .page-header__back {
 }
 
 /* ===== Markdown 详情页/卡片预览统一间距 ===== */
-.md-preview-p { margin: 0.5em 0; line-height: 1.75; }
+.md-preview-p { margin: 0.5em 0; line-height: 23px; }
 .md-preview-p:first-child { margin-top: 0; }
 .md-preview-p:last-child { margin-bottom: 0; }
 .md-preview-h1, .md-preview-h2, .md-preview-h3, .md-preview-h4 { margin: 0.6em 0 0.35em; line-height: 1.35; color: var(--text-primary); }
@@ -2759,7 +2759,7 @@ body.ipad-split #page-note-form .page-header__back {
 .md-preview-h2 { font-size: 20px; font-weight: 600; }
 .md-preview-h3 { font-size: 18px; font-weight: 600; }
 .md-preview-h4 { font-size: 16px; font-weight: 600; }
-.md-preview-ul, .md-preview-ol { margin: 0.4em 0; padding-left: 1.5em; line-height: 1.75; }
+.md-preview-ul, .md-preview-ol { margin: 0.4em 0; padding-left: 1.5em; line-height: 23px; }
 .md-preview-ul li, .md-preview-ol li { margin: 0.15em 0; }
 .md-preview-blockquote {
   margin: 0.5em 0;
@@ -4335,7 +4335,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .notion-editable {
   outline: none;
   font-size: var(--font-md);
-  line-height: 1.7;
+  line-height: 23px;   /* 【修复】段落内行间距固定 23px，与详情页 md-preview 段落内行距一致 */
   color: var(--text-primary);
   word-break: break-word;
   min-height: 1.5em;
