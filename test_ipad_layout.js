@@ -58,7 +58,7 @@ setTimeout(() => {
     assert(cs.left === '50%', 'left: 50% (' + cs.left + ')');
     assert(cs.transform.indexOf('translateX(-50%)') >= 0 || cs.transform.indexOf('matrix') >= 0, 'transform 含居中 (' + cs.transform + ')');
     assert(cs.width.indexOf('min(680px') >= 0 || cs.width === '680px', 'width: min(680px, calc(100%-32px)) (' + cs.width + ')');
-    assert(cs.bottom === '16px', 'bottom 悬浮间距 16px (' + cs.bottom + ')');
+    assert(cs.bottom === '66px', 'bottom 悬浮导航上方 66px (' + cs.bottom + ')');
 
     // 2. page-header inner 容器
     console.log('\n[2] 页头内容限宽居中');

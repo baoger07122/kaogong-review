@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.12';
+App.VERSION = '8.4.13';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -1724,6 +1724,16 @@ App.Components = {
   // 注册当前活动编辑器（notionEditor 创建时调用）
   _registerMobileEditor(inst) { this._activeMobileEditor = inst; },
 
+  // 移动端单例工具栏显隐：默认隐藏，仅块编辑器聚焦时显示（由 notionEditor focusin/focusout 联动）
+  _showMobileToolbar() {
+    const bar = this._mobileToolbarEl;
+    if (bar) bar.classList.add('is-visible');
+  },
+  _hideMobileToolbar() {
+    const bar = this._mobileToolbarEl;
+    if (bar) bar.classList.remove('is-visible');
+  },
+
   // 构建底部工具栏 DOM（惰性单例）
   _ensureMobileToolbar() {
     if (this._mobileToolbarBuilt) return this._mobileToolbarEl;
@@ -1813,6 +1823,13 @@ App.Components = {
         return isNaN(v) ? 0 : v;
       } catch (e) { return 0; }
     })();
+    const NAV_H = (() => {
+      // 底部主导航高度（--nav-height，默认 56px）：工具栏收起时悬浮在导航上方，不与导航重叠
+      try {
+        const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--nav-height'));
+        return isNaN(v) ? 56 : v;
+      } catch (e) { return 56; }
+    })();
     const updateToolbarBottom = () => {
       const bar = App.Components._mobileToolbarEl;
       if (!bar || !isMob) return;
@@ -1824,8 +1841,8 @@ App.Components = {
         // 兼容旧版 iOS：offsetTop 表示可视区相对页面的下移量，也计入
         if (vv.offsetTop > kb) kb = vv.offsetTop;
       }
-      // 悬浮卡片：键盘弹出 bottom = kb+16；收起 bottom = SAFE_BOTTOM+16
-      bar.style.bottom = (kb > 0 ? kb + 16 : SAFE_BOTTOM + 16) + 'px';
+      // 悬浮卡片：键盘弹出 bottom = kb+16（键盘上方）；收起 bottom = 导航上方（nav + safe + 10）
+      bar.style.bottom = (kb > 0 ? kb + 16 : NAV_H + SAFE_BOTTOM + 10) + 'px';
       // 同时告知当前活动编辑器，让浮动格式栏也能适配
       const inst = App.Components._activeMobileEditor;
       if (inst && typeof inst._onKeyboardChange === 'function') inst._onKeyboardChange(kb);
@@ -6816,6 +6833,7 @@ App.Components = {
       if (e.target && e.target.closest && e.target.closest('.notion-editable, .notion-table td')) {
         clearTimeout(_toolbarTimer);
         toolbar.classList.add('is-visible');
+        App.Components._showMobileToolbar();
       }
     });
     wrapper.addEventListener('focusout', (e) => {
@@ -6824,6 +6842,7 @@ App.Components = {
       clearTimeout(_toolbarTimer);
       _toolbarTimer = setTimeout(() => {
         toolbar.classList.remove('is-visible');
+        App.Components._hideMobileToolbar();
       }, 220);
     });
     // 移动端点击编辑器区域外时，隐藏 Bottom Sheet（若打开）；同时取消块选中（状态 1）

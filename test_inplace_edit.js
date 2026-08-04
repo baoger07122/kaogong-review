@@ -50,7 +50,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.4.12', 'App.VERSION === 8.4.12（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.4.13', 'App.VERSION === 8.4.13（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 查看态渲染（JSON 块 → HTML；点击即编辑）');
     await Notes.renderDetail({ id: 'note1' });
@@ -221,6 +221,35 @@ setTimeout(async () => {
     assert(store.notes.note1.title === '回车标题', '回车触发保存');
     assert(store.notes.note1.linkedErrors.length === 1, 'linkedErrors 保留');
     assert(store.notes.note1.linkedReviews.length === 1, 'linkedReviews 保留');
+
+    console.log('\n[11] 移动端格式栏：默认隐藏，仅块编辑器聚焦显示，其他编辑器不触发');
+    const w0 = win.innerWidth;
+    Object.defineProperty(win, 'innerWidth', { value: 375, configurable: true, writable: true });
+    const mbar = App.Components._ensureMobileToolbar();
+    assert(!!mbar && mbar.classList.contains('notion-mobile-toolbar'), '移动端单例工具栏可构建');
+    assert(!mbar.classList.contains('is-visible'), '默认无 is-visible（隐藏，不再常驻）');
+    // 块编辑器聚焦 → 显示
+    const holder2 = doc.createElement('div');
+    doc.body.appendChild(holder2);
+    const ed2 = App.Components.initEditor(holder2, { initialData: '', dataMode: 'json', onChange: null });
+    const editable2 = holder2.querySelector('.notion-editable');
+    editable2.dispatchEvent(new win.FocusEvent('focusin', { bubbles: true }));
+    assert(mbar.classList.contains('is-visible'), '块编辑器聚焦 → 工具栏显示');
+    // 失焦 → 220ms 后隐藏
+    editable2.dispatchEvent(new win.FocusEvent('focusout', { bubbles: true, relatedTarget: doc.body }));
+    await wait(350);
+    assert(!mbar.classList.contains('is-visible'), '块编辑器失焦 → 工具栏隐藏');
+    // textarea 聚焦 → 不显示（非块编辑器）
+    const taHolder = doc.createElement('div');
+    doc.body.appendChild(taHolder);
+    const mdEd = App.Components.markdownEditor('', '');
+    taHolder.appendChild(mdEd.element);
+    const ta2 = mdEd.element.querySelector('textarea');
+    ta2.dispatchEvent(new win.FocusEvent('focusin', { bubbles: true }));
+    await wait(30);
+    assert(!mbar.classList.contains('is-visible'), 'textarea 聚焦不触发工具栏');
+    Object.defineProperty(win, 'innerWidth', { value: w0, configurable: true, writable: true });
+    holder2.remove(); taHolder.remove();
 
     console.log('\n总计: ' + pass + ' 通过, ' + fail + ' 失败');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }

@@ -3886,7 +3886,7 @@ body.ipad-split .notion-editor {
 .notion-mobile-toolbar {
   position: fixed;
   left: 50%;                     /* 关键：fixed 居中定位 */
-  bottom: 16px;                  /* 底部留间距 → 悬浮而非贴死 */
+  bottom: calc(var(--nav-height, 56px) + var(--safe-bottom, 0px) + 10px);  /* 悬浮在底部导航上方，不与导航重叠露半截 */
   width: min(680px, calc(100% - 32px));  /* 响应式宽度：大屏限宽，小屏自适应 */
   height: 56px;
   border-radius: 20px;           /* 大圆角 → App 卡片感 */
@@ -4132,14 +4132,16 @@ body.ipad-split .notion-mobile-toolbar {
   flex-shrink: 0;
 }
 
-/* 移动端显示底部工具栏，隐藏桌面固定栏 */
+/* 移动端底部工具栏：默认隐藏，仅块编辑器聚焦时由 JS 加 .is-visible 才显示 */
 @media (max-width: 768px) {
   .notion-toolbar { display: none !important; }
-  .notion-mobile-toolbar { display: block; }
+  .notion-mobile-toolbar { display: none; }
+  .notion-mobile-toolbar.is-visible { display: block; }
 }
 @media (hover: none), (pointer: coarse) {
   .notion-toolbar { display: none !important; }
-  .notion-mobile-toolbar { display: block; }
+  .notion-mobile-toolbar { display: none; }
+  .notion-mobile-toolbar.is-visible { display: block; }
 }
 /* 深色模式适配（跟随 data-theme） */
 [data-theme="dark"] .notion-mobile-tool-btn:active { background: rgba(255, 255, 255, 0.08); }
