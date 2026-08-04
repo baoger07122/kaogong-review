@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.16';
+App.VERSION = '8.4.17';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -4599,6 +4599,26 @@ App.Components = {
     const wrapper = document.createElement('div');
     wrapper.className = 'notion-editor';
 
+    // ===== v8.4.17 格式栏选区保持：execCommand 依赖「当前选区」，
+    // 点击工具栏按钮时浏览器默认行为会转移焦点并清掉编辑区选区，导致加粗/斜体等全部失效。
+    // ① 记录编辑器内最近一次有效选区（savedRange）作兜底 ② 工具栏/格式条按钮 mousedown 阻止默认，保住焦点与选区 =====
+    let savedRange = null;
+    const captureSel = () => {
+      try {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return;
+        const r = sel.getRangeAt(0);
+        if (r && r.toString() && wrapper.contains(r.commonAncestorContainer)) savedRange = r.cloneRange();
+      } catch (e) { /* 忽略 */ }
+    };
+    wrapper.addEventListener('mouseup', captureSel);
+    wrapper.addEventListener('keyup', captureSel);
+    wrapper.addEventListener('focusin', captureSel);
+    wrapper.addEventListener('mousedown', (e) => {
+      const t = e.target;
+      if (t && t.closest && t.closest('.notion-tool-btn, .notion-fmt-btn')) e.preventDefault();
+    }, true);
+
     // ===== 类型映射：内部类型 ⇄ 对外 JSON type 名（供 initialData / getEditorData / setEditorData 使用）=====
     const TYPE_MAP_OUT = {
       text: 'text', h1: 'heading1', h2: 'heading2', h3: 'heading3', h4: 'heading4',
@@ -5141,6 +5161,8 @@ App.Components = {
         '</div>';
       const { sheet } = openSheet({ height: 'is-format', bodyHtml });
       sheet.querySelectorAll('.notion-mobile-fmt-item').forEach(item => {
+        // v8.4.17 面板是 body 级弹层（不在编辑器 wrapper 内），需单独阻止 mousedown 默认，避免清掉编辑区选区
+        item.addEventListener('mousedown', (e) => e.preventDefault());
         item.addEventListener('click', () => {
           const cmd = item.dataset.cmd;
           closeSheet();
@@ -5365,6 +5387,27 @@ App.Components = {
     }
 
     function applyFormat(cmd, range) {
+      // v8.4.17 选区兜底：工具栏点击后浏览器可能已清掉当前选区，
+      // 依次尝试 传入 range → 当前 selection → savedRange（编辑器内最近选区），重建后统一使用
+      let sel = null;
+      try { sel = window.getSelection(); } catch (e) { /* 忽略 */ }
+      let r = range;
+      if (!r || !r.toString()) {
+        if (sel && sel.rangeCount > 0 && wrapper.contains(sel.getRangeAt(0).commonAncestorContainer)) r = sel.getRangeAt(0);
+        else if (savedRange && wrapper.contains(savedRange.commonAncestorContainer)) r = savedRange;
+      }
+      if (r && r.toString()) {
+        try {
+          // execCommand 要求编辑区聚焦：移动端格式面板打开后编辑区可能已失焦，先恢复焦点再重建选区
+          const startNode = r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentNode;
+          const editable = startNode && startNode.closest ? startNode.closest('.notion-editable') : null;
+          if (editable && document.activeElement !== editable) {
+            try { editable.focus({ preventScroll: true }); } catch (e2) { editable.focus(); }
+          }
+          if (sel) { sel.removeAllRanges(); sel.addRange(r); }
+        } catch (e3) { /* 选区重建失败则按原路径处理 */ }
+      }
+      range = r;
       if (!range || !range.toString()) {
         // 无选区时退化为 execCommand（作用于当前光标）
         if (cmd === 'bold') document.execCommand('bold');
@@ -10556,7 +10599,7 @@ App.Pages.Notes = {
     const editor = App.Components.initEditor(bodyEl, {
       initialData: Array.isArray(note.content) ? note.content : note.content || '',
       dataMode: 'json',
-      placeholder: '点击输入内容…',
+      placeholder: false,          // v8.4.17 用户要求去掉空白段的「点击输入内容…」占位文字（false → 不设置 data-placeholder）
       inlinePadding: true,   // 就地编辑：底部最小留白（8px），切换高度不突变
       onChange: (data) => {
         // 字数整合进右上角 ⋮ 按钮区（编辑器自带页脚在就地编辑场景隐藏）

@@ -50,7 +50,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.4.16', 'App.VERSION === 8.4.16（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.4.17', 'App.VERSION === 8.4.17（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 查看态渲染（JSON 块 → HTML；点击即编辑）');
     await Notes.renderDetail({ id: 'note1' });
@@ -289,6 +289,50 @@ setTimeout(async () => {
     assert(!nav.classList.contains('nav--hidden'), 'handleRoute 回 notes 恢复导航');
     assert(!doc.getElementById('page-note-detail').classList.contains('nav-hidden'), '回列表后移除 nav-hidden class');
     assert(App.Components._navVisible === true, '移动端工具栏收到导航恢复状态');
+
+    console.log('\n[13] v8.4.17 格式栏选区保持 + 空白段占位符移除');
+    // 13.1 占位符：placeholder:false → 空块不设置 data-placeholder（不再显示「点击输入内容…」）
+    const holder3 = doc.createElement('div');
+    doc.body.appendChild(holder3);
+    App.Components.initEditor(holder3, {
+      initialData: [{ type: 'text', content: '' }], dataMode: 'json', placeholder: false
+    });
+    const ed3First = holder3.querySelector('.notion-editable');
+    assert(!!ed3First, '空块存在');
+    assert(!ed3First.hasAttribute('data-placeholder'), '占位符移除：空块不再设置 data-placeholder');
+    // 13.2 工具栏按钮 mousedown 被 wrapper 委托阻止默认（保住焦点与选区，execCommand 才能生效）
+    const tb3 = holder3.querySelector('.notion-toolbar');
+    assert(!!tb3, '桌面工具栏已构建（jsdom 桌面视口）');
+    const bBtn3 = tb3 ? tb3.querySelector('.notion-tool-btn--sm') : null;
+    assert(!!bBtn3, '工具栏加粗按钮存在');
+    if (bBtn3) {
+      const md3 = new win.MouseEvent('mousedown', { bubbles: true, cancelable: true });
+      bBtn3.dispatchEvent(md3);
+      assert(md3.defaultPrevented === true, '工具栏按钮 mousedown 已阻止默认（防止清选区）');
+    }
+    // 13.3 选区兜底：先记录编辑器内选区（savedRange），清空当前选区后点加粗 → applyFormat 用 savedRange 重建选区
+    let programRange = null, addedRange = null;
+    const origGetSel = win.getSelection;
+    win.getSelection = () => ({ rangeCount: programRange ? 1 : 0, getRangeAt: () => programRange, removeAllRanges() {}, addRange(r) { addedRange = r; } });
+    try {
+      const ed3With = doc.createElement('div');
+      doc.body.appendChild(ed3With);
+      App.Components.initEditor(ed3With, {
+        initialData: [{ type: 'text', content: '测试加粗文本' }], dataMode: 'json', placeholder: false
+      });
+      const editable3 = ed3With.querySelector('.notion-editable');
+      programRange = doc.createRange();
+      programRange.selectNodeContents(editable3);
+      editable3.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));   // 触发 captureSel 保存 savedRange
+      programRange = null;                                                          // 模拟点击按钮后当前选区被清
+      const bBtn3b = ed3With.querySelector('.notion-tool-btn--sm');
+      bBtn3b.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+      assert(!!addedRange && addedRange.toString() === '测试加粗文本', '选区兜底：applyFormat 用 savedRange 重建选区');
+      ed3With.remove();
+    } finally {
+      win.getSelection = origGetSel;
+    }
+    holder3.remove();
 
     console.log('\n总计: ' + pass + ' 通过, ' + fail + ' 失败');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }
