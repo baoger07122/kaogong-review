@@ -3790,6 +3790,50 @@ body.ipad-split #page-note-form .page-header__back {
 }
 .note-cat-clear:active { color: var(--color-danger); }
 
+/* ===== 笔记详情页：Notion 式无模式就地编辑 ===== */
+/* 查看态标题（点击即就地编辑） */
+.note-detail-title {
+  font-size: var(--font-xl);
+  font-weight: 700;
+  margin-bottom: var(--spacing-md);
+  cursor: pointer;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+.note-detail-title .md-preview-p { margin: 0; line-height: 1.4; font-size: inherit; font-weight: inherit; }
+.note-detail-title .md-preview-p:last-child { margin-bottom: 0; }
+.note-detail-title:hover { opacity: 0.85; }
+.note-detail-title__empty { color: var(--text-tertiary); font-weight: 600; }
+/* 标题编辑态：与查看态同字号同重量，底部高亮下划线提示可编辑 */
+.note-detail-title-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: var(--font-xl);
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--text-primary);
+  padding: 0;
+  margin-bottom: var(--spacing-md);
+  border-bottom: 2px solid var(--color-primary-light);
+  -webkit-appearance: none;
+}
+/* 正文查看态（点击即就地编辑为块编辑器） */
+.note-detail-body {
+  margin: 0 0 var(--spacing-md) 0;
+  line-height: 1.8;
+  min-height: 80px;
+  cursor: pointer;
+}
+.note-detail-body:hover { border-color: var(--color-primary-light); }
+/* 正文编辑态容器：与查看卡片同宽同留白；块编辑器在文档流中，整页可正常滑动 */
+.note-inplace-editor { margin: 0 0 var(--spacing-md) 0; min-height: 80px; }
+.note-inplace-editor .notion-editor { max-width: none; margin: 0; }
+/* 编辑时间 */
+.note-detail-meta { font-size: var(--font-xs); color: var(--text-tertiary); margin-bottom: var(--spacing-md); }
+
 /* 编辑器主体 */
 .notion-editor {
   position: relative;
@@ -6895,7 +6939,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.5';
+App.VERSION = '8.4.6';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -17110,7 +17154,7 @@ App.Pages.Notes = {
     }, 300));
   },
 
-  // ===== 笔记详情页 =====
+  // ===== 笔记详情页（Notion 式无模式就地编辑：点击即编辑，失焦即保存回查看） =====
   async renderDetail(params) {
     const container = document.getElementById('page-note-detail');
     container.innerHTML = '';
@@ -17125,14 +17169,14 @@ App.Pages.Notes = {
       return;
     }
 
-    // 返回栏 + 右上角：涂鸦铅笔 + 三点菜单
+    // 返回栏 + 右上角：✍️ 手写 + ⋮ 菜单（无「编辑」按钮——点击标题/正文即就地编辑）
     const header = App.Components.pageHeader('笔记详情', '⋮', () => this._showDetailMenu(note));
     const moreBtn = header.querySelector('.page-header__right');
     if (moreBtn) {
       moreBtn.classList.add('note-detail-more');
       const doodleBtn = document.createElement('button');
       doodleBtn.className = 'detail-header-action';
-      doodleBtn.textContent = '✏️';
+      doodleBtn.textContent = '✍️';
       doodleBtn.title = '手写笔记';
       doodleBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -17158,27 +17202,27 @@ App.Pages.Notes = {
     `;
     content.appendChild(breadcrumb);
 
-    // 标题（点击进入编辑）
+    // 标题（点击就地编辑，无模式切换）
     const titleEl = document.createElement('div');
-    titleEl.style.cssText = 'font-size:var(--font-xl);font-weight:700;margin-bottom:var(--spacing-md);cursor:pointer;';
-    titleEl.textContent = note.title;
-    titleEl.addEventListener('click', () => App.Router.navigate('note-form?id=' + note.id));
+    titleEl.className = 'note-detail-title';
+    titleEl.innerHTML = App.Utils.simpleMarkdown(note.title)
+      || '<span class="note-detail-title__empty">未命名笔记</span>';
+    titleEl.addEventListener('click', () => this._editTitleInPlace(titleEl, note, metaEl));
     content.appendChild(titleEl);
 
-    // 正文（点击进入编辑）
+    // 正文（点击就地编辑为块编辑器）
     const bodyEl = document.createElement('div');
-    bodyEl.className = 'card';
+    bodyEl.className = 'card note-detail-body';
     bodyEl.setAttribute('data-tap-edit', '');
-    bodyEl.style.cssText = 'margin:0 0 var(--spacing-md) 0;line-height:1.8;min-height:80px;';
     bodyEl.innerHTML = note.content
       ? App.Utils.simpleMarkdown(note.content)
-      : '<span style="color:var(--text-tertiary);">暂无内容</span>';
-    bodyEl.addEventListener('click', () => App.Router.navigate('note-form?id=' + note.id));
+      : '<span style="color:var(--text-tertiary);">暂无内容，点击开始编辑</span>';
+    bodyEl.addEventListener('click', (e) => this._editBodyInPlace(bodyEl, note, metaEl, e));
     content.appendChild(bodyEl);
 
     // 编辑时间
     const metaEl = document.createElement('div');
-    metaEl.style.cssText = 'font-size:var(--font-xs);color:var(--text-tertiary);margin-bottom:var(--spacing-md);';
+    metaEl.className = 'note-detail-meta';
     metaEl.textContent = '最后编辑于 ' + App.Utils.formatDateTime(note.updatedAt);
     content.appendChild(metaEl);
 
@@ -17227,6 +17271,184 @@ App.Pages.Notes = {
 
     container.appendChild(content);
   },
+
+  // ===== 标题就地编辑（点击 → input → 失焦/回车自动保存并回查看） =====
+  _editTitleInPlace(titleEl, note, metaEl) {
+    if (this._titleEditing) return;
+    this._titleEditing = true;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'note-detail-title-input';
+    input.value = note.title || '';
+    titleEl.replaceWith(input);
+    input.focus();
+    try { input.setSelectionRange(input.value.length, input.value.length); } catch (e) {}
+
+    const commit = () => {
+      if (!this._titleEditing) return;
+      this._titleEditing = false;
+      const v = input.value.trim();
+      if (v && v !== note.title) {
+        note.title = v;
+        this._saveNoteContent(note, note.content, { refreshMeta: metaEl });
+      }
+      // 就地恢复标题查看渲染（不重渲染整页，保留滚动位置）
+      const restored = document.createElement('div');
+      restored.className = 'note-detail-title';
+      restored.innerHTML = App.Utils.simpleMarkdown(note.title)
+        || '<span class="note-detail-title__empty">未命名笔记</span>';
+      restored.addEventListener('click', () => this._editTitleInPlace(restored, note, metaEl));
+      input.replaceWith(restored);
+    };
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); input.blur(); }
+    });
+  },
+
+  // ===== 正文就地编辑（点击 → 块编辑器 → 失焦/键盘收起自动保存回查看） =====
+  _editBodyInPlace(bodyEl, note, metaEl, clickEvent) {
+    if (this._bodyEditor) return;   // 已在编辑中，忽略重复进入
+    const inst = this._bodyEditor = { note, metaEl, editorWrap: null, editor: null, exiting: false, _saveTimer: null };
+
+    // 点击位置 → 渲染 HTML 中的行索引（尽力定位光标到点击处所在块）
+    const targetIdx = this._resolveClickBlock(bodyEl, clickEvent);
+
+    const editorWrap = document.createElement('div');
+    editorWrap.className = 'note-inplace-editor';
+    bodyEl.replaceWith(editorWrap);
+    inst.editorWrap = editorWrap;
+
+    const editor = App.Components.initEditor(editorWrap, {
+      initialData: note.content || '',
+      dataMode: 'md',
+      placeholder: '点击输入内容…',
+      onChange: (content) => this._debouncedBodySave(inst, content)
+    });
+    inst.editor = editor;
+
+    // 光标定位到点击的块（尽力而为；失败则聚焦首块）
+    this._focusBlockAt(editor, targetIdx);
+
+    // 失焦退出：点击编辑区外（排除格式栏/弹层）或键盘收起（移动端 focusout relatedTarget=null）
+    // 底部悬浮格式栏（notion-toolbar / notion-mobile-toolbar）保持原状，点击其按钮不退出编辑
+    const TOOLBAR = '.notion-toolbar, .notion-mobile-toolbar, .slash-menu, .block-menu, .block-sheet, .format-sheet, [data-mobile-toolbar], .actionsheet-overlay, .modal-overlay';
+    setTimeout(() => {
+      inst._docDown = (e) => {
+        const t = e.target;
+        if (!t || editorWrap.contains(t)) return;
+        if (t.closest && t.closest(TOOLBAR)) return;
+        this._exitBodyEdit(inst);
+      };
+      document.addEventListener('mousedown', inst._docDown, true);
+
+      inst._focusOut = (e) => {
+        if (editorWrap.contains(e.target)) return;
+        if (e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest(TOOLBAR)) return;
+        // 延迟小步：避免与「点击格式栏按钮」的焦点转移冲突
+        setTimeout(() => this._exitBodyEdit(inst), 150);
+      };
+      document.addEventListener('focusout', inst._focusOut, true);
+    }, 0);
+  },
+
+  // ===== 退出正文编辑：取最新 MD → 保存 → 就地恢复查看渲染 =====
+  _exitBodyEdit(inst) {
+    if (!inst || inst.exiting) return;
+    inst.exiting = true;
+    const md = inst.editor ? inst.editor.getContent() : (inst.note.content || '');
+    this._clearBodyDebounce(inst);
+    this._saveNoteContent(inst.note, md, { refreshMeta: inst.metaEl }).finally(() => {
+      // 就地恢复查看渲染（不重渲染整页，滚动位置不跳动）
+      const bodyEl = document.createElement('div');
+      bodyEl.className = 'card note-detail-body';
+      bodyEl.setAttribute('data-tap-edit', '');
+      bodyEl.innerHTML = md
+        ? App.Utils.simpleMarkdown(md)
+        : '<span style="color:var(--text-tertiary);">暂无内容，点击开始编辑</span>';
+      bodyEl.addEventListener('click', (e) => this._editBodyInPlace(bodyEl, inst.note, inst.metaEl, e));
+      if (inst.editorWrap && inst.editorWrap.parentNode) inst.editorWrap.replaceWith(bodyEl);
+      // 清理全局监听
+      if (inst._docDown) document.removeEventListener('mousedown', inst._docDown, true);
+      if (inst._focusOut) document.removeEventListener('focusout', inst._focusOut, true);
+      if (this._bodyEditor === inst) this._bodyEditor = null;
+    });
+  },
+
+  // ===== 双保险保存：防抖（2 秒）+ 失焦强制保存 =====
+  _debouncedBodySave(inst, content) {
+    if (inst._saveTimer) clearTimeout(inst._saveTimer);
+    inst._saveTimer = setTimeout(() => {
+      inst._saveTimer = null;
+      if (inst.exiting) return;
+      this._saveNoteContent(inst.note, content, { refreshMeta: inst.metaEl });
+    }, 2000);
+  },
+  _clearBodyDebounce(inst) {
+    if (inst && inst._saveTimer) { clearTimeout(inst._saveTimer); inst._saveTimer = null; }
+  },
+
+  // ===== 统一保存：写 DB（保留 linkedErrors/linkedReviews/doodle）+ 刷新「最后编辑于」 =====
+  async _saveNoteContent(note, content, opts) {
+    const o = opts || {};
+    try {
+      const existing = note.id ? await App.DB.get('notes', note.id) : null;
+      const payload = {
+        id: note.id, subject: note.subject || '', module: note.module || '',
+        knowledgePoint: note.knowledgePoint || '', title: note.title || '未命名笔记',
+        content: content || '',
+        linkedErrors: note.linkedErrors || [],
+        linkedReviews: existing ? existing.linkedReviews || [] : [],
+        doodle: note.doodle, doodleHidden: note.doodleHidden,
+        updatedAt: new Date().toISOString()
+      };
+      await App.DB.updateNote(payload);
+      note.content = content || '';
+      note.updatedAt = payload.updatedAt;
+      if (o.refreshMeta && o.refreshMeta.textContent) {
+        o.refreshMeta.textContent = '最后编辑于 ' + App.Utils.formatDateTime(payload.updatedAt);
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  },
+
+  // ===== 点击位置 → 渲染 HTML 行索引（供块编辑器定位光标） =====
+  _resolveClickBlock(bodyEl, e) {
+    if (!bodyEl || !e) return 0;
+    try {
+      const y = e.clientY;
+      const rows = Array.from(bodyEl.querySelectorAll('p, ul, ol, h1, h2, h3, h4, blockquote, pre, hr, .mformula, .md-preview-blank'));
+      if (!rows.length) return 0;
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i].getBoundingClientRect();
+        if (y <= r.bottom) return i;
+      }
+      return rows.length - 1;
+    } catch (err) { return 0; }
+  },
+
+  // ===== 聚焦块编辑器到指定块（光标置于块末尾） =====
+  _focusBlockAt(editor, idx) {
+    if (!editor || !editor.element) return;
+    try {
+      const blocks = editor.element.querySelectorAll('.notion-block');
+      if (!blocks.length) return;
+      const i = Math.max(0, Math.min(idx || 0, blocks.length - 1));
+      const editable = blocks[i].querySelector('.notion-editable') || blocks[i];
+      editable.focus();
+      try {
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(editable);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch (e2) {}
+    } catch (err) {}
+  },
+
 
   // ===== 打开手写笔记覆盖层（铅笔图标触发） =====
   _openDoodle(note, params) {

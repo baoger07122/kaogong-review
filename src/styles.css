@@ -3772,6 +3772,50 @@ body.ipad-split #page-note-form .page-header__back {
 }
 .note-cat-clear:active { color: var(--color-danger); }
 
+/* ===== 笔记详情页：Notion 式无模式就地编辑 ===== */
+/* 查看态标题（点击即就地编辑） */
+.note-detail-title {
+  font-size: var(--font-xl);
+  font-weight: 700;
+  margin-bottom: var(--spacing-md);
+  cursor: pointer;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+.note-detail-title .md-preview-p { margin: 0; line-height: 1.4; font-size: inherit; font-weight: inherit; }
+.note-detail-title .md-preview-p:last-child { margin-bottom: 0; }
+.note-detail-title:hover { opacity: 0.85; }
+.note-detail-title__empty { color: var(--text-tertiary); font-weight: 600; }
+/* 标题编辑态：与查看态同字号同重量，底部高亮下划线提示可编辑 */
+.note-detail-title-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: var(--font-xl);
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--text-primary);
+  padding: 0;
+  margin-bottom: var(--spacing-md);
+  border-bottom: 2px solid var(--color-primary-light);
+  -webkit-appearance: none;
+}
+/* 正文查看态（点击即就地编辑为块编辑器） */
+.note-detail-body {
+  margin: 0 0 var(--spacing-md) 0;
+  line-height: 1.8;
+  min-height: 80px;
+  cursor: pointer;
+}
+.note-detail-body:hover { border-color: var(--color-primary-light); }
+/* 正文编辑态容器：与查看卡片同宽同留白；块编辑器在文档流中，整页可正常滑动 */
+.note-inplace-editor { margin: 0 0 var(--spacing-md) 0; min-height: 80px; }
+.note-inplace-editor .notion-editor { max-width: none; margin: 0; }
+/* 编辑时间 */
+.note-detail-meta { font-size: var(--font-xs); color: var(--text-tertiary); margin-bottom: var(--spacing-md); }
+
 /* 编辑器主体 */
 .notion-editor {
   position: relative;
