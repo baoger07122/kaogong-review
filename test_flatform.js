@@ -88,13 +88,12 @@ setTimeout(async () => {
     assert(!!selWrap.querySelector('.form-select'), '非扁平科目 formSelector 渲染模块选项');
     errPage2.remove();
 
-    console.log('\n[5] 笔记表单：资料分析跳过模块选择');
-    // 直接验证级联弹窗逻辑：资料分析下 centeredPicker 只走两步（科目→考点）
-    // 通过检查 App.Pages.Notes 的 renderForm 渲染结构（catSelector 存在即可）
-    const notePage = doc.getElementById('page-note-form');
-    await App.Pages.Notes.renderForm.call(App.Pages.Notes, { subject: '资料分析' });
+    console.log('\n[5] 笔记单页编辑：资料分析跳过模块选择（新建直达编辑模式）');
+    // v8.4.6 笔记表单已合并为单页编辑：renderForm 重定向 note-detail，分类选择器在编辑模式底部
+    const notePage = doc.getElementById('page-note-detail');
+    await App.Pages.Notes.renderDetail.call(App.Pages.Notes, { new: '1', subject: '资料分析' });
     await new Promise(r => setTimeout(r, 300));
-    assert(!!notePage.querySelector('.note-cat-selector'), '笔记分类选择器存在');
+    assert(!!notePage.querySelector('.note-edit-cat'), '笔记单页编辑分类选择器存在');
     assert(notePage.textContent.includes('资料分析'), '分类选择器显示资料分析');
 
     console.log('\n===== 表单扁平化专项: ' + pass + ' 通过, ' + fail + ' 失败 =====');
