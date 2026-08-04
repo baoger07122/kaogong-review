@@ -4351,8 +4351,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   transition: background 0.1s ease;
   -webkit-tap-highlight-color: transparent;
 }
-.notion-block:hover { background: rgba(0,0,0,0.02); }
-/* 状态 1/2：手柄默认隐藏（不碍眼）；仅状态 3（选中）时显示 */
+/* v8.4.16：按用户要求移除悬停灰底（编辑态更清爽） */
 .notion-block:hover .notion-block__indents { opacity: 1; }
 
 .notion-block__handle {
@@ -4383,20 +4382,9 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   pointer-events: none;
   opacity: 0;
 }
-/* 状态 3 视觉指示：左侧 3px 蓝色竖条 + 极淡蓝背景 */
-.notion-block.is-selected {
-  background: rgba(46, 170, 220, 0.05);
-}
+/* v8.4.16：按用户要求移除选中高亮（淡蓝底 + 左侧蓝条），仅保留手柄显示 */
 .notion-block.is-selected::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 2px;
-  bottom: 2px;
-  width: 3px;
-  background: var(--color-primary, #2EAADC);
-  border-radius: 0 2px 2px 0;
-  pointer-events: none;
+  display: none;
 }
 
 .notion-block__indents {
@@ -6967,7 +6955,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.15';
+App.VERSION = '8.4.16';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');

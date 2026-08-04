@@ -73,7 +73,7 @@ setTimeout(() => {
     b0Blank.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true }));
     assert(b0.classList.contains('is-selected'), '点击非编辑态块 → 选中');
     const csSel = win.getComputedStyle(b0);
-    assert(csSel.backgroundColor === 'rgba(46, 170, 220, 0.05)', '选中时有视觉指示背景 (' + csSel.backgroundColor + ')');
+    assert(csSel.backgroundColor === 'rgba(0, 0, 0, 0)', 'v8.4.16 选中时无高亮背景 (' + csSel.backgroundColor + ')');
     const selHandle = win.getComputedStyle(h0);
     assert(selHandle.opacity === '1', '选中时手柄显示 (opacity:1)');
     assert(selHandle.pointerEvents === 'auto', '选中时手柄可点击');
