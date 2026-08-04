@@ -271,6 +271,13 @@ input, textarea, select {
   transform: translateZ(0);
 }
 
+/* ===== 无底部导航页面（笔记详情/笔记编辑）：隐藏固定底栏，内容底部不再预留 nav 空间 ===== */
+#bottom-nav.nav--hidden { display: none; }
+#page-note-detail.nav-hidden,
+#page-note-form.nav-hidden {
+  padding-bottom: var(--safe-bottom);
+}
+
 .nav-item {
   display: flex;
   flex-direction: column;

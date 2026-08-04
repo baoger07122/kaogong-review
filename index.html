@@ -289,6 +289,13 @@ input, textarea, select {
   transform: translateZ(0);
 }
 
+/* ===== 无底部导航页面（笔记详情/笔记编辑）：隐藏固定底栏，内容底部不再预留 nav 空间 ===== */
+#bottom-nav.nav--hidden { display: none; }
+#page-note-detail.nav-hidden,
+#page-note-form.nav-hidden {
+  padding-bottom: var(--safe-bottom);
+}
+
 .nav-item {
   display: flex;
   flex-direction: column;
@@ -6957,7 +6964,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.13';
+App.VERSION = '8.4.14';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -8688,6 +8695,29 @@ App.Components = {
     if (bar) bar.classList.remove('is-visible');
   },
 
+  // 底部导航可见性（由路由切换通知）：笔记详情/编辑页隐藏导航时，工具栏收起位置贴底而不是悬浮导航上方
+  _navVisible: true,
+  _setNavVisible(visible) {
+    this._navVisible = visible;
+    const bar = this._mobileToolbarEl;
+    if (!bar) return;
+    let kb = 0;
+    try {
+      if (window.visualViewport && window.innerHeight > window.visualViewport.height) {
+        kb = window.innerHeight - window.visualViewport.height;
+      }
+    } catch (e) {}
+    if (kb > 0) return;   // 键盘弹出中，位置由 updateToolbarBottom 按 kb+16 处理
+    if (visible) {
+      try {
+        const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--nav-height'));
+        bar.style.bottom = ((isNaN(v) ? 56 : v) + 10) + 'px';
+      } catch (e) { bar.style.bottom = '66px'; }
+    } else {
+      bar.style.bottom = '16px';   // 无底部导航：工具栏贴底悬浮
+    }
+  },
+
   // 构建底部工具栏 DOM（惰性单例）
   _ensureMobileToolbar() {
     if (this._mobileToolbarBuilt) return this._mobileToolbarEl;
@@ -8795,8 +8825,9 @@ App.Components = {
         // 兼容旧版 iOS：offsetTop 表示可视区相对页面的下移量，也计入
         if (vv.offsetTop > kb) kb = vv.offsetTop;
       }
-      // 悬浮卡片：键盘弹出 bottom = kb+16（键盘上方）；收起 bottom = 导航上方（nav + safe + 10）
-      bar.style.bottom = (kb > 0 ? kb + 16 : NAV_H + SAFE_BOTTOM + 10) + 'px';
+      // 悬浮卡片：键盘弹出 bottom = kb+16（键盘上方）；收起时——若当前页面隐藏了底部导航则贴底 16px，否则悬浮导航上方
+      const hideNav = App.Components._navVisible === false;
+      bar.style.bottom = (kb > 0 ? kb + 16 : (hideNav ? SAFE_BOTTOM + 16 : NAV_H + SAFE_BOTTOM + 10)) + 'px';
       // 同时告知当前活动编辑器，让浮动格式栏也能适配
       const inst = App.Components._activeMobileEditor;
       if (inst && typeof inst._onKeyboardChange === 'function') inst._onKeyboardChange(kb);
@@ -14711,6 +14742,14 @@ App.Router = {
       pageEl.classList.add('active');
     }
 
+    // 无底部导航页面（笔记详情/笔记编辑）：隐藏固定底栏 + 内容底部不预留 nav 空间 + 通知移动端工具栏贴底
+    // 先清除所有页面的 nav-hidden，再只给当前页设置（避免残留 class 影响后续切换）
+    const navHiddenPages = ['note-detail', 'note-form'];
+    const navHidden = navHiddenPages.indexOf(base) >= 0;
+    document.querySelectorAll('.page.nav-hidden').forEach(function (p) { p.classList.remove('nav-hidden'); });
+    if (pageEl) pageEl.classList.toggle('nav-hidden', navHidden);
+    if (App.Components && App.Components._setNavVisible) App.Components._setNavVisible(!navHidden);
+
     // 离开表单页时清掉进行中的草稿，确保下次新建必为空白；
     // 但保留「目标即本表单」的情况（如刷新当前页），以支持续编恢复。
     try {
@@ -14726,6 +14765,7 @@ App.Router = {
 
     // 显示/隐藏 FAB
     this.updateFabVisibility(base);
+    this.updateNavVisibility(base);
 
     // 调用页面渲染
     try {
@@ -14761,6 +14801,14 @@ App.Router = {
     } else {
       fab.classList.add('fab--hidden');
     }
+  },
+
+  // 无底部导航页面（笔记详情/笔记编辑）：隐藏固定底栏
+  updateNavVisibility(currentPage) {
+    const nav = document.getElementById('bottom-nav');
+    if (!nav) return;
+    const hidePages = ['note-detail', 'note-form'];
+    nav.classList.toggle('nav--hidden', hidePages.indexOf(currentPage) >= 0);
   },
 
   async updateNavBadges() {

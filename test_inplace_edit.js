@@ -50,7 +50,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.4.13', 'App.VERSION === 8.4.13（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.4.14', 'App.VERSION === 8.4.14（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 查看态渲染（JSON 块 → HTML；点击即编辑）');
     await Notes.renderDetail({ id: 'note1' });
@@ -250,6 +250,29 @@ setTimeout(async () => {
     assert(!mbar.classList.contains('is-visible'), 'textarea 聚焦不触发工具栏');
     Object.defineProperty(win, 'innerWidth', { value: w0, configurable: true, writable: true });
     holder2.remove(); taHolder.remove();
+
+    console.log('\n[12] 无底部导航页面：笔记详情/编辑隐藏固定底栏');
+    const nav = doc.getElementById('bottom-nav');
+    assert(!!nav, '底部导航存在');
+    App.Router.updateNavVisibility('note-detail');
+    assert(nav.classList.contains('nav--hidden'), 'note-detail 隐藏导航');
+    App.Router.updateNavVisibility('note-form');
+    assert(nav.classList.contains('nav--hidden'), 'note-form 隐藏导航');
+    App.Router.updateNavVisibility('notes');
+    assert(!nav.classList.contains('nav--hidden'), 'notes 恢复导航');
+    // handleRoute 集成：进入详情页 → 导航隐藏 + 页面带 nav-hidden class；返回列表 → 恢复
+    win.location.hash = '#note-detail?id=note1';
+    await App.Router.handleRoute();
+    await wait(50);
+    assert(nav.classList.contains('nav--hidden'), 'handleRoute 到 note-detail 隐藏导航');
+    assert(doc.getElementById('page-note-detail').classList.contains('nav-hidden'), 'page-note-detail 带 nav-hidden class');
+    assert(App.Components._navVisible === false, '移动端工具栏收到导航隐藏状态');
+    win.location.hash = '#notes';
+    await App.Router.handleRoute();
+    await wait(50);
+    assert(!nav.classList.contains('nav--hidden'), 'handleRoute 回 notes 恢复导航');
+    assert(!doc.getElementById('page-note-detail').classList.contains('nav-hidden'), '回列表后移除 nav-hidden class');
+    assert(App.Components._navVisible === true, '移动端工具栏收到导航恢复状态');
 
     console.log('\n总计: ' + pass + ' 通过, ' + fail + ' 失败');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }
