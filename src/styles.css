@@ -3810,6 +3810,8 @@ body.ipad-split #page-note-form .page-header__back {
   cursor: pointer;
 }
 .note-detail-body:hover { border-color: var(--color-primary-light); }
+/* 查看态正文左侧预留 20px：与编辑态块手柄占位(22-2px)精确对齐，点击切换文本位置零跳变 */
+.note-render-pad { padding-left: 20px; }
 /* 编辑态：块编辑器在卡片内部（容器 .card 全程不变，切换无闪烁）；禁用点击缩放反馈避免抖动 */
 .note-detail-body--editing:hover { border-color: var(--border-color); }
 .note-detail-body--editing:active { transform: none; }

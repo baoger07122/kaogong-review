@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.9';
+App.VERSION = '8.4.10';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -10368,9 +10368,10 @@ App.Pages.Notes = {
     const bodyEl = document.createElement('div');
     bodyEl.className = 'card note-detail-body';
     bodyEl.setAttribute('data-tap-edit', '');
+    // 查看态正文外包 .note-render-pad：左侧预留 20px 与编辑态手柄占位对齐，切换时文本位置零跳变
     bodyEl.innerHTML = note.content.length
-      ? App.Utils.renderBlocks(note.content)
-      : '<span style="color:var(--text-tertiary);">暂无内容，点击开始编辑</span>';
+      ? '<div class="note-render-pad">' + App.Utils.renderBlocks(note.content) + '</div>'
+      : '<div class="note-render-pad"><span style="color:var(--text-tertiary);">暂无内容，点击开始编辑</span></div>';
     bodyEl.addEventListener('click', (e) => this._editBodyInPlace(bodyEl, note, metaEl, e));
     content.appendChild(bodyEl);
 
@@ -10518,8 +10519,8 @@ App.Pages.Notes = {
       if (bodyEl && bodyEl.parentNode) {
         bodyEl.classList.remove('note-detail-body--editing');
         bodyEl.innerHTML = Array.isArray(data) && data.length
-          ? App.Utils.renderBlocks(data)
-          : '<span style="color:var(--text-tertiary);">暂无内容，点击开始编辑</span>';
+          ? '<div class="note-render-pad">' + App.Utils.renderBlocks(data) + '</div>'
+          : '<div class="note-render-pad"><span style="color:var(--text-tertiary);">暂无内容，点击开始编辑</span></div>';
         bodyEl.addEventListener('click', (e) => this._editBodyInPlace(bodyEl, inst.note, inst.metaEl, e));
       }
       // 清理全局监听
