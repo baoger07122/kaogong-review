@@ -50,7 +50,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.4.17', 'App.VERSION === 8.4.17（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.4.18', 'App.VERSION === 8.4.18（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 查看态渲染（JSON 块 → HTML；点击即编辑）');
     await Notes.renderDetail({ id: 'note1' });
@@ -333,6 +333,52 @@ setTimeout(async () => {
       win.getSelection = origGetSel;
     }
     holder3.remove();
+
+    console.log('\n[14] v8.4.18 列表行为（回车/删除/重编号/光标布局）');
+    // 14.1 G：列表行尾回车 → 新项保持列表类型
+    const h41 = doc.createElement('div'); doc.body.appendChild(h41);
+    const ed41 = App.Components.initEditor(h41, { initialData: [{ type: 'bullet', content: '项目甲' }], dataMode: 'json', placeholder: false });
+    const bl41 = h41.querySelector('.notion-block--bullet .notion-editable');
+    bl41.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    const d41 = ed41.getEditorData();
+    assert(d41.length === 2 && d41[1].type === 'bulletList', 'G: 列表行尾回车 → 新项保持列表类型（' + (d41[1] || {}).type + '）');
+    // 14.2 G：空列表项回车 → 退出列表变普通文本
+    const bl42 = h41.querySelectorAll('.notion-block--bullet .notion-editable')[1];
+    bl42.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    const d42 = ed41.getEditorData();
+    assert(d42.length === 2 && d42[1].type === 'text', 'G: 空列表项回车 → 退出列表变普通文本（' + d42[1].type + '）');
+    h41.remove();
+    // 14.3 E：有序列表空白行后重新成为段起点（is-list-start）
+    const h43 = doc.createElement('div'); doc.body.appendChild(h43);
+    App.Components.initEditor(h43, { initialData: [
+      { type: 'numbered', content: '甲' },
+      { type: 'numbered', content: '乙' },
+      { type: 'text', content: '' },
+      { type: 'numbered', content: '丙' }
+    ], dataMode: 'json', placeholder: false });
+    const nums43 = h43.querySelectorAll('.notion-block--numbered');
+    assert(nums43.length === 3, 'E: 3 个有序块渲染');
+    assert(nums43[0].classList.contains('is-list-start'), 'E: 第 1 个有序块为列表段起点');
+    assert(!nums43[1].classList.contains('is-list-start'), 'E: 第 2 个有序块同段连续（非起点）');
+    assert(nums43[2].classList.contains('is-list-start'), 'E: 空白行后第 3 个有序块重新为段起点');
+    // 14.4 B：列表编辑框不再是 flex 布局（光标不再飘到最前）
+    const ed44 = h43.querySelector('.notion-block--numbered .notion-editable');
+    const disp44 = win.getComputedStyle(ed44).display;
+    assert(disp44 !== 'flex', 'B: 列表编辑框非 flex 布局（' + disp44 + '，光标不再飘到最前）');
+    h43.remove();
+    // 14.5 H：光标在格式块最前按删除 → 降级为普通文本且内容保留
+    const h45 = doc.createElement('div'); doc.body.appendChild(h45);
+    const ed45 = App.Components.initEditor(h45, { initialData: [{ type: 'numbered', content: '甲' }], dataMode: 'json', placeholder: false });
+    const bl45 = h45.querySelector('.notion-block--numbered .notion-editable');
+    const origSel45 = win.getSelection;
+    win.getSelection = () => ({ rangeCount: 1, isCollapsed: true, getRangeAt: () => ({ startContainer: bl45, startOffset: 0 }), removeAllRanges() {}, addRange() {} });
+    try {
+      bl45.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }));
+      const d45 = ed45.getEditorData();
+      assert(d45[0].type === 'text', 'H: 块首按删除 → 格式块降级为普通文本（' + d45[0].type + '）');
+      assert(d45[0].content === '甲', 'H: 降级后内容保留');
+    } finally { win.getSelection = origSel45; }
+    h45.remove();
 
     console.log('\n总计: ' + pass + ' 通过, ' + fail + ' 失败');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }

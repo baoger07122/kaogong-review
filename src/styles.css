@@ -3823,6 +3823,10 @@ body.ipad-split #page-note-form .page-header__back {
 /* 编辑态：块编辑器在卡片内部（容器 .card 全程不变，切换无闪烁）；禁用点击缩放反馈避免抖动 */
 .note-detail-body--editing:hover { border-color: var(--border-color); }
 .note-detail-body--editing:active { transform: none; }
+/* v8.4.18 I：移动端编辑态（光标闪动）整页可滚动——放开编辑区垂直 pan，避免 contenteditable 聚焦时触摸滚动被吞 */
+.note-detail-body--editing,
+.note-detail-body--editing .notion-editor__blocks,
+.note-detail-body--editing .notion-editable { touch-action: pan-y; }
 .note-detail-body .notion-editor { max-width: none; margin: 0; min-height: 0; }
 /* 就地编辑字号：正文 14px（与查看态统一；仅详情页就地编辑场景，新建/错题页不受影响） */
 .note-detail-body .notion-editable { font-size: 14px; }
@@ -4446,29 +4450,38 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 }
 
 /* 列表样式 */
+/* v8.4.18 B：去掉 .notion-editable 的 flex 布局（flex 容器内 contenteditable 光标会飘到最前面），
+   前缀（•/1.）改为绝对定位，内容正常流式排布，光标定位恢复正常 */
+.notion-block--bullet .notion-editable,
+.notion-block--numbered .notion-editable {
+  position: relative;
+  padding-left: 22px;
+}
+/* v8.4.18 C：无序圆点纯黑 + 放大（原灰色小圆点） */
 .notion-block--bullet .notion-editable::before {
   content: '•';
-  color: var(--text-tertiary);
-  margin-right: 8px;
-  flex-shrink: 0;
-}
-.notion-block--bullet .notion-editable {
-  display: flex;
-  align-items: baseline;
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: #000;
+  font-size: 20px;
+  line-height: 23px;
+  width: 20px;
+  text-align: center;
 }
 .notion-block--numbered .notion-editable::before {
   counter-increment: notion-num;
   content: counter(notion-num) '.';
+  position: absolute;
+  left: 0;
+  top: 0;
   color: var(--text-tertiary);
-  margin-right: 8px;
   min-width: 18px;
   text-align: right;
-  flex-shrink: 0;
+  line-height: 23px;
 }
-.notion-block--numbered .notion-editable {
-  display: flex;
-  align-items: baseline;
-}
+/* v8.4.18 E：有序列表「空白行后重新从 1 编号」——列表段起点块（JS 渲染加 is-list-start）重置计数器 */
+.notion-block--numbered.is-list-start { counter-reset: notion-num 0; }
 .notion-editor__blocks { counter-reset: notion-num; }
 
 /* 待办事项 */

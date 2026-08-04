@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.17';
+App.VERSION = '8.4.18';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -5113,6 +5113,12 @@ App.Components = {
 
     // 块插入逻辑：在当前聚焦块下方插入，无聚焦块则在末尾；插入后聚焦并 onChange
     function insertBlockFromSheet(type) {
+      // v8.4.18 A：文字类格式 → 直接转换当前聚焦块（不跳行）；表格/分割线等块状元素仍插到当前行下方
+      const convertTypes = { text:'text', h1:'h1', h2:'h2', h3:'h3', h4:'h4', bullet:'bullet', numbered:'numbered', todo:'todo', toggle:'toggle', quote:'quote', code:'code', callout:'callout' };
+      if (convertTypes[type]) {
+        const be = focusedBlockEl ? focusedBlockEl.closest('.notion-block') : null;
+        if (be) { applyBlockTypeToFocused(type); return; }
+      }
       let nb = null;
       const baseTypes = { text:'text', h1:'h1', h2:'h2', h3:'h3', h4:'h4', bullet:'bullet', numbered:'numbered', todo:'todo', toggle:'toggle', quote:'quote', divider:'divider', code:'code' };
       if (type === 'table') { nb = createBlock('table', ''); nb.tableData = [['列1','列2'],['','']]; }
@@ -5625,9 +5631,10 @@ App.Components = {
       return el;
     }
 
-    function renderBlock(block, index, parentIdx) {
+    // v8.4.18 E：listStart=true 表示该 numbered 块是「列表段起点」（前一块不是 numbered，如空白行后），CSS 侧 counter-reset 重新从 1 编号
+    function renderBlock(block, index, parentIdx, listStart) {
       const el = document.createElement('div');
-      el.className = 'notion-block notion-block--' + block.type + (parentIdx !== undefined ? ' notion-block--child' : '');
+      el.className = 'notion-block notion-block--' + block.type + (parentIdx !== undefined ? ' notion-block--child' : '') + (listStart ? ' is-list-start' : '');
       el.dataset.index = index;
       if (parentIdx !== undefined) el.dataset.pidx = parentIdx;   // 子块标记父 toggle
       if (block.indent > 0) el.style.paddingLeft = (24 * block.indent) + 'px';
@@ -5764,7 +5771,8 @@ App.Components = {
         if (block.collapsed) childrenWrap.style.display = 'none';
         // 递归渲染 children 中的每个子块（复用 renderBlock，带父索引标记）
         (block.children || []).forEach((child, ci) => {
-          childrenWrap.appendChild(renderBlock(child, ci, index));
+          const cStart = child.type === 'numbered' && (ci === 0 || !block.children[ci - 1] || block.children[ci - 1].type !== 'numbered');
+          childrenWrap.appendChild(renderBlock(child, ci, index, cStart));
         });
         box.appendChild(header);
         box.appendChild(childrenWrap);
@@ -6250,7 +6258,21 @@ App.Components = {
           }
         }
         else if (e.key === 'Backspace') {
-          if (div.textContent === '' || (window.getSelection().isCollapsed && div.textContent === '')) { e.preventDefault(); pushUndo(); deleteBlock(idx, be); }
+          if (div.textContent === '') { e.preventDefault(); pushUndo(); deleteBlock(idx, be); return; }
+          // v8.4.18 H：光标在块最前面 + 格式块（列表/标题/待办/引用）→ 按删除键降级为普通文本（内容保留）
+          const selB = window.getSelection();
+          const rgB = (selB && selB.rangeCount > 0) ? selB.getRangeAt(0) : null;
+          const atStart = rgB && selB.isCollapsed && rgB.startOffset === 0 &&
+            (rgB.startContainer === div || rgB.startContainer === div.firstChild);
+          if (atStart && ctx && ['bullet','numbered','todo','quote','heading1','heading2','heading3','heading4'].indexOf(ctx.arr[idx].type) >= 0) {
+            e.preventDefault(); pushUndo();
+            ctx.arr[idx].type = 'text';
+            reRender();
+            const elB = focusBlockEditable(ctx.parentIdx, idx);
+            if (elB) { elB.focus(); placeCaretAtEnd(elB); }
+            notifyChange();
+            return;
+          }
         }
         else if (e.key === '/' && div.textContent === '') { setTimeout(() => showSlashMenu(be, ''), 10); }
         else if (e.key === 'Escape') { hideAllMenus(); div.blur(); }
@@ -6339,6 +6361,19 @@ App.Components = {
       block.html = editable.innerHTML;
     }
 
+    // v8.4.18 F：有序列表「新段起点」自动延续上一有序列表段的缩进
+    // （空白行后重新开始的列表，缩进自动继承上一列表，无需手动按 Tab）
+    function inheritListIndent(ctx, idx) {
+      const arr = ctx.arr, b = arr[idx];
+      if (!b || b.type !== 'numbered' || (b.indent || 0) > 0) return;   // 仅有序列表、且自身无缩进时
+      const prev = arr[idx - 1];
+      if (prev && prev.type === 'numbered') return;                     // 同段内（回车新建项）缩进已由 splitBlock 继承
+      for (let i = idx - 1; i >= 0; i--) {                              // 新段起点：向前找最近的 numbered 块继承缩进
+        const p = arr[i];
+        if (p && p.type === 'numbered') { if (p.indent) b.indent = p.indent; break; }
+      }
+    }
+
     function changeBlockType(blockEl, newType) {
       const ctx = getBlockCtx(blockEl);
       if (!ctx) return;
@@ -6368,8 +6403,16 @@ App.Components = {
         ctx.arr[idx].imgData = null;
       }
       reRender();
+      // v8.4.18 F：转换到有序列表且是新段起点时，自动延续上一有序列表段缩进
+      if (newType === 'numbered') inheritListIndent(ctx, idx);
       const newEl = focusBlockEditable(ctx.parent ? ctx.parentIdx : null, idx);
-      void newEl;
+      // v8.4.18 B：toggle 块没有 .notion-editable（标题是 .notion-toggle__summary），聚焦其标题行
+      if (!newEl && ctx.arr[idx] && ctx.arr[idx].type === 'toggle') {
+        const q = (ctx.parentIdx !== null)
+          ? blocksContainer.querySelector('.notion-block--toggle[data-pidx="' + ctx.parentIdx + '"][data-index="' + idx + '"] .notion-toggle__summary')
+          : blocksContainer.querySelector('.notion-block--toggle[data-index="' + idx + '"] .notion-toggle__summary');
+        if (q) { q.focus(); placeCaretAtEnd(q); }
+      }
     }
 
     function splitBlock(idx, editable) {
@@ -6385,6 +6428,16 @@ App.Components = {
 
       // 空块直接在其下方新建一个空文本块并聚焦
       if (text === '') {
+        // v8.4.18 G：空列表项（无序/有序）按回车 → 退出列表，当前块降级为普通文本（不新建块）
+        if (block.type === 'bullet' || block.type === 'numbered') {
+          block.type = 'text';
+          block.html = '';
+          reRender();
+          const el = focusBlockEditable(parentIdx, idx);
+          if (el) { el.focus(); placeCaretAtEnd(el); }
+          notifyChange();
+          return;
+        }
         const newBlock = createBlock('text', '');
         newBlock.indent = block.indent;
         arr.splice(idx + 1, 0, newBlock);
@@ -6407,7 +6460,10 @@ App.Components = {
 
       block.content = text.slice(0, offset);
       block.html = '';
-      const newBlock = createBlock(text.slice(offset) === '' ? 'text' : block.type, text.slice(offset));
+      // v8.4.18 G：列表（无序/有序）行尾回车 → 新项保持列表类型（继续列表）；非列表行尾 → 普通文本；光标在中间 → 继承原类型
+      let newType = block.type;
+      if (text.slice(offset) === '') newType = (block.type === 'bullet' || block.type === 'numbered') ? block.type : 'text';
+      const newBlock = createBlock(newType, text.slice(offset));
       newBlock.indent = block.indent;
       if (block.type === 'todo') newBlock.checked = false;
       arr.splice(idx + 1, 0, newBlock);
@@ -6541,7 +6597,11 @@ App.Components = {
       blocks.forEach(b => { if (!b.id) b.id = genBlockId(); });
       migrateToggleBlocks(blocks);   // 【修复1】兜底迁移旧 toggle 数据
       blocksContainer.innerHTML = '';
-      blocks.forEach((block, i) => blocksContainer.appendChild(renderBlock(block, i)));
+      blocks.forEach((block, i) => {
+        // v8.4.18 E：numbered 段起点 = 前一块不是 numbered（空白行/其他类型块会断开列表段）
+        const isStart = block.type === 'numbered' && (i === 0 || !blocks[i - 1] || blocks[i - 1].type !== 'numbered');
+        blocksContainer.appendChild(renderBlock(block, i, undefined, isStart));
+      });
       updateFooter();
     }
 
