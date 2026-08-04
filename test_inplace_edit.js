@@ -47,7 +47,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.4.6', 'App.VERSION === 8.4.6（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.4.7', 'App.VERSION === 8.4.7（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 查看态渲染（无模式：无编辑按钮，点击即编辑）');
     await Notes.renderDetail({ id: 'note1' });
@@ -82,12 +82,15 @@ setTimeout(async () => {
     const bodyEl2 = container.querySelector('.note-detail-body');
     bodyEl2.click();
     await wait(30);
-    const inplace = container.querySelector('.note-inplace-editor');
-    assert(!!inplace, '正文就地变 .note-inplace-editor 容器');
-    const editorEl = inplace.querySelector('.notion-editor');
-    assert(!!editorEl, '块编辑器 .notion-editor 出现');
-    assert(!inplace.querySelector('textarea'), '不是 textarea 小窗口（保持块编辑器形态）');
-    const blocks = inplace.querySelectorAll('.notion-block');
+    // 容器复用：.card 卡片节点不被替换，仅内部换成块编辑器（修复切换闪烁）
+    const cardEl = container.querySelector('.note-detail-body');
+    assert(!!cardEl, '正文 .card 卡片容器仍在（未被替换）');
+    assert(cardEl.classList.contains('card'), '卡片样式保留（白底/圆角/内边距不变）');
+    assert(cardEl.classList.contains('note-detail-body--editing'), '进入编辑态标记 class 生效');
+    const editorEl = cardEl.querySelector('.notion-editor');
+    assert(!!editorEl, '块编辑器 .notion-editor 出现在卡片内部');
+    assert(!cardEl.querySelector('textarea'), '不是 textarea 小窗口（保持块编辑器形态）');
+    const blocks = cardEl.querySelectorAll('.notion-block');
     assert(blocks.length >= 3, '块编辑器含多个块（当前 ' + blocks.length + ' 个）');
     // 编辑器内容来自笔记 MD 原文
     const inst = Notes._bodyEditor;
@@ -97,7 +100,7 @@ setTimeout(async () => {
     assert(md0.includes('项目甲'), '列表内容保留');
 
     console.log('\n[5] 编辑块内容（input 事件）→ 失焦自动保存 + 恢复查看渲染');
-    const firstEditable = inplace.querySelector('.notion-editable');
+    const firstEditable = cardEl.querySelector('.notion-editable');
     assert(!!firstEditable, '存在可编辑块');
     firstEditable.textContent = '**新第一段**内容';
     firstEditable.dispatchEvent(new win.Event('input', { bubbles: true }));
@@ -109,19 +112,20 @@ setTimeout(async () => {
     await wait(400);
     assert(store.notes.note1.content.includes('新第一段'), '失焦后内容已写入 DB');
     const bodyEl3 = container.querySelector('.note-detail-body');
-    assert(!!bodyEl3 && !container.querySelector('.note-inplace-editor'), '失焦退出编辑，恢复查看渲染');
+    assert(!!bodyEl3 && !bodyEl3.classList.contains('note-detail-body--editing'), '失焦退出编辑，恢复查看渲染');
+    assert(bodyEl3.classList.contains('card'), '恢复后卡片样式仍在');
     assert(bodyEl3.innerHTML.includes('<strong>'), '恢复的查看态渲染加粗');
 
     console.log('\n[6] 双保险：编辑中停顿 2 秒自动保存（不退出编辑）');
     bodyEl3.click();
     await wait(30);
     const inst2 = Notes._bodyEditor;
-    const ed = container.querySelector('.note-inplace-editor .notion-editable');
+    const ed = container.querySelector('.note-detail-body .notion-editable');
     ed.textContent = '自动保存验证段落';
     ed.dispatchEvent(new win.Event('input', { bubbles: true }));
     await wait(3300);   // 块编辑器 600ms + 我们的 2000ms 防抖
     assert(store.notes.note1.content.includes('自动保存验证段落'), '停顿 2 秒后自动保存到 DB');
-    assert(!!container.querySelector('.note-inplace-editor'), '仍在编辑态（未因自动保存退出）');
+    assert(!!container.querySelector('.note-detail-body--editing'), '仍在编辑态（未因自动保存退出）');
     // 清理：退出编辑
     doc.dispatchEvent(new win.FocusEvent('focusout', { relatedTarget: doc.body, bubbles: true }));
     await wait(400);
@@ -158,19 +162,19 @@ setTimeout(async () => {
     const bodyEl8 = container.querySelector('.note-detail-body');
     bodyEl8.click();
     await wait(30);
-    assert(!!container.querySelector('.note-inplace-editor'), '重新进入编辑态');
+    assert(!!container.querySelector('.note-detail-body--editing'), '重新进入编辑态');
     // 模拟外部移动端工具栏按钮点击（data-mobile-toolbar）→ 不应退出
     const fakeToolbar = doc.createElement('div');
     fakeToolbar.setAttribute('data-mobile-toolbar', '1');
     doc.body.appendChild(fakeToolbar);
     fakeToolbar.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true }));
     await wait(100);
-    assert(!!container.querySelector('.note-inplace-editor'), '点击工具栏按钮不退出编辑');
+    assert(!!container.querySelector('.note-detail-body--editing'), '点击工具栏按钮不退出编辑');
     // 点击页面其他区域（面包屑）→ 退出
     const breadcrumbEl = container.querySelector('.breadcrumb');
     breadcrumbEl.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true }));
     await wait(400);
-    assert(!container.querySelector('.note-inplace-editor'), '点击编辑区外自动退出编辑');
+    assert(!container.querySelector('.note-detail-body--editing'), '点击编辑区外自动退出编辑');
     assert(!!container.querySelector('.note-detail-body'), '退出后恢复查看渲染');
     fakeToolbar.remove();
 

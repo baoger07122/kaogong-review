@@ -3828,9 +3828,10 @@ body.ipad-split #page-note-form .page-header__back {
   cursor: pointer;
 }
 .note-detail-body:hover { border-color: var(--color-primary-light); }
-/* 正文编辑态容器：与查看卡片同宽同留白；块编辑器在文档流中，整页可正常滑动 */
-.note-inplace-editor { margin: 0 0 var(--spacing-md) 0; min-height: 80px; }
-.note-inplace-editor .notion-editor { max-width: none; margin: 0; }
+/* 编辑态：块编辑器在卡片内部（容器 .card 全程不变，切换无闪烁）；禁用点击缩放反馈避免抖动 */
+.note-detail-body--editing:hover { border-color: var(--border-color); }
+.note-detail-body--editing:active { transform: none; }
+.note-detail-body .notion-editor { max-width: none; margin: 0; min-height: 0; }
 /* 编辑时间 */
 .note-detail-meta { font-size: var(--font-xs); color: var(--text-tertiary); margin-bottom: var(--spacing-md); }
 
@@ -6939,7 +6940,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.6';
+App.VERSION = '8.4.7';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -11396,7 +11397,9 @@ App.Components = {
 
   // ===== Notion 风格块编辑器（功能增强版） =====
   // 块类型：text/h1/h2/h3/h4/bullet/numbered/todo/quote/callout/toggle/divider/code/table
-  notionEditor(initialContent, placeholder, onChange, dataMode) {
+  // 第 5 参 _ext：{ inlinePadding: true } 用于「就地编辑」场景——底部留白最小化，避免切换页面高度突变
+  notionEditor(initialContent, placeholder, onChange, dataMode, _ext) {
+    const ext = _ext || {};
     const wrapper = document.createElement('div');
     wrapper.className = 'notion-editor';
 
@@ -11790,15 +11793,16 @@ App.Components = {
     _mobileInst._onKeyboardChange = (kb) => {
       _keyboardH = kb;
       // 编辑器容器底部留白：悬浮卡片高度(56) + 底部间距(16) + 键盘高度，避免内容被遮
+      // 就地编辑模式（inlinePadding）只保留最小留白，避免切换瞬间高度突变导致页面重排
       try {
-        const tbH = 56, tbMargin = 16;
-        wrapper.style.paddingBottom = (tbH + tbMargin + 20 + kb) + 'px';
+        const basePad = ext.inlinePadding ? 8 : (56 + 16 + 20);
+        wrapper.style.paddingBottom = (basePad + kb) + 'px';
       } catch (e) {}
       // 格式栏打开时重新定位（避开 Safari「上/下/对号」透明条）
       if (formatBar && formatBar.parentElement) repositionFormatBar();
     };
-    // 初始留白（无键盘时：56 + 16 + 20）
-    try { wrapper.style.paddingBottom = '92px'; } catch (e) {}
+    // 初始留白（无键盘时：56 + 16 + 20；就地编辑仅 8px，页面高度不突变）
+    try { wrapper.style.paddingBottom = ext.inlinePadding ? '8px' : '92px'; } catch (e) {}
     // 键盘弹出时把聚焦块滚动到可视区
     const _vvScrollHandler = () => {
       if (_keyboardH > 0 && focusedBlockEl && focusedBlockEl.scrollIntoView) {
@@ -13846,7 +13850,8 @@ App.Components = {
       opts.initialData || '',
       opts.placeholder,
       opts.onChange,
-      opts.dataMode === 'json' ? 'json' : 'md'
+      opts.dataMode === 'json' ? 'json' : 'md',
+      { inlinePadding: !!opts.inlinePadding }
     );
     container.appendChild(editor.element);
     return editor;
@@ -17309,20 +17314,21 @@ App.Pages.Notes = {
   // ===== 正文就地编辑（点击 → 块编辑器 → 失焦/键盘收起自动保存回查看） =====
   _editBodyInPlace(bodyEl, note, metaEl, clickEvent) {
     if (this._bodyEditor) return;   // 已在编辑中，忽略重复进入
-    const inst = this._bodyEditor = { note, metaEl, editorWrap: null, editor: null, exiting: false, _saveTimer: null };
+    const inst = this._bodyEditor = { note, metaEl, editorWrap: bodyEl, editor: null, exiting: false, _saveTimer: null };
 
     // 点击位置 → 渲染 HTML 中的行索引（尽力定位光标到点击处所在块）
     const targetIdx = this._resolveClickBlock(bodyEl, clickEvent);
 
-    const editorWrap = document.createElement('div');
-    editorWrap.className = 'note-inplace-editor';
-    bodyEl.replaceWith(editorWrap);
-    inst.editorWrap = editorWrap;
+    // 保留 .card 卡片容器（白底/圆角/内边距全程不变），仅清空内部内容挂入块编辑器
+    // —— 切换时卡片外观零变化，不再出现「替换成无样式容器」导致的页面重排闪烁
+    bodyEl.classList.add('note-detail-body--editing');
+    bodyEl.innerHTML = '';
 
-    const editor = App.Components.initEditor(editorWrap, {
+    const editor = App.Components.initEditor(bodyEl, {
       initialData: note.content || '',
       dataMode: 'md',
       placeholder: '点击输入内容…',
+      inlinePadding: true,   // 就地编辑：底部最小留白（8px），切换高度不突变
       onChange: (content) => this._debouncedBodySave(inst, content)
     });
     inst.editor = editor;
@@ -17336,14 +17342,14 @@ App.Pages.Notes = {
     setTimeout(() => {
       inst._docDown = (e) => {
         const t = e.target;
-        if (!t || editorWrap.contains(t)) return;
+        if (!t || bodyEl.contains(t)) return;
         if (t.closest && t.closest(TOOLBAR)) return;
         this._exitBodyEdit(inst);
       };
       document.addEventListener('mousedown', inst._docDown, true);
 
       inst._focusOut = (e) => {
-        if (editorWrap.contains(e.target)) return;
+        if (bodyEl.contains(e.target)) return;
         if (e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest(TOOLBAR)) return;
         // 延迟小步：避免与「点击格式栏按钮」的焦点转移冲突
         setTimeout(() => this._exitBodyEdit(inst), 150);
@@ -17352,22 +17358,22 @@ App.Pages.Notes = {
     }, 0);
   },
 
-  // ===== 退出正文编辑：取最新 MD → 保存 → 就地恢复查看渲染 =====
+  // ===== 退出正文编辑：取最新 MD → 保存 → 复用原卡片容器恢复查看渲染 =====
   _exitBodyEdit(inst) {
     if (!inst || inst.exiting) return;
     inst.exiting = true;
     const md = inst.editor ? inst.editor.getContent() : (inst.note.content || '');
     this._clearBodyDebounce(inst);
     this._saveNoteContent(inst.note, md, { refreshMeta: inst.metaEl }).finally(() => {
-      // 就地恢复查看渲染（不重渲染整页，滚动位置不跳动）
-      const bodyEl = document.createElement('div');
-      bodyEl.className = 'card note-detail-body';
-      bodyEl.setAttribute('data-tap-edit', '');
-      bodyEl.innerHTML = md
-        ? App.Utils.simpleMarkdown(md)
-        : '<span style="color:var(--text-tertiary);">暂无内容，点击开始编辑</span>';
-      bodyEl.addEventListener('click', (e) => this._editBodyInPlace(bodyEl, inst.note, inst.metaEl, e));
-      if (inst.editorWrap && inst.editorWrap.parentNode) inst.editorWrap.replaceWith(bodyEl);
+      // 复用原 .card 卡片容器恢复查看渲染（容器从未被替换，卡片外观与滚动位置均不跳动）
+      const bodyEl = inst.editorWrap;
+      if (bodyEl && bodyEl.parentNode) {
+        bodyEl.classList.remove('note-detail-body--editing');
+        bodyEl.innerHTML = md
+          ? App.Utils.simpleMarkdown(md)
+          : '<span style="color:var(--text-tertiary);">暂无内容，点击开始编辑</span>';
+        bodyEl.addEventListener('click', (e) => this._editBodyInPlace(bodyEl, inst.note, inst.metaEl, e));
+      }
       // 清理全局监听
       if (inst._docDown) document.removeEventListener('mousedown', inst._docDown, true);
       if (inst._focusOut) document.removeEventListener('focusout', inst._focusOut, true);
