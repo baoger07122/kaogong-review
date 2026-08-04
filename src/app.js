@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.8';
+App.VERSION = '8.4.7';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -183,50 +183,6 @@ App.Utils = {
       }
     }
     return cloned;
-  },
-
-  // ===== 笔记查看层 Markdown 渲染（marked.js 优先，CDN 不可达时回退 simpleMarkdown） =====
-  // v8.4.8 笔记系统渲染引擎切换：marked.js（gfm/breaks 开启）；公式通过 marked extension 保留（$x^2$ / $$...$$）
-  renderMarkdown(text) {
-    if (!text) return '';
-    if (typeof window !== 'undefined' && window.marked && window.marked.parse) {
-      try {
-        if (!window.marked._kgInited) {
-          window.marked.setOptions({ gfm: true, breaks: true, headerIds: false });
-          // 公式扩展：行内 $...$ 与块级 $$...$$（复用自研 renderLatex；v8.4.8 起 marked 主渲染）
-          const formulaHtml = (latex, block) => {
-            const esc = String(latex || '');
-            const tag = block ? 'div' : 'span';
-            const cls = block ? 'mformula mformula--block' : 'mformula';
-            return '<' + tag + ' class="' + cls + '" data-latex="' + encodeURIComponent(esc) + '">'
-              + (App.Utils && App.Utils.renderLatex ? App.Utils.renderLatex(esc) : esc) + '</' + tag + '>';
-          };
-          const blockFormula = {
-            name: 'blockFormula', level: 'block',
-            start(src) { return src.indexOf('$$'); },
-            tokenizer(src) {
-              const m = /^\$\$([\s\S]+?)\$\$/.exec(src);
-              return m ? { type: 'blockFormula', raw: m[0], text: m[1] } : undefined;
-            },
-            renderer(t) { return formulaHtml(t.text, true); }
-          };
-          const inlineFormula = {
-            name: 'inlineFormula', level: 'inline',
-            start(src) { return src.indexOf('$'); },
-            tokenizer(src) {
-              const m = /^\$([^$\n]+)\$/.exec(src);
-              return m ? { type: 'inlineFormula', raw: m[0], text: m[1] } : undefined;
-            },
-            renderer(t) { return formulaHtml(t.text, false); }
-          };
-          window.marked.use({ extensions: [blockFormula, inlineFormula] });
-          window.marked._kgInited = true;
-        }
-        return window.marked.parse(text);
-      } catch (e) { /* marked 异常时回退 */ }
-    }
-    // CDN 不可达 / marked 加载失败 → 用自研渲染兜底（保证查看层始终可渲染）
-    return this.simpleMarkdown(text);
   },
 
   // ===== 简易 Markdown 渲染 =====
@@ -4444,8 +4400,7 @@ App.Components = {
   },
 
   // ===== Markdown 编辑器 =====
-  // 第 3 参 onChange（可选）：输入内容变化时回调（新建笔记页自动保存用；现有调用不受影响）
-  markdownEditor(initialContent, placeholder, onChange) {
+  markdownEditor(initialContent, placeholder) {
     const wrapper = document.createElement('div');
     wrapper.className = 'md-editor';
 
@@ -4466,9 +4421,6 @@ App.Components = {
     const textarea = document.createElement('textarea');
     textarea.value = initialContent || '';
     textarea.placeholder = placeholder || '请输入内容...（支持 Markdown）';
-    textarea.addEventListener('input', () => {
-      if (typeof onChange === 'function') onChange(textarea.value);
-    });
 
     tools.forEach(tool => {
       const btn = document.createElement('button');
@@ -4504,52 +4456,6 @@ App.Components = {
     const setContent = (val) => { textarea.value = val; };
 
     return { element: wrapper, getContent, setContent };
-  },
-
-  // ===== 笔记格式栏（底部工具栏，与 markdownEditor 工具栏 UI/逻辑完全一致，字符串级操作） =====
-  // v8.4.8 详情页重合层编辑的底部格式栏：操作传入的 textarea 选区（选中包裹/取消、行首标记、分割线）
-  // 保持现有格式栏按钮集与样式不变（B/I/H2/H3/•/1./>/---）
-  noteToolbar(textarea) {
-    const toolbar = document.createElement('div');
-    toolbar.className = 'md-editor__toolbar';
-    const tools = [
-      { label: 'B', markdown: '**', title: '加粗' },
-      { label: 'I', markdown: '*', title: '斜体' },
-      { label: 'H2', markdown: '## ', title: '二级标题' },
-      { label: 'H3', markdown: '### ', title: '三级标题' },
-      { label: '•', markdown: '- ', title: '无序列表' },
-      { label: '1.', markdown: '1. ', title: '有序列表' },
-      { label: '>', markdown: '> ', title: '引用' },
-      { label: '---', markdown: '\n---\n', title: '分割线' },
-    ];
-    tools.forEach(tool => {
-      const btn = document.createElement('button');
-      btn.textContent = tool.label;
-      btn.title = tool.title;
-      btn.addEventListener('click', () => {
-        if (!textarea || !textarea.focus) return;
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        const text = textarea.value;
-        const selected = text.substring(start, end);
-        const md = tool.markdown;
-        let replacement;
-        if (md === '\n---\n') {
-          replacement = md;
-        } else if (md.endsWith(' ')) {
-          replacement = md + selected;
-        } else {
-          replacement = md + selected + md;
-        }
-        textarea.value = text.substring(0, start) + replacement + text.substring(end);
-        textarea.focus();
-        textarea.setSelectionRange(start + md.length, start + md.length + (selected.length || 0));
-        // 同步编辑内容（与 v-model / onChange 链路一致）
-        textarea.dispatchEvent(new Event('input', { bubbles: true }));
-      });
-      toolbar.appendChild(btn);
-    });
-    return toolbar;
   },
 
   // ===== Notion 风格块编辑器（功能增强版） =====
@@ -10316,7 +10222,7 @@ App.Pages.Notes = {
     }, 300));
   },
 
-  // ===== 笔记详情页（Notion 式单页：查看/编辑重合层 + isEditing 切换，格式栏保持原样） =====
+  // ===== 笔记详情页（Notion 式无模式就地编辑：点击即编辑，失焦即保存回查看） =====
   async renderDetail(params) {
     const container = document.getElementById('page-note-detail');
     container.innerHTML = '';
@@ -10331,31 +10237,11 @@ App.Pages.Notes = {
       return;
     }
 
-    // 页面级编辑状态（进入编辑/完成切换）
-    this._noteEditing = false;
-    this._noteStack = null;
-    this._noteEditBtn = null;
-    this._noteToolbarEl = null;
-    this._noteCountEl = null;
-    this._noteStatusEl = null;
-    this._noteTimeEl = null;
-
-    // 返回栏 + 右上角：✏️/完成（切换编辑）+ ✍️ 手写 + ⋮ 菜单
-    const header = App.Components.pageHeader('笔记详情', '', null);
-    const rightEl = header.querySelector('.page-header__right');
-    if (rightEl) {
-      rightEl.classList.add('note-detail-actions');
-      rightEl.innerHTML = '';
-      const editBtn = document.createElement('button');
-      editBtn.className = 'detail-header-action note-edit-toggle';
-      editBtn.textContent = '✏️';
-      editBtn.title = '编辑笔记';
-      editBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._toggleNoteEdit(note);
-      });
-      rightEl.appendChild(editBtn);
-      this._noteEditBtn = editBtn;
+    // 返回栏 + 右上角：✍️ 手写 + ⋮ 菜单（无「编辑」按钮——点击标题/正文即就地编辑）
+    const header = App.Components.pageHeader('笔记详情', '⋮', () => this._showDetailMenu(note));
+    const moreBtn = header.querySelector('.page-header__right');
+    if (moreBtn) {
+      moreBtn.classList.add('note-detail-more');
       const doodleBtn = document.createElement('button');
       doodleBtn.className = 'detail-header-action';
       doodleBtn.textContent = '✍️';
@@ -10364,16 +10250,7 @@ App.Pages.Notes = {
         e.stopPropagation();
         this._openDoodle(note, params);
       });
-      rightEl.appendChild(doodleBtn);
-      const moreBtn = document.createElement('button');
-      moreBtn.className = 'detail-header-action';
-      moreBtn.textContent = '⋮';
-      moreBtn.title = '更多';
-      moreBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._showDetailMenu(note);
-      });
-      rightEl.appendChild(moreBtn);
+      moreBtn.parentNode.insertBefore(doodleBtn, moreBtn);
     }
     container.appendChild(header);
 
@@ -10393,54 +10270,28 @@ App.Pages.Notes = {
     `;
     content.appendChild(breadcrumb);
 
-    // 标题（点击就地编辑为输入框）
+    // 标题（点击就地编辑，无模式切换）
     const titleEl = document.createElement('div');
     titleEl.className = 'note-detail-title';
-    titleEl.innerHTML = App.Utils.renderMarkdown(note.title)
+    titleEl.innerHTML = App.Utils.simpleMarkdown(note.title)
       || '<span class="note-detail-title__empty">未命名笔记</span>';
-    titleEl.addEventListener('click', () => this._editTitleInPlace(titleEl, note));
+    titleEl.addEventListener('click', () => this._editTitleInPlace(titleEl, note, metaEl));
     content.appendChild(titleEl);
 
-    // ===== 正文重合层：查看层（marked 渲染）与编辑层（textarea）位置完全重合，切换无跳变 =====
-    const stack = document.createElement('div');
-    stack.className = 'note-editor-stack';
+    // 正文（点击就地编辑为块编辑器）
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'card note-detail-body';
+    bodyEl.setAttribute('data-tap-edit', '');
+    bodyEl.innerHTML = note.content
+      ? App.Utils.simpleMarkdown(note.content)
+      : '<span style="color:var(--text-tertiary);">暂无内容，点击开始编辑</span>';
+    bodyEl.addEventListener('click', (e) => this._editBodyInPlace(bodyEl, note, metaEl, e));
+    content.appendChild(bodyEl);
 
-    const renderLayer = document.createElement('div');
-    renderLayer.className = 'render-layer markdown-body';
-    renderLayer.innerHTML = note.content
-      ? App.Utils.renderMarkdown(note.content)
-      : '<p class="note-placeholder">暂无内容，点击编辑</p>';
-    renderLayer.addEventListener('click', () => this._enterNoteEdit(note));
-    stack.appendChild(renderLayer);
-
-    const editLayer = document.createElement('textarea');
-    editLayer.className = 'edit-layer';
-    editLayer.value = note.content || '';
-    editLayer.placeholder = '用 Markdown 记录内容…';
-    editLayer.addEventListener('input', () => this._onNoteInput(note, editLayer));
-    editLayer.addEventListener('blur', () => this._autoSaveNote(note, editLayer));
-    stack.appendChild(editLayer);
-    this._noteStack = stack;
-    content.appendChild(stack);
-
-    // 底部格式栏（编辑态显示；UI/逻辑与现有 markdownEditor 工具栏一致，字符串级操作，保持原样）
-    const toolbar = App.Components.noteToolbar(editLayer);
-    toolbar.classList.add('note-edit-toolbar--float');
-    this._noteToolbarEl = toolbar;
-    content.appendChild(toolbar);
-
-    // 元信息：字数 + 保存状态 + 最后编辑于
+    // 编辑时间
     const metaEl = document.createElement('div');
-    metaEl.className = 'note-detail-meta note-detail-meta--row';
-    metaEl.innerHTML =
-      '<span class="note-meta-count"></span>' +
-      '<span class="note-meta-status"></span>' +
-      '<span class="note-meta-time"></span>';
-    this._noteCountEl = metaEl.querySelector('.note-meta-count');
-    this._noteStatusEl = metaEl.querySelector('.note-meta-status');
-    this._noteTimeEl = metaEl.querySelector('.note-meta-time');
-    this._noteTimeEl.textContent = '最后编辑于 ' + App.Utils.formatDateTime(note.updatedAt);
-    this._updateNoteCount(note);
+    metaEl.className = 'note-detail-meta';
+    metaEl.textContent = '最后编辑于 ' + App.Utils.formatDateTime(note.updatedAt);
     content.appendChild(metaEl);
 
     // 关联错题
@@ -10489,89 +10340,8 @@ App.Pages.Notes = {
     container.appendChild(content);
   },
 
-  // ===== 进入/退出编辑态（✏️ / 完成 切换） =====
-  _toggleNoteEdit(note) {
-    if (this._noteEditing) this._exitNoteEdit(note);
-    else this._enterNoteEdit(note);
-  },
-
-  _enterNoteEdit(note) {
-    if (!this._noteStack) return;
-    this._noteEditing = true;
-    this._noteStack.classList.add('editing');
-    if (this._noteToolbarEl) this._noteToolbarEl.classList.add('visible');
-    if (this._noteEditBtn) { this._noteEditBtn.textContent = '完成'; this._noteEditBtn.title = '保存并完成'; }
-    const ta = this._noteStack.querySelector('.edit-layer');
-    if (ta) {
-      ta.focus();
-      try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
-    }
-  },
-
-  async _exitNoteEdit(note) {
-    if (!this._noteStack) return;
-    const ta = this._noteStack.querySelector('.edit-layer');
-    this._clearNoteDebounce();
-    const content = ta ? ta.value : (note.content || '');
-    this._setNoteStatus('保存中…');
-    const ok = await this._saveNoteContent(note, content, { refreshMeta: true });
-    this._setNoteStatus(ok ? '已保存 ✓' : '保存失败');
-    // 退出编辑态：渲染层用最新内容重渲染，两层重合无跳变
-    this._noteEditing = false;
-    this._noteStack.classList.remove('editing');
-    if (this._noteToolbarEl) this._noteToolbarEl.classList.remove('visible');
-    if (this._noteEditBtn) { this._noteEditBtn.textContent = '✏️'; this._noteEditBtn.title = '编辑笔记'; }
-    const renderLayer = this._noteStack.querySelector('.render-layer');
-    if (renderLayer) {
-      renderLayer.innerHTML = note.content
-        ? App.Utils.renderMarkdown(note.content)
-        : '<p class="note-placeholder">暂无内容，点击编辑</p>';
-    }
-  },
-
-  // ===== 编辑输入：更新内容 + 字数 + 防抖自动保存 =====
-  _onNoteInput(note, ta) {
-    note.content = ta.value;
-    this._updateNoteCount(note);
-    this._setNoteStatus('输入中…');
-    this._debouncedNoteSave(note, ta.value);
-  },
-
-  _debouncedNoteSave(note, content) {
-    if (this._noteSaveTimer) clearTimeout(this._noteSaveTimer);
-    this._noteSaveTimer = setTimeout(() => {
-      this._noteSaveTimer = null;
-      this._saveNoteContent(note, content, { refreshMeta: true }).then(ok => {
-        if (ok) this._setNoteStatus('已保存 ✓');
-      });
-    }, 2000);
-  },
-
-  _clearNoteDebounce() {
-    if (this._noteSaveTimer) { clearTimeout(this._noteSaveTimer); this._noteSaveTimer = null; }
-  },
-
-  // ===== 失焦自动保存（不退出编辑态；点「完成」才退出） =====
-  _autoSaveNote(note, ta) {
-    this._clearNoteDebounce();
-    const content = ta ? ta.value : (note.content || '');
-    this._saveNoteContent(note, content, { refreshMeta: true }).then(ok => {
-      this._setNoteStatus(ok ? '已保存 ✓' : '保存失败');
-    });
-  },
-
-  _updateNoteCount(note) {
-    if (this._noteCountEl) {
-      this._noteCountEl.textContent = ((note.content || '').length) + ' 字';
-    }
-  },
-
-  _setNoteStatus(text) {
-    if (this._noteStatusEl) this._noteStatusEl.textContent = text;
-  },
-
   // ===== 标题就地编辑（点击 → input → 失焦/回车自动保存并回查看） =====
-  _editTitleInPlace(titleEl, note) {
+  _editTitleInPlace(titleEl, note, metaEl) {
     if (this._titleEditing) return;
     this._titleEditing = true;
     const input = document.createElement('input');
@@ -10588,20 +10358,103 @@ App.Pages.Notes = {
       const v = input.value.trim();
       if (v && v !== note.title) {
         note.title = v;
-        this._saveNoteContent(note, note.content, { refreshMeta: true });
+        this._saveNoteContent(note, note.content, { refreshMeta: metaEl });
       }
-      // 就地恢复标题查看渲染（不重渲染整页）
+      // 就地恢复标题查看渲染（不重渲染整页，保留滚动位置）
       const restored = document.createElement('div');
       restored.className = 'note-detail-title';
-      restored.innerHTML = App.Utils.renderMarkdown(note.title)
+      restored.innerHTML = App.Utils.simpleMarkdown(note.title)
         || '<span class="note-detail-title__empty">未命名笔记</span>';
-      restored.addEventListener('click', () => this._editTitleInPlace(restored, note));
+      restored.addEventListener('click', () => this._editTitleInPlace(restored, note, metaEl));
       input.replaceWith(restored);
     };
     input.addEventListener('blur', commit);
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); input.blur(); }
     });
+  },
+
+  // ===== 正文就地编辑（点击 → 块编辑器 → 失焦/键盘收起自动保存回查看） =====
+  _editBodyInPlace(bodyEl, note, metaEl, clickEvent) {
+    if (this._bodyEditor) return;   // 已在编辑中，忽略重复进入
+    const inst = this._bodyEditor = { note, metaEl, editorWrap: bodyEl, editor: null, exiting: false, _saveTimer: null };
+
+    // 点击位置 → 渲染 HTML 中的行索引（尽力定位光标到点击处所在块）
+    const targetIdx = this._resolveClickBlock(bodyEl, clickEvent);
+
+    // 保留 .card 卡片容器（白底/圆角/内边距全程不变），仅清空内部内容挂入块编辑器
+    // —— 切换时卡片外观零变化，不再出现「替换成无样式容器」导致的页面重排闪烁
+    bodyEl.classList.add('note-detail-body--editing');
+    bodyEl.innerHTML = '';
+
+    const editor = App.Components.initEditor(bodyEl, {
+      initialData: note.content || '',
+      dataMode: 'md',
+      placeholder: '点击输入内容…',
+      inlinePadding: true,   // 就地编辑：底部最小留白（8px），切换高度不突变
+      onChange: (content) => this._debouncedBodySave(inst, content)
+    });
+    inst.editor = editor;
+
+    // 光标定位到点击的块（尽力而为；失败则聚焦首块）
+    this._focusBlockAt(editor, targetIdx);
+
+    // 失焦退出：点击编辑区外（排除格式栏/弹层）或键盘收起（移动端 focusout relatedTarget=null）
+    // 底部悬浮格式栏（notion-toolbar / notion-mobile-toolbar）保持原状，点击其按钮不退出编辑
+    const TOOLBAR = '.notion-toolbar, .notion-mobile-toolbar, .slash-menu, .block-menu, .block-sheet, .format-sheet, [data-mobile-toolbar], .actionsheet-overlay, .modal-overlay';
+    setTimeout(() => {
+      inst._docDown = (e) => {
+        const t = e.target;
+        if (!t || bodyEl.contains(t)) return;
+        if (t.closest && t.closest(TOOLBAR)) return;
+        this._exitBodyEdit(inst);
+      };
+      document.addEventListener('mousedown', inst._docDown, true);
+
+      inst._focusOut = (e) => {
+        if (bodyEl.contains(e.target)) return;
+        if (e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest(TOOLBAR)) return;
+        // 延迟小步：避免与「点击格式栏按钮」的焦点转移冲突
+        setTimeout(() => this._exitBodyEdit(inst), 150);
+      };
+      document.addEventListener('focusout', inst._focusOut, true);
+    }, 0);
+  },
+
+  // ===== 退出正文编辑：取最新 MD → 保存 → 复用原卡片容器恢复查看渲染 =====
+  _exitBodyEdit(inst) {
+    if (!inst || inst.exiting) return;
+    inst.exiting = true;
+    const md = inst.editor ? inst.editor.getContent() : (inst.note.content || '');
+    this._clearBodyDebounce(inst);
+    this._saveNoteContent(inst.note, md, { refreshMeta: inst.metaEl }).finally(() => {
+      // 复用原 .card 卡片容器恢复查看渲染（容器从未被替换，卡片外观与滚动位置均不跳动）
+      const bodyEl = inst.editorWrap;
+      if (bodyEl && bodyEl.parentNode) {
+        bodyEl.classList.remove('note-detail-body--editing');
+        bodyEl.innerHTML = md
+          ? App.Utils.simpleMarkdown(md)
+          : '<span style="color:var(--text-tertiary);">暂无内容，点击开始编辑</span>';
+        bodyEl.addEventListener('click', (e) => this._editBodyInPlace(bodyEl, inst.note, inst.metaEl, e));
+      }
+      // 清理全局监听
+      if (inst._docDown) document.removeEventListener('mousedown', inst._docDown, true);
+      if (inst._focusOut) document.removeEventListener('focusout', inst._focusOut, true);
+      if (this._bodyEditor === inst) this._bodyEditor = null;
+    });
+  },
+
+  // ===== 双保险保存：防抖（2 秒）+ 失焦强制保存 =====
+  _debouncedBodySave(inst, content) {
+    if (inst._saveTimer) clearTimeout(inst._saveTimer);
+    inst._saveTimer = setTimeout(() => {
+      inst._saveTimer = null;
+      if (inst.exiting) return;
+      this._saveNoteContent(inst.note, content, { refreshMeta: inst.metaEl });
+    }, 2000);
+  },
+  _clearBodyDebounce(inst) {
+    if (inst && inst._saveTimer) { clearTimeout(inst._saveTimer); inst._saveTimer = null; }
   },
 
   // ===== 统一保存：写 DB（保留 linkedErrors/linkedReviews/doodle）+ 刷新「最后编辑于」 =====
@@ -10621,9 +10474,8 @@ App.Pages.Notes = {
       await App.DB.updateNote(payload);
       note.content = content || '';
       note.updatedAt = payload.updatedAt;
-      if (o.refreshMeta) {
-        if (this._noteTimeEl) this._noteTimeEl.textContent = '最后编辑于 ' + App.Utils.formatDateTime(payload.updatedAt);
-        this._updateNoteCount(note);
+      if (o.refreshMeta && o.refreshMeta.textContent) {
+        o.refreshMeta.textContent = '最后编辑于 ' + App.Utils.formatDateTime(payload.updatedAt);
       }
       return true;
     } catch (e) {
@@ -10631,7 +10483,40 @@ App.Pages.Notes = {
     }
   },
 
+  // ===== 点击位置 → 渲染 HTML 行索引（供块编辑器定位光标） =====
+  _resolveClickBlock(bodyEl, e) {
+    if (!bodyEl || !e) return 0;
+    try {
+      const y = e.clientY;
+      const rows = Array.from(bodyEl.querySelectorAll('p, ul, ol, h1, h2, h3, h4, blockquote, pre, hr, .mformula, .md-preview-blank'));
+      if (!rows.length) return 0;
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i].getBoundingClientRect();
+        if (y <= r.bottom) return i;
+      }
+      return rows.length - 1;
+    } catch (err) { return 0; }
+  },
 
+  // ===== 聚焦块编辑器到指定块（光标置于块末尾） =====
+  _focusBlockAt(editor, idx) {
+    if (!editor || !editor.element) return;
+    try {
+      const blocks = editor.element.querySelectorAll('.notion-block');
+      if (!blocks.length) return;
+      const i = Math.max(0, Math.min(idx || 0, blocks.length - 1));
+      const editable = blocks[i].querySelector('.notion-editable') || blocks[i];
+      editable.focus();
+      try {
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(editable);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch (e2) {}
+    } catch (err) {}
+  },
 
 
   // ===== 打开手写笔记覆盖层（铅笔图标触发） =====
@@ -10914,8 +10799,8 @@ App.Pages.Notes = {
       updateCatLabel();
       form.appendChild(catSelector);
 
-      // ===== 正文 Markdown 编辑器（textarea + 字符串级格式栏；v8.4.8 起替代 contenteditable 块编辑器）=====
-      const editor = App.Components.markdownEditor(formData.content, '用 Markdown 记录内容…（**加粗** / ## 标题 / - 列表 / > 引用 / 公式 $x^2$）', function (content) {
+      // ===== 正文块编辑器（带 onChange 自动保存到 DB）=====
+      const editor = App.Components.notionEditor(formData.content, false, function (content) {
         formData.content = content;
         debouncedSaveToDB();
       });
