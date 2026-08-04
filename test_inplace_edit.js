@@ -50,7 +50,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.4.14', 'App.VERSION === 8.4.14（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.4.15', 'App.VERSION === 8.4.15（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 查看态渲染（JSON 块 → HTML；点击即编辑）');
     await Notes.renderDetail({ id: 'note1' });
@@ -116,6 +116,22 @@ setTimeout(async () => {
     assert(Array.isArray(data0), '编辑器导出 JSON 块数组');
     assert(data0.some(b => b.type === 'heading1' && (b.content || '').includes('标题一')), '编辑器含 heading1 块（原文）');
     assert(data0.some(b => b.type === 'bulletList'), '编辑器含 bulletList 块');
+    // A（v8.4.15）：聚焦经 rAF 延迟 + preventScroll（防自动滚动抖动）
+    // jsdom 中 contenteditable 元素 focus 不生效（activeElement 仍为 BODY），故包装 focus 验证调用时机与参数
+    let focusCnt = 0, focusInRaf = false, focusOpts = null, rafActive = false;
+    const origRAF = win.requestAnimationFrame;
+    const origFocus = win.HTMLElement.prototype.focus;
+    win.requestAnimationFrame = (cb) => { rafActive = true; try { cb(); } finally { rafActive = false; } return 1; };
+    win.HTMLElement.prototype.focus = function (opts) { focusCnt++; if (rafActive) focusInRaf = true; focusOpts = opts; };
+    Notes._focusBlockAt(inst.editor, 0);
+    assert(focusCnt >= 1, '聚焦被调用');
+    assert(focusInRaf, '聚焦在 rAF 回调内执行（延迟到布局稳定）');
+    assert(!!focusOpts && focusOpts.preventScroll === true, '聚焦带 preventScroll（阻止浏览器自动滚动）');
+    win.HTMLElement.prototype.focus = origFocus;
+    win.requestAnimationFrame = origRAF;
+    // B（v8.4.15）：编辑态块间距对齐查看态段落间距（7px 0 → 块间 14px），切换内容高度不收缩
+    const blockPad = win.getComputedStyle(cardEl.querySelector('.notion-block')).paddingTop;
+    assert(blockPad === '7px', '编辑态块间距 padding 7px 对齐查看态（当前 ' + blockPad + '）');
 
     console.log('\n[5] 编辑块内容（input 事件）→ 失焦自动保存 + 恢复查看渲染');
     const firstEditable = cardEl.querySelector('.notion-editable');

@@ -3826,6 +3826,9 @@ body.ipad-split #page-note-form .page-header__back {
 .note-detail-body .notion-editor { max-width: none; margin: 0; min-height: 0; }
 /* 就地编辑字号：正文 14px（与查看态统一；仅详情页就地编辑场景，新建/错题页不受影响） */
 .note-detail-body .notion-editable { font-size: 14px; }
+/* 就地编辑块间距对齐查看态段落间距（v8.4.15）：查看态 md-preview-p margin 0.5em（14px 字号 → 段落间 14px），
+   编辑态块间距由 padding 4px 0（块间 8px）改为 7px 0（块间 14px），切换时内容高度不再收缩 */
+.note-detail-body .notion-block { padding: 7px 0; }
 /* 就地编辑隐藏编辑器自带页脚（分割线/字数/保存状态）；字数已整合到右上角 ⋮ 按钮区 */
 .note-detail-body--editing .notion-editor__footer { display: none !important; }
 /* 右上角字数标签 */

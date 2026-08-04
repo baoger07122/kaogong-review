@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.14';
+App.VERSION = '8.4.15';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -10683,6 +10683,8 @@ App.Pages.Notes = {
   },
 
   // ===== 聚焦块编辑器到指定块（光标置于块末尾） =====
+  // 防抖动（v8.4.15）：① focus({preventScroll:true}) 阻止浏览器自动滚动 ② rAF 延迟到布局稳定后再聚焦，
+  // 避免「编辑器刚插入 DOM、布局未稳定时基于旧布局自动滚动」导致点击进入编辑时页面跳动
   _focusBlockAt(editor, idx) {
     if (!editor || !editor.element) return;
     try {
@@ -10690,15 +10692,23 @@ App.Pages.Notes = {
       if (!blocks.length) return;
       const i = Math.max(0, Math.min(idx || 0, blocks.length - 1));
       const editable = blocks[i].querySelector('.notion-editable') || blocks[i];
-      editable.focus();
-      try {
-        const sel = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(editable);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } catch (e2) {}
+      const requestFrame = (typeof requestAnimationFrame === 'function')
+        ? requestAnimationFrame : function (cb) { setTimeout(cb, 0); };
+      requestFrame(() => {
+        try {
+          try {
+            editable.focus({ preventScroll: true });
+          } catch (e1) {
+            editable.focus();
+          }
+          const sel = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(editable);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } catch (e2) {}
+      });
     } catch (err) {}
   },
 

@@ -3844,6 +3844,9 @@ body.ipad-split #page-note-form .page-header__back {
 .note-detail-body .notion-editor { max-width: none; margin: 0; min-height: 0; }
 /* 就地编辑字号：正文 14px（与查看态统一；仅详情页就地编辑场景，新建/错题页不受影响） */
 .note-detail-body .notion-editable { font-size: 14px; }
+/* 就地编辑块间距对齐查看态段落间距（v8.4.15）：查看态 md-preview-p margin 0.5em（14px 字号 → 段落间 14px），
+   编辑态块间距由 padding 4px 0（块间 8px）改为 7px 0（块间 14px），切换时内容高度不再收缩 */
+.note-detail-body .notion-block { padding: 7px 0; }
 /* 就地编辑隐藏编辑器自带页脚（分割线/字数/保存状态）；字数已整合到右上角 ⋮ 按钮区 */
 .note-detail-body--editing .notion-editor__footer { display: none !important; }
 /* 右上角字数标签 */
@@ -6964,7 +6967,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.14';
+App.VERSION = '8.4.15';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -17644,6 +17647,8 @@ App.Pages.Notes = {
   },
 
   // ===== 聚焦块编辑器到指定块（光标置于块末尾） =====
+  // 防抖动（v8.4.15）：① focus({preventScroll:true}) 阻止浏览器自动滚动 ② rAF 延迟到布局稳定后再聚焦，
+  // 避免「编辑器刚插入 DOM、布局未稳定时基于旧布局自动滚动」导致点击进入编辑时页面跳动
   _focusBlockAt(editor, idx) {
     if (!editor || !editor.element) return;
     try {
@@ -17651,15 +17656,23 @@ App.Pages.Notes = {
       if (!blocks.length) return;
       const i = Math.max(0, Math.min(idx || 0, blocks.length - 1));
       const editable = blocks[i].querySelector('.notion-editable') || blocks[i];
-      editable.focus();
-      try {
-        const sel = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(editable);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } catch (e2) {}
+      const requestFrame = (typeof requestAnimationFrame === 'function')
+        ? requestAnimationFrame : function (cb) { setTimeout(cb, 0); };
+      requestFrame(() => {
+        try {
+          try {
+            editable.focus({ preventScroll: true });
+          } catch (e1) {
+            editable.focus();
+          }
+          const sel = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(editable);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } catch (e2) {}
+      });
     } catch (err) {}
   },
 
