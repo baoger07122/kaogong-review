@@ -3814,8 +3814,96 @@ body.ipad-split #page-note-form .page-header__back {
 .note-detail-body--editing:hover { border-color: var(--border-color); }
 .note-detail-body--editing:active { transform: none; }
 .note-detail-body .notion-editor { max-width: none; margin: 0; min-height: 0; }
-/* 编辑时间 */
+
+/* ===== 笔记详情页：查看/编辑重合层（v8.4.8，marked 渲染 + textarea 编辑） ===== */
+.note-detail-actions { display: flex; align-items: center; gap: 2px; }
+.note-detail-actions .detail-header-action { flex-shrink: 0; font-size: 17px; }
+.note-edit-toggle { font-weight: 700; color: var(--color-primary); }
+
+/* 重合层容器：查看层与编辑层绝对定位完全重合，切换无跳变 */
+.note-editor-stack {
+  position: relative;
+  min-height: 160px;
+  margin-bottom: var(--spacing-md);
+}
+.note-editor-stack .render-layer,
+.note-editor-stack .edit-layer {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  min-height: 160px;
+  padding: 12px 14px;
+  font-size: var(--font-md);
+  line-height: 1.8;
+  color: var(--text-primary);
+  box-sizing: border-box;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+/* 查看层：marked 渲染（github-markdown-css），点击进入编辑 */
+.note-editor-stack .render-layer {
+  z-index: 1;
+  cursor: text;
+  overflow-wrap: break-word;
+}
+.note-editor-stack .render-layer.markdown-body { color: var(--text-primary); font-size: var(--font-md); line-height: 1.8; }
+.note-editor-stack .render-layer.markdown-body > :first-child { margin-top: 0; }
+.note-editor-stack .render-layer.markdown-body > :last-child { margin-bottom: 0; }
+/* 编辑层：textarea 与查看层重合，高度随内容增长（overflow hidden），编辑态可流畅滑动 */
+.note-editor-stack .edit-layer {
+  z-index: 2;
+  border: 1px solid var(--color-primary-light);
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  caret-color: var(--color-primary);
+  font-family: inherit;
+  -webkit-appearance: none;
+  display: none;
+}
+.note-editor-stack.editing .render-layer { display: none; }
+.note-editor-stack.editing .edit-layer { display: block; }
+.note-placeholder { color: var(--text-tertiary); }
+
+/* 深色模式：github-markdown-css 为浅色样式，覆盖为项目深色配色 */
+[data-theme="dark"] .note-editor-stack .render-layer.markdown-body { color: var(--text-primary); }
+[data-theme="dark"] .note-editor-stack .render-layer.markdown-body h1,
+[data-theme="dark"] .note-editor-stack .render-layer.markdown-body h2,
+[data-theme="dark"] .note-editor-stack .render-layer.markdown-body h3,
+[data-theme="dark"] .note-editor-stack .render-layer.markdown-body h4 { color: var(--text-primary); }
+[data-theme="dark"] .note-editor-stack .render-layer.markdown-body code,
+[data-theme="dark"] .note-editor-stack .render-layer.markdown-body pre { background: var(--bg-tertiary); color: var(--text-primary); }
+[data-theme="dark"] .note-editor-stack .render-layer.markdown-body blockquote { color: var(--text-secondary); border-left-color: var(--border-color); }
+[data-theme="dark"] .note-editor-stack .render-layer.markdown-body a { color: var(--color-primary-light); }
+[data-theme="dark"] .note-editor-stack .render-layer.markdown-body table td,
+[data-theme="dark"] .note-editor-stack .render-layer.markdown-body table th { background: var(--bg-card); }
+
+/* 底部悬浮格式栏（编辑态显示；UI/逻辑与现有 markdownEditor 工具栏一致） */
+.note-edit-toolbar--float {
+  display: none;
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--nav-height) + var(--safe-bottom) + 8px);
+  z-index: 1000;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 6px 10px;
+  max-width: calc(100% - 32px);
+  align-items: center;
+  gap: 2px;
+}
+.note-edit-toolbar--float.visible { display: flex; }
+.note-edit-toolbar--float .md-editor__toolbar { display: flex; align-items: center; gap: 2px; overflow-x: auto; }
+
+/* 元信息行：字数 + 保存状态 + 最后编辑于 */
 .note-detail-meta { font-size: var(--font-xs); color: var(--text-tertiary); margin-bottom: var(--spacing-md); }
+.note-detail-meta--row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.note-meta-status { color: var(--color-primary); }
+.note-meta-status:empty { display: none; }
 
 /* 编辑器主体 */
 .notion-editor {
