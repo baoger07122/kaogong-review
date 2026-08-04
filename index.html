@@ -16,6 +16,8 @@
   <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png?v=67">
   <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png?v=67">
   <title>考公笔试复盘系统</title>
+  <!-- 笔记查看层 Markdown 渲染样式（github-markdown-css，CDN） -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css/github-markdown.css">
   <style>
 /* ===== 考公笔试复盘系统 - 全局样式 ===== */
 
@@ -3828,6 +3830,18 @@ body.ipad-split #page-note-form .page-header__back {
   cursor: pointer;
 }
 .note-detail-body:hover { border-color: var(--color-primary-light); }
+/* github-markdown-css 必要配套：让查看层样式融入项目主题（不改布局/交互） */
+.note-detail-body.markdown-body { background: transparent; }
+.note-detail-body.markdown-body > :first-child { margin-top: 0; }
+.note-detail-body.markdown-body > :last-child { margin-bottom: 0; }
+[data-theme="dark"] .note-detail-body.markdown-body { color: var(--text-primary); }
+[data-theme="dark"] .note-detail-body.markdown-body h1,
+[data-theme="dark"] .note-detail-body.markdown-body h2,
+[data-theme="dark"] .note-detail-body.markdown-body h3,
+[data-theme="dark"] .note-detail-body.markdown-body h4 { color: var(--text-primary); }
+[data-theme="dark"] .note-detail-body.markdown-body code,
+[data-theme="dark"] .note-detail-body.markdown-body pre { background: var(--bg-tertiary); color: var(--text-primary); }
+[data-theme="dark"] .note-detail-body.markdown-body blockquote { color: var(--text-secondary); border-left-color: var(--border-color); }
 /* 编辑态：块编辑器在卡片内部（容器 .card 全程不变，切换无闪烁）；禁用点击缩放反馈避免抖动 */
 .note-detail-body--editing:hover { border-color: var(--border-color); }
 .note-detail-body--editing:active { transform: none; }
@@ -6935,12 +6949,15 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   <!-- 常驻版本角标（方便核对是否最新版） -->
   <div class="version-badge" id="version-badge"></div>
 
+  <!-- 笔记查看层 Markdown 渲染引擎（marked.js，CDN；需先于 app.js 加载） -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
   <script>
 // ===== 考公笔试复盘系统 - 预设枚举数据 =====
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.7';
+App.VERSION = '8.4.8';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -7120,6 +7137,50 @@ App.Utils = {
       }
     }
     return cloned;
+  },
+
+  // ===== 笔记查看层 Markdown 渲染（第一步：simpleMarkdown → marked.js） =====
+  // marked.js 优先（gfm/breaks/headerIds:false）；公式通过 marked extension 保留（$x^2$ / $$...$$）；
+  // CDN 不可达时回退 simpleMarkdown 防止白屏。
+  renderMarkdown(text) {
+    if (!text) return '';
+    if (typeof window !== 'undefined' && window.marked && window.marked.parse) {
+      try {
+        if (!window.marked._kgInited) {
+          window.marked.setOptions({ gfm: true, breaks: true, headerIds: false });
+          const formulaHtml = (latex, block) => {
+            const esc = String(latex || '');
+            const tag = block ? 'div' : 'span';
+            const cls = block ? 'mformula mformula--block' : 'mformula';
+            return '<' + tag + ' class="' + cls + '" data-latex="' + encodeURIComponent(esc) + '">'
+              + (App.Utils && App.Utils.renderLatex ? App.Utils.renderLatex(esc) : esc) + '</' + tag + '>';
+          };
+          window.marked.use({ extensions: [
+            {
+              name: 'blockFormula', level: 'block',
+              start(src) { return src.indexOf('$$'); },
+              tokenizer(src) {
+                const m = /^\$\$([\s\S]+?)\$\$/.exec(src);
+                return m ? { type: 'blockFormula', raw: m[0], text: m[1] } : undefined;
+              },
+              renderer(t) { return formulaHtml(t.text, true); }
+            },
+            {
+              name: 'inlineFormula', level: 'inline',
+              start(src) { return src.indexOf('$'); },
+              tokenizer(src) {
+                const m = /^\$([^$\n]+)\$/.exec(src);
+                return m ? { type: 'inlineFormula', raw: m[0], text: m[1] } : undefined;
+              },
+              renderer(t) { return formulaHtml(t.text, false); }
+            }
+          ]});
+          window.marked._kgInited = true;
+        }
+        return window.marked.parse(text);
+      } catch (e) { /* marked 异常时回退 */ }
+    }
+    return this.simpleMarkdown(text);
   },
 
   // ===== 简易 Markdown 渲染 =====
@@ -17210,17 +17271,17 @@ App.Pages.Notes = {
     // 标题（点击就地编辑，无模式切换）
     const titleEl = document.createElement('div');
     titleEl.className = 'note-detail-title';
-    titleEl.innerHTML = App.Utils.simpleMarkdown(note.title)
+    titleEl.innerHTML = App.Utils.renderMarkdown(note.title)
       || '<span class="note-detail-title__empty">未命名笔记</span>';
     titleEl.addEventListener('click', () => this._editTitleInPlace(titleEl, note, metaEl));
     content.appendChild(titleEl);
 
-    // 正文（点击就地编辑为块编辑器）
+    // 正文（marked.js 渲染；点击就地编辑为块编辑器）
     const bodyEl = document.createElement('div');
-    bodyEl.className = 'card note-detail-body';
+    bodyEl.className = 'card note-detail-body markdown-body';
     bodyEl.setAttribute('data-tap-edit', '');
     bodyEl.innerHTML = note.content
-      ? App.Utils.simpleMarkdown(note.content)
+      ? App.Utils.renderMarkdown(note.content)
       : '<span style="color:var(--text-tertiary);">暂无内容，点击开始编辑</span>';
     bodyEl.addEventListener('click', (e) => this._editBodyInPlace(bodyEl, note, metaEl, e));
     content.appendChild(bodyEl);
@@ -17300,7 +17361,7 @@ App.Pages.Notes = {
       // 就地恢复标题查看渲染（不重渲染整页，保留滚动位置）
       const restored = document.createElement('div');
       restored.className = 'note-detail-title';
-      restored.innerHTML = App.Utils.simpleMarkdown(note.title)
+      restored.innerHTML = App.Utils.renderMarkdown(note.title)
         || '<span class="note-detail-title__empty">未命名笔记</span>';
       restored.addEventListener('click', () => this._editTitleInPlace(restored, note, metaEl));
       input.replaceWith(restored);
@@ -17369,8 +17430,9 @@ App.Pages.Notes = {
       const bodyEl = inst.editorWrap;
       if (bodyEl && bodyEl.parentNode) {
         bodyEl.classList.remove('note-detail-body--editing');
+        bodyEl.classList.add('markdown-body');
         bodyEl.innerHTML = md
-          ? App.Utils.simpleMarkdown(md)
+          ? App.Utils.renderMarkdown(md)
           : '<span style="color:var(--text-tertiary);">暂无内容，点击开始编辑</span>';
         bodyEl.addEventListener('click', (e) => this._editBodyInPlace(bodyEl, inst.note, inst.metaEl, e));
       }

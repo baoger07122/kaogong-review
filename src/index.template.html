@@ -16,6 +16,8 @@
   <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png?v=67">
   <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png?v=67">
   <title>考公笔试复盘系统</title>
+  <!-- 笔记查看层 Markdown 渲染样式（github-markdown-css，CDN） -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css/github-markdown.css">
   <!--BUILD_CSS-->
 </head>
 <body>
@@ -92,6 +94,9 @@
 
   <!-- 常驻版本角标（方便核对是否最新版） -->
   <div class="version-badge" id="version-badge"></div>
+
+  <!-- 笔记查看层 Markdown 渲染引擎（marked.js，CDN；需先于 app.js 加载） -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
   <!--BUILD_JS-->
 </body>

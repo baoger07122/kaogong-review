@@ -2,6 +2,7 @@
 const { JSDOM } = require('jsdom');
 const fs = require('fs');
 const html = fs.readFileSync('index.html', 'utf8');
+const { marked } = require('marked');
 
 let pass = 0, fail = 0;
 function assert(cond, msg) {
@@ -19,6 +20,8 @@ const dom = new JSDOM(html, {
     w.scrollTo = () => {};
     w.document.execCommand = () => true;
     if (!w.Element.prototype.closest) w.Element.prototype.closest = function (s) { return null; };
+    // 注入 marked（生产由 CDN 提供；测试用 node 版）
+    w.marked = marked;
   }
 });
 setTimeout(async () => {
@@ -47,7 +50,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.4.7', 'App.VERSION === 8.4.7（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.4.8', 'App.VERSION === 8.4.8（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 查看态渲染（无模式：无编辑按钮，点击即编辑）');
     await Notes.renderDetail({ id: 'note1' });
@@ -57,7 +60,10 @@ setTimeout(async () => {
     assert(!!titleEl, '标题容器 .note-detail-title 存在');
     assert(!!bodyEl, '正文容器 .note-detail-body 存在');
     assert(titleEl.innerHTML.includes('<strong>') && titleEl.innerHTML.includes('加粗标题'), '标题 innerHTML 渲染 Markdown（非文本插值）');
-    assert(bodyEl.innerHTML.includes('<h1') && bodyEl.innerHTML.includes('md-preview-ul'), '正文 h1/列表渲染');
+    assert(bodyEl.classList.contains('markdown-body'), '正文容器带 markdown-body 类（github-markdown-css）');
+    assert(bodyEl.innerHTML.includes('<h1') && bodyEl.innerHTML.includes('<ul>'), '正文 marked 渲染 h1/列表');
+    assert(!bodyEl.innerHTML.includes('md-preview-ul'), '正文渲染不使用 md-preview 类（已切换 marked.js）');
+    assert(App.Utils.renderMarkdown('公式 $x^2$').includes('mformula'), '公式扩展渲染 $x^2$ → mformula');
     const actions = container.querySelectorAll('.detail-header-action');
     assert(actions.length === 1 && actions[0].textContent === '✍️', '右上角仅 ✍️ 手写按钮（无「编辑」按钮）');
     assert(!!container.querySelector('.breadcrumb'), '面包屑保留');
@@ -130,7 +136,7 @@ setTimeout(async () => {
     doc.dispatchEvent(new win.FocusEvent('focusout', { relatedTarget: doc.body, bubbles: true }));
     await wait(400);
 
-    console.log('\n[7] 格式保存全链路：块编辑器导出 MD → JSON 存取 → simpleMarkdown 渲染不丢格式');
+    console.log('\n[7] 格式保存全链路：块编辑器导出 MD → JSON 存取 → renderMarkdown（marked.js）渲染不丢格式');
     const holder = doc.createElement('div');
     doc.body.appendChild(holder);
     const editor = App.Components.initEditor(holder, { initialData: '', dataMode: 'md', onChange: () => {} });
@@ -149,12 +155,14 @@ setTimeout(async () => {
     // 模拟 IndexedDB JSON 序列化存取（换行保留）
     const saved = JSON.parse(JSON.stringify(exportedMd));
     assert(saved.includes('\n'), 'JSON 序列化保留换行符');
-    const rendered = App.Utils.simpleMarkdown(saved);
-    assert(rendered.includes('<h2') && rendered.includes('<strong>'), '渲染 h2 + 加粗');
-    assert(rendered.includes('md-preview-ul') && rendered.includes('粗体项目'), '渲染列表（不被吞进段落）');
-    assert(rendered.includes('md-preview-blockquote') && rendered.includes('代码'), '渲染引用');
-    assert(rendered.includes('md-preview-hr'), '渲染分割线');
-    assert(rendered.includes('mformula') || rendered.includes('mf-'), '渲染公式');
+    const rendered = App.Utils.renderMarkdown(saved);
+    assert(rendered.includes('<h2') && rendered.includes('<strong>'), 'marked 渲染 h2 + 加粗');
+    assert(rendered.includes('<ul>') && rendered.includes('粗体项目'), 'marked 渲染列表（不被吞进段落）');
+    assert(rendered.includes('<blockquote>') && rendered.includes('代码'), 'marked 渲染引用');
+    assert(rendered.includes('<hr'), 'marked 渲染分割线');
+    assert(rendered.includes('mformula') || rendered.includes('mf-'), 'marked 公式扩展渲染公式');
+    // renderMarkdown 空值与兜底
+    assert(App.Utils.renderMarkdown('') === '', 'renderMarkdown 空内容返回空');
     holder.remove();
 
     console.log('\n[8] 失焦排除：点击格式栏/工具栏不退出编辑，点击其他区域退出');
