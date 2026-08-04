@@ -84,19 +84,29 @@ setTimeout(async () => {
     page.querySelector('.sc-btn--primary').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
     assert(SC.state.view === 'practice', '进入练习视图');
     assert(SC.state.questions.length === 10, '生成 10 题');
-    assert(page.querySelector('.sc-progress').textContent.includes('第 1/10 题'), '进度显示「第 1/10 题」');
+    assert(page.querySelector('.sc-progress').textContent.includes('1/10'), '进度显示「1/10」');
     assert(!!page.querySelector('.sc-timer'), '计时器存在');
     assert(page.querySelector('.sc-practice__expr').textContent.trim() !== '', '题目展示');
-    // 竞速：输入答案提交 → 直接下一题（无反馈）
-    const input = page.querySelector('.sc-practice__input');
-    input.value = String(SC.state.questions[0].answer + 1);   // 故意答错
-    page.querySelector('.sc-submit-btn').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    // 数字键盘存在（3列×5行=15 按钮）
+    const numBtns = page.querySelectorAll('.sc-numpad__btn');
+    assert(numBtns.length === 15, '数字键盘 15 键 (3×5)');
+    assert(!!page.querySelector('.sc-numpad__btn--confirm'), '确认键存在');
+    assert(!!page.querySelector('.sc-numpad__btn--func'), '功能键存在');
+    assert(!!page.querySelector('.sc-doodle-btn'), '涂鸦按钮存在');
+    // 用键盘输入答案（答错：答案+1）
+    const pressKey = (k) => {
+      const btn = Array.from(page.querySelectorAll('.sc-numpad__btn')).find(b => b.textContent === k || (b.textContent === '确认' && k === 'confirm'));
+      btn && btn.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    };
+    const wrongAns = String(SC.state.questions[0].answer + 1);
+    wrongAns.split('').forEach(c => pressKey(c));
+    pressKey('confirm');
     assert(SC.state.idx === 1, '竞速提交后直接下一题 (idx=1)');
     assert(SC.state.questions[0].correct === false, '第 1 题记录为错误');
-    // 第 2 题答对（注意 render 重建后需重新获取 input）
-    const inputRace2 = page.querySelector('.sc-practice__input');
-    inputRace2.value = String(SC.state.questions[1].answer);
-    page.querySelector('.sc-submit-btn').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    // 第 2 题答对
+    const rightAns = String(SC.state.questions[1].answer);
+    rightAns.split('').forEach(c => pressKey(c));
+    pressKey('confirm');
     assert(SC.state.questions[1].correct === true, '第 2 题记录为正确');
 
     // ===== [4] 训练模式：逐题反馈 =====
@@ -106,12 +116,15 @@ setTimeout(async () => {
     SC.state.idx = 0;
     SC.state.questions = [SC.TYPES.add3.gen()];
     await SC.render({});
-    const input2 = page.querySelector('.sc-practice__input');
-    input2.value = String(SC.state.questions[0].answer + 5);   // 答错
-    page.querySelector('.sc-submit-btn').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    const pressKey2 = (k) => {
+      const btn = Array.from(page.querySelectorAll('.sc-numpad__btn')).find(b => b.textContent === k || (b.textContent === '确认' && k === 'confirm'));
+      btn && btn.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    };
+    const wrongAns2 = String(SC.state.questions[0].answer + 5);   // 答错
+    wrongAns2.split('').forEach(c => pressKey2(c));
+    pressKey2('confirm');
     const fb = page.querySelector('.sc-fb--no');
     assert(!!fb && fb.textContent.includes(String(SC.state.questions[0].answer)), '训练模式显示正确答案 (✗ 正确答案：X)');
-    assert(input2.disabled === true, '提交后输入框禁用');
     assert(!!page.querySelector('.sc-next-btn'), '「下一题」按钮出现');
 
     // ===== [5] 完成练习：结果页 + 历史存储 =====

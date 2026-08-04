@@ -6634,3 +6634,164 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 @media (min-width: 1024px) {
   .error-masonry-wrap { max-width: 1200px; margin: 0 auto; }
 }
+
+/* ===== 【速算 v8.5.0】三大区域布局 + 数字键盘 + 涂鸦按钮 ===== */
+/* 页面容器：flex 纵向，题目区占剩余空间、键盘固定底部 42vh */
+.sc-practice {
+  padding: 20px 20px 8px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  min-height: 0;
+}
+/* 题目区至少占 55% 高度 */
+.sc-practice { min-height: 55vh; }
+.sc-practice__type { margin-bottom: 14px; }
+.sc-practice__expr {
+  font-size: 42px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+  text-align: center;
+  word-break: break-all;
+  letter-spacing: 2px;
+  margin-bottom: 18px;
+}
+/* 答案显示（蓝字大字号，替代原 input） */
+.sc-practice__answer {
+  min-height: 52px;
+  padding: 10px 26px;
+  background: var(--bg-tertiary);
+  border-radius: 14px;
+  font-size: 30px;
+  font-weight: 600;
+  color: #3B82F6;
+  text-align: center;
+  min-width: 140px;
+  margin-bottom: 8px;
+  border: 1.5px solid transparent;
+}
+.sc-practice__hint {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin-top: 6px;
+}
+/* 竞速/本题用时信息 */
+.sc-race-info { margin-top: 12px; text-align: center; }
+.sc-race-timer {
+  font-size: 20px;
+  font-weight: 700;
+  color: #EF4444;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.sc-race-standard {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 6px 14px;
+  border-radius: 8px;
+  display: inline-block;
+}
+/* 反馈区 */
+.sc-practice__feedback { text-align: center; margin-top: 14px; min-height: 26px; }
+
+/* ===== 数字键盘：固定底部，3列×5行 ===== */
+.sc-numpad {
+  width: 100%;
+  height: 42vh;
+  max-height: 340px;
+  min-height: 280px;
+  background: #F8FAFC;
+  border-top: 1px solid #E5E7EB;
+  padding: 8px 14px 10px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+.sc-numpad__grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+  gap: 7px;
+}
+.sc-numpad__btn {
+  border: none;
+  border-radius: 12px;
+  font-size: 22px;
+  font-weight: 500;
+  color: #1F2937;
+  background: #FFFFFF;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.08s, background 0.15s;
+  font-family: inherit;
+}
+.sc-numpad__btn:active { transform: scale(0.94); background: #EFF6FF; }
+.sc-numpad__btn--func { font-size: 15px; color: #3B82F6; background: #EFF6FF; font-weight: 600; }
+.sc-numpad__btn--func:active { background: #DBEAFE; }
+.sc-numpad__btn--confirm { background: #3B82F6; color: #FFFFFF; font-size: 18px; font-weight: 600; }
+.sc-numpad__btn--confirm:active { background: #2563EB; }
+.sc-numpad__footer {
+  text-align: center;
+  padding-top: 7px;
+  font-size: 13px;
+  color: #9CA3AF;
+  flex-shrink: 0;
+}
+/* 深色模式键盘 */
+[data-theme="dark"] .sc-numpad { background: #1E1E1E; border-top-color: #333; }
+[data-theme="dark"] .sc-numpad__btn { background: #2A2A2A; color: #E5E5E5; box-shadow: none; }
+[data-theme="dark"] .sc-numpad__btn--func { background: #16324F; color: #6CB2F5; }
+[data-theme="dark"] .sc-numpad__btn--confirm { background: #3B82F6; }
+[data-theme="dark"] .sc-practice__answer { background: #2A2A2A; }
+
+/* ===== 涂鸦按钮：右下角悬浮，位于键盘上方 ===== */
+.sc-doodle-btn {
+  position: fixed;
+  right: 16px;
+  bottom: calc(42vh + 24px);
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: #3B82F6;
+  color: #FFFFFF;
+  border: none;
+  box-shadow: 0 2px 10px rgba(59,130,246,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  z-index: 60;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sc-doodle-btn:active { transform: scale(0.9); }
+
+/* 速算页容器：flex 纵向，让题目区撑满、键盘固定底部 */
+#page-speed-calc {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  min-height: 100vh;
+}
+#page-speed-calc.active { display: flex !important; }
+/* 头部信息栏固定高度 */
+#page-speed-calc .sc-practice-head {
+  flex-shrink: 0;
+  height: 52px;
+  display: flex;
+  align-items: center;
+}

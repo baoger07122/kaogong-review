@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.4';
+App.VERSION = '8.5.0';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -13304,7 +13304,11 @@ App.Pages.SpeedCalc = {
 
   show(view) {
     this.state.view = view;
-    if (view !== 'practice' && this.state.timerId) { clearInterval(this.state.timerId); this.state.timerId = null; }
+    if (view !== 'practice') {
+      if (this.state.timerId) { clearInterval(this.state.timerId); this.state.timerId = null; }
+      if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
+      if (this.state.qTimerId) { clearInterval(this.state.qTimerId); this.state.qTimerId = null; }
+    }
     this.render({});
   },
 
@@ -13394,6 +13398,9 @@ App.Pages.SpeedCalc = {
     this.state.idx = 0;
     this.state.startTime = Date.now();
     this.state.elapsed = 0;
+    this.state.doodleData = null;   // 新一轮开始清空涂鸦
+    if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
+    if (this.state.qTimerId) { clearInterval(this.state.qTimerId); this.state.qTimerId = null; }
     this.show('practice');
   },
 
@@ -13402,11 +13409,19 @@ App.Pages.SpeedCalc = {
     const self = this;
     const q = this.state.questions[this.state.idx];
     const total = this.state.questions.length;
+    const isRace = this.state.mode === 'race';
     const submitted = q.correct !== null;
+    // 当前输入（数字键盘状态）
+    this.state.currentInput = q.user && q.user !== '' ? String(q.user) : '';
+    this.state.doodleData = this.state.doodleData || null;
 
+    // ===== 上：固定高度信息栏（返回 / 进度 / 计时）=====
     const header = document.createElement('div');
     header.className = 'sc-practice-head';
-    header.innerHTML = '<button class="sc-back-btn" type="button">‹ 返回</button><div class="sc-progress">第 ' + (this.state.idx + 1) + '/' + total + ' 题</div><div class="sc-timer" id="sc-timer">00:00</div>';
+    header.innerHTML =
+      '<button class="sc-back-btn" type="button">‹ 返回</button>' +
+      '<div class="sc-progress">' + (isRace ? (this.state.idx + 1) + '/' + total : (this.state.idx + 1) + '/∞') + '</div>' +
+      '<div class="sc-timer" id="sc-timer">00:00</div>';
     header.querySelector('.sc-back-btn').addEventListener('click', () => {
       if (confirm('确定退出本次练习？')) this.show('home');
     });
@@ -13420,13 +13435,14 @@ App.Pages.SpeedCalc = {
     tick();
     this.state.timerId = setInterval(tick, 1000);
 
+    // ===== 中：题目展示区（占剩余空间 55%+）=====
     const body = document.createElement('div');
     body.className = 'sc-practice';
 
     // 题型标签
     const tag = document.createElement('div');
     tag.className = 'sc-practice__type';
-    tag.textContent = this.TYPES[this.state.type].name + ' · ' + (this.state.mode === 'race' ? '竞速' : '训练');
+    tag.textContent = this.TYPES[this.state.type].name + ' · ' + (isRace ? '竞速' : '训练');
     body.appendChild(tag);
 
     // 题目（大字号居中）
@@ -13435,40 +13451,69 @@ App.Pages.SpeedCalc = {
     expr.textContent = q.expr;
     body.appendChild(expr);
 
-    // 答案输入
+    // 答案输入显示（数字键盘联动）
     const inputWrap = document.createElement('div');
     inputWrap.className = 'sc-practice__input-wrap';
-    const input = document.createElement('input');
-    input.type = 'number';
-    input.inputMode = 'numeric';
-    input.pattern = '[0-9]*';
-    input.className = 'sc-practice__input';
-    input.placeholder = '输入答案';
-    input.value = q.user || '';
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); submit(); }
-    });
-    inputWrap.appendChild(input);
+    const answerDisplay = document.createElement('div');
+    answerDisplay.className = 'sc-practice__answer';
+    answerDisplay.textContent = this.state.currentInput || ' ';
+    inputWrap.appendChild(answerDisplay);
     body.appendChild(inputWrap);
+
+    // 允许误差提示（估算类题型）
+    const hint = document.createElement('div');
+    hint.className = 'sc-practice__hint';
+    hint.textContent = /≈|估算/.test(q.expr) ? '允许误差：±3%' : '';
+    body.appendChild(hint);
+
+    // 竞速模式：计时 + 合格标准
+    if (isRace) {
+      const raceInfo = document.createElement('div');
+      raceInfo.className = 'sc-race-info';
+      raceInfo.innerHTML = '<div class="sc-race-timer">⏰ 总用时 <span id="sc-race-timer">00:00</span></div>' +
+        '<div class="sc-race-standard">合格：90s 良好：75s 优秀：60s</div>';
+      body.appendChild(raceInfo);
+      // 竞速总计时器
+      const rtick = () => {
+        const el = container.querySelector('#sc-race-timer');
+        if (el) el.textContent = fmtTime(Math.floor((Date.now() - this.state.startTime) / 1000));
+      };
+      rtick();
+      this.state.raceTimerId = setInterval(rtick, 1000);
+    } else {
+      // 训练模式：本题用时
+      const perInfo = document.createElement('div');
+      perInfo.className = 'sc-race-info';
+      perInfo.innerHTML = '<div class="sc-race-timer">本题用时 <span id="sc-question-timer">0s</span></div>';
+      body.appendChild(perInfo);
+      this.state.qStart = Date.now();
+      const qtick = () => {
+        const el = container.querySelector('#sc-question-timer');
+        if (el) el.textContent = Math.floor((Date.now() - this.state.qStart) / 1000) + 's';
+      };
+      qtick();
+      this.state.qTimerId = setInterval(qtick, 1000);
+    }
 
     // 反馈区（训练模式：提交后显示对错 + 正确答案）
     const feedback = document.createElement('div');
     feedback.className = 'sc-practice__feedback';
 
     const submit = () => {
-      const val = parseInt(input.value, 10);
-      if (isNaN(val)) { App.Components.toast('请输入答案', 'error'); return; }
+      const val = parseFloat(self.state.currentInput);
+      if (isNaN(val) || self.state.currentInput === '') { App.Components.toast('请输入答案', 'error'); return; }
       q.user = val;
-      q.correct = val === q.answer;
-      if (this.state.mode === 'race') {
-        // 竞速：不显示对错，直接下一题
+      // 仅估算类题型允许 ±3% 误差，其余题型要求精确匹配
+      const isEst = /≈|估算/.test(q.expr);
+      q.correct = isEst
+        ? Math.abs(val - q.answer) <= Math.max(1, Math.abs(q.answer) * 0.03)
+        : val === q.answer;
+      if (isRace) {
         this.next();
       } else {
-        // 训练：立即显示对错和正确答案
         feedback.innerHTML = q.correct
           ? '<div class="sc-fb sc-fb--ok">✓ 回答正确</div>'
           : '<div class="sc-fb sc-fb--no">✗ 正确答案：' + q.answer + '</div>';
-        input.disabled = true;
         const nextBtn = document.createElement('button');
         nextBtn.type = 'button';
         nextBtn.className = 'sc-btn sc-btn--primary sc-next-btn';
@@ -13478,25 +13523,98 @@ App.Pages.SpeedCalc = {
       }
     };
 
-    const submitBtn = document.createElement('button');
-    submitBtn.type = 'button';
-    submitBtn.className = 'sc-btn sc-btn--primary sc-submit-btn';
-    submitBtn.textContent = '提交';
-    submitBtn.addEventListener('click', submit);
-    body.appendChild(submitBtn);
-    body.appendChild(feedback);
+    // ===== 下：数字键盘（3列×5行，固定 42vh 高度）=====
+    const numpad = document.createElement('div');
+    numpad.className = 'sc-numpad';
+
+    const KEY_ROWS = [
+      // 训练：跳过 | 竞速：重开
+      isRace ? [ { k: 'restart', label: '重开', cls: 'func' }, { k: 'clear', label: '清空', cls: 'func' }, { k: 'backspace', label: '⌫', cls: 'func' } ]
+             : [ { k: 'skip', label: '跳过', cls: 'func' }, { k: 'clear', label: '清空', cls: 'func' }, { k: 'backspace', label: '⌫', cls: 'func' } ],
+      [ { k: '1' }, { k: '2' }, { k: '3' } ],
+      [ { k: '4' }, { k: '5' }, { k: '6' } ],
+      [ { k: '7' }, { k: '8' }, { k: '9' } ],
+      [ { k: '.' }, { k: '0' }, { k: 'confirm', label: '确认', cls: 'confirm' } ]
+    ];
+    const grid = document.createElement('div');
+    grid.className = 'sc-numpad__grid';
+    const press = (key) => {
+      if (submitted && key !== 'skip' && key !== 'restart') return;   // 已提交后只能跳过/重开
+      switch (key) {
+        case 'backspace':
+          self.state.currentInput = self.state.currentInput.slice(0, -1);
+          break;
+        case 'clear':
+          self.state.currentInput = '';
+          break;
+        case 'skip':
+          // 跳过本题（训练模式）：不计入统计，直接下一题
+          q.user = ''; q.correct = null; q.skipped = true;
+          self.state.currentInput = '';
+          self.next();
+          return;
+        case 'restart':
+          if (confirm('确定重新开始本轮？')) { self.startPractice(); }
+          return;
+        case 'confirm':
+          submit();
+          return;
+        case '.':
+          if (!self.state.currentInput.includes('.')) self.state.currentInput += '.';
+          break;
+        default: // 0-9
+          if (self.state.currentInput.length < 12) self.state.currentInput += key;
+      }
+      const disp = container.querySelector('.sc-practice__answer');
+      if (disp) disp.textContent = self.state.currentInput || ' ';
+    };
+    KEY_ROWS.forEach(row => {
+      row.forEach(k => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'sc-numpad__btn' + (k.cls ? ' sc-numpad__btn--' + k.cls : '');
+        b.textContent = k.label || k.k;
+        b.addEventListener('click', () => press(k.k));
+        grid.appendChild(b);
+      });
+    });
+    numpad.appendChild(grid);
+
+    // 底部进度提示
+    const footer = document.createElement('div');
+    footer.className = 'sc-numpad__footer';
+    footer.textContent = isRace ? (this.state.idx + 1) + '/' + total : (this.state.idx + 1) + '/∞（单题训练模式）';
+    numpad.appendChild(footer);
+
+    // ===== 涂鸦按钮（右下角，键盘上方）=====
+    const doodleBtn = document.createElement('button');
+    doodleBtn.type = 'button';
+    doodleBtn.className = 'sc-doodle-btn';
+    doodleBtn.textContent = '✏️';
+    doodleBtn.title = '草稿涂鸦';
+    doodleBtn.addEventListener('click', () => {
+      App.Components.doodleOverlay({
+        initial: self.state.doodleData || null,
+        onChange: (dataURL) => { self.state.doodleData = dataURL || null; }
+      });
+    });
+    container.appendChild(doodleBtn);
 
     container.appendChild(body);
-    if (!submitted) input.focus();
+    body.appendChild(feedback);
+    container.appendChild(numpad);
+    if (!submitted) { /* 数字键盘无需 focus */ }
   },
 
   // 下一题 / 完成
   next() {
     const total = this.state.questions.length;
+    if (this.state.qTimerId) { clearInterval(this.state.qTimerId); this.state.qTimerId = null; }
     if (this.state.idx >= total - 1) {
       this.finish();
     } else {
       this.state.idx++;
+      this.state.doodleData = null;   // 换题自动清空涂鸦痕迹
       this.render({});
     }
   },
@@ -13504,7 +13622,10 @@ App.Pages.SpeedCalc = {
   // 完成：统计 + 存历史 + 结果页
   finish() {
     if (this.state.timerId) { clearInterval(this.state.timerId); this.state.timerId = null; }
+    if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
+    if (this.state.qTimerId) { clearInterval(this.state.qTimerId); this.state.qTimerId = null; }
     this.state.elapsed = Math.round((Date.now() - this.state.startTime) / 1000);
+    this.state.doodleData = null;
 
     const correctCount = this.state.questions.filter(q => q.correct === true).length;
     const record = {
