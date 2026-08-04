@@ -50,7 +50,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.4.10', 'App.VERSION === 8.4.10（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.4.11', 'App.VERSION === 8.4.11（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 查看态渲染（JSON 块 → HTML；点击即编辑）');
     await Notes.renderDetail({ id: 'note1' });
@@ -101,6 +101,14 @@ setTimeout(async () => {
     assert(!cardEl.querySelector('textarea'), '不是 textarea 小窗口（保持块编辑器形态）');
     const blocks = cardEl.querySelectorAll('.notion-block');
     assert(blocks.length >= 3, '块编辑器含多个块（当前 ' + blocks.length + ' 个）');
+    // 页脚隐藏：分割线/字数/保存状态（就地编辑场景不显示编辑器自带页脚）
+    const editorFooter = cardEl.querySelector('.notion-editor__footer');
+    assert(!!editorFooter && (editorFooter.style.display === 'none'), '编辑器页脚已隐藏（就地编辑）');
+    // 字数整合到右上角 ⋮ 按钮区
+    const countLabel = container.querySelector('.note-edit-count');
+    assert(!!countLabel, '右上角字数标签存在');
+    assert(/字$/.test(countLabel.textContent), '字数标签显示（' + countLabel.textContent + '）');
+    assert(countLabel.textContent === App.Utils.countBlocks(store.notes.note1.content) + ' 字', '字数与内容一致');
     // 编辑器内容来自笔记 JSON 块（懒转换后）
     const inst = Notes._bodyEditor;
     assert(!!inst && !!inst.editor, '内部编辑实例已注册');
@@ -124,6 +132,7 @@ setTimeout(async () => {
     assert(Array.isArray(store.notes.note1.content), 'DB 中 content 为 JSON 数组（不再是 Markdown 字符串）');
     const bodyEl3 = container.querySelector('.note-detail-body');
     assert(!!bodyEl3 && !bodyEl3.classList.contains('note-detail-body--editing'), '失焦退出编辑，恢复查看渲染');
+    assert(!container.querySelector('.note-edit-count'), '退出编辑后右上角字数标签移除');
     assert(bodyEl3.classList.contains('card'), '恢复后卡片样式仍在');
     assert(bodyEl3.innerHTML.includes('新第一段'), '恢复的查看态渲染新内容');
 

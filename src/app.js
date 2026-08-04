@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.10';
+App.VERSION = '8.4.11';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -257,6 +257,24 @@ App.Utils = {
       // 转换失败时兜底为单个文本块，保证内容不丢
       return String(md || '').trim() ? [{ type: 'text', content: String(md), html: '' }] : [];
     }
+  },
+
+  // ===== JSON 块字数统计（含 toggle children / 表格单元格；供右上角字数标签使用） =====
+  countBlocks(blocks) {
+    if (!Array.isArray(blocks)) return 0;
+    let n = 0;
+    const walk = (arr) => {
+      (arr || []).forEach(b => {
+        if (!b) return;
+        n += (b.content || '').length;
+        if (b.type === 'table') {
+          (b.tableData || []).forEach(r => (r || []).forEach(c => { n += (c || '').length; }));
+        }
+        if (Array.isArray(b.children)) walk(b.children);
+      });
+    };
+    walk(blocks);
+    return n;
   },
 
   // ===== 简易 Markdown 渲染 =====
@@ -10339,6 +10357,8 @@ App.Pages.Notes = {
       });
       moreBtn.parentNode.insertBefore(doodleBtn, moreBtn);
     }
+    // 保存右上角按钮区引用：编辑态把字数标签整合进这里（⋮ 三个点附近）
+    this._noteActionsEl = moreBtn;
     container.appendChild(header);
 
     const content = document.createElement('div');
@@ -10478,9 +10498,25 @@ App.Pages.Notes = {
       dataMode: 'json',
       placeholder: '点击输入内容…',
       inlinePadding: true,   // 就地编辑：底部最小留白（8px），切换高度不突变
-      onChange: (data) => this._debouncedBodySave(inst, data)
+      onChange: (data) => {
+        // 字数整合进右上角 ⋮ 按钮区（编辑器自带页脚在就地编辑场景隐藏）
+        if (inst.countEl) inst.countEl.textContent = App.Utils.countBlocks(data) + ' 字';
+        this._debouncedBodySave(inst, data);
+      }
     });
     inst.editor = editor;
+
+    // 就地编辑：隐藏编辑器自带页脚（分割线/字数/保存状态），字数统计移到右上角按钮区
+    const editorFooter = bodyEl.querySelector('.notion-editor__footer');
+    if (editorFooter) editorFooter.style.display = 'none';
+    // 字数标签：插入右上角按钮区（⋮ 三个点附近），编辑时实时更新
+    const countEl = document.createElement('span');
+    countEl.className = 'note-edit-count';
+    countEl.textContent = App.Utils.countBlocks(Array.isArray(note.content) ? note.content : []) + ' 字';
+    if (this._noteActionsEl && this._noteActionsEl.parentNode) {
+      this._noteActionsEl.parentNode.insertBefore(countEl, this._noteActionsEl);
+    }
+    inst.countEl = countEl;
 
     // 光标定位到点击的块（尽力而为；失败则聚焦首块）
     this._focusBlockAt(editor, targetIdx);
@@ -10526,6 +10562,8 @@ App.Pages.Notes = {
       // 清理全局监听
       if (inst._docDown) document.removeEventListener('mousedown', inst._docDown, true);
       if (inst._focusOut) document.removeEventListener('focusout', inst._focusOut, true);
+      // 移除右上角字数标签
+      if (inst.countEl && inst.countEl.parentNode) inst.countEl.parentNode.removeChild(inst.countEl);
       if (this._bodyEditor === inst) this._bodyEditor = null;
     });
   },
