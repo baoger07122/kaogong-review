@@ -50,7 +50,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.4.11', 'App.VERSION === 8.4.11（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.4.12', 'App.VERSION === 8.4.12（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 查看态渲染（JSON 块 → HTML；点击即编辑）');
     await Notes.renderDetail({ id: 'note1' });

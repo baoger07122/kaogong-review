@@ -3826,6 +3826,7 @@ body.ipad-split #page-note-form .page-header__back {
   line-height: 1.8;
   min-height: 80px;
   cursor: pointer;
+  font-size: 14px;   /* 详情页查看态正文字号统一 14px（与编辑态一致） */
 }
 .note-detail-body:hover { border-color: var(--color-primary-light); }
 /* 查看态正文左侧预留 20px：与编辑态块手柄占位(22-2px)精确对齐，点击切换文本位置零跳变 */
@@ -3834,8 +3835,8 @@ body.ipad-split #page-note-form .page-header__back {
 .note-detail-body--editing:hover { border-color: var(--border-color); }
 .note-detail-body--editing:active { transform: none; }
 .note-detail-body .notion-editor { max-width: none; margin: 0; min-height: 0; }
-/* 就地编辑字号向查看态对齐：正文 14px → 16px（仅详情页就地编辑场景，新建/错题页不受影响） */
-.note-detail-body .notion-editable { font-size: 16px; }
+/* 就地编辑字号：正文 14px（与查看态统一；仅详情页就地编辑场景，新建/错题页不受影响） */
+.note-detail-body .notion-editable { font-size: 14px; }
 /* 就地编辑隐藏编辑器自带页脚（分割线/字数/保存状态）；字数已整合到右上角 ⋮ 按钮区 */
 .note-detail-body--editing .notion-editor__footer { display: none !important; }
 /* 右上角字数标签 */
@@ -6954,7 +6955,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.11';
+App.VERSION = '8.4.12';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
