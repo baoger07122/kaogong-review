@@ -3790,101 +3790,6 @@ body.ipad-split #page-note-form .page-header__back {
 }
 .note-cat-clear:active { color: var(--color-danger); }
 
-/* ===== Notion 式单页编辑（笔记详情页查看/编辑原地切换） ===== */
-/* 查看模式：标题与正文渲染，点击即进入编辑 */
-.note-single-title {
-  font-size: var(--font-xl);
-  font-weight: 700;
-  margin-bottom: var(--spacing-md);
-  cursor: pointer;
-  line-height: 1.4;
-  color: var(--text-primary);
-}
-.note-single-title .md-preview-p { margin: 0; line-height: 1.4; font-size: inherit; font-weight: inherit; }
-.note-single-title .md-preview-p:last-child { margin-bottom: 0; }
-.note-single-title:hover { opacity: 0.85; }
-.note-single-empty { color: var(--text-tertiary); font-weight: 600; }
-.note-single-body {
-  margin: 0 0 var(--spacing-md) 0;
-  line-height: 1.8;
-  min-height: 80px;
-  cursor: pointer;
-}
-.note-single-body:hover { border-color: var(--color-primary-light); }
-/* 查看/编辑共用同一套 Markdown 渲染样式（.md-preview-*），消除两套 CSS 差异 */
-
-/* 编辑模式：Markdown 工具栏（字符串级操作） */
-.note-edit-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding: 6px 8px;
-  margin-bottom: 10px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  -webkit-overflow-scrolling: touch;
-}
-.note-edit-toolbar__btn {
-  flex-shrink: 0;
-  min-width: 34px;
-  height: 34px;
-  padding: 0 10px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.note-edit-toolbar__btn:active { background: var(--bg-tertiary); color: var(--text-primary); }
-
-/* 正文 textarea（显示 Markdown 原文，保留 \n） */
-.note-single-textarea {
-  width: 100%;
-  min-height: 260px;
-  box-sizing: border-box;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  color: var(--text-primary);
-  font-size: 15px;
-  line-height: 1.7;
-  padding: 12px 14px;
-  outline: none;
-  resize: vertical;
-  font-family: inherit;
-  -webkit-appearance: none;
-}
-.note-single-textarea:focus {
-  border-color: var(--color-primary-light);
-  box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.08);
-}
-.note-single-textarea::placeholder { color: var(--text-tertiary); }
-
-/* 编辑模式底部：字数统计 + 标签选择器 + 关联错题 */
-.note-edit-footer {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--divider-color);
-}
-.note-edit-count {
-  font-size: var(--font-xs);
-  color: var(--text-tertiary);
-  margin-right: auto;
-  white-space: nowrap;
-}
-.note-edit-cat { margin-bottom: 0; }
-
 /* 编辑器主体 */
 .notion-editor {
   position: relative;
@@ -6990,7 +6895,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.6';
+App.VERSION = '8.5.0';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -7329,96 +7234,6 @@ App.Utils = {
   _escapeHtml(text) {
     if (!text) return '';
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  },
-
-  // ===== Markdown 字符串级编辑（Notion 单页编辑器工具栏）=====
-  // 行内标记：** * ` —— 选中文本则包裹，已包裹则取消；无选中则插入成对标记光标居中
-  insertInlineMarker(textarea, marker) {
-    if (!textarea) return;
-    const v = textarea.value, s = textarea.selectionStart, e = textarea.selectionEnd;
-    const before = v.slice(0, s), after = v.slice(e), selected = v.slice(s, e);
-    const len = marker.length;
-    // 场景A：选中文本首尾即标记（整段含标记）→ 取消包裹
-    if (selected && selected.startsWith(marker) && selected.endsWith(marker) && selected.length >= len * 2) {
-      textarea.value = before + selected.slice(len, selected.length - len) + after;
-      textarea.setSelectionRange(s, e - len * 2);
-    }
-    // 场景B：光标所在文本前后紧贴标记 → 取消包裹
-    else if (selected && before.endsWith(marker) && after.startsWith(marker)) {
-      textarea.value = before.slice(0, before.length - len) + selected + after.slice(len);
-      textarea.setSelectionRange(s - len, e - len);
-    }
-    // 场景C：有选中未包裹 → 包裹
-    else if (selected) {
-      textarea.value = before + marker + selected + marker + after;
-      textarea.setSelectionRange(s + len, e + len);
-    }
-    // 场景D：无选中 → 插入成对标记光标居中
-    else {
-      textarea.value = before + marker + marker + after;
-      textarea.setSelectionRange(s + len, s + len);
-    }
-    textarea.focus();
-    return textarea.value;
-  },
-
-  // 块级标记：##  /  -  /  1.  /  >  —— 当前行行首插入；已存在则移除
-  insertBlockMarker(textarea, marker) {
-    if (!textarea) return;
-    const v = textarea.value, pos = textarea.selectionStart;
-    const lineStart = v.lastIndexOf('\n', pos - 1) + 1;
-    const lineEndIdx = v.indexOf('\n', pos);
-    const lineEnd = lineEndIdx === -1 ? v.length : lineEndIdx;
-    const line = v.slice(lineStart, lineEnd);
-    let newVal, newCaret;
-    if (line.trim().startsWith(marker.trim())) {
-      // 移除标记（连同其后的单个空格）
-      newVal = v.slice(0, lineStart) + line.replace(new RegExp('^\\s*' + marker.trim().replace(/\./g, '\\.') + '\\s?'), '') + v.slice(lineEnd);
-      newCaret = lineStart;
-    } else {
-      newVal = v.slice(0, lineStart) + marker + line + v.slice(lineEnd);
-      newCaret = lineStart + marker.length;
-    }
-    textarea.value = newVal;
-    textarea.setSelectionRange(newCaret, newCaret);
-    textarea.focus();
-    return textarea.value;
-  },
-
-  // 分割线：插入 \n\n---\n\n
-  insertDivider(textarea) {
-    if (!textarea) return;
-    const v = textarea.value, s = textarea.selectionStart, e = textarea.selectionEnd;
-    const before = v.slice(0, s), after = v.slice(e);
-    const nlBefore = before && !before.endsWith('\n\n') ? '\n\n' : '';
-    const nlAfter = after && !after.startsWith('\n\n') ? '\n\n' : '';
-    const insert = nlBefore + '---' + nlAfter;
-    textarea.value = before + insert + after;
-    textarea.setSelectionRange(s + insert.length, s + insert.length);
-    textarea.focus();
-    return textarea.value;
-  },
-
-  // 统计 Markdown 字数（去除空白与标记符号，中文按字、英文按词）
-  mdWordCount(md) {
-    if (!md) return 0;
-    const stripped = md
-      .replace(/```[\s\S]*?```/g, ' ')
-      .replace(/\$\$[\s\S]*?\$\$/g, ' ')
-      .replace(/^\s*[-*#>|]+\s?/gm, ' ')
-      .replace(/^#{1,6}\s*/gm, ' ')
-      .replace(/[*_`~]/g, ' ')
-      .replace(/\$\s*([^$]*?)\s*\$/g, ' $1 ')
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1');
-    const cn = (stripped.match(/[\u4e00-\u9fa5]/g) || []).length;
-    const words = stripped
-      .replace(/[\u4e00-\u9fa5]/g, ' ')
-      .replace(/[^\w\u00c0-\u024f]+/g, ' ')
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean).length;
-    return cn + words;
   },
 
   // ===== 轻量 LaTeX 公式渲染（离线可用，零依赖；支持考公常用公式） =====
@@ -14990,14 +14805,14 @@ document.addEventListener('DOMContentLoaded', async () => {
           break;
         }
         case 'notes': {
-          // 跟随笔记页当前选中的科目-模块（合并为单页编辑：新建直达编辑模式）
+          // 跟随笔记页当前选中的科目-模块
           const st = App.Pages.Notes && App.Pages.Notes.state;
-          let q = '?new=1';
+          let q = '';
           if (st && st.subject) {
-            q += '&subject=' + encodeURIComponent(st.subject);
+            q = '?subject=' + encodeURIComponent(st.subject);
             if (st.module) q += '&module=' + encodeURIComponent(st.module);
           }
-          App.Router.navigate('note-detail' + q);
+          App.Router.navigate('note-form' + q);
           break;
         }
         case 'exams':
@@ -17214,13 +17029,13 @@ App.Pages.Notes = {
         '新建笔记',
         () => {
           App.Draft.clearForm('note');
-          // 跟随当前选中的科目-模块（新建直达单页编辑模式）
-          let q = '?new=1';
+          // 跟随当前选中的科目-模块
+          let q = '';
           if (this.state.subject) {
-            q += '&subject=' + encodeURIComponent(this.state.subject);
+            q = '?subject=' + encodeURIComponent(this.state.subject);
             if (this.state.module) q += '&module=' + encodeURIComponent(this.state.module);
           }
-          App.Router.navigate('note-detail' + q);
+          App.Router.navigate('note-form' + q);
         }
       ));
       return;
@@ -17295,66 +17110,33 @@ App.Pages.Notes = {
     }, 300));
   },
 
-  // ===== 笔记详情页（Notion 式单页编辑：查看/编辑原地切换，无页面跳转） =====
+  // ===== 笔记详情页 =====
   async renderDetail(params) {
     const container = document.getElementById('page-note-detail');
     container.innerHTML = '';
 
-    // 新建模式：note-detail?new=1 或带 subject/module（列表/首页「新建」入口直接进入编辑）
-    const isNew = !!params.new || (!params.id && (params.subject || params.module || params.knowledgePoint));
+    const noteId = params.id;
+    if (!noteId) { App.Router.navigate('notes'); return; }
 
-    let note = null;
-    if (params.id) {
-      note = await App.DB.get('notes', params.id);
-      if (!note) {
-        App.Components.toast('笔记不存在', 'error');
-        App.Router.navigate('notes');
-        return;
-      }
-    } else {
-      // 新建空笔记（数据结构与 DB 记录一致）
-      note = {
-        subject: params.subject || '',
-        module: params.module || '',
-        knowledgePoint: params.knowledgePoint || '',
-        title: '', content: '', linkedErrors: [], linkedReviews: []
-      };
+    const note = await App.DB.get('notes', noteId);
+    if (!note) {
+      App.Components.toast('笔记不存在', 'error');
+      App.Router.navigate('notes');
+      return;
     }
 
-    // 新建 → 直接编辑模式；已有笔记 → 默认查看模式
-    this._renderNotePage(container, note, { isNew, editing: isNew, params: params || {} });
-  },
-
-  // ===== 单页渲染入口：查看/编辑两种模式的唯一出口（原地重渲染，不跳转页面） =====
-  _renderNotePage(container, note, opts) {
-    container.innerHTML = '';
-    if (opts.editing) this._renderNoteEdit(container, note, opts);
-    else this._renderNoteView(container, note, opts);
-  },
-
-  // ===== 查看模式：标题/正文用 simpleMarkdown 渲染（v-html 语义），点击即进入编辑 =====
-  async _renderNoteView(container, note, opts) {
-    // 返回栏 + 右上角：✏️ 编辑 + ✍️ 手写 + ⋮ 菜单
+    // 返回栏 + 右上角：涂鸦铅笔 + 三点菜单
     const header = App.Components.pageHeader('笔记详情', '⋮', () => this._showDetailMenu(note));
     const moreBtn = header.querySelector('.page-header__right');
     if (moreBtn) {
       moreBtn.classList.add('note-detail-more');
-      const editBtn = document.createElement('button');
-      editBtn.className = 'detail-header-action';
-      editBtn.textContent = '✏️';
-      editBtn.title = '编辑笔记';
-      editBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._renderNotePage(container, note, { isNew: false, editing: true, params: opts.params });
-      });
-      moreBtn.parentNode.insertBefore(editBtn, moreBtn);
       const doodleBtn = document.createElement('button');
       doodleBtn.className = 'detail-header-action';
-      doodleBtn.textContent = '✍️';
+      doodleBtn.textContent = '✏️';
       doodleBtn.title = '手写笔记';
       doodleBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this._openDoodle(note, opts.params);
+        this._openDoodle(note, params);
       });
       moreBtn.parentNode.insertBefore(doodleBtn, moreBtn);
     }
@@ -17376,22 +17158,22 @@ App.Pages.Notes = {
     `;
     content.appendChild(breadcrumb);
 
-    // 标题（innerHTML 渲染 Markdown；点击即进入编辑）
+    // 标题（点击进入编辑）
     const titleEl = document.createElement('div');
-    titleEl.className = 'note-single-title';
-    titleEl.innerHTML = App.Utils.simpleMarkdown(note.title)
-      || '<span class="note-single-empty">未命名笔记</span>';
-    titleEl.addEventListener('click', () => this._renderNotePage(container, note, { isNew: false, editing: true, params: opts.params }));
+    titleEl.style.cssText = 'font-size:var(--font-xl);font-weight:700;margin-bottom:var(--spacing-md);cursor:pointer;';
+    titleEl.textContent = note.title;
+    titleEl.addEventListener('click', () => App.Router.navigate('note-form?id=' + note.id));
     content.appendChild(titleEl);
 
-    // 正文（innerHTML 渲染 Markdown；点击即进入编辑）
+    // 正文（点击进入编辑）
     const bodyEl = document.createElement('div');
-    bodyEl.className = 'card note-single-body';
+    bodyEl.className = 'card';
     bodyEl.setAttribute('data-tap-edit', '');
+    bodyEl.style.cssText = 'margin:0 0 var(--spacing-md) 0;line-height:1.8;min-height:80px;';
     bodyEl.innerHTML = note.content
       ? App.Utils.simpleMarkdown(note.content)
-      : '<span style="color:var(--text-tertiary);">暂无内容，点击编辑</span>';
-    bodyEl.addEventListener('click', () => this._renderNotePage(container, note, { isNew: false, editing: true, params: opts.params }));
+      : '<span style="color:var(--text-tertiary);">暂无内容</span>';
+    bodyEl.addEventListener('click', () => App.Router.navigate('note-form?id=' + note.id));
     content.appendChild(bodyEl);
 
     // 编辑时间
@@ -17420,7 +17202,7 @@ App.Pages.Notes = {
       content.appendChild(linkedSection);
     }
 
-    // 手写笔记区域（查看模式显示；编辑模式隐藏，保存后回到查看模式自然恢复）
+    // 手写笔记区域（点击可重新编辑，可隐藏但保留数据）
     const doodlePreview = document.createElement('div');
     doodlePreview.className = 'doodle-preview' + (note.doodleHidden ? ' doodle-preview--collapsed' : '');
     if (note.doodle && !note.doodleHidden) {
@@ -17435,275 +17217,15 @@ App.Pages.Notes = {
         e.stopPropagation();
         note.doodleHidden = true;
         try { await App.DB.updateNote(note); } catch (err) {}
-        this.renderDetail(opts.params);
+        this.renderDetail(params);
       });
     } else if (!note.doodle) {
       doodlePreview.innerHTML = '<div class="doodle-preview__empty">✍️ 暂无手写笔记，点击右上角铅笔图标添加</div>';
     }
-    doodlePreview.addEventListener('click', () => this._openDoodle(note, opts.params));
+    doodlePreview.addEventListener('click', () => this._openDoodle(note, params));
     content.appendChild(doodlePreview);
 
     container.appendChild(content);
-  },
-
-  // ===== 编辑模式：标题 input + Markdown 工具栏 + textarea（显示 MD 原文，保留 \n） =====
-  _renderNoteEdit(container, note, opts) {
-    // 工作副本：编辑期间不直接改 DB 记录，保存时才写入
-    const formData = {
-      id: note.id || null,
-      subject: note.subject || '',
-      module: note.module || '',
-      knowledgePoint: note.knowledgePoint || '',
-      title: note.title || '',
-      content: note.content || '',
-      linkedErrors: (note.linkedErrors || []).slice()
-    };
-
-    // 返回栏 + 右上角「保存」（查看模式的 ✏️ 编辑图标在这里变为「保存」）
-    const header = App.Components.pageHeader(opts.isNew ? '新建笔记' : '编辑笔记', '保存', async () => {
-      const ok = await this._saveNoteFromEdit(container, note, formData, opts);
-      if (ok) App.Components.toast('已保存 ✓', 'success');
-    });
-    container.appendChild(header);
-
-    const content = document.createElement('div');
-    content.style.cssText = 'padding:var(--spacing-md) var(--page-padding);padding-bottom:var(--spacing-3xl);';
-
-    // 标题输入框
-    const titleInput = document.createElement('input');
-    titleInput.type = 'text';
-    titleInput.className = 'note-title-input';
-    titleInput.placeholder = '请输入笔记标题…';
-    titleInput.value = formData.title || '';
-    titleInput.addEventListener('input', () => { formData.title = titleInput.value; });
-    content.appendChild(titleInput);
-
-    // Markdown 工具栏（字符串级操作：选中包裹/取消、行首插入/移除、分割线）
-    const toolbar = document.createElement('div');
-    toolbar.className = 'note-edit-toolbar';
-    const TOOL_DEFS = [
-      { label: 'B', title: '加粗 **', marker: '**', kind: 'inline' },
-      { label: 'I', title: '斜体 *', marker: '*', kind: 'inline' },
-      { label: 'H', title: '标题 ## ', marker: '## ', kind: 'block' },
-      { label: '•', title: '无序列表 - ', marker: '- ', kind: 'block' },
-      { label: '1.', title: '有序列表 1. ', marker: '1. ', kind: 'block' },
-      { label: '❝', title: '引用 > ', marker: '> ', kind: 'block' },
-      { label: '`', title: '行内代码', marker: '`', kind: 'inline' },
-      { label: '⌘', title: '代码块 ```', marker: '```', kind: 'codeblock' },
-      { label: '—', title: '分割线', divider: true },
-      { label: '∑', title: '行内公式 $', marker: '$', kind: 'inline' }
-    ];
-    let textarea = null;
-    TOOL_DEFS.forEach(def => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'note-edit-toolbar__btn';
-      b.textContent = def.label;
-      b.title = def.title || def.label;
-      b.addEventListener('click', () => {
-        if (!textarea) return;
-        if (def.divider) App.Utils.insertDivider(textarea);
-        else if (def.kind === 'inline') App.Utils.insertInlineMarker(textarea, def.marker);
-        else if (def.kind === 'codeblock') this._insertCodeBlock(textarea);
-        else App.Utils.insertBlockMarker(textarea, def.marker);
-        formData.content = textarea.value;
-        updateCount();
-      });
-      toolbar.appendChild(b);
-    });
-    content.appendChild(toolbar);
-
-    // 正文 textarea（显示 Markdown 原文）
-    textarea = document.createElement('textarea');
-    textarea.className = 'note-single-textarea';
-    textarea.spellcheck = false;
-    textarea.placeholder = '用 Markdown 记录…\n\n# 标题\n- 列表\n> 引用\n$$ 公式 $$';
-    textarea.value = formData.content || '';
-    textarea.addEventListener('input', () => { formData.content = textarea.value; updateCount(); });
-    content.appendChild(textarea);
-
-    // 底部：字数统计 + 标签（分类）选择器 + 关联错题
-    const footer = document.createElement('div');
-    footer.className = 'note-edit-footer';
-
-    const countEl = document.createElement('span');
-    countEl.className = 'note-edit-count';
-    const updateCount = () => {
-      countEl.textContent = App.Utils.mdWordCount(formData.content) + ' 字';
-    };
-    updateCount();
-    footer.appendChild(countEl);
-
-    // 分类（标签）选择器：科目 › 模块 › 考点 级联
-    const catBtn = document.createElement('button');
-    catBtn.type = 'button';
-    catBtn.className = 'note-cat-selector note-edit-cat';
-    const updateCatLabel = () => {
-      const parts = [formData.subject, formData.module, formData.knowledgePoint].filter(Boolean);
-      catBtn.innerHTML = parts.length
-        ? `<span class="note-cat-icon">🏷️</span><span class="note-cat-text">${parts.join(' › ')}</span><span class="note-cat-clear" title="清除分类">✕</span>`
-        : `<span class="note-cat-icon">🏷️</span><span class="note-cat-text note-cat-placeholder">+ 选择科目 / 模块 / 考点</span>`;
-    };
-    updateCatLabel();
-    catBtn.addEventListener('click', (e) => this._pickCategory(e, formData, updateCatLabel));
-    footer.appendChild(catBtn);
-
-    // 关联错题选择（编辑模式下可添加/移除）
-    const linkBtn = document.createElement('button');
-    linkBtn.type = 'button';
-    linkBtn.className = 'btn btn--outline btn--sm';
-    linkBtn.textContent = '关联错题';
-    linkBtn.addEventListener('click', async () => {
-      const errors = await App.DB.getErrors({ subject: formData.subject });
-      if (errors.length === 0) { App.Components.toast('该科目暂无错题', 'error'); return; }
-      const options = errors.map(er => ({ label: App.Utils.truncate(er.question, 30), value: er.id }));
-      const selected = await App.Components.actionSheet(options, '选择关联错题');
-      if (selected && formData.linkedErrors.indexOf(selected) === -1) {
-        formData.linkedErrors.push(selected);
-        renderLinkedList();
-      }
-    });
-    footer.appendChild(linkBtn);
-
-    // 已关联错题列表（仅刷新本区域，不打断输入）
-    const linkedWrap = document.createElement('div');
-    linkedWrap.style.cssText = 'margin-top:8px;';
-    const renderLinkedList = () => {
-      linkedWrap.innerHTML = '';
-      if (!formData.linkedErrors.length) return;
-      formData.linkedErrors.forEach(errId => {
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:4px 0;font-size:var(--font-sm);';
-        row.innerHTML = `<span style="color:var(--text-secondary);">关联错题 ${errId.slice(-6)}</span>`;
-        const rm = document.createElement('button');
-        rm.className = 'btn--text';
-        rm.textContent = '移除';
-        rm.addEventListener('click', () => {
-          formData.linkedErrors = formData.linkedErrors.filter(id => id !== errId);
-          renderLinkedList();
-        });
-        row.appendChild(rm);
-        linkedWrap.appendChild(row);
-      });
-    };
-    renderLinkedList();
-    content.appendChild(linkedWrap);
-
-    content.appendChild(footer);
-    container.appendChild(content);
-
-    // 正文失焦自动保存（blur 保存；成功则原地切回查看模式）
-    textarea.addEventListener('blur', () => {
-      setTimeout(() => {
-        const changed = formData.title !== (note.title || '') || formData.content !== (note.content || '');
-        if (!changed) return;
-        this._saveNoteFromEdit(container, note, formData, opts).then(ok => {
-          if (ok) App.Components.toast('已保存 ✓', 'success');
-        });
-      }, 120);
-    });
-  },
-
-  // 代码块插入（``` 包裹选中文本）
-  _insertCodeBlock(textarea) {
-    if (!textarea) return;
-    const v = textarea.value, s = textarea.selectionStart, e = textarea.selectionEnd;
-    const selected = v.slice(s, e);
-    const block = '```\n' + (selected || '代码') + '\n```';
-    textarea.value = v.slice(0, s) + block + v.slice(e);
-    textarea.setSelectionRange(s + 4, s + 4 + (selected ? selected.length : 2));
-    textarea.focus();
-    return textarea.value;
-  },
-
-  // ===== 编辑模式分类级联选择（科目 › 模块 › 考点） =====
-  async _pickCategory(e, formData, updateLabel) {
-    if (e.target.classList.contains('note-cat-clear')) {
-      formData.subject = ''; formData.module = ''; formData.knowledgePoint = '';
-      updateLabel();
-      return;
-    }
-    const sOpt = App.Constants.SUBJECTS.map(s => ({
-      icon: '<span style="font-size:22px">' + s.icon + '</span>',
-      label: s.name,
-      desc: App.Constants.isFlatSubject(s.name) ? '选择「' + s.name + '」考点' : '选择「' + s.name + '」模块',
-      value: s.name
-    }));
-    const s = await App.Components.centeredPicker(sOpt, '选择科目', '请先选择考试科目，再选择具体模块和考点');
-    if (!s) return;
-    formData.subject = s; formData.module = ''; formData.knowledgePoint = '';
-
-    // 扁平科目（资料分析）：无模块层，直接选考点
-    if (App.Constants.isFlatSubject(s)) {
-      const kps = App.Tags.getSubjectKnowledgePoints(s);
-      const kOpt = kps.map(k => ({ icon: '🏷️', label: k, desc: s + ' — ' + k, value: k }));
-      kOpt.push({ icon: '✏️', label: '+ 自定义考点', desc: '手动输入新考点名称', value: '__custom__' });
-      const k = await App.Components.centeredPicker(kOpt, '选择考点', '选择或自定义「' + s + '」的考点', { kind: 'kp', module: s });
-      if (k === '__custom__') {
-        const name = prompt('输入自定义考点名称：');
-        if (name && name.trim()) { formData.knowledgePoint = name.trim(); App.Tags.addSubjectKnowledgePoint(s, name.trim()); }
-      } else if (k) { formData.knowledgePoint = k; }
-      updateLabel();
-      return;
-    }
-
-    const mods = App.Constants.getModules(s);
-    const mOpt = mods.map(m => ({ icon: '📂', label: m, desc: s + ' — ' + m, value: m }));
-    const m = await App.Components.centeredPicker(mOpt, '选择模块', '选择「' + s + '」下的知识模块');
-    if (!m) { updateLabel(); return; }
-    formData.module = m; formData.knowledgePoint = '';
-
-    const kps = App.Tags.getKnowledgePointSuggestions(m);
-    const kOpt = kps.map(k => ({ icon: '🏷️', label: k, desc: m + ' — ' + k, value: k }));
-    kOpt.push({ icon: '✏️', label: '+ 自定义考点', desc: '手动输入新考点名称', value: '__custom__' });
-    const k = await App.Components.centeredPicker(kOpt, '选择考点', '选择或自定义「' + m + '」的考点', { kind: 'kp', module: m });
-    if (k === '__custom__') {
-      const name = prompt('输入自定义考点名称：');
-      if (name && name.trim()) { formData.knowledgePoint = name.trim(); App.Tags.addKnowledgePoint(m, name.trim()); }
-    } else if (k) { formData.knowledgePoint = k; }
-    updateLabel();
-  },
-
-  // ===== 保存（编辑模式 → 查看模式，原地重渲染不跳转） =====
-  async _saveNoteFromEdit(container, note, formData, opts) {
-    if (this._noteSaveBusy) return false;
-    this._noteSaveBusy = true;
-    try {
-      if (!formData.subject) { App.Components.toast('请选择科目', 'error'); return false; }
-      if (!formData.title.trim()) { App.Components.toast('请输入笔记标题', 'error'); return false; }
-      App.Utils.rememberSelect.set('note', formData.subject, formData.module);
-      const existing = note.id ? await App.DB.get('notes', note.id) : null;
-      const payload = {
-        id: note.id || undefined,
-        subject: formData.subject, module: formData.module, knowledgePoint: formData.knowledgePoint,
-        title: formData.title.trim() || '未命名笔记', content: formData.content,
-        linkedErrors: formData.linkedErrors,
-        linkedReviews: existing ? existing.linkedReviews || [] : [],
-        updatedAt: new Date().toISOString()
-      };
-      if (note.id) {
-        await App.DB.updateNote(payload);
-      } else {
-        payload.createdAt = new Date().toISOString();
-        note.id = await App.DB.addNote(payload);
-      }
-      Object.assign(note, {
-        subject: payload.subject, module: payload.module, knowledgePoint: payload.knowledgePoint,
-        title: payload.title, content: payload.content, linkedErrors: formData.linkedErrors.slice(),
-        updatedAt: payload.updatedAt
-      });
-      try { App.Draft.clearForm('note'); } catch (err) {}
-      // 原地刷新查看模式（无页面跳转）；新建后 URL 更新为带 id 的规范形式
-      const target = 'note-detail?id=' + note.id;
-      if ((location.hash || '').slice(1) !== target) App.Router.navigate(target);
-      else this._renderNotePage(container, note, { isNew: false, editing: false, params: {} });
-      return true;
-    } catch (err) {
-      App.Components.toast('保存失败', 'error');
-      return false;
-    } finally {
-      this._noteSaveBusy = false;
-    }
   },
 
   // ===== 打开手写笔记覆盖层（铅笔图标触发） =====
@@ -17800,18 +17322,327 @@ App.Pages.Notes = {
     }
   },
 
-  // ===== 新建/编辑笔记（兼容旧路由：已合并为 Notion 单页编辑，统一重定向到 note-detail） =====
+  // ===== 新建/编辑笔记表单 =====
   renderForm(params) {
-    if (params.id) {
-      App.Router.navigate('note-detail?id=' + encodeURIComponent(params.id));
-      return;
+    const container = document.getElementById('page-note-form');
+    container.innerHTML = '';
+
+    let isEdit = !!params.id;
+
+    let formData = {
+      subject: params.subject || '',
+      module: '',
+      knowledgePoint: '',
+      title: '',
+      content: '',
+      linkedErrors: []
+    };
+
+    const loadAndRender = async () => {
+      if (isEdit) {
+        const note = await App.DB.get('notes', params.id);
+        if (note) {
+          formData = {
+            subject: note.subject || '',
+            module: note.module || '',
+            knowledgePoint: note.knowledgePoint || '',
+            title: note.title || '',
+            content: note.content || '',
+            linkedErrors: note.linkedErrors || [],
+            id: note.id
+          };
+        }
+        formData._formId = params.id;
+      } else {
+        // 新建/续编：仅当 sessionStorage 记录着「同一篇正在录入」的 id 时才续编；否则一律空白。
+        const fid = App.Draft.getFormId('note');
+        if (fid) {
+          if (App.Draft.formIdIsTemp(fid)) {
+            // 尚未建成 DB 记录：从 localStorage 草稿续编
+            const d = App.Draft.loadForm('note', fid);
+            if (d) Object.assign(formData, d);
+            formData._formId = fid;
+          } else {
+            // 已是真实记录 id：从 DB 续编（权威，不会重复建记录）
+            const note = await App.DB.get('notes', fid);
+            if (note) {
+              isEdit = true;
+              formData = {
+                subject: note.subject || '', module: note.module || '',
+                knowledgePoint: note.knowledgePoint || '', title: note.title || '',
+                content: note.content || '', linkedErrors: note.linkedErrors || [],
+                id: note.id
+              };
+              formData._formId = fid;
+            }
+          }
+        }
+        if (!formData._formId) {
+          formData._formId = App.Draft.newTempId();
+          App.Draft.setFormId('note', formData._formId);
+        }
+        // URL 参数 subject/module 优先级高于草稿（用户从某科目点新建）
+        if (params.subject) {
+          formData.subject = params.subject;
+          if (params.module && App.Constants.getModules(params.subject).indexOf(params.module) !== -1) {
+            formData.module = params.module;
+          }
+        }
+        // 仍未指定科目时，默认带入上次选择的科目-模块
+        if (!formData.subject) {
+          const last = App.Utils.rememberSelect.get('note');
+          if (last && last.subject) {
+            formData.subject = last.subject;
+            formData.module = (last.module && App.Constants.getModules(last.subject).indexOf(last.module) !== -1) ? last.module : '';
+          }
+        }
+      }
+      buildForm();
+    };
+
+    const buildForm = () => {
+      // 重建前先把编辑器内容同步回 formData，避免重渲染丢失草稿
+      if (formData._getContent) {
+        try { formData.content = formData._getContent(); } catch (e) {}
+      }
+      container.innerHTML = '';
+
+      container.appendChild(App.Components.pageHeader(
+        isEdit ? '编辑笔记' : '新建笔记',
+        '保存',
+        async () => {
+          if (!formData.title.trim()) {
+            App.Components.toast('请输入笔记标题', 'error');
+            return;
+          }
+          await submitForm();
+        }
+      ));
+
+      const form = document.createElement('div');
+      form.className = 'form-page';
+
+      // ===== 标题（普通输入框，无灰色占位） =====
+      const titleInput = document.createElement('input');
+      titleInput.type = 'text';
+      titleInput.className = 'note-title-input';
+      titleInput.placeholder = '请输入笔记标题…';
+      titleInput.value = formData.title || '';
+      titleInput.addEventListener('input', () => { formData.title = titleInput.value; });
+      form.appendChild(titleInput);
+
+      // ===== 单一分类选择框（科目 › 模块 › 考点 级联） =====
+      const catSelector = document.createElement('button');
+      catSelector.type = 'button';
+      catSelector.className = 'note-cat-selector';
+      const updateCatLabel = () => {
+        const parts = [formData.subject, formData.module, formData.knowledgePoint].filter(Boolean);
+        catSelector.innerHTML = parts.length
+          ? `<span class="note-cat-icon">🏷️</span><span class="note-cat-text">${parts.join(' › ')}</span><span class="note-cat-clear" title="清除分类">✕</span>`
+          : `<span class="note-cat-icon">🏷️</span><span class="note-cat-text note-cat-placeholder">+ 选择科目 / 模块 / 考点</span>`;
+      };
+      catSelector.addEventListener('click', async (e) => {
+        if (e.target.classList.contains('note-cat-clear')) {
+          formData.subject = ''; formData.module = ''; formData.knowledgePoint = '';
+          updateCatLabel();
+          return;
+        }
+        // 科目选择（居中弹窗）
+        const sOpt = App.Constants.SUBJECTS.map(s => ({
+          icon: '<span style="font-size:22px">' + s.icon + '</span>',
+          label: s.name,
+          desc: App.Constants.isFlatSubject(s.name) ? '选择「' + s.name + '」考点' : '选择「' + s.name + '」模块',
+          value: s.name
+        }));
+        const s = await App.Components.centeredPicker(sOpt, '选择科目', '请先选择考试科目，再选择具体模块和考点');
+        if (!s) return;
+        formData.subject = s; formData.module = ''; formData.knowledgePoint = '';
+
+        // 扁平科目（资料分析）：无模块层，直接选考点
+        if (App.Constants.isFlatSubject(s)) {
+          const kps = App.Tags.getSubjectKnowledgePoints(s);
+          const kOpt = kps.map(k => ({
+            icon: '🏷️',
+            label: k,
+            desc: s + ' — ' + k,
+            value: k
+          }));
+          kOpt.push({ icon: '✏️', label: '+ 自定义考点', desc: '手动输入新考点名称', value: '__custom__' });
+          const k = await App.Components.centeredPicker(kOpt, '选择考点', '选择或自定义「' + s + '」的考点', { kind: 'kp', module: s });
+          if (k === '__custom__') {
+            const name = prompt('输入自定义考点名称：');
+            if (name && name.trim()) { formData.knowledgePoint = name.trim(); App.Tags.addSubjectKnowledgePoint(s, name.trim()); }
+          } else if (k) { formData.knowledgePoint = k; }
+          updateCatLabel();
+          return;
+        }
+
+        // 模块选择
+        const mods = App.Constants.getModules(s);
+        const mOpt = mods.map(m => ({
+          icon: '📂',
+          label: m,
+          desc: s.name + ' — ' + m,
+          value: m
+        }));
+        const m = await App.Components.centeredPicker(mOpt, '选择模块', '选择「' + s + '」下的知识模块');
+        if (!m) { updateCatLabel(); return; }
+        formData.module = m; formData.knowledgePoint = '';
+
+        // 考点选择
+        const kps = App.Tags.getKnowledgePointSuggestions(m);
+        const kOpt = kps.map(k => ({
+          icon: '🏷️',
+          label: k,
+          desc: m + ' — ' + k,
+          value: k
+        }));
+        kOpt.push({ icon: '✏️', label: '+ 自定义考点', desc: '手动输入新考点名称', value: '__custom__' });
+        const k = await App.Components.centeredPicker(kOpt, '选择考点', '选择或自定义「' + m + '」的考点', { kind: 'kp', module: m });
+        if (k === '__custom__') {
+          const name = prompt('输入自定义考点名称：');
+          if (name && name.trim()) { formData.knowledgePoint = name.trim(); App.Tags.addKnowledgePoint(m, name.trim()); }
+        } else if (k) { formData.knowledgePoint = k; }
+        updateCatLabel();
+      });
+      updateCatLabel();
+      form.appendChild(catSelector);
+
+      // ===== 正文块编辑器（带 onChange 自动保存到 DB）=====
+      const editor = App.Components.notionEditor(formData.content, false, function (content) {
+        formData.content = content;
+        debouncedSaveToDB();
+      });
+      form.appendChild(editor.element);
+      formData._getContent = editor.getContent;
+
+      // 关联错题
+      const linkGroup = document.createElement('div');
+      linkGroup.className = 'form-group';
+      const linkLabel = document.createElement('label');
+      linkLabel.className = 'form-label';
+      linkLabel.textContent = '关联错题（可选）';
+      linkGroup.appendChild(linkLabel);
+
+      const linkBtn = document.createElement('button');
+      linkBtn.className = 'btn btn--outline btn--sm';
+      linkBtn.textContent = '选择错题';
+      linkBtn.addEventListener('click', async () => {
+        const errors = await App.DB.getErrors({ subject: formData.subject });
+        if (errors.length === 0) {
+          App.Components.toast('该科目暂无错题', 'error');
+          return;
+        }
+
+        const options = errors.map(e => ({
+          label: App.Utils.truncate(e.question, 30),
+          value: e.id
+        }));
+        const selected = await App.Components.actionSheet(options, '选择关联错题');
+        if (selected && !formData.linkedErrors.includes(selected)) {
+          formData.linkedErrors.push(selected);
+          buildForm();
+        }
+      });
+      linkGroup.appendChild(linkBtn);
+
+      // 显示已关联的错题
+      if (formData.linkedErrors.length > 0) {
+        const linkedList = document.createElement('div');
+        linkedList.style.cssText = 'margin-top:8px;';
+        for (const errId of formData.linkedErrors) {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:4px 0;font-size:var(--font-sm);';
+          row.innerHTML = `<span style="color:var(--text-secondary);">关联错题 ${errId.slice(-6)}</span>`;
+          const removeBtn = document.createElement('button');
+          removeBtn.className = 'btn--text';
+          removeBtn.textContent = '移除';
+          removeBtn.addEventListener('click', () => {
+            formData.linkedErrors = formData.linkedErrors.filter(id => id !== errId);
+            buildForm();
+          });
+          row.appendChild(removeBtn);
+          linkedList.appendChild(row);
+        }
+        linkGroup.appendChild(linkedList);
+      }
+
+      form.appendChild(linkGroup);
+
+      container.appendChild(form);
+
+      // 草稿自动暂存（localStorage 兜底，按表单 id 隔离，避免旧草稿串入新笔记）
+      App.Draft.autoSaveForm('note', formData._formId, container, function () {
+        if (formData._getContent) { try { formData.content = formData._getContent(); } catch (e) {} }
+        return JSON.parse(JSON.stringify(formData));
+      });
+    };
+
+    // 防抖自动保存到 DB（2 秒无操作后执行）
+    let _saveTimer = null;
+    let _saving = false;
+    function debouncedSaveToDB() {
+      clearTimeout(_saveTimer);
+      _saveTimer = setTimeout(async () => {
+        if (_saving) return;
+        if (!formData.title.trim()) return;
+        _saving = true;
+        try { await submitFormInternal(); } catch (e) {}
+        _saving = false;
+      }, 2000);
     }
-    let q = 'new=1';
-    if (params.subject) {
-      q += '&subject=' + encodeURIComponent(params.subject);
-      if (params.module) q += '&module=' + encodeURIComponent(params.module);
-    }
-    App.Router.navigate('note-detail?' + q);
+
+    // 核心保存逻辑
+    const submitFormInternal = async () => {
+      if (formData._getContent) formData.content = formData._getContent();
+      App.Utils.rememberSelect.set('note', formData.subject, formData.module);
+      if (!formData.subject || !formData.title.trim()) return;
+
+      if (isEdit && formData.id) {
+        const existing = await App.DB.get('notes', formData.id);
+        await App.DB.updateNote({
+          id: formData.id, subject: formData.subject, module: formData.module,
+          knowledgePoint: formData.knowledgePoint, title: formData.title,
+          content: formData.content, linkedErrors: formData.linkedErrors,
+          linkedReviews: existing ? existing.linkedReviews || [] : [],
+          updatedAt: new Date().toISOString()
+        });
+      } else {
+        if (!formData.id) {
+          formData.id = await App.DB.addNote({
+            subject: formData.subject, module: formData.module,
+            knowledgePoint: formData.knowledgePoint,
+            title: formData.title || '未命名笔记', content: formData.content,
+            linkedErrors: formData.linkedErrors, linkedReviews: [],
+            updatedAt: new Date().toISOString()
+          });
+          isEdit = true;
+        } else {
+          await App.DB.updateNote({
+            id: formData.id, subject: formData.subject, module: formData.module,
+            knowledgePoint: formData.knowledgePoint, title: formData.title,
+            content: formData.content, linkedErrors: formData.linkedErrors,
+            linkedReviews: [], updatedAt: new Date().toISOString()
+          });
+        }
+      }
+    };
+
+    // 手动/离开时强制保存
+    const submitForm = async () => {
+      clearTimeout(_saveTimer);
+      if (formData._getContent) formData.content = formData._getContent();
+      if (!formData.subject) { App.Components.toast('请选择科目', 'error'); return; }
+      if (!formData.title.trim()) { App.Components.toast('请输入标题', 'error'); return; }
+      try {
+        await submitFormInternal();
+        App.Components.toast('已保存 ✓', 'success');
+        App.Draft.clearForm('note');
+        App.Router.navigate('notes');
+      } catch (e) { App.Components.toast('保存失败', 'error'); }
+    };
+
+    loadAndRender();
   }
 };
 // ===== 考公笔试复盘系统 - 学习统计页面（日历） =====
@@ -18883,7 +18714,7 @@ App.Pages.Workspace = {
         '暂无笔记',
         '点击下方按钮开始记录',
         '新建笔记',
-        () => App.Router.navigate('note-detail?new=1&subject=' + encodeURIComponent(subject))
+        () => App.Router.navigate('note-form?subject=' + encodeURIComponent(subject))
       ));
     } else {
       // 按模块-考点组织
