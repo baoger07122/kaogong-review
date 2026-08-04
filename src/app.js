@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.8';
+App.VERSION = '8.4.9';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -185,48 +185,78 @@ App.Utils = {
     return cloned;
   },
 
-  // ===== 笔记查看层 Markdown 渲染（第一步：simpleMarkdown → marked.js） =====
-  // marked.js 优先（gfm/breaks/headerIds:false）；公式通过 marked extension 保留（$x^2$ / $$...$$）；
-  // CDN 不可达时回退 simpleMarkdown 防止白屏。
-  renderMarkdown(text) {
-    if (!text) return '';
-    if (typeof window !== 'undefined' && window.marked && window.marked.parse) {
-      try {
-        if (!window.marked._kgInited) {
-          window.marked.setOptions({ gfm: true, breaks: true, headerIds: false });
-          const formulaHtml = (latex, block) => {
-            const esc = String(latex || '');
-            const tag = block ? 'div' : 'span';
-            const cls = block ? 'mformula mformula--block' : 'mformula';
-            return '<' + tag + ' class="' + cls + '" data-latex="' + encodeURIComponent(esc) + '">'
-              + (App.Utils && App.Utils.renderLatex ? App.Utils.renderLatex(esc) : esc) + '</' + tag + '>';
-          };
-          window.marked.use({ extensions: [
-            {
-              name: 'blockFormula', level: 'block',
-              start(src) { return src.indexOf('$$'); },
-              tokenizer(src) {
-                const m = /^\$\$([\s\S]+?)\$\$/.exec(src);
-                return m ? { type: 'blockFormula', raw: m[0], text: m[1] } : undefined;
-              },
-              renderer(t) { return formulaHtml(t.text, true); }
-            },
-            {
-              name: 'inlineFormula', level: 'inline',
-              start(src) { return src.indexOf('$'); },
-              tokenizer(src) {
-                const m = /^\$([^$\n]+)\$/.exec(src);
-                return m ? { type: 'inlineFormula', raw: m[0], text: m[1] } : undefined;
-              },
-              renderer(t) { return formulaHtml(t.text, false); }
-            }
-          ]});
-          window.marked._kgInited = true;
+  // ===== 笔记查看层渲染（JSON 块 → HTML；笔记数据 JSON 化后替代 marked/simpleMarkdown） =====
+  // 输入：编辑器 getEditorData() 输出的 JSON 块数组（对外格式 {type, content, html, checked, indent, ...}）
+  // 输出：HTML 字符串（复用 md-preview-* 样式，与全站其它查看态一致）；公式随块 html 原样输出
+  renderBlocks(blocks) {
+    if (!Array.isArray(blocks)) return '';
+    const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const inline = (b) => b.html ? b.html : esc(b.content || '').replace(/\n/g, '<br>');
+    const indentStyle = (b) => b.indent ? ' style="padding-left:' + (b.indent * 24) + 'px;"' : '';
+    let out = '';
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i] || {};
+      const t = b.type || 'text';
+      if (t === 'heading1' || t === 'heading2' || t === 'heading3' || t === 'heading4') {
+        const tag = 'h' + (t === 'heading1' ? '1' : t === 'heading2' ? '2' : t === 'heading3' ? '3' : '4');
+        out += '<' + tag + ' class="md-preview-' + tag + '"' + indentStyle(b) + '>' + inline(b) + '</' + tag + '>';
+      } else if (t === 'bulletList' || t === 'orderedList') {
+        const tag = t === 'bulletList' ? 'ul' : 'ol';
+        const cls = t === 'bulletList' ? 'md-preview-ul' : 'md-preview-ol';
+        out += '<' + tag + ' class="' + cls + '"' + indentStyle(b) + '>';
+        while (i < blocks.length && (blocks[i] || {}).type === t) {
+          out += '<li>' + inline(blocks[i]) + '</li>';
+          i++;
         }
-        return window.marked.parse(text);
-      } catch (e) { /* marked 异常时回退 */ }
+        out += '</' + tag + '>';
+        i--;
+      } else if (t === 'quote') {
+        out += '<blockquote class="md-preview-blockquote"' + indentStyle(b) + '>' + inline(b) + '</blockquote>';
+      } else if (t === 'divider') {
+        out += '<hr class="md-preview-hr">';
+      } else if (t === 'code') {
+        out += '<pre class="md-preview-code"><code>' + esc(b.content || '') + '</code></pre>';
+      } else if (t === 'todo') {
+        out += '<div class="md-preview-todo"' + indentStyle(b) + '><input type="checkbox" ' + (b.checked ? 'checked' : '') + ' disabled>' + inline(b) + '</div>';
+      } else if (t === 'callout') {
+        out += '<div class="md-preview-callout"' + indentStyle(b) + '>' + esc(b.emoji || '💡') + ' ' + inline(b) + '</div>';
+      } else if (t === 'table') {
+        const td = b.tableData || [];
+        out += '<table class="md-preview-table">';
+        (td || []).forEach(r => {
+          out += '<tr>' + (r || []).map(c => '<td>' + esc(c) + '</td>').join('') + '</tr>';
+        });
+        out += '</table>';
+      } else if (t === 'image') {
+        const img = b.imgData || {};
+        out += '<img class="md-preview-img" src="' + esc(img.src || '') + '" alt="' + esc(img.alt || '') + '">';
+      } else if (t === 'toggle') {
+        out += '<details class="md-preview-toggle"' + indentStyle(b) + '><summary>' + inline(b) + '</summary>'
+          + (b.children && b.children.length ? this.renderBlocks(b.children) : '') + '</details>';
+      } else {
+        // text / 其它默认段落
+        out += '<p class="md-preview-p"' + indentStyle(b) + '>' + (inline(b) || '&nbsp;') + '</p>';
+      }
     }
-    return this.simpleMarkdown(text);
+    return out;
+  },
+
+  // ===== 旧 Markdown 数据懒转换（笔记 JSON 化）：MD 字符串 → JSON 块数组 =====
+  // 打开笔记时检测到 content 仍是字符串（历史数据）则转换；保存时写回 JSON，用户无感
+  mdToBlocks(md) {
+    try {
+      const holder = document.createElement('div');
+      holder.style.display = 'none';
+      document.body.appendChild(holder);
+      const ed = App.Components.initEditor(holder, { initialData: md || '', dataMode: 'json', onChange: null });
+      const data = ed.getEditorData();
+      holder.remove();
+      // 过滤完全空白的占位块（空/空白内容不应产生空块，查看时显示「暂无内容」）
+      return data.filter(b => (b.content || '').trim() || b.html || b.imgData || (b.tableData && b.tableData.length));
+    } catch (e) {
+      // 转换失败时兜底为单个文本块，保证内容不丢
+      return String(md || '').trim() ? [{ type: 'text', content: String(md), html: '' }] : [];
+    }
   },
 
   // ===== 简易 Markdown 渲染 =====
@@ -10151,9 +10181,16 @@ App.Pages.Notes = {
     if (this.state.knowledgePoint) notes = notes.filter(n => n.knowledgePoint === this.state.knowledgePoint);
     if (this.state.search) {
       const kw = this.state.search.toLowerCase();
+      const noteText = (n) => {
+        // content 兼容：JSON 块数组（新数据）或 Markdown 字符串（历史数据）
+        if (Array.isArray(n.content)) {
+          try { return JSON.stringify(n.content).toLowerCase(); } catch (e) { return ''; }
+        }
+        return (n.content || '').toLowerCase();
+      };
       notes = notes.filter(n =>
         n.title.toLowerCase().includes(kw) ||
-        (n.content && n.content.toLowerCase().includes(kw))
+        noteText(n).includes(kw)
       );
     }
 
@@ -10281,6 +10318,12 @@ App.Pages.Notes = {
       return;
     }
 
+    // 懒转换：历史 Markdown 数据 → JSON 块数组（打开时自动迁移，保存时写回 JSON）
+    if (typeof note.content === 'string') {
+      note.content = App.Utils.mdToBlocks(note.content);
+    }
+    if (!Array.isArray(note.content)) note.content = [];
+
     // 返回栏 + 右上角：✍️ 手写 + ⋮ 菜单（无「编辑」按钮——点击标题/正文即就地编辑）
     const header = App.Components.pageHeader('笔记详情', '⋮', () => this._showDetailMenu(note));
     const moreBtn = header.querySelector('.page-header__right');
@@ -10317,17 +10360,16 @@ App.Pages.Notes = {
     // 标题（点击就地编辑，无模式切换）
     const titleEl = document.createElement('div');
     titleEl.className = 'note-detail-title';
-    titleEl.innerHTML = App.Utils.renderMarkdown(note.title)
-      || '<span class="note-detail-title__empty">未命名笔记</span>';
+    titleEl.textContent = note.title || '';
     titleEl.addEventListener('click', () => this._editTitleInPlace(titleEl, note, metaEl));
     content.appendChild(titleEl);
 
-    // 正文（marked.js 渲染；点击就地编辑为块编辑器）
+    // 正文（JSON 块 → HTML 渲染；点击就地编辑为块编辑器）
     const bodyEl = document.createElement('div');
-    bodyEl.className = 'card note-detail-body markdown-body';
+    bodyEl.className = 'card note-detail-body';
     bodyEl.setAttribute('data-tap-edit', '');
-    bodyEl.innerHTML = note.content
-      ? App.Utils.renderMarkdown(note.content)
+    bodyEl.innerHTML = note.content.length
+      ? App.Utils.renderBlocks(note.content)
       : '<span style="color:var(--text-tertiary);">暂无内容，点击开始编辑</span>';
     bodyEl.addEventListener('click', (e) => this._editBodyInPlace(bodyEl, note, metaEl, e));
     content.appendChild(bodyEl);
@@ -10407,8 +10449,7 @@ App.Pages.Notes = {
       // 就地恢复标题查看渲染（不重渲染整页，保留滚动位置）
       const restored = document.createElement('div');
       restored.className = 'note-detail-title';
-      restored.innerHTML = App.Utils.renderMarkdown(note.title)
-        || '<span class="note-detail-title__empty">未命名笔记</span>';
+      restored.textContent = note.title || '';
       restored.addEventListener('click', () => this._editTitleInPlace(restored, note, metaEl));
       input.replaceWith(restored);
     };
@@ -10432,11 +10473,11 @@ App.Pages.Notes = {
     bodyEl.innerHTML = '';
 
     const editor = App.Components.initEditor(bodyEl, {
-      initialData: note.content || '',
-      dataMode: 'md',
+      initialData: Array.isArray(note.content) ? note.content : note.content || '',
+      dataMode: 'json',
       placeholder: '点击输入内容…',
       inlinePadding: true,   // 就地编辑：底部最小留白（8px），切换高度不突变
-      onChange: (content) => this._debouncedBodySave(inst, content)
+      onChange: (data) => this._debouncedBodySave(inst, data)
     });
     inst.editor = editor;
 
@@ -10465,20 +10506,19 @@ App.Pages.Notes = {
     }, 0);
   },
 
-  // ===== 退出正文编辑：取最新 MD → 保存 → 复用原卡片容器恢复查看渲染 =====
+  // ===== 退出正文编辑：取最新 JSON 块 → 保存 → 复用原卡片容器恢复查看渲染 =====
   _exitBodyEdit(inst) {
     if (!inst || inst.exiting) return;
     inst.exiting = true;
-    const md = inst.editor ? inst.editor.getContent() : (inst.note.content || '');
+    const data = inst.editor ? inst.editor.getEditorData() : (inst.note.content || []);
     this._clearBodyDebounce(inst);
-    this._saveNoteContent(inst.note, md, { refreshMeta: inst.metaEl }).finally(() => {
+    this._saveNoteContent(inst.note, data, { refreshMeta: inst.metaEl }).finally(() => {
       // 复用原 .card 卡片容器恢复查看渲染（容器从未被替换，卡片外观与滚动位置均不跳动）
       const bodyEl = inst.editorWrap;
       if (bodyEl && bodyEl.parentNode) {
         bodyEl.classList.remove('note-detail-body--editing');
-        bodyEl.classList.add('markdown-body');
-        bodyEl.innerHTML = md
-          ? App.Utils.renderMarkdown(md)
+        bodyEl.innerHTML = Array.isArray(data) && data.length
+          ? App.Utils.renderBlocks(data)
           : '<span style="color:var(--text-tertiary);">暂无内容，点击开始编辑</span>';
         bodyEl.addEventListener('click', (e) => this._editBodyInPlace(bodyEl, inst.note, inst.metaEl, e));
       }
@@ -10844,13 +10884,18 @@ App.Pages.Notes = {
       updateCatLabel();
       form.appendChild(catSelector);
 
-      // ===== 正文块编辑器（带 onChange 自动保存到 DB）=====
-      const editor = App.Components.notionEditor(formData.content, false, function (content) {
-        formData.content = content;
-        debouncedSaveToDB();
-      });
+      // ===== 正文块编辑器（JSON 模式；所见即所得，带 onChange 自动保存到 DB）=====
+      const editor = App.Components.notionEditor(
+        Array.isArray(formData.content) ? formData.content : (formData.content || ''),
+        false,
+        function (data) {
+          formData.content = data;
+          debouncedSaveToDB();
+        },
+        'json'
+      );
       form.appendChild(editor.element);
-      formData._getContent = editor.getContent;
+      formData._getContent = editor.getEditorData;
 
       // 关联错题
       const linkGroup = document.createElement('div');

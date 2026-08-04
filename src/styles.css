@@ -3810,18 +3810,6 @@ body.ipad-split #page-note-form .page-header__back {
   cursor: pointer;
 }
 .note-detail-body:hover { border-color: var(--color-primary-light); }
-/* github-markdown-css 必要配套：让查看层样式融入项目主题（不改布局/交互） */
-.note-detail-body.markdown-body { background: transparent; }
-.note-detail-body.markdown-body > :first-child { margin-top: 0; }
-.note-detail-body.markdown-body > :last-child { margin-bottom: 0; }
-[data-theme="dark"] .note-detail-body.markdown-body { color: var(--text-primary); }
-[data-theme="dark"] .note-detail-body.markdown-body h1,
-[data-theme="dark"] .note-detail-body.markdown-body h2,
-[data-theme="dark"] .note-detail-body.markdown-body h3,
-[data-theme="dark"] .note-detail-body.markdown-body h4 { color: var(--text-primary); }
-[data-theme="dark"] .note-detail-body.markdown-body code,
-[data-theme="dark"] .note-detail-body.markdown-body pre { background: var(--bg-tertiary); color: var(--text-primary); }
-[data-theme="dark"] .note-detail-body.markdown-body blockquote { color: var(--text-secondary); border-left-color: var(--border-color); }
 /* 编辑态：块编辑器在卡片内部（容器 .card 全程不变，切换无闪烁）；禁用点击缩放反馈避免抖动 */
 .note-detail-body--editing:hover { border-color: var(--border-color); }
 .note-detail-body--editing:active { transform: none; }

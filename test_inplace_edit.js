@@ -50,20 +50,23 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.4.8', 'App.VERSION === 8.4.8（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.4.9', 'App.VERSION === 8.4.9（当前 ' + App.VERSION + '）');
 
-    console.log('\n[2] 查看态渲染（无模式：无编辑按钮，点击即编辑）');
+    console.log('\n[2] 查看态渲染（JSON 块 → HTML；点击即编辑）');
     await Notes.renderDetail({ id: 'note1' });
     await wait(10);
     const titleEl = container.querySelector('.note-detail-title');
     const bodyEl = container.querySelector('.note-detail-body');
     assert(!!titleEl, '标题容器 .note-detail-title 存在');
     assert(!!bodyEl, '正文容器 .note-detail-body 存在');
-    assert(titleEl.innerHTML.includes('<strong>') && titleEl.innerHTML.includes('加粗标题'), '标题 innerHTML 渲染 Markdown（非文本插值）');
-    assert(bodyEl.classList.contains('markdown-body'), '正文容器带 markdown-body 类（github-markdown-css）');
-    assert(bodyEl.innerHTML.includes('<h1') && bodyEl.innerHTML.includes('<ul>'), '正文 marked 渲染 h1/列表');
-    assert(!bodyEl.innerHTML.includes('md-preview-ul'), '正文渲染不使用 md-preview 类（已切换 marked.js）');
-    assert(App.Utils.renderMarkdown('公式 $x^2$').includes('mformula'), '公式扩展渲染 $x^2$ → mformula');
+    assert(titleEl.textContent === '**加粗标题**', '标题为纯文本显示（非 Markdown 二次渲染）');
+    // 懒转换：历史 MD 字符串 → JSON 块数组（打开时自动迁移）
+    assert(Array.isArray(store.notes.note1.content), '历史 Markdown 数据打开时已懒转换为 JSON 块数组');
+    assert(store.notes.note1.content.some(b => b.type === 'heading1'), 'JSON 含 heading1 块（# 标题一 已解析）');
+    assert(store.notes.note1.content.some(b => b.type === 'bulletList'), 'JSON 含 bulletList 块（- 项目甲 已解析）');
+    assert(store.notes.note1.content.some(b => b.content && b.content.includes('重点')), 'JSON 含加粗内容块');
+    assert(bodyEl.innerHTML.includes('<h1') && bodyEl.innerHTML.includes('标题一'), '正文 JSON→HTML 渲染 h1');
+    assert(bodyEl.innerHTML.includes('md-preview-ul') && bodyEl.innerHTML.includes('项目甲'), '正文 JSON→HTML 渲染列表');
     const actions = container.querySelectorAll('.detail-header-action');
     assert(actions.length === 1 && actions[0].textContent === '✍️', '右上角仅 ✍️ 手写按钮（无「编辑」按钮）');
     assert(!!container.querySelector('.breadcrumb'), '面包屑保留');
@@ -98,29 +101,31 @@ setTimeout(async () => {
     assert(!cardEl.querySelector('textarea'), '不是 textarea 小窗口（保持块编辑器形态）');
     const blocks = cardEl.querySelectorAll('.notion-block');
     assert(blocks.length >= 3, '块编辑器含多个块（当前 ' + blocks.length + ' 个）');
-    // 编辑器内容来自笔记 MD 原文
+    // 编辑器内容来自笔记 JSON 块（懒转换后）
     const inst = Notes._bodyEditor;
     assert(!!inst && !!inst.editor, '内部编辑实例已注册');
-    const md0 = inst.editor.getContent();
-    assert(md0.includes('# 标题一') || md0.includes('标题一'), '编辑器内容来自笔记原文');
-    assert(md0.includes('项目甲'), '列表内容保留');
+    const data0 = inst.editor.getEditorData();
+    assert(Array.isArray(data0), '编辑器导出 JSON 块数组');
+    assert(data0.some(b => b.type === 'heading1' && (b.content || '').includes('标题一')), '编辑器含 heading1 块（原文）');
+    assert(data0.some(b => b.type === 'bulletList'), '编辑器含 bulletList 块');
 
     console.log('\n[5] 编辑块内容（input 事件）→ 失焦自动保存 + 恢复查看渲染');
     const firstEditable = cardEl.querySelector('.notion-editable');
     assert(!!firstEditable, '存在可编辑块');
-    firstEditable.textContent = '**新第一段**内容';
+    firstEditable.textContent = '新第一段内容';
     firstEditable.dispatchEvent(new win.Event('input', { bubbles: true }));
     await wait(700);   // 等块编辑器内部 onChange 防抖(600ms)
-    const mdEdited = inst.editor.getContent();
-    assert(mdEdited.includes('新第一段'), 'getContent 反映编辑内容');
+    const dataEdited = inst.editor.getEditorData();
+    assert(JSON.stringify(dataEdited).includes('新第一段'), 'getEditorData 反映编辑内容');
     // 失焦（焦点移到编辑区外）→ 保存 + 恢复查看
     doc.dispatchEvent(new win.FocusEvent('focusout', { relatedTarget: doc.body, bubbles: true }));
     await wait(400);
-    assert(store.notes.note1.content.includes('新第一段'), '失焦后内容已写入 DB');
+    assert(JSON.stringify(store.notes.note1.content).includes('新第一段'), '失焦后 JSON 内容已写入 DB');
+    assert(Array.isArray(store.notes.note1.content), 'DB 中 content 为 JSON 数组（不再是 Markdown 字符串）');
     const bodyEl3 = container.querySelector('.note-detail-body');
     assert(!!bodyEl3 && !bodyEl3.classList.contains('note-detail-body--editing'), '失焦退出编辑，恢复查看渲染');
     assert(bodyEl3.classList.contains('card'), '恢复后卡片样式仍在');
-    assert(bodyEl3.innerHTML.includes('<strong>'), '恢复的查看态渲染加粗');
+    assert(bodyEl3.innerHTML.includes('新第一段'), '恢复的查看态渲染新内容');
 
     console.log('\n[6] 双保险：编辑中停顿 2 秒自动保存（不退出编辑）');
     bodyEl3.click();
@@ -130,39 +135,37 @@ setTimeout(async () => {
     ed.textContent = '自动保存验证段落';
     ed.dispatchEvent(new win.Event('input', { bubbles: true }));
     await wait(3300);   // 块编辑器 600ms + 我们的 2000ms 防抖
-    assert(store.notes.note1.content.includes('自动保存验证段落'), '停顿 2 秒后自动保存到 DB');
+    assert(JSON.stringify(store.notes.note1.content).includes('自动保存验证段落'), '停顿 2 秒后自动保存到 DB');
     assert(!!container.querySelector('.note-detail-body--editing'), '仍在编辑态（未因自动保存退出）');
     // 清理：退出编辑
     doc.dispatchEvent(new win.FocusEvent('focusout', { relatedTarget: doc.body, bubbles: true }));
     await wait(400);
 
-    console.log('\n[7] 格式保存全链路：块编辑器导出 MD → JSON 存取 → renderMarkdown（marked.js）渲染不丢格式');
+    console.log('\n[7] 格式保存全链路：块编辑器 JSON → IndexedDB 存取 → renderBlocks 渲染不丢格式');
     const holder = doc.createElement('div');
     doc.body.appendChild(holder);
-    const editor = App.Components.initEditor(holder, { initialData: '', dataMode: 'md', onChange: () => {} });
+    const editor = App.Components.initEditor(holder, { initialData: '', dataMode: 'json', onChange: () => {} });
     editor.setEditorData([
-      { type: 'heading2', content: '**加粗标题**' },
-      { type: 'bullet', content: '**粗体项目**' },
-      { type: 'bullet', content: '普通项目' },
-      { type: 'quote', content: '引用`代码`' },
-      { type: 'text', content: '行内**加粗**与*斜体*与公式 $x^2$' },
+      { type: 'heading2', content: '加粗标题', html: '<strong>加粗标题</strong>' },
+      { type: 'bulletList', content: '粗体项目', html: '<strong>粗体项目</strong>' },
+      { type: 'bulletList', content: '普通项目' },
+      { type: 'quote', content: '引用代码', html: '引用<code>代码</code>' },
       { type: 'divider', content: '' }
     ]);
-    const exportedMd = editor.getContent();
-    assert(exportedMd.includes('**加粗标题**'), '导出 MD 含加粗标记');
-    assert(exportedMd.includes('- '), '导出 MD 含列表标记');
-    assert(exportedMd.includes('> '), '导出 MD 含引用标记');
-    // 模拟 IndexedDB JSON 序列化存取（换行保留）
-    const saved = JSON.parse(JSON.stringify(exportedMd));
-    assert(saved.includes('\n'), 'JSON 序列化保留换行符');
-    const rendered = App.Utils.renderMarkdown(saved);
-    assert(rendered.includes('<h2') && rendered.includes('<strong>'), 'marked 渲染 h2 + 加粗');
-    assert(rendered.includes('<ul>') && rendered.includes('粗体项目'), 'marked 渲染列表（不被吞进段落）');
-    assert(rendered.includes('<blockquote>') && rendered.includes('代码'), 'marked 渲染引用');
-    assert(rendered.includes('<hr'), 'marked 渲染分割线');
-    assert(rendered.includes('mformula') || rendered.includes('mf-'), 'marked 公式扩展渲染公式');
-    // renderMarkdown 空值与兜底
-    assert(App.Utils.renderMarkdown('') === '', 'renderMarkdown 空内容返回空');
+    const jsonData = editor.getEditorData();
+    assert(Array.isArray(jsonData), 'getEditorData 返回 JSON 数组');
+    assert(jsonData.some(b => b.type === 'heading2'), 'JSON 含 heading2 块');
+    assert(jsonData.some(b => b.type === 'bulletList'), 'JSON 含 bulletList 块');
+    assert(jsonData.some(b => b.type === 'quote'), 'JSON 含 quote 块');
+    // 模拟 IndexedDB JSON 序列化存取
+    const saved = JSON.parse(JSON.stringify(jsonData));
+    assert(Array.isArray(saved), 'JSON 序列化存取后仍是数组');
+    const rendered = App.Utils.renderBlocks(saved);
+    assert(rendered.includes('<h2') && rendered.includes('加粗标题'), 'renderBlocks 渲染 h2');
+    assert(rendered.includes('md-preview-ul') && rendered.includes('粗体项目'), 'renderBlocks 渲染列表');
+    assert(rendered.includes('md-preview-blockquote') && rendered.includes('代码'), 'renderBlocks 渲染引用');
+    assert(rendered.includes('<hr'), 'renderBlocks 渲染分割线');
+    assert(App.Utils.renderBlocks('') === '' && App.Utils.renderBlocks(null) === '', 'renderBlocks 空值返回空');
     holder.remove();
 
     console.log('\n[8] 失焦排除：点击格式栏/工具栏不退出编辑，点击其他区域退出');
