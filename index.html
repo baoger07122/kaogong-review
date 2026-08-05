@@ -3870,6 +3870,50 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   margin-left: auto;
   margin-right: auto;
 }
+/* v8.5.5 彻底去块：HTML 直通编辑器（单连续富文本区） */
+.html-editor__area {
+  min-height: 120px;
+  font-size: 14px;
+  line-height: 1.8;
+  outline: none;
+  word-break: break-word;
+  color: var(--text-primary);
+  touch-action: pan-y;   /* 移动端编辑时可滚动页面 */
+  padding: 2px 0;
+}
+.html-editor__area:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+.html-editor__area p { margin: 0.5em 0; }
+.html-editor__area h1, .html-editor__area h2, .html-editor__area h3 { margin: 0.6em 0 0.3em; font-weight: 600; }
+.html-editor__area h1 { font-size: 22px; } .html-editor__area h2 { font-size: 19px; } .html-editor__area h3 { font-size: 16px; }
+.html-editor__area ul, .html-editor__area ol { margin: 0.5em 0; padding-left: 1.7em; }
+.html-editor__area blockquote { border-left: 3px solid #555555; margin: 0.5em 0; padding-left: 12px; color: var(--text-primary); }
+.html-editor__area table { border-collapse: collapse; margin: 0.5em 0; }
+.html-editor__area td, .html-editor__area th { border: 1px solid var(--divider-color); padding: 4px 8px; }
+.html-editor__area code { font-family: var(--font-mono); font-size: 0.92em; }
+.html-editor__area .mformula { cursor: default; }
+/* 移动端隐藏桌面工具栏（移动端用底部格式面板） */
+@media (max-width: 768px) {
+  .html-editor__toolbar { display: none; }
+}
+/* v8.5.5 去块后查看态容器：原生标签样式与编辑区（.html-editor__area）一致，编辑查看所见即所得 */
+.note-html-body { line-height: 1.8; font-size: 14px; }
+.note-html-body p { margin: 0.5em 0; }
+.note-html-body h1, .note-html-body h2, .note-html-body h3 { margin: 0.6em 0 0.3em; font-weight: 600; }
+.note-html-body h1 { font-size: 22px; } .note-html-body h2 { font-size: 19px; } .note-html-body h3 { font-size: 16px; }
+.note-html-body ul, .note-html-body ol { margin: 0.5em 0; padding-left: 1.7em; }
+.note-html-body blockquote { border-left: 3px solid #555555; margin: 0.5em 0; padding-left: 12px; color: var(--text-primary); }
+.note-html-body table { border-collapse: collapse; margin: 0.5em 0; max-width: 100%; }
+.note-html-body td, .note-html-body th { border: 1px solid var(--divider-color); padding: 4px 8px; }
+.note-html-body img { max-width: 100%; border-radius: 8px; }
+.note-html-body details { margin: 0.5em 0; }
+.note-html-body details summary { cursor: pointer; font-weight: 500; }
+.note-html-body code { font-family: var(--font-mono); font-size: 0.92em; background: var(--bg-tertiary); padding: 1px 4px; border-radius: 4px; }
+.note-html-body pre { background: #1E1E1E; color: #D4D4D4; border-radius: 8px; padding: 12px; overflow-x: auto; }
+.note-html-body pre code { background: none; padding: 0; color: inherit; }
 /* iPad 分屏模式：编辑器接近全宽 */
 body.ipad-split .notion-editor {
   max-width: 100%;
@@ -7206,7 +7250,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.5.4';
+App.VERSION = '8.5.5';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -7459,8 +7503,26 @@ App.Utils = {
     return out;
   },
 
+  // ===== v8.5.5 彻底去块：笔记 content 统一为「完整 HTML 字符串」（所见即所得直存，格式 100% 保真）=====
+  // 历史数据三种形态：HTML 字符串（新）、JSON 块数组（v8.4.9~8.5.4）、Markdown 字符串（更早）
+  // toNoteHtml(content)：任意形态 → 完整 HTML；已是 HTML 则原样返回（幂等）
+  toNoteHtml(content) {
+    if (Array.isArray(content)) return this.renderBlocks(content);
+    if (typeof content !== 'string') return '';
+    const s = content.trim();
+    if (!s) return '';
+    // 已是 HTML（以标签开头）→ 原样返回，不二次转换（幂等，保证编辑产物原样直存）
+    if (/^<(p|h[1-6]|ul|ol|blockquote|pre|table|details|div|section|figure|hr|br)\b/i.test(s)) return s;
+    // 旧 Markdown / 纯文本 → 复用 mdToBlocks 解析为块 → renderBlocks 渲染成 HTML
+    try {
+      const blocks = this.mdToBlocks(s);
+      return this.renderBlocks(blocks);
+    } catch (e) {
+      return '<p>' + String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>') + '</p>';
+    }
+  },
+
   // ===== 旧 Markdown 数据懒转换（笔记 JSON 化）：MD 字符串 → JSON 块数组 =====
-  // 打开笔记时检测到 content 仍是字符串（历史数据）则转换；保存时写回 JSON，用户无感
   mdToBlocks(md) {
     try {
       const holder = document.createElement('div');
@@ -7493,6 +7555,18 @@ App.Utils = {
     };
     walk(blocks);
     return n;
+  },
+
+  // v8.5.5 彻底去块：HTML 内容字数（去标签统计文字）
+  countHtmlText(html) {
+    if (typeof html !== 'string') return 0;
+    return String(html)
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .trim().length;
   },
 
   // ===== 简易 Markdown 渲染 =====
@@ -11862,6 +11936,269 @@ App.Components = {
   // ===== Notion 风格块编辑器（功能增强版） =====
   // 块类型：text/h1/h2/h3/h4/bullet/numbered/todo/quote/callout/toggle/divider/code/table
   // 第 5 参 _ext：{ inlinePadding: true } 用于「就地编辑」场景——底部留白最小化，避免切换页面高度突变
+  // ===== v8.5.5 彻底去块：HTML 直通编辑器（单个连续富文本区，所见即所得直存）=====
+  // opts: { initialHtml, onChange(html), placeholder, inlinePadding }
+  // 格式：加粗/斜体/下划线/删除线/行内代码/颜色/高亮/标题1-3/正文/无序/有序/引用/公式/撤销/重做/软回车
+  // 保存：getHtml() = 编辑区 innerHTML 原样直存，格式 100% 保真（不再 JSON 二次转换）
+  htmlEditor(initialHtml, opts) {
+    opts = opts || {};
+    const wrapper = document.createElement('div');
+    wrapper.className = 'html-editor';
+
+    const area = document.createElement('div');
+    area.className = 'html-editor__area';
+    area.contentEditable = true;
+    area.setAttribute('contenteditable', 'true');
+    if (opts.placeholder !== false) area.dataset.placeholder = opts.placeholder || '输入内容…';
+    area.innerHTML = (typeof initialHtml === 'string' ? initialHtml : '') || '';
+
+    // ===== 选区保持（v8.4.17 机制）：工具栏点击不丢选区 =====
+    let savedRange = null;
+    const captureSel = () => {
+      try {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return;
+        const r = sel.getRangeAt(0);
+        if (r && r.toString() && area.contains(r.commonAncestorContainer)) savedRange = r.cloneRange();
+      } catch (e) { /* 忽略 */ }
+    };
+    area.addEventListener('mouseup', captureSel);
+    area.addEventListener('keyup', captureSel);
+    area.addEventListener('focusin', captureSel);
+    area.addEventListener('input', () => { if (opts.onChange) opts.onChange(area.innerHTML); });
+    wrapper.addEventListener('mousedown', (e) => {
+      const t = e.target;
+      if (t && t.closest && t.closest('.notion-tool-btn, .notion-mobile-fmt-item')) e.preventDefault();
+    }, true);
+
+    function ensureSelection() {
+      let sel = null;
+      try { sel = window.getSelection(); } catch (e) { /* 忽略 */ }
+      let r = (sel && sel.rangeCount > 0) ? sel.getRangeAt(0) : null;
+      if (!r || !r.toString() || !area.contains(r.commonAncestorContainer)) {
+        if (savedRange && area.contains(savedRange.commonAncestorContainer)) r = savedRange;
+      }
+      if (r && r.toString()) {
+        try {
+          const startNode = r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentNode;
+          const editable = startNode && startNode.closest ? startNode.closest('[contenteditable]') : null;
+          if (editable && document.activeElement !== editable) {
+            try { editable.focus({ preventScroll: true }); } catch (e2) { editable.focus(); }
+          }
+          if (sel) { sel.removeAllRanges(); sel.addRange(r); }
+        } catch (e3) { /* 忽略 */ }
+      }
+      return r;
+    }
+    function placeCaretAtEnd(el) {
+      try {
+        el.focus();
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch (e) { /* 忽略 */ }
+    }
+    function wrapSelection(range, tag, attrs) {
+      const el = document.createElement(tag);
+      Object.keys(attrs || {}).forEach(k => el.setAttribute(k, attrs[k]));
+      try { range.surroundContents(el); } catch (e) {
+        const frag = range.extractContents();
+        el.appendChild(frag);
+        range.insertNode(el);
+      }
+    }
+
+    // ===== 行内格式应用 =====
+    function applyFormat(cmd) {
+      const r = ensureSelection();
+      if (!r || !r.toString()) {
+        if (cmd === 'bold') document.execCommand('bold');
+        else if (cmd === 'italic') document.execCommand('italic');
+        else if (cmd === 'underline') document.execCommand('underline');
+        else if (cmd === 'strike') document.execCommand('strikeThrough');
+        return;
+      }
+      switch (cmd) {
+        case 'bold': document.execCommand('bold'); break;
+        case 'italic': document.execCommand('italic'); break;
+        case 'underline': document.execCommand('underline'); break;
+        case 'strike': document.execCommand('strikeThrough'); break;
+        case 'code': {
+          const t = r.toString();
+          if (t) { const code = document.createElement('code'); code.className = 'notion-inline-code'; code.textContent = t; r.deleteContents(); r.insertNode(code); }
+          break;
+        }
+        case 'color-red': wrapSelection(r, 'span', { style: 'color:#E03131' }); break;
+        case 'color-blue': wrapSelection(r, 'span', { style: 'color:#1971C2' }); break;
+        case 'color-green': wrapSelection(r, 'span', { style: 'color:#2B8A3E' }); break;
+        case 'bg-yellow': wrapSelection(r, 'span', { style: 'background:#FFE066;padding:0 2px;border-radius:2px;' }); break;
+        case 'highlight': wrapSelection(r, 'mark', {}); break;
+      }
+      if (opts.onChange) opts.onChange(area.innerHTML);
+    }
+
+    // ===== 段落块级格式（手动 DOM 包裹，不依赖 execCommand formatBlock，移动端可靠）=====
+    function blockFormat(type) {
+      const r = ensureSelection();
+      const node = r ? (r.anchorNode || r.startContainer) : area;
+      let el = node.nodeType === 1 ? node : (node.parentElement || area);
+      while (el && el !== area && !/^(P|H[1-6]|LI|BLOCKQUOTE|PRE|DIV)$/.test(el.tagName)) el = el.parentElement;
+      if (!el || el === area || !el.parentNode) return;
+      const map = { h1: 'H1', h2: 'H2', h3: 'H3', text: 'P', quote: 'BLOCKQUOTE' };
+      const tag = map[type];
+      if (!tag || el.tagName === tag) return;
+      const n = document.createElement(tag);
+      n.innerHTML = el.innerHTML;
+      // 从列表项转换时，先移出列表容器
+      if (el.tagName === 'LI') {
+        const listParent = el.parentNode;
+        listParent.parentNode.insertBefore(n, listParent);
+        if (listParent.children.length === 0) listParent.parentNode.removeChild(listParent);
+      } else {
+        el.parentNode.replaceChild(n, el);
+      }
+      placeCaretAtEnd(n);
+      if (opts.onChange) opts.onChange(area.innerHTML);
+    }
+    function toggleList(type) {
+      ensureSelection();
+      if (type === 'bullet') document.execCommand('insertUnorderedList');
+      else if (type === 'numbered') document.execCommand('insertOrderedList');
+      if (opts.onChange) opts.onChange(area.innerHTML);
+    }
+
+    // ===== 公式插入（prompt 输入 LaTeX → mformula 节点，源码保留可回源）=====
+    function insertFormula() {
+      let latex = null;
+      try { latex = window.prompt('输入公式（LaTeX 语法）', ''); } catch (e) { latex = null; }
+      if (!latex || !latex.trim()) return;
+      const span = document.createElement('span');
+      span.className = 'mformula';
+      span.contentEditable = 'false';
+      span.dataset.latex = encodeURIComponent(latex.trim());
+      span.innerHTML = App.Utils.renderLatex(latex.trim());
+      const r = ensureSelection();
+      if (r) { r.deleteContents(); r.insertNode(span); }
+      else area.appendChild(span);
+      area.appendChild(document.createTextNode(' '));
+      if (opts.onChange) opts.onChange(area.innerHTML);
+    }
+    function history(dir) { document.execCommand(dir === 'undo' ? 'undo' : 'redo'); }
+    function softBreak() { document.execCommand('insertLineBreak'); }
+
+    // ===== 桌面工具栏（复用 notion-toolbar 样式）=====
+    const toolbar = document.createElement('div');
+    toolbar.className = 'notion-toolbar html-editor__toolbar';
+    const row = document.createElement('div');
+    row.className = 'notion-toolbar__row';
+    const grp = (items) => {
+      const g = document.createElement('div');
+      g.className = 'notion-toolbar__grp';
+      items.forEach(x => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'notion-tool-btn' + (x.sm ? ' notion-tool-btn--sm' : '');
+        if (x.html) b.innerHTML = x.html; else b.textContent = x.b;
+        b.title = x.title;
+        b.addEventListener('click', () => x.fn());
+        g.appendChild(b);
+      });
+      return g;
+    };
+    row.appendChild(grp([
+      { html: '<b>B</b>', title: '加粗', fn: () => applyFormat('bold') },
+      { html: '<i>I</i>', title: '斜体', fn: () => applyFormat('italic') },
+      { html: '<u>U</u>', title: '下划线', fn: () => applyFormat('underline') },
+      { html: '<s>S</s>', title: '删除线', fn: () => applyFormat('strike') },
+      { html: '<code>&lt;/&gt;</code>', title: '行内代码', fn: () => applyFormat('code') },
+      { html: '<span style="background:#FFE066;padding:0 2px;">A</span>', title: '高亮', fn: () => applyFormat('highlight') },
+      { html: '<span style="color:#E03131">A</span>', title: '红色', fn: () => applyFormat('color-red') },
+      { html: '<span style="color:#1971C2">A</span>', title: '蓝色', fn: () => applyFormat('color-blue') },
+      { html: '<span style="color:#2B8A3E">A</span>', title: '绿色', fn: () => applyFormat('color-green') }
+    ]));
+    row.appendChild(grp([
+      { b: 'H1', title: '一级标题', fn: () => blockFormat('h1') },
+      { b: 'H2', title: '二级标题', fn: () => blockFormat('h2') },
+      { b: 'H3', title: '三级标题', fn: () => blockFormat('h3') },
+      { b: '正文', title: '正文', fn: () => blockFormat('text') },
+      { b: '•', title: '无序列表', fn: () => toggleList('bullet') },
+      { b: '1.', title: '有序列表', fn: () => toggleList('numbered') },
+      { b: '"', title: '引用', fn: () => blockFormat('quote') }
+    ]));
+    row.appendChild(grp([
+      { b: 'ƒx', title: '插入公式', fn: insertFormula },
+      { b: '↶', title: '撤销', fn: () => history('undo') },
+      { b: '↷', title: '重做', fn: () => history('redo') }
+    ]));
+    toolbar.appendChild(row);
+    wrapper.appendChild(toolbar);
+
+    // ===== 移动端：注册到移动工具栏单例 + 底部格式面板 =====
+    const isMobile = (typeof window !== 'undefined') && (window.innerWidth <= 768 || ('ontouchstart' in window));
+    const mobileInst = { _onMobileToolbar: null };
+    if (isMobile) {
+      App.Components._ensureMobileToolbar();
+      App.Components._registerMobileEditor(mobileInst);
+    }
+    function openMobileFormatSheet() {
+      const rowItem = (icon, label, cmd) =>
+        '<button class="notion-mobile-fmt-item" data-cmd="' + cmd + '">' +
+        '<span class="notion-mobile-fmt-item__icon">' + icon + '</span>' +
+        '<span class="notion-mobile-fmt-item__label">' + label + '</span></button>';
+      const bodyHtml =
+        '<div class="notion-mobile-fmt-title">格式</div>' +
+        '<div class="notion-mobile-fmt-list">' +
+          rowItem('<b>B</b>', '加粗', 'bold') +
+          rowItem('<i>I</i>', '斜体', 'italic') +
+          rowItem('<u>U</u>', '下划线', 'underline') +
+          rowItem('<s>S</s>', '删除线', 'strike') +
+          rowItem('<code>&lt;/&gt;</code>', '行内代码', 'code') +
+          rowItem('<span style="color:#E03131">A</span>', '红色', 'color-red') +
+          rowItem('<span style="background:#FFE066;padding:0 2px;">A</span>', '高亮', 'bg-yellow') +
+          rowItem('<b>H1</b>', '标题1', 'h1') +
+          rowItem('<b>H2</b>', '标题2', 'h2') +
+          rowItem('<b>H3</b>', '标题3', 'h3') +
+          rowItem('•', '无序列表', 'bullet') +
+          rowItem('1.', '有序列表', 'numbered') +
+          rowItem('"', '引用', 'quote') +
+          rowItem('ƒx', '公式', 'formula') +
+        '</div>';
+      const { sheet } = App.Components.openSheet({ height: 'is-format', bodyHtml });
+      sheet.querySelectorAll('.notion-mobile-fmt-item').forEach(item => {
+        item.addEventListener('mousedown', (e) => e.preventDefault());
+        item.addEventListener('click', () => {
+          const cmd = item.dataset.cmd;
+          App.Components.closeSheet();
+          if (cmd === 'formula') insertFormula();
+          else if (cmd === 'h1' || cmd === 'h2' || cmd === 'h3') blockFormat(cmd);
+          else if (cmd === 'quote') blockFormat('quote');
+          else if (cmd === 'bullet' || cmd === 'numbered') toggleList(cmd);
+          else applyFormat(cmd);
+        });
+      });
+    }
+    mobileInst._onMobileToolbar = (key) => {
+      switch (key) {
+        case 'format': openMobileFormatSheet(); break;
+        case 'undo': history('undo'); break;
+        case 'redo': history('redo'); break;
+      }
+    };
+
+    wrapper.appendChild(area);
+
+    return {
+      element: wrapper,
+      getHtml: () => area.innerHTML,
+      setHtml: (h) => { area.innerHTML = (typeof h === 'string' ? h : '') || ''; },
+      focusAtEnd: () => placeCaretAtEnd(area),
+      area
+    };
+  },
+
   notionEditor(initialContent, placeholder, onChange, dataMode, _ext) {
     const ext = _ext || {};
     const wrapper = document.createElement('div');
@@ -18028,11 +18365,13 @@ App.Pages.Notes = {
       return;
     }
 
-    // 懒转换：历史 Markdown 数据 → JSON 块数组（打开时自动迁移，保存时写回 JSON）
-    if (typeof note.content === 'string') {
-      note.content = App.Utils.mdToBlocks(note.content);
+    // v8.5.5 彻底去块：content 统一为完整 HTML 字符串。
+    // 历史数据（JSON 块数组 / 旧 Markdown）→ toNoteHtml 转 HTML 并存回 DB（一次性迁移，用户无感）
+    const contentHtml = App.Utils.toNoteHtml(note.content);
+    if (note.content !== contentHtml) {
+      note.content = contentHtml;
+      try { await App.DB.updateNote(note); } catch (e) { /* 迁移写回失败不影响查看 */ }
     }
-    if (!Array.isArray(note.content)) note.content = [];
 
     // 返回栏 + 右上角：✍️ 手写 + ⋮ 菜单（无「编辑」按钮——点击标题/正文即就地编辑）
     const header = App.Components.pageHeader('笔记详情', '⋮', () => this._showDetailMenu(note));
@@ -18076,13 +18415,13 @@ App.Pages.Notes = {
     titleEl.addEventListener('click', () => this._editTitleInPlace(titleEl, note, metaEl));
     content.appendChild(titleEl);
 
-    // 正文（JSON 块 → HTML 渲染；点击就地编辑为块编辑器）
+    // 正文（完整 HTML 直通渲染；点击就地编辑为 HTML 编辑器）
     const bodyEl = document.createElement('div');
     bodyEl.className = 'card note-detail-body';
     bodyEl.setAttribute('data-tap-edit', '');
-    // 查看态正文外包 .note-render-pad：左侧预留 20px 与编辑态手柄占位对齐，切换时文本位置零跳变
-    bodyEl.innerHTML = note.content.length
-      ? '<div class="note-render-pad">' + App.Utils.renderBlocks(note.content) + '</div>'
+    // 查看态直接渲染保存的 HTML（v8.5.5 去块后不再逐块翻译，格式 100% 保真）
+    bodyEl.innerHTML = note.content
+      ? '<div class="note-render-pad note-html-body">' + note.content + '</div>'
       : '<div class="note-render-pad"><span style="color:var(--text-tertiary);">暂无内容，点击开始编辑</span></div>';
     bodyEl.addEventListener('click', (e) => this._editBodyInPlace(bodyEl, note, metaEl, e));
     content.appendChild(bodyEl);
@@ -18185,32 +18524,30 @@ App.Pages.Notes = {
     bodyEl.classList.add('note-detail-body--editing');
     bodyEl.innerHTML = '';
 
-    const editor = App.Components.initEditor(bodyEl, {
-      initialData: Array.isArray(note.content) ? note.content : note.content || '',
-      dataMode: 'json',
-      placeholder: false,          // v8.4.17 用户要求去掉空白段的「点击输入内容…」占位文字（false → 不设置 data-placeholder）
-      inlinePadding: true,   // 就地编辑：底部最小留白（8px），切换高度不突变
-      onChange: (data) => {
-        // 字数整合进右上角 ⋮ 按钮区（编辑器自带页脚在就地编辑场景隐藏）
-        if (inst.countEl) inst.countEl.textContent = App.Utils.countBlocks(data) + ' 字';
-        this._debouncedBodySave(inst, data);
+    // v8.5.5 彻底去块：正文用 HTML 直通编辑器（单连续富文本，保存 = innerHTML 原样直存）
+    const editor = App.Components.htmlEditor(
+      (typeof note.content === 'string' ? note.content : App.Utils.toNoteHtml(note.content)) || '',
+      {
+        placeholder: false,   // 用户要求去掉空白段占位文字
+        onChange: (html) => {
+          if (inst.countEl) inst.countEl.textContent = App.Utils.countHtmlText(html) + ' 字';
+          this._debouncedBodySave(inst, html);
+        }
       }
-    });
+    );
+    bodyEl.appendChild(editor.element);
     inst.editor = editor;
 
-    // 就地编辑：隐藏编辑器自带页脚（分割线/字数/保存状态），字数统计移到右上角按钮区
-    const editorFooter = bodyEl.querySelector('.notion-editor__footer');
-    if (editorFooter) editorFooter.style.display = 'none';
     // 字数标签：插入右上角按钮区（⋮ 三个点附近），编辑时实时更新
     const countEl = document.createElement('span');
     countEl.className = 'note-edit-count';
-    countEl.textContent = App.Utils.countBlocks(Array.isArray(note.content) ? note.content : []) + ' 字';
+    countEl.textContent = App.Utils.countHtmlText((typeof note.content === 'string' ? note.content : '')) + ' 字';
     if (this._noteActionsEl && this._noteActionsEl.parentNode) {
       this._noteActionsEl.parentNode.insertBefore(countEl, this._noteActionsEl);
     }
     inst.countEl = countEl;
 
-    // 光标定位到点击的块（尽力而为；失败则聚焦首块）
+    // 光标定位到点击处（HTML 直通：聚焦编辑区，尽力定位到点击行附近）
     this._focusBlockAt(editor, targetIdx);
 
     // 失焦退出：点击编辑区外（排除格式栏/弹层）或键盘收起（移动端 focusout relatedTarget=null）
@@ -18239,15 +18576,17 @@ App.Pages.Notes = {
   _exitBodyEdit(inst) {
     if (!inst || inst.exiting) return;
     inst.exiting = true;
-    const data = inst.editor ? inst.editor.getEditorData() : (inst.note.content || []);
+    const data = inst.editor
+      ? (typeof inst.editor.getHtml === 'function' ? inst.editor.getHtml() : inst.editor.getEditorData())
+      : (typeof inst.note.content === 'string' ? inst.note.content : App.Utils.toNoteHtml(inst.note.content));
     this._clearBodyDebounce(inst);
     this._saveNoteContent(inst.note, data, { refreshMeta: inst.metaEl }).finally(() => {
       // 复用原 .card 卡片容器恢复查看渲染（容器从未被替换，卡片外观与滚动位置均不跳动）
       const bodyEl = inst.editorWrap;
       if (bodyEl && bodyEl.parentNode) {
         bodyEl.classList.remove('note-detail-body--editing');
-        bodyEl.innerHTML = Array.isArray(data) && data.length
-          ? '<div class="note-render-pad">' + App.Utils.renderBlocks(data) + '</div>'
+        bodyEl.innerHTML = data
+          ? '<div class="note-render-pad note-html-body">' + data + '</div>'
           : '<div class="note-render-pad"><span style="color:var(--text-tertiary);">暂无内容，点击开始编辑</span></div>';
         bodyEl.addEventListener('click', (e) => this._editBodyInPlace(bodyEl, inst.note, inst.metaEl, e));
       }
@@ -18320,14 +18659,22 @@ App.Pages.Notes = {
   _focusBlockAt(editor, idx) {
     if (!editor || !editor.element) return;
     try {
-      const blocks = editor.element.querySelectorAll('.notion-block');
-      if (!blocks.length) return;
-      const i = Math.max(0, Math.min(idx || 0, blocks.length - 1));
-      const editable = blocks[i].querySelector('.notion-editable') || blocks[i];
       const requestFrame = (typeof requestAnimationFrame === 'function')
         ? requestAnimationFrame : function (cb) { setTimeout(cb, 0); };
       requestFrame(() => {
         try {
+          let editable = null;
+          // v8.5.5 彻底去块：htmlEditor 为单连续富文本区，聚焦到点击行附近（第 idx 个段落）
+          if (editor.area) {
+            const paras = Array.from(editor.area.querySelectorAll('p, h1, h2, h3, li, blockquote, pre'));
+            editable = paras.length ? paras[Math.max(0, Math.min(idx || 0, paras.length - 1))] : editor.area;
+          } else {
+            // 旧块编辑器：聚焦到第 idx 个块
+            const blocks = editor.element.querySelectorAll('.notion-block');
+            if (!blocks.length) return;
+            const i = Math.max(0, Math.min(idx || 0, blocks.length - 1));
+            editable = blocks[i].querySelector('.notion-editable') || blocks[i];
+          }
           try {
             editable.focus({ preventScroll: true });
           } catch (e1) {
@@ -18625,18 +18972,19 @@ App.Pages.Notes = {
       updateCatLabel();
       form.appendChild(catSelector);
 
-      // ===== 正文块编辑器（JSON 模式；所见即所得，带 onChange 自动保存到 DB）=====
-      const editor = App.Components.notionEditor(
-        Array.isArray(formData.content) ? formData.content : (formData.content || ''),
-        false,
-        function (data) {
-          formData.content = data;
+      // ===== 正文 HTML 直通编辑器（v8.5.5 去块；所见即所得，保存 = innerHTML 直存）=====
+      // 历史数据（JSON 块 / 旧 MD）先迁移为 HTML
+      const contentHtml = App.Utils.toNoteHtml(formData.content);
+      if (formData.content !== contentHtml) formData.content = contentHtml;
+      const editor = App.Components.htmlEditor(contentHtml, {
+        placeholder: false,
+        onChange: function (html) {
+          formData.content = html;
           debouncedSaveToDB();
-        },
-        'json'
-      );
+        }
+      });
       form.appendChild(editor.element);
-      formData._getContent = editor.getEditorData;
+      formData._getContent = editor.getHtml;
 
       // 关联错题
       const linkGroup = document.createElement('div');

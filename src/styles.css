@@ -3852,6 +3852,50 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   margin-left: auto;
   margin-right: auto;
 }
+/* v8.5.5 彻底去块：HTML 直通编辑器（单连续富文本区） */
+.html-editor__area {
+  min-height: 120px;
+  font-size: 14px;
+  line-height: 1.8;
+  outline: none;
+  word-break: break-word;
+  color: var(--text-primary);
+  touch-action: pan-y;   /* 移动端编辑时可滚动页面 */
+  padding: 2px 0;
+}
+.html-editor__area:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+.html-editor__area p { margin: 0.5em 0; }
+.html-editor__area h1, .html-editor__area h2, .html-editor__area h3 { margin: 0.6em 0 0.3em; font-weight: 600; }
+.html-editor__area h1 { font-size: 22px; } .html-editor__area h2 { font-size: 19px; } .html-editor__area h3 { font-size: 16px; }
+.html-editor__area ul, .html-editor__area ol { margin: 0.5em 0; padding-left: 1.7em; }
+.html-editor__area blockquote { border-left: 3px solid #555555; margin: 0.5em 0; padding-left: 12px; color: var(--text-primary); }
+.html-editor__area table { border-collapse: collapse; margin: 0.5em 0; }
+.html-editor__area td, .html-editor__area th { border: 1px solid var(--divider-color); padding: 4px 8px; }
+.html-editor__area code { font-family: var(--font-mono); font-size: 0.92em; }
+.html-editor__area .mformula { cursor: default; }
+/* 移动端隐藏桌面工具栏（移动端用底部格式面板） */
+@media (max-width: 768px) {
+  .html-editor__toolbar { display: none; }
+}
+/* v8.5.5 去块后查看态容器：原生标签样式与编辑区（.html-editor__area）一致，编辑查看所见即所得 */
+.note-html-body { line-height: 1.8; font-size: 14px; }
+.note-html-body p { margin: 0.5em 0; }
+.note-html-body h1, .note-html-body h2, .note-html-body h3 { margin: 0.6em 0 0.3em; font-weight: 600; }
+.note-html-body h1 { font-size: 22px; } .note-html-body h2 { font-size: 19px; } .note-html-body h3 { font-size: 16px; }
+.note-html-body ul, .note-html-body ol { margin: 0.5em 0; padding-left: 1.7em; }
+.note-html-body blockquote { border-left: 3px solid #555555; margin: 0.5em 0; padding-left: 12px; color: var(--text-primary); }
+.note-html-body table { border-collapse: collapse; margin: 0.5em 0; max-width: 100%; }
+.note-html-body td, .note-html-body th { border: 1px solid var(--divider-color); padding: 4px 8px; }
+.note-html-body img { max-width: 100%; border-radius: 8px; }
+.note-html-body details { margin: 0.5em 0; }
+.note-html-body details summary { cursor: pointer; font-weight: 500; }
+.note-html-body code { font-family: var(--font-mono); font-size: 0.92em; background: var(--bg-tertiary); padding: 1px 4px; border-radius: 4px; }
+.note-html-body pre { background: #1E1E1E; color: #D4D4D4; border-radius: 8px; padding: 12px; overflow-x: auto; }
+.note-html-body pre code { background: none; padding: 0; color: inherit; }
 /* iPad 分屏模式：编辑器接近全宽 */
 body.ipad-split .notion-editor {
   max-width: 100%;

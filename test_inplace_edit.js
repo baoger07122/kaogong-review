@@ -50,7 +50,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.5.4', 'App.VERSION === 8.5.4（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.5.5', 'App.VERSION === 8.5.5（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 查看态渲染（JSON 块 → HTML；点击即编辑）');
     await Notes.renderDetail({ id: 'note1' });
@@ -60,13 +60,13 @@ setTimeout(async () => {
     assert(!!titleEl, '标题容器 .note-detail-title 存在');
     assert(!!bodyEl, '正文容器 .note-detail-body 存在');
     assert(titleEl.textContent === '**加粗标题**', '标题为纯文本显示（非 Markdown 二次渲染）');
-    // 懒转换：历史 MD 字符串 → JSON 块数组（打开时自动迁移）
-    assert(Array.isArray(store.notes.note1.content), '历史 Markdown 数据打开时已懒转换为 JSON 块数组');
-    assert(store.notes.note1.content.some(b => b.type === 'heading1'), 'JSON 含 heading1 块（# 标题一 已解析）');
-    assert(store.notes.note1.content.some(b => b.type === 'bulletList'), 'JSON 含 bulletList 块（- 项目甲 已解析）');
-    assert(store.notes.note1.content.some(b => b.content && b.content.includes('重点')), 'JSON 含加粗内容块');
-    assert(bodyEl.innerHTML.includes('<h1') && bodyEl.innerHTML.includes('标题一'), '正文 JSON→HTML 渲染 h1');
-    assert(bodyEl.innerHTML.includes('md-preview-ul') && bodyEl.innerHTML.includes('项目甲'), '正文 JSON→HTML 渲染列表');
+    // v8.5.5 彻底去块：历史 MD 字符串打开时自动迁移为完整 HTML 字符串
+    assert(typeof store.notes.note1.content === 'string' && store.notes.note1.content.indexOf('<') === 0, '历史 Markdown 数据打开时已迁移为完整 HTML 字符串');
+    assert(store.notes.note1.content.includes('<h1'), 'HTML 含 h1（# 标题一 已解析）');
+    assert(store.notes.note1.content.includes('<ul'), 'HTML 含 ul（- 项目甲 已解析）');
+    assert(store.notes.note1.content.includes('重点'), 'HTML 含加粗内容块');
+    assert(bodyEl.innerHTML.includes('<h1') && bodyEl.innerHTML.includes('标题一'), '查看态 HTML 直通渲染 h1');
+    assert(bodyEl.innerHTML.includes('md-preview-ul') && bodyEl.innerHTML.includes('项目甲'), '查看态 HTML 直通渲染列表');
     const actions = container.querySelectorAll('.detail-header-action');
     assert(actions.length === 1 && actions[0].textContent === '✍️', '右上角仅 ✍️ 手写按钮（无「编辑」按钮）');
     assert(!!container.querySelector('.breadcrumb'), '面包屑保留');
@@ -91,32 +91,32 @@ setTimeout(async () => {
     const bodyEl2 = container.querySelector('.note-detail-body');
     bodyEl2.click();
     await wait(30);
-    // 容器复用：.card 卡片节点不被替换，仅内部换成块编辑器（修复切换闪烁）
+    // 容器复用：.card 卡片节点不被替换，仅内部换成 HTML 编辑器（修复切换闪烁）
     const cardEl = container.querySelector('.note-detail-body');
     assert(!!cardEl, '正文 .card 卡片容器仍在（未被替换）');
     assert(cardEl.classList.contains('card'), '卡片样式保留（白底/圆角/内边距不变）');
     assert(cardEl.classList.contains('note-detail-body--editing'), '进入编辑态标记 class 生效');
-    const editorEl = cardEl.querySelector('.notion-editor');
-    assert(!!editorEl, '块编辑器 .notion-editor 出现在卡片内部');
-    assert(!cardEl.querySelector('textarea'), '不是 textarea 小窗口（保持块编辑器形态）');
-    const blocks = cardEl.querySelectorAll('.notion-block');
-    assert(blocks.length >= 3, '块编辑器含多个块（当前 ' + blocks.length + ' 个）');
-    // 页脚隐藏：分割线/字数/保存状态（就地编辑场景不显示编辑器自带页脚）
-    const editorFooter = cardEl.querySelector('.notion-editor__footer');
-    assert(!!editorFooter && (editorFooter.style.display === 'none'), '编辑器页脚已隐藏（就地编辑）');
+    // v8.5.5 去块：单连续富文本编辑区（无块、无 textarea）
+    assert(!!cardEl.querySelector('.html-editor'), 'HTML 编辑器 .html-editor 出现在卡片内部');
+    assert(!cardEl.querySelector('textarea'), '不是 textarea 小窗口');
+    const htmlArea = cardEl.querySelector('.html-editor__area');
+    assert(!!htmlArea && htmlArea.hasAttribute('contenteditable'), '单连续富文本编辑区（contenteditable）');
+    assert(htmlArea.innerHTML.includes('<h1') && htmlArea.innerHTML.includes('<ul'), '编辑区直存 HTML（h1/ul 保留，格式保真）');
+    // htmlEditor 无自带页脚（分割线/字数/保存状态都不需要）
+    assert(!cardEl.querySelector('.notion-editor__footer'), 'HTML 编辑器无自带页脚（更简洁）');
     // 字数整合到右上角 ⋮ 按钮区
     const countLabel = container.querySelector('.note-edit-count');
     assert(!!countLabel, '右上角字数标签存在');
     assert(/字$/.test(countLabel.textContent), '字数标签显示（' + countLabel.textContent + '）');
-    assert(countLabel.textContent === App.Utils.countBlocks(store.notes.note1.content) + ' 字', '字数与内容一致');
-    // 编辑器内容来自笔记 JSON 块（懒转换后）
+    assert(countLabel.textContent === App.Utils.countHtmlText(store.notes.note1.content) + ' 字', '字数与内容一致');
+    // 编辑器内容来自迁移后的 HTML（v8.5.5 去块后单富文本直存）
     const inst = Notes._bodyEditor;
     assert(!!inst && !!inst.editor, '内部编辑实例已注册');
-    const data0 = inst.editor.getEditorData();
-    assert(Array.isArray(data0), '编辑器导出 JSON 块数组');
-    assert(data0.some(b => b.type === 'heading1' && (b.content || '').includes('标题一')), '编辑器含 heading1 块（原文）');
-    assert(data0.some(b => b.type === 'bulletList'), '编辑器含 bulletList 块');
-    // A（v8.4.15）：聚焦经 rAF 延迟 + preventScroll（防自动滚动抖动）
+    const data0 = inst.editor.getHtml();
+    assert(typeof data0 === 'string' && data0.indexOf('<') === 0, '编辑器导出完整 HTML 字符串');
+    assert(data0.includes('<h1') && data0.includes('标题一'), '编辑器 HTML 含 h1（原文）');
+    assert(data0.includes('<ul'), '编辑器 HTML 含 ul（列表保留）');
+    // A（v8.4.15 沿用）：聚焦经 rAF 延迟 + preventScroll（防自动滚动抖动）
     // jsdom 中 contenteditable 元素 focus 不生效（activeElement 仍为 BODY），故包装 focus 验证调用时机与参数
     let focusCnt = 0, focusInRaf = false, focusOpts = null, rafActive = false;
     const origRAF = win.requestAnimationFrame;
@@ -129,23 +129,22 @@ setTimeout(async () => {
     assert(!!focusOpts && focusOpts.preventScroll === true, '聚焦带 preventScroll（阻止浏览器自动滚动）');
     win.HTMLElement.prototype.focus = origFocus;
     win.requestAnimationFrame = origRAF;
-    // B（v8.4.15）：编辑态块间距对齐查看态段落间距（7px 0 → 块间 14px），切换内容高度不收缩
-    const blockPad = win.getComputedStyle(cardEl.querySelector('.notion-block')).paddingTop;
-    assert(blockPad === '7px', '编辑态块间距 padding 7px 对齐查看态（当前 ' + blockPad + '）');
+    // B（v8.5.5）：无块结构——编辑区无 .notion-block（去块验证）
+    assert(cardEl.querySelectorAll('.notion-block').length === 0, '编辑区无块结构（彻底去块）');
 
-    console.log('\n[5] 编辑块内容（input 事件）→ 失焦自动保存 + 恢复查看渲染');
-    const firstEditable = cardEl.querySelector('.notion-editable');
+    console.log('\n[5] 编辑内容（input 事件）→ 失焦自动保存 + 恢复查看渲染');
+    const firstEditable = cardEl.querySelector('.html-editor__area');
     assert(!!firstEditable, '存在可编辑块');
-    firstEditable.textContent = '新第一段内容';
+    firstEditable.innerHTML = '<p>新第一段内容</p>';
     firstEditable.dispatchEvent(new win.Event('input', { bubbles: true }));
-    await wait(700);   // 等块编辑器内部 onChange 防抖(600ms)
-    const dataEdited = inst.editor.getEditorData();
-    assert(JSON.stringify(dataEdited).includes('新第一段'), 'getEditorData 反映编辑内容');
+    await wait(700);   // 等编辑器内部 onChange 防抖(600ms)
+    const dataEdited = inst.editor.getHtml();
+    assert(dataEdited.includes('新第一段'), 'getHtml 反映编辑内容');
     // 失焦（焦点移到编辑区外）→ 保存 + 恢复查看
     doc.dispatchEvent(new win.FocusEvent('focusout', { relatedTarget: doc.body, bubbles: true }));
     await wait(400);
-    assert(JSON.stringify(store.notes.note1.content).includes('新第一段'), '失焦后 JSON 内容已写入 DB');
-    assert(Array.isArray(store.notes.note1.content), 'DB 中 content 为 JSON 数组（不再是 Markdown 字符串）');
+    assert(store.notes.note1.content.includes('新第一段'), '失焦后 HTML 内容已写入 DB');
+    assert(typeof store.notes.note1.content === 'string' && store.notes.note1.content.indexOf('<') === 0, 'DB 中 content 为完整 HTML 字符串（不再 JSON/Markdown）');
     const bodyEl3 = container.querySelector('.note-detail-body');
     assert(!!bodyEl3 && !bodyEl3.classList.contains('note-detail-body--editing'), '失焦退出编辑，恢复查看渲染');
     assert(!container.querySelector('.note-edit-count'), '退出编辑后右上角字数标签移除');
@@ -156,11 +155,11 @@ setTimeout(async () => {
     bodyEl3.click();
     await wait(30);
     const inst2 = Notes._bodyEditor;
-    const ed = container.querySelector('.note-detail-body .notion-editable');
-    ed.textContent = '自动保存验证段落';
+    const ed = container.querySelector('.note-detail-body .html-editor__area');
+    ed.innerHTML = '<p>自动保存验证段落</p>';
     ed.dispatchEvent(new win.Event('input', { bubbles: true }));
-    await wait(3300);   // 块编辑器 600ms + 我们的 2000ms 防抖
-    assert(JSON.stringify(store.notes.note1.content).includes('自动保存验证段落'), '停顿 2 秒后自动保存到 DB');
+    await wait(3300);   // 编辑器内部 600ms + 我们的 2000ms 防抖
+    assert(store.notes.note1.content.includes('自动保存验证段落'), '停顿 2 秒后自动保存到 DB');
     assert(!!container.querySelector('.note-detail-body--editing'), '仍在编辑态（未因自动保存退出）');
     // 清理：退出编辑
     doc.dispatchEvent(new win.FocusEvent('focusout', { relatedTarget: doc.body, bubbles: true }));
