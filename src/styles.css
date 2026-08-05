@@ -398,21 +398,19 @@ body.ipad-split .page-header__inner {
   max-width: 100%;
   padding: 0 24px;
 }
-/* 分屏时返回按钮右移避开系统指示条（只动按钮，不动标题栏/页面）。
-   限定错题/笔记的详情页与编辑页四个页面（workspace、套卷详情等不受影响）。 */
-body.ipad-split #page-error-detail .page-header__back,
-body.ipad-split #page-error-form .page-header__back,
-body.ipad-split #page-note-detail .page-header__back,
-body.ipad-split #page-note-form .page-header__back {
+/* v8.5.3 退出/返回按钮 iPad 分屏右移（通用 class 方案，替代原 4 个页面的 ID 选择器）。
+   机制：给「左上角有返回/退出按钮的页面」容器加 .ipad-back-shift，分屏时按钮右移避开系统侧边指示条
+   （只动按钮，不动标题栏/页面）。已应用：错题详情/编辑、笔记详情/编辑、便签管理、速算练习全部视图。
+   【后续新增页面】：容器 class 加上 ipad-back-shift 即可，无需改 CSS（详见 docs/技术文档.md） */
+body.ipad-split .ipad-back-shift .page-header__back,
+body.ipad-split .ipad-back-shift .sc-back-btn {
   margin-left: 24px;
   transition: margin-left 0.2s ease;
 }
 /* Slide Over / 窄窗口分屏（<=400px）：指示条更占空间，再让一点 */
 @media screen and (max-width: 400px) {
-  body.ipad-split #page-error-detail .page-header__back,
-  body.ipad-split #page-error-form .page-header__back,
-  body.ipad-split #page-note-detail .page-header__back,
-  body.ipad-split #page-note-form .page-header__back {
+  body.ipad-split .ipad-back-shift .page-header__back,
+  body.ipad-split .ipad-back-shift .sc-back-btn {
     margin-left: 32px;
   }
 }

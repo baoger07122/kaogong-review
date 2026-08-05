@@ -84,10 +84,16 @@ setTimeout(() => {
       // Slide Over：变 400
       Object.defineProperty(win, 'innerWidth', { value: 400, writable: true, configurable: true });
       win.dispatchEvent(new win.Event('resize'));
-      setTimeout(() => {
-        assert(doc.body.classList.contains('ipad-split'), 'Slide Over 400px 加 ipad-split 类');
-        // 返回按钮分屏时 margin-left 生效（通过 CSS 类，内联无——静态断言类存在即可，样式由 CSS 控制）
-        // 还原全屏
+    setTimeout(() => {
+      assert(doc.body.classList.contains('ipad-split'), 'Slide Over 400px 加 ipad-split 类');
+      // v8.5.3 返回/退出按钮右移：6 个页面容器（错题/笔记详情+编辑、便签管理、速算练习）带 ipad-back-shift class
+      const shiftPages = doc.querySelectorAll('.ipad-back-shift');
+      assert(shiftPages.length >= 6, '6 个页面容器带 ipad-back-shift class（' + shiftPages.length + '）');
+      const scEl = doc.getElementById('page-speed-calc');
+      const stEl = doc.getElementById('page-stickies');
+      assert(!!scEl && scEl.classList.contains('ipad-back-shift'), '速算练习容器 ipad-back-shift');
+      assert(!!stEl && stEl.classList.contains('ipad-back-shift'), '便签管理容器 ipad-back-shift');
+      // 还原全屏
         Object.defineProperty(win, 'innerWidth', { value: 1366, writable: true, configurable: true });
         win.dispatchEvent(new win.Event('resize'));
         setTimeout(() => {
