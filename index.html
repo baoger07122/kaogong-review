@@ -6911,6 +6911,54 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   column-gap: var(--spacing-sm);
 }
 .sticky-masonry--manage { column-gap: var(--spacing-md); }
+.sticky-masonry--home { column-count: 1; }   /* v8.4.19 首页仅承载横向滚动容器，禁用瀑布流分栏 */
+
+/* v8.4.19 首页便签：横向滚动卡片（150px 定宽 + 分页指示器），管理页仍瀑布流 */
+.sticky-scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  padding: 2px 2px 8px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.sticky-scroll::-webkit-scrollbar { display: none; }
+.sticky-scroll .sticky-card {
+  width: 150px;
+  min-height: 120px;
+  max-height: 180px;
+  flex-shrink: 0;
+  scroll-snap-align: start;
+  margin-bottom: 0;
+  break-inside: auto;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+.sticky-scroll .sticky-card__content {
+  flex: 1;
+  min-height: 0;
+}
+.sticky-dots {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  height: 10px;
+}
+.sticky-dots .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #E5E7EB;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.sticky-dots .dot.is-active {
+  background: var(--color-primary);
+  transform: scale(1.35);
+}
 
 .sticky-card {
   break-inside: avoid;
@@ -6928,7 +6976,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   content: '📌';
   position: absolute;
   top: 6px;
-  right: 8px;
+  left: 8px;             /* v8.4.19 方案要求左上角小图钉（原右上角） */
   font-size: 12px;
   opacity: 0.9;
 }
@@ -7160,7 +7208,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.5.1';
+App.VERSION = '8.5.2';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -16249,18 +16297,37 @@ App.Pages.Home = {
     head.appendChild(right);
     wrap.appendChild(head);
 
-    // 瀑布流（两列）
+    // v8.4.19 首页便签：横向滚动卡片 + 分页指示器（管理页仍瀑布流）
     const masonry = document.createElement('div');
-    masonry.className = 'sticky-masonry';
+    masonry.className = 'sticky-masonry sticky-masonry--home';
     if (stickies.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'sticky-empty';
       empty.textContent = '暂无便签，点击 + 添加第一条';
       masonry.appendChild(empty);
     } else {
-      stickies.slice(0, 6).forEach(s => {
-        masonry.appendChild(App.Components.stickyCard(s, { onRefresh: () => this._refreshStickySection() }));
+      const scroller = document.createElement('div');
+      scroller.className = 'sticky-scroll';
+      stickies.slice(0, 10).forEach(s => {
+        scroller.appendChild(App.Components.stickyCard(s, { onRefresh: () => this._refreshStickySection() }));
       });
+      masonry.appendChild(scroller);
+      // 分页指示器：卡片超过一屏（约 2 张）才显示小圆点，随横向滚动联动
+      if (stickies.length > 3) {
+        const pageCount = Math.max(1, Math.ceil(stickies.length / 2));
+        const dots = document.createElement('div');
+        dots.className = 'sticky-dots';
+        for (let i = 0; i < pageCount; i++) {
+          const d = document.createElement('span');
+          d.className = 'dot' + (i === 0 ? ' is-active' : '');
+          dots.appendChild(d);
+        }
+        scroller.addEventListener('scroll', () => {
+          const idx = Math.min(pageCount - 1, Math.round(scroller.scrollLeft / Math.max(1, scroller.clientWidth)));
+          Array.prototype.forEach.call(dots.children, (d, i) => d.classList.toggle('is-active', i === idx));
+        }, { passive: true });
+        masonry.appendChild(dots);
+      }
     }
     wrap.appendChild(masonry);
   },

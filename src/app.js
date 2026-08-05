@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.5.1';
+App.VERSION = '8.5.2';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9092,18 +9092,37 @@ App.Pages.Home = {
     head.appendChild(right);
     wrap.appendChild(head);
 
-    // 瀑布流（两列）
+    // v8.4.19 首页便签：横向滚动卡片 + 分页指示器（管理页仍瀑布流）
     const masonry = document.createElement('div');
-    masonry.className = 'sticky-masonry';
+    masonry.className = 'sticky-masonry sticky-masonry--home';
     if (stickies.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'sticky-empty';
       empty.textContent = '暂无便签，点击 + 添加第一条';
       masonry.appendChild(empty);
     } else {
-      stickies.slice(0, 6).forEach(s => {
-        masonry.appendChild(App.Components.stickyCard(s, { onRefresh: () => this._refreshStickySection() }));
+      const scroller = document.createElement('div');
+      scroller.className = 'sticky-scroll';
+      stickies.slice(0, 10).forEach(s => {
+        scroller.appendChild(App.Components.stickyCard(s, { onRefresh: () => this._refreshStickySection() }));
       });
+      masonry.appendChild(scroller);
+      // 分页指示器：卡片超过一屏（约 2 张）才显示小圆点，随横向滚动联动
+      if (stickies.length > 3) {
+        const pageCount = Math.max(1, Math.ceil(stickies.length / 2));
+        const dots = document.createElement('div');
+        dots.className = 'sticky-dots';
+        for (let i = 0; i < pageCount; i++) {
+          const d = document.createElement('span');
+          d.className = 'dot' + (i === 0 ? ' is-active' : '');
+          dots.appendChild(d);
+        }
+        scroller.addEventListener('scroll', () => {
+          const idx = Math.min(pageCount - 1, Math.round(scroller.scrollLeft / Math.max(1, scroller.clientWidth)));
+          Array.prototype.forEach.call(dots.children, (d, i) => d.classList.toggle('is-active', i === idx));
+        }, { passive: true });
+        masonry.appendChild(dots);
+      }
     }
     wrap.appendChild(masonry);
   },

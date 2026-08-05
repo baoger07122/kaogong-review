@@ -6893,6 +6893,54 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   column-gap: var(--spacing-sm);
 }
 .sticky-masonry--manage { column-gap: var(--spacing-md); }
+.sticky-masonry--home { column-count: 1; }   /* v8.4.19 首页仅承载横向滚动容器，禁用瀑布流分栏 */
+
+/* v8.4.19 首页便签：横向滚动卡片（150px 定宽 + 分页指示器），管理页仍瀑布流 */
+.sticky-scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  padding: 2px 2px 8px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.sticky-scroll::-webkit-scrollbar { display: none; }
+.sticky-scroll .sticky-card {
+  width: 150px;
+  min-height: 120px;
+  max-height: 180px;
+  flex-shrink: 0;
+  scroll-snap-align: start;
+  margin-bottom: 0;
+  break-inside: auto;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+.sticky-scroll .sticky-card__content {
+  flex: 1;
+  min-height: 0;
+}
+.sticky-dots {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  height: 10px;
+}
+.sticky-dots .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #E5E7EB;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.sticky-dots .dot.is-active {
+  background: var(--color-primary);
+  transform: scale(1.35);
+}
 
 .sticky-card {
   break-inside: avoid;
@@ -6910,7 +6958,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   content: '📌';
   position: absolute;
   top: 6px;
-  right: 8px;
+  left: 8px;             /* v8.4.19 方案要求左上角小图钉（原右上角） */
   font-size: 12px;
   opacity: 0.9;
 }
