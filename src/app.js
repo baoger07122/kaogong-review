@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.5.3';
+App.VERSION = '8.5.4';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -2033,19 +2033,25 @@ App.Components = {
 
     const sizeWrap = document.createElement('div');
     sizeWrap.className = 'sketch-pad__sizes';
-    const penSizes = [ {n:'细', v:2.6}, {n:'中', v:3.5}, {n:'粗', v:4.25} ];
+    // v8.5.4：画笔三档 2.6/2.8/3.0；默认使用上次选择的档位（localStorage 记忆，跨页面/跨会话），无记录时默认细
+    const penSizes = [ {n:'细', v:2.6}, {n:'中', v:2.8}, {n:'粗', v:3.0} ];
     const eraserSizes = [ {n:'细', v:36}, {n:'中', v:60}, {n:'粗', v:90} ];
-    let currentPenSize = penSizes[1].v;
+    const readLastPenSize = () => {
+      let v = NaN;
+      try { v = parseFloat(window.localStorage.getItem('doodle_pen_size')); } catch (e) { /* 忽略 */ }
+      return penSizes.some(s => s.v === v) ? v : penSizes[0].v;   // 校验档位，脏数据/无记录回退细
+    };
+    let currentPenSize = readLastPenSize();
     let currentEraserSize = eraserSizes[0].v;
     let currentSize = currentPenSize;
     const sizeBtns = [];
-    penSizes.forEach((s, i) => {
+    penSizes.forEach((s) => {
       const b = document.createElement('button');
-      b.type = 'button'; b.className = 'sketch-size' + (i === 1 ? ' is-active' : '');
+      b.type = 'button'; b.className = 'sketch-size' + (s.v === currentPenSize ? ' is-active' : '');
       b.title = s.n + '笔'; b.textContent = s.n;
       b.addEventListener('click', () => {
         if (mode === 'eraser') currentEraserSize = s.v;
-        else currentPenSize = s.v;
+        else { currentPenSize = s.v; try { window.localStorage.setItem('doodle_pen_size', String(s.v)); } catch (e) { /* 忽略 */ } }
         currentSize = s.v;
         sizeBtns.forEach(x => x.classList.remove('is-active'));
         b.classList.add('is-active');
@@ -2469,9 +2475,13 @@ App.Components = {
         });
         colorDots.push(dot); colorWrap.appendChild(dot);
       });
-      const penSizes = [ {n:'细', v:2.6}, {n:'中', v:3.5}, {n:'粗', v:4.25} ];
+      // v8.5.4：画笔三档 2.6/2.8/3.0；与 sketch 共用 localStorage key 记忆上次档位，无记录默认细
+      const penSizes = [ {n:'细', v:2.6}, {n:'中', v:2.8}, {n:'粗', v:3.0} ];
       const eraserSizes = [ {n:'细', v:36}, {n:'中', v:60}, {n:'粗', v:90} ];
-      let activePenSize = penSizes[1].v;
+      let lastPenSize = NaN;
+      try { lastPenSize = parseFloat(window.localStorage.getItem('doodle_pen_size')); } catch (e) { /* 忽略 */ }
+      if (!penSizes.some(s => s.v === lastPenSize)) lastPenSize = penSizes[0].v;
+      let activePenSize = lastPenSize;
       let activeEraserSize = eraserSizes[0].v;
       const sizeWrap = document.createElement('div');
       sizeWrap.className = 'doodle-overlay__sizes';
@@ -2488,7 +2498,7 @@ App.Components = {
           b.textContent = s.n; b.title = s.n + (isEraser ? '橡皮' : '笔');
           b.addEventListener('click', () => {
             if (isEraser) activeEraserSize = s.v;
-            else activePenSize = s.v;
+            else { activePenSize = s.v; try { window.localStorage.setItem('doodle_pen_size', String(s.v)); } catch (e) { /* 忽略 */ } }
             pad.setSize(s.v);
             renderSizeBtns();
           });

@@ -134,6 +134,23 @@ setTimeout(async () => {
     SC.startPractice();
     assert(SC.state.doodleData === null, '新一轮 startPractice 清空涂鸦');
 
+    console.log('\n[7] v8.5.4 画笔档位 2.6/2.8/3.0 + 记忆上次档位');
+    // 清空记忆，验证默认
+    try { win.localStorage.removeItem('doodle_pen_size'); } catch (e) {}
+    const spA = App.Components.sketchPad({ initial: null, onChange: null });
+    const sizeBtnsA = spA.element.querySelectorAll('.sketch-size');
+    assert(sizeBtnsA.length === 3, '3 个笔档位按钮');
+    assert(sizeBtnsA[0].textContent === '细' && sizeBtnsA[1].textContent === '中' && sizeBtnsA[2].textContent === '粗', '档位名 细/中/粗');
+    assert(sizeBtnsA[0].classList.contains('is-active'), '无记录时默认细档激活（不再默认中间档）');
+    // 点中档 → 写入记忆
+    sizeBtnsA[1].dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    assert(win.localStorage.getItem('doodle_pen_size') === '2.8', '点击后写入 localStorage 记忆（2.8）');
+    // 新实例 → 使用上次档位
+    const spB = App.Components.sketchPad({ initial: null, onChange: null });
+    const sizeBtnsB = spB.element.querySelectorAll('.sketch-size');
+    assert(sizeBtnsB[1].classList.contains('is-active'), '新实例默认使用上次档位（中 2.8）');
+    spA.element.remove(); spB.element.remove();
+
     console.log('\n===== 速算数字键盘+涂鸦专项: ' + pass + ' 通过, ' + fail + ' 失败 =====');
     process.exit(fail > 0 ? 1 : 0);
   } catch (e) {
