@@ -76,6 +76,14 @@ setTimeout(async () => {
       pBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
       assert(!!area2.querySelector('p') && area2.querySelector('p').textContent === '第一段', 'h2 → 正文 p 转换成功');
     } finally { win.getSelection = origSel2; }
+    // v8.5.6 移动端格式栏：编辑区聚焦 → 触发移动工具栏显示
+    let showCnt = 0;
+    const origShow = App.Components._showMobileToolbar;
+    App.Components._showMobileToolbar = function () { showCnt++; if (origShow) origShow.apply(this, arguments); };
+    try {
+      he.area.dispatchEvent(new win.FocusEvent('focusin', { bubbles: true }));
+      assert(showCnt >= 1, '编辑区聚焦触发移动格式栏显示（_showMobileToolbar）');
+    } finally { App.Components._showMobileToolbar = origShow; }
     // setHtml/getHtml 往返
     he.setHtml('<b>加粗内容</b>');
     assert(he.getHtml() === '<b>加粗内容</b>', 'setHtml/getHtml 往返（HTML 直通）');

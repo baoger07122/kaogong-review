@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.5.5';
+App.VERSION = '8.5.6';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -4719,6 +4719,15 @@ App.Components = {
     area.addEventListener('keyup', captureSel);
     area.addEventListener('focusin', captureSel);
     area.addEventListener('input', () => { if (opts.onChange) opts.onChange(area.innerHTML); });
+    // v8.5.6 移动端格式栏显示：旧显示逻辑只认 .notion-editable，htmlEditor 需自触发
+    area.addEventListener('focusin', () => {
+      if (App.Components._showMobileToolbar) App.Components._showMobileToolbar();
+    });
+    area.addEventListener('focusout', (e) => {
+      const next = e.relatedTarget;
+      if (next && wrapper.contains(next)) return;
+      setTimeout(() => { if (App.Components._hideMobileToolbar) App.Components._hideMobileToolbar(); }, 220);
+    });
     wrapper.addEventListener('mousedown', (e) => {
       const t = e.target;
       if (t && t.closest && t.closest('.notion-tool-btn, .notion-mobile-fmt-item')) e.preventDefault();
