@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.4.18';
+App.VERSION = '8.5.1';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -161,6 +161,21 @@ App.Utils = {
 
   formatDateTime(dateStr) {
     return this.formatDate(dateStr, 'YYYY-MM-DD HH:mm');
+  },
+
+  // ===== 相对时间（便签卡片等：今天→HH:mm，昨天→昨天，今年→M月D日，更早→YYYY-MM-DD） =====
+  formatRelativeTime(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const startOfDay = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const diffDays = Math.round((startOfDay(now) - startOfDay(d)) / 86400000);
+    if (diffDays <= 0) return pad(d.getHours()) + ':' + pad(d.getMinutes());   // 今天
+    if (diffDays === 1) return '昨天';
+    if (d.getFullYear() === now.getFullYear()) return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
   },
 
   // ===== 距上次复习天数 =====
@@ -757,7 +772,7 @@ window.App = window.App || {};
 
 App.DB = (function() {
   const DB_NAME = 'CivilExamReview';
-  const DB_VERSION = 3;
+  const DB_VERSION = 4;
   let db = null;
 
   // ===== 初始化数据库 =====
@@ -830,6 +845,13 @@ App.DB = (function() {
           wordsStore.createIndex('name', 'name', { unique: false });
           wordsStore.createIndex('groupId', 'groupId', { unique: false });
           wordsStore.createIndex('sentiment', 'sentiment', { unique: false });
+        }
+
+        // 8. 便签表（首页便签）
+        if (!db.objectStoreNames.contains('stickies')) {
+          const stickiesStore = db.createObjectStore('stickies', { keyPath: 'id' });
+          stickiesStore.createIndex('createdAt', 'createdAt', { unique: false });
+          stickiesStore.createIndex('pinned', 'pinned', { unique: false });
         }
       };
 
@@ -995,6 +1017,35 @@ App.DB = (function() {
     }
 
     return results.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  }
+
+  // ===== 便签专用方法 =====
+  async function addSticky(sticky) {
+    if (!sticky.id) sticky.id = App.Utils.genId('sticky');
+    sticky.content = sticky.content || '';
+    sticky.color = sticky.color || '#FFFBEB';
+    sticky.pinned = !!sticky.pinned;
+    sticky.createdAt = sticky.createdAt || new Date().toISOString();
+    sticky.updatedAt = sticky.updatedAt || sticky.createdAt;
+    return add('stickies', sticky);
+  }
+
+  async function updateSticky(sticky) {
+    sticky.updatedAt = new Date().toISOString();
+    return put('stickies', sticky);
+  }
+
+  async function removeSticky(id) {
+    return remove('stickies', id);
+  }
+
+  async function getStickies() {
+    const all = await getAll('stickies');
+    // 置顶优先，其次按最近更新时间倒序
+    return all.sort((a, b) => {
+      if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+      return new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0);
+    });
   }
 
   // ===== 套卷专用方法 =====
@@ -1189,7 +1240,8 @@ App.DB = (function() {
       todos: await getAll('todos'),
       subjectReviews: await getAll('subject_reviews'),
       keyvalue: await getAll('keyvalue'),
-      words: await getAll('words')
+      words: await getAll('words'),
+      stickies: await getAll('stickies')
     };
 
     const json = JSON.stringify(data, null, 2);
@@ -1220,7 +1272,8 @@ App.DB = (function() {
       'todos': 'todos',
       'subjectReviews': 'subject_reviews',
       'keyvalue': 'keyvalue',
-      'words': 'words'
+      'words': 'words',
+      'stickies': 'stickies'
     };
 
     for (const [jsonKey, storeName] of Object.entries(mappings)) {
@@ -1244,7 +1297,8 @@ App.DB = (function() {
       todos: await getAll('todos'),
       subjectReviews: await getAll('subject_reviews'),
       keyvalue: await getAll('keyvalue'),
-      words: await getAll('words')
+      words: await getAll('words'),
+      stickies: await getAll('stickies')
     };
   }
 
@@ -1376,6 +1430,7 @@ App.DB = (function() {
     add, put, remove, get, getAll, clearStore,
     addError, updateError, getErrors, getReviewQueue,
     addNote, updateNote, getNotes,
+    addSticky, updateSticky, removeSticky, getStickies,
     addExam, updateExam, getExams,
     addTodo, updateTodo, getTodos,
     addReviewTask, updateReviewTask, getReviewTasks,
@@ -7230,7 +7285,158 @@ App.Components = {
     });
   },
 
-  // ===== 居中弹窗选择器（卡片式） =====
+  // ===== 便签编辑面板（底部滑出：内容 + 颜色 + 置顶） =====
+  // opts: { title, initial: {content,color,pinned}, onSave(data) }
+  stickySheet(opts) {
+    const container = document.getElementById('modal-container');
+    const overlay = document.createElement('div');
+    overlay.className = 'sticky-sheet-overlay';
+
+    const panel = document.createElement('div');
+    panel.className = 'sticky-sheet';
+
+    const COLORS = ['#FFFBEB', '#EFF6FF', '#ECFDF5', '#FDF2F8', '#F5F3FF', '#FFFFFF'];
+
+    // 标题行
+    const head = document.createElement('div');
+    head.className = 'sticky-sheet__head';
+    const t = document.createElement('div');
+    t.className = 'sticky-sheet__title';
+    t.textContent = opts.title || '新增便签';
+    const close = document.createElement('button');
+    close.className = 'sticky-sheet__close';
+    close.type = 'button';
+    close.textContent = '✕';
+    close.addEventListener('click', () => overlay.remove());
+    head.appendChild(t);
+    head.appendChild(close);
+    panel.appendChild(head);
+
+    // 内容输入
+    const ta = document.createElement('textarea');
+    ta.className = 'sticky-sheet__input';
+    ta.placeholder = '输入便签内容…';
+    ta.value = (opts.initial && opts.initial.content) || '';
+    panel.appendChild(ta);
+
+    // 颜色选择
+    const colorRow = document.createElement('div');
+    colorRow.className = 'sticky-sheet__row';
+    const colorLabel = document.createElement('span');
+    colorLabel.className = 'sticky-sheet__label';
+    colorLabel.textContent = '选择颜色';
+    colorRow.appendChild(colorLabel);
+    const dots = document.createElement('div');
+    dots.className = 'sticky-sheet__dots';
+    let curColor = (opts.initial && opts.initial.color) || '#FFFBEB';
+    COLORS.forEach(c => {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'sticky-sheet__dot' + (c === curColor ? ' is-active' : '');
+      dot.style.background = c;
+      dot.style.borderColor = c === '#FFFFFF' ? '#D9D9D9' : 'rgba(0,0,0,0.08)';
+      dot.addEventListener('click', () => {
+        curColor = c;
+        dots.querySelectorAll('.sticky-sheet__dot').forEach(x => x.classList.remove('is-active'));
+        dot.classList.add('is-active');
+      });
+      dots.appendChild(dot);
+    });
+    colorRow.appendChild(dots);
+    panel.appendChild(colorRow);
+
+    // 置顶开关
+    const pinRow = document.createElement('div');
+    pinRow.className = 'sticky-sheet__row';
+    const pinLabel = document.createElement('span');
+    pinLabel.className = 'sticky-sheet__label';
+    pinLabel.textContent = '📌 置顶此便签';
+    const pinSwitch = document.createElement('div');
+    pinSwitch.className = 'sticky-sheet__switch' + ((opts.initial && opts.initial.pinned) ? ' is-on' : '');
+    pinSwitch.addEventListener('click', () => pinSwitch.classList.toggle('is-on'));
+    pinRow.appendChild(pinLabel);
+    pinRow.appendChild(pinSwitch);
+    panel.appendChild(pinRow);
+
+    // 保存
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'sticky-sheet__save';
+    saveBtn.textContent = '保存';
+    saveBtn.addEventListener('click', () => {
+      const content = ta.value.trim();
+      if (!content) { App.Components.toast('便签内容不能为空', 'error'); return; }
+      overlay.remove();
+      if (typeof opts.onSave === 'function') {
+        opts.onSave({ content: content, color: curColor, pinned: pinSwitch.classList.contains('is-on') });
+      }
+    });
+    panel.appendChild(saveBtn);
+
+    overlay.appendChild(panel);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    container.appendChild(overlay);
+    setTimeout(() => { ta.focus(); }, 60);
+  },
+
+  // ===== 便签卡片（瀑布流用；点击/长按弹操作菜单） =====
+  // opts: { sticky, onRefresh }  onRefresh 在增删改后由调用方重渲染
+  stickyCard(sticky, opts) {
+    const card = document.createElement('div');
+    card.className = 'sticky-card' + (sticky.pinned ? ' is-pinned' : '');
+    card.style.background = sticky.color || '#FFFBEB';
+
+    const content = document.createElement('div');
+    content.className = 'sticky-card__content';
+    content.textContent = sticky.content || '';
+    card.appendChild(content);
+
+    const meta = document.createElement('div');
+    meta.className = 'sticky-card__meta';
+    meta.textContent = App.Utils.formatRelativeTime(sticky.updatedAt || sticky.createdAt);
+    card.appendChild(meta);
+
+    card.addEventListener('click', async () => {
+      const action = await App.Components.actionSheet([
+        { label: '✏️ 编辑', value: 'edit' },
+        { label: '📋 复制内容', value: 'copy' },
+        { label: '🗑️ 删除', value: 'delete' }
+      ], (sticky.content || '').slice(0, 18));
+      if (!action) return;
+
+      if (action === 'edit') {
+        App.Components.stickySheet({
+          title: '编辑便签',
+          initial: sticky,
+          onSave: async (data) => {
+            Object.assign(sticky, data);
+            try { await App.DB.updateSticky(sticky); } catch (e) { App.Components.toast('保存失败', 'error'); return; }
+            App.Components.toast('已保存 ✓', 'success');
+            if (opts && typeof opts.onRefresh === 'function') opts.onRefresh();
+          }
+        });
+      } else if (action === 'copy') {
+        try {
+          await navigator.clipboard.writeText(sticky.content || '');
+          App.Components.toast('已复制到剪贴板', 'success');
+        } catch (e) {
+          App.Components.toast('复制失败', 'error');
+        }
+      } else if (action === 'delete') {
+        const ok = await App.Components.confirm('删除便签', '确定删除这条便签？此操作不可撤销。', '删除', '取消', true);
+        if (ok) {
+          card.style.transition = 'transform 0.18s ease, opacity 0.18s ease';
+          card.style.transform = 'scale(0.6)';
+          card.style.opacity = '0';
+          setTimeout(async () => {
+            try { await App.DB.removeSticky(sticky.id); } catch (e) {}
+            if (opts && typeof opts.onRefresh === 'function') opts.onRefresh();
+          }, 170);
+        }
+      }
+    });
+
+    return card;
+  },
   centeredPicker(options, title, subtitle, longPress) {
     return new Promise((resolve) => {
       const container = document.getElementById('modal-container');
@@ -7993,6 +8199,9 @@ App.Router = {
         break;
       case 'study-stats':
         if (App.Pages.StudyStats && App.Pages.StudyStats.render) await App.Pages.StudyStats.render(params);
+        break;
+      case 'stickies':
+        if (App.Pages.Stickies && App.Pages.Stickies.render) await App.Pages.Stickies.render(params);
         break;
       case 'workspace':
         if (App.Pages.Workspace && App.Pages.Workspace.render) await App.Pages.Workspace.render(params);
@@ -8814,10 +9023,98 @@ App.Pages.Home = {
 
     container.appendChild(todoWrap);
 
+    // ===== 8. 便签（今日待办下方） =====
+    await this._renderStickySection(container);
+
     // 底部留白
     const spacer = document.createElement('div');
     spacer.style.height = '80px';
     container.appendChild(spacer);
+  },
+
+  // ===== 便签模块（首页） =====
+  async _renderStickySection(container) {
+    const wrap = document.createElement('div');
+    wrap.id = 'home-sticky-section';
+    wrap.style.cssText = 'padding:0 var(--page-padding);margin-top:var(--spacing-xl);';
+    await this._fillStickySection(wrap);
+    container.appendChild(wrap);
+  },
+
+  async _fillStickySection(wrap) {
+    wrap.innerHTML = '';
+    let stickies = [];
+    try { stickies = await App.DB.getStickies(); } catch (e) {}
+
+    // 标题栏：📝 便签（数量）  [+ 查看全部 ›]
+    const head = document.createElement('div');
+    head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--spacing-sm);';
+    const left = document.createElement('div');
+    left.style.cssText = 'display:flex;align-items:center;gap:var(--spacing-sm);';
+    const titleSpan = document.createElement('span');
+    titleSpan.style.cssText = 'font-size:var(--font-lg);font-weight:600;';
+    titleSpan.textContent = '📝 便签';
+    left.appendChild(titleSpan);
+    if (stickies.length > 0) {
+      const countEl = document.createElement('span');
+      countEl.style.cssText = 'font-size:var(--font-xs);color:var(--text-tertiary);';
+      countEl.textContent = stickies.length + ' 条';
+      left.appendChild(countEl);
+    }
+    head.appendChild(left);
+
+    const right = document.createElement('div');
+    right.style.cssText = 'display:flex;align-items:center;gap:var(--spacing-sm);';
+    const addBtn = document.createElement('button');
+    addBtn.className = 'sticky-add-btn';
+    addBtn.type = 'button';
+    addBtn.textContent = '+';
+    addBtn.title = '新增便签';
+    addBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      App.Components.stickySheet({
+        title: '新增便签',
+        onSave: async (data) => {
+          try { await App.DB.addSticky(data); } catch (err) { App.Components.toast('保存失败', 'error'); return; }
+          App.Components.toast('已添加 ✓', 'success');
+          this._refreshStickySection();
+        }
+      });
+    });
+    right.appendChild(addBtn);
+
+    const allLink = document.createElement('div');
+    allLink.style.cssText = 'font-size:var(--font-sm);color:var(--color-primary);cursor:pointer;padding:4px 2px;';
+    allLink.textContent = '查看全部 ›';
+    allLink.addEventListener('click', () => App.Router.navigate('stickies'));
+    right.appendChild(allLink);
+
+    head.appendChild(right);
+    wrap.appendChild(head);
+
+    // 瀑布流（两列）
+    const masonry = document.createElement('div');
+    masonry.className = 'sticky-masonry';
+    if (stickies.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'sticky-empty';
+      empty.textContent = '暂无便签，点击 + 添加第一条';
+      masonry.appendChild(empty);
+    } else {
+      stickies.slice(0, 6).forEach(s => {
+        masonry.appendChild(App.Components.stickyCard(s, { onRefresh: () => this._refreshStickySection() }));
+      });
+    }
+    wrap.appendChild(masonry);
+  },
+
+  async _refreshStickySection() {
+    const wrap = document.getElementById('home-sticky-section');
+    if (!wrap) return;
+    wrap.style.animation = 'none';
+    void wrap.offsetWidth;
+    wrap.style.animation = 'fadeIn 0.25s ease';
+    await this._fillStickySection(wrap);
   }
 };
 // ===== 考公笔试复盘系统 - 错题本页面 =====
@@ -11236,6 +11533,56 @@ App.Pages.Notes = {
     };
 
     loadAndRender();
+  }
+};
+// ===== 考公笔试复盘系统 - 便签管理页（查看全部） =====
+window.App = window.App || {};
+App.Pages = App.Pages || {};
+
+App.Pages.Stickies = {
+  async render(params) {
+    const container = document.getElementById('page-stickies');
+    container.innerHTML = '';
+
+    const header = App.Components.pageHeader('便签', '＋', () => {
+      App.Components.stickySheet({
+        title: '新增便签',
+        onSave: async (data) => {
+          try { await App.DB.addSticky(data); } catch (e) { App.Components.toast('保存失败', 'error'); return; }
+          App.Components.toast('已添加 ✓', 'success');
+          this.render({});
+        }
+      });
+    });
+    container.appendChild(header);
+
+    const content = document.createElement('div');
+    content.style.cssText = 'padding:var(--spacing-md) var(--page-padding);padding-bottom:var(--spacing-3xl);';
+
+    const wrap = document.createElement('div');
+    wrap.id = 'sticky-manage-wrap';
+    content.appendChild(wrap);
+    container.appendChild(content);
+
+    await this._fill(wrap);
+  },
+
+  async _fill(wrap) {
+    wrap.innerHTML = '';
+    let stickies = [];
+    try { stickies = await App.DB.getStickies(); } catch (e) {}
+
+    const masonry = document.createElement('div');
+    masonry.className = 'sticky-masonry sticky-masonry--manage';
+    if (stickies.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'sticky-empty';
+      empty.textContent = '暂无便签，点击右上角 + 添加第一条';
+      masonry.appendChild(empty);
+    } else {
+      stickies.forEach(s => masonry.appendChild(App.Components.stickyCard(s, { onRefresh: () => this._fill(wrap) })));
+    }
+    wrap.appendChild(masonry);
   }
 };
 // ===== 考公笔试复盘系统 - 学习统计页面（日历） =====

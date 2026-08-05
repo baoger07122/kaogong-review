@@ -6868,3 +6868,193 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   display: flex;
   align-items: center;
 }
+
+/* ===== 便签（首页模块 + 管理页） ===== */
+.sticky-add-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  -webkit-tap-highlight-color: transparent;
+}
+.sticky-add-btn:active { transform: scale(0.92); }
+
+.sticky-masonry {
+  column-count: 2;
+  column-gap: var(--spacing-sm);
+}
+.sticky-masonry--manage { column-gap: var(--spacing-md); }
+
+.sticky-card {
+  break-inside: avoid;
+  border-radius: var(--radius-lg);
+  padding: 12px;
+  margin-bottom: var(--spacing-sm);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+  transition: transform 0.12s ease;
+}
+.sticky-card:active { transform: scale(0.98); }
+.sticky-card.is-pinned::before {
+  content: '📌';
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 12px;
+  opacity: 0.9;
+}
+.sticky-card__content {
+  font-size: var(--font-md);
+  color: #333333;
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  white-space: pre-wrap;
+  padding-right: 2px;
+}
+.sticky-card__meta {
+  margin-top: 8px;
+  font-size: var(--font-xs);
+  color: #9CA3AF;
+}
+
+.sticky-empty {
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: var(--font-sm);
+  padding: 28px 0;
+  grid-column: 1 / -1;
+}
+
+/* 便签编辑面板（底部滑出） */
+.sticky-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 1200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+.sticky-sheet {
+  width: 100%;
+  max-width: 520px;
+  background: var(--bg-primary);
+  border-radius: 16px 16px 0 0;
+  padding: 16px 16px calc(16px + var(--safe-bottom));
+  box-sizing: border-box;
+  animation: slideUp 0.28s ease;
+}
+.sticky-sheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.sticky-sheet__title {
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.sticky-sheet__close {
+  border: none;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sticky-sheet__input {
+  width: 100%;
+  min-height: 110px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font-size: var(--font-md);
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  resize: vertical;
+  outline: none;
+  line-height: 1.5;
+}
+.sticky-sheet__input:focus { border-color: var(--color-primary); }
+.sticky-sheet__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+.sticky-sheet__label { font-size: var(--font-sm); color: var(--text-secondary); }
+.sticky-sheet__dots { display: flex; gap: 8px; }
+.sticky-sheet__dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.06);
+  box-sizing: border-box;
+  padding: 0;
+}
+.sticky-sheet__dot.is-active {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary);
+}
+.sticky-sheet__switch {
+  width: 44px;
+  height: 26px;
+  border-radius: 9999px;
+  background: var(--bg-tertiary);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.sticky-sheet__switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  transition: transform 0.2s;
+}
+.sticky-sheet__switch.is-on { background: var(--color-primary); }
+.sticky-sheet__switch.is-on::after { transform: translateX(18px); }
+.sticky-sheet__save {
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px 0;
+  border: none;
+  border-radius: 9999px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: var(--font-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+.sticky-sheet__save:active { opacity: 0.85; }
