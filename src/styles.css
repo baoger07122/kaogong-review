@@ -3868,6 +3868,8 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   color: var(--text-tertiary);
   pointer-events: none;
 }
+/* v8.5.7 编辑态与查看态内边距一致：查看态正文有 .note-render-pad 左 20px，编辑态补同样的左内边距（仅详情页就地编辑，新建页无对比不受影响） */
+.note-detail-body--editing .html-editor__area { padding-left: 20px; }
 .html-editor__area p { margin: 0.5em 0; }
 .html-editor__area h1, .html-editor__area h2, .html-editor__area h3 { margin: 0.6em 0 0.3em; font-weight: 600; }
 .html-editor__area h1 { font-size: 22px; } .html-editor__area h2 { font-size: 19px; } .html-editor__area h3 { font-size: 16px; }

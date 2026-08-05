@@ -84,6 +84,10 @@ setTimeout(async () => {
       he.area.dispatchEvent(new win.FocusEvent('focusin', { bubbles: true }));
       assert(showCnt >= 1, '编辑区聚焦触发移动格式栏显示（_showMobileToolbar）');
     } finally { App.Components._showMobileToolbar = origShow; }
+    // v8.5.7 格式面板 Bottom Sheet 自包含：产物不再引用失效的 App.Components.openSheet
+    const builtHtml = fs.readFileSync('index.html', 'utf8');
+    assert(!builtHtml.includes('App.Components.openSheet'), '产物不再引用不存在的 App.Components.openSheet（格式面板可打开）');
+    assert(!!App.Components.htmlEditor, 'htmlEditor 组件存在');
     // setHtml/getHtml 往返
     he.setHtml('<b>加粗内容</b>');
     assert(he.getHtml() === '<b>加粗内容</b>', 'setHtml/getHtml 往返（HTML 直通）');

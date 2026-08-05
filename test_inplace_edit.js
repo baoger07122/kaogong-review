@@ -50,7 +50,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.5.6', 'App.VERSION === 8.5.6（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.5.7', 'App.VERSION === 8.5.7（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 查看态渲染（JSON 块 → HTML；点击即编辑）');
     await Notes.renderDetail({ id: 'note1' });
@@ -131,6 +131,9 @@ setTimeout(async () => {
     win.requestAnimationFrame = origRAF;
     // B（v8.5.5）：无块结构——编辑区无 .notion-block（去块验证）
     assert(cardEl.querySelectorAll('.notion-block').length === 0, '编辑区无块结构（彻底去块）');
+    // v8.5.7：编辑态左内边距对齐查看态（.note-render-pad 20px）
+    const editPad = win.getComputedStyle(cardEl.querySelector('.html-editor__area')).paddingLeft;
+    assert(editPad === '20px', '编辑态左内边距 20px 对齐查看态（当前 ' + editPad + '）');
 
     console.log('\n[5] 编辑内容（input 事件）→ 失焦自动保存 + 恢复查看渲染');
     const firstEditable = cardEl.querySelector('.html-editor__area');

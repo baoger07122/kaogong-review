@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.5.6';
+App.VERSION = '8.5.7';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -4905,6 +4905,35 @@ App.Components = {
       App.Components._ensureMobileToolbar();
       App.Components._registerMobileEditor(mobileInst);
     }
+    // v8.5.7 Bottom Sheet（自包含：旧 openSheet 是 notionEditor 闭包，组件层不可用）
+    let sheetEl = null, sheetOverlay = null;
+    function closeSheet() {
+      if (!sheetOverlay) return;
+      const overlay = sheetOverlay, sheet = sheetEl;
+      sheetOverlay = null; sheetEl = null;
+      overlay.classList.add('closing');
+      sheet && sheet.classList.add('closing');
+      setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 260);
+    }
+    function openSheet(opts) {
+      if (sheetOverlay && sheetOverlay.parentNode) { sheetOverlay.parentNode.removeChild(sheetOverlay); sheetOverlay = null; sheetEl = null; }
+      const overlay = document.createElement('div');
+      overlay.className = 'notion-mobile-sheet-overlay';
+      const sheet = document.createElement('div');
+      sheet.className = 'notion-mobile-sheet' + (opts.height ? ' ' + opts.height : '');
+      const handleBar = document.createElement('div');
+      handleBar.className = 'notion-mobile-sheet__handle';
+      sheet.appendChild(handleBar);
+      const content = document.createElement('div');
+      content.className = 'notion-mobile-sheet__content';
+      content.innerHTML = opts.bodyHtml;
+      sheet.appendChild(content);
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) closeSheet(); });
+      overlay.appendChild(sheet);
+      document.body.appendChild(overlay);
+      sheetEl = sheet; sheetOverlay = overlay;
+      return { overlay, sheet };
+    }
     function openMobileFormatSheet() {
       const rowItem = (icon, label, cmd) =>
         '<button class="notion-mobile-fmt-item" data-cmd="' + cmd + '">' +
@@ -4928,12 +4957,12 @@ App.Components = {
           rowItem('"', '引用', 'quote') +
           rowItem('ƒx', '公式', 'formula') +
         '</div>';
-      const { sheet } = App.Components.openSheet({ height: 'is-format', bodyHtml });
+      const { sheet } = openSheet({ height: 'is-format', bodyHtml });
       sheet.querySelectorAll('.notion-mobile-fmt-item').forEach(item => {
         item.addEventListener('mousedown', (e) => e.preventDefault());
         item.addEventListener('click', () => {
           const cmd = item.dataset.cmd;
-          App.Components.closeSheet();
+          closeSheet();
           if (cmd === 'formula') insertFormula();
           else if (cmd === 'h1' || cmd === 'h2' || cmd === 'h3') blockFormat(cmd);
           else if (cmd === 'quote') blockFormat('quote');
@@ -4947,6 +4976,9 @@ App.Components = {
         case 'format': openMobileFormatSheet(); break;
         case 'undo': history('undo'); break;
         case 'redo': history('redo'); break;
+        default:
+          // 简洁模式：插入/删除/缩进/移动等块操作已随去块移除，给出提示避免「点了没反应」
+          if (App.Components.toast) App.Components.toast('该功能在简洁编辑模式已移除', 'info');
       }
     };
 
