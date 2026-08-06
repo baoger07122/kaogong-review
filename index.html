@@ -7433,6 +7433,76 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-opt-item.selected { background: #3B82F6; color: #fff; font-weight: 500; }
 .sc-custom-pickgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 4px 16px; }
 .sc-custom-pickfoot { display: flex; gap: 12px; padding: 14px 16px 20px; }
+
+/* ===== v8.6.25 速算结果页：摘要 / 5 列表格 / 三按钮 ===== */
+.sc-result-summary { text-align: center; padding: 16px 0 12px; }
+.sc-result-summary__type { font-size: 20px; font-weight: 700; color: #1F2937; }
+.sc-result-summary__time { font-size: 13px; color: #6B7280; margin-top: 4px; }
+.sc-result-table {
+  background: #fff; border-radius: 16px; box-shadow: var(--shadow-sm);
+  margin: 0 16px; overflow: hidden;
+}
+.sc-result-table__head, .sc-result-table__row {
+  display: grid; grid-template-columns: 40px 1fr 76px 84px 60px;
+  align-items: center;
+}
+.sc-result-table__head { background: #F9FAFB; padding: 10px 0; border-bottom: 0.5px solid #F3F4F6; }
+.sc-result-table__head .sc-rt-col { font-size: 12px; font-weight: 700; color: #374151; text-align: center; }
+.sc-result-table__row { padding: 12px 0; border-bottom: 0.5px solid #F3F4F6; }
+.sc-result-table__row:last-child { border-bottom: none; }
+.sc-rt-col { text-align: center; font-size: 13px; color: #1F2937; }
+.sc-rt-col--no { font-size: 13px; color: #9CA3AF; }
+.sc-rt-col--q { font-size: 15px; font-weight: 500; text-align: center; }
+.sc-rt-col--ans { font-size: 15px; }
+.sc-rt-col--user { font-size: 15px; font-weight: 700; }
+.sc-rt-col--user.ok { color: #3B82F6; }
+.sc-rt-col--user.no { color: #EF4444; }
+.sc-rt-col--t { font-size: 13px; color: #6B7280; }
+.sc-result-foot {
+  position: fixed; bottom: 0; left: 0; right: 0; max-width: 430px; margin: 0 auto;
+  background: #fff; border-top: 0.5px solid #F3F4F6;
+  padding: 12px 16px calc(12px + var(--safe-bottom, 0px));
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; z-index: 30;
+}
+.sc-result-footbtn { padding: 13px 0; border-radius: 14px; font-size: 15px; cursor: pointer; border: none; -webkit-tap-highlight-color: transparent; }
+.sc-result-footbtn.again { background: #F3F4F6; color: #374151; font-weight: 500; }
+.sc-result-footbtn.retry { background: #EFF6FF; color: #2563EB; font-weight: 500; }
+.sc-result-footbtn.home { background: #3B82F6; color: #fff; font-weight: 700; }
+
+/* ===== v8.6.25 速算结果页：摘要 / 5 列表格 / 三按钮 ===== */
+.sc-result-summary { text-align: center; padding: 16px 0 12px; }
+.sc-result-summary__type { font-size: 20px; font-weight: 700; color: #1F2937; }
+.sc-result-summary__time { font-size: 13px; color: #6B7280; margin-top: 4px; }
+.sc-result-table {
+  background: #fff; border-radius: 16px; box-shadow: var(--shadow-sm);
+  margin: 0 16px; overflow: hidden;
+}
+.sc-result-table__head, .sc-result-table__row {
+  display: grid; grid-template-columns: 40px 1fr 76px 84px 60px;
+  align-items: center;
+}
+.sc-result-table__head { background: #F9FAFB; padding: 10px 0; border-bottom: 0.5px solid #F3F4F6; }
+.sc-result-table__head .sc-rt-col { font-size: 12px; font-weight: 700; color: #374151; text-align: center; }
+.sc-result-table__row { padding: 12px 0; border-bottom: 0.5px solid #F3F4F6; }
+.sc-result-table__row:last-child { border-bottom: none; }
+.sc-rt-col { text-align: center; font-size: 13px; color: #1F2937; }
+.sc-rt-col--no { font-size: 13px; color: #9CA3AF; }
+.sc-rt-col--q { font-size: 15px; font-weight: 500; text-align: center; }
+.sc-rt-col--ans { font-size: 15px; }
+.sc-rt-col--user { font-size: 15px; font-weight: 700; }
+.sc-rt-col--user.ok { color: #3B82F6; }
+.sc-rt-col--user.no { color: #EF4444; }
+.sc-rt-col--t { font-size: 13px; color: #6B7280; }
+.sc-result-foot {
+  position: fixed; bottom: 0; left: 0; right: 0; max-width: 430px; margin: 0 auto;
+  background: #fff; border-top: 0.5px solid #F3F4F6;
+  padding: 12px 16px calc(12px + var(--safe-bottom, 0px));
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; z-index: 30;
+}
+.sc-result-footbtn { padding: 13px 0; border-radius: 14px; font-size: 15px; cursor: pointer; border: none; -webkit-tap-highlight-color: transparent; }
+.sc-result-footbtn.again { background: #F3F4F6; color: #374151; font-weight: 500; }
+.sc-result-footbtn.retry { background: #EFF6FF; color: #2563EB; font-weight: 500; }
+.sc-result-footbtn.home { background: #3B82F6; color: #fff; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -7517,7 +7587,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.24';
+App.VERSION = '8.6.25';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -22870,6 +22940,8 @@ renderHome(container) {
       const val = parseFloat(self.state.currentInput);
       if (isNaN(val) || self.state.currentInput === '') { App.Components.toast('请输入答案', 'error'); return; }
       q.user = val;
+      // v8.6.25 记录每题用时（做题页不显示，结果页表格展示）
+      q.timeUsed = Math.round((Date.now() - self.state.qStart) / 100) / 10;
       const isEst = /≈|估算/.test(q.expr);
       q.correct = isEst ? Math.abs(val - q.answer) <= Math.max(1, Math.abs(q.answer) * 0.03) : val === q.answer;
       if (isRace) {
@@ -22965,7 +23037,7 @@ renderHome(container) {
       totalTime: totalTime,
       avgTime: avgTime,
       date: new Date().toISOString(),
-      details: qs.map(q => ({ q: q.expr, user: q.user, correct: q.answer, isRight: q.correct === true }))
+      details: qs.map(q => ({ q: q.expr, user: q.user, correct: q.answer, isRight: q.correct === true, time: q.timeUsed || 0 }))
     };
     const list = this.loadHistory();
     list.unshift(record);
@@ -22974,64 +23046,88 @@ renderHome(container) {
   },
 
   // ===== 视图：结果页 =====
+  // ===== v8.6.25 视图：练习完成结果页（摘要 + 5 列表格 + 重来/复练/返回）=====
   renderResult(container) {
     const self = this;
     const qs = this.state.questions;
-    const correctCount = qs.filter(q => q.correct === true).length;
     const total = qs.length;
-    const pct = total ? Math.round(correctCount / total * 100) : 0;
     const totalTime = Math.round((Date.now() - this.state.startTime) / 100) / 10;
-    const avgTime = total ? Math.round(totalTime / total * 10) / 10 : 0;
+    const typeName = (this.state.type === "custom" ? "自定义练习" : this.TYPES[this.state.type].name);
+    const fmTotal = (sec) => { sec = Math.max(0, Math.round(sec || 0)); const m = Math.floor(sec / 60), s = sec % 60; return m + ':' + (s < 10 ? '0' : '') + s; };
 
-    this._topbar(container, '练习结果', () => this.show('home'));
+    this._topbar(container, typeName, () => this.show('home'));
 
     const body = document.createElement('div');
     body.className = 'sc-page';
+    body.style.cssText = 'padding-bottom:110px;';
 
-    const overview = document.createElement('div');
-    overview.className = 'sc-result-overview';
-    overview.innerHTML =
-      '<div class="sc-result-score">' + pct + '<span class="sc-result-score__unit">%</span></div>' +
-      '<div class="sc-result-score__label">正确率 ' + correctCount + '/' + total + '</div>' +
-      '<div class="sc-result-score__meta">总用时 ' + fmtClock(totalTime) + ' · 平均 ' + avgTime + 's · ' + (this.state.type === "custom" ? "自定义练习" : this.TYPES[this.state.type].name) + ' · ' + (this.state.mode === 'race' ? '竞速' : '训练') + '</div>';
-    body.appendChild(overview);
+    // ===== 统计摘要区 =====
+    const summary = document.createElement('div');
+    summary.className = 'sc-result-summary';
+    summary.innerHTML =
+      '<div class="sc-result-summary__type">' + typeName + '</div>' +
+      '<div class="sc-result-summary__time">本次练习用时:' + fmTotal(totalTime) + ' 加油</div>';
+    body.appendChild(summary);
 
-    const listTitle = document.createElement('div');
-    listTitle.className = 'sc-section-title';
-    listTitle.textContent = '答题明细';
-    body.appendChild(listTitle);
-
-    const list = document.createElement('div');
-    list.className = 'sc-result-list';
+    // ===== 结果表格（题号/题目/正确答案/你的答案/用时）=====
+    const table = document.createElement('div');
+    table.className = 'sc-result-table';
+    const head = document.createElement('div');
+    head.className = 'sc-result-table__head';
+    head.innerHTML =
+      '<div class="sc-rt-col">#</div>' +
+      '<div class="sc-rt-col">题目</div>' +
+      '<div class="sc-rt-col">正确答案</div>' +
+      '<div class="sc-rt-col">你的答案</div>' +
+      '<div class="sc-rt-col">用时</div>';
+    table.appendChild(head);
     qs.forEach((q, i) => {
+      const ua = q.user !== undefined && q.user !== '' ? q.user : '—';
       const row = document.createElement('div');
-      row.className = 'sc-result-row';
+      row.className = 'sc-result-table__row' + (q.correct ? '' : ' wrong');
       row.innerHTML =
-        '<span class="sc-result-row__no">' + (i + 1) + '</span>' +
-        '<span class="sc-result-row__expr">' + q.expr + '</span>' +
-        '<span class="sc-result-row__ans">' + (q.correct ? '' : '你答 ' + (q.user !== undefined && q.user !== '' ? q.user : '—') + ' / ') + q.answer + '</span>' +
-        '<span class="sc-result-row__mark ' + (q.correct ? 'ok' : 'no') + '">' + (q.correct ? '✓' : '✗') + '</span>';
-      list.appendChild(row);
+        '<div class="sc-rt-col sc-rt-col--no">' + (i + 1) + '</div>' +
+        '<div class="sc-rt-col sc-rt-col--q">' + q.expr + '</div>' +
+        '<div class="sc-rt-col sc-rt-col--ans">= ' + q.answer + '</div>' +
+        '<div class="sc-rt-col sc-rt-col--user ' + (q.correct ? 'ok' : 'no') + '">' + ua + (q.correct ? '✓' : '✗') + '</div>' +
+        '<div class="sc-rt-col sc-rt-col--t">' + (q.timeUsed || 0).toFixed(1) + 's</div>';
+      table.appendChild(row);
     });
-    body.appendChild(list);
-
-    const btnRow = document.createElement('div');
-    btnRow.className = 'sc-btn-row';
-    const againBtn = document.createElement('button');
-    againBtn.type = 'button';
-    againBtn.className = 'sc-btn sc-btn--primary';
-    againBtn.textContent = '再练一次';
-    againBtn.addEventListener('click', () => this.startPractice());
-    const homeBtn = document.createElement('button');
-    homeBtn.type = 'button';
-    homeBtn.className = 'sc-btn sc-btn--outline';
-    homeBtn.textContent = '返回首页';
-    homeBtn.addEventListener('click', () => this.show('home'));
-    btnRow.appendChild(againBtn);
-    btnRow.appendChild(homeBtn);
-    body.appendChild(btnRow);
+    body.appendChild(table);
 
     container.appendChild(body);
+
+    // ===== 底部固定三按钮：重来 / 复练 / 返回 =====
+    const foot = document.createElement('div');
+    foot.className = 'sc-result-foot';
+    const mkBtn = (label, cls, fn) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'sc-result-footbtn ' + cls;
+      b.textContent = label;
+      b.addEventListener('click', fn);
+      return b;
+    };
+    foot.appendChild(mkBtn('重来', 'again', () => this.startPractice()));
+    foot.appendChild(mkBtn('复练', 'retry', () => this.retryWrong()));
+    foot.appendChild(mkBtn('返回', 'home', () => this.show('home')));
+    container.appendChild(foot);
+  },
+
+  // 复练错题：仅保留做错的题目重新进入做题页（原题重做）
+  retryWrong() {
+    const wrong = this.state.questions.filter(q => q.correct !== true);
+    if (!wrong.length) { App.Components.toast('本次全对，无需复练', 'info'); return; }
+    this.state.questions = wrong.map(q => Object.assign({}, q, { user: '', correct: null, timeUsed: 0 }));
+    this.state.idx = 0;
+    this.state.startTime = Date.now();
+    this.state.qStart = Date.now();
+    this.state.currentInput = '';
+    this.state.doodleData = null;
+    this.state.autoNextTimer = null;
+    if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
+    if (this.state.qTimerId) { clearInterval(this.state.qTimerId); this.state.qTimerId = null; }
+    this.show('practice');
   },
 
   // ===== 视图：历史记录（kg_speed_records；兼容旧记录字段）=====

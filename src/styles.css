@@ -7415,3 +7415,73 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-opt-item.selected { background: #3B82F6; color: #fff; font-weight: 500; }
 .sc-custom-pickgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 4px 16px; }
 .sc-custom-pickfoot { display: flex; gap: 12px; padding: 14px 16px 20px; }
+
+/* ===== v8.6.25 速算结果页：摘要 / 5 列表格 / 三按钮 ===== */
+.sc-result-summary { text-align: center; padding: 16px 0 12px; }
+.sc-result-summary__type { font-size: 20px; font-weight: 700; color: #1F2937; }
+.sc-result-summary__time { font-size: 13px; color: #6B7280; margin-top: 4px; }
+.sc-result-table {
+  background: #fff; border-radius: 16px; box-shadow: var(--shadow-sm);
+  margin: 0 16px; overflow: hidden;
+}
+.sc-result-table__head, .sc-result-table__row {
+  display: grid; grid-template-columns: 40px 1fr 76px 84px 60px;
+  align-items: center;
+}
+.sc-result-table__head { background: #F9FAFB; padding: 10px 0; border-bottom: 0.5px solid #F3F4F6; }
+.sc-result-table__head .sc-rt-col { font-size: 12px; font-weight: 700; color: #374151; text-align: center; }
+.sc-result-table__row { padding: 12px 0; border-bottom: 0.5px solid #F3F4F6; }
+.sc-result-table__row:last-child { border-bottom: none; }
+.sc-rt-col { text-align: center; font-size: 13px; color: #1F2937; }
+.sc-rt-col--no { font-size: 13px; color: #9CA3AF; }
+.sc-rt-col--q { font-size: 15px; font-weight: 500; text-align: center; }
+.sc-rt-col--ans { font-size: 15px; }
+.sc-rt-col--user { font-size: 15px; font-weight: 700; }
+.sc-rt-col--user.ok { color: #3B82F6; }
+.sc-rt-col--user.no { color: #EF4444; }
+.sc-rt-col--t { font-size: 13px; color: #6B7280; }
+.sc-result-foot {
+  position: fixed; bottom: 0; left: 0; right: 0; max-width: 430px; margin: 0 auto;
+  background: #fff; border-top: 0.5px solid #F3F4F6;
+  padding: 12px 16px calc(12px + var(--safe-bottom, 0px));
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; z-index: 30;
+}
+.sc-result-footbtn { padding: 13px 0; border-radius: 14px; font-size: 15px; cursor: pointer; border: none; -webkit-tap-highlight-color: transparent; }
+.sc-result-footbtn.again { background: #F3F4F6; color: #374151; font-weight: 500; }
+.sc-result-footbtn.retry { background: #EFF6FF; color: #2563EB; font-weight: 500; }
+.sc-result-footbtn.home { background: #3B82F6; color: #fff; font-weight: 700; }
+
+/* ===== v8.6.25 速算结果页：摘要 / 5 列表格 / 三按钮 ===== */
+.sc-result-summary { text-align: center; padding: 16px 0 12px; }
+.sc-result-summary__type { font-size: 20px; font-weight: 700; color: #1F2937; }
+.sc-result-summary__time { font-size: 13px; color: #6B7280; margin-top: 4px; }
+.sc-result-table {
+  background: #fff; border-radius: 16px; box-shadow: var(--shadow-sm);
+  margin: 0 16px; overflow: hidden;
+}
+.sc-result-table__head, .sc-result-table__row {
+  display: grid; grid-template-columns: 40px 1fr 76px 84px 60px;
+  align-items: center;
+}
+.sc-result-table__head { background: #F9FAFB; padding: 10px 0; border-bottom: 0.5px solid #F3F4F6; }
+.sc-result-table__head .sc-rt-col { font-size: 12px; font-weight: 700; color: #374151; text-align: center; }
+.sc-result-table__row { padding: 12px 0; border-bottom: 0.5px solid #F3F4F6; }
+.sc-result-table__row:last-child { border-bottom: none; }
+.sc-rt-col { text-align: center; font-size: 13px; color: #1F2937; }
+.sc-rt-col--no { font-size: 13px; color: #9CA3AF; }
+.sc-rt-col--q { font-size: 15px; font-weight: 500; text-align: center; }
+.sc-rt-col--ans { font-size: 15px; }
+.sc-rt-col--user { font-size: 15px; font-weight: 700; }
+.sc-rt-col--user.ok { color: #3B82F6; }
+.sc-rt-col--user.no { color: #EF4444; }
+.sc-rt-col--t { font-size: 13px; color: #6B7280; }
+.sc-result-foot {
+  position: fixed; bottom: 0; left: 0; right: 0; max-width: 430px; margin: 0 auto;
+  background: #fff; border-top: 0.5px solid #F3F4F6;
+  padding: 12px 16px calc(12px + var(--safe-bottom, 0px));
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; z-index: 30;
+}
+.sc-result-footbtn { padding: 13px 0; border-radius: 14px; font-size: 15px; cursor: pointer; border: none; -webkit-tap-highlight-color: transparent; }
+.sc-result-footbtn.again { background: #F3F4F6; color: #374151; font-weight: 500; }
+.sc-result-footbtn.retry { background: #EFF6FF; color: #2563EB; font-weight: 500; }
+.sc-result-footbtn.home { background: #3B82F6; color: #fff; font-weight: 700; }

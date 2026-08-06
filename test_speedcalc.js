@@ -28,7 +28,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.24', 'App.VERSION === 8.6.24（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.25', 'App.VERSION === 8.6.25（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 题型生成器（13 种 = 基础计算 10 + 资料分析 3；含 1 个 ▼ 占位）');
     const typeKeys = Object.keys(SC.TYPES);
@@ -131,12 +131,26 @@ setTimeout(async () => {
     await wait(80);
     assert(SC.state.questions[0].correct === true, 'confirmAuto ON：答案位数匹配自动提交（correct=true）');
 
-    console.log('\n[8] 完成 → 结果页 + kg_speed_records');
+    console.log('\n[8] 完成 → 结果页（v8.6.25 摘要/5列表格/三按钮）+ kg_speed_records');
     SC.state.idx = SC.state.questions.length - 1;
-    SC.state.questions.forEach(qq => { qq.user = qq.answer; qq.correct = true; });
+    SC.state.questions.forEach((qq, qi) => { qq.user = qq.answer; qq.correct = qi > 0; qq.timeUsed = 1.2; });  // 第 0 题留错
     SC.next();
     await wait(80);
     assert(SC.state.view === 'result', '全部完成后进入结果页');
+    const summary = home.querySelector('.sc-result-summary');
+    assert(!!summary && /本次练习用时:\d+:\d{2} 加油/.test(summary.textContent), '摘要区显示「本次练习用时:M:SS 加油」');
+    const rtHead = home.querySelectorAll('.sc-result-table__head .sc-rt-col');
+    assert(rtHead.length === 5, '结果表格 5 列表头（#/题目/正确答案/你的答案/用时）');
+    const rtRows = home.querySelectorAll('.sc-result-table__row');
+    assert(rtRows.length === 2 && rtRows[1].textContent.includes('✓') && rtRows[0].textContent.includes('✗'), '数据行渲染（正确 ✓ 蓝 / 错误 ✗ 红）');
+    assert(rtRows[0].textContent.includes('= ' + SC.state.questions[0].answer), '正确答案格式「= 数字」');
+    assert(rtRows[0].textContent.includes('1.2s'), '每题用时显示（1.2s）');
+    const rfoot = home.querySelectorAll('.sc-result-footbtn');
+    assert(rfoot.length === 3 && rfoot[0].textContent === '重来' && rfoot[1].textContent === '复练' && rfoot[2].textContent === '返回', '底部三按钮（重来/复练/返回）');
+    // 复练：错题重新组卷进入做题页
+    rfoot[1].click();
+    await wait(80);
+    assert(SC.state.view === 'practice' && SC.state.questions.length === 1, '复练：仅错题重新组卷（1 题）进做题页');
     const recs = JSON.parse(win.localStorage.getItem(SC.RECORDS_KEY)) || [];
     assert(recs.length >= 1 && recs[0].type && recs[0].count === 2 && typeof recs[0].totalTime === 'number' && Array.isArray(recs[0].details), '历史记录已存 kg_speed_records');
 
