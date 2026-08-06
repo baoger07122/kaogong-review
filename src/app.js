@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.7';
+App.VERSION = '8.6.8';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9329,7 +9329,10 @@ App.Pages.Home = {
     }
     };
     // 轻量刷新：只更新计数、进度条和列表，绝不整页重绘
-    const refreshTodo = () => {
+    // v8.6.8 修复删除待办后列表仍显示：refreshTodo 改用 DB 最新数据（原用 render 时闭包快照，
+    // 删除只动 DB、快照未更新 → 待办「删了还在」）。改为重新 getTodos 再刷新列表与进度。
+    const refreshTodo = async () => {
+      try { todos = await App.DB.getTodos(); } catch (e) { /* 拉取失败保持旧数据 */ }
       const todayList = todos.filter(isTodayTodo);
       const cc = todayList.filter(t => t.completed).length;
       const tc = todayList.length;
