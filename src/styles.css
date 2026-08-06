@@ -3875,6 +3875,16 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .html-editor__area h1 { font-size: 22px; } .html-editor__area h2 { font-size: 19px; } .html-editor__area h3 { font-size: 16px; }
 .html-editor__area ul, .html-editor__area ol { margin: 0.5em 0; padding-left: 1.7em; }
 .html-editor__area blockquote { border-left: 3px solid #555555; margin: 0.5em 0; padding-left: 12px; color: var(--text-primary); }
+/* v8.6.4 标注块（参考 Markdown 引用块样式，仅取样式不引入语法）：浅蓝底 + 左竖线 */
+.html-editor__area .html-callout,
+.note-html-body .html-callout {
+  background: #EFF6FF;
+  border-left: 4px solid #1971C2;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0.5em 0;
+  color: var(--text-primary);
+}
 .html-editor__area table { border-collapse: collapse; margin: 0.5em 0; }
 .html-editor__area td, .html-editor__area th { border: 1px solid var(--divider-color); padding: 4px 8px; }
 .html-editor__area code { font-family: var(--font-mono); font-size: 0.92em; }
@@ -4182,6 +4192,42 @@ body.ipad-split .notion-mobile-toolbar {
   flex-shrink: 0;
 }
 .notion-mobile-fmt-item__label { font-size: 15px; color: var(--text-primary, #37352F); flex: 1; }
+/* v8.6.4 文字/插入面板网格布局（A 面板拆两入口：Aa 文字格式、¶ 段落格式、➕ 插入） */
+.notion-mobile-fmt-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  padding: 8px 12px 12px;
+}
+.notion-mobile-fmt-grid .notion-mobile-fmt-item {
+  width: 100%;
+  height: 58px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+}
+.notion-mobile-fmt-grid .notion-mobile-fmt-item:active { background: var(--bg-tertiary, #F7F7F7); }
+.notion-mobile-fmt-grid .notion-mobile-fmt-item__icon { width: auto; height: auto; font-size: 20px; }
+.notion-mobile-fmt-grid .notion-mobile-fmt-item__label { font-size: 12px; }
+/* 调色板（柔和色多选） */
+.html-color-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 10px 20px 20px;
+}
+.html-color-dot {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid rgba(0,0,0,0.12);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.html-color-dot:active { transform: scale(0.9); }
 .notion-mobile-fmt-item__swatch {
   width: 14px;
   height: 14px;

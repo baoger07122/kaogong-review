@@ -93,6 +93,31 @@ setTimeout(async () => {
     assert(he.getHtml() === '<b>加粗内容</b>', 'setHtml/getHtml 往返（HTML 直通）');
     holder.remove();
 
+    console.log('\n[3] v8.6.4 格式栏优化：空区当行创建 + 三面板拆分');
+    // 空编辑区点标题 → 当行直接创建（blockFormat 兜底，不再无反应）
+    const holder2 = doc.createElement('div'); doc.body.appendChild(holder2);
+    const he2 = App.Components.htmlEditor('', { placeholder: false });
+    const area2b = he2.area;
+    const origSel3 = win.getSelection;
+    win.getSelection = () => ({ rangeCount: 1, isCollapsed: true, anchorNode: area2b, startContainer: area2b, startOffset: 0, getRangeAt: () => { const rr = doc.createRange(); rr.selectNodeContents(area2b); rr.collapse(true); return rr; }, removeAllRanges() {}, addRange() {} });
+    try {
+      const btns2 = Array.from(he2.element.querySelectorAll('.notion-tool-btn'));
+      const h1Btn2 = btns2.find(b => b.textContent === 'H1');
+      h1Btn2.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+      assert(!!area2b.querySelector('h1'), '空编辑区点 H1 → 当行直接创建 h1（blockFormat 兜底）');
+    } finally { win.getSelection = origSel3; }
+    holder2.remove();
+    // 移动端三面板拆分：产物含三个面板 + 段落按钮 + 调色板/标注 + 插入函数
+    const built = fs.readFileSync('index.html', 'utf8');
+    assert(built.includes('openMobileTextSheet') && built.includes('openMobileBlockSheet') && built.includes('openMobileInsertSheet'), '产物含文字/段落/插入三面板');
+    assert(built.includes("key: 'blockfmt'"), '移动工具栏含 ¶ 段落格式按钮');
+    assert(built.includes('html-color-dot') && built.includes('html-callout'), '产物含调色板与标注样式类');
+    assert(built.includes('insertTable') && built.includes('insertDivider') && built.includes('insertCallout'), '产物含表格/分割线/标注插入函数');
+    // 段落格式面板正文置顶检查（文字面板函数体精确截取，排除旧 notionEditor 面板）
+    const textSheetSeg = built.slice(built.indexOf('function openMobileTextSheet'), built.indexOf('function openColorSheet'));
+    assert(!textSheetSeg.includes('行内代码'), '文字格式面板已去掉行内代码');
+    assert(textSheetSeg.indexOf('加粗') < textSheetSeg.indexOf('颜色'), '文字格式面板含加粗/颜色等行内项');
+
     console.log('\n总计: ' + pass + ' 通过, ' + fail + ' 失败');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }
     else { console.log('✓✓ 全部通过'); process.exit(0); }
