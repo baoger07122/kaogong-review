@@ -50,7 +50,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.4', 'App.VERSION === 8.6.4（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.5', 'App.VERSION === 8.6.5（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 查看态渲染（JSON 块 → HTML；点击即编辑）');
     await Notes.renderDetail({ id: 'note1' });
@@ -208,6 +208,14 @@ setTimeout(async () => {
     fakeToolbar.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true }));
     await wait(100);
     assert(!!container.querySelector('.note-detail-body--editing'), '点击工具栏按钮不退出编辑');
+    // v8.6.5 点格式/插入面板弹层（notion-mobile-sheet-overlay/sheet）不退出编辑（修复点段落格式跳段退出）
+    const fakeSheet = doc.createElement('div');
+    fakeSheet.className = 'notion-mobile-sheet-overlay';
+    doc.body.appendChild(fakeSheet);
+    fakeSheet.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true }));
+    await wait(100);
+    assert(!!container.querySelector('.note-detail-body--editing'), '点击格式面板弹层不退出编辑');
+    fakeSheet.remove();
     // 点击页面其他区域（面包屑）→ 退出
     const breadcrumbEl = container.querySelector('.breadcrumb');
     breadcrumbEl.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true }));

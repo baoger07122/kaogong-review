@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.4';
+App.VERSION = '8.6.5';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -11458,8 +11458,8 @@ App.Pages.Notes = {
     this._focusBlockAt(editor, targetIdx);
 
     // 失焦退出：点击编辑区外（排除格式栏/弹层）或键盘收起（移动端 focusout relatedTarget=null）
-    // 底部悬浮格式栏（notion-toolbar / notion-mobile-toolbar）保持原状，点击其按钮不退出编辑
-    const TOOLBAR = '.notion-toolbar, .notion-mobile-toolbar, .slash-menu, .block-menu, .block-sheet, .format-sheet, [data-mobile-toolbar], .actionsheet-overlay, .modal-overlay';
+    // 底部悬浮格式栏（notion-toolbar / notion-mobile-toolbar）+ 格式/插入面板弹层（notion-mobile-sheet*）点击不退出编辑
+    const TOOLBAR = '.notion-toolbar, .notion-mobile-toolbar, .slash-menu, .block-menu, .block-sheet, .format-sheet, [data-mobile-toolbar], .actionsheet-overlay, .modal-overlay, .notion-mobile-sheet-overlay, .notion-mobile-sheet';
     setTimeout(() => {
       inst._docDown = (e) => {
         const t = e.target;
