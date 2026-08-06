@@ -72,6 +72,38 @@ setTimeout(async () => {
     const itemAfter = container.querySelector('.todo-item');
     assert(itemAfter === null, '删除后列表不再显示该待办（已刷新）');
 
+    console.log('\n[6] v8.6.12 今日待办折叠：模块级折叠按钮 + 已完成事项折叠');
+    // 准备数据：1 未完成 + 2 已完成
+    await App.DB.addTodo({ text: '未完成事项', completed: false });
+    await App.DB.addTodo({ text: '已完成A', completed: true, completedAt: new Date().toISOString() });
+    await App.DB.addTodo({ text: '已完成B', completed: true, completedAt: new Date().toISOString() });
+    await App.Pages.Home.render({});
+    await wait(100);
+    const collapseBtn = container.querySelector('#todo-collapse-btn');
+    assert(!!collapseBtn, '今日待办标题右侧有折叠按钮');
+    // 已完成默认折叠：仅未完成项渲染为 todo-item，另有一行折叠行
+    const doneToggle = container.querySelector('.todo-done-toggle');
+    assert(!!doneToggle && doneToggle.textContent.includes('已完成 2 项'), '已完成折叠行存在（已完成 2 项）');
+    const activeOnly = container.querySelectorAll('.todo-item');
+    assert(activeOnly.length === 1 && !activeOnly[0].classList.contains('completed'), '已完成默认折叠：只显示未完成项（' + activeOnly.length + ' 条）');
+    // 点击折叠行 → 展开已完成项
+    doneToggle.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(200);
+    const afterOpen = container.querySelectorAll('.todo-item');
+    assert(afterOpen.length === 3 && !!container.querySelector('.todo-item.completed'), '点击折叠行展开已完成项（3 条全显示）');
+    // 模块级折叠：点击右侧按钮 → 列表隐藏，只留标题；按钮变 ▸
+    collapseBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(50);
+    const newToggle = container.querySelector('.todo-done-toggle');
+    const todoCardEl = newToggle ? newToggle.parentNode : null;
+    assert(!!todoCardEl && todoCardEl.style.display === 'none', '模块折叠后待办列表隐藏（只留标题）');
+    assert(collapseBtn.textContent.trim() === '▸', '折叠后按钮变为展开箭头 ▸');
+    assert(container.querySelector('#todo-stats-toggle').style.display === 'none', '折叠后统计按钮隐藏（只显示「今日待办」）');
+    // 再点展开恢复
+    collapseBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(50);
+    assert(!!container.querySelector('.todo-done-toggle') && container.querySelector('.todo-done-toggle').parentNode.style.display !== 'none', '再次点击展开恢复列表');
+
     console.log('\n===== 待办删除 UI 复现: ' + pass + ' 通过, ' + fail + ' 失败 =====');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }
     else { console.log('✓✓ 全部通过（删除 UI 全链路正常）'); process.exit(0); }

@@ -7294,7 +7294,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.11';
+App.VERSION = '8.6.12';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -16254,9 +16254,12 @@ App.Pages.Home = {
       return newPanel;
     };
     todoHead.innerHTML = `
-      <div style='display:flex;align-items:center;gap:var(--spacing-sm);'>
-        <div style='font-size:var(--font-lg);font-weight:600;'>今日待办</div>
-        <div id='todo-stats-toggle' style='font-size:var(--font-xs);color:var(--color-primary);background:var(--color-primary-bg);padding:3px 10px;border-radius:9999px;cursor:pointer;'>统计</div>
+      <div style='display:flex;align-items:center;justify-content:space-between;'>
+        <div style='display:flex;align-items:center;gap:var(--spacing-sm);'>
+          <div style='font-size:var(--font-lg);font-weight:600;'>今日待办</div>
+          <div id='todo-stats-toggle' style='font-size:var(--font-xs);color:var(--color-primary);background:var(--color-primary-bg);padding:3px 10px;border-radius:9999px;cursor:pointer;'>统计</div>
+        </div>
+        <button id='todo-collapse-btn' type='button' style='border:none;background:var(--bg-tertiary);color:var(--text-secondary);width:30px;height:30px;border-radius:50%;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;' title='折叠/展开今日待办'>▾</button>
       </div>
       <div style='display:flex;align-items:center;gap:var(--spacing-sm);'>
         <div id='todo-filter-toggle' style='display:flex;align-items:center;gap:4px;font-size:var(--font-sm);color:var(--text-secondary);background:var(--bg-tertiary);padding:4px 10px;border-radius:9999px;cursor:pointer;-webkit-tap-highlight-color:transparent;'>
@@ -16266,6 +16269,22 @@ App.Pages.Home = {
         <div id='todo-count-text' style='font-size:var(--font-sm);color:var(--text-tertiary);'>${completedCount}/${totalCount}</div>
       </div>
     `;
+    // v8.6.12 模块级折叠：右侧按钮一键收起今日待办下方所有内容，只留标题；再点展开
+    const todoCollapseBtn = todoHead.querySelector('#todo-collapse-btn');
+    const todoStatsToggleEl = todoHead.querySelector('#todo-stats-toggle');
+    const applyCollapsed = (collapsed) => {
+      this.todoState.collapsed = collapsed;
+      todoCollapseBtn.textContent = collapsed ? '▸' : '▾';
+      if (todoStatsToggleEl) todoStatsToggleEl.style.display = collapsed ? 'none' : '';
+      Array.prototype.forEach.call(todoWrap.children, (el) => {
+        if (el !== todoHead) el.style.display = collapsed ? 'none' : '';
+      });
+    };
+    todoCollapseBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      applyCollapsed(!this.todoState.collapsed);
+    });
+    applyCollapsed(!!this.todoState.collapsed);
     todoHead.querySelector('#todo-stats-toggle').addEventListener('click', (e) => {
       e.stopPropagation();
       // 统计固定为今日数据（与今日待办列表同口径），点按钮展开/收起
@@ -16436,7 +16455,10 @@ App.Pages.Home = {
         </div>
       `;
     } else {
-      listTodos.forEach(todo => {
+      // v8.6.12 已完成事项折叠：未完成全部显示，已完成默认收进「已完成 N 项」折叠行
+      const activeTodos = listTodos.filter(t => !t.completed);
+      const doneTodos = listTodos.filter(t => t.completed);
+      const renderItem = (todo) => {
         const item = document.createElement('div');
         item.className = 'todo-item' + (todo.completed ? ' completed' : '');
         const typeIcon = (TODO_TYPES.find(function (t) { return t.key === typeKeyOf(todo); }) || TODO_TYPES[0]).icon;
@@ -16640,7 +16662,22 @@ App.Pages.Home = {
         item.appendChild(infoBtn);
 
         card.appendChild(item);
-      });
+      };
+      activeTodos.forEach(renderItem);
+      // 已完成事项折叠行（默认折叠，点击展开/收起）
+      if (doneTodos.length) {
+        const doneRow = document.createElement('div');
+        doneRow.className = 'todo-done-toggle';
+        doneRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 14px;margin-top:6px;font-size:var(--font-sm);color:var(--text-secondary);background:var(--bg-tertiary);border-radius:10px;cursor:pointer;-webkit-tap-highlight-color:transparent;';
+        doneRow.innerHTML = '<span>✅ 已完成 ' + doneTodos.length + ' 项</span><span class="todo-done-toggle__caret">' + (this.todoState.doneOpen ? '▴' : '▾') + '</span>';
+        doneRow.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.todoState.doneOpen = !this.todoState.doneOpen;
+          refreshTodo();
+        });
+        card.appendChild(doneRow);
+        if (this.todoState.doneOpen) doneTodos.forEach(renderItem);
+      }
     }
     };
     // 轻量刷新：只更新计数、进度条和列表，绝不整页重绘
