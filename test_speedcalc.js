@@ -28,7 +28,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.20', 'App.VERSION === 8.6.20（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.21', 'App.VERSION === 8.6.21（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 题型生成器（25 种 = 基础计算 19 + 资料分析 6，全部可练习 + 评级）');
     const typeKeys = Object.keys(SC.TYPES);
@@ -70,6 +70,8 @@ setTimeout(async () => {
     assert(home.querySelectorAll('.sc-module-card').length === 2, '2 个模块卡片（基础计算/资料分析-增长相关）');
     assert(home.querySelectorAll('.sc-module-tag').length === 25, '标签云共 25 个标签');
     assert(!!home.querySelector('.sc-module-icon') && home.querySelectorAll('.sc-module-count').length === 2, '模块头含图标方块与 N/N 可练习计数');
+    const builtSc = fs.readFileSync('index.html', 'utf8');
+    assert(builtSc.includes('padding: var(--top-buffer) 16px 12px'), 'v8.6.21 顶栏补安全区（返回按钮不被状态栏/分屏遮挡）');
     assert(home.querySelectorAll('.sc-pill').length >= 7, '题量 pill(5) + 模式 pill(2)');
     const startBtn = home.querySelector('.sc-start-btn-v2');
     assert(!!startBtn && startBtn.classList.contains('disabled'), '未选题型时开始按钮为禁用态（disabled）');

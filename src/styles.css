@@ -6936,7 +6936,8 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 /* ===== v8.6.14 速算重设计：顶部栏 / 设置开关 / 题量选择 / 状态栏 / 评级 / 键盘v2 / 速记悬浮 ===== */
 .sc-topbar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 16px; background: var(--bg-primary);
+  /* v8.6.21 修复返回按钮/计时被状态栏或分屏区域遮挡：顶部补安全区 --top-buffer（与 pageHeader 一致） */
+  padding: var(--top-buffer) 16px 12px; background: var(--bg-primary);
   border-bottom: 0.5px solid var(--divider-color);
   position: sticky; top: 0; z-index: 20;
 }
