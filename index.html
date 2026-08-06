@@ -7252,7 +7252,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.2';
+App.VERSION = '8.6.3';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -17443,8 +17443,14 @@ App.Pages.Errors = {
     const enoteContent = document.createElement('div');
     enoteContent.className = 'card';
     enoteContent.style.cssText = 'margin:0 0 4px 0;line-height:1.7;min-height:60px;cursor:pointer;';
+    // v8.6.3 对齐笔记：错题笔记统一存完整 HTML（历史 Markdown 自动迁移，用户无感）
+    const enoteHtml = App.Utils.toNoteHtml(error.note);
+    if (error.note !== enoteHtml) {
+      error.note = enoteHtml;
+      try { await App.DB.updateError(error); } catch (e) { /* 迁移写回失败不影响查看 */ }
+    }
     enoteContent.innerHTML = error.note
-      ? App.Utils.simpleMarkdown(error.note)
+      ? '<div class="note-html-body">' + error.note + '</div>'
       : '<span style="color:var(--text-tertiary);">点击添加错题笔记</span>';
     content.appendChild(enoteContent);
 
@@ -17455,9 +17461,11 @@ App.Pages.Errors = {
       enoteContent.style.cursor = 'default';
       // 替换为编辑器前先锁定当前高度，避免清空内容导致塌陷/抖动
       enoteContent.style.minHeight = Math.max(enoteContent.offsetHeight, 60) + 'px';
-      const editor = App.Components.notionEditor(error.note, false, function (content) {
-        error.note = content;
-      });
+      // v8.6.3 对齐笔记：单连续富文本编辑器（保存 = innerHTML 直存）
+      const editor = App.Components.htmlEditor(
+        (typeof error.note === 'string' ? error.note : '') || '',
+        { placeholder: false, onChange: function (html) { error.note = html; } }
+      );
       enoteContent.innerHTML = '';
       enoteContent.appendChild(editor.element);
 
@@ -17474,7 +17482,7 @@ App.Pages.Errors = {
       enoteContent.appendChild(actions);
 
       saveBtn.addEventListener('click', async () => {
-        error.note = editor.getContent();
+        error.note = editor.getHtml();
         await App.DB.updateError(error);
         App.Components.toast('已保存 ✓', 'success');
         this.renderDetail(params);
@@ -17975,11 +17983,15 @@ App.Pages.Errors = {
       enoteLabel.textContent = '错题笔记（个人复盘心得）';
       enoteGroup.appendChild(enoteLabel);
 
-      const enoteEditor = App.Components.notionEditor(formData.note, false, function (content) {
-        formData.note = content;
+      // v8.6.3 对齐笔记：错题笔记统一存完整 HTML（历史 Markdown 自动迁移），单连续富文本编辑器
+      const enoteHtml = App.Utils.toNoteHtml(formData.note);
+      if (formData.note !== enoteHtml) formData.note = enoteHtml;
+      const enoteEditor = App.Components.htmlEditor(enoteHtml, {
+        placeholder: false,
+        onChange: function (html) { formData.note = html; }
       });
       enoteGroup.appendChild(enoteEditor.element);
-      formData._getENote = enoteEditor.getContent;
+      formData._getENote = enoteEditor.getHtml;
       form.appendChild(enoteGroup);
 
       container.appendChild(form);

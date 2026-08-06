@@ -187,6 +187,26 @@ setTimeout(async () => {
     }, () => {});
     assert(card2.querySelectorAll('.error-gallery-card__img').length === 1, '旧 image 单图兼容');
 
+    console.log('\n[7] v8.6.3 错题笔记对齐去块：HTML 直通 + 迁移 + htmlEditor');
+    // 历史 Markdown 笔记 → 打开自动迁移为 HTML 并存回
+    const errWithNote = { id: 'n1', subject: '资料分析', module: '增长率', knowledgePoints: ['公式'], errorCause: '看错', question: 'Q', note: '# 复盘\n\n**重点**内容' };
+    dbStore['errors::n1'] = errWithNote;
+    await App.Pages.Errors.renderDetail.call(App.Pages.Errors, { id: 'n1' });
+    await new Promise(r => setTimeout(r, 100));
+    assert(typeof dbStore['errors::n1'].note === 'string' && dbStore['errors::n1'].note.indexOf('<') === 0, '历史 MD 笔记打开时迁移为完整 HTML 并存回');
+    assert(dbStore['errors::n1'].note.includes('<h1') && dbStore['errors::n1'].note.includes('<strong>'), '迁移 HTML 含 h1/strong（格式保真）');
+    const dPage7 = doc.getElementById('page-error-detail');
+    const enoteView7 = dPage7.querySelector('.card .note-html-body');
+    assert(!!enoteView7 && enoteView7.innerHTML.includes('<h1'), '查看态 HTML 直通渲染（note-html-body + h1）');
+    // 点击笔记 → 编辑器为 htmlEditor（非旧块编辑器）
+    const enoteCard7 = enoteView7.closest('.card');
+    enoteCard7.click();
+    await new Promise(r => setTimeout(r, 100));
+    assert(!!dPage7.querySelector('.card .html-editor'), '错题笔记编辑用 htmlEditor（单连续富文本）');
+    assert(!dPage7.querySelector('.card .notion-block'), '编辑区无块结构（彻底去块）');
+    const enoteArea7 = dPage7.querySelector('.card .html-editor__area');
+    assert(!!enoteArea7 && enoteArea7.innerHTML.includes('<h1'), '编辑器直存 HTML（h1 保留）');
+
     console.log('\n===== 错题多图+删解析笔记专项: ' + pass + ' 通过, ' + fail + ' 失败 =====');
     process.exit(fail > 0 ? 1 : 0);
   } catch (e) {
