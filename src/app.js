@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.12';
+App.VERSION = '8.6.13';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -4648,6 +4648,13 @@ App.Components = {
     area.addEventListener('keyup', captureSel);
     area.addEventListener('focusin', captureSel);
     area.addEventListener('input', () => { if (opts.onChange) opts.onChange(area.innerHTML); });
+    // v8.6.13 快捷键：Tab = 缩进，Shift+Tab = 取消缩进（阻止默认焦点切换）
+    area.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        indentParagraph(e.shiftKey ? -1 : 1);
+      }
+    });
     // v8.5.6 移动端格式栏显示：旧显示逻辑只认 .notion-editable，htmlEditor 需自触发
     area.addEventListener('focusin', () => {
       if (App.Components._showMobileToolbar) App.Components._showMobileToolbar();
@@ -4771,6 +4778,30 @@ App.Components = {
       else if (type === 'numbered') document.execCommand('insertOrderedList');
       if (opts.onChange) opts.onChange(area.innerHTML);
     }
+    // v8.6.13 段落缩进/取消缩进（margin-left 步进 20px；快捷键 Tab / Shift+Tab）
+    function indentParagraph(dir) {
+      const r = ensureSelection();
+      const node = r ? (r.anchorNode || r.startContainer) : area;
+      let el = node.nodeType === 1 ? node : (node.parentElement || area);
+      while (el && el !== area && !/^(P|H[1-6]|LI|BLOCKQUOTE|PRE|DIV)$/.test(el.tagName)) el = el.parentElement;
+      if (!el || el === area || !el.parentNode) {
+        // 空行兜底：光标处插入带缩进的段落
+        const n = document.createElement('P');
+        n.style.marginLeft = (dir > 0 ? 20 : 0) + 'px';
+        n.innerHTML = '<br>';
+        if (r && r.startContainer && area.contains(r.startContainer)) {
+          try { r.deleteContents(); r.insertNode(n); } catch (e) { area.appendChild(n); }
+        } else area.appendChild(n);
+        placeCaretAtEnd(n);
+        if (opts.onChange) opts.onChange(area.innerHTML);
+        return;
+      }
+      const cur = parseFloat(el.style.marginLeft) || 0;
+      const next = Math.max(0, cur + (dir > 0 ? 20 : -20));
+      el.style.marginLeft = next > 0 ? next + 'px' : '';
+      placeCaretAtEnd(el);
+      if (opts.onChange) opts.onChange(area.innerHTML);
+    }
 
     // ===== 公式插入（prompt 输入 LaTeX → mformula 节点，源码保留可回源）=====
     function insertFormula() {
@@ -4828,7 +4859,9 @@ App.Components = {
       { b: '正文', title: '正文', fn: () => blockFormat('text') },
       { b: '•', title: '无序列表', fn: () => toggleList('bullet') },
       { b: '1.', title: '有序列表', fn: () => toggleList('numbered') },
-      { b: '"', title: '引用', fn: () => blockFormat('quote') }
+      { b: '"', title: '引用', fn: () => blockFormat('quote') },
+      { b: '↪', title: '缩进 (Tab)', fn: () => indentParagraph(1) },          // v8.6.13
+      { b: '↩', title: '取消缩进 (Shift+Tab)', fn: () => indentParagraph(-1) } // v8.6.13
     ]));
     row.appendChild(grp([
       { b: 'ƒx', title: '插入公式', fn: insertFormula },
@@ -4954,12 +4987,16 @@ App.Components = {
           rowItem('•', '无序列表', 'bullet') +
           rowItem('1.', '有序列表', 'numbered') +
           rowItem('"', '引用', 'quote') +
+          rowItem('↪', '缩进', 'indent') +          // v8.6.13
+          rowItem('↩', '取消缩进', 'outdent') +     // v8.6.13
         '</div>';
       const { sheet } = openSheet({ height: 'is-format', bodyHtml });
       bindItems(sheet, (item) => {
         const cmd = item.dataset.cmd;
         closeSheet();
         if (cmd === 'text' || cmd === 'h1' || cmd === 'h2' || cmd === 'h3' || cmd === 'quote') blockFormat(cmd === 'text' ? 'text' : cmd);
+        else if (cmd === 'indent') indentParagraph(1);
+        else if (cmd === 'outdent') indentParagraph(-1);
         else toggleList(cmd);
       });
     }

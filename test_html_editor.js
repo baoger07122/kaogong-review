@@ -121,6 +121,26 @@ setTimeout(async () => {
     assert(built.includes('_dragStartY') && built.includes('dy > 80') && built.includes('translateY'), '格式面板顶部横杠支持按住下拉关闭（跟随位移 + 80px 阈值）');
     assert(built.includes('z-index: 10000'), '弹层层级高于底部导航（9999），贴底按钮不被遮');
 
+    console.log('\n[4] v8.6.13 缩进/取消缩进（按钮 + Tab/Shift+Tab 快捷键）');
+    const holder4 = doc.createElement('div'); doc.body.appendChild(holder4);
+    const he4 = App.Components.htmlEditor('<p>第一段内容</p><p>第二段内容</p>', { placeholder: false });
+    const p0 = he4.area.querySelectorAll('p')[0];
+    const origSel4 = win.getSelection;
+    win.getSelection = () => ({ rangeCount: 1, isCollapsed: true, anchorNode: p0.firstChild, startContainer: p0.firstChild, startOffset: 1, getRangeAt: () => { const rr = doc.createRange(); rr.selectNodeContents(p0); rr.collapse(true); return rr; }, removeAllRanges() {}, addRange() {} });
+    try {
+      he4.area.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+      assert(p0.style.marginLeft === '20px', 'Tab 快捷键 → 段落缩进 20px');
+      he4.area.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+      assert(p0.style.marginLeft === '', 'Shift+Tab 快捷键 → 取消缩进');
+      he4.area.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+      he4.area.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+      assert(p0.style.marginLeft === '40px', '连续 Tab 累加缩进（40px）');
+    } finally { win.getSelection = origSel4; }
+    holder4.remove();
+    assert(built.includes('indentParagraph') && built.includes("title: '缩进 (Tab)'") && built.includes("title: '取消缩进 (Shift+Tab)'"), '桌面工具栏含缩进/取消缩进按钮');
+    assert(built.includes("e.key === 'Tab'") && built.includes('indentParagraph(e.shiftKey'), '快捷键 Tab/Shift+Tab 已绑定到编辑区');
+    assert(built.includes("rowItem('↪', '缩进', 'indent')") && built.includes("rowItem('↩', '取消缩进', 'outdent')"), '移动端段落面板含缩进/取消缩进');
+
     console.log('\n总计: ' + pass + ' 通过, ' + fail + ' 失败');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }
     else { console.log('✓✓ 全部通过'); process.exit(0); }
