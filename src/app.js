@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.5';
+App.VERSION = '8.6.6';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -1261,6 +1261,7 @@ App.DB = (function() {
 
   // ===== 导出数据 =====
   async function exportAll() {
+    const kv = await getAll('keyvalue');
     const data = {
       version: 1,
       exportedAt: new Date().toISOString(),
@@ -1269,7 +1270,7 @@ App.DB = (function() {
       exams: await getAll('exams'),
       todos: await getAll('todos'),
       subjectReviews: await getAll('subject_reviews'),
-      keyvalue: await getAll('keyvalue'),
+      keyvalue: kv.filter(r => !(r.key && r.key.indexOf('auto_backup_') === 0)),   // v8.6.6 排除自动备份包，防递归膨胀
       words: await getAll('words'),
       stickies: await getAll('stickies')
     };
@@ -1316,7 +1317,10 @@ App.DB = (function() {
   }
 
   // ===== 构建备份数据包（供导出 / 云分享 / 自动备份复用）=====
+  // v8.6.6 修复备份膨胀：keyvalue 排除 auto_backup_* 自动备份包——
+  // 此前自动备份把完整包存进 keyvalue，导出时又被打包，指数级递归膨胀（实测 100 条笔记即达 17MB，导致 iOS 分享/下载失败「无法备份」）
   async function buildBackupData() {
+    const kv = await getAll('keyvalue');
     return {
       version: 1,
       app: 'kaogong-review',
@@ -1326,7 +1330,7 @@ App.DB = (function() {
       exams: await getAll('exams'),
       todos: await getAll('todos'),
       subjectReviews: await getAll('subject_reviews'),
-      keyvalue: await getAll('keyvalue'),
+      keyvalue: kv.filter(r => !(r.key && r.key.indexOf('auto_backup_') === 0)),
       words: await getAll('words'),
       stickies: await getAll('stickies')
     };
