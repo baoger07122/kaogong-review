@@ -50,7 +50,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.16', 'App.VERSION === 8.6.16（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.17', 'App.VERSION === 8.6.17（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 首页便签：纵向瀑布流 + 卡片规格（v8.6.10 替代横向滚动）');
     // 5 条便签（1 置顶 + 4 普通）
@@ -83,6 +83,28 @@ setTimeout(async () => {
     const empty = container.querySelector('.sticky-empty');
     assert(!!empty && empty.textContent.indexOf('暂无便签') >= 0, '无便签显示空态占位');
     assert(!container.querySelector('.sticky-dots'), '空态无分页指示器');
+
+    console.log('\n[4] v8.6.17 便签待办：方框勾选/划线/完成后后移');
+    // 直接渲染 stickyCard：1 未完成 + 1 普通行 + 1 已完成
+    const sc4 = App.Components.stickyCard({ id: 't1', content: '[ ] 未完成事项\n普通文本行\n[x] 已完成事项', color: '#FFFBEB', pinned: false }, { onRefresh: () => {} });
+    const cbs4 = sc4.querySelectorAll('input[type=checkbox][data-raw]');
+    assert(cbs4.length === 2, '待办行渲染为 2 个 checkbox');
+    assert(cbs4[0].checked === false && cbs4[1].checked === true, '未完成/已完成勾选状态正确');
+    const labels4 = sc4.querySelectorAll('.sticky-task');
+    assert(labels4[0].textContent.includes('未完成事项') && labels4[1].textContent.includes('已完成事项'), '已完成待办显示在末尾（后移）');
+    assert(labels4[1].classList.contains('sticky-task--done'), '已完成项划线样式（sticky-task--done）');
+    assert(sc4.textContent.includes('普通文本行'), '普通文本行正常显示');
+    // 勾选交互：勾选 → content 变 [x] + 更新 DB（jsdom 用显式 change 事件模拟，真机 click 自动触发）
+    cbs4[0].checked = true;
+    cbs4[0].dispatchEvent(new win.Event('change', { bubbles: true }));
+    await wait(20);
+    assert(store.stickies.t1 && store.stickies.t1.content.includes('[x] 未完成事项'), '勾选后存储更新为 [x]（划线+后移触发 onRefresh 重渲染）');
+    // 编辑弹层有待办按钮
+    App.Components.stickySheet({ title: '新增便签', onSave: async () => {} });
+    await wait(30);
+    const modal4 = doc.getElementById('modal-container');
+    const taskBtn4 = modal4.querySelector('.sticky-sheet__taskbtn');
+    assert(!!taskBtn4 && taskBtn4.textContent === '▢', '便签编辑弹层有「▢ 待办」按钮');
 
     console.log('\n总计: ' + pass + ' 通过, ' + fail + ' 失败');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }

@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.16';
+App.VERSION = '8.6.17';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -7767,6 +7767,21 @@ App.Components = {
     ta.value = (opts.initial && opts.initial.content) || '';
     panel.appendChild(ta);
 
+    // v8.6.17 待办按钮：插入一行「[ ] 待办事项」（查看时显示方框可勾选，完成后划线并后移）
+    const taskBtn = document.createElement('button');
+    taskBtn.className = 'sticky-sheet__close sticky-sheet__taskbtn';
+    taskBtn.type = 'button';
+    taskBtn.textContent = '▢';
+    taskBtn.title = '插入待办事项';
+    taskBtn.style.cssText = 'margin-right:8px;font-size:15px;';
+    taskBtn.addEventListener('click', () => {
+      const cur = ta.value;
+      const atEnd = !cur || /\n\s*$/.test(cur);
+      ta.value = cur + (atEnd ? '' : '\n') + '[ ] ';
+      ta.focus();
+    });
+    head.appendChild(taskBtn);
+
     // 颜色选择
     const colorRow = document.createElement('div');
     colorRow.className = 'sticky-sheet__row';
@@ -7835,8 +7850,40 @@ App.Components = {
 
     const content = document.createElement('div');
     content.className = 'sticky-card__content';
-    content.textContent = sticky.content || '';
+    // v8.6.17 待办渲染：`[ ] 事项`/`[x] 事项` 行 → 方框可勾选；完成后划线 + 显示后移（已完成的待办行排到末尾）
+    const rawContent = sticky.content || '';
+    const lines = String(rawContent).split('\n');
+    const doneTasks = [];
+    let html = '';
+    const escTxt = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    lines.forEach((line) => {
+      const m = line.match(/^\s*\[([ xX])\]\s+(.*)$/);
+      if (m) {
+        const isDone = m[1] !== ' ';
+        const row = '<label class="sticky-task' + (isDone ? ' sticky-task--done' : '') + '">' +
+          '<input type="checkbox" data-raw="' + escTxt(line) + '" ' + (isDone ? 'checked' : '') + '>' +
+          '<span class="sticky-task__text">' + escTxt(m[2]) + '</span></label>';
+        if (isDone) doneTasks.push(row);
+        else html += row;
+      } else {
+        html += '<div>' + escTxt(line) + '</div>';
+      }
+    });
+    html += doneTasks.join('');
+    content.innerHTML = html;
     card.appendChild(content);
+    // 待办勾选交互：切换 [ ] ↔ [x]，划线 + 重排（完成后自动后移）
+    content.querySelectorAll('input[type=checkbox][data-raw]').forEach((cb) => {
+      cb.addEventListener('change', async () => {
+        const old = cb.dataset.raw;
+        const pat = /^(\s*)\[[ xX]\]/;
+        const repl = cb.checked ? '$1[x]' : '$1[ ]';
+        const newContent = String(sticky.content || '').split('\n').map((l) => (l === old ? l.replace(pat, repl) : l)).join('\n');
+        sticky.content = newContent;
+        try { await App.DB.updateSticky(sticky); } catch (e) { /* 忽略 */ }
+        if (opts.onRefresh) opts.onRefresh();
+      });
+    });
 
     const meta = document.createElement('div');
     meta.className = 'sticky-card__meta';

@@ -7138,6 +7138,27 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   font-size: var(--font-xs);
   color: #9CA3AF;
 }
+/* v8.6.17 便签待办：方框勾选 → 划线 + 显示后移 */
+.sticky-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 3px 0;
+  cursor: pointer;
+}
+.sticky-task input[type="checkbox"] {
+  margin-top: 3px;
+  width: 15px;
+  height: 15px;
+  accent-color: #3B82F6;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.sticky-task__text { flex: 1; word-break: break-word; }
+.sticky-task--done .sticky-task__text {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
 
 .sticky-empty {
   text-align: center;
