@@ -7397,3 +7397,21 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-custom-footbtn--cancel { background: #F3F4F6; color: #374151; font-weight: 500; }
 .sc-custom-footbtn--ok { background: #3B82F6; color: #fff; font-weight: 700; }
 .sc-custom-footbtn--ok.disabled { background: #D1D5DB; color: #fff; pointer-events: none; }
+
+/* ===== v8.6.24 速算：题量/模式居中弹窗按钮 + 自定义练习小窗 ===== */
+.sc-opts-row { display: flex; justify-content: center; gap: 12px; margin-bottom: 14px; }
+.sc-opt-btn {
+  background: #fff; border: 1.5px solid #BFDBFE; color: #3B82F6;
+  border-radius: 14px; padding: 10px 20px; font-size: 14px; font-weight: 500;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sc-opt-btn:active { background: #EFF6FF; }
+.sc-opt-list { padding: 4px 16px 20px; }
+.sc-opt-item {
+  padding: 12px 14px; border-radius: 12px; font-size: 15px; color: #1F2937;
+  cursor: pointer; text-align: center; margin-bottom: 8px;
+  background: #F3F4F6; -webkit-tap-highlight-color: transparent;
+}
+.sc-opt-item.selected { background: #3B82F6; color: #fff; font-weight: 500; }
+.sc-custom-pickgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 4px 16px; }
+.sc-custom-pickfoot { display: flex; gap: 12px; padding: 14px 16px 20px; }

@@ -7415,6 +7415,24 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-custom-footbtn--cancel { background: #F3F4F6; color: #374151; font-weight: 500; }
 .sc-custom-footbtn--ok { background: #3B82F6; color: #fff; font-weight: 700; }
 .sc-custom-footbtn--ok.disabled { background: #D1D5DB; color: #fff; pointer-events: none; }
+
+/* ===== v8.6.24 速算：题量/模式居中弹窗按钮 + 自定义练习小窗 ===== */
+.sc-opts-row { display: flex; justify-content: center; gap: 12px; margin-bottom: 14px; }
+.sc-opt-btn {
+  background: #fff; border: 1.5px solid #BFDBFE; color: #3B82F6;
+  border-radius: 14px; padding: 10px 20px; font-size: 14px; font-weight: 500;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sc-opt-btn:active { background: #EFF6FF; }
+.sc-opt-list { padding: 4px 16px 20px; }
+.sc-opt-item {
+  padding: 12px 14px; border-radius: 12px; font-size: 15px; color: #1F2937;
+  cursor: pointer; text-align: center; margin-bottom: 8px;
+  background: #F3F4F6; -webkit-tap-highlight-color: transparent;
+}
+.sc-opt-item.selected { background: #3B82F6; color: #fff; font-weight: 500; }
+.sc-custom-pickgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 4px 16px; }
+.sc-custom-pickfoot { display: flex; gap: 12px; padding: 14px 16px 20px; }
 </style>
 </head>
 <body>
@@ -7499,7 +7517,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.23';
+App.VERSION = '8.6.24';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -22111,34 +22129,23 @@ App.Pages.SpeedCalc = {
 
   // 题型定义（13 种；无 gen 的为 ▼ 占位题型）
   // v8.6.20 题型定义 v2：基础计算 19 项 + 资料分析-增长相关 6 项，每题带评级秒数 s:{excellent,good,pass}
+  // v8.6.24 题型定义：基础计算 10 项 + 资料分析 3 项（基期/增量/实战占位），自定义练习整合进基础模块
   TYPES: {
-    // ===== 基础计算（19）=====
+    // ===== 基础计算（10）=====
     addsub2:  { name: '两位数加减',     s: { excellent: 18, good: 22, pass: 28 }, gen: () => { const a = randInt(10, 99), b = randInt(10, 99); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } },
-    round100: { name: '凑整百练习',     s: { excellent: 5, good: 8, pass: 12 }, gen: () => { const a = randInt(11, 89); return makeQ(a + ' + ' + (100 - a) + ' =', 100); } },
     add3:     { name: '三位数加法',     s: { excellent: 35, good: 45, pass: 60 }, gen: () => { const a = randInt(100, 999), b = randInt(100, 999); return makeQ(a + ' + ' + b, a + b); } },
     sub3:     { name: '三位数减法',     s: { excellent: 35, good: 45, pass: 60 }, gen: () => { const a = randInt(300, 999), b = randInt(100, a - 1); return makeQ(a + ' - ' + b, a - b); } },
     addsub3:  { name: '三位数加减',     s: { excellent: 40, good: 50, pass: 70 }, gen: () => { const a = randInt(100, 999), b = randInt(100, 999); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } },
-    multiAdd: { name: '多数相加',       s: { excellent: 30, good: 40, pass: 55 }, gen: () => { const arr = [randInt(10, 99), randInt(10, 99), randInt(10, 99)]; return makeQ(arr.join(' + '), arr.reduce((s2, x) => s2 + x, 0)); } },
-    mixAdd:   { name: '混合加减',       s: { excellent: 35, good: 45, pass: 60 }, gen: () => { const a = randInt(100, 400), b = randInt(20, 200), c = randInt(20, 100); return Math.random() < 0.5 ? makeQ(a + ' + ' + b + ' - ' + c, a + b - c) : makeQ(a + ' - ' + b + ' + ' + c, a - b + c); } },
     mul2x1:   { name: '两位数乘一位数', s: { excellent: 20, good: 28, pass: 40 }, gen: () => { const a = randInt(10, 99), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
     mul3x1:   { name: '三位数乘一位数', s: { excellent: 35, good: 45, pass: 60 }, gen: () => { const a = randInt(100, 999), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
-    mul11:    { name: '两位数乘11',     s: { excellent: 25, good: 35, pass: 50 }, gen: () => { const a = randInt(10, 99); return makeQ(a + ' × 11', a * 11); } },
-    mul15:    { name: '两位数乘15',     s: { excellent: 30, good: 40, pass: 60 }, gen: () => { const a = randInt(10, 99); return makeQ(a + ' × 15', a * 15); } },
-    mul2x2:   { name: '两位数乘两位数', s: { excellent: 60, good: 90, pass: 120 }, gen: () => { const a = randInt(11, 99), b = randInt(11, 99); return makeQ(a + ' × ' + b, a * b); } },
-    big19:    { name: '大九九乘法速算', s: { excellent: 20, good: 30, pass: 45 }, gen: () => { const a = randInt(11, 19), b = randInt(11, 19); return makeQ(a + ' × ' + b, a * b); } },
     div3x1:   { name: '三位数除一位数', s: { excellent: 30, good: 45, pass: 60 }, gen: () => { const d = randInt(2, 9), q = randInt(20, 150); return makeQ((d * q) + ' ÷ ' + d, q); } },
-    div3x2:   { name: '三位数除两位数', s: { excellent: 40, good: 60, pass: 90 }, gen: () => { const d = randInt(11, 99), q = randInt(3, 20); return makeQ((d * q) + ' ÷ ' + d, q); } },
-    div3x3:   { name: '三位数除三位数', s: { excellent: 35, good: 50, pass: 75 }, gen: () => { const d = randInt(100, 999), q = randInt(2, 9); return makeQ((d * q) + ' ÷ ' + d, q); } },
-    mulEst:   { name: '乘法估算',       s: { excellent: 20, good: 30, pass: 45 }, gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } },
     div5x3:   { name: '五位数除三位数', s: { excellent: 45, good: 70, pass: 100 }, gen: () => { const d = randInt(100, 999), q = randInt(100, 999); return makeQ((d * q) + ' ÷ ' + d, q); } },
-    div4x3:   { name: '三位数除四位数', s: { excellent: 50, good: 75, pass: 110 }, gen: () => { const d = randInt(100, 999), q = randInt(100, 999) * 10; return makeQ((d * q) + ' ÷ ' + d, q); } },
-    // ===== 资料分析-增长相关（6）=====
-    estBase:  { name: '估算前期量',     s: { excellent: 35, good: 50, pass: 70 }, gen: () => { const c = randInt(1000, 9999), r = randInt(5, 30), base = Math.round(c / (1 + r / 100)); return makeQ('现期 ' + c + '，增长率 ' + r + '%，基期≈', base); } },
-    estGrowth:{ name: '估算增长量',     s: { excellent: 30, good: 45, pass: 60 }, gen: () => { const b = randInt(1000, 9999), r = randInt(5, 30); return makeQ('基期 ' + b + '，增长率 ' + r + '%，增长量≈', Math.round(b * r / 100)); } },
-    pctFrac:  { name: '百化分计算',     s: { excellent: 10, good: 15, pass: 20 }, gen: () => { const ds = [2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15], d = ds[randInt(0, ds.length - 1)]; return makeQ('1/' + d + ' = ?%', Math.round(100 / d)); } },
-    incCompare:{ name: '增量比大小',    s: { excellent: 30, good: 45, pass: 60 }, gen: () => { const a1 = randInt(1000, 9000), r1 = randInt(5, 30), a2 = randInt(1000, 9000), r2 = randInt(5, 30); const g1 = a1 * r1, g2 = a2 * r2; return makeQ('A 基期 ' + a1 + '，r=' + r1 + '%；B 基期 ' + a2 + '，r=' + r2 + '%。增量更大的是（1=A 2=B）', g1 >= g2 ? 1 : 2); } },
-    baseCompare:{ name: '基期比大小',   s: { excellent: 30, good: 45, pass: 60 }, gen: () => { const a1 = randInt(1000, 9000), r1 = randInt(5, 30), a2 = randInt(1000, 9000), r2 = randInt(5, 30); const b1 = Math.round(a1 / (1 + r1 / 100)), b2 = Math.round(a2 / (1 + r2 / 100)); return makeQ('A 现期 ' + a1 + '，r=' + r1 + '%；B 现期 ' + a2 + '，r=' + r2 + '%。基期更大的是（1=A 2=B）', b1 >= b2 ? 1 : 2); } },
-    avgGrowth:{ name: '年均增长率',     s: { excellent: 60, good: 90, pass: 120 }, gen: () => { const a = randInt(1000, 5000), n = [3, 5][randInt(0, 1)], mult = randInt(15, 30) / 10, b = Math.round(a * mult); const pct = Math.round((Math.pow(mult, 1 / n) - 1) * 100); return makeQ('初值 ' + a + '，' + n + ' 年后 ' + b + '，年均增长率≈（%）', pct); } }
+    spDen:    { name: '特殊分母练习',   s: { excellent: 10, good: 15, pass: 20 }, gen: () => { const pool = [[5, '5%'], [12.5, '12.5%'], [25, '25%'], [37.5, '37.5%'], [50, '50%'], [75, '75%'], [87.5, '87.5%']]; const p = pool[randInt(0, pool.length - 1)], n = randInt(40, 400); return makeQ(n + ' × ' + p[1] + ' =', Math.round(n * p[0] / 100)); } },
+    est05:    { name: '零五十估算练习', s: { excellent: 20, good: 30, pass: 45 }, gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } },
+    // ===== 资料分析（3）=====
+    base:     { name: '基期练习',       s: { excellent: 35, good: 50, pass: 70 }, gen: () => { const b = randInt(100, 9999), r = randInt(2, 30), cur = Math.round(b * (100 + r) / 100); return makeQ('现期 ' + cur + '，同比 +' + r + '%，求基期', Math.round(cur * 100 / (100 + r))); } },
+    growth:   { name: '增量练习',       s: { excellent: 30, good: 45, pass: 60 }, gen: () => { const b = randInt(100, 9999), r = randInt(2, 30); return makeQ('基期 ' + b + '，增长率 ' + r + '%，求增量', Math.round(b * r / 100)); } },
+    dataReal: { name: '资料分析实战',   s: null, gen: null }
   },
 
   defaultSettings() {
@@ -22219,6 +22226,7 @@ renderHome(container) {
     const self = this;
     const settings = this.loadSettings();
     if (settings.selectedType && this.TYPES[settings.selectedType]) this.state.type = settings.selectedType;
+    if (this.state.type === 'custom' && (!this.state.custom || !this.state.custom.types.length)) this.state.type = null;
     this.state.mode = settings.mode || 'train';
 
     this._topbar(container, '速算练习', () => App.Router.back());
@@ -22226,35 +22234,38 @@ renderHome(container) {
     const body = document.createElement('div');
     body.className = 'sc-page';
 
-    // ===== v8.6.20 模块卡片（基础计算 / 资料分析-增长相关）+ 标签云，整页单选 =====
+    // ===== v8.6.24 模块卡片（基础计算 10 项 + 自定义练习 / 资料分析 3 项）=====
     const MODULES = [
-      { key: 'base', title: '基础计算', icon: '🧮', types: ['addsub2', 'round100', 'add3', 'sub3', 'addsub3', 'multiAdd', 'mixAdd', 'mul2x1', 'mul3x1', 'mul11', 'mul15', 'mul2x2', 'big19', 'div3x1', 'div3x2', 'div3x3', 'mulEst', 'div5x3', 'div4x3'] },
-      { key: 'growth', title: '资料分析-增长相关', icon: '📈', types: ['estBase', 'estGrowth', 'pctFrac', 'incCompare', 'baseCompare', 'avgGrowth'] }
+      { key: 'base', title: '基础计算', icon: '🧮', types: ['addsub2', 'add3', 'sub3', 'addsub3', 'mul2x1', 'mul3x1', 'div3x1', 'div5x3', 'spDen', 'est05'], custom: true },
+      { key: 'growth', title: '资料分析', icon: '📈', types: ['base', 'growth', 'dataReal'] }
     ];
     const startBtn = document.createElement('button');
     startBtn.type = 'button';
     startBtn.className = 'sc-btn sc-start-btn-v2' + (this.state.type ? '' : ' disabled');
-    startBtn.textContent = this.state.type ? '开始练习' : '请先选择题型';
+    startBtn.textContent = this.state.type ? (this.state.type === 'custom' ? '开始自定义练习' : '开始练习') : '请先选择题型';
     const renderModuleCard = (mod) => {
       const card = document.createElement('div');
       card.className = 'sc-module-card';
       const head = document.createElement('div');
       head.className = 'sc-module-head';
+      const typeCount = mod.types.length;
       head.innerHTML =
         '<div class="sc-module-icon">' + mod.icon + '</div>' +
         '<div class="sc-module-title">' + mod.title + '</div>' +
-        '<div class="sc-module-count">' + mod.types.length + '/' + mod.types.length + ' 可练习</div>' +
+        '<div class="sc-module-count">' + typeCount + '/' + typeCount + ' 可练习</div>' +
         '<div class="sc-module-arrow">❯</div>';
       const tags = document.createElement('div');
       tags.className = 'sc-module-tags';
       mod.types.forEach(key => {
         const t = this.TYPES[key];
+        const hasDrop = !t.gen;   // ▼ 占位题型
         const tag = document.createElement('span');
         tag.className = 'sc-module-tag' + (this.state.type === key ? ' selected' : '');
         tag.dataset.tk = key;
-        tag.textContent = t.name;
+        tag.innerHTML = '<span>' + t.name + '</span>' + (hasDrop ? '<span class="sc-type-item__drop">▾</span>' : '');
         tag.addEventListener('click', (e) => {
           e.stopPropagation();
+          if (!t.gen) { App.Components.toast(t.name + '功能即将上线', 'info'); return; }
           this.state.type = key;
           settings.selectedType = key;
           this.saveSettings(settings);
@@ -22265,6 +22276,24 @@ renderHome(container) {
         });
         tags.appendChild(tag);
       });
+      // 自定义练习整合进基础模块：点击弹小窗选择（不进新页面）
+      if (mod.custom) {
+        const ctag = document.createElement('span');
+        ctag.className = 'sc-module-tag' + (this.state.type === 'custom' ? ' selected' : '');
+        ctag.innerHTML = '<span>自定义练习</span><span class="sc-type-item__drop">▾</span>';
+        ctag.addEventListener('click', (e) => {
+          e.stopPropagation();
+          self.showCustomPicker((types) => {
+            if (!types.length) return;
+            this.state.type = 'custom';
+            body.querySelectorAll('.sc-module-tag').forEach(x => x.classList.remove('selected'));
+            ctag.classList.add('selected');
+            startBtn.classList.remove('disabled');
+            startBtn.textContent = '开始自定义练习';
+          });
+        });
+        tags.appendChild(ctag);
+      }
       // 头部点击折叠/展开标签云
       let open = true;
       head.addEventListener('click', (e) => {
@@ -22279,41 +22308,25 @@ renderHome(container) {
     };
     MODULES.forEach(m => body.appendChild(renderModuleCard(m)));
 
-    // v8.6.22 自定义练习入口：点击进入自定义配置页
-    const customEntry = document.createElement('div');
-    customEntry.className = 'sc-module-card sc-custom-entry';
-    customEntry.innerHTML =
-      '<div class="sc-module-icon">🎛</div>' +
-      '<div class="sc-module-title">自定义练习</div>' +
-      '<div class="sc-module-count">自由组合题型</div>' +
-      '<div class="sc-module-arrow">❯</div>';
-    customEntry.addEventListener('click', () => this.show('custom'));
-    body.appendChild(customEntry);
-
-    // ===== 底部操作区：题量 pill + 模式 pill + 开始练习 =====
-    const pillRow = (label, options, current, onChange) => {
-      const row = document.createElement('div');
-      row.className = 'sc-pill-row';
-      const lbl = document.createElement('span');
-      lbl.className = 'sc-pill-label';
-      lbl.textContent = label;
-      row.appendChild(lbl);
-      options.forEach(opt => {
-        const p = document.createElement('span');
-        p.className = 'sc-pill' + (opt.v === current ? ' selected' : '');
-        p.textContent = opt.label;
-        p.dataset.pv = String(opt.v);
-        p.addEventListener('click', () => {
-          row.querySelectorAll('.sc-pill').forEach(x => x.classList.remove('selected'));
-          p.classList.add('selected');
-          onChange(opt.v);
-        });
-        row.appendChild(p);
-      });
-      return row;
+    // ===== 底部操作区：题量 / 模式（居中按钮，点击弹小窗选择）+ 开始练习 =====
+    const optsRow = document.createElement('div');
+    optsRow.className = 'sc-opts-row';
+    const countBtn = document.createElement('button');
+    countBtn.type = 'button';
+    countBtn.className = 'sc-opt-btn';
+    const modeBtn = document.createElement('button');
+    modeBtn.type = 'button';
+    modeBtn.className = 'sc-opt-btn';
+    const refreshOpts = () => {
+      countBtn.textContent = '题量: ' + (settings.questionCount || 10) + ' ▾';
+      modeBtn.textContent = '模式: ' + (this.state.mode === 'race' ? '竞速' : '训练') + ' ▾';
     };
-    body.appendChild(pillRow('题量', [5, 10, 15, 20, 30].map(n => ({ v: n, label: String(n) })), settings.questionCount || 10, (n) => { settings.questionCount = n; this.saveSettings(settings); }));
-    body.appendChild(pillRow('模式', [{ v: 'train', label: '训练模式' }, { v: 'race', label: '竞速模式' }], this.state.mode, (m) => { this.state.mode = m; settings.mode = m; this.saveSettings(settings); }));
+    refreshOpts();
+    countBtn.addEventListener('click', () => this.pickOption('题量选择', [10, 15, 20].map(n => ({ v: n, label: n + ' 题' })), settings.questionCount || 10, (n) => { settings.questionCount = n; this.saveSettings(settings); refreshOpts(); }));
+    modeBtn.addEventListener('click', () => this.pickOption('模式选择', [{ v: 'train', label: '训练模式' }, { v: 'race', label: '竞速模式' }], this.state.mode, (m) => { this.state.mode = m; settings.mode = m; this.saveSettings(settings); refreshOpts(); }));
+    optsRow.appendChild(countBtn);
+    optsRow.appendChild(modeBtn);
+    body.appendChild(optsRow);
 
     startBtn.addEventListener('click', () => {
       if (!this.state.type) { App.Components.toast('请先选择题型', 'error'); return; }
@@ -22341,8 +22354,88 @@ renderHome(container) {
     container.appendChild(fab);
   },
 
-// ===== v8.6.22 自定义练习：11 个题型生成器 + 数据特征 =====
-  CUSTOM_TYPES: {
+  // 通用小窗选择器（题量/模式等）：底部弹层单选
+  pickOption(title, options, current, cb) {
+    const overlay = document.createElement('div');
+    overlay.className = 'notion-mobile-sheet-overlay';
+    const sheet = document.createElement('div');
+    sheet.className = 'notion-mobile-sheet is-format';
+    const handleBar = document.createElement('div');
+    handleBar.className = 'notion-mobile-sheet__handle';
+    sheet.appendChild(handleBar);
+    const content = document.createElement('div');
+    content.className = 'notion-mobile-sheet__content';
+    content.innerHTML = '<div class="notion-mobile-fmt-title">' + title + '</div>' +
+      '<div class="sc-opt-list">' + options.map(o =>
+        '<div class="sc-opt-item' + (String(o.v) === String(current) ? ' selected' : '') + '" data-v="' + String(o.v) + '">' + o.label + '</div>').join('') + '</div>';
+    sheet.appendChild(content);
+    overlay.appendChild(sheet);
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    content.querySelectorAll('.sc-opt-item').forEach(it => it.addEventListener('click', () => {
+      const v = it.dataset.v;
+      overlay.remove();
+      if (cb) cb(/^\d+$/.test(v) ? parseInt(v, 10) : v);
+    }));
+  },
+
+  // 自定义练习小窗：11 个题型多选 → 确定（不进入新页面）
+  showCustomPicker(onDone) {
+    const self = this;
+    if (!this.state.custom) this.resetCustomState();
+    const selected = (this.state.custom && this.state.custom.types) ? this.state.custom.types.slice() : [];
+    const overlay = document.createElement('div');
+    overlay.className = 'notion-mobile-sheet-overlay';
+    const sheet = document.createElement('div');
+    sheet.className = 'notion-mobile-sheet is-format';
+    const handleBar = document.createElement('div');
+    handleBar.className = 'notion-mobile-sheet__handle';
+    sheet.appendChild(handleBar);
+    const content = document.createElement('div');
+    content.className = 'notion-mobile-sheet__content';
+    content.innerHTML = '<div class="notion-mobile-fmt-title">自定义练习 · 选择题型（可多选）</div>';
+    const grid = document.createElement('div');
+    grid.className = 'sc-custom-pickgrid';
+    this.CUSTOM_ORDER.forEach(key => {
+      const c = document.createElement('div');
+      c.className = 'sc-custom-cell' + (selected.includes(key) ? ' selected' : '');
+      c.dataset.tk = key;
+      c.textContent = this.CUSTOM_TYPES[key].name;
+      c.addEventListener('click', () => {
+        if (selected.includes(key)) selected.splice(selected.indexOf(key), 1);
+        else selected.push(key);
+        c.classList.toggle('selected', selected.includes(key));
+      });
+      grid.appendChild(c);
+    });
+    content.appendChild(grid);
+    const foot = document.createElement('div');
+    foot.className = 'sc-custom-pickfoot';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'sc-custom-footbtn sc-custom-footbtn--cancel';
+    cancelBtn.textContent = '取消';
+    cancelBtn.addEventListener('click', () => overlay.remove());
+    const okBtn = document.createElement('button');
+    okBtn.type = 'button';
+    okBtn.className = 'sc-custom-footbtn sc-custom-footbtn--ok' + (selected.length ? '' : ' disabled');
+    okBtn.textContent = '确定';
+    okBtn.addEventListener('click', () => {
+      if (!selected.length) { App.Components.toast('请至少选择一个题型', 'error'); return; }
+      self.state.custom.types = selected.slice();
+      overlay.remove();
+      if (onDone) onDone(selected.slice());
+    });
+    foot.appendChild(cancelBtn);
+    foot.appendChild(okBtn);
+    content.appendChild(foot);
+    sheet.appendChild(content);
+    overlay.appendChild(sheet);
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  },
+
+    CUSTOM_TYPES: {
     jinwei:   { name: '进位练习', gen: () => { const a = randInt(11, 88), lo = Math.max(10 - (a % 10), 1); const b = Math.floor(a / 10) * 10 + randInt(lo, 9); return makeQ(a + ' + ' + b, a + b); } },
     tuiwei:   { name: '退位练习', gen: () => { const t = randInt(2, 9), u = randInt(1, 8); const a = t * 10 + u, b = (t - 1) * 10 + (u + 1); return makeQ(a + ' - ' + b, a - b); } },
     jjMul:    { name: '九九乘法', gen: () => { const a = randInt(2, 9), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
@@ -22690,6 +22783,8 @@ renderHome(container) {
 
   // 开始练习：按设置题量生成并进入练习视图
   startPractice() {
+    // v8.6.24 自定义练习：type='custom' 时走自定义生成（题型组合 + 数据特征）
+    if (this.state.type === 'custom') { this.startCustomPractice(); return; }
     const settings = this.loadSettings();
     const count = settings.questionCount || 10;
     const gen = this.TYPES[this.state.type].gen;

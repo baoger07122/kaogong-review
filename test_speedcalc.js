@@ -28,29 +28,25 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.23', 'App.VERSION === 8.6.23（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.24', 'App.VERSION === 8.6.24（当前 ' + App.VERSION + '）');
 
-    console.log('\n[2] 题型生成器（25 种 = 基础计算 19 + 资料分析 6，全部可练习 + 评级）');
+    console.log('\n[2] 题型生成器（13 种 = 基础计算 10 + 资料分析 3；含 1 个 ▼ 占位）');
     const typeKeys = Object.keys(SC.TYPES);
-    assert(typeKeys.length === 25, '25 种题型（' + typeKeys.length + '）');
+    assert(typeKeys.length === 13, '13 种题型（' + typeKeys.length + '）');
     let noGen = typeKeys.filter(k => !SC.TYPES[k].gen);
-    assert(noGen.length === 0, '全部题型有生成器（无占位）');
-    let noStd = typeKeys.filter(k => !SC.TYPES[k].s || !SC.TYPES[k].s.excellent);
-    assert(noStd.length === 0, '全部题型带评级秒数 s:{excellent,good,pass}');
-    const checkQ = (expr) => {
-      const e = String(expr).replace(/[×÷≈\s=，。、（）%]/g, (m) => ({ '×': '*', '÷': '/', '≈': '', '=': '', ' ': '', '，': '', '。': '', '、': '', '（': '', '）': '', '%': '' }[m]));
-      if (!e || !/^[0-9+\-*/.]+$/.test(e)) return null;
-      try { return Function('"use strict"; return (' + e + ');')(); } catch (err) { return null; }
-    };
+    assert(noGen.length === 1 && noGen[0] === 'dataReal', '仅资料分析实战为 ▼ 占位（无生成器）');
+    let noStd = typeKeys.filter(k => SC.TYPES[k].gen && (!SC.TYPES[k].s || !SC.TYPES[k].s.excellent));
+    assert(noStd.length === 0, '全部可做题型带评级秒数 s:{excellent,good,pass}');
     let genOk = true;
-    Object.keys(SC.TYPES).forEach(key => {
+    typeKeys.forEach(key => {
+      if (!SC.TYPES[key].gen) return;
       for (let i = 0; i < 20; i++) {
         const q = SC.TYPES[key].gen();
         if (typeof q.answer !== 'number' || isNaN(q.answer)) { genOk = false; console.log('  bad gen ' + key + ': ' + JSON.stringify(q)); break; }
       }
     });
-    assert(genOk, '25 种题型各生成 20 题答案均为数字');
-    assert(SC.TYPES.addsub2.name === '两位数加减' && SC.TYPES.estBase.name === '估算前期量' && SC.TYPES.pctFrac.name === '百化分计算', '关键题型存在（两位数加减/估算前期量/百化分）');
+    assert(genOk, '12 种可做题型各生成 20 题答案均为数字');
+    assert(SC.TYPES.addsub2.name === '两位数加减' && SC.TYPES.spDen.name === '特殊分母练习' && SC.TYPES.est05.name === '零五十估算练习' && SC.TYPES.base.name === '基期练习' && SC.TYPES.growth.name === '增量练习', '关键题型存在（两位数加减/特殊分母/零五十估算/基期/增量）');
 
     console.log('\n[3] 设置持久化（kg_speed_settings）');
     win.localStorage.removeItem(SC.SETTINGS_KEY);
@@ -67,13 +63,13 @@ setTimeout(async () => {
     win.localStorage.setItem(SC.SETTINGS_KEY, JSON.stringify(Object.assign(SC.defaultSettings(), { selectedType: '' })));
     await SC.render({});
     await wait(50);
-    assert(home.querySelectorAll('.sc-module-card:not(.sc-custom-entry)').length === 2, '2 个模块卡片（基础计算/资料分析-增长相关）');
-    assert(!!home.querySelector('.sc-custom-entry'), 'v8.6.22 自定义练习入口卡片存在');
-    assert(home.querySelectorAll('.sc-module-tag').length === 25, '标签云共 25 个标签');
-    assert(!!home.querySelector('.sc-module-icon') && home.querySelectorAll('.sc-module-card:not(.sc-custom-entry) .sc-module-count').length === 2, '模块头含图标方块与 N/N 可练习计数');
+    assert(home.querySelectorAll('.sc-module-card').length === 2, '2 个模块卡片（基础计算/资料分析）');
+    assert(home.querySelectorAll('.sc-module-tag').length === 14, '标签云共 14 个（基础 10 + 自定义练习 + 资料 3）');
+    assert(!!home.querySelector('.sc-module-icon') && home.querySelectorAll('.sc-module-count').length === 2, '模块头含图标方块与 N/N 可练习计数');
     const builtSc = fs.readFileSync('index.html', 'utf8');
     assert(builtSc.includes('padding: calc(var(--top-buffer) + 6px) 16px 12px'), 'v8.6.23 顶栏补安全区+缓冲（返回按钮不被状态栏/分屏遮挡）');
-    assert(home.querySelectorAll('.sc-pill').length >= 7, '题量 pill(5) + 模式 pill(2)');
+    assert(home.querySelectorAll('.sc-opt-btn').length === 2, '题量/模式居中按钮（点击弹小窗）');
+    assert(home.querySelector('.sc-opt-btn').textContent.includes('题量'), '题量按钮显示当前题量');
     const startBtn = home.querySelector('.sc-start-btn-v2');
     assert(!!startBtn && startBtn.classList.contains('disabled'), '未选题型时开始按钮为禁用态（disabled）');
     // 点击标签 → 单选高亮 + 开始按钮启用
@@ -150,46 +146,36 @@ setTimeout(async () => {
     await wait(50);
     assert(home.querySelectorAll('.sc-hist-row').length >= 1, '历史页显示记录行');
 
-    console.log('\n[10] v8.6.22 自定义练习配置页');
-    // 进入自定义页
-    SC.state.view = 'custom';
-    SC.resetCustomState();
+    console.log('\n[10] v8.6.24 自定义练习（整合进基础模块，弹小窗选择）');
+    // 回到题型选择页，点击基础模块的「自定义练习」标签 → 弹出小窗
+    SC.state.view = 'home';
+    SC.state.type = null;
     await SC.render({});
     await wait(50);
-    assert(home.querySelectorAll('.sc-custom-swcell').length === 6, '顶部 6 个设置开关（确定/键盘/顺序/夜间/否/速记）');
-    assert(home.querySelectorAll('.sc-custom-cell').length === 11, '11 个自定义题型（3 列网格）');
-    assert(home.querySelector('.sc-custom-selhint') && home.querySelector('.sc-custom-selhint').textContent.includes('请下方选择题型'), '空状态提示「请下方选择题型」');
-    assert(!!home.querySelector('.sc-custom-feat-type'), '数据特征（固定首位/随机范围）');
-    assert(home.querySelectorAll('.sc-custom-num').length === 9, '固定首位 1-9 数字网格');
-    assert(!!home.querySelector('.sc-custom-footbtn--ok') && home.querySelector('.sc-custom-footbtn--ok').classList.contains('disabled'), '未选题型时确定按钮禁用');
-    // 选 2 个题型 → 已选标签联动 + 确定启用
-    const cells = home.querySelectorAll('.sc-custom-cell');
-    cells[0].click();
-    cells[1].click();
+    const customTag = Array.from(home.querySelectorAll('.sc-module-tag')).find(t => t.textContent.includes('自定义练习'));
+    assert(!!customTag, '基础模块内含「自定义练习」标签（带 ▼）');
+    customTag.click();
+    await wait(50);
+    const pickGrid = doc.querySelector('.sc-custom-pickgrid');
+    assert(!!pickGrid && pickGrid.querySelectorAll('.sc-custom-cell').length === 11, '点击后弹出小窗（11 个自定义题型多选）');
+    // 选 2 个 → 确定 → 标签高亮 + 开始按钮「开始自定义练习」
+    const pcells = pickGrid.querySelectorAll('.sc-custom-cell');
+    pcells[0].click();
+    pcells[1].click();
     await wait(20);
-    assert(home.querySelectorAll('.sc-custom-selpill').length === 2, '选中 2 个题型 → 已选标签行 2 个 pill');
-    assert(!home.querySelector('.sc-custom-footbtn--ok').classList.contains('disabled'), '已选题型确定按钮启用');
-    // 移除一个（点 X）→ 联动取消
-    home.querySelector('.sc-custom-selx').click();
-    await wait(20);
-    assert(home.querySelectorAll('.sc-custom-selpill').length === 1 && home.querySelectorAll('.sc-custom-cell.selected').length === 1, '点 X 移除题型 → 已选 pill 与网格联动');
-    // 固定首位数字单选
-    const nums = home.querySelectorAll('.sc-custom-num');
-    nums[8].click();
-    await wait(20);
-    assert(home.querySelectorAll('.sc-custom-num.selected').length === 1 && SC.state.custom.fixedNum === 9, '固定首位数字单选（9）');
-    // 确定 → 生成题目进做题页 + 保存 kg_speed_custom_presets
-    win.localStorage.setItem(SC.SETTINGS_KEY, JSON.stringify(Object.assign(SC.defaultSettings(), { questionCount: 5, mode: 'train' })));
-    SC.state.custom.types = ['addsub2c'];
-    home.querySelector('.sc-custom-footbtn--ok').click();
+    assert(pickGrid.querySelectorAll('.sc-custom-cell.selected').length === 2, '小窗内可多选（2 个）');
+    doc.querySelector('.sc-custom-pickfoot .sc-custom-footbtn--ok').click();
+    await wait(50);
+    assert(SC.state.type === 'custom', '确定后题型标记为 custom（不进入新页面）');
+    assert(home.querySelectorAll('.sc-module-tag.selected').length === 1 && home.querySelector('.sc-module-tag.selected').textContent.includes('自定义练习'), '自定义练习标签高亮');
+    // 开始练习 → 自定义生成
+    win.localStorage.setItem(SC.SETTINGS_KEY, JSON.stringify(Object.assign(SC.defaultSettings(), { questionCount: 5, mode: 'train', selectedType: '' })));
+    home.querySelector('.sc-start-btn-v2').click();
     await wait(100);
-    assert(SC.state.view === 'practice' && SC.state.questions.length === 5, '点确定生成题目进入做题页（5 题）');
+    assert(SC.state.view === 'practice' && SC.state.questions.length === 5, '开始练习生成自定义题目（5 题）');
     const presets = JSON.parse(win.localStorage.getItem(SC.CUSTOM_KEY) || '{}');
     assert(!!presets.lastUsed && Array.isArray(presets.history) && presets.history.length >= 1, '配置与历史已保存 kg_speed_custom_presets');
-    assert(presets.history[0].number === 9 && presets.history[0].featureType === 'fixedFirst', '历史含固定首位 9 与特征类型');
-    // 固定首位应用：题目主数字以 9 开头
-    const qFirst = SC.state.questions[0];
-    assert(/^9\d*/.test(qFirst.expr), '固定首位 9 已应用到题目（' + qFirst.expr + '）');
+    assert(SC.state.type === 'custom', '自定义练习做题页 type=custom（标题/评级已适配）');
 
     console.log('\n===== 速算专项: ' + pass + ' 通过, ' + fail + ' 失败 =====');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }
