@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.21';
+App.VERSION = '8.6.22';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -14672,6 +14672,7 @@ App.Pages.SpeedCalc = {
     if (this.state.autoNextTimer) { clearTimeout(this.state.autoNextTimer); this.state.autoNextTimer = null; }
     const view = this.state.view;
     if (view === 'home') this.renderHome(container);
+    else if (view === 'custom') this.renderCustom(container);
     else if (view === 'practice') this.renderPractice(container);
     else if (view === 'result') this.renderResult(container);
     else if (view === 'history') this.renderHistory(container);
@@ -14782,6 +14783,17 @@ renderHome(container) {
     };
     MODULES.forEach(m => body.appendChild(renderModuleCard(m)));
 
+    // v8.6.22 自定义练习入口：点击进入自定义配置页
+    const customEntry = document.createElement('div');
+    customEntry.className = 'sc-module-card sc-custom-entry';
+    customEntry.innerHTML =
+      '<div class="sc-module-icon">🎛</div>' +
+      '<div class="sc-module-title">自定义练习</div>' +
+      '<div class="sc-module-count">自由组合题型</div>' +
+      '<div class="sc-module-arrow">❯</div>';
+    customEntry.addEventListener('click', () => this.show('custom'));
+    body.appendChild(customEntry);
+
     // ===== 底部操作区：题量 pill + 模式 pill + 开始练习 =====
     const pillRow = (label, options, current, onChange) => {
       const row = document.createElement('div');
@@ -14833,6 +14845,353 @@ renderHome(container) {
     container.appendChild(fab);
   },
 
+// ===== v8.6.22 自定义练习：11 个题型生成器 + 数据特征 =====
+  CUSTOM_TYPES: {
+    jinwei:   { name: '进位练习', gen: () => { const a = randInt(11, 88), lo = Math.max(10 - (a % 10), 1); const b = Math.floor(a / 10) * 10 + randInt(lo, 9); return makeQ(a + ' + ' + b, a + b); } },
+    tuiwei:   { name: '退位练习', gen: () => { const t = randInt(2, 9), u = randInt(1, 8); const a = t * 10 + u, b = (t - 1) * 10 + (u + 1); return makeQ(a + ' - ' + b, a - b); } },
+    jjMul:    { name: '九九乘法', gen: () => { const a = randInt(2, 9), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
+    jjDiv:    { name: '九九除法', gen: () => { const d = randInt(2, 9), q = randInt(2, 9); return makeQ((d * q) + ' ÷ ' + d, q); } },
+    addsub2c: { name: '两位数加减', gen: () => { const a = randInt(10, 99), b = randInt(10, 99); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } },
+    mul2x1c:  { name: '两位数乘一位数', gen: () => { const a = randInt(10, 99), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
+    div3x1c:  { name: '三位数除一位数', gen: () => { const d = randInt(2, 9), q = randInt(20, 150); return makeQ((d * q) + ' ÷ ' + d, q); } },
+    div5x3c:  { name: '五位数除三位数', gen: () => { const d = randInt(100, 999), q = randInt(100, 999); return makeQ((d * q) + ' ÷ ' + d, q); } },
+    divRem:   { name: '除法取余', gen: () => { const d = randInt(3, 9), q = randInt(2, 9), r = randInt(1, d - 1), a = d * q + r; return makeQ(a + ' ÷ ' + d + ' 余?', r); } },
+    mulHead:  { name: '乘法截首', gen: () => { const a = randInt(11, 99), b = randInt(3, 9), p = a * b, s = String(p), first = parseInt(s.charAt(0), 10); return makeQ(a + ' × ' + b + ' 首位?', first); } },
+    mulEstc:  { name: '乘法估算', gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } }
+  },
+  CUSTOM_ORDER: ['jinwei', 'tuiwei', 'jjMul', 'jjDiv', 'addsub2c', 'mul2x1c', 'div3x1c', 'div5x3c', 'divRem', 'mulHead', 'mulEstc'],
+
+  // 数据特征应用：重写表达式第一个数字并重算答案（fixedFirst / randomRange）
+  _applyCustomFeature(q, feature) {
+    const m = String(q.expr).match(/^(\d+)\s*([+\-×÷])\s*(.+)$/);
+    if (!m) return q;
+    let newA = null;
+    if (feature === 'fixedFirst') newA = String(9) + m[1].slice(1);
+    else if (feature && feature.type === 'fixedFirst' && feature.number) newA = String(feature.number) + m[1].slice(1);
+    else if (feature && feature.type === 'randomRange' && feature.min != null && feature.max != null) newA = String(randInt(feature.min, feature.max));
+    if (newA === null) return q;
+    const op = m[2], rest = m[3], a = parseInt(newA, 10), r2 = parseInt(rest, 10);
+    let ans;
+    if (op === '+') ans = a + r2;
+    else if (op === '-') ans = a - r2;
+    else if (op === '×') ans = a * r2;
+    else ans = Math.round(a / r2);
+    return makeQ(newA + op + rest, ans);
+  },
+
+  // ===== 自定义配置持久化（kg_speed_custom_presets）=====
+  CUSTOM_KEY: 'kg_speed_custom_presets',
+  loadCustomPresets() {
+    try {
+      const d = JSON.parse(localStorage.getItem(this.CUSTOM_KEY)) || {};
+      return { lastUsed: d.lastUsed || null, history: Array.isArray(d.history) ? d.history : [] };
+    } catch (e) { return { lastUsed: null, history: [] }; }
+  },
+  saveCustomPresets(data) {
+    try { localStorage.setItem(this.CUSTOM_KEY, JSON.stringify(data)); } catch (e) {}
+  },
+  resetCustomState() {
+    const presets = this.loadCustomPresets();
+    const last = presets.lastUsed || {};
+    this.state.custom = {
+      types: Array.isArray(last.types) ? last.types : [],
+      featureType: last.featureType || 'fixedFirst',
+      fixedNum: last.fixedNum || 9,
+      randMin: last.randomMin != null ? last.randomMin : null,
+      randMax: last.randomMax != null ? last.randomMax : null,
+      settings: Object.assign({ confirmAuto: true, useScreenKeyboard: false, sequential: false, nightMode: false, noNegative: false, quickMemo: true }, last.settings || {})
+    };
+  },
+
+  // ===== 视图：自定义练习配置页 =====
+  renderCustom(container) {
+    const self = this;
+    if (!this.state.custom) this.resetCustomState();
+    const cs = this.state.custom;
+    const presets = this.loadCustomPresets();
+
+    this._topbar(container, '自定义练习', () => this.show('home'));
+
+    const body = document.createElement('div');
+    body.className = 'sc-page sc-custom';
+    body.style.cssText = 'padding-bottom:110px;';
+
+    // ===== 2.1 顶部设置开关栏（横排 6 个 Switch）=====
+    const swBar = document.createElement('div');
+    swBar.className = 'sc-custom-swbar';
+    [['confirmAuto', '确定'], ['useScreenKeyboard', '键盘'], ['sequential', '顺序'], ['nightMode', '夜间'], ['noNegative', '否'], ['quickMemo', '速记']].forEach(pair => {
+      const key = pair[0], label = pair[1];
+      const cell = document.createElement('div');
+      cell.className = 'sc-custom-swcell';
+      const sw = document.createElement('div');
+      sw.className = 'sc-switch sc-switch--sm' + (cs.settings[key] ? ' is-on' : '');
+      sw.innerHTML = '<span class="sc-switch__dot"></span>';
+      sw.addEventListener('click', () => {
+        sw.classList.toggle('is-on');
+        cs.settings[key] = sw.classList.contains('is-on');
+      });
+      cell.appendChild(sw);
+      const lb = document.createElement('div');
+      lb.className = 'sc-custom-swlabel';
+      lb.textContent = label;
+      cell.appendChild(lb);
+      swBar.appendChild(cell);
+    });
+    body.appendChild(swBar);
+
+    // ===== 2.2 已选题型标签行 =====
+    const selRow = document.createElement('div');
+    selRow.className = 'sc-custom-selrow';
+    const renderSelRow = () => {
+      selRow.innerHTML = '';
+      if (!cs.types.length) {
+        const hint = document.createElement('span');
+        hint.className = 'sc-custom-selhint';
+        hint.textContent = '请下方选择题型';
+        selRow.appendChild(hint);
+        return;
+      }
+      cs.types.forEach(key => {
+        const pill = document.createElement('span');
+        pill.className = 'sc-custom-selpill';
+        pill.innerHTML = '<span>' + this.CUSTOM_TYPES[key].name + '</span><span class="sc-custom-selx">✕</span>';
+        pill.querySelector('.sc-custom-selx').addEventListener('click', (e) => {
+          e.stopPropagation();
+          cs.types = cs.types.filter(k => k !== key);
+          renderSelRow();
+          renderTypeGrid();
+          renderOkBtn();
+        });
+        selRow.appendChild(pill);
+      });
+    };
+    renderSelRow();
+    body.appendChild(selRow);
+
+    // ===== 2.3 题型选择（3 列网格，多选）=====
+    const typeTitle = document.createElement('div');
+    typeTitle.className = 'sc-custom-title';
+    typeTitle.textContent = '题型选择';
+    body.appendChild(typeTitle);
+    const typeGrid = document.createElement('div');
+    typeGrid.className = 'sc-custom-grid';
+    const renderTypeGrid = () => {
+      typeGrid.innerHTML = '';
+      this.CUSTOM_ORDER.forEach(key => {
+        const t = this.CUSTOM_TYPES[key];
+        const card = document.createElement('div');
+        card.className = 'sc-custom-cell' + (cs.types.includes(key) ? ' selected' : '');
+        card.textContent = t.name;
+        card.addEventListener('click', () => {
+          if (cs.types.includes(key)) cs.types = cs.types.filter(k => k !== key);
+          else cs.types.push(key);
+          renderSelRow();
+          renderTypeGrid();
+          renderOkBtn();
+        });
+        typeGrid.appendChild(card);
+      });
+    };
+    renderTypeGrid();
+    body.appendChild(typeGrid);
+
+    // ===== 2.4 数据特征 =====
+    const featTitle = document.createElement('div');
+    featTitle.className = 'sc-custom-title sc-custom-title--row';
+    featTitle.innerHTML = '<span>数据特征</span><span class="sc-custom-clear">清空</span>';
+    featTitle.querySelector('.sc-custom-clear').addEventListener('click', () => {
+      cs.featureType = 'fixedFirst';
+      cs.fixedNum = 9;
+      cs.randMin = null;
+      cs.randMax = null;
+      renderFeat();
+    });
+    body.appendChild(featTitle);
+
+    const featWrap = document.createElement('div');
+    featWrap.className = 'sc-custom-feat';
+    const renderFeat = () => {
+      featWrap.innerHTML = '';
+      // 特征类型单选
+      const typeRow = document.createElement('div');
+      typeRow.className = 'sc-custom-feat-types';
+      [['fixedFirst', '固定首位'], ['randomRange', '随机范围']].forEach(pair => {
+        const b = document.createElement('div');
+        b.className = 'sc-custom-feat-type' + (cs.featureType === pair[0] ? ' selected' : '');
+        b.textContent = pair[1];
+        b.addEventListener('click', () => {
+          cs.featureType = pair[0];
+          renderFeat();
+        });
+        typeRow.appendChild(b);
+      });
+      featWrap.appendChild(typeRow);
+      // 固定首位：1-9 单选
+      if (cs.featureType === 'fixedFirst') {
+        const numGrid = document.createElement('div');
+        numGrid.className = 'sc-custom-numgrid';
+        for (let i = 1; i <= 9; i++) {
+          const n = document.createElement('div');
+          n.className = 'sc-custom-num' + (cs.fixedNum === i ? ' selected' : '');
+          n.textContent = String(i);
+          n.addEventListener('click', () => {
+            cs.fixedNum = i;
+            renderFeat();
+          });
+          numGrid.appendChild(n);
+        }
+        featWrap.appendChild(numGrid);
+      } else {
+        // 随机范围（占位输入）
+        const rangeRow = document.createElement('div');
+        rangeRow.className = 'sc-custom-range';
+        const mkInput = (label, val, cb) => {
+          const cell = document.createElement('div');
+          cell.className = 'sc-custom-range-cell';
+          const lb = document.createElement('span');
+          lb.textContent = label;
+          const inp = document.createElement('input');
+          inp.type = 'number';
+          inp.className = 'sc-custom-range-input';
+          inp.value = val != null ? val : '';
+          inp.addEventListener('change', () => cb(parseInt(inp.value, 10) || null));
+          cell.appendChild(lb);
+          cell.appendChild(inp);
+          return cell;
+        };
+        rangeRow.appendChild(mkInput('最小值', cs.randMin, (v) => { cs.randMin = v; }));
+        rangeRow.appendChild(mkInput('最大值', cs.randMax, (v) => { cs.randMax = v; }));
+        featWrap.appendChild(rangeRow);
+      }
+    };
+    renderFeat();
+    body.appendChild(featWrap);
+
+    // ===== 2.5 最近使用（4 列网格）=====
+    const histTitle = document.createElement('div');
+    histTitle.className = 'sc-custom-title';
+    histTitle.textContent = '最近使用';
+    body.appendChild(histTitle);
+    const histGrid = document.createElement('div');
+    histGrid.className = 'sc-custom-hist';
+    if (presets.history.length === 0) {
+      const hint = document.createElement('div');
+      hint.className = 'sc-custom-histempty';
+      hint.textContent = '暂无历史，完成一次自定义练习后自动记录';
+      histGrid.appendChild(hint);
+    } else {
+      presets.history.forEach(h => {
+        const card = document.createElement('div');
+        card.className = 'sc-custom-histcard';
+        card.innerHTML = '<div class="sc-custom-histcard__name">' + h.name + '</div>' +
+          '<div class="sc-custom-histcard__sub">' + (h.subName || '') + '</div>' +
+          (h.number ? '<div class="sc-custom-histcard__num">' + h.number + '</div>' : '');
+        card.addEventListener('click', () => {
+          // 加载历史配置 → 进入做题页
+          self.startCustomPractice(h);
+        });
+        histGrid.appendChild(card);
+      });
+    }
+    body.appendChild(histGrid);
+
+    container.appendChild(body);
+
+    // ===== 2.6 底部固定操作栏 =====
+    const foot = document.createElement('div');
+    foot.className = 'sc-custom-foot';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'sc-custom-footbtn sc-custom-footbtn--cancel';
+    cancelBtn.textContent = '取消';
+    cancelBtn.addEventListener('click', () => this.show('home'));
+    const okBtn = document.createElement('button');
+    okBtn.type = 'button';
+    okBtn.className = 'sc-custom-footbtn sc-custom-footbtn--ok';
+    const renderOkBtn = () => {
+      okBtn.textContent = '确定';
+      okBtn.classList.toggle('disabled', cs.types.length === 0);
+    };
+    renderOkBtn();
+    okBtn.addEventListener('click', () => {
+      if (!cs.types.length) { App.Components.toast('请至少选择一个题型', 'error'); return; }
+      this.startCustomPractice();
+    });
+    foot.appendChild(cancelBtn);
+    foot.appendChild(okBtn);
+    container.appendChild(foot);
+  },
+
+  // 开始自定义练习：保存配置 + 生成题目 + 进入做题页
+  // hist（可选）：从最近使用历史进入时使用历史记录配置
+  startCustomPractice(hist) {
+    const self = this;
+    if (!this.state.custom) this.resetCustomState();
+    const cs = this.state.custom;
+    if (hist) {
+      // 从历史进入：历史存了已选题型数组
+      if (Array.isArray(hist.types) && hist.types.length) cs.types = hist.types.slice();
+      cs.featureType = hist.featureType || 'fixedFirst';
+      cs.fixedNum = hist.number || cs.fixedNum;
+      cs.randMin = hist.randomMin != null ? hist.randomMin : null;
+      cs.randMax = hist.randomMax != null ? hist.randomMax : null;
+    }
+    if (!cs.types.length) { App.Components.toast('请至少选择一个题型', 'error'); return; }
+    const settings = this.loadSettings();
+    const count = settings.questionCount || 10;
+    const mode = this.state.mode || 'train';
+    this.state.type = 'custom';
+    this.state.mode = mode;
+
+    // 生成题目：每题随机选一个已选题型，套用数据特征
+    this.state.questions = [];
+    for (let i = 0; i < count; i++) {
+      const key = cs.types[randInt(0, cs.types.length - 1)];
+      const gen = this.CUSTOM_TYPES[key].gen;
+      let q = gen();
+      if (cs.featureType === 'fixedFirst') q = this._applyCustomFeature(q, { type: 'fixedFirst', number: cs.fixedNum });
+      else if (cs.featureType === 'randomRange') q = this._applyCustomFeature(q, { type: 'randomRange', min: cs.randMin, max: cs.randMax });
+      q.user = '';
+      q.correct = null;
+      this.state.questions.push(q);
+    }
+    this.state.idx = 0;
+    this.state.startTime = Date.now();
+    this.state.qStart = Date.now();
+    this.state.currentInput = '';
+    this.state.doodleData = null;
+    this.state.autoNextTimer = null;
+
+    // 保存配置 + 历史（最多 12 条，新置顶）
+    const presets = this.loadCustomPresets();
+    const firstType = cs.types[0];
+    const histItem = {
+      id: Date.now(),
+      name: cs.types.length > 1 ? (cs.types.length + ' 题组合') : this.CUSTOM_TYPES[firstType].name,
+      subName: cs.types.length > 1 ? cs.types.map(k => this.CUSTOM_TYPES[k].name).join('、') : (cs.featureType === 'fixedFirst' ? '固定首位' : '随机范围'),
+      number: cs.featureType === 'fixedFirst' ? cs.fixedNum : null,
+      featureType: cs.featureType,
+      randomMin: cs.randMin,
+      randomMax: cs.randMax,
+      types: cs.types.slice(),
+      date: new Date().toISOString().slice(0, 10)
+    };
+    presets.lastUsed = {
+      types: cs.types.slice(),
+      featureType: cs.featureType,
+      fixedNum: cs.fixedNum,
+      randomMin: cs.randMin,
+      randomMax: cs.randMax,
+      settings: Object.assign({}, cs.settings)
+    };
+    presets.history = [histItem].concat(presets.history.filter(h => h.id !== histItem.id)).slice(0, 12);
+    this.saveCustomPresets(presets);
+
+    if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
+    if (this.state.qTimerId) { clearInterval(this.state.qTimerId); this.state.qTimerId = null; }
+    this.show('practice');
+  },
+
   // 开始练习：按设置题量生成并进入练习视图
   startPractice() {
     const settings = this.loadSettings();
@@ -14864,7 +15223,7 @@ renderHome(container) {
     this.state.currentInput = q.user && q.user !== '' ? String(q.user) : '';
     if (settings.nightMode) container.classList.add('sc-night');
 
-    this._topbar(container, this.TYPES[this.state.type].name, () => {
+    this._topbar(container, (this.state.type === "custom" ? "自定义练习" : this.TYPES[this.state.type].name), () => {
       if (confirm('确定退出本次练习？')) this.show('home');
     });
 
@@ -14898,10 +15257,10 @@ renderHome(container) {
     expr.textContent = q.expr;
     body.appendChild(expr);
 
-    // 评级标准（v8.6.20 按题型 s:{excellent,good,pass} 显示）
+    // 评级标准（v8.6.20 按题型 s:{excellent,good,pass} 显示；自定义练习用默认值）
     const standard = document.createElement('div');
     standard.className = 'sc-standard';
-    const sT = this.TYPES[this.state.type].s;
+    const sT = this.state.type === 'custom' ? null : this.TYPES[this.state.type].s;
     standard.textContent = '合格: ' + (sT ? sT.pass : 28) + 's  良好: ' + (sT ? sT.good : 22) + 's  优秀: ' + (sT ? sT.excellent : 18) + 's';
     body.appendChild(standard);
 
@@ -15011,7 +15370,7 @@ renderHome(container) {
     const avgTime = qs.length ? Math.round(totalTime / qs.length * 10) / 10 : 0;
     const record = {
       id: 'sc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      type: this.TYPES[this.state.type].name,
+      type: (this.state.type === "custom" ? "自定义练习" : this.TYPES[this.state.type].name),
       mode: this.state.mode === 'race' ? '竞速模式' : '训练模式',
       count: qs.length,
       correct: correct,
@@ -15046,7 +15405,7 @@ renderHome(container) {
     overview.innerHTML =
       '<div class="sc-result-score">' + pct + '<span class="sc-result-score__unit">%</span></div>' +
       '<div class="sc-result-score__label">正确率 ' + correctCount + '/' + total + '</div>' +
-      '<div class="sc-result-score__meta">总用时 ' + fmtClock(totalTime) + ' · 平均 ' + avgTime + 's · ' + this.TYPES[this.state.type].name + ' · ' + (this.state.mode === 'race' ? '竞速' : '训练') + '</div>';
+      '<div class="sc-result-score__meta">总用时 ' + fmtClock(totalTime) + ' · 平均 ' + avgTime + 's · ' + (this.state.type === "custom" ? "自定义练习" : this.TYPES[this.state.type].name) + ' · ' + (this.state.mode === 'race' ? '竞速' : '训练') + '</div>';
     body.appendChild(overview);
 
     const listTitle = document.createElement('div');
