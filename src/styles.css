@@ -6936,12 +6936,13 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 /* ===== v8.6.14 速算重设计：顶部栏 / 设置开关 / 题量选择 / 状态栏 / 评级 / 键盘v2 / 速记悬浮 ===== */
 .sc-topbar {
   display: flex; align-items: center; justify-content: space-between;
-  /* v8.6.21 修复返回按钮/计时被状态栏或分屏区域遮挡：顶部补安全区 --top-buffer（与 pageHeader 一致） */
-  padding: var(--top-buffer) 16px 12px; background: var(--bg-primary);
+  /* v8.6.21 修复返回按钮/计时被状态栏或分屏区域遮挡：顶部补安全区 --top-buffer（与 pageHeader 一致）
+     v8.6.23 顶部再 +6px 缓冲（部分设备 safe-top 为 0 仍会被状态栏覆盖） */
+  padding: calc(var(--top-buffer) + 6px) 16px 12px; background: var(--bg-primary);
   border-bottom: 0.5px solid var(--divider-color);
-  position: sticky; top: 0; z-index: 20;
+  position: sticky; top: 0; z-index: 20; flex-shrink: 0;
 }
-.sc-topbar__back { background: none; border: none; font-size: 26px; color: var(--text-primary); width: 36px; height: 36px; cursor: pointer; line-height: 1; padding: 0; -webkit-tap-highlight-color: transparent; }
+.sc-topbar__back { background: none; border: none; font-size: 26px; color: var(--text-primary); width: 36px; height: 36px; cursor: pointer; line-height: 1; padding: 0; margin-left: 10px; -webkit-tap-highlight-color: transparent; }
 .sc-topbar__title { font-size: 17px; font-weight: 700; color: var(--text-primary); }
 .sc-topbar__right { display: flex; gap: 4px; }
 .sc-topbar__icon { background: none; border: none; font-size: 18px; color: var(--text-tertiary); width: 34px; height: 34px; cursor: pointer; display: flex; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
@@ -6971,7 +6972,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   -webkit-tap-highlight-color: transparent;
 }
 .sc-fab:active { transform: scale(0.94); }
-.sc-statusbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: #fff; box-shadow: var(--shadow-sm); border-radius: 0 0 14px 14px; }
+.sc-statusbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: #fff; box-shadow: var(--shadow-sm); flex-shrink: 0; border-radius: 0 0 14px 14px; }
 .sc-statusbar__pos { font-size: 14px; font-weight: 700; color: var(--text-primary); }
 .sc-statusbar__pen { background: none; border: none; font-size: 18px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .sc-statusbar__timer { font-family: var(--font-mono, monospace); font-size: 14px; font-weight: 700; color: #3B82F6; }

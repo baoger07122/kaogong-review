@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.22';
+App.VERSION = '8.6.23';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -15222,6 +15222,8 @@ renderHome(container) {
     const confirmAuto = settings.confirmAuto;
     this.state.currentInput = q.user && q.user !== '' ? String(q.user) : '';
     if (settings.nightMode) container.classList.add('sc-night');
+    // v8.6.23 一屏布局：整页不滑动（顶栏/状态栏/题目区/键盘全部放一个屏幕内）
+    container.style.cssText = 'height:calc(100vh - var(--nav-height, 56px) - var(--safe-bottom, 0px));display:flex;flex-direction:column;overflow:hidden;';
 
     this._topbar(container, (this.state.type === "custom" ? "自定义练习" : this.TYPES[this.state.type].name), () => {
       if (confirm('确定退出本次练习？')) this.show('home');
@@ -15248,9 +15250,10 @@ renderHome(container) {
     tick();
     this.state.timerId = setInterval(tick, 100);
 
-    // ===== 题目展示区 =====
+    // ===== 题目展示区（flex 居中，占满剩余空间）=====
     const body = document.createElement('div');
     body.className = 'sc-practice';
+    body.style.cssText = 'flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:12px 16px;';
 
     const expr = document.createElement('div');
     expr.className = 'sc-practice__expr';
@@ -15270,31 +15273,26 @@ renderHome(container) {
     answerDisplay.textContent = this.state.showAns ? (this.state.currentInput || ' ') : '· · ·';
     body.appendChild(answerDisplay);
 
-    // 反馈区（训练模式：✓/✗ + 正确答案 + 用时 → 1.2s 自动下一题）
-    const feedback = document.createElement('div');
-    feedback.className = 'sc-practice__feedback';
-
+    // v8.6.23 提交：立即下一题 + 弹出小对/错提示；不显示正确答案、不统计每题用时
     const submit = () => {
       if (submitted) return;
       const val = parseFloat(self.state.currentInput);
       if (isNaN(val) || self.state.currentInput === '') { App.Components.toast('请输入答案', 'error'); return; }
       q.user = val;
-      q.timeUsed = Math.round((Date.now() - self.state.qStart) / 100) / 10;
       const isEst = /≈|估算/.test(q.expr);
       q.correct = isEst ? Math.abs(val - q.answer) <= Math.max(1, Math.abs(q.answer) * 0.03) : val === q.answer;
       if (isRace) {
         self.next();
       } else {
-        feedback.innerHTML = q.correct
-          ? '<div class="sc-fb sc-fb--ok">✓ 正确 · 用时 ' + q.timeUsed + 's</div>'
-          : '<div class="sc-fb sc-fb--no">✗ 错误 · 正确答案是 ' + q.answer + ' · 用时 ' + q.timeUsed + 's</div>';
-        self.state.autoNextTimer = setTimeout(() => self.next(), 1200);
+        App.Components.toast(q.correct ? '✓' : '✗', q.correct ? 'success' : 'error');
+        self.next();
       }
     };
 
-    // ===== 强制屏幕数字键盘（div 模拟）=====
+    // ===== 强制屏幕数字键盘（div 模拟，底部固定不伸缩）=====
     const numpad = document.createElement('div');
     numpad.className = 'sc-numpad sc-numpad--v2';
+    numpad.style.cssText = 'flex-shrink:0;';
     const KEY_ROWS = [
       [ { k: 'restart', label: '重开', cls: 'func' }, { k: 'clear', label: '清空', cls: 'func' }, { k: 'backspace', label: '退格', cls: 'func' } ],
       [ { k: '1' }, { k: '2' }, { k: '3' } ],
@@ -15339,7 +15337,6 @@ renderHome(container) {
     numpad.appendChild(footer);
 
     container.appendChild(body);
-    body.appendChild(feedback);
     container.appendChild(numpad);
 
     this.state.qStart = Date.now();
@@ -15377,7 +15374,7 @@ renderHome(container) {
       totalTime: totalTime,
       avgTime: avgTime,
       date: new Date().toISOString(),
-      details: qs.map(q => ({ q: q.expr, user: q.user, correct: q.answer, isRight: q.correct === true, time: q.timeUsed || 0 }))
+      details: qs.map(q => ({ q: q.expr, user: q.user, correct: q.answer, isRight: q.correct === true }))
     };
     const list = this.loadHistory();
     list.unshift(record);

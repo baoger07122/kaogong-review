@@ -28,7 +28,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.22', 'App.VERSION === 8.6.22（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.23', 'App.VERSION === 8.6.23（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 题型生成器（25 种 = 基础计算 19 + 资料分析 6，全部可练习 + 评级）');
     const typeKeys = Object.keys(SC.TYPES);
@@ -72,7 +72,7 @@ setTimeout(async () => {
     assert(home.querySelectorAll('.sc-module-tag').length === 25, '标签云共 25 个标签');
     assert(!!home.querySelector('.sc-module-icon') && home.querySelectorAll('.sc-module-card:not(.sc-custom-entry) .sc-module-count').length === 2, '模块头含图标方块与 N/N 可练习计数');
     const builtSc = fs.readFileSync('index.html', 'utf8');
-    assert(builtSc.includes('padding: var(--top-buffer) 16px 12px'), 'v8.6.21 顶栏补安全区（返回按钮不被状态栏/分屏遮挡）');
+    assert(builtSc.includes('padding: calc(var(--top-buffer) + 6px) 16px 12px'), 'v8.6.23 顶栏补安全区+缓冲（返回按钮不被状态栏/分屏遮挡）');
     assert(home.querySelectorAll('.sc-pill').length >= 7, '题量 pill(5) + 模式 pill(2)');
     const startBtn = home.querySelector('.sc-start-btn-v2');
     assert(!!startBtn && startBtn.classList.contains('disabled'), '未选题型时开始按钮为禁用态（disabled）');
@@ -110,13 +110,21 @@ setTimeout(async () => {
     const q0 = SC.state.questions[0];
     const ansStr = String(q0.answer);
     inputKey(ansStr);
+    await wait(80);
+    // v8.6.23 提交后立即下一题（confirmAuto ON 位数匹配自动提交 → 立即进入下一题）
+    assert(/^2\/10$/.test(home.querySelector('.sc-statusbar__pos').textContent), '输入答案位数匹配自动提交并立即进入下一题（2/10）');
+    assert(!home.querySelector('.sc-fb'), '不显示正确答案/每题用时反馈（小对错 toast 提示）');
+    // confirmAuto OFF：手动点确定 → 立即下一题
+    win.localStorage.setItem(SC.SETTINGS_KEY, JSON.stringify(Object.assign(SC.defaultSettings(), { confirmAuto: false, questionCount: 3, mode: 'train', selectedType: SC.state.type })));
+    SC.startPractice();
+    await wait(50);
+    const q1b = SC.state.questions[0];
+    inputKey(String(q1b.answer));
     await wait(30);
-    assert(home.querySelector('.sc-practice__answer').textContent === ansStr, '点击数字键拼接答案显示');
+    assert(home.querySelector('.sc-practice__answer').textContent === String(q1b.answer), 'confirmAuto OFF：输入后答案保留不自动提交');
     home.querySelector('.sc-numpad__btn--confirm').click();
-    await wait(60);
-    assert(!!home.querySelector('.sc-fb'), '训练模式提交后显示反馈 ✓/✗');
-    await wait(1500);
-    assert(/^2\/10$/.test(home.querySelector('.sc-statusbar__pos').textContent), '1.2s 后自动进入下一题（2/10）');
+    await wait(80);
+    assert(/^2\/3$/.test(home.querySelector('.sc-statusbar__pos').textContent), 'confirmAuto OFF：点确定立即进入下一题（2/3）');
 
     console.log('\n[7] confirmAuto 自动提交（位数匹配）');
     win.localStorage.setItem(SC.SETTINGS_KEY, JSON.stringify(Object.assign(SC.defaultSettings(), { confirmAuto: true, questionCount: 2, mode: 'train', selectedType: SC.state.type })));
