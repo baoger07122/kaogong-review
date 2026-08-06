@@ -137,9 +137,24 @@ setTimeout(async () => {
       assert(p0.style.marginLeft === '40px', '连续 Tab 累加缩进（40px）');
     } finally { win.getSelection = origSel4; }
     holder4.remove();
+    // v8.6.15 修复「乱跑」：光标在第二段，连续 Tab 两次都定位第二段，第一段不受影响
+    const holder5 = doc.createElement('div'); doc.body.appendChild(holder5);
+    const he5 = App.Components.htmlEditor('<p>第一段内容</p><p>第二段内容</p>', { placeholder: false });
+    const pA = he5.area.querySelectorAll('p')[0], pB = he5.area.querySelectorAll('p')[1];
+    const origSel5 = win.getSelection;
+    win.getSelection = () => ({ rangeCount: 1, isCollapsed: true, anchorNode: pB.firstChild, startContainer: pB.firstChild, startOffset: 1, getRangeAt: () => { const rr = doc.createRange(); rr.selectNodeContents(pB); rr.collapse(true); return rr; }, removeAllRanges() {}, addRange() {} });
+    try {
+      he5.area.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+      he5.area.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+      assert(pB.style.marginLeft === '40px', '连续 Tab 均定位光标所在段落（第二段 40px）');
+      assert(pA.style.marginLeft === '', '其他段落不受影响（第一段无缩进，修复乱跑）');
+    } finally { win.getSelection = origSel5; }
+    holder5.remove();
     assert(built.includes('indentParagraph') && built.includes("title: '缩进 (Tab)'") && built.includes("title: '取消缩进 (Shift+Tab)'"), '桌面工具栏含缩进/取消缩进按钮');
     assert(built.includes("e.key === 'Tab'") && built.includes('indentParagraph(e.shiftKey'), '快捷键 Tab/Shift+Tab 已绑定到编辑区');
-    assert(built.includes("rowItem('↪', '缩进', 'indent')") && built.includes("rowItem('↩', '取消缩进', 'outdent')"), '移动端段落面板含缩进/取消缩进');
+    assert(built.includes("rowItem('⇥', '缩进', 'indent')") && built.includes("rowItem('⇤', '取消缩进', 'outdent')"), '移动端段落面板含缩进/取消缩进（新图标 ⇥/⇤）');
+    assert(built.includes("rowItem('文', '正文', 'text')") && built.includes("rowItem('❝', '引用', 'quote')"), '段落格式图标已更新（正文「文」/引用「❝」）');
+    assert(built.includes('padding-bottom: calc(84px'), '编辑区底部留白 84px（防工具栏遮挡）');
 
     console.log('\n总计: ' + pass + ' 通过, ' + fail + ' 失败');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }

@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.14';
+App.VERSION = '8.6.15';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -4779,9 +4779,20 @@ App.Components = {
       if (opts.onChange) opts.onChange(area.innerHTML);
     }
     // v8.6.13 段落缩进/取消缩进（margin-left 步进 20px；快捷键 Tab / Shift+Tab）
+    // v8.6.15 修复「乱跑」：缩进是键盘快捷键场景（无选中文字），必须直接用当前光标位置，
+    // 不能走 ensureSelection 的 savedRange 兜底（旧选区未更新会导致第二次起定位到旧段落）
     function indentParagraph(dir) {
-      const r = ensureSelection();
-      const node = r ? (r.anchorNode || r.startContainer) : area;
+      let node = null;
+      try {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          const r = sel.getRangeAt(0);
+          node = r.anchorNode || r.startContainer;
+          if (node && node.nodeType === 1) { if (!area.contains(node)) node = null; }
+          else if (node && node.parentElement && !area.contains(node.parentElement)) node = null;
+        }
+      } catch (e) { /* 忽略 */ }
+      if (!node) node = area;
       let el = node.nodeType === 1 ? node : (node.parentElement || area);
       while (el && el !== area && !/^(P|H[1-6]|LI|BLOCKQUOTE|PRE|DIV)$/.test(el.tagName)) el = el.parentElement;
       if (!el || el === area || !el.parentNode) {
@@ -4789,9 +4800,14 @@ App.Components = {
         const n = document.createElement('P');
         n.style.marginLeft = (dir > 0 ? 20 : 0) + 'px';
         n.innerHTML = '<br>';
-        if (r && r.startContainer && area.contains(r.startContainer)) {
-          try { r.deleteContents(); r.insertNode(n); } catch (e) { area.appendChild(n); }
-        } else area.appendChild(n);
+        try {
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount > 0) {
+            const r = sel.getRangeAt(0);
+            if (r && r.startContainer && area.contains(r.startContainer)) { r.deleteContents(); r.insertNode(n); }
+            else area.appendChild(n);
+          } else area.appendChild(n);
+        } catch (e2) { area.appendChild(n); }
         placeCaretAtEnd(n);
         if (opts.onChange) opts.onChange(area.innerHTML);
         return;
@@ -4859,9 +4875,9 @@ App.Components = {
       { b: '正文', title: '正文', fn: () => blockFormat('text') },
       { b: '•', title: '无序列表', fn: () => toggleList('bullet') },
       { b: '1.', title: '有序列表', fn: () => toggleList('numbered') },
-      { b: '"', title: '引用', fn: () => blockFormat('quote') },
-      { b: '↪', title: '缩进 (Tab)', fn: () => indentParagraph(1) },          // v8.6.13
-      { b: '↩', title: '取消缩进 (Shift+Tab)', fn: () => indentParagraph(-1) } // v8.6.13
+      { b: '❝', title: '引用', fn: () => blockFormat('quote') },            // v8.6.15 图标
+      { b: '⇥', title: '缩进 (Tab)', fn: () => indentParagraph(1) },        // v8.6.15 图标
+      { b: '⇤', title: '取消缩进 (Shift+Tab)', fn: () => indentParagraph(-1) } // v8.6.15 图标
     ]));
     row.appendChild(grp([
       { b: 'ƒx', title: '插入公式', fn: insertFormula },
@@ -4980,15 +4996,15 @@ App.Components = {
       const bodyHtml =
         '<div class="notion-mobile-fmt-title">段落格式</div>' +
         '<div class="notion-mobile-fmt-list">' +
-          rowItem('¶', '正文', 'text') +
+          rowItem('文', '正文', 'text') +           // v8.6.15 图标
           rowItem('<b>H1</b>', '标题1', 'h1') +
           rowItem('<b>H2</b>', '标题2', 'h2') +
           rowItem('<b>H3</b>', '标题3', 'h3') +
           rowItem('•', '无序列表', 'bullet') +
           rowItem('1.', '有序列表', 'numbered') +
-          rowItem('"', '引用', 'quote') +
-          rowItem('↪', '缩进', 'indent') +          // v8.6.13
-          rowItem('↩', '取消缩进', 'outdent') +     // v8.6.13
+          rowItem('❝', '引用', 'quote') +           // v8.6.15 图标
+          rowItem('⇥', '缩进', 'indent') +          // v8.6.15 图标
+          rowItem('⇤', '取消缩进', 'outdent') +     // v8.6.15 图标
         '</div>';
       const { sheet } = openSheet({ height: 'is-format', bodyHtml });
       bindItems(sheet, (item) => {

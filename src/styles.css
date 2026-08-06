@@ -3862,6 +3862,8 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   color: var(--text-primary);
   touch-action: pan-y;   /* 移动端编辑时可滚动页面 */
   padding: 2px 0;
+  /* v8.6.15 底部留白 = 移动端工具栏高度 + 安全区，编辑到最后一行不被工具栏遮挡，页面自动滚动可见 */
+  padding-bottom: calc(84px + var(--safe-bottom, 0px));
 }
 .html-editor__area:empty::before {
   content: attr(data-placeholder);
