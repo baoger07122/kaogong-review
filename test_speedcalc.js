@@ -1,4 +1,4 @@
-/* v8.6.14 速算重设计专项测试：13 题型生成器 / 设置持久化 / 首页 / 做题页（强制键盘）/ 自动下一题 / 记录 */
+/* v8.6.20 速算 v2 专项测试：25 题型(19+6)+评级 / 模块卡片标签云 / pill / 禁用态 / 做题页评级 / 记录 */
 const { JSDOM } = require('jsdom');
 const fs = require('fs');
 const html = fs.readFileSync('index.html', 'utf8');
@@ -28,89 +28,90 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.19', 'App.VERSION === 8.6.19（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.20', 'App.VERSION === 8.6.20（当前 ' + App.VERSION + '）');
 
-    console.log('\n[2] 题型生成器（13 种，含 2 个 ▼ 占位）');
+    console.log('\n[2] 题型生成器（25 种 = 基础计算 19 + 资料分析 6，全部可练习 + 评级）');
     const typeKeys = Object.keys(SC.TYPES);
-    assert(typeKeys.length === 13, '13 种题型（' + typeKeys.length + '）');
-    assert(!SC.TYPES.custom.gen && !SC.TYPES.dataReal.gen, '自定义练习/资料分析实战为 ▼ 占位（无生成器）');
+    assert(typeKeys.length === 25, '25 种题型（' + typeKeys.length + '）');
+    let noGen = typeKeys.filter(k => !SC.TYPES[k].gen);
+    assert(noGen.length === 0, '全部题型有生成器（无占位）');
+    let noStd = typeKeys.filter(k => !SC.TYPES[k].s || !SC.TYPES[k].s.excellent);
+    assert(noStd.length === 0, '全部题型带评级秒数 s:{excellent,good,pass}');
     const checkQ = (expr) => {
-      const e = String(expr).replace(/[×÷≈\s=]/g, (m) => ({ '×': '*', '÷': '/', '≈': '', '=': '', ' ': '' }[m]));
-      return Function('"use strict"; return (' + e + ');')();
+      const e = String(expr).replace(/[×÷≈\s=，。、（）%]/g, (m) => ({ '×': '*', '÷': '/', '≈': '', '=': '', ' ': '', '，': '', '。': '', '、': '', '（': '', '）': '', '%': '' }[m]));
+      if (!e || !/^[0-9+\-*/.]+$/.test(e)) return null;
+      try { return Function('"use strict"; return (' + e + ');')(); } catch (err) { return null; }
     };
-    let ok = true;
+    let genOk = true;
     Object.keys(SC.TYPES).forEach(key => {
-      const t = SC.TYPES[key];
-      if (!t.gen) return;
-      for (let i = 0; i < 30; i++) {
-        const q = t.gen();
-        if (typeof q.answer !== 'number' || isNaN(q.answer)) { ok = false; break; }
+      for (let i = 0; i < 20; i++) {
+        const q = SC.TYPES[key].gen();
+        if (typeof q.answer !== 'number' || isNaN(q.answer)) { genOk = false; console.log('  bad gen ' + key + ': ' + JSON.stringify(q)); break; }
       }
     });
-    assert(ok, '11 个可做题型各生成 30 题无异常');
+    assert(genOk, '25 种题型各生成 20 题答案均为数字');
+    assert(SC.TYPES.addsub2.name === '两位数加减' && SC.TYPES.estBase.name === '估算前期量' && SC.TYPES.pctFrac.name === '百化分计算', '关键题型存在（两位数加减/估算前期量/百化分）');
 
     console.log('\n[3] 设置持久化（kg_speed_settings）');
     win.localStorage.removeItem(SC.SETTINGS_KEY);
     const d = SC.loadSettings();
     assert(d.confirmAuto === true && d.questionCount === 10 && d.mode === 'train', '默认设置：确定ON/10题/训练');
-    d.confirmAuto = false;
+    d.questionCount = 15;
     SC.saveSettings(d);
-    assert(SC.loadSettings().confirmAuto === false, '修改开关后持久化生效');
+    assert(SC.loadSettings().questionCount === 15, '修改设置后持久化生效');
 
-    console.log('\n[4] 首页渲染（开关/题型/模式/操作区/速记）');
-    // 使用 index.html 内置的 #page-speed-calc 容器（render 用 getElementById 定位）
+    console.log('\n[4] 首页渲染（模块卡片/标签云/pill/禁用态）');
     const home = doc.getElementById('page-speed-calc');
     SC.state.view = 'home';
     SC.state.type = null;
+    win.localStorage.setItem(SC.SETTINGS_KEY, JSON.stringify(Object.assign(SC.defaultSettings(), { selectedType: '' })));
     await SC.render({});
     await wait(50);
-    assert(home.querySelectorAll('.sc-switch').length === 6, '设置开关区 6 个 Switch（确定/键盘/顺序/夜间/否/速记）');
-    assert(home.querySelectorAll('.sc-type-item').length === 13, '题型网格 13 项');
-    assert(home.querySelectorAll('.sc-mode-opt').length === 2, '模式选择 2 项（训练/竞速）');
-    assert(!!home.querySelector('.sc-count-picker'), '题量选择按钮存在');
-    assert(!!home.querySelector('.sc-fab') && home.querySelector('.sc-fab').textContent === '速记', '右下角速记悬浮按钮存在');
-    // 题型选中 → 开始练习
-    const item0 = home.querySelector('.sc-type-item:not(.sc-type-item:has(.sc-type-item__drop))');
-    item0.click();
+    assert(home.querySelectorAll('.sc-module-card').length === 2, '2 个模块卡片（基础计算/资料分析-增长相关）');
+    assert(home.querySelectorAll('.sc-module-tag').length === 25, '标签云共 25 个标签');
+    assert(!!home.querySelector('.sc-module-icon') && home.querySelectorAll('.sc-module-count').length === 2, '模块头含图标方块与 N/N 可练习计数');
+    assert(home.querySelectorAll('.sc-pill').length >= 7, '题量 pill(5) + 模式 pill(2)');
+    const startBtn = home.querySelector('.sc-start-btn-v2');
+    assert(!!startBtn && startBtn.classList.contains('disabled'), '未选题型时开始按钮为禁用态（disabled）');
+    // 点击标签 → 单选高亮 + 开始按钮启用
+    const tag0 = home.querySelector('.sc-module-tag');
+    tag0.click();
     await wait(20);
-    assert(SC.state.type !== null, '点击题型后已选中');
+    assert(home.querySelectorAll('.sc-module-tag.selected').length === 1, '标签全局单选（仅 1 个选中）');
+    assert(!startBtn.classList.contains('disabled') && startBtn.textContent === '开始练习', '选题后开始按钮启用');
+    assert(SC.state.type !== null, '选中题型已记录');
 
-    console.log('\n[5] 做题页（状态栏/大题目/评级/强制键盘）');
+    console.log('\n[5] 做题页（状态栏/题型评级/强制键盘）');
     SC.startPractice();
     await wait(50);
     const pos = home.querySelector('.sc-statusbar__pos');
     assert(!!pos && /1\/10/.test(pos.textContent), '状态栏显示 1/10');
-    assert(!!home.querySelector('.sc-statusbar__pen'), '状态栏有笔图标');
-    assert(!!home.querySelector('#sc-timer'), '状态栏有计时器');
-    assert(!!home.querySelector('.sc-standard'), '题目下方显示评级标准');
+    assert(!!home.querySelector('.sc-statusbar__pen') && !!home.querySelector('#sc-timer'), '状态栏有笔图标与计时器');
+    const std = home.querySelector('.sc-standard');
+    const selS = SC.TYPES[SC.state.type].s;
+    assert(!!std && std.textContent.includes('合格: ' + selS.pass + 's'), '评级按题型显示（合格: ' + selS.pass + 's）');
     assert(!!home.querySelector('.sc-practice__expr'), '大题目展示');
-    const keys = home.querySelectorAll('.sc-numpad--v2 .sc-numpad__btn');
-    assert(keys.length === 15, '屏幕键盘 15 键（重开/清空/退格 + 1-9/.0/确定）');
-    assert(!!home.querySelector('.sc-numpad__btn--confirm'), '有「确定」键');
-    assert(home.querySelector('.sc-numpad__footer').textContent.includes('第1/10题'), '底部进度 第1/10题');
+    assert(home.querySelectorAll('.sc-numpad--v2 .sc-numpad__btn').length === 15, '屏幕键盘 15 键');
     assert(!home.querySelector('input[type=text], input[type=number]'), '无系统输入框（强制屏幕键盘）');
+    // 计时格式 M:SS:d
+    const t0 = home.querySelector('#sc-timer');
+    assert(/^\d+:\d{2}\.\d$/.test(t0.textContent), '计时格式 M:SS:d（' + t0.textContent + '）');
 
     console.log('\n[6] 键盘输入 + 训练模式反馈 + 1.2s 自动下一题');
-    const btn1 = Array.from(home.querySelectorAll('.sc-numpad__btn')).find(b => b.textContent === '1');
-    const btn2 = Array.from(home.querySelectorAll('.sc-numpad__btn')).find(b => b.textContent === '2');
-    const confirmBtn = home.querySelector('.sc-numpad__btn--confirm');
-    // 输入正确数字（取答案：若答案匹配 1/2 则换键）
-    const q0 = SC.state.questions[0];
-    const ansStr = String(q0.answer);
     const inputKey = (digits) => {
       Array.from(String(digits)).forEach(ch => {
         const b = Array.from(home.querySelectorAll('.sc-numpad__btn')).find(x => x.textContent === ch);
         if (b) b.click();
       });
     };
+    const q0 = SC.state.questions[0];
+    const ansStr = String(q0.answer);
     inputKey(ansStr);
     await wait(30);
-    const ansDisp = home.querySelector('.sc-practice__answer');
-    assert(ansDisp.textContent === ansStr, '点击数字键拼接答案显示（' + ansStr + '）');
-    confirmBtn.click();
+    assert(home.querySelector('.sc-practice__answer').textContent === ansStr, '点击数字键拼接答案显示');
+    home.querySelector('.sc-numpad__btn--confirm').click();
     await wait(60);
-    const fb = home.querySelector('.sc-fb');
-    assert(!!fb, '训练模式提交后显示反馈 ✓/✗');
+    assert(!!home.querySelector('.sc-fb'), '训练模式提交后显示反馈 ✓/✗');
     await wait(1500);
     assert(/^2\/10$/.test(home.querySelector('.sc-statusbar__pos').textContent), '1.2s 后自动进入下一题（2/10）');
 
@@ -118,20 +119,19 @@ setTimeout(async () => {
     win.localStorage.setItem(SC.SETTINGS_KEY, JSON.stringify(Object.assign(SC.defaultSettings(), { confirmAuto: true, questionCount: 2, mode: 'train', selectedType: SC.state.type })));
     SC.startPractice();
     await wait(50);
-    const q1 = SC.state.questions[0];
-    const ans1 = String(q1.answer);
+    const ans1 = String(SC.state.questions[0].answer);
     inputKey(ans1);
     await wait(80);
     assert(SC.state.questions[0].correct === true, 'confirmAuto ON：答案位数匹配自动提交（correct=true）');
 
     console.log('\n[8] 完成 → 结果页 + kg_speed_records');
-    SC.state.idx = SC.state.questions.length - 1;   // 快进到最后一题
+    SC.state.idx = SC.state.questions.length - 1;
     SC.state.questions.forEach(qq => { qq.user = qq.answer; qq.correct = true; });
-    SC.next();   // 触发 finish
+    SC.next();
     await wait(80);
     assert(SC.state.view === 'result', '全部完成后进入结果页');
     const recs = JSON.parse(win.localStorage.getItem(SC.RECORDS_KEY)) || [];
-    assert(recs.length >= 1 && recs[0].type && recs[0].count === 2 && typeof recs[0].totalTime === 'number' && Array.isArray(recs[0].details), '历史记录已存 kg_speed_records（type/count/totalTime/details）');
+    assert(recs.length >= 1 && recs[0].type && recs[0].count === 2 && typeof recs[0].totalTime === 'number' && Array.isArray(recs[0].details), '历史记录已存 kg_speed_records');
 
     console.log('\n[9] 历史页渲染');
     SC.state.view = 'history';

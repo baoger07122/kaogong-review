@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.19';
+App.VERSION = '8.6.20';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -14614,20 +14614,35 @@ App.Pages.SpeedCalc = {
   RECORDS_KEY: 'kg_speed_records',
 
   // 题型定义（13 种；无 gen 的为 ▼ 占位题型）
+  // v8.6.20 题型定义 v2：基础计算 19 项 + 资料分析-增长相关 6 项，每题带评级秒数 s:{excellent,good,pass}
   TYPES: {
-    addsub2:  { name: '两位数加减',     gen: () => { const a = randInt(10, 99), b = randInt(10, 99); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } },
-    mul2x1:   { name: '两位数乘一位数', gen: () => { const a = randInt(10, 99), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
-    div3x1:   { name: '三位数除一位数', gen: () => { const d = randInt(2, 9), q = randInt(100, 999); return makeQ((d * q) + ' ÷ ' + d, q); } },
-    div5x3:   { name: '五位数除三位数', gen: () => { const d = randInt(100, 999), q = randInt(100, 999); return makeQ((d * q) + ' ÷ ' + d, q); } },
-    spDen:    { name: '特殊分母练习',   gen: () => { const pool = [[5, '5%'], [12.5, '12.5%'], [25, '25%'], [37.5, '37.5%'], [50, '50%'], [75, '75%'], [87.5, '87.5%']]; const p = pool[randInt(0, pool.length - 1)], n = randInt(40, 400); return makeQ(n + ' × ' + p[1] + ' =', Math.round(n * p[0] / 100)); } },
-    est05:    { name: '零五十估算练习', gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } },
-    growth:   { name: '增量练习',       gen: () => { const b = randInt(100, 9999), r = randInt(2, 30); return makeQ('基期 ' + b + '，增长率 ' + r + '%，求增量', Math.round(b * r / 100)); } },
-    base:     { name: '基期练习',       gen: () => { const b = randInt(100, 9999), r = randInt(2, 30), cur = Math.round(b * (100 + r) / 100); return makeQ('现期 ' + cur + '，同比 +' + r + '%，求基期', Math.round(cur * 100 / (100 + r))); } },
-    custom:   { name: '自定义练习',     gen: null },
-    dataReal: { name: '资料分析实战',   gen: null },
-    mulEst:   { name: '乘法估算',       gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } },
-    highStack:{ name: '高位叠加',       gen: () => { const a = randInt(100, 999), b = randInt(100, 999), c = randInt(100, 999); return makeQ(a + ' + ' + b + ' + ' + c, a + b + c); } },
-    addsub3:  { name: '三位数加减',     gen: () => { const a = randInt(100, 999), b = randInt(100, 999); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } }
+    // ===== 基础计算（19）=====
+    addsub2:  { name: '两位数加减',     s: { excellent: 18, good: 22, pass: 28 }, gen: () => { const a = randInt(10, 99), b = randInt(10, 99); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } },
+    round100: { name: '凑整百练习',     s: { excellent: 5, good: 8, pass: 12 }, gen: () => { const a = randInt(11, 89); return makeQ(a + ' + ' + (100 - a) + ' =', 100); } },
+    add3:     { name: '三位数加法',     s: { excellent: 35, good: 45, pass: 60 }, gen: () => { const a = randInt(100, 999), b = randInt(100, 999); return makeQ(a + ' + ' + b, a + b); } },
+    sub3:     { name: '三位数减法',     s: { excellent: 35, good: 45, pass: 60 }, gen: () => { const a = randInt(300, 999), b = randInt(100, a - 1); return makeQ(a + ' - ' + b, a - b); } },
+    addsub3:  { name: '三位数加减',     s: { excellent: 40, good: 50, pass: 70 }, gen: () => { const a = randInt(100, 999), b = randInt(100, 999); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } },
+    multiAdd: { name: '多数相加',       s: { excellent: 30, good: 40, pass: 55 }, gen: () => { const arr = [randInt(10, 99), randInt(10, 99), randInt(10, 99)]; return makeQ(arr.join(' + '), arr.reduce((s2, x) => s2 + x, 0)); } },
+    mixAdd:   { name: '混合加减',       s: { excellent: 35, good: 45, pass: 60 }, gen: () => { const a = randInt(100, 400), b = randInt(20, 200), c = randInt(20, 100); return Math.random() < 0.5 ? makeQ(a + ' + ' + b + ' - ' + c, a + b - c) : makeQ(a + ' - ' + b + ' + ' + c, a - b + c); } },
+    mul2x1:   { name: '两位数乘一位数', s: { excellent: 20, good: 28, pass: 40 }, gen: () => { const a = randInt(10, 99), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
+    mul3x1:   { name: '三位数乘一位数', s: { excellent: 35, good: 45, pass: 60 }, gen: () => { const a = randInt(100, 999), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
+    mul11:    { name: '两位数乘11',     s: { excellent: 25, good: 35, pass: 50 }, gen: () => { const a = randInt(10, 99); return makeQ(a + ' × 11', a * 11); } },
+    mul15:    { name: '两位数乘15',     s: { excellent: 30, good: 40, pass: 60 }, gen: () => { const a = randInt(10, 99); return makeQ(a + ' × 15', a * 15); } },
+    mul2x2:   { name: '两位数乘两位数', s: { excellent: 60, good: 90, pass: 120 }, gen: () => { const a = randInt(11, 99), b = randInt(11, 99); return makeQ(a + ' × ' + b, a * b); } },
+    big19:    { name: '大九九乘法速算', s: { excellent: 20, good: 30, pass: 45 }, gen: () => { const a = randInt(11, 19), b = randInt(11, 19); return makeQ(a + ' × ' + b, a * b); } },
+    div3x1:   { name: '三位数除一位数', s: { excellent: 30, good: 45, pass: 60 }, gen: () => { const d = randInt(2, 9), q = randInt(20, 150); return makeQ((d * q) + ' ÷ ' + d, q); } },
+    div3x2:   { name: '三位数除两位数', s: { excellent: 40, good: 60, pass: 90 }, gen: () => { const d = randInt(11, 99), q = randInt(3, 20); return makeQ((d * q) + ' ÷ ' + d, q); } },
+    div3x3:   { name: '三位数除三位数', s: { excellent: 35, good: 50, pass: 75 }, gen: () => { const d = randInt(100, 999), q = randInt(2, 9); return makeQ((d * q) + ' ÷ ' + d, q); } },
+    mulEst:   { name: '乘法估算',       s: { excellent: 20, good: 30, pass: 45 }, gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } },
+    div5x3:   { name: '五位数除三位数', s: { excellent: 45, good: 70, pass: 100 }, gen: () => { const d = randInt(100, 999), q = randInt(100, 999); return makeQ((d * q) + ' ÷ ' + d, q); } },
+    div4x3:   { name: '三位数除四位数', s: { excellent: 50, good: 75, pass: 110 }, gen: () => { const d = randInt(100, 999), q = randInt(100, 999) * 10; return makeQ((d * q) + ' ÷ ' + d, q); } },
+    // ===== 资料分析-增长相关（6）=====
+    estBase:  { name: '估算前期量',     s: { excellent: 35, good: 50, pass: 70 }, gen: () => { const c = randInt(1000, 9999), r = randInt(5, 30), base = Math.round(c / (1 + r / 100)); return makeQ('现期 ' + c + '，增长率 ' + r + '%，基期≈', base); } },
+    estGrowth:{ name: '估算增长量',     s: { excellent: 30, good: 45, pass: 60 }, gen: () => { const b = randInt(1000, 9999), r = randInt(5, 30); return makeQ('基期 ' + b + '，增长率 ' + r + '%，增长量≈', Math.round(b * r / 100)); } },
+    pctFrac:  { name: '百化分计算',     s: { excellent: 10, good: 15, pass: 20 }, gen: () => { const ds = [2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15], d = ds[randInt(0, ds.length - 1)]; return makeQ('1/' + d + ' = ?%', Math.round(100 / d)); } },
+    incCompare:{ name: '增量比大小',    s: { excellent: 30, good: 45, pass: 60 }, gen: () => { const a1 = randInt(1000, 9000), r1 = randInt(5, 30), a2 = randInt(1000, 9000), r2 = randInt(5, 30); const g1 = a1 * r1, g2 = a2 * r2; return makeQ('A 基期 ' + a1 + '，r=' + r1 + '%；B 基期 ' + a2 + '，r=' + r2 + '%。增量更大的是（1=A 2=B）', g1 >= g2 ? 1 : 2); } },
+    baseCompare:{ name: '基期比大小',   s: { excellent: 30, good: 45, pass: 60 }, gen: () => { const a1 = randInt(1000, 9000), r1 = randInt(5, 30), a2 = randInt(1000, 9000), r2 = randInt(5, 30); const b1 = Math.round(a1 / (1 + r1 / 100)), b2 = Math.round(a2 / (1 + r2 / 100)); return makeQ('A 现期 ' + a1 + '，r=' + r1 + '%；B 现期 ' + a2 + '，r=' + r2 + '%。基期更大的是（1=A 2=B）', b1 >= b2 ? 1 : 2); } },
+    avgGrowth:{ name: '年均增长率',     s: { excellent: 60, good: 90, pass: 120 }, gen: () => { const a = randInt(1000, 5000), n = [3, 5][randInt(0, 1)], mult = randInt(15, 30) / 10, b = Math.round(a * mult); const pct = Math.round((Math.pow(mult, 1 / n) - 1) * 100); return makeQ('初值 ' + a + '，' + n + ' 年后 ' + b + '，年均增长率≈（%）', pct); } }
   },
 
   defaultSettings() {
@@ -14687,6 +14702,7 @@ App.Pages.SpeedCalc = {
     top.querySelector('.sc-topbar__back').addEventListener('click', onBack);
     top.querySelector('#sc-more').addEventListener('click', () => {
       App.Components.actionSheet([
+        { text: '查看历史记录', icon: '🕘', action: () => this.show('history') },
         { text: '清除全部历史记录', icon: '🗑', danger: true, action: async () => {
           const ok = await App.Components.confirm('清除历史', '确定清空所有速算练习记录？', '清除', '取消', true);
           if (ok) { this.saveHistory([]); App.Components.toast('已清除', 'success'); this.render({}); }
@@ -14702,7 +14718,7 @@ App.Pages.SpeedCalc = {
   },
 
   // ===== 视图：题型选择首页 =====
-  renderHome(container) {
+renderHome(container) {
     const self = this;
     const settings = this.loadSettings();
     if (settings.selectedType && this.TYPES[settings.selectedType]) this.state.type = settings.selectedType;
@@ -14713,114 +14729,93 @@ App.Pages.SpeedCalc = {
     const body = document.createElement('div');
     body.className = 'sc-page';
 
-    // ===== 设置开关区（两列网格 6 个 Switch）=====
-    const settingsCard = document.createElement('div');
-    settingsCard.className = 'sc-settings-card';
-    [['confirmAuto', '确定'], ['useScreenKeyboard', '键盘'], ['sequential', '顺序'], ['nightMode', '夜间'], ['noNegative', '否'], ['quickMemo', '速记']].forEach(pair => {
-      const key = pair[0], label = pair[1];
-      const row = document.createElement('div');
-      row.className = 'sc-settings-item';
-      row.innerHTML = '<span class="sc-settings-item__label">' + label + '</span>';
-      const sw = document.createElement('div');
-      sw.className = 'sc-switch' + (settings[key] ? ' is-on' : '');
-      sw.innerHTML = '<span class="sc-switch__dot"></span>';
-      sw.addEventListener('click', () => {
-        sw.classList.toggle('is-on');
-        settings[key] = sw.classList.contains('is-on');
-        this.saveSettings(settings);
-      });
-      row.appendChild(sw);
-      settingsCard.appendChild(row);
-    });
-    body.appendChild(settingsCard);
-
-    // ===== 题型网格（13 项，2 列，选中蓝边）=====
-    const typeTitle = document.createElement('div');
-    typeTitle.className = 'sc-section-title';
-    typeTitle.textContent = '选择题型';
-    body.appendChild(typeTitle);
-
-    const grid = document.createElement('div');
-    grid.className = 'sc-type-grid';
-    Object.keys(this.TYPES).forEach(key => {
-      const t = this.TYPES[key];
-      const hasDrop = !t.gen;
-      const item = document.createElement('div');
-      item.className = 'sc-type-item' + (this.state.type === key ? ' selected' : '');
-      item.dataset.type = key;
-      item.innerHTML = '<span class="sc-type-item__name">' + t.name + '</span>' + (hasDrop ? '<span class="sc-type-item__drop">▾</span>' : '');
-      item.addEventListener('click', () => {
-        if (!t.gen) { App.Components.toast(t.name + '功能即将上线', 'info'); return; }
-        this.state.type = key;
-        settings.selectedType = key;
-        this.saveSettings(settings);
-        grid.querySelectorAll('.sc-type-item').forEach(x => x.classList.remove('selected'));
-        item.classList.add('selected');
-      });
-      grid.appendChild(item);
-    });
-    body.appendChild(grid);
-
-    // ===== 模式选择（训练 / 竞速）=====
-    const modeTitle = document.createElement('div');
-    modeTitle.className = 'sc-section-title';
-    modeTitle.textContent = '选择模式';
-    body.appendChild(modeTitle);
-    const modeRow = document.createElement('div');
-    modeRow.className = 'sc-mode-row';
-    [['train', '训练模式', '每道题显示答案'], ['race', '竞速模式', '10 题一组统一评分']].forEach(m => {
-      const opt = document.createElement('div');
-      opt.className = 'sc-mode-opt' + (this.state.mode === m[0] ? ' selected' : '');
-      opt.dataset.mode = m[0];
-      opt.innerHTML = '<div class="sc-mode-opt__radio"></div><div><div class="sc-mode-opt__name">' + m[1] + '</div><div class="sc-mode-opt__desc">' + m[2] + '</div></div>';
-      opt.addEventListener('click', () => {
-        this.state.mode = m[0];
-        settings.mode = m[0];
-        this.saveSettings(settings);
-        modeRow.querySelectorAll('.sc-mode-opt').forEach(x => x.classList.remove('selected'));
-        opt.classList.add('selected');
-      });
-      modeRow.appendChild(opt);
-    });
-    body.appendChild(modeRow);
-
-    // ===== 底部操作区 =====
-    const countBtn = document.createElement('button');
-    countBtn.type = 'button';
-    countBtn.className = 'sc-count-picker';
-    countBtn.textContent = '题量选择：' + (settings.questionCount || 10) + ' 题 ▾';
-    const countLabel = document.createElement('div');
-    countLabel.className = 'sc-count-label';
-    countLabel.textContent = '题目数量: ' + (settings.questionCount || 10);
-    countBtn.addEventListener('click', () => this.pickCount(n => {
-      settings.questionCount = n;
-      this.saveSettings(settings);
-      countBtn.textContent = '题量选择：' + n + ' 题 ▾';
-      countLabel.textContent = '题目数量: ' + n;
-    }));
-    body.appendChild(countBtn);
-    body.appendChild(countLabel);
-
+    // ===== v8.6.20 模块卡片（基础计算 / 资料分析-增长相关）+ 标签云，整页单选 =====
+    const MODULES = [
+      { key: 'base', title: '基础计算', icon: '🧮', types: ['addsub2', 'round100', 'add3', 'sub3', 'addsub3', 'multiAdd', 'mixAdd', 'mul2x1', 'mul3x1', 'mul11', 'mul15', 'mul2x2', 'big19', 'div3x1', 'div3x2', 'div3x3', 'mulEst', 'div5x3', 'div4x3'] },
+      { key: 'growth', title: '资料分析-增长相关', icon: '📈', types: ['estBase', 'estGrowth', 'pctFrac', 'incCompare', 'baseCompare', 'avgGrowth'] }
+    ];
     const startBtn = document.createElement('button');
     startBtn.type = 'button';
-    startBtn.className = 'sc-btn sc-btn--primary sc-start-btn';
-    startBtn.textContent = '开始练习';
+    startBtn.className = 'sc-btn sc-start-btn-v2' + (this.state.type ? '' : ' disabled');
+    startBtn.textContent = this.state.type ? '开始练习' : '请先选择题型';
+    const renderModuleCard = (mod) => {
+      const card = document.createElement('div');
+      card.className = 'sc-module-card';
+      const head = document.createElement('div');
+      head.className = 'sc-module-head';
+      head.innerHTML =
+        '<div class="sc-module-icon">' + mod.icon + '</div>' +
+        '<div class="sc-module-title">' + mod.title + '</div>' +
+        '<div class="sc-module-count">' + mod.types.length + '/' + mod.types.length + ' 可练习</div>' +
+        '<div class="sc-module-arrow">❯</div>';
+      const tags = document.createElement('div');
+      tags.className = 'sc-module-tags';
+      mod.types.forEach(key => {
+        const t = this.TYPES[key];
+        const tag = document.createElement('span');
+        tag.className = 'sc-module-tag' + (this.state.type === key ? ' selected' : '');
+        tag.dataset.tk = key;
+        tag.textContent = t.name;
+        tag.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.state.type = key;
+          settings.selectedType = key;
+          this.saveSettings(settings);
+          body.querySelectorAll('.sc-module-tag').forEach(x => x.classList.remove('selected'));
+          tag.classList.add('selected');
+          startBtn.classList.remove('disabled');
+          startBtn.textContent = '开始练习';
+        });
+        tags.appendChild(tag);
+      });
+      // 头部点击折叠/展开标签云
+      let open = true;
+      head.addEventListener('click', (e) => {
+        if (e.target.closest('.sc-module-tag')) return;
+        open = !open;
+        tags.style.display = open ? '' : 'none';
+        head.querySelector('.sc-module-arrow').style.transform = open ? '' : 'rotate(90deg)';
+      });
+      card.appendChild(head);
+      card.appendChild(tags);
+      return card;
+    };
+    MODULES.forEach(m => body.appendChild(renderModuleCard(m)));
+
+    // ===== 底部操作区：题量 pill + 模式 pill + 开始练习 =====
+    const pillRow = (label, options, current, onChange) => {
+      const row = document.createElement('div');
+      row.className = 'sc-pill-row';
+      const lbl = document.createElement('span');
+      lbl.className = 'sc-pill-label';
+      lbl.textContent = label;
+      row.appendChild(lbl);
+      options.forEach(opt => {
+        const p = document.createElement('span');
+        p.className = 'sc-pill' + (opt.v === current ? ' selected' : '');
+        p.textContent = opt.label;
+        p.dataset.pv = String(opt.v);
+        p.addEventListener('click', () => {
+          row.querySelectorAll('.sc-pill').forEach(x => x.classList.remove('selected'));
+          p.classList.add('selected');
+          onChange(opt.v);
+        });
+        row.appendChild(p);
+      });
+      return row;
+    };
+    body.appendChild(pillRow('题量', [5, 10, 15, 20, 30].map(n => ({ v: n, label: String(n) })), settings.questionCount || 10, (n) => { settings.questionCount = n; this.saveSettings(settings); }));
+    body.appendChild(pillRow('模式', [{ v: 'train', label: '训练模式' }, { v: 'race', label: '竞速模式' }], this.state.mode, (m) => { this.state.mode = m; settings.mode = m; this.saveSettings(settings); }));
+
     startBtn.addEventListener('click', () => {
-      if (!this.state.type || !this.TYPES[this.state.type].gen) { App.Components.toast('请先选择题型', 'error'); return; }
+      if (!this.state.type) { App.Components.toast('请先选择题型', 'error'); return; }
       this.startPractice();
     });
     body.appendChild(startBtn);
 
-    const histBtn = document.createElement('button');
-    histBtn.type = 'button';
-    histBtn.className = 'sc-btn sc-btn--outline sc-start-btn';
-    histBtn.textContent = '查看历史记录';
-    histBtn.addEventListener('click', () => this.show('history'));
-    body.appendChild(histBtn);
-
     container.appendChild(body);
 
-    // ===== 右下角速记悬浮按钮 =====
+    // ===== 右下角速记悬浮按钮（保留）=====
     const fab = document.createElement('button');
     fab.type = 'button';
     fab.className = 'sc-fab';
@@ -14836,31 +14831,6 @@ App.Pages.SpeedCalc = {
       });
     });
     container.appendChild(fab);
-  },
-
-  // 题量选择底部弹层（5/10/15/20/30/50/100）
-  pickCount(cb) {
-    const overlay = document.createElement('div');
-    overlay.className = 'notion-mobile-sheet-overlay';
-    const sheet = document.createElement('div');
-    sheet.className = 'notion-mobile-sheet is-format';
-    const handleBar = document.createElement('div');
-    handleBar.className = 'notion-mobile-sheet__handle';
-    sheet.appendChild(handleBar);
-    const content = document.createElement('div');
-    content.className = 'notion-mobile-sheet__content';
-    content.innerHTML = '<div class="notion-mobile-fmt-title">题量选择</div>' +
-      '<div class="sc-count-grid">' + [5, 10, 15, 20, 30, 50, 100].map(n =>
-        '<button class="sc-count-cell" type="button" data-n="' + n + '">' + n + ' 题</button>').join('') + '</div>';
-    sheet.appendChild(content);
-    overlay.appendChild(sheet);
-    document.body.appendChild(overlay);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-    content.querySelectorAll('.sc-count-cell').forEach(b => b.addEventListener('click', () => {
-      const n = parseInt(b.dataset.n, 10);
-      overlay.remove();
-      if (cb) cb(n);
-    }));
   },
 
   // 开始练习：按设置题量生成并进入练习视图
@@ -14928,10 +14898,11 @@ App.Pages.SpeedCalc = {
     expr.textContent = q.expr;
     body.appendChild(expr);
 
-    // 评级标准
+    // 评级标准（v8.6.20 按题型 s:{excellent,good,pass} 显示）
     const standard = document.createElement('div');
     standard.className = 'sc-standard';
-    standard.textContent = '合格: 28s  良好: 22s  优秀: 18s';
+    const sT = this.TYPES[this.state.type].s;
+    standard.textContent = '合格: ' + (sT ? sT.pass : 28) + 's  良好: ' + (sT ? sT.good : 22) + 's  优秀: ' + (sT ? sT.excellent : 18) + 's';
     body.appendChild(standard);
 
     // 答案显示（div 模拟输入，禁止系统键盘）
@@ -15189,11 +15160,13 @@ function fmtTime(sec) {
   return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
 }
 // v8.6.14 速算 100ms 计时显示格式（m:ss）
+// v8.6.20 计时格式 M:SS:d（含十分位，100ms 刷新）
 function fmtClock(sec) {
-  sec = Math.max(0, Math.round(sec || 0));
+  sec = Math.max(0, sec || 0);
   var m = Math.floor(sec / 60);
-  var s = sec % 60;
-  return m + ':' + (s < 10 ? '0' : '') + s;
+  var s = Math.floor(sec % 60);
+  var d = Math.floor((sec % 1) * 10);
+  return m + ':' + (s < 10 ? '0' : '') + s + '.' + d;
 }
 function fmtDate(iso) {
   if (!iso) return '';
