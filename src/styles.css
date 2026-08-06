@@ -7056,14 +7056,10 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   font-size: var(--font-md);
   color: #333333;
   line-height: 1.55;
-  display: -webkit-box;
-  -webkit-line-clamp: 5;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
   word-break: break-word;
   white-space: pre-wrap;
   padding-right: 2px;
-}
+}   /* v8.6.11 便签内容不折叠，全部显示（移除原 -webkit-line-clamp 5 行省略） */
 .sticky-card__meta {
   margin-top: 8px;
   font-size: var(--font-xs);
