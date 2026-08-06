@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.15';
+App.VERSION = '8.6.16';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -8943,7 +8943,12 @@ App.Pages.Home = {
     container.appendChild(statsRow);
 
     // ===== 7. 今日待办（丰富版） =====
-    if (!this.todoState) this.todoState = { filter: 'all', type: 'yanyu', statsMode: null, dateFilter: 'today', filterOpen: false };
+    // v8.6.16 折叠状态持久化：上次折叠/已折叠，重新进入仍保持（localStorage kg_todo_ui）
+    if (!this.todoState) {
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem('kg_todo_ui')) || {}; } catch (e) { saved = {}; }
+      this.todoState = { filter: 'all', type: 'yanyu', statsMode: null, dateFilter: 'today', filterOpen: false, collapsed: !!saved.collapsed, doneOpen: !!saved.doneOpen, notesOpen: {} };
+    }
     const TODO_TYPES = [
       { key: 'yanyu', icon: '📖', label: '言语' },
       { key: 'ziliao', icon: '📊', label: '资料' },
@@ -9018,7 +9023,7 @@ App.Pages.Home = {
     todoHead.innerHTML = `
       <div style='display:flex;align-items:center;justify-content:space-between;'>
         <div style='display:flex;align-items:center;gap:var(--spacing-sm);'>
-          <div style='font-size:var(--font-lg);font-weight:600;'>今日待办</div>
+          <div style='font-size:var(--font-lg);font-weight:600;'>✅ 今日待办</div>
           <div id='todo-stats-toggle' style='font-size:var(--font-xs);color:var(--color-primary);background:var(--color-primary-bg);padding:3px 10px;border-radius:9999px;cursor:pointer;'>统计</div>
         </div>
         <button id='todo-collapse-btn' type='button' style='border:none;background:var(--bg-tertiary);color:var(--text-secondary);width:30px;height:30px;border-radius:50%;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;' title='折叠/展开今日待办'>▾</button>
@@ -9036,6 +9041,8 @@ App.Pages.Home = {
     const todoStatsToggleEl = todoHead.querySelector('#todo-stats-toggle');
     const applyCollapsed = (collapsed) => {
       this.todoState.collapsed = collapsed;
+      // v8.6.16 折叠状态持久化（重新进入保持）
+      try { localStorage.setItem('kg_todo_ui', JSON.stringify({ collapsed: !!this.todoState.collapsed, doneOpen: !!this.todoState.doneOpen })); } catch (e) {}
       todoCollapseBtn.textContent = collapsed ? '▸' : '▾';
       if (todoStatsToggleEl) todoStatsToggleEl.style.display = collapsed ? 'none' : '';
       Array.prototype.forEach.call(todoWrap.children, (el) => {
@@ -9244,11 +9251,27 @@ App.Pages.Home = {
         title.className = 'todo-title';
         title.textContent = typeIcon + '  ' + todo.text;
         content.appendChild(title);
-        let noteEl = null;
+        // v8.6.16 备注折叠：有备注的待办显示「📝 备注 ▾」开关，点击展开/收起备注内容
+        let noteEl = null, noteToggle = null;
         if (todo.note) {
+          const noteOpen = !!this.todoState.notesOpen[todo.id];
+          noteToggle = document.createElement('div');
+          noteToggle.className = 'todo-note__toggle';
+          noteToggle.innerHTML = '<span>📝 备注</span><span class="todo-note__caret">' + (noteOpen ? '▴' : '▾') + '</span>';
+          noteToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.todoState.notesOpen[todo.id] = !this.todoState.notesOpen[todo.id];
+            noteEl.classList.toggle('is-open', this.todoState.notesOpen[todo.id]);
+            const caret = noteToggle.querySelector('.todo-note__caret');
+            if (caret) caret.textContent = this.todoState.notesOpen[todo.id] ? '▴' : '▾';
+          });
+          content.appendChild(noteToggle);
           noteEl = document.createElement('div');
-          noteEl.className = 'todo-note';
-          noteEl.textContent = todo.note;
+          noteEl.className = 'todo-note' + (noteOpen ? ' is-open' : '');
+          const noteBody = document.createElement('div');
+          noteBody.className = 'todo-note__body';
+          noteBody.textContent = todo.note;
+          noteEl.appendChild(noteBody);
           content.appendChild(noteEl);
         }
 
@@ -9311,9 +9334,30 @@ App.Pages.Home = {
               await App.DB.updateTodo(todo);
               title.textContent = typeIcon + '  ' + todo.text;
               if (todo.note) {
-                if (!noteEl) { noteEl = document.createElement('div'); noteEl.className = 'todo-note'; content.appendChild(noteEl); }
-                noteEl.textContent = todo.note;
+                if (!noteEl) {
+                  // 重建折叠备注（v8.6.16 结构：toggle + body）
+                  noteToggle = document.createElement('div');
+                  noteToggle.className = 'todo-note__toggle';
+                  noteToggle.innerHTML = '<span>📝 备注</span><span class="todo-note__caret">▾</span>';
+                  noteToggle.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.todoState.notesOpen[todo.id] = !this.todoState.notesOpen[todo.id];
+                    noteEl.classList.toggle('is-open', this.todoState.notesOpen[todo.id]);
+                    const caret = noteToggle.querySelector('.todo-note__caret');
+                    if (caret) caret.textContent = this.todoState.notesOpen[todo.id] ? '▴' : '▾';
+                  });
+                  content.appendChild(noteToggle);
+                  noteEl = document.createElement('div');
+                  noteEl.className = 'todo-note';
+                  const nb = document.createElement('div');
+                  nb.className = 'todo-note__body';
+                  noteEl.appendChild(nb);
+                  content.appendChild(noteEl);
+                }
+                const nb0 = noteEl.querySelector('.todo-note__body');
+                if (nb0) nb0.textContent = todo.note;
               } else if (noteEl) {
+                if (noteToggle) noteToggle.remove();
                 noteEl.remove(); noteEl = null;
               }
             }
@@ -9435,6 +9479,8 @@ App.Pages.Home = {
         doneRow.addEventListener('click', (e) => {
           e.stopPropagation();
           this.todoState.doneOpen = !this.todoState.doneOpen;
+          // v8.6.16 已完成折叠状态持久化
+          try { localStorage.setItem('kg_todo_ui', JSON.stringify({ collapsed: !!this.todoState.collapsed, doneOpen: !!this.todoState.doneOpen })); } catch (e2) {}
           refreshTodo();
         });
         card.appendChild(doneRow);

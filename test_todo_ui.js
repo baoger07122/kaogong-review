@@ -104,6 +104,33 @@ setTimeout(async () => {
     await wait(50);
     assert(!!container.querySelector('.todo-done-toggle') && container.querySelector('.todo-done-toggle').parentNode.style.display !== 'none', '再次点击展开恢复列表');
 
+    console.log('\n[7] v8.6.16 模块图标 + 折叠持久化 + 备注折叠开关');
+    // 标题图标
+    const headTitle7 = Array.from(container.querySelectorAll('div')).find(d => /✅ 今日待办/.test(d.textContent));
+    assert(!!headTitle7, '今日待办标题带 ✅ 图标');
+    // 备注折叠：准备一条带备注的待办
+    await App.DB.addTodo({ text: '带备注的待办', note: '这是备注内容', completed: false });
+    await App.Pages.Home.render({});
+    await wait(100);
+    const noteToggle7 = container.querySelector('.todo-note__toggle');
+    assert(!!noteToggle7 && noteToggle7.textContent.includes('备注'), '有备注的待办显示「📝 备注」折叠开关');
+    const noteBody7 = container.querySelector('.todo-note');
+    assert(!!noteBody7 && !noteBody7.classList.contains('is-open'), '备注默认折叠（is-open 未加）');
+    noteToggle7.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(30);
+    assert(noteBody7.classList.contains('is-open'), '点击备注开关展开备注');
+    // 折叠状态持久化：折叠 → 重新渲染（清实例状态重读 localStorage）
+    const collapseBtn7 = container.querySelector('#todo-collapse-btn');
+    collapseBtn7.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(30);
+    const saved7 = JSON.parse(win.localStorage.getItem('kg_todo_ui') || '{}');
+    assert(saved7.collapsed === true, '折叠状态已写入 localStorage（kg_todo_ui.collapsed=true）');
+    delete App.Pages.Home.todoState;
+    await App.Pages.Home.render({});
+    await wait(100);
+    const btnAfter7 = container.querySelector('#todo-collapse-btn');
+    assert(btnAfter7.textContent.trim() === '▸', '重新进入后保持折叠（按钮显示 ▸）');
+
     console.log('\n===== 待办删除 UI 复现: ' + pass + ' 通过, ' + fail + ' 失败 =====');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }
     else { console.log('✓✓ 全部通过（删除 UI 全链路正常）'); process.exit(0); }

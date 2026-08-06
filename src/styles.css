@@ -1731,7 +1731,17 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   white-space: pre-wrap;
   word-break: break-word;
   writing-mode: horizontal-tb;
+  display: none;          /* v8.6.16 备注默认折叠，点击「📝 备注」展开 */
 }
+.todo-note.is-open { display: block; }
+.todo-note__toggle {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; color: var(--text-tertiary);
+  cursor: pointer; padding: 3px 0 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.todo-note__toggle:active { color: var(--text-secondary); }
+.todo-note__body { font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
 
 .todo-item.completed .todo-title,
 .todo-item.completed .todo-note {
