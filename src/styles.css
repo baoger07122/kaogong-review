@@ -6921,6 +6921,67 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 [data-theme="dark"] .sc-numpad__btn--confirm { background: #3B82F6; }
 [data-theme="dark"] .sc-practice__answer { background: #2A2A2A; }
 
+/* ===== v8.6.14 速算重设计：顶部栏 / 设置开关 / 题量选择 / 状态栏 / 评级 / 键盘v2 / 速记悬浮 ===== */
+.sc-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; background: var(--bg-primary);
+  border-bottom: 0.5px solid var(--divider-color);
+  position: sticky; top: 0; z-index: 20;
+}
+.sc-topbar__back { background: none; border: none; font-size: 26px; color: var(--text-primary); width: 36px; height: 36px; cursor: pointer; line-height: 1; padding: 0; -webkit-tap-highlight-color: transparent; }
+.sc-topbar__title { font-size: 17px; font-weight: 700; color: var(--text-primary); }
+.sc-topbar__right { display: flex; gap: 4px; }
+.sc-topbar__icon { background: none; border: none; font-size: 18px; color: var(--text-tertiary); width: 34px; height: 34px; cursor: pointer; display: flex; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
+.sc-settings-card {
+  background: #fff; border-radius: 16px; box-shadow: var(--shadow-sm);
+  padding: 6px 14px; margin-bottom: 16px;
+  display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px;
+}
+.sc-settings-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 0.5px solid var(--divider-color); }
+.sc-settings-item:nth-last-child(-n+2) { border-bottom: none; }
+.sc-settings-item__label { font-size: 14px; color: var(--text-primary); }
+.sc-switch { width: 44px; height: 24px; border-radius: 9999px; background: #E5E7EB; position: relative; transition: background 0.2s; cursor: pointer; flex-shrink: 0; -webkit-tap-highlight-color: transparent; }
+.sc-switch.is-on { background: #3B82F6; }
+.sc-switch__dot { width: 20px; height: 20px; border-radius: 50%; background: #fff; position: absolute; top: 2px; left: 2px; transition: left 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+.sc-switch.is-on .sc-switch__dot { left: 22px; }
+.sc-type-item__drop { position: absolute; right: 6px; top: 6px; font-size: 12px; color: var(--text-tertiary); }
+.sc-count-picker { width: 100%; background: #fff; border: 1.5px solid #3B82F6; color: #3B82F6; border-radius: 14px; padding: 12px; font-size: 15px; font-weight: 600; cursor: pointer; margin-bottom: 6px; -webkit-tap-highlight-color: transparent; }
+.sc-count-label { text-align: center; font-size: 13px; color: var(--text-tertiary); margin-bottom: 16px; }
+.sc-start-btn { width: 100%; height: 48px; font-size: 16px; margin-bottom: 10px; }
+.sc-fab {
+  position: fixed; bottom: calc(var(--nav-height, 56px) + var(--safe-bottom, 0px) + 24px); right: 16px;
+  width: 56px; height: 56px; border-radius: 50%;
+  background: #fff; border: 1.5px solid #BFDBFE;
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.18);
+  display: flex; align-items: center; justify-content: center;
+  color: #3B82F6; font-size: 12px; font-weight: 600; z-index: 30; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sc-fab:active { transform: scale(0.94); }
+.sc-statusbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: #fff; box-shadow: var(--shadow-sm); border-radius: 0 0 14px 14px; }
+.sc-statusbar__pos { font-size: 14px; font-weight: 700; color: var(--text-primary); }
+.sc-statusbar__pen { background: none; border: none; font-size: 18px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.sc-statusbar__timer { font-family: var(--font-mono, monospace); font-size: 14px; font-weight: 700; color: #3B82F6; }
+.sc-standard { text-align: center; font-size: 12px; color: var(--text-tertiary); margin-top: 8px; }
+.sc-practice__expr { text-align: center; font-size: 42px; font-weight: 700; color: var(--text-primary); margin: 10px 0 0; letter-spacing: 1px; line-height: 1.3; }
+.sc-practice__answer { text-align: center; font-size: 36px; font-weight: 700; color: #3B82F6; font-family: var(--font-mono, monospace); min-height: 52px; line-height: 52px; margin-top: 4px; }
+.sc-count-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 8px 16px 20px; }
+.sc-count-cell { background: var(--bg-tertiary); border: none; border-radius: 12px; padding: 14px 0; font-size: 16px; font-weight: 600; color: var(--text-primary); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.sc-count-cell:active { background: var(--divider-color); }
+.sc-night .sc-topbar, .sc-night .sc-statusbar, .sc-night .sc-settings-card { background: #1E1E1E; }
+.sc-night .sc-topbar__title, .sc-night .sc-statusbar__pos { color: #F5F5F5; }
+.sc-night .sc-standard { color: #9CA3AF; }
+.sc-night .sc-practice__expr { color: #F5F5F5; }
+.sc-night .sc-count-picker, .sc-night .sc-count-cell { background: #2A2A2A; color: #E5E5E5; }
+/* 键盘 v2：数字键蓝底蓝字、功能键灰、确定键蓝（用户规格） */
+.sc-numpad--v2 { padding: 12px 12px calc(12px + var(--safe-bottom, 0px)); }
+.sc-numpad--v2 .sc-numpad__btn { background: #EFF6FF; color: #2563EB; font-size: 24px; border-radius: 12px; }
+.sc-numpad--v2 .sc-numpad__btn:active { background: #DBEAFE; }
+.sc-numpad--v2 .sc-numpad__btn--func { background: #F3F4F6; color: #374151; font-size: 15px; font-weight: 600; }
+.sc-numpad--v2 .sc-numpad__btn--func:active { background: #E5E7EB; }
+.sc-numpad--v2 .sc-numpad__btn--confirm { background: #3B82F6; color: #fff; font-size: 18px; font-weight: 700; }
+.sc-numpad--v2 .sc-numpad__btn--confirm:active { background: #2563EB; }
+
 /* ===== 涂鸦按钮：右下角悬浮，位于键盘上方 ===== */
 .sc-doodle-btn {
   position: fixed;

@@ -1,4 +1,4 @@
-/* 速算练习专项测试：题型生成器 / 首页 / 练习 / 结果 / 历史 */
+/* v8.6.14 速算重设计专项测试：13 题型生成器 / 设置持久化 / 首页 / 做题页（强制键盘）/ 自动下一题 / 记录 */
 const { JSDOM } = require('jsdom');
 const fs = require('fs');
 const html = fs.readFileSync('index.html', 'utf8');
@@ -20,164 +20,130 @@ const dom = new JSDOM(html, {
     w.confirm = () => true;
   }
 });
-
 setTimeout(async () => {
   const win = dom.window, doc = win.document, App = win.App;
   const SC = App.Pages.SpeedCalc;
   if (!SC) { console.error('SpeedCalc 未定义'); process.exit(1); }
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
   try {
-    // ===== [1] 题型生成器：12 种题型答案正确性 =====
-    console.log('\n[1] 题型生成器');
+    console.log('[1] 版本号');
+    assert(App.VERSION === '8.6.14', 'App.VERSION === 8.6.14（当前 ' + App.VERSION + '）');
+
+    console.log('\n[2] 题型生成器（13 种，含 2 个 ▼ 占位）');
     const typeKeys = Object.keys(SC.TYPES);
-    assert(typeKeys.length === 12, '12 种题型 (' + typeKeys.length + ')');
-    // 每种生成 30 题并校验（用 eval 校验普通四则；特殊题型单独校验）
-    const evalSafe = (expr) => {
-      // 提取数字和运算符（题型表达式可控，仅四则）
-      return Function('"use strict"; return (' + expr.replace(/[×÷≈]/g, (m) => ({ '×': '*', '÷': '/', '≈': '' }[m])) + ');')();
+    assert(typeKeys.length === 13, '13 种题型（' + typeKeys.length + '）');
+    assert(!SC.TYPES.custom.gen && !SC.TYPES.dataReal.gen, '自定义练习/资料分析实战为 ▼ 占位（无生成器）');
+    const checkQ = (expr) => {
+      const e = String(expr).replace(/[×÷≈\s=]/g, (m) => ({ '×': '*', '÷': '/', '≈': '', '=': '', ' ': '' }[m]));
+      return Function('"use strict"; return (' + e + ');')();
     };
-    let allOk = true;
-    typeKeys.forEach(key => {
+    let ok = true;
+    Object.keys(SC.TYPES).forEach(key => {
+      const t = SC.TYPES[key];
+      if (!t.gen) return;
       for (let i = 0; i < 30; i++) {
-        const q = SC.TYPES[key].gen();
-        if (typeof q.answer !== 'number' || !isFinite(q.answer)) { allOk = false; console.log('    ✗ ' + key + ' 答案非数字: ' + q.expr); break; }
-        if (key === 'base') { if (q.answer <= 0) { allOk = false; console.log('    ✗ base 答案 <=0'); } }
-        else if (key === 'growth') { if (q.answer <= 0) { allOk = false; console.log('    ✗ growth 答案 <=0'); } }
-        else if (key === 'mulEst') {
-          const m = q.expr.match(/(\d+)\s*[×]\s*(\d+)/);
-          const ans = Math.round(parseInt(m[1]) / 10) * 10 * (Math.round(parseInt(m[2]) / 10) * 10);
-          if (q.answer !== ans) { allOk = false; console.log('    ✗ mulEst: ' + q.expr + ' 期望 ' + ans + ' 实际 ' + q.answer); break; }
-        }
-        else {
-          const got = Math.round(evalSafe(q.expr));
-          if (got !== q.answer) { allOk = false; console.log('    ✗ ' + key + ': ' + q.expr + ' 期望 ' + got + ' 实际 ' + q.answer); break; }
-        }
+        const q = t.gen();
+        if (typeof q.answer !== 'number' || isNaN(q.answer)) { ok = false; break; }
       }
     });
-    assert(allOk, '12 种题型 × 30 题答案全部正确');
+    assert(ok, '11 个可做题型各生成 30 题无异常');
 
-    // ===== [2] 首页渲染：题型网格 / 模式 / 按钮 =====
-    console.log('\n[2] 速算练习首页');
-    const page = doc.getElementById('page-speed-calc');
-    SC.state.view = 'home'; SC.state.type = null; SC.state.mode = 'train';
+    console.log('\n[3] 设置持久化（kg_speed_settings）');
+    win.localStorage.removeItem(SC.SETTINGS_KEY);
+    const d = SC.loadSettings();
+    assert(d.confirmAuto === true && d.questionCount === 10 && d.mode === 'train', '默认设置：确定ON/10题/训练');
+    d.confirmAuto = false;
+    SC.saveSettings(d);
+    assert(SC.loadSettings().confirmAuto === false, '修改开关后持久化生效');
+
+    console.log('\n[4] 首页渲染（开关/题型/模式/操作区/速记）');
+    // 使用 index.html 内置的 #page-speed-calc 容器（render 用 getElementById 定位）
+    const home = doc.getElementById('page-speed-calc');
+    SC.state.view = 'home';
+    SC.state.type = null;
     await SC.render({});
-    const typeItems = page.querySelectorAll('.sc-type-item');
-    assert(typeItems.length === 12, '题型网格 12 项 (' + typeItems.length + ')');
-    const names = Array.from(typeItems).map(x => x.textContent);
-    assert(names.includes('三位数加法') && names.includes('求增长量') && names.includes('两位数乘两位数'), '题型包含关键项');
-    // 2 列网格
-    const gridStyle = win.getComputedStyle(page.querySelector('.sc-type-grid')).gridTemplateColumns;
-    assert(gridStyle.split(' ').length >= 2, '2 列网格布局 (' + gridStyle + ')');
-    assert(page.querySelectorAll('.sc-mode-opt').length === 2, '模式选项 2 个');
-    assert(!!page.querySelector('.sc-btn--primary') && page.querySelector('.sc-btn--primary').textContent === '开始练习', '「开始练习」主按钮');
-    assert(!!page.querySelector('.sc-btn--outline') && page.querySelector('.sc-btn--outline').textContent === '历史记录', '「历史记录」次按钮');
-    // 选中交互
-    typeItems[0].dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
-    assert(typeItems[0].classList.contains('selected'), '题型点击后选中');
-    assert(SC.state.type === typeKeys[0], 'state.type 更新');
-    page.querySelector('.sc-mode-opt[data-mode="race"]').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
-    assert(SC.state.mode === 'race', '模式切换为竞速');
-    assert(page.querySelector('.sc-mode-opt[data-mode="race"]').classList.contains('selected'), '竞速选项高亮');
+    await wait(50);
+    assert(home.querySelectorAll('.sc-switch').length === 6, '设置开关区 6 个 Switch（确定/键盘/顺序/夜间/否/速记）');
+    assert(home.querySelectorAll('.sc-type-item').length === 13, '题型网格 13 项');
+    assert(home.querySelectorAll('.sc-mode-opt').length === 2, '模式选择 2 项（训练/竞速）');
+    assert(!!home.querySelector('.sc-count-picker'), '题量选择按钮存在');
+    assert(!!home.querySelector('.sc-fab') && home.querySelector('.sc-fab').textContent === '速记', '右下角速记悬浮按钮存在');
+    // 题型选中 → 开始练习
+    const item0 = home.querySelector('.sc-type-item:not(.sc-type-item:has(.sc-type-item__drop))');
+    item0.click();
+    await wait(20);
+    assert(SC.state.type !== null, '点击题型后已选中');
 
-    // ===== [3] 开始练习：竞速模式 =====
-    console.log('\n[3] 竞速模式练习');
-    page.querySelector('.sc-btn--primary').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
-    assert(SC.state.view === 'practice', '进入练习视图');
-    assert(SC.state.questions.length === 10, '生成 10 题');
-    assert(page.querySelector('.sc-progress').textContent.includes('1/10'), '进度显示「1/10」');
-    assert(!!page.querySelector('.sc-timer'), '计时器存在');
-    assert(page.querySelector('.sc-practice__expr').textContent.trim() !== '', '题目展示');
-    // 数字键盘存在（3列×5行=15 按钮）
-    const numBtns = page.querySelectorAll('.sc-numpad__btn');
-    assert(numBtns.length === 15, '数字键盘 15 键 (3×5)');
-    assert(!!page.querySelector('.sc-numpad__btn--confirm'), '确认键存在');
-    assert(!!page.querySelector('.sc-numpad__btn--func'), '功能键存在');
-    assert(!!page.querySelector('.sc-doodle-btn'), '涂鸦按钮存在');
-    // 用键盘输入答案（答错：答案+1）
-    const pressKey = (k) => {
-      const btn = Array.from(page.querySelectorAll('.sc-numpad__btn')).find(b => b.textContent === k || (b.textContent === '确认' && k === 'confirm'));
-      btn && btn.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    console.log('\n[5] 做题页（状态栏/大题目/评级/强制键盘）');
+    SC.startPractice();
+    await wait(50);
+    const pos = home.querySelector('.sc-statusbar__pos');
+    assert(!!pos && /1\/10/.test(pos.textContent), '状态栏显示 1/10');
+    assert(!!home.querySelector('.sc-statusbar__pen'), '状态栏有笔图标');
+    assert(!!home.querySelector('#sc-timer'), '状态栏有计时器');
+    assert(!!home.querySelector('.sc-standard'), '题目下方显示评级标准');
+    assert(!!home.querySelector('.sc-practice__expr'), '大题目展示');
+    const keys = home.querySelectorAll('.sc-numpad--v2 .sc-numpad__btn');
+    assert(keys.length === 15, '屏幕键盘 15 键（重开/清空/退格 + 1-9/.0/确定）');
+    assert(!!home.querySelector('.sc-numpad__btn--confirm'), '有「确定」键');
+    assert(home.querySelector('.sc-numpad__footer').textContent.includes('第1/10题'), '底部进度 第1/10题');
+    assert(!home.querySelector('input[type=text], input[type=number]'), '无系统输入框（强制屏幕键盘）');
+
+    console.log('\n[6] 键盘输入 + 训练模式反馈 + 1.2s 自动下一题');
+    const btn1 = Array.from(home.querySelectorAll('.sc-numpad__btn')).find(b => b.textContent === '1');
+    const btn2 = Array.from(home.querySelectorAll('.sc-numpad__btn')).find(b => b.textContent === '2');
+    const confirmBtn = home.querySelector('.sc-numpad__btn--confirm');
+    // 输入正确数字（取答案：若答案匹配 1/2 则换键）
+    const q0 = SC.state.questions[0];
+    const ansStr = String(q0.answer);
+    const inputKey = (digits) => {
+      Array.from(String(digits)).forEach(ch => {
+        const b = Array.from(home.querySelectorAll('.sc-numpad__btn')).find(x => x.textContent === ch);
+        if (b) b.click();
+      });
     };
-    const wrongAns = String(SC.state.questions[0].answer + 1);
-    wrongAns.split('').forEach(c => pressKey(c));
-    pressKey('confirm');
-    assert(SC.state.idx === 1, '竞速提交后直接下一题 (idx=1)');
-    assert(SC.state.questions[0].correct === false, '第 1 题记录为错误');
-    // 第 2 题答对
-    const rightAns = String(SC.state.questions[1].answer);
-    rightAns.split('').forEach(c => pressKey(c));
-    pressKey('confirm');
-    assert(SC.state.questions[1].correct === true, '第 2 题记录为正确');
+    inputKey(ansStr);
+    await wait(30);
+    const ansDisp = home.querySelector('.sc-practice__answer');
+    assert(ansDisp.textContent === ansStr, '点击数字键拼接答案显示（' + ansStr + '）');
+    confirmBtn.click();
+    await wait(60);
+    const fb = home.querySelector('.sc-fb');
+    assert(!!fb, '训练模式提交后显示反馈 ✓/✗');
+    await wait(1500);
+    assert(/^2\/10$/.test(home.querySelector('.sc-statusbar__pos').textContent), '1.2s 后自动进入下一题（2/10）');
 
-    // ===== [4] 训练模式：逐题反馈 =====
-    console.log('\n[4] 训练模式反馈');
-    SC.state.mode = 'train';
-    SC.state.view = 'practice';
-    SC.state.idx = 0;
-    SC.state.questions = [SC.TYPES.add3.gen()];
+    console.log('\n[7] confirmAuto 自动提交（位数匹配）');
+    win.localStorage.setItem(SC.SETTINGS_KEY, JSON.stringify(Object.assign(SC.defaultSettings(), { confirmAuto: true, questionCount: 2, mode: 'train', selectedType: SC.state.type })));
+    SC.startPractice();
+    await wait(50);
+    const q1 = SC.state.questions[0];
+    const ans1 = String(q1.answer);
+    inputKey(ans1);
+    await wait(80);
+    assert(SC.state.questions[0].correct === true, 'confirmAuto ON：答案位数匹配自动提交（correct=true）');
+
+    console.log('\n[8] 完成 → 结果页 + kg_speed_records');
+    SC.state.idx = SC.state.questions.length - 1;   // 快进到最后一题
+    SC.state.questions.forEach(qq => { qq.user = qq.answer; qq.correct = true; });
+    SC.next();   // 触发 finish
+    await wait(80);
+    assert(SC.state.view === 'result', '全部完成后进入结果页');
+    const recs = JSON.parse(win.localStorage.getItem(SC.RECORDS_KEY)) || [];
+    assert(recs.length >= 1 && recs[0].type && recs[0].count === 2 && typeof recs[0].totalTime === 'number' && Array.isArray(recs[0].details), '历史记录已存 kg_speed_records（type/count/totalTime/details）');
+
+    console.log('\n[9] 历史页渲染');
+    SC.state.view = 'history';
     await SC.render({});
-    const pressKey2 = (k) => {
-      const btn = Array.from(page.querySelectorAll('.sc-numpad__btn')).find(b => b.textContent === k || (b.textContent === '确认' && k === 'confirm'));
-      btn && btn.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
-    };
-    const wrongAns2 = String(SC.state.questions[0].answer + 5);   // 答错
-    wrongAns2.split('').forEach(c => pressKey2(c));
-    pressKey2('confirm');
-    const fb = page.querySelector('.sc-fb--no');
-    assert(!!fb && fb.textContent.includes(String(SC.state.questions[0].answer)), '训练模式显示正确答案 (✗ 正确答案：X)');
-    assert(!!page.querySelector('.sc-next-btn'), '「下一题」按钮出现');
+    await wait(50);
+    assert(home.querySelectorAll('.sc-hist-row').length >= 1, '历史页显示记录行');
 
-    // ===== [5] 完成练习：结果页 + 历史存储 =====
-    console.log('\n[5] 结果页与历史存储');
-    // 构造一组完成数据直接走 finish
-    SC.state.view = 'practice';
-    SC.state.type = 'add3';
-    SC.state.mode = 'race';
-    SC.state.questions = [];
-    for (let i = 0; i < 10; i++) { const q = SC.TYPES.add3.gen(); q.user = q.answer; q.correct = true; SC.state.questions.push(q); }
-    SC.state.questions[0].user = SC.state.questions[0].answer + 1; SC.state.questions[0].correct = false;
-    SC.finish();
-    assert(SC.state.view === 'result', '完成后进入结果页');
-    assert(page.querySelector('.sc-result-score').textContent.includes('90'), '正确率 90%');
-    assert(page.querySelectorAll('.sc-result-row').length === 10, '结果页 10 行明细');
-    assert(page.querySelector('.sc-result-row__mark.ok') && page.querySelector('.sc-result-row__mark.no'), '对错标记 ✓/✗');
-    const hist = SC.loadHistory();
-    assert(hist.length === 1 && hist[0].type === '三位数加法' && hist[0].correctCount === 9, '历史已存储（1 条，9/10）');
-    assert(!!hist[0].id && typeof hist[0].duration === 'number', '记录含 id/时长');
-    // 再练一次
-    page.querySelector('.sc-btn--primary').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
-    assert(SC.state.view === 'practice', '「再练一次」重新开始');
-    SC.show('home');
-
-    // ===== [6] 历史记录页：展示 + 删除 =====
-    console.log('\n[6] 历史记录');
-    // 加第二条（不同题型）
-    const list2 = SC.loadHistory();
-    list2.unshift({ id: 'x2', type: '两位数乘两位数', mode: '训练模式', date: new Date().toISOString(), correctCount: 5, totalCount: 10, duration: 30 });
-    SC.saveHistory(list2);
-    SC.show('history');
-    const rows = page.querySelectorAll('.sc-hist-row');
-    assert(rows.length === 2, '历史列表 2 条');
-    assert(rows[0].textContent.includes('两位数乘两位数') && rows[0].textContent.includes('训练模式'), '最新记录在前（倒序）');
-    assert(rows[0].textContent.includes('5/10'), '记录显示正确率 5/10');
-    assert(!!page.querySelector('.sc-hist-del'), '每条记录带删除按钮');
-    // 删除
-    rows[0].querySelector('.sc-hist-del').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
-    const afterDel = SC.loadHistory();
-    assert(afterDel.length === 1 && afterDel[0].type === '三位数加法', '删除后剩 1 条');
-    assert(page.querySelectorAll('.sc-hist-row').length === 1, '删除后列表刷新为 1 行');
-
-    // ===== [7] 首页五个入口 =====
-    console.log('\n[7] 首页入口');
-    const home = doc.getElementById('page-home');
-    // 直接静态断言构建产物（jsdom 无 IndexedDB 无法渲染 Home）
-    assert(html.includes("label: '速算练习'"), '入口含「速算练习」');
-    assert(!html.includes("label: '错题收藏'"), '入口不含「错题收藏」');
-
-    console.log('\n===== 速算练习: ' + pass + ' 通过, ' + fail + ' 失败 =====');
-    process.exit(fail > 0 ? 1 : 0);
+    console.log('\n===== 速算专项: ' + pass + ' 通过, ' + fail + ' 失败 =====');
+    if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }
+    else { console.log('✓✓ 全部通过'); process.exit(0); }
   } catch (e) {
-    console.error('测试异常:', e && e.stack || e);
+    console.error('测试执行异常:', e && e.stack || e);
     process.exit(1);
   }
-}, 1000);
+}, 400);

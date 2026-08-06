@@ -6939,6 +6939,67 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 [data-theme="dark"] .sc-numpad__btn--confirm { background: #3B82F6; }
 [data-theme="dark"] .sc-practice__answer { background: #2A2A2A; }
 
+/* ===== v8.6.14 速算重设计：顶部栏 / 设置开关 / 题量选择 / 状态栏 / 评级 / 键盘v2 / 速记悬浮 ===== */
+.sc-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; background: var(--bg-primary);
+  border-bottom: 0.5px solid var(--divider-color);
+  position: sticky; top: 0; z-index: 20;
+}
+.sc-topbar__back { background: none; border: none; font-size: 26px; color: var(--text-primary); width: 36px; height: 36px; cursor: pointer; line-height: 1; padding: 0; -webkit-tap-highlight-color: transparent; }
+.sc-topbar__title { font-size: 17px; font-weight: 700; color: var(--text-primary); }
+.sc-topbar__right { display: flex; gap: 4px; }
+.sc-topbar__icon { background: none; border: none; font-size: 18px; color: var(--text-tertiary); width: 34px; height: 34px; cursor: pointer; display: flex; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
+.sc-settings-card {
+  background: #fff; border-radius: 16px; box-shadow: var(--shadow-sm);
+  padding: 6px 14px; margin-bottom: 16px;
+  display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px;
+}
+.sc-settings-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 0.5px solid var(--divider-color); }
+.sc-settings-item:nth-last-child(-n+2) { border-bottom: none; }
+.sc-settings-item__label { font-size: 14px; color: var(--text-primary); }
+.sc-switch { width: 44px; height: 24px; border-radius: 9999px; background: #E5E7EB; position: relative; transition: background 0.2s; cursor: pointer; flex-shrink: 0; -webkit-tap-highlight-color: transparent; }
+.sc-switch.is-on { background: #3B82F6; }
+.sc-switch__dot { width: 20px; height: 20px; border-radius: 50%; background: #fff; position: absolute; top: 2px; left: 2px; transition: left 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+.sc-switch.is-on .sc-switch__dot { left: 22px; }
+.sc-type-item__drop { position: absolute; right: 6px; top: 6px; font-size: 12px; color: var(--text-tertiary); }
+.sc-count-picker { width: 100%; background: #fff; border: 1.5px solid #3B82F6; color: #3B82F6; border-radius: 14px; padding: 12px; font-size: 15px; font-weight: 600; cursor: pointer; margin-bottom: 6px; -webkit-tap-highlight-color: transparent; }
+.sc-count-label { text-align: center; font-size: 13px; color: var(--text-tertiary); margin-bottom: 16px; }
+.sc-start-btn { width: 100%; height: 48px; font-size: 16px; margin-bottom: 10px; }
+.sc-fab {
+  position: fixed; bottom: calc(var(--nav-height, 56px) + var(--safe-bottom, 0px) + 24px); right: 16px;
+  width: 56px; height: 56px; border-radius: 50%;
+  background: #fff; border: 1.5px solid #BFDBFE;
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.18);
+  display: flex; align-items: center; justify-content: center;
+  color: #3B82F6; font-size: 12px; font-weight: 600; z-index: 30; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sc-fab:active { transform: scale(0.94); }
+.sc-statusbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: #fff; box-shadow: var(--shadow-sm); border-radius: 0 0 14px 14px; }
+.sc-statusbar__pos { font-size: 14px; font-weight: 700; color: var(--text-primary); }
+.sc-statusbar__pen { background: none; border: none; font-size: 18px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.sc-statusbar__timer { font-family: var(--font-mono, monospace); font-size: 14px; font-weight: 700; color: #3B82F6; }
+.sc-standard { text-align: center; font-size: 12px; color: var(--text-tertiary); margin-top: 8px; }
+.sc-practice__expr { text-align: center; font-size: 42px; font-weight: 700; color: var(--text-primary); margin: 10px 0 0; letter-spacing: 1px; line-height: 1.3; }
+.sc-practice__answer { text-align: center; font-size: 36px; font-weight: 700; color: #3B82F6; font-family: var(--font-mono, monospace); min-height: 52px; line-height: 52px; margin-top: 4px; }
+.sc-count-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 8px 16px 20px; }
+.sc-count-cell { background: var(--bg-tertiary); border: none; border-radius: 12px; padding: 14px 0; font-size: 16px; font-weight: 600; color: var(--text-primary); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.sc-count-cell:active { background: var(--divider-color); }
+.sc-night .sc-topbar, .sc-night .sc-statusbar, .sc-night .sc-settings-card { background: #1E1E1E; }
+.sc-night .sc-topbar__title, .sc-night .sc-statusbar__pos { color: #F5F5F5; }
+.sc-night .sc-standard { color: #9CA3AF; }
+.sc-night .sc-practice__expr { color: #F5F5F5; }
+.sc-night .sc-count-picker, .sc-night .sc-count-cell { background: #2A2A2A; color: #E5E5E5; }
+/* 键盘 v2：数字键蓝底蓝字、功能键灰、确定键蓝（用户规格） */
+.sc-numpad--v2 { padding: 12px 12px calc(12px + var(--safe-bottom, 0px)); }
+.sc-numpad--v2 .sc-numpad__btn { background: #EFF6FF; color: #2563EB; font-size: 24px; border-radius: 12px; }
+.sc-numpad--v2 .sc-numpad__btn:active { background: #DBEAFE; }
+.sc-numpad--v2 .sc-numpad__btn--func { background: #F3F4F6; color: #374151; font-size: 15px; font-weight: 600; }
+.sc-numpad--v2 .sc-numpad__btn--func:active { background: #E5E7EB; }
+.sc-numpad--v2 .sc-numpad__btn--confirm { background: #3B82F6; color: #fff; font-size: 18px; font-weight: 700; }
+.sc-numpad--v2 .sc-numpad__btn--confirm:active { background: #2563EB; }
+
 /* ===== 涂鸦按钮：右下角悬浮，位于键盘上方 ===== */
 .sc-doodle-btn {
   position: fixed;
@@ -7294,7 +7355,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.13';
+App.VERSION = '8.6.14';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -21797,51 +21858,70 @@ window.initNotionMobileEditor = function (containerSelector, options) {
       });
     }
   
-// ===== 【速算练习】速算练习模块（题型选择 / 练习 / 结果 / 历史） =====
-// 数据存 localStorage（key: speedCalcHistory），配色统一用系统变量（蓝白风格）
+// ===== 【速算练习】速算练习模块 v8.6.14 重设计（13题型 / 6设置开关 / 强制屏幕键盘 / 蓝白风格） =====
+// 设置存 localStorage kg_speed_settings；历史记录 kg_speed_records（兼容旧 speedCalcHistory 展示）
 App.Pages.SpeedCalc = {
   state: {
     view: 'home',        // home | practice | result | history
-    type: null,          // 题型 key（TYPES 的键）
-    mode: 'train',       // train 训练（逐题显示答案）| race 竞速（10 题统一结果）
-    questions: [],       // [{expr, answer, user, correct}]
+    type: null,
+    mode: 'train',       // train | race
+    questions: [],       // [{expr, answer, user, correct, timeUsed}]
     idx: 0,
     startTime: 0,
+    qStart: 0,
     timerId: null,
-    elapsed: 0
+    qTimerId: null,
+    raceTimerId: null,
+    autoNextTimer: null,
+    currentInput: '',
+    doodleData: null,
+    showAns: true
   },
+  SETTINGS_KEY: 'kg_speed_settings',
+  RECORDS_KEY: 'kg_speed_records',
 
-  HISTORY_KEY: 'speedCalcHistory',
-
-  // 题型定义（12 种，name 用于展示 / gen 生成题目）
+  // 题型定义（13 种；无 gen 的为 ▼ 占位题型）
   TYPES: {
-    add3:    { name: '三位数加法',     gen: () => { const a = randInt(100, 999), b = randInt(100, 999); return makeQ(a + ' + ' + b, a + b); } },
-    sub3:    { name: '三位数减法',     gen: () => { const a = randInt(300, 999), b = randInt(100, a - 1); return makeQ(a + ' - ' + b, a - b); } },
-    addsub3: { name: '三位数加减',     gen: () => { const a = randInt(100, 999), b = randInt(100, 999); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } },
-    add4:    { name: '四数相加',       gen: () => { const arr = [randInt(10, 99), randInt(10, 99), randInt(10, 99), randInt(10, 99)]; return makeQ(arr.join(' + '), arr.reduce((s, x) => s + x, 0)); } },
-    mul3x1:  { name: '三位数乘一位数', gen: () => { const a = randInt(100, 999), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
-    div3x1:  { name: '三位数除一位数', gen: () => { const d = randInt(2, 9), q = randInt(100, 999); return makeQ((d * q) + ' ÷ ' + d, q); } },
-    mul2x2:  { name: '两位数乘两位数', gen: () => { const a = randInt(11, 99), b = randInt(11, 99); return makeQ(a + ' × ' + b, a * b); } },
-    big9:    { name: '大九九乘法表',   gen: () => { const a = randInt(11, 19), b = randInt(11, 19); return makeQ(a + ' × ' + b, a * b); } },
-    mulEst:  { name: '乘法估算',       gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } },
-    div5x3:  { name: '五位数除三位数', gen: () => { const d = randInt(100, 999), q = randInt(100, 999); return makeQ((d * q) + ' ÷ ' + d, q); } },
-    base:    { name: '求基期量',       gen: () => { const b = randInt(100, 9999), r = randInt(2, 30), cur = Math.round(b * (100 + r) / 100), ans = Math.round(cur * 100 / (100 + r)); return makeQ('现期量 ' + cur + '，同比增长 ' + r + '%，求基期量', ans); } },
-    growth:  { name: '求增长量',       gen: () => { const b = randInt(100, 9999), r = randInt(2, 30); return makeQ('基期量 ' + b + '，同比增长 ' + r + '%，求增长量', Math.round(b * r / 100)); } }
+    addsub2:  { name: '两位数加减',     gen: () => { const a = randInt(10, 99), b = randInt(10, 99); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } },
+    mul2x1:   { name: '两位数乘一位数', gen: () => { const a = randInt(10, 99), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
+    div3x1:   { name: '三位数除一位数', gen: () => { const d = randInt(2, 9), q = randInt(100, 999); return makeQ((d * q) + ' ÷ ' + d, q); } },
+    div5x3:   { name: '五位数除三位数', gen: () => { const d = randInt(100, 999), q = randInt(100, 999); return makeQ((d * q) + ' ÷ ' + d, q); } },
+    spDen:    { name: '特殊分母练习',   gen: () => { const pool = [[5, '5%'], [12.5, '12.5%'], [25, '25%'], [37.5, '37.5%'], [50, '50%'], [75, '75%'], [87.5, '87.5%']]; const p = pool[randInt(0, pool.length - 1)], n = randInt(40, 400); return makeQ(n + ' × ' + p[1] + ' =', Math.round(n * p[0] / 100)); } },
+    est05:    { name: '零五十估算练习', gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } },
+    growth:   { name: '增量练习',       gen: () => { const b = randInt(100, 9999), r = randInt(2, 30); return makeQ('基期 ' + b + '，增长率 ' + r + '%，求增量', Math.round(b * r / 100)); } },
+    base:     { name: '基期练习',       gen: () => { const b = randInt(100, 9999), r = randInt(2, 30), cur = Math.round(b * (100 + r) / 100); return makeQ('现期 ' + cur + '，同比 +' + r + '%，求基期', Math.round(cur * 100 / (100 + r))); } },
+    custom:   { name: '自定义练习',     gen: null },
+    dataReal: { name: '资料分析实战',   gen: null },
+    mulEst:   { name: '乘法估算',       gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } },
+    highStack:{ name: '高位叠加',       gen: () => { const a = randInt(100, 999), b = randInt(100, 999), c = randInt(100, 999); return makeQ(a + ' + ' + b + ' + ' + c, a + b + c); } },
+    addsub3:  { name: '三位数加减',     gen: () => { const a = randInt(100, 999), b = randInt(100, 999); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } }
   },
+
+  defaultSettings() {
+    return { confirmAuto: true, useScreenKeyboard: true, sequential: false, nightMode: false, noNegative: false, quickMemo: true, selectedType: 'addsub2', questionCount: 10, mode: 'train' };
+  },
+  loadSettings() {
+    try { return Object.assign(this.defaultSettings(), JSON.parse(localStorage.getItem(this.SETTINGS_KEY)) || {}); }
+    catch (e) { return this.defaultSettings(); }
+  },
+  saveSettings(s) { try { localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(s)); } catch (e) {} },
 
   loadHistory() {
-    try { return JSON.parse(localStorage.getItem(this.HISTORY_KEY)) || []; }
-    catch (e) { return []; }
+    try {
+      const list = JSON.parse(localStorage.getItem(this.RECORDS_KEY)) || [];
+      if (list.length) return list;
+      return JSON.parse(localStorage.getItem('speedCalcHistory')) || [];
+    } catch (e) { return []; }
   },
-  saveHistory(list) {
-    try { localStorage.setItem(this.HISTORY_KEY, JSON.stringify(list)); } catch (e) {}
-  },
+  saveHistory(list) { try { localStorage.setItem(this.RECORDS_KEY, JSON.stringify(list)); } catch (e) {} },
 
   async render(params) {
     const container = document.getElementById('page-speed-calc');
     container.innerHTML = '';
-    // 清理计时器
     if (this.state.timerId) { clearInterval(this.state.timerId); this.state.timerId = null; }
+    if (this.state.qTimerId) { clearInterval(this.state.qTimerId); this.state.qTimerId = null; }
+    if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
+    if (this.state.autoNextTimer) { clearTimeout(this.state.autoNextTimer); this.state.autoNextTimer = null; }
     const view = this.state.view;
     if (view === 'home') this.renderHome(container);
     else if (view === 'practice') this.renderPractice(container);
@@ -21855,19 +21935,73 @@ App.Pages.SpeedCalc = {
       if (this.state.timerId) { clearInterval(this.state.timerId); this.state.timerId = null; }
       if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
       if (this.state.qTimerId) { clearInterval(this.state.qTimerId); this.state.qTimerId = null; }
+      if (this.state.autoNextTimer) { clearTimeout(this.state.autoNextTimer); this.state.autoNextTimer = null; }
     }
     this.render({});
+  },
+
+  // ===== 顶部栏（返回 / 标题 / 更多 + 眼睛）=====
+  _topbar(container, title, onBack) {
+    const top = document.createElement('div');
+    top.className = 'sc-topbar';
+    top.innerHTML =
+      '<button class="sc-topbar__back" type="button">‹</button>' +
+      '<div class="sc-topbar__title">' + title + '</div>' +
+      '<div class="sc-topbar__right">' +
+        '<button class="sc-topbar__icon" type="button" id="sc-more" title="更多">⋯</button>' +
+        '<button class="sc-topbar__icon" type="button" id="sc-eye" title="显示/隐藏答案输入">👁</button>' +
+      '</div>';
+    top.querySelector('.sc-topbar__back').addEventListener('click', onBack);
+    top.querySelector('#sc-more').addEventListener('click', () => {
+      App.Components.actionSheet([
+        { text: '清除全部历史记录', icon: '🗑', danger: true, action: async () => {
+          const ok = await App.Components.confirm('清除历史', '确定清空所有速算练习记录？', '清除', '取消', true);
+          if (ok) { this.saveHistory([]); App.Components.toast('已清除', 'success'); this.render({}); }
+        } }
+      ]);
+    });
+    top.querySelector('#sc-eye').addEventListener('click', () => {
+      this.state.showAns = !this.state.showAns;
+      if (this.state.view === 'practice') this.render({});
+      else App.Components.toast(this.state.showAns ? '显示答案输入' : '隐藏答案输入', 'info');
+    });
+    container.appendChild(top);
   },
 
   // ===== 视图：题型选择首页 =====
   renderHome(container) {
     const self = this;
-    container.appendChild(App.Components.pageHeader('速算练习', null, null));
+    const settings = this.loadSettings();
+    if (settings.selectedType && this.TYPES[settings.selectedType]) this.state.type = settings.selectedType;
+    this.state.mode = settings.mode || 'train';
+
+    this._topbar(container, '速算练习', () => App.Router.back());
 
     const body = document.createElement('div');
     body.className = 'sc-page';
 
-    // 题型选择（2 列网格，单选）
+    // ===== 设置开关区（两列网格 6 个 Switch）=====
+    const settingsCard = document.createElement('div');
+    settingsCard.className = 'sc-settings-card';
+    [['confirmAuto', '确定'], ['useScreenKeyboard', '键盘'], ['sequential', '顺序'], ['nightMode', '夜间'], ['noNegative', '否'], ['quickMemo', '速记']].forEach(pair => {
+      const key = pair[0], label = pair[1];
+      const row = document.createElement('div');
+      row.className = 'sc-settings-item';
+      row.innerHTML = '<span class="sc-settings-item__label">' + label + '</span>';
+      const sw = document.createElement('div');
+      sw.className = 'sc-switch' + (settings[key] ? ' is-on' : '');
+      sw.innerHTML = '<span class="sc-switch__dot"></span>';
+      sw.addEventListener('click', () => {
+        sw.classList.toggle('is-on');
+        settings[key] = sw.classList.contains('is-on');
+        this.saveSettings(settings);
+      });
+      row.appendChild(sw);
+      settingsCard.appendChild(row);
+    });
+    body.appendChild(settingsCard);
+
+    // ===== 题型网格（13 项，2 列，选中蓝边）=====
     const typeTitle = document.createElement('div');
     typeTitle.className = 'sc-section-title';
     typeTitle.textContent = '选择题型';
@@ -21875,15 +22009,18 @@ App.Pages.SpeedCalc = {
 
     const grid = document.createElement('div');
     grid.className = 'sc-type-grid';
-    const typeKeys = Object.keys(this.TYPES);
-    typeKeys.forEach(key => {
+    Object.keys(this.TYPES).forEach(key => {
+      const t = this.TYPES[key];
+      const hasDrop = !t.gen;
       const item = document.createElement('div');
       item.className = 'sc-type-item' + (this.state.type === key ? ' selected' : '');
       item.dataset.type = key;
-      item.innerHTML = '<span class="sc-type-item__name">' + this.TYPES[key].name + '</span>';
+      item.innerHTML = '<span class="sc-type-item__name">' + t.name + '</span>' + (hasDrop ? '<span class="sc-type-item__drop">▾</span>' : '');
       item.addEventListener('click', () => {
+        if (!t.gen) { App.Components.toast(t.name + '功能即将上线', 'info'); return; }
         this.state.type = key;
-        // 选中态切换动画
+        settings.selectedType = key;
+        this.saveSettings(settings);
         grid.querySelectorAll('.sc-type-item').forEach(x => x.classList.remove('selected'));
         item.classList.add('selected');
       });
@@ -21891,12 +22028,11 @@ App.Pages.SpeedCalc = {
     });
     body.appendChild(grid);
 
-    // 模式选择（训练 / 竞速 单选）
+    // ===== 模式选择（训练 / 竞速）=====
     const modeTitle = document.createElement('div');
     modeTitle.className = 'sc-section-title';
     modeTitle.textContent = '选择模式';
     body.appendChild(modeTitle);
-
     const modeRow = document.createElement('div');
     modeRow.className = 'sc-mode-row';
     [['train', '训练模式', '每道题显示答案'], ['race', '竞速模式', '10 题一组统一评分']].forEach(m => {
@@ -21906,6 +22042,8 @@ App.Pages.SpeedCalc = {
       opt.innerHTML = '<div class="sc-mode-opt__radio"></div><div><div class="sc-mode-opt__name">' + m[1] + '</div><div class="sc-mode-opt__desc">' + m[2] + '</div></div>';
       opt.addEventListener('click', () => {
         this.state.mode = m[0];
+        settings.mode = m[0];
+        this.saveSettings(settings);
         modeRow.querySelectorAll('.sc-mode-opt').forEach(x => x.classList.remove('selected'));
         opt.classList.add('selected');
       });
@@ -21913,207 +22051,213 @@ App.Pages.SpeedCalc = {
     });
     body.appendChild(modeRow);
 
-    // 操作按钮
-    const btnRow = document.createElement('div');
-    btnRow.className = 'sc-btn-row';
+    // ===== 底部操作区 =====
+    const countBtn = document.createElement('button');
+    countBtn.type = 'button';
+    countBtn.className = 'sc-count-picker';
+    countBtn.textContent = '题量选择：' + (settings.questionCount || 10) + ' 题 ▾';
+    const countLabel = document.createElement('div');
+    countLabel.className = 'sc-count-label';
+    countLabel.textContent = '题目数量: ' + (settings.questionCount || 10);
+    countBtn.addEventListener('click', () => this.pickCount(n => {
+      settings.questionCount = n;
+      this.saveSettings(settings);
+      countBtn.textContent = '题量选择：' + n + ' 题 ▾';
+      countLabel.textContent = '题目数量: ' + n;
+    }));
+    body.appendChild(countBtn);
+    body.appendChild(countLabel);
+
     const startBtn = document.createElement('button');
     startBtn.type = 'button';
-    startBtn.className = 'sc-btn sc-btn--primary';
+    startBtn.className = 'sc-btn sc-btn--primary sc-start-btn';
     startBtn.textContent = '开始练习';
     startBtn.addEventListener('click', () => {
-      if (!this.state.type) { App.Components.toast('请先选择题型', 'error'); return; }
+      if (!this.state.type || !this.TYPES[this.state.type].gen) { App.Components.toast('请先选择题型', 'error'); return; }
       this.startPractice();
     });
+    body.appendChild(startBtn);
+
     const histBtn = document.createElement('button');
     histBtn.type = 'button';
-    histBtn.className = 'sc-btn sc-btn--outline';
-    histBtn.textContent = '历史记录';
+    histBtn.className = 'sc-btn sc-btn--outline sc-start-btn';
+    histBtn.textContent = '查看历史记录';
     histBtn.addEventListener('click', () => this.show('history'));
-    btnRow.appendChild(startBtn);
-    btnRow.appendChild(histBtn);
-    body.appendChild(btnRow);
+    body.appendChild(histBtn);
 
     container.appendChild(body);
+
+    // ===== 右下角速记悬浮按钮 =====
+    const fab = document.createElement('button');
+    fab.type = 'button';
+    fab.className = 'sc-fab';
+    fab.textContent = '速记';
+    fab.title = '快速记一笔';
+    fab.addEventListener('click', () => {
+      App.Components.stickySheet({
+        title: '速记',
+        onSave: async (data) => {
+          try { await App.DB.addSticky(data); App.Components.toast('已速记 ✓', 'success'); }
+          catch (e) { App.Components.toast('保存失败', 'error'); }
+        }
+      });
+    });
+    container.appendChild(fab);
   },
 
-  // 开始练习：生成 10 题并进入练习视图
+  // 题量选择底部弹层（5/10/15/20/30/50/100）
+  pickCount(cb) {
+    const overlay = document.createElement('div');
+    overlay.className = 'notion-mobile-sheet-overlay';
+    const sheet = document.createElement('div');
+    sheet.className = 'notion-mobile-sheet is-format';
+    const handleBar = document.createElement('div');
+    handleBar.className = 'notion-mobile-sheet__handle';
+    sheet.appendChild(handleBar);
+    const content = document.createElement('div');
+    content.className = 'notion-mobile-sheet__content';
+    content.innerHTML = '<div class="notion-mobile-fmt-title">题量选择</div>' +
+      '<div class="sc-count-grid">' + [5, 10, 15, 20, 30, 50, 100].map(n =>
+        '<button class="sc-count-cell" type="button" data-n="' + n + '">' + n + ' 题</button>').join('') + '</div>';
+    sheet.appendChild(content);
+    overlay.appendChild(sheet);
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    content.querySelectorAll('.sc-count-cell').forEach(b => b.addEventListener('click', () => {
+      const n = parseInt(b.dataset.n, 10);
+      overlay.remove();
+      if (cb) cb(n);
+    }));
+  },
+
+  // 开始练习：按设置题量生成并进入练习视图
   startPractice() {
+    const settings = this.loadSettings();
+    const count = settings.questionCount || 10;
     const gen = this.TYPES[this.state.type].gen;
     this.state.questions = [];
-    for (let i = 0; i < 10; i++) this.state.questions.push(gen());
+    for (let i = 0; i < count; i++) this.state.questions.push(gen());
     this.state.questions.forEach(q => { q.user = ''; q.correct = null; });
     this.state.idx = 0;
     this.state.startTime = Date.now();
-    this.state.elapsed = 0;
-    this.state.doodleData = null;   // 新一轮开始清空涂鸦
+    this.state.qStart = Date.now();
+    this.state.currentInput = '';
+    this.state.doodleData = null;
+    this.state.autoNextTimer = null;
     if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
     if (this.state.qTimerId) { clearInterval(this.state.qTimerId); this.state.qTimerId = null; }
     this.show('practice');
   },
 
-  // ===== 视图：练习 =====
+  // ===== 视图：练习（强制屏幕数字键盘）=====
   renderPractice(container) {
     const self = this;
+    const settings = this.loadSettings();
     const q = this.state.questions[this.state.idx];
     const total = this.state.questions.length;
     const isRace = this.state.mode === 'race';
     const submitted = q.correct !== null;
-    // 当前输入（数字键盘状态）
+    const confirmAuto = settings.confirmAuto;
     this.state.currentInput = q.user && q.user !== '' ? String(q.user) : '';
-    this.state.doodleData = this.state.doodleData || null;
+    if (settings.nightMode) container.classList.add('sc-night');
 
-    // ===== 上：固定高度信息栏（返回 / 进度 / 计时）=====
-    const header = document.createElement('div');
-    header.className = 'sc-practice-head';
-    header.innerHTML =
-      '<button class="sc-back-btn" type="button">‹ 返回</button>' +
-      '<div class="sc-progress">' + (isRace ? (this.state.idx + 1) + '/' + total : (this.state.idx + 1) + '/∞') + '</div>' +
-      '<div class="sc-timer" id="sc-timer">00:00</div>';
-    header.querySelector('.sc-back-btn').addEventListener('click', () => {
+    this._topbar(container, this.TYPES[this.state.type].name, () => {
       if (confirm('确定退出本次练习？')) this.show('home');
     });
-    container.appendChild(header);
 
-    // 计时器（interval 只刷新显示，时长以 startTime 差值计算）
+    // ===== 状态栏：1/10  笔  计时（100ms 刷新）=====
+    const statusBar = document.createElement('div');
+    statusBar.className = 'sc-statusbar';
+    statusBar.innerHTML =
+      '<div class="sc-statusbar__pos">' + (this.state.idx + 1) + '/' + total + '</div>' +
+      '<button class="sc-statusbar__pen" type="button" title="草稿涂鸦">✏️</button>' +
+      '<div class="sc-statusbar__timer" id="sc-timer">0:00</div>';
+    statusBar.querySelector('.sc-statusbar__pen').addEventListener('click', () => {
+      App.Components.doodleOverlay({
+        initial: self.state.doodleData || null,
+        onChange: (dataURL) => { self.state.doodleData = dataURL || null; }
+      });
+    });
+    container.appendChild(statusBar);
     const tick = () => {
       const el = container.querySelector('#sc-timer');
-      if (el) el.textContent = fmtTime(Math.floor((Date.now() - this.state.startTime) / 1000));
+      if (el) el.textContent = fmtClock((Date.now() - this.state.startTime) / 1000);
     };
     tick();
-    this.state.timerId = setInterval(tick, 1000);
+    this.state.timerId = setInterval(tick, 100);
 
-    // ===== 中：题目展示区（占剩余空间 55%+）=====
+    // ===== 题目展示区 =====
     const body = document.createElement('div');
     body.className = 'sc-practice';
 
-    // 题型标签
-    const tag = document.createElement('div');
-    tag.className = 'sc-practice__type';
-    tag.textContent = this.TYPES[this.state.type].name + ' · ' + (isRace ? '竞速' : '训练');
-    body.appendChild(tag);
-
-    // 题目（大字号居中）
     const expr = document.createElement('div');
     expr.className = 'sc-practice__expr';
     expr.textContent = q.expr;
     body.appendChild(expr);
 
-    // 答案输入显示（数字键盘联动）
-    const inputWrap = document.createElement('div');
-    inputWrap.className = 'sc-practice__input-wrap';
+    // 评级标准
+    const standard = document.createElement('div');
+    standard.className = 'sc-standard';
+    standard.textContent = '合格: 28s  良好: 22s  优秀: 18s';
+    body.appendChild(standard);
+
+    // 答案显示（div 模拟输入，禁止系统键盘）
     const answerDisplay = document.createElement('div');
     answerDisplay.className = 'sc-practice__answer';
-    answerDisplay.textContent = this.state.currentInput || ' ';
-    inputWrap.appendChild(answerDisplay);
-    body.appendChild(inputWrap);
+    answerDisplay.textContent = this.state.showAns ? (this.state.currentInput || ' ') : '· · ·';
+    body.appendChild(answerDisplay);
 
-    // 允许误差提示（估算类题型）
-    const hint = document.createElement('div');
-    hint.className = 'sc-practice__hint';
-    hint.textContent = /≈|估算/.test(q.expr) ? '允许误差：±3%' : '';
-    body.appendChild(hint);
-
-    // 竞速模式：计时 + 合格标准
-    if (isRace) {
-      const raceInfo = document.createElement('div');
-      raceInfo.className = 'sc-race-info';
-      raceInfo.innerHTML = '<div class="sc-race-timer">⏰ 总用时 <span id="sc-race-timer">00:00</span></div>' +
-        '<div class="sc-race-standard">合格：90s 良好：75s 优秀：60s</div>';
-      body.appendChild(raceInfo);
-      // 竞速总计时器
-      const rtick = () => {
-        const el = container.querySelector('#sc-race-timer');
-        if (el) el.textContent = fmtTime(Math.floor((Date.now() - this.state.startTime) / 1000));
-      };
-      rtick();
-      this.state.raceTimerId = setInterval(rtick, 1000);
-    } else {
-      // 训练模式：本题用时
-      const perInfo = document.createElement('div');
-      perInfo.className = 'sc-race-info';
-      perInfo.innerHTML = '<div class="sc-race-timer">本题用时 <span id="sc-question-timer">0s</span></div>';
-      body.appendChild(perInfo);
-      this.state.qStart = Date.now();
-      const qtick = () => {
-        const el = container.querySelector('#sc-question-timer');
-        if (el) el.textContent = Math.floor((Date.now() - this.state.qStart) / 1000) + 's';
-      };
-      qtick();
-      this.state.qTimerId = setInterval(qtick, 1000);
-    }
-
-    // 反馈区（训练模式：提交后显示对错 + 正确答案）
+    // 反馈区（训练模式：✓/✗ + 正确答案 + 用时 → 1.2s 自动下一题）
     const feedback = document.createElement('div');
     feedback.className = 'sc-practice__feedback';
 
     const submit = () => {
+      if (submitted) return;
       const val = parseFloat(self.state.currentInput);
       if (isNaN(val) || self.state.currentInput === '') { App.Components.toast('请输入答案', 'error'); return; }
       q.user = val;
-      // 仅估算类题型允许 ±3% 误差，其余题型要求精确匹配
+      q.timeUsed = Math.round((Date.now() - self.state.qStart) / 100) / 10;
       const isEst = /≈|估算/.test(q.expr);
-      q.correct = isEst
-        ? Math.abs(val - q.answer) <= Math.max(1, Math.abs(q.answer) * 0.03)
-        : val === q.answer;
+      q.correct = isEst ? Math.abs(val - q.answer) <= Math.max(1, Math.abs(q.answer) * 0.03) : val === q.answer;
       if (isRace) {
-        this.next();
+        self.next();
       } else {
         feedback.innerHTML = q.correct
-          ? '<div class="sc-fb sc-fb--ok">✓ 回答正确</div>'
-          : '<div class="sc-fb sc-fb--no">✗ 正确答案：' + q.answer + '</div>';
-        const nextBtn = document.createElement('button');
-        nextBtn.type = 'button';
-        nextBtn.className = 'sc-btn sc-btn--primary sc-next-btn';
-        nextBtn.textContent = this.state.idx >= total - 1 ? '查看结果' : '下一题';
-        nextBtn.addEventListener('click', () => this.next());
-        body.appendChild(nextBtn);
+          ? '<div class="sc-fb sc-fb--ok">✓ 正确 · 用时 ' + q.timeUsed + 's</div>'
+          : '<div class="sc-fb sc-fb--no">✗ 错误 · 正确答案是 ' + q.answer + ' · 用时 ' + q.timeUsed + 's</div>';
+        self.state.autoNextTimer = setTimeout(() => self.next(), 1200);
       }
     };
 
-    // ===== 下：数字键盘（3列×5行，固定 42vh 高度）=====
+    // ===== 强制屏幕数字键盘（div 模拟）=====
     const numpad = document.createElement('div');
-    numpad.className = 'sc-numpad';
-
+    numpad.className = 'sc-numpad sc-numpad--v2';
     const KEY_ROWS = [
-      // 训练：跳过 | 竞速：重开
-      isRace ? [ { k: 'restart', label: '重开', cls: 'func' }, { k: 'clear', label: '清空', cls: 'func' }, { k: 'backspace', label: '⌫', cls: 'func' } ]
-             : [ { k: 'skip', label: '跳过', cls: 'func' }, { k: 'clear', label: '清空', cls: 'func' }, { k: 'backspace', label: '⌫', cls: 'func' } ],
+      [ { k: 'restart', label: '重开', cls: 'func' }, { k: 'clear', label: '清空', cls: 'func' }, { k: 'backspace', label: '退格', cls: 'func' } ],
       [ { k: '1' }, { k: '2' }, { k: '3' } ],
       [ { k: '4' }, { k: '5' }, { k: '6' } ],
       [ { k: '7' }, { k: '8' }, { k: '9' } ],
-      [ { k: '.' }, { k: '0' }, { k: 'confirm', label: '确认', cls: 'confirm' } ]
+      [ { k: '.' }, { k: '0' }, { k: 'confirm', label: '确定', cls: 'confirm' } ]
     ];
     const grid = document.createElement('div');
     grid.className = 'sc-numpad__grid';
     const press = (key) => {
-      if (submitted && key !== 'skip' && key !== 'restart') return;   // 已提交后只能跳过/重开
+      if (submitted && key !== 'restart') return;
       switch (key) {
-        case 'backspace':
-          self.state.currentInput = self.state.currentInput.slice(0, -1);
-          break;
-        case 'clear':
-          self.state.currentInput = '';
-          break;
-        case 'skip':
-          // 跳过本题（训练模式）：不计入统计，直接下一题
-          q.user = ''; q.correct = null; q.skipped = true;
-          self.state.currentInput = '';
-          self.next();
-          return;
-        case 'restart':
-          if (confirm('确定重新开始本轮？')) { self.startPractice(); }
-          return;
-        case 'confirm':
-          submit();
-          return;
-        case '.':
-          if (!self.state.currentInput.includes('.')) self.state.currentInput += '.';
-          break;
-        default: // 0-9
-          if (self.state.currentInput.length < 12) self.state.currentInput += key;
+        case 'backspace': self.state.currentInput = self.state.currentInput.slice(0, -1); break;
+        case 'clear': self.state.currentInput = ''; break;
+        case 'restart': if (confirm('确定重新开始本轮？')) { self.startPractice(); } return;
+        case 'confirm': submit(); return;
+        case '.': if (!self.state.currentInput.includes('.')) self.state.currentInput += '.'; break;
+        default:
+          if (self.state.currentInput.length < 10) self.state.currentInput += key;
       }
       const disp = container.querySelector('.sc-practice__answer');
-      if (disp) disp.textContent = self.state.currentInput || ' ';
+      if (disp) disp.textContent = self.state.showAns ? (self.state.currentInput || ' ') : '· · ·';
+      // 确定开关 ON：答案位数与正确答案一致 → 自动提交
+      if (confirmAuto && !submitted && !isNaN(parseFloat(self.state.currentInput)) && self.state.currentInput.length === String(q.answer).length) {
+        submit();
+      }
     };
     KEY_ROWS.forEach(row => {
       row.forEach(k => {
@@ -22126,68 +22270,55 @@ App.Pages.SpeedCalc = {
       });
     });
     numpad.appendChild(grid);
-
-    // 底部进度提示
     const footer = document.createElement('div');
     footer.className = 'sc-numpad__footer';
-    footer.textContent = isRace ? (this.state.idx + 1) + '/' + total : (this.state.idx + 1) + '/∞（单题训练模式）';
+    footer.textContent = '第' + (this.state.idx + 1) + '/' + total + '题';
     numpad.appendChild(footer);
-
-    // ===== 涂鸦按钮（右下角，键盘上方）=====
-    const doodleBtn = document.createElement('button');
-    doodleBtn.type = 'button';
-    doodleBtn.className = 'sc-doodle-btn';
-    doodleBtn.textContent = '✏️';
-    doodleBtn.title = '草稿涂鸦';
-    doodleBtn.addEventListener('click', () => {
-      App.Components.doodleOverlay({
-        initial: self.state.doodleData || null,
-        onChange: (dataURL) => { self.state.doodleData = dataURL || null; }
-      });
-    });
-    container.appendChild(doodleBtn);
 
     container.appendChild(body);
     body.appendChild(feedback);
     container.appendChild(numpad);
-    if (!submitted) { /* 数字键盘无需 focus */ }
+
+    this.state.qStart = Date.now();
   },
 
   // 下一题 / 完成
   next() {
-    const total = this.state.questions.length;
     if (this.state.qTimerId) { clearInterval(this.state.qTimerId); this.state.qTimerId = null; }
-    if (this.state.idx >= total - 1) {
+    if (this.state.autoNextTimer) { clearTimeout(this.state.autoNextTimer); this.state.autoNextTimer = null; }
+    if (this.state.idx >= this.state.questions.length - 1) {
       this.finish();
     } else {
       this.state.idx++;
-      this.state.doodleData = null;   // 换题自动清空涂鸦痕迹
+      this.state.doodleData = null;
       this.render({});
     }
   },
 
-  // 完成：统计 + 存历史 + 结果页
+  // 完成：统计 + 存历史（kg_speed_records）+ 结果页
   finish() {
     if (this.state.timerId) { clearInterval(this.state.timerId); this.state.timerId = null; }
     if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
     if (this.state.qTimerId) { clearInterval(this.state.qTimerId); this.state.qTimerId = null; }
-    this.state.elapsed = Math.round((Date.now() - this.state.startTime) / 1000);
-    this.state.doodleData = null;
-
-    const correctCount = this.state.questions.filter(q => q.correct === true).length;
+    if (this.state.autoNextTimer) { clearTimeout(this.state.autoNextTimer); this.state.autoNextTimer = null; }
+    const qs = this.state.questions;
+    const correct = qs.filter(q => q.correct === true).length;
+    const totalTime = Math.round((Date.now() - this.state.startTime) / 100) / 10;
+    const avgTime = qs.length ? Math.round(totalTime / qs.length * 10) / 10 : 0;
     const record = {
       id: 'sc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       type: this.TYPES[this.state.type].name,
       mode: this.state.mode === 'race' ? '竞速模式' : '训练模式',
+      count: qs.length,
+      correct: correct,
+      totalTime: totalTime,
+      avgTime: avgTime,
       date: new Date().toISOString(),
-      correctCount: correctCount,
-      totalCount: this.state.questions.length,
-      duration: this.state.elapsed
+      details: qs.map(q => ({ q: q.expr, user: q.user, correct: q.answer, isRight: q.correct === true, time: q.timeUsed || 0 }))
     };
     const list = this.loadHistory();
     list.unshift(record);
-    this.saveHistory(list.slice(0, 200));   // 最多保留 200 条
-
+    this.saveHistory(list.slice(0, 200));
     this.show('result');
   },
 
@@ -22197,23 +22328,23 @@ App.Pages.SpeedCalc = {
     const qs = this.state.questions;
     const correctCount = qs.filter(q => q.correct === true).length;
     const total = qs.length;
-    const pct = Math.round(correctCount / total * 100);
+    const pct = total ? Math.round(correctCount / total * 100) : 0;
+    const totalTime = Math.round((Date.now() - this.state.startTime) / 100) / 10;
+    const avgTime = total ? Math.round(totalTime / total * 10) / 10 : 0;
 
-    container.appendChild(App.Components.pageHeader('练习结果', null, null));
+    this._topbar(container, '练习结果', () => this.show('home'));
 
     const body = document.createElement('div');
     body.className = 'sc-page';
 
-    // 概览卡片
     const overview = document.createElement('div');
     overview.className = 'sc-result-overview';
     overview.innerHTML =
       '<div class="sc-result-score">' + pct + '<span class="sc-result-score__unit">%</span></div>' +
       '<div class="sc-result-score__label">正确率 ' + correctCount + '/' + total + '</div>' +
-      '<div class="sc-result-score__meta">' + fmtTime(this.state.elapsed) + ' · ' + this.TYPES[this.state.type].name + ' · ' + (this.state.mode === 'race' ? '竞速' : '训练') + '</div>';
+      '<div class="sc-result-score__meta">总用时 ' + fmtClock(totalTime) + ' · 平均 ' + avgTime + 's · ' + this.TYPES[this.state.type].name + ' · ' + (this.state.mode === 'race' ? '竞速' : '训练') + '</div>';
     body.appendChild(overview);
 
-    // 每题列表
     const listTitle = document.createElement('div');
     listTitle.className = 'sc-section-title';
     listTitle.textContent = '答题明细';
@@ -22233,7 +22364,6 @@ App.Pages.SpeedCalc = {
     });
     body.appendChild(list);
 
-    // 操作
     const btnRow = document.createElement('div');
     btnRow.className = 'sc-btn-row';
     const againBtn = document.createElement('button');
@@ -22253,10 +22383,10 @@ App.Pages.SpeedCalc = {
     container.appendChild(body);
   },
 
-  // ===== 视图：历史记录（倒序 + 左滑删除） =====
+  // ===== 视图：历史记录（kg_speed_records；兼容旧记录字段）=====
   renderHistory(container) {
     const self = this;
-    container.appendChild(App.Components.pageHeader('历史记录', null, null));
+    this._topbar(container, '历史记录', () => this.show('home'));
 
     const body = document.createElement('div');
     body.className = 'sc-page';
@@ -22274,13 +22404,16 @@ App.Pages.SpeedCalc = {
         const row = document.createElement('div');
         row.className = 'sc-hist-row';
         row.dataset.idx = idx;
+        const cc = r.correctCount !== undefined ? r.correctCount : r.correct;
+        const tc = r.totalCount !== undefined ? r.totalCount : r.count;
+        const dur = r.duration !== undefined ? r.duration : r.totalTime;
+        const avg = r.avgTime !== undefined ? r.avgTime : (tc ? Math.round((dur || 0) / tc * 10) / 10 : 0);
         row.innerHTML =
           '<div class="sc-hist-row__main">' +
             '<div class="sc-hist-row__title">' + esc(r.type) + ' · ' + esc(r.mode) + '</div>' +
-            '<div class="sc-hist-row__sub">' + fmtDate(r.date) + ' · 正确率 ' + r.correctCount + '/' + r.totalCount + ' · 用时 ' + fmtTime(r.duration || 0) + '</div>' +
+            '<div class="sc-hist-row__sub">' + fmtDate(r.date) + ' · 正确率 ' + cc + '/' + tc + ' · 用时 ' + fmtClock(dur || 0) + (avg ? ' · 平均 ' + avg + 's' : '') + '</div>' +
           '</div>' +
           '<button class="sc-hist-del" type="button">删除</button>';
-        // 左滑删除：左滑超阈值显示删除按钮，点击确认删除
         bindSwipeDelete(row, rows, () => {
           const ok2 = confirm('删除这条练习记录？');
           if (ok2) {
@@ -22321,6 +22454,13 @@ function fmtTime(sec) {
   var m = Math.floor(sec / 60);
   var s = sec % 60;
   return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+}
+// v8.6.14 速算 100ms 计时显示格式（m:ss）
+function fmtClock(sec) {
+  sec = Math.max(0, Math.round(sec || 0));
+  var m = Math.floor(sec / 60);
+  var s = sec % 60;
+  return m + ':' + (s < 10 ? '0' : '') + s;
 }
 function fmtDate(iso) {
   if (!iso) return '';
