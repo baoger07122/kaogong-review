@@ -28,7 +28,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.17', 'App.VERSION === 8.6.17（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.18', 'App.VERSION === 8.6.18（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 题型生成器（13 种，含 2 个 ▼ 占位）');
     const typeKeys = Object.keys(SC.TYPES);

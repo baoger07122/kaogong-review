@@ -7388,7 +7388,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.17';
+App.VERSION = '8.6.18';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -20850,17 +20850,7 @@ App.Pages.Settings = {
     // 一键备份：调用 iOS 分享面板，选择「存储到文件 / iCloud 云盘 > 考公备考系统」
     const shareBackupToICloud = async () => {
       try {
-        const last = await App.DB.kvGet('last_icloud_backup');
-        const today = new Date().toISOString().slice(0, 10);
-        const lastDay = last ? new Date(parseInt(last, 10)).toISOString().slice(0, 10) : '';
-        if (lastDay === today) {
-          const go = await App.Components.confirm(
-            '今日已备份',
-            '今天已经备份过一次。继续保存会用新数据覆盖 iCloud「考公备考系统-backup.json」中的旧数据，是否继续？',
-            '覆盖保存', '取消', false
-          );
-          if (!go) return;
-        }
+        // v8.6.18 不再提示「今日已备份/是否覆盖」，点击直接备份（用户要求）
         await App.DB.shareBackupToICloud();
         App.Components.toast('备份文件已生成，请保存到 iCloud「考公备考系统」文件夹', 'success');
         refreshBackupInfo();
