@@ -50,10 +50,10 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.9', 'App.VERSION === 8.6.9（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.10', 'App.VERSION === 8.6.10（当前 ' + App.VERSION + '）');
 
-    console.log('\n[2] 首页便签：横向滚动容器 + 卡片规格');
-    // 5 条便签（1 置顶 + 4 普通）→ 超过一屏，应有分页指示器
+    console.log('\n[2] 首页便签：纵向瀑布流 + 卡片规格（v8.6.10 替代横向滚动）');
+    // 5 条便签（1 置顶 + 4 普通）
     const base = new Date().toISOString();
     store.stickies = {};
     await App.DB.addSticky({ id: 's1', content: '记得复习资料分析比重问题', color: '#FFFBEB', pinned: true, createdAt: base });
@@ -64,37 +64,25 @@ setTimeout(async () => {
 
     await Home.render(container);
     await wait(10);
-    const scrollWrap = container.querySelector('.sticky-scroll');
-    assert(!!scrollWrap, '首页便签为横向滚动容器 .sticky-scroll');
-    assert(win.getComputedStyle(scrollWrap).overflowX === 'auto', '容器 overflow-x: auto（可横滑）');
-    const cards = container.querySelectorAll('.sticky-scroll .sticky-card');
+    const masonry = container.querySelector('.sticky-masonry--home');
+    assert(!!masonry, '首页便签为纵向瀑布流容器 .sticky-masonry--home');
+    assert(!container.querySelector('.sticky-scroll'), '无横向滚动容器（已改纵向瀑布流）');
+    assert(!container.querySelector('.sticky-dots'), '无分页指示器（横向滚动已移除）');
+    const cards = container.querySelectorAll('.sticky-masonry--home .sticky-card');
     assert(cards.length === 5, '渲染 5 张便签卡片');
-    assert(win.getComputedStyle(cards[0]).width === '150px', '卡片固定宽 150px（' + win.getComputedStyle(cards[0]).width + '）');
     assert(cards[0].classList.contains('is-pinned'), '置顶卡片在最前（第一张 is-pinned）');
     assert(cards[0].style.background === 'rgb(255, 251, 235)' || cards[0].style.background === '#FFFBEB', '默认暖白背景');
     const meta = cards[0].querySelector('.sticky-card__meta');
     assert(!!meta && win.getComputedStyle(meta).color === 'rgb(156, 163, 175)', '底部时间 11px 灰（#9CA3AF）');
-    assert(!!cards[0].querySelector('.sticky-card__content'), '卡片内容区存在（圆角16px/字号14px由 CSS 变量保证，jsdom 不解析 var() 故不断言值）');
+    assert(!!cards[0].querySelector('.sticky-card__content'), '卡片内容区存在（字号 14px = --font-md 与全局一致，jsdom 不解析 var() 故不断言值）');
 
-    console.log('\n[3] 分页指示器');
-    const dots = container.querySelector('.sticky-dots');
-    assert(!!dots, '便签数 > 3 时显示分页指示器');
-    assert(dots.children.length === 3, '5 条 → 3 个圆点（每屏约 2 张）');
-    assert(dots.children[0].classList.contains('is-active'), '首点默认高亮');
-
-    console.log('\n[4] 空态');
+    console.log('\n[3] 空态');
     store.stickies = {};
     await Home.render(container);
     await wait(10);
     const empty = container.querySelector('.sticky-empty');
     assert(!!empty && empty.textContent.indexOf('暂无便签') >= 0, '无便签显示空态占位');
-    assert(!container.querySelector('.sticky-dots'), '空态不显示分页指示器');
-
-    console.log('\n[5] 少卡片不显示指示器');
-    await App.DB.addSticky({ id: 's6', content: '只有一张', color: '#FFFBEB', pinned: false, createdAt: base });
-    await Home.render(container);
-    await wait(10);
-    assert(!container.querySelector('.sticky-dots'), '卡片 ≤3 张时不显示分页指示器');
+    assert(!container.querySelector('.sticky-dots'), '空态无分页指示器');
 
     console.log('\n总计: ' + pass + ' 通过, ' + fail + ' 失败');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }

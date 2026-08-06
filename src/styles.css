@@ -6983,7 +6983,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   column-gap: var(--spacing-sm);
 }
 .sticky-masonry--manage { column-gap: var(--spacing-md); }
-.sticky-masonry--home { column-count: 1; }   /* v8.4.19 首页仅承载横向滚动容器，禁用瀑布流分栏 */
+.sticky-masonry--home { column-count: 2; column-gap: var(--spacing-md); }   /* v8.6.10 首页便签改纵向瀑布流（两列，与管理页一致；原横向滚动已移除） */
 
 /* v8.4.19 首页便签：横向滚动卡片（150px 定宽 + 分页指示器），管理页仍瀑布流 */
 .sticky-scroll {
