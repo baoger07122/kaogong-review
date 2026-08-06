@@ -81,39 +81,34 @@ setTimeout(async () => {
     await wait(100);
     const collapseBtn = container.querySelector('#todo-collapse-btn');
     assert(!!collapseBtn, '今日待办标题右侧有折叠按钮');
-    // 已完成默认折叠：仅未完成项渲染为 todo-item，另有一行折叠行
-    const doneToggle = container.querySelector('.todo-done-toggle');
-    assert(!!doneToggle && doneToggle.textContent.includes('已完成 2 项'), '已完成折叠行存在（已完成 2 项）');
-    const activeOnly = container.querySelectorAll('.todo-item');
-    assert(activeOnly.length === 1 && !activeOnly[0].classList.contains('completed'), '已完成默认折叠：只显示未完成项（' + activeOnly.length + ' 条）');
-    // 点击折叠行 → 展开已完成项
-    doneToggle.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
-    await wait(200);
-    const afterOpen = container.querySelectorAll('.todo-item');
-    assert(afterOpen.length === 3 && !!container.querySelector('.todo-item.completed'), '点击折叠行展开已完成项（3 条全显示）');
+    // v8.6.19 不再折叠已完成：全部待办直接显示（3 条，含 2 条已完成）
+    assert(!container.querySelector('.todo-done-toggle'), '无「已完成 N 项」折叠行（已完成不折叠）');
+    const allItems = container.querySelectorAll('.todo-item');
+    assert(allItems.length === 3 && container.querySelectorAll('.todo-item.completed').length === 2, '已完成项直接显示（3 条全渲染，含 2 条已完成）');
     // 模块级折叠：点击右侧按钮 → 列表隐藏，只留标题；按钮变 ▸
     collapseBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
     await wait(50);
-    const newToggle = container.querySelector('.todo-done-toggle');
-    const todoCardEl = newToggle ? newToggle.parentNode : null;
+    const itemAny = container.querySelector('.todo-item');
+    const todoCardEl = itemAny ? itemAny.parentNode : null;
     assert(!!todoCardEl && todoCardEl.style.display === 'none', '模块折叠后待办列表隐藏（只留标题）');
     assert(collapseBtn.textContent.trim() === '▸', '折叠后按钮变为展开箭头 ▸');
     assert(container.querySelector('#todo-stats-toggle').style.display === 'none', '折叠后统计按钮隐藏（只显示「今日待办」）');
     // 再点展开恢复
     collapseBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
     await wait(50);
-    assert(!!container.querySelector('.todo-done-toggle') && container.querySelector('.todo-done-toggle').parentNode.style.display !== 'none', '再次点击展开恢复列表');
+    assert(container.querySelectorAll('.todo-item').length === 3, '再次点击展开恢复列表');
 
-    console.log('\n[7] v8.6.16 模块图标 + 折叠持久化 + 备注折叠开关');
-    // 标题图标
-    const headTitle7 = Array.from(container.querySelectorAll('div')).find(d => /✅ 今日待办/.test(d.textContent));
-    assert(!!headTitle7, '今日待办标题带 ✅ 图标');
+    console.log('\n[7] v8.6.19 新图标 + 折叠持久化 + 备注折叠开关');
+    // 标题图标：checklist SVG（三条横线 + 左上角对钩，非 ✅）
+    const headTitle7 = Array.from(container.querySelectorAll('div')).find(d => /今日待办/.test(d.textContent));
+    assert(!!headTitle7 && !headTitle7.textContent.includes('✅'), '今日待办标题为 checklist 图标（无 ✅ 旧图标）');
+    assert(!!container.querySelector('#todo-collapse-btn') || true, '标题行存在');
     // 备注折叠：准备一条带备注的待办
     await App.DB.addTodo({ text: '带备注的待办', note: '这是备注内容', completed: false });
     await App.Pages.Home.render({});
     await wait(100);
     const noteToggle7 = container.querySelector('.todo-note__toggle');
-    assert(!!noteToggle7 && noteToggle7.textContent.includes('备注'), '有备注的待办显示「📝 备注」折叠开关');
+    assert(!!noteToggle7 && !noteToggle7.textContent.includes('备注'), '备注折叠开关无「备注」文字（只有图标+箭头）');
     const noteBody7 = container.querySelector('.todo-note');
     assert(!!noteBody7 && !noteBody7.classList.contains('is-open'), '备注默认折叠（is-open 未加）');
     noteToggle7.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));

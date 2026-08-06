@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.18';
+App.VERSION = '8.6.19';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9070,7 +9070,10 @@ App.Pages.Home = {
     todoHead.innerHTML = `
       <div style='display:flex;align-items:center;justify-content:space-between;'>
         <div style='display:flex;align-items:center;gap:var(--spacing-sm);'>
-          <div style='font-size:var(--font-lg);font-weight:600;'>✅ 今日待办</div>
+          <div style='font-size:var(--font-lg);font-weight:600;display:flex;align-items:center;gap:6px;'>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6h14"/><path d="M4 11h16"/><path d="M4 16h16"/><path d="M2.5 6l1.8 1.8L7 5"/></svg>
+            <span>今日待办</span>
+          </div>
           <div id='todo-stats-toggle' style='font-size:var(--font-xs);color:var(--color-primary);background:var(--color-primary-bg);padding:3px 10px;border-radius:9999px;cursor:pointer;'>统计</div>
         </div>
         <button id='todo-collapse-btn' type='button' style='border:none;background:var(--bg-tertiary);color:var(--text-secondary);width:30px;height:30px;border-radius:50%;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;' title='折叠/展开今日待办'>▾</button>
@@ -9213,9 +9216,9 @@ App.Pages.Home = {
       return statsPanel;
     };
 
-    // 日期筛选（默认今日，解决「今日待办」显示昨天待办的问题）
+    // 日期筛选（默认今日，解决「今日待办」显示昨天待办的问题；v8.6.19 单行横向不换行）
     const dateRow = document.createElement('div');
-    dateRow.style.cssText = 'display:flex;gap:var(--spacing-sm);margin-bottom:var(--spacing-sm);';
+    dateRow.style.cssText = 'display:flex;gap:var(--spacing-sm);margin-bottom:var(--spacing-sm);flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;';
     [['today','今日'],['week','最近7天'],['all','全部']].forEach(function (pair) {
       const key = pair[0], label = pair[1];
       const chip = document.createElement('div');
@@ -9271,9 +9274,7 @@ App.Pages.Home = {
         </div>
       `;
     } else {
-      // v8.6.12 已完成事项折叠：未完成全部显示，已完成默认收进「已完成 N 项」折叠行
-      const activeTodos = listTodos.filter(t => !t.completed);
-      const doneTodos = listTodos.filter(t => t.completed);
+      // v8.6.19 不再折叠已完成事项：全部待办直接显示（已完成沉底排序由 sort 保证）
       const renderItem = (todo) => {
         const item = document.createElement('div');
         item.className = 'todo-item' + (todo.completed ? ' completed' : '');
@@ -9304,7 +9305,7 @@ App.Pages.Home = {
           const noteOpen = !!this.todoState.notesOpen[todo.id];
           noteToggle = document.createElement('div');
           noteToggle.className = 'todo-note__toggle';
-          noteToggle.innerHTML = '<span>📝 备注</span><span class="todo-note__caret">' + (noteOpen ? '▴' : '▾') + '</span>';
+          noteToggle.innerHTML = '<span>📝</span><span class="todo-note__caret">' + (noteOpen ? '▴' : '▾') + '</span>';
           noteToggle.addEventListener('click', (e) => {
             e.stopPropagation();
             this.todoState.notesOpen[todo.id] = !this.todoState.notesOpen[todo.id];
@@ -9385,7 +9386,7 @@ App.Pages.Home = {
                   // 重建折叠备注（v8.6.16 结构：toggle + body）
                   noteToggle = document.createElement('div');
                   noteToggle.className = 'todo-note__toggle';
-                  noteToggle.innerHTML = '<span>📝 备注</span><span class="todo-note__caret">▾</span>';
+                  noteToggle.innerHTML = '<span>📝</span><span class="todo-note__caret">▾</span>';
                   noteToggle.addEventListener('click', (e) => {
                     e.stopPropagation();
                     this.todoState.notesOpen[todo.id] = !this.todoState.notesOpen[todo.id];
@@ -9516,23 +9517,7 @@ App.Pages.Home = {
 
         card.appendChild(item);
       };
-      activeTodos.forEach(renderItem);
-      // 已完成事项折叠行（默认折叠，点击展开/收起）
-      if (doneTodos.length) {
-        const doneRow = document.createElement('div');
-        doneRow.className = 'todo-done-toggle';
-        doneRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 14px;margin-top:6px;font-size:var(--font-sm);color:var(--text-secondary);background:var(--bg-tertiary);border-radius:10px;cursor:pointer;-webkit-tap-highlight-color:transparent;';
-        doneRow.innerHTML = '<span>✅ 已完成 ' + doneTodos.length + ' 项</span><span class="todo-done-toggle__caret">' + (this.todoState.doneOpen ? '▴' : '▾') + '</span>';
-        doneRow.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.todoState.doneOpen = !this.todoState.doneOpen;
-          // v8.6.16 已完成折叠状态持久化
-          try { localStorage.setItem('kg_todo_ui', JSON.stringify({ collapsed: !!this.todoState.collapsed, doneOpen: !!this.todoState.doneOpen })); } catch (e2) {}
-          refreshTodo();
-        });
-        card.appendChild(doneRow);
-        if (this.todoState.doneOpen) doneTodos.forEach(renderItem);
-      }
+      listTodos.forEach(renderItem);
     }
     };
     // 轻量刷新：只更新计数、进度条和列表，绝不整页重绘
@@ -9553,9 +9538,10 @@ App.Pages.Home = {
     fillTodoList(todoCard);
     todoWrap.appendChild(todoCard);
 
-    // 类型快捷栏
+    // 类型快捷栏（v8.6.19 与日期筛选一致：单行横向排布，不换行、超出横向滑动）
     const typeRow = document.createElement('div');
-    typeRow.style.cssText = 'display:flex;gap:var(--spacing-sm);margin-bottom:var(--spacing-sm);flex-wrap:wrap;';
+    typeRow.style.cssText = 'display:flex;gap:var(--spacing-sm);margin-bottom:var(--spacing-sm);flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;';
+    typeRow.style.setProperty('-webkit-scrollbar-display', 'none');
     TODO_TYPES.forEach(function (t) {
       const active = this.todoState.type === t.key;
       const tc = document.createElement('div');
