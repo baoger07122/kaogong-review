@@ -7298,7 +7298,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.6';
+App.VERSION = '8.6.7';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -8653,85 +8653,9 @@ App.DB = (function() {
     await kvSet('last_icloud_backup', Date.now());
   }
 
-  // ===== 自动 iCloud 备份提醒 =====
-  async function getBackupInterval() {
-    const v = await kvGet('icloud_backup_interval_days');
-    return v ? parseInt(v, 10) : 0;
-  }
-  async function setBackupInterval(days) {
-    await kvSet('icloud_backup_interval_days', parseInt(days, 10) || 0);
-  }
-  async function isBackupDue() {
-    const days = await getBackupInterval();
-    if (days <= 0) return false;
-    const last = await kvGet('last_icloud_backup');
-    if (!last) return true;
-    return Date.now() - parseInt(last, 10) > days * 24 * 60 * 60 * 1000;
-  }
-
-  // ===== 自动本地备份（静默，存 IndexedDB，最多保留 5 份）=====
-  const AUTO_BACKUP_PREFIX = 'auto_backup_';
-  const AUTO_BACKUP_MAX = 5;
-  let _autoBackupEnabled = true;
-  let _lastAutoBackup = 0;
-  let _autoBacking = false;
-
-  async function autoBackup() {
-    if (!_autoBackupEnabled) return null;
-    const now = Date.now();
-    if (_autoBacking) return null;
-    if (now - _lastAutoBackup < 3 * 60 * 1000) return null; // 节流：至少 3 分钟一次
-    _lastAutoBackup = now;
-    _autoBacking = true;
-    try {
-      const data = await buildBackupData();
-      const ts = Date.now();
-      await kvSet(AUTO_BACKUP_PREFIX + ts, { ts, data });
-      await kvSet('last_auto_backup', ts);
-      const all = await getAll('keyvalue');
-      const keys = all.map(r => r.key).filter(k => k && k.startsWith(AUTO_BACKUP_PREFIX));
-      if (keys.length > AUTO_BACKUP_MAX) {
-        const sorted = keys.map(k => parseInt(k.slice(AUTO_BACKUP_PREFIX.length), 10)).sort((a, b) => a - b);
-        const removeCnt = keys.length - AUTO_BACKUP_MAX;
-        for (let i = 0; i < removeCnt; i++) {
-          await remove('keyvalue', AUTO_BACKUP_PREFIX + sorted[i]);
-        }
-      }
-      return ts;
-    } catch (e) {
-      console.error('autoBackup failed', e);
-      return null;
-    } finally {
-      _autoBacking = false;
-    }
-  }
-
-  async function listAutoBackups() {
-    const all = await getAll('keyvalue');
-    return all
-      .filter(r => r.key && r.key.startsWith(AUTO_BACKUP_PREFIX))
-      .map(r => ({ key: r.key, ts: (r.value && r.value.ts) || 0 }))
-      .sort((a, b) => b.ts - a.ts);
-  }
-
-  async function restoreAutoBackup(key) {
-    const item = await get('keyvalue', key);
-    if (!item || !item.value || !item.value.data) throw new Error('备份不存在');
-    await importAll(item.value.data);
-  }
-
-  function setAutoBackupEnabled(v) {
-    _autoBackupEnabled = !!v;
-    kvSet('auto_backup_enabled', _autoBackupEnabled ? '1' : '0');
-  }
-
-  async function initAutoBackupFlag() {
-    try {
-      const v = await kvGet('auto_backup_enabled');
-      _autoBackupEnabled = (v !== '0');
-    } catch (e) { _autoBackupEnabled = true; }
-    return _autoBackupEnabled;
-  }
+  // v8.6.7 已移除自动备份功能（用户要求）：本地自动备份（autoBackup 等）与 iCloud 自动备份提醒
+  // （getBackupInterval/setBackupInterval/isBackupDue）全部删除。历史遗留 keyvalue 中的 auto_backup_*
+  // 键由 buildBackupData/exportAll 的过滤逻辑兜底（不进入导出），本地残留数据无害。
 
   // ===== 检查数据库是否可用 =====
   async function isAvailable() {
@@ -8766,9 +8690,7 @@ App.DB = (function() {
     addWord, updateWord, getWord, getWords, deleteWord,
     getStats,
     exportAll, importAll,
-    buildBackupData, shareBackupToICloud, getBackupInterval, setBackupInterval, isBackupDue,
-    autoBackup, listAutoBackups, restoreAutoBackup,
-    setAutoBackupEnabled, initAutoBackupFlag,
+    buildBackupData, shareBackupToICloud,
     kvGet, kvSet,
     isAvailable
   };
@@ -15590,19 +15512,16 @@ App.Cloud = (function () {
     App.DB.add = async function (store, item) {
       const r = await orig.add(store, item);
       _onMutate(store, 'put', item);
-      App.DB.autoBackup();
       return r;
     };
     App.DB.put = async function (store, item) {
       const r = await orig.put(store, item);
       _onMutate(store, 'put', item);
-      App.DB.autoBackup();
       return r;
     };
     App.DB.remove = async function (store, id) {
       const r = await orig.remove(store, id);
       _onMutate(store, 'del', id);
-      App.DB.autoBackup();
       return r;
     };
   }
@@ -16098,8 +16017,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 初始化路由
   App.Router.init();
-
-  // 自动备份提醒已关闭（用户要求不再提醒备份/恢复）
 
   // 初始化 FAB 点击事件
   const fab = document.getElementById('fab');
@@ -20645,20 +20562,7 @@ App.Pages.Settings = {
         </div>
         <button class="btn btn--primary btn--full backup-hero__btn" id="backup-icloud">⬇️ 立即备份</button>
       </div>
-      <div class="backup-hero__auto">
-        <div class="settings-item" style="cursor:default">
-          <span class="settings-item__label">自动备份提醒</span>
-          <span class="settings-item__value">
-            <select id="auto-backup-interval" style="font-size:var(--font-sm);padding:4px 8px;border-radius:var(--radius-sm);border:1px solid var(--divider-color);background:var(--bg-card);color:var(--text-primary);">
-              <option value="0">关闭</option>
-              <option value="1">每天</option>
-              <option value="7">每周</option>
-              <option value="30">每月</option>
-            </select>
-          </span>
-        </div>
-        <div class="backup-hero__hint" id="auto-backup-info">读取中…</div>
-      </div>
+      <div class="backup-hero__hint" id="backup-info">读取中…</div>
     `;
     content.insertBefore(backupGroup, content.firstChild);
 
@@ -20687,34 +20591,22 @@ App.Pages.Settings = {
     };
     const refreshBackupInfo = async () => {
       try {
-        const [interval, last] = await Promise.all([
-          App.DB.getBackupInterval(),
-          App.DB.kvGet('last_icloud_backup')
-        ]);
-        const sel = backupGroup.querySelector('#auto-backup-interval');
-        if (sel) sel.value = String(interval || 0);
-        const info = backupGroup.querySelector('#auto-backup-info');
+        const last = await App.DB.kvGet('last_icloud_backup');
+        const info = backupGroup.querySelector('#backup-info');
         if (info) {
-          const map = { 0: '已关闭', 1: '每天', 7: '每周', 30: '每月' };
-          let txt = '自动备份：' + (map[interval] || '已关闭');
+          let txt = '备份文件「考公备考系统-backup.json」可保存到 iCloud「考公备考系统」文件夹';
           if (last) {
             const d = new Date(parseInt(last, 10));
             txt += ' · 上次备份：' + d.toLocaleString('zh-CN', { hour12: false });
           } else {
             txt += ' · 暂无 iCloud 备份';
           }
-          txt += ' · 到期后启动应用会提示保存';
           info.textContent = txt;
         }
       } catch (e) { /* ignore */ }
     };
     const backupBtn = backupGroup.querySelector('#backup-icloud');
     if (backupBtn) backupBtn.addEventListener('click', shareBackupToICloud);
-    const intervalEl = backupGroup.querySelector('#auto-backup-interval');
-    if (intervalEl) intervalEl.addEventListener('change', async (e) => {
-      await App.DB.setBackupInterval(e.target.value);
-      await refreshBackupInfo();
-    });
     refreshBackupInfo();
 
 
@@ -20889,47 +20781,6 @@ App.Pages.Settings = {
       fileInput.click();
     });
     dataGroup.appendChild(importItem);
-
-    // 本地自动备份记录（折叠形式：默认只显示一行标题，点开才展开纯文字记录，无恢复按钮）
-    const localBackupWrap = document.createElement('div');
-    localBackupWrap.style.cssText = 'padding:4px 0 12px;';
-    localBackupWrap.innerHTML = `
-      <div class="backup-list-title backup-list-title--clickable" id="local-backup-head">
-        <span class="backup-list-title__text">本地自动备份记录</span>
-        <span class="backup-list-title__right">
-          <span class="backup-list-title__badge" id="local-backup-count">读取中…</span>
-          <span class="backup-list-title__arrow">▸</span>
-        </span>
-      </div>
-      <div id="local-backup-list" class="backup-list-body" style="display:none;"></div>
-    `;
-    dataGroup.appendChild(localBackupWrap);
-    const backupHead = localBackupWrap.querySelector('#local-backup-head');
-    const backupBody = localBackupWrap.querySelector('#local-backup-list');
-    backupHead.addEventListener('click', () => {
-      const open = backupHead.classList.toggle('open');
-      backupBody.style.display = open ? 'block' : 'none';
-    });
-    (async () => {
-      try {
-        const list = await App.DB.listAutoBackups();
-        const countEl = localBackupWrap.querySelector('#local-backup-count');
-        countEl.textContent = list.length ? `${list.length} 条` : '0 条';
-        const box = localBackupWrap.querySelector('#local-backup-list');
-        if (!list.length) {
-          box.innerHTML = '<div class="backup-list-row backup-list-row--empty">暂无本地备份（修改任意数据后会自动生成）</div>';
-          return;
-        }
-        box.innerHTML = '';
-        list.forEach(b => {
-          const row = document.createElement('div');
-          row.className = 'backup-list-row';
-          const d = new Date(b.ts);
-          row.innerHTML = `<span>${d.toLocaleString('zh-CN', { hour12: false })}</span>`;
-          box.appendChild(row);
-        });
-      } catch (e) { /* ignore */ }
-    })();
 
     content.appendChild(dataGroup);
 
