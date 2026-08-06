@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.8';
+App.VERSION = '8.6.9';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -4863,6 +4863,18 @@ App.Components = {
       sheet.className = 'notion-mobile-sheet' + (opts.height ? ' ' + opts.height : '');
       const handleBar = document.createElement('div');
       handleBar.className = 'notion-mobile-sheet__handle';
+      // v8.6.9 顶部横杠：按住向下拖 → 面板跟随位移，松手超过 80px 关闭
+      let _dragStartY = 0;
+      handleBar.addEventListener('touchstart', (e) => { _dragStartY = e.touches[0].clientY; }, { passive: true });
+      handleBar.addEventListener('touchmove', (e) => {
+        const dy = e.touches[0].clientY - _dragStartY;
+        if (dy > 0) sheet.style.transform = 'translateY(' + Math.min(dy, 140) + 'px)';
+      }, { passive: true });
+      handleBar.addEventListener('touchend', (e) => {
+        const dy = e.changedTouches[0].clientY - _dragStartY;
+        sheet.style.transform = '';
+        if (dy > 80) closeSheet();
+      }, { passive: true });
       sheet.appendChild(handleBar);
       const content = document.createElement('div');
       content.className = 'notion-mobile-sheet__content';
@@ -5476,6 +5488,18 @@ App.Components = {
       sheet.className = 'notion-mobile-sheet' + (opts.height ? ' ' + opts.height : '');
       const handleBar = document.createElement('div');
       handleBar.className = 'notion-mobile-sheet__handle';
+      // v8.6.9 顶部横杠：按住向下拖 → 面板跟随位移，松手超过 80px 关闭
+      let _dragStartY = 0;
+      handleBar.addEventListener('touchstart', (e) => { _dragStartY = e.touches[0].clientY; }, { passive: true });
+      handleBar.addEventListener('touchmove', (e) => {
+        const dy = e.touches[0].clientY - _dragStartY;
+        if (dy > 0) sheet.style.transform = 'translateY(' + Math.min(dy, 140) + 'px)';
+      }, { passive: true });
+      handleBar.addEventListener('touchend', (e) => {
+        const dy = e.changedTouches[0].clientY - _dragStartY;
+        sheet.style.transform = '';
+        if (dy > 80) closeSheet();
+      }, { passive: true });
       sheet.appendChild(handleBar);
       const content = document.createElement('div');
       content.className = 'notion-mobile-sheet__content';

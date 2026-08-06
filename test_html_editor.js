@@ -117,6 +117,9 @@ setTimeout(async () => {
     const textSheetSeg = built.slice(built.indexOf('function openMobileTextSheet'), built.indexOf('function openColorSheet'));
     assert(!textSheetSeg.includes('行内代码'), '文字格式面板已去掉行内代码');
     assert(textSheetSeg.indexOf('加粗') < textSheetSeg.indexOf('颜色'), '文字格式面板含加粗/颜色等行内项');
+    // v8.6.9 顶部横杠下拉关闭手势（格式/插入面板）
+    assert(built.includes('_dragStartY') && built.includes('dy > 80') && built.includes('translateY'), '格式面板顶部横杠支持按住下拉关闭（跟随位移 + 80px 阈值）');
+    assert(built.includes('z-index: 10000'), '弹层层级高于底部导航（9999），贴底按钮不被遮');
 
     console.log('\n总计: ' + pass + ' 通过, ' + fail + ' 失败');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }

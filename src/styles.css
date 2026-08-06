@@ -2259,7 +2259,7 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   position: fixed;
   inset: 0;
   background: var(--bg-overlay);
-  z-index: 1500;
+  z-index: 10000;/* v8.6.9 高于底部导航(9999)，弹层内贴底按钮不被遮 */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2817,7 +2817,7 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   position: fixed;
   inset: 0;
   background: var(--bg-overlay);
-  z-index: 1800;
+  z-index: 10000;   /* v8.6.9 高于底部导航(9999)，弹层内贴底按钮不被遮 */
   animation: fadeIn 0.2s ease;
 }
 
@@ -4054,7 +4054,7 @@ body.ipad-split .notion-mobile-toolbar {
 .notion-mobile-sheet-overlay {
   position: fixed;
   inset: 0;
-  z-index: 2000;
+  z-index: 10000;
   background: rgba(0, 0, 0, 0.35);
   opacity: 0;
   animation: notion-sheet-fade-in 0.2s ease-out forwards;
@@ -7083,7 +7083,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.4);
-  z-index: 1200;
+  z-index: 10000;   /* v8.6.9 高于底部导航(9999)，保存/确定键不再被导航栏遮挡 */
   display: flex;
   align-items: flex-end;
   justify-content: center;
