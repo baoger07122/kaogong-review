@@ -50,7 +50,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.5.7', 'App.VERSION === 8.5.7（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.1', 'App.VERSION === 8.6.1（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 首页便签：横向滚动容器 + 卡片规格');
     // 5 条便签（1 置顶 + 4 普通）→ 超过一屏，应有分页指示器
