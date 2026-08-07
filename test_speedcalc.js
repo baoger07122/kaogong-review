@@ -28,7 +28,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.25', 'App.VERSION === 8.6.25（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.26', 'App.VERSION === 8.6.26（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 题型生成器（13 种 = 基础计算 10 + 资料分析 3；含 1 个 ▼ 占位）');
     const typeKeys = Object.keys(SC.TYPES);
@@ -170,15 +170,24 @@ setTimeout(async () => {
     assert(!!customTag, '基础模块内含「自定义练习」标签（带 ▼）');
     customTag.click();
     await wait(50);
-    const pickGrid = doc.querySelector('.sc-custom-pickgrid');
+    const pickGrid = doc.querySelector('.sc-custom-grid');
     assert(!!pickGrid && pickGrid.querySelectorAll('.sc-custom-cell').length === 11, '点击后弹出小窗（11 个自定义题型多选）');
-    // 选 2 个 → 确定 → 标签高亮 + 开始按钮「开始自定义练习」
+    assert(!!doc.querySelector('.sc-picker-title') && doc.querySelector('.sc-picker-title').textContent.includes('自定义练习'), 'Sheet 标题「自定义练习·选择题型（可多选）」');
+    assert(!!doc.querySelector('.sc-picker-feattitle') && !!doc.querySelector('.sc-custom-feat-types'), '弹窗含数据特征（固定首位/随机范围）');
+    assert(!!doc.querySelector('.sc-picker-histtitle'), '弹窗含最近使用区域');
+    assert(!!doc.querySelector('.sc-picker-foot') && doc.querySelectorAll('.sc-picker-foot .sc-custom-footbtn').length === 2, '底部固定栏（取消/确定）');
+    // 选 2 个 → 已选标签行实时联动 → 确定 → 标签高亮
     const pcells = pickGrid.querySelectorAll('.sc-custom-cell');
     pcells[0].click();
     pcells[1].click();
     await wait(20);
     assert(pickGrid.querySelectorAll('.sc-custom-cell.selected').length === 2, '小窗内可多选（2 个）');
-    doc.querySelector('.sc-custom-pickfoot .sc-custom-footbtn--ok').click();
+    assert(doc.querySelectorAll('.sc-picker-selrow .sc-custom-selpill').length === 2, '已选标签行实时显示 2 个 pill');
+    // 点 X 移除一个 → 联动
+    doc.querySelector('.sc-picker-selrow .sc-custom-selx').click();
+    await wait(20);
+    assert(doc.querySelectorAll('.sc-picker-selrow .sc-custom-selpill').length === 1 && pickGrid.querySelectorAll('.sc-custom-cell.selected').length === 1, '点 X 移除 → 标签与网格联动');
+    doc.querySelector('.sc-picker-foot .sc-custom-footbtn--ok').click();
     await wait(50);
     assert(SC.state.type === 'custom', '确定后题型标记为 custom（不进入新页面）');
     assert(home.querySelectorAll('.sc-module-tag.selected').length === 1 && home.querySelector('.sc-module-tag.selected').textContent.includes('自定义练习'), '自定义练习标签高亮');

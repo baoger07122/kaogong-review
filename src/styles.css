@@ -7485,3 +7485,15 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-result-footbtn.again { background: #F3F4F6; color: #374151; font-weight: 500; }
 .sc-result-footbtn.retry { background: #EFF6FF; color: #2563EB; font-weight: 500; }
 .sc-result-footbtn.home { background: #3B82F6; color: #fff; font-weight: 700; }
+
+/* ===== v8.6.26 自定义练习 Sheet 弹窗 ===== */
+.sc-picker-sheet { max-height: 85vh; }
+.sc-picker-title { font-size: 16px; font-weight: 600; color: #1F2937; text-align: center; padding: 12px 16px 4px; }
+.sc-picker-selrow { padding: 10px 16px 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sc-picker-feattitle { padding: 18px 16px 0; display: flex; justify-content: space-between; align-items: center; font-size: 16px; font-weight: 600; color: #1F2937; }
+.sc-picker-histtitle { font-size: 16px; font-weight: 600; color: #1F2937; padding: 20px 16px 10px; }
+.sc-picker-foot {
+  position: sticky; bottom: 0; background: #fff; border-top: 0.5px solid #F3F4F6;
+  padding: 12px 16px calc(12px + var(--safe-bottom, 0px));
+  display: flex; gap: 12px;
+}

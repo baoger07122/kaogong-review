@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.25';
+App.VERSION = '8.6.26';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -14866,37 +14866,180 @@ renderHome(container) {
   },
 
   // 自定义练习小窗：11 个题型多选 → 确定（不进入新页面）
+  // v8.6.26 自定义练习 Sheet 弹窗（完整版：已选标签行 / 11 题型多选 / 数据特征 / 最近使用）
   showCustomPicker(onDone) {
     const self = this;
     if (!this.state.custom) this.resetCustomState();
-    const selected = (this.state.custom && this.state.custom.types) ? this.state.custom.types.slice() : [];
+    const cs = this.state.custom;
+    const presets = this.loadCustomPresets();
+    const types = cs.types.slice();
+    let featureType = cs.featureType || 'fixedFirst';
+    let fixedNum = cs.fixedNum || 9;
+    let randMin = cs.randMin, randMax = cs.randMax;
+
     const overlay = document.createElement('div');
     overlay.className = 'notion-mobile-sheet-overlay';
     const sheet = document.createElement('div');
-    sheet.className = 'notion-mobile-sheet is-format';
+    sheet.className = 'notion-mobile-sheet is-format sc-picker-sheet';
     const handleBar = document.createElement('div');
     handleBar.className = 'notion-mobile-sheet__handle';
     sheet.appendChild(handleBar);
     const content = document.createElement('div');
     content.className = 'notion-mobile-sheet__content';
-    content.innerHTML = '<div class="notion-mobile-fmt-title">自定义练习 · 选择题型（可多选）</div>';
-    const grid = document.createElement('div');
-    grid.className = 'sc-custom-pickgrid';
-    this.CUSTOM_ORDER.forEach(key => {
-      const c = document.createElement('div');
-      c.className = 'sc-custom-cell' + (selected.includes(key) ? ' selected' : '');
-      c.dataset.tk = key;
-      c.textContent = this.CUSTOM_TYPES[key].name;
-      c.addEventListener('click', () => {
-        if (selected.includes(key)) selected.splice(selected.indexOf(key), 1);
-        else selected.push(key);
-        c.classList.toggle('selected', selected.includes(key));
+
+    // 标题
+    const title = document.createElement('div');
+    title.className = 'sc-picker-title';
+    title.textContent = '自定义练习·选择题型（可多选）';
+    content.appendChild(title);
+
+    // ===== 已选标签行（动态，无已选项时隐藏）=====
+    const selRow = document.createElement('div');
+    selRow.className = 'sc-picker-selrow';
+    const renderSelRow = () => {
+      selRow.innerHTML = '';
+      if (!types.length) { selRow.style.display = 'none'; return; }
+      selRow.style.display = 'flex';
+      types.forEach(key => {
+        const pill = document.createElement('span');
+        pill.className = 'sc-custom-selpill';
+        pill.innerHTML = '<span>' + this.CUSTOM_TYPES[key].name + '</span><span class="sc-custom-selx">✕</span>';
+        pill.querySelector('.sc-custom-selx').addEventListener('click', () => {
+          types.splice(types.indexOf(key), 1);
+          renderSelRow();
+          renderTypeGrid();
+          renderOk();
+        });
+        selRow.appendChild(pill);
       });
-      grid.appendChild(c);
+    };
+    content.appendChild(selRow);
+
+    // ===== 题型网格（3 列多选）=====
+    const typeGrid = document.createElement('div');
+    typeGrid.className = 'sc-custom-grid';
+    const renderTypeGrid = () => {
+      typeGrid.innerHTML = '';
+      this.CUSTOM_ORDER.forEach(key => {
+        const c = document.createElement('div');
+        c.className = 'sc-custom-cell' + (types.includes(key) ? ' selected' : '');
+        c.textContent = this.CUSTOM_TYPES[key].name;
+        c.addEventListener('click', () => {
+          if (types.includes(key)) types.splice(types.indexOf(key), 1);
+          else types.push(key);
+          renderTypeGrid();
+          renderSelRow();
+          renderOk();
+        });
+        typeGrid.appendChild(c);
+      });
+    };
+    renderTypeGrid();
+    content.appendChild(typeGrid);
+
+    // ===== 数据特征 =====
+    const featTitle = document.createElement('div');
+    featTitle.className = 'sc-picker-feattitle';
+    featTitle.innerHTML = '<span>数据特征</span><span class="sc-custom-clear">清空</span>';
+    featTitle.querySelector('.sc-custom-clear').addEventListener('click', () => {
+      featureType = 'fixedFirst';
+      fixedNum = 9;
+      randMin = null;
+      randMax = null;
+      renderFeat();
     });
-    content.appendChild(grid);
+    content.appendChild(featTitle);
+    const featWrap = document.createElement('div');
+    featWrap.className = 'sc-custom-feat';
+    const renderFeat = () => {
+      featWrap.innerHTML = '';
+      const typeRow = document.createElement('div');
+      typeRow.className = 'sc-custom-feat-types';
+      [['fixedFirst', '固定首位'], ['randomRange', '随机范围']].forEach(pair => {
+        const b = document.createElement('div');
+        b.className = 'sc-custom-feat-type' + (featureType === pair[0] ? ' selected' : '');
+        b.textContent = pair[1];
+        b.addEventListener('click', () => { featureType = pair[0]; renderFeat(); });
+        typeRow.appendChild(b);
+      });
+      featWrap.appendChild(typeRow);
+      if (featureType === 'fixedFirst') {
+        const numGrid = document.createElement('div');
+        numGrid.className = 'sc-custom-numgrid';
+        for (let i = 1; i <= 9; i++) {
+          const n = document.createElement('div');
+          n.className = 'sc-custom-num' + (fixedNum === i ? ' selected' : '');
+          n.textContent = String(i);
+          n.addEventListener('click', () => { fixedNum = i; renderFeat(); });
+          numGrid.appendChild(n);
+        }
+        featWrap.appendChild(numGrid);
+      } else {
+        const rangeRow = document.createElement('div');
+        rangeRow.className = 'sc-custom-range';
+        const mkInput = (label, val, cb) => {
+          const cell = document.createElement('div');
+          cell.className = 'sc-custom-range-cell';
+          const lb = document.createElement('span');
+          lb.textContent = label;
+          const inp = document.createElement('input');
+          inp.type = 'number';
+          inp.className = 'sc-custom-range-input';
+          inp.value = val != null ? val : '';
+          inp.addEventListener('change', () => cb(parseInt(inp.value, 10) || null));
+          cell.appendChild(lb);
+          cell.appendChild(inp);
+          return cell;
+        };
+        rangeRow.appendChild(mkInput('最小值', randMin, (v) => { randMin = v; }));
+        rangeRow.appendChild(mkInput('最大值', randMax, (v) => { randMax = v; }));
+        featWrap.appendChild(rangeRow);
+      }
+    };
+    renderFeat();
+    content.appendChild(featWrap);
+
+    // ===== 最近使用（4 列，点击填充配置，不关闭）=====
+    const histTitle = document.createElement('div');
+    histTitle.className = 'sc-picker-histtitle';
+    histTitle.textContent = '最近使用';
+    content.appendChild(histTitle);
+    const histGrid = document.createElement('div');
+    histGrid.className = 'sc-custom-hist';
+    if (presets.history.length === 0) {
+      const hint = document.createElement('div');
+      hint.className = 'sc-custom-histempty';
+      hint.textContent = '暂无历史，完成一次自定义练习后自动记录';
+      histGrid.appendChild(hint);
+    } else {
+      presets.history.forEach(h => {
+        const card = document.createElement('div');
+        card.className = 'sc-custom-histcard';
+        card.innerHTML = '<div class="sc-custom-histcard__name">' + (h.name || '') + '</div>' +
+          '<div class="sc-custom-histcard__sub">' + (h.subName || '') + '</div>' +
+          (h.number ? '<div class="sc-custom-histcard__num">' + h.number + '</div>' : '');
+        card.addEventListener('click', () => {
+          types.length = 0;
+          if (Array.isArray(h.types) && h.types.length) h.types.forEach(t => types.push(t));
+          featureType = h.featureType || 'fixedFirst';
+          fixedNum = h.number || fixedNum;
+          randMin = h.randomMin != null ? h.randomMin : null;
+          randMax = h.randomMax != null ? h.randomMax : null;
+          renderTypeGrid();
+          renderSelRow();
+          renderFeat();
+          renderOk();
+        });
+        histGrid.appendChild(card);
+      });
+    }
+    content.appendChild(histGrid);
+
+    sheet.appendChild(content);
+
+    // ===== 底部固定操作栏（sticky 于 Sheet 底部）=====
     const foot = document.createElement('div');
-    foot.className = 'sc-custom-pickfoot';
+    foot.className = 'sc-picker-foot';
     const cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
     cancelBtn.className = 'sc-custom-footbtn sc-custom-footbtn--cancel';
@@ -14904,18 +15047,29 @@ renderHome(container) {
     cancelBtn.addEventListener('click', () => overlay.remove());
     const okBtn = document.createElement('button');
     okBtn.type = 'button';
-    okBtn.className = 'sc-custom-footbtn sc-custom-footbtn--ok' + (selected.length ? '' : ' disabled');
-    okBtn.textContent = '确定';
+    okBtn.className = 'sc-custom-footbtn sc-custom-footbtn--ok';
+    const renderOk = () => {
+      okBtn.textContent = '确定';
+      okBtn.classList.toggle('disabled', types.length === 0);
+    };
+    renderOk();
     okBtn.addEventListener('click', () => {
-      if (!selected.length) { App.Components.toast('请至少选择一个题型', 'error'); return; }
-      self.state.custom.types = selected.slice();
+      if (!types.length) { App.Components.toast('请至少选择一个题型', 'error'); return; }
+      cs.types = types.slice();
+      cs.featureType = featureType;
+      cs.fixedNum = fixedNum;
+      cs.randMin = randMin;
+      cs.randMax = randMax;
+      const p = this.loadCustomPresets();
+      p.lastUsed = { types: types.slice(), featureType: featureType, fixedNum: fixedNum, randomMin: randMin, randomMax: randMax, settings: Object.assign({}, cs.settings) };
+      this.saveCustomPresets(p);
       overlay.remove();
-      if (onDone) onDone(selected.slice());
+      if (onDone) onDone(types.slice());
     });
     foot.appendChild(cancelBtn);
     foot.appendChild(okBtn);
-    content.appendChild(foot);
-    sheet.appendChild(content);
+    sheet.appendChild(foot);
+
     overlay.appendChild(sheet);
     document.body.appendChild(overlay);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
