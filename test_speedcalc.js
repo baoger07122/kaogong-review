@@ -28,7 +28,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.26', 'App.VERSION === 8.6.26（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.27', 'App.VERSION === 8.6.27（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 题型生成器（13 种 = 基础计算 10 + 资料分析 3；含 1 个 ▼ 占位）');
     const typeKeys = Object.keys(SC.TYPES);
@@ -172,6 +172,9 @@ setTimeout(async () => {
     await wait(50);
     const pickGrid = doc.querySelector('.sc-custom-grid');
     assert(!!pickGrid && pickGrid.querySelectorAll('.sc-custom-cell').length === 11, '点击后弹出小窗（11 个自定义题型多选）');
+    const builtV27 = fs.readFileSync('index.html', 'utf8');
+    assert(builtV27.includes('max-height: 94vh') && builtV27.includes('sc-picker-sheet'), 'v8.6.27 弹窗拉长 94vh（iPad 横屏一屏看全）');
+    assert(builtV27.includes('退出练习') && builtV27.includes("'继续'"), 'v8.6.27 做题页退出按钮两选项（退出/继续）');
     assert(!!doc.querySelector('.sc-picker-title') && doc.querySelector('.sc-picker-title').textContent.includes('自定义练习'), 'Sheet 标题「自定义练习·选择题型（可多选）」');
     assert(!!doc.querySelector('.sc-picker-feattitle') && !!doc.querySelector('.sc-custom-feat-types'), '弹窗含数据特征（固定首位/随机范围）');
     assert(!!doc.querySelector('.sc-picker-histtitle'), '弹窗含最近使用区域');

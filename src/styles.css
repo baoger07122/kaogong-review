@@ -7497,3 +7497,16 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   padding: 12px 16px calc(12px + var(--safe-bottom, 0px));
   display: flex; gap: 12px;
 }
+
+/* v8.6.27 自定义练习弹窗拉长：iPad 横屏一屏看全（94vh + 紧凑间距） */
+.sc-picker-sheet { max-height: 94vh; }
+.sc-picker-sheet .sc-custom-grid { gap: 8px; }
+.sc-picker-sheet .sc-custom-cell { padding: 10px 4px; }
+.sc-picker-sheet .sc-custom-numgrid { gap: 8px; margin-top: 8px; }
+.sc-picker-sheet .sc-custom-num { padding: 8px 0; }
+.sc-picker-sheet .sc-custom-hist { gap: 8px; }
+.sc-picker-sheet .sc-custom-histcard { padding: 8px 4px; }
+.sc-picker-sheet .sc-picker-feattitle { padding-top: 14px; }
+.sc-picker-sheet .sc-picker-histtitle { padding-top: 14px; }
+.sc-picker-sheet .sc-custom-feat-types { margin-top: 8px; }
+.sc-picker-sheet .sc-picker-selrow { padding-top: 8px; }

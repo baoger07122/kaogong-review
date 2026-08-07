@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.26';
+App.VERSION = '8.6.27';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -15456,8 +15456,10 @@ renderHome(container) {
     // v8.6.23 一屏布局：整页不滑动（顶栏/状态栏/题目区/键盘全部放一个屏幕内）
     container.style.cssText = 'height:calc(100vh - var(--nav-height, 56px) - var(--safe-bottom, 0px));display:flex;flex-direction:column;overflow:hidden;';
 
-    this._topbar(container, (this.state.type === "custom" ? "自定义练习" : this.TYPES[this.state.type].name), () => {
-      if (confirm('确定退出本次练习？')) this.show('home');
+    // v8.6.27 左上角退出按钮：弹出「继续练习 / 退出练习」两选项
+    this._topbar(container, (this.state.type === "custom" ? "自定义练习" : this.TYPES[this.state.type].name), async () => {
+      const go = await App.Components.confirm('退出练习', '当前练习进度将丢失，确定退出吗？', '退出', '继续', true);
+      if (go) this.show('home');
     });
 
     // ===== 状态栏：1/10  笔  计时（100ms 刷新）=====
