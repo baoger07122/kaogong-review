@@ -7574,6 +7574,10 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   -webkit-tap-highlight-color: transparent;
 }
 .sc-picker-tab.selected { background: #3B82F6; color: #fff; font-weight: 500; }
+
+/* ===== v8.6.35 速算练习页限宽为手机比例（430px 居中，iPad 横屏不再全宽铺满）===== */
+#page-speed-calc { max-width: 430px; margin: 0 auto; width: 100%; }
+.sc-page { max-width: 430px; margin: 0 auto; width: 100%; box-sizing: border-box; }
 </style>
 </head>
 <body>
@@ -7658,7 +7662,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.34';
+App.VERSION = '8.6.35';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
