@@ -92,7 +92,7 @@ setTimeout(async () => {
     const todoCardEl = itemAny ? itemAny.parentNode : null;
     assert(!!todoCardEl && todoCardEl.style.display === 'none', '模块折叠后待办列表隐藏（只留标题）');
     assert(collapseBtn.textContent.trim() === '▸', '折叠后按钮变为展开箭头 ▸');
-    assert(container.querySelector('#todo-stats-toggle').style.display === 'none', '折叠后统计按钮隐藏（只显示「今日待办」）');
+    assert(!container.querySelector('#todo-stats-toggle'), 'v8.6.37 已去除统计按钮');
     // 再点展开恢复
     collapseBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
     await wait(50);
@@ -144,6 +144,22 @@ setTimeout(async () => {
     btn8.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
     await wait(30);
     assert(btn8.textContent.trim() === '▾', '折叠→展开（按钮变 ▾）');
+
+    console.log('\n[9] v8.6.37 未来日期待办不出现在今日 + 统计页新增科目标签');
+    // 造一条未来日期待办 → 今日列表不应显示
+    const futureIso = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+    await App.DB.addTodo({ text: 'FUTURE_TODO_TEST', type: 'ziliao', completed: false, createdAt: futureIso });
+    delete App.Pages.Home.todoState;
+    await App.Pages.Home.render({});
+    await wait(100);
+    assert(!container.textContent.includes('FUTURE_TODO_TEST'), '未来日期待办不显示在今日列表');
+    // 统计页渲染
+    App.Router.navigate('study-stats');
+    await wait(100);
+    const statsContainer = doc.getElementById('page-study-stats');
+    assert(!!statsContainer && statsContainer.querySelectorAll('[class*=study-cal]').length >= 1, '统计页日历渲染');
+    const built37 = fs.readFileSync('index.html', 'utf8');
+    assert(built37.includes('ST_SUBJECTS') && built37.includes("'shenlun'"), 'v8.6.37 统计页新增待办弹窗含 6 科目标签');
 
     console.log('\n===== 待办删除 UI 复现: ' + pass + ' 通过, ' + fail + ' 失败 =====');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }

@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.36';
+App.VERSION = '8.6.37';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9086,7 +9086,6 @@ App.Pages.Home = {
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6h14"/><path d="M4 11h16"/><path d="M4 16h16"/><path d="M2.5 6l1.8 1.8L7 5"/></svg>
             <span>今日待办</span>
           </div>
-          <div id='todo-stats-toggle' style='font-size:var(--font-xs);color:var(--color-primary);background:var(--color-primary-bg);padding:3px 10px;border-radius:9999px;cursor:pointer;'>统计</div>
         </div>
         <button id='todo-collapse-btn' type='button' style='border:none;background:var(--bg-tertiary);color:var(--text-secondary);width:30px;height:30px;border-radius:50%;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;' title='折叠/展开今日待办'>▾</button>
       </div>
@@ -9099,14 +9098,13 @@ App.Pages.Home = {
       </div>
     `;
     // v8.6.12 模块级折叠：右侧按钮一键收起今日待办下方所有内容，只留标题；再点展开
+    // v8.6.37 去除「统计」按钮及功能
     const todoCollapseBtn = todoHead.querySelector('#todo-collapse-btn');
-    const todoStatsToggleEl = todoHead.querySelector('#todo-stats-toggle');
     const applyCollapsed = (collapsed) => {
       this.todoState.collapsed = collapsed;
       // v8.6.16 折叠状态持久化（重新进入保持）
       try { localStorage.setItem('kg_todo_ui', JSON.stringify({ collapsed: !!this.todoState.collapsed, doneOpen: !!this.todoState.doneOpen })); } catch (e) {}
       todoCollapseBtn.textContent = collapsed ? '▸' : '▾';
-      if (todoStatsToggleEl) todoStatsToggleEl.style.display = collapsed ? 'none' : '';
       Array.prototype.forEach.call(todoWrap.children, (el) => {
         if (el !== todoHead) el.style.display = collapsed ? 'none' : '';
       });
@@ -9116,17 +9114,6 @@ App.Pages.Home = {
       applyCollapsed(!this.todoState.collapsed);
     });
     applyCollapsed(!!this.todoState.collapsed);
-    todoHead.querySelector('#todo-stats-toggle').addEventListener('click', (e) => {
-      e.stopPropagation();
-      // 统计固定为今日数据（与今日待办列表同口径），点按钮展开/收起
-      this.todoState.statsMode = this.todoState.statsMode ? null : 'day';
-      const cur = document.getElementById('todo-stats-panel');
-      if (this.todoState.statsMode) {
-        if (!cur) todoWrap.insertBefore(buildStatsPanel(), dateRow);
-      } else if (cur) {
-        cur.remove();
-      }
-    });
     todoHead.querySelector('#todo-filter-toggle').addEventListener('click', (e) => {
       e.stopPropagation();
       const caret = document.getElementById('todo-filter-caret');
@@ -9269,8 +9256,12 @@ App.Pages.Home = {
     const nowDate = new Date();
     const todayStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate());
     const weekStart = new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
+    // v8.6.37 今日过滤 = 当天 00:00 ~ 24:00 区间（之前是 >= 今天起点，未来日期的待办也显示在今日）
     if (this.todoState.dateFilter === 'today') {
-      listTodos = listTodos.filter(t => new Date(t.createdAt) >= todayStart);
+      listTodos = listTodos.filter(t => {
+        const d = new Date(t.createdAt);
+        return d >= todayStart && d < new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+      });
     } else if (this.todoState.dateFilter === 'week') {
       listTodos = listTodos.filter(t => new Date(t.createdAt) >= weekStart);
     }
@@ -12302,21 +12293,88 @@ App.Pages.StudyStats = {
         cell.classList.add('no-data');
       }
       cell.innerHTML = inner;
-      // 点击日期格子（含空白处）→ 在当天新建待办
+      // 点击日期格子（含空白处）→ 在当天新建待办（v8.6.37 弹窗底部加科目标签选择）
       cell.addEventListener('click', async (e) => {
         // 点击具体待办条目不新建（可在此处跳转/查看），仅空白处新建
         if (e.target.closest('.study-cal__todo') || e.target.closest('.study-cal__more')) return;
-        const text = await App.Components.prompt('新建待办', '给 ' + k + ' 添加待办事项', '输入待办内容...', '添加');
-        if (text && text.trim()) {
+        // 底部弹窗：内容输入 + 6 科目标签（单选）+ 取消/确定
+        const overlay = document.createElement('div');
+        overlay.className = 'notion-mobile-sheet-overlay';
+        const sheet = document.createElement('div');
+        sheet.className = 'notion-mobile-sheet is-format';
+        const handleBar = document.createElement('div');
+        handleBar.className = 'notion-mobile-sheet__handle';
+        sheet.appendChild(handleBar);
+        const content = document.createElement('div');
+        content.className = 'notion-mobile-sheet__content';
+        const titleEl = document.createElement('div');
+        titleEl.className = 'notion-mobile-fmt-title';
+        titleEl.textContent = '给 ' + k + ' 添加待办';
+        content.appendChild(titleEl);
+        const input = document.createElement('input');
+        input.className = 'form-input';
+        input.placeholder = '输入待办内容...';
+        input.style.cssText = 'margin:10px 16px;box-sizing:border-box;width:calc(100% - 32px);';
+        content.appendChild(input);
+        // 科目标签（6 科目，单选）
+        const ST_SUBJECTS = [
+          { key: 'yanyu', label: '言语', icon: '📖' },
+          { key: 'shuliang', label: '数量', icon: '🔢' },
+          { key: 'panduan', label: '判断', icon: '🧩' },
+          { key: 'ziliao', label: '资料', icon: '📊' },
+          { key: 'changshi', label: '常识', icon: '🌍' },
+          { key: 'shenlun', label: '申论', icon: '✍️' }
+        ];
+        let selKey = 'yanyu';
+        const tagRow = document.createElement('div');
+        tagRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;padding:4px 16px 12px;';
+        const mkTag = (s) => {
+          const chip = document.createElement('span');
+          chip.style.cssText = 'padding:5px 12px;border-radius:9999px;font-size:var(--font-xs);cursor:pointer;-webkit-tap-highlight-color:transparent;' + (s.key === selKey ? 'background:var(--color-primary);color:#fff;' : 'background:var(--bg-tertiary);color:var(--text-secondary);');
+          chip.textContent = s.icon + ' ' + s.label;
+          chip.addEventListener('click', () => {
+            selKey = s.key;
+            tagRow.querySelectorAll('span').forEach(c => { c.style.background = 'var(--bg-tertiary)'; c.style.color = 'var(--text-secondary)'; });
+            chip.style.background = 'var(--color-primary)'; chip.style.color = '#fff';
+          });
+          return chip;
+        };
+        ST_SUBJECTS.forEach(s => tagRow.appendChild(mkTag(s)));
+        content.appendChild(tagRow);
+        const foot = document.createElement('div');
+        foot.style.cssText = 'display:flex;gap:12px;padding:10px 16px calc(12px + env(safe-area-inset-bottom));';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'btn btn--outline';
+        cancelBtn.style.flex = '1';
+        cancelBtn.textContent = '取消';
+        cancelBtn.addEventListener('click', () => overlay.remove());
+        const okBtn = document.createElement('button');
+        okBtn.type = 'button';
+        okBtn.className = 'btn btn--primary';
+        okBtn.style.flex = '1';
+        okBtn.textContent = '确定';
+        okBtn.addEventListener('click', async () => {
+          const text = input.value.trim();
+          if (!text) { App.Components.toast('请输入待办内容', 'error'); return; }
           const newTodo = await App.DB.addTodo({
-            text: text.trim(),
-            type: 'yanyu',
+            text: text,
+            type: selKey,
             completed: false,
             createdAt: new Date(k + 'T' + pad(new Date().getHours()) + ':' + pad(new Date().getMinutes()) + ':00').toISOString()
           });
           App.Components.toast('已添加 ✓', 'success');
+          overlay.remove();
           this.render({});
-        }
+        });
+        foot.appendChild(cancelBtn);
+        foot.appendChild(okBtn);
+        content.appendChild(foot);
+        sheet.appendChild(content);
+        overlay.appendChild(sheet);
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', (ev) => { if (ev.target === overlay) overlay.remove(); });
+        setTimeout(() => { try { input.focus(); } catch (err) {} }, 100);
       });
       cal.appendChild(cell);
     }
