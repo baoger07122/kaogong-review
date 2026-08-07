@@ -28,7 +28,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.30', 'App.VERSION === 8.6.30（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.31', 'App.VERSION === 8.6.31（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 题型生成器（13 种 = 基础计算 10 + 资料分析 3；含 1 个 ▼ 占位）');
     const typeKeys = Object.keys(SC.TYPES);
@@ -67,7 +67,7 @@ setTimeout(async () => {
     assert(home.querySelectorAll('.sc-module-tag').length === 14, '标签云共 14 个（基础 10 + 自定义练习 + 资料 3）');
     assert(!!home.querySelector('.sc-module-icon') && home.querySelectorAll('.sc-module-count').length === 2, '模块头含图标方块与 N/N 可练习计数');
     const builtSc = fs.readFileSync('index.html', 'utf8');
-    assert(builtSc.includes('padding: calc(var(--top-buffer) + 6px) 16px 12px'), 'v8.6.23 顶栏补安全区+缓冲（返回按钮不被状态栏/分屏遮挡）');
+    assert(builtSc.includes('.page-header') && builtSc.includes('padding-top: var(--top-buffer)'), 'v8.6.31 顶栏并入 page-header（安全区 padding-top 由 page-header 承担）');
     assert(home.querySelectorAll('.sc-opt-btn').length === 2, '题量/模式居中按钮（点击弹小窗）');
     assert(home.querySelector('.sc-opt-btn').textContent.includes('题量'), '题量按钮显示当前题量');
     const startBtn = home.querySelector('.sc-start-btn-v2');
@@ -175,7 +175,8 @@ setTimeout(async () => {
     const builtV27 = fs.readFileSync('index.html', 'utf8');
     assert(builtV27.includes('max-height: 94vh') && builtV27.includes('sc-picker-sheet'), 'v8.6.27 弹窗拉长 94vh（iPad 横屏一屏看全）');
     assert(builtV27.includes('退出练习') && builtV27.includes("'继续'"), 'v8.6.27 做题页退出按钮两选项（退出/继续）');
-    assert(builtV27.includes('.sc-topbar__back') && builtV27.includes('ipad-back-shift .sc-topbar__back') && builtV27.includes('margin-left: 48px'), 'v8.6.30 速算返回键分屏右移 48px（16+48=64px，与笔记/错题页一致）');
+    assert(builtV27.includes('.page-header__back') && !builtV27.includes('.sc-topbar__back {'), 'v8.6.31 速算顶栏并入 page-header 体系（返回键/位置/颜色/大小与错题本完全一致）');
+    assert(builtV27.includes('pageHeader(title, rightText, onRightClick, opts)') && builtV27.includes('opts.rightHtml'), 'v8.6.31 pageHeader 支持 onBack/rightHtml 扩展');
     assert(!!doc.querySelector('.sc-picker-title') && doc.querySelector('.sc-picker-title').textContent.includes('自定义练习'), 'Sheet 标题「自定义练习·选择题型（可多选）」');
     assert(!!doc.querySelector('.sc-picker-feattitle') && !!doc.querySelector('.sc-custom-feat-types'), '弹窗含数据特征（固定首位/随机范围）');
     assert(!!doc.querySelector('.sc-picker-histtitle'), '弹窗含最近使用区域');

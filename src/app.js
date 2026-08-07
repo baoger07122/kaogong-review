@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.30';
+App.VERSION = '8.6.31';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -8054,7 +8054,10 @@ App.Components = {
   },
 
   // ===== 页面返回栏 =====
-  pageHeader(title, rightText, onRightClick) {
+  // v8.6.31 扩展：opts.onBack 自定义返回回调；opts.rightHtml 右侧按钮组（HTML）
+  // 速算练习等自建顶栏统一并入本体系，返回键位置/颜色/大小与全 App 完全一致
+  pageHeader(title, rightText, onRightClick, opts) {
+    opts = opts || {};
     const header = document.createElement('div');
     header.className = 'page-header';
     // 【iPad 横屏对齐】inner 容器：背景全宽，内容限宽居中（与编辑器/工具栏同宽）
@@ -8064,7 +8067,7 @@ App.Components = {
     const backBtn = document.createElement('button');
     backBtn.className = 'page-header__back';
     backBtn.innerHTML = '<svg width="10" height="18" viewBox="0 0 10 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1L1 9l7 8"/></svg>';
-    backBtn.addEventListener('click', () => App.Router.back());
+    backBtn.addEventListener('click', () => (opts.onBack ? opts.onBack() : App.Router.back()));
     inner.appendChild(backBtn);
 
     const titleEl = document.createElement('div');
@@ -8077,7 +8080,12 @@ App.Components = {
 
     const rightEl = document.createElement('div');
     rightEl.className = 'page-header__right';
-    if (rightText) {
+    if (opts.rightHtml) {
+      rightEl.innerHTML = opts.rightHtml;
+      rightEl.style.display = 'flex';
+      rightEl.style.alignItems = 'center';
+      rightEl.style.gap = '8px';
+    } else if (rightText) {
       rightEl.textContent = rightText;
       if (onRightClick) {
         rightEl.style.cursor = 'pointer';
@@ -14682,19 +14690,14 @@ App.Pages.SpeedCalc = {
     this.render({});
   },
 
-  // ===== 顶部栏（返回 / 标题 / 更多 + 眼睛）=====
+  // ===== 顶部栏（v8.6.31 并入 pageHeader 体系：返回键位置/颜色/大小与全 App 错题本等完全一致）=====
   _topbar(container, title, onBack) {
-    const top = document.createElement('div');
-    top.className = 'sc-topbar';
-    top.innerHTML =
-      '<button class="sc-topbar__back" type="button">‹</button>' +
-      '<div class="sc-topbar__title">' + title + '</div>' +
-      '<div class="sc-topbar__right">' +
-        '<button class="sc-topbar__icon" type="button" id="sc-more" title="更多">⋯</button>' +
-        '<button class="sc-topbar__icon" type="button" id="sc-eye" title="显示/隐藏答案输入">👁</button>' +
-      '</div>';
-    top.querySelector('.sc-topbar__back').addEventListener('click', onBack);
-    top.querySelector('#sc-more').addEventListener('click', () => {
+    const header = App.Components.pageHeader(title, null, null, {
+      onBack: onBack,
+      rightHtml: '<button class="sc-topbar__icon" type="button" id="sc-more" title="更多">⋯</button>' +
+                 '<button class="sc-topbar__icon" type="button" id="sc-eye" title="显示/隐藏答案输入">👁</button>'
+    });
+    header.querySelector('#sc-more').addEventListener('click', () => {
       App.Components.actionSheet([
         { text: '查看历史记录', icon: '🕘', action: () => this.show('history') },
         { text: '清除全部历史记录', icon: '🗑', danger: true, action: async () => {
@@ -14703,12 +14706,12 @@ App.Pages.SpeedCalc = {
         } }
       ]);
     });
-    top.querySelector('#sc-eye').addEventListener('click', () => {
+    header.querySelector('#sc-eye').addEventListener('click', () => {
       this.state.showAns = !this.state.showAns;
       if (this.state.view === 'practice') this.render({});
       else App.Components.toast(this.state.showAns ? '显示答案输入' : '隐藏答案输入', 'info');
     });
-    container.appendChild(top);
+    container.appendChild(header);
   },
 
   // ===== 视图：题型选择首页 =====

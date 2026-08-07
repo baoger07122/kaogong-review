@@ -396,6 +396,7 @@ input, textarea, select {
   z-index: 100;
   background: var(--bg-primary);
   padding: var(--spacing-md) var(--page-padding);
+  flex-shrink: 0;   /* v8.6.31 一屏 flex 布局（速算做题页）防压缩 */
   padding-top: var(--top-buffer);
   display: flex;
   align-items: center;
@@ -420,30 +421,23 @@ body.ipad-split .page-header__inner {
    机制：给「左上角有返回/退出按钮的页面」容器加 .ipad-back-shift，分屏时按钮右移避开系统侧边指示条
    （只动按钮，不动标题栏/页面）。已应用：错题详情/编辑、笔记详情/编辑、便签管理、速算练习全部视图。
    【后续新增页面】：容器 class 加上 ipad-back-shift 即可，无需改 CSS（详见 docs/技术文档.md）
-   v8.6.29 补速算页：.sc-topbar__back 接入同一机制（速算容器 page-speed-calc 已有 ipad-back-shift）
-   v8.6.30 速算分屏右移加大：笔记/错题页总左距=16(header)+24(inner)+24(margin)=64px；速算需 16+48=64px 对齐（此前 40px 仍被指示条擦到） */
+   v8.6.31 速算练习顶栏已并入 page-header 体系（返回键即 .page-header__back），无需再单独规则 */
 body.ipad-split .ipad-back-shift .page-header__back,
 body.ipad-split .ipad-back-shift .sc-back-btn {
   margin-left: 24px;
   transition: margin-left 0.2s ease;
 }
-body.ipad-split .ipad-back-shift .sc-topbar__back {
-  margin-left: 48px;
-  transition: margin-left 0.2s ease;
-}
-/* Slide Over / 窄窗口分屏（<=400px）：指示条更占空间，再让一点（速算 16+56=72px 对齐笔记） */
+/* Slide Over / 窄窗口分屏（<=400px）：指示条更占空间，再让一点 */
 @media screen and (max-width: 400px) {
   body.ipad-split .ipad-back-shift .page-header__back,
   body.ipad-split .ipad-back-shift .sc-back-btn {
     margin-left: 32px;
   }
-  body.ipad-split .ipad-back-shift .sc-topbar__back {
-    margin-left: 56px;
-  }
 }
 /* 返回按钮点击热区扩大（分屏时更易误触，扩大可点区但视觉不变） */
 .page-header__back {
   position: relative;
+  flex-shrink: 0;   /* v8.6.31 一屏 flex 布局（速算做题页）防压缩 */
 }
 .page-header__back::before {
   content: '';
@@ -6961,17 +6955,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 [data-theme="dark"] .sc-practice__answer { background: #2A2A2A; }
 
 /* ===== v8.6.14 速算重设计：顶部栏 / 设置开关 / 题量选择 / 状态栏 / 评级 / 键盘v2 / 速记悬浮 ===== */
-.sc-topbar {
-  display: flex; align-items: center; justify-content: space-between;
-  /* v8.6.21 修复返回按钮/计时被状态栏或分屏区域遮挡：顶部补安全区 --top-buffer（与 pageHeader 一致）
-     v8.6.23 顶部再 +6px 缓冲（部分设备 safe-top 为 0 仍会被状态栏覆盖） */
-  padding: calc(var(--top-buffer) + 6px) 16px 12px; background: var(--bg-primary);
-  border-bottom: 0.5px solid var(--divider-color);
-  position: sticky; top: 0; z-index: 20; flex-shrink: 0;
-}
-.sc-topbar__back { background: none; border: none; font-size: 26px; color: var(--text-primary); width: 36px; height: 36px; cursor: pointer; line-height: 1; padding: 0; margin-left: 10px; -webkit-tap-highlight-color: transparent; }
-.sc-topbar__title { font-size: 17px; font-weight: 700; color: var(--text-primary); }
-.sc-topbar__right { display: flex; gap: 4px; }
+/* v8.6.31 速算顶栏已并入 page-header 体系（.sc-topbar/.sc-topbar__back/__title/__right 移除，仅保留右侧图标按钮样式） */
 .sc-topbar__icon { background: none; border: none; font-size: 18px; color: var(--text-tertiary); width: 34px; height: 34px; cursor: pointer; display: flex; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
 .sc-settings-card {
   background: #fff; border-radius: 16px; box-shadow: var(--shadow-sm);
@@ -7631,7 +7615,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.30';
+App.VERSION = '8.6.31';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -15682,7 +15666,10 @@ App.Components = {
   },
 
   // ===== 页面返回栏 =====
-  pageHeader(title, rightText, onRightClick) {
+  // v8.6.31 扩展：opts.onBack 自定义返回回调；opts.rightHtml 右侧按钮组（HTML）
+  // 速算练习等自建顶栏统一并入本体系，返回键位置/颜色/大小与全 App 完全一致
+  pageHeader(title, rightText, onRightClick, opts) {
+    opts = opts || {};
     const header = document.createElement('div');
     header.className = 'page-header';
     // 【iPad 横屏对齐】inner 容器：背景全宽，内容限宽居中（与编辑器/工具栏同宽）
@@ -15692,7 +15679,7 @@ App.Components = {
     const backBtn = document.createElement('button');
     backBtn.className = 'page-header__back';
     backBtn.innerHTML = '<svg width="10" height="18" viewBox="0 0 10 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1L1 9l7 8"/></svg>';
-    backBtn.addEventListener('click', () => App.Router.back());
+    backBtn.addEventListener('click', () => (opts.onBack ? opts.onBack() : App.Router.back()));
     inner.appendChild(backBtn);
 
     const titleEl = document.createElement('div');
@@ -15705,7 +15692,12 @@ App.Components = {
 
     const rightEl = document.createElement('div');
     rightEl.className = 'page-header__right';
-    if (rightText) {
+    if (opts.rightHtml) {
+      rightEl.innerHTML = opts.rightHtml;
+      rightEl.style.display = 'flex';
+      rightEl.style.alignItems = 'center';
+      rightEl.style.gap = '8px';
+    } else if (rightText) {
       rightEl.textContent = rightText;
       if (onRightClick) {
         rightEl.style.cursor = 'pointer';
@@ -22310,19 +22302,14 @@ App.Pages.SpeedCalc = {
     this.render({});
   },
 
-  // ===== 顶部栏（返回 / 标题 / 更多 + 眼睛）=====
+  // ===== 顶部栏（v8.6.31 并入 pageHeader 体系：返回键位置/颜色/大小与全 App 错题本等完全一致）=====
   _topbar(container, title, onBack) {
-    const top = document.createElement('div');
-    top.className = 'sc-topbar';
-    top.innerHTML =
-      '<button class="sc-topbar__back" type="button">‹</button>' +
-      '<div class="sc-topbar__title">' + title + '</div>' +
-      '<div class="sc-topbar__right">' +
-        '<button class="sc-topbar__icon" type="button" id="sc-more" title="更多">⋯</button>' +
-        '<button class="sc-topbar__icon" type="button" id="sc-eye" title="显示/隐藏答案输入">👁</button>' +
-      '</div>';
-    top.querySelector('.sc-topbar__back').addEventListener('click', onBack);
-    top.querySelector('#sc-more').addEventListener('click', () => {
+    const header = App.Components.pageHeader(title, null, null, {
+      onBack: onBack,
+      rightHtml: '<button class="sc-topbar__icon" type="button" id="sc-more" title="更多">⋯</button>' +
+                 '<button class="sc-topbar__icon" type="button" id="sc-eye" title="显示/隐藏答案输入">👁</button>'
+    });
+    header.querySelector('#sc-more').addEventListener('click', () => {
       App.Components.actionSheet([
         { text: '查看历史记录', icon: '🕘', action: () => this.show('history') },
         { text: '清除全部历史记录', icon: '🗑', danger: true, action: async () => {
@@ -22331,12 +22318,12 @@ App.Pages.SpeedCalc = {
         } }
       ]);
     });
-    top.querySelector('#sc-eye').addEventListener('click', () => {
+    header.querySelector('#sc-eye').addEventListener('click', () => {
       this.state.showAns = !this.state.showAns;
       if (this.state.view === 'practice') this.render({});
       else App.Components.toast(this.state.showAns ? '显示答案输入' : '隐藏答案输入', 'info');
     });
-    container.appendChild(top);
+    container.appendChild(header);
   },
 
   // ===== 视图：题型选择首页 =====

@@ -378,6 +378,7 @@ input, textarea, select {
   z-index: 100;
   background: var(--bg-primary);
   padding: var(--spacing-md) var(--page-padding);
+  flex-shrink: 0;   /* v8.6.31 一屏 flex 布局（速算做题页）防压缩 */
   padding-top: var(--top-buffer);
   display: flex;
   align-items: center;
@@ -402,30 +403,23 @@ body.ipad-split .page-header__inner {
    机制：给「左上角有返回/退出按钮的页面」容器加 .ipad-back-shift，分屏时按钮右移避开系统侧边指示条
    （只动按钮，不动标题栏/页面）。已应用：错题详情/编辑、笔记详情/编辑、便签管理、速算练习全部视图。
    【后续新增页面】：容器 class 加上 ipad-back-shift 即可，无需改 CSS（详见 docs/技术文档.md）
-   v8.6.29 补速算页：.sc-topbar__back 接入同一机制（速算容器 page-speed-calc 已有 ipad-back-shift）
-   v8.6.30 速算分屏右移加大：笔记/错题页总左距=16(header)+24(inner)+24(margin)=64px；速算需 16+48=64px 对齐（此前 40px 仍被指示条擦到） */
+   v8.6.31 速算练习顶栏已并入 page-header 体系（返回键即 .page-header__back），无需再单独规则 */
 body.ipad-split .ipad-back-shift .page-header__back,
 body.ipad-split .ipad-back-shift .sc-back-btn {
   margin-left: 24px;
   transition: margin-left 0.2s ease;
 }
-body.ipad-split .ipad-back-shift .sc-topbar__back {
-  margin-left: 48px;
-  transition: margin-left 0.2s ease;
-}
-/* Slide Over / 窄窗口分屏（<=400px）：指示条更占空间，再让一点（速算 16+56=72px 对齐笔记） */
+/* Slide Over / 窄窗口分屏（<=400px）：指示条更占空间，再让一点 */
 @media screen and (max-width: 400px) {
   body.ipad-split .ipad-back-shift .page-header__back,
   body.ipad-split .ipad-back-shift .sc-back-btn {
     margin-left: 32px;
   }
-  body.ipad-split .ipad-back-shift .sc-topbar__back {
-    margin-left: 56px;
-  }
 }
 /* 返回按钮点击热区扩大（分屏时更易误触，扩大可点区但视觉不变） */
 .page-header__back {
   position: relative;
+  flex-shrink: 0;   /* v8.6.31 一屏 flex 布局（速算做题页）防压缩 */
 }
 .page-header__back::before {
   content: '';
@@ -6943,17 +6937,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 [data-theme="dark"] .sc-practice__answer { background: #2A2A2A; }
 
 /* ===== v8.6.14 速算重设计：顶部栏 / 设置开关 / 题量选择 / 状态栏 / 评级 / 键盘v2 / 速记悬浮 ===== */
-.sc-topbar {
-  display: flex; align-items: center; justify-content: space-between;
-  /* v8.6.21 修复返回按钮/计时被状态栏或分屏区域遮挡：顶部补安全区 --top-buffer（与 pageHeader 一致）
-     v8.6.23 顶部再 +6px 缓冲（部分设备 safe-top 为 0 仍会被状态栏覆盖） */
-  padding: calc(var(--top-buffer) + 6px) 16px 12px; background: var(--bg-primary);
-  border-bottom: 0.5px solid var(--divider-color);
-  position: sticky; top: 0; z-index: 20; flex-shrink: 0;
-}
-.sc-topbar__back { background: none; border: none; font-size: 26px; color: var(--text-primary); width: 36px; height: 36px; cursor: pointer; line-height: 1; padding: 0; margin-left: 10px; -webkit-tap-highlight-color: transparent; }
-.sc-topbar__title { font-size: 17px; font-weight: 700; color: var(--text-primary); }
-.sc-topbar__right { display: flex; gap: 4px; }
+/* v8.6.31 速算顶栏已并入 page-header 体系（.sc-topbar/.sc-topbar__back/__title/__right 移除，仅保留右侧图标按钮样式） */
 .sc-topbar__icon { background: none; border: none; font-size: 18px; color: var(--text-tertiary); width: 34px; height: 34px; cursor: pointer; display: flex; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
 .sc-settings-card {
   background: #fff; border-radius: 16px; box-shadow: var(--shadow-sm);
