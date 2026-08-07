@@ -7531,6 +7531,40 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   scrollbar-width: none;
 }
 .todo-type-row::-webkit-scrollbar, .todo-date-row::-webkit-scrollbar { display: none; }
+
+/* ===== v8.6.32 速算：最上行确认开关 / 键盘调节 ===== */
+.sc-confirm-row {
+  background: #fff; margin: 0 16px 12px; border-radius: 14px; box-shadow: var(--shadow-sm);
+  padding: 10px 14px; display: flex; align-items: center; justify-content: space-between;
+}
+.sc-confirm-row__label { font-size: 14px; color: #1F2937; }
+.sc-confirm-row__switch {
+  width: 40px; height: 22px; border-radius: 9999px; background: #E5E7EB; position: relative;
+  cursor: pointer; transition: background 0.2s; -webkit-tap-highlight-color: transparent;
+}
+.sc-confirm-row__switch.on { background: #3B82F6; }
+.sc-confirm-row__dot {
+  position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.25); transition: left 0.2s;
+}
+.sc-confirm-row__switch.on .sc-confirm-row__dot { left: 20px; }
+.sc-numpad__footer { display: flex; align-items: center; justify-content: space-between; padding: 6px 14px; }
+.sc-numpad__adjbtn {
+  background: #EFF6FF; color: #2563EB; border: none; border-radius: 9999px;
+  padding: 4px 14px; font-size: 12px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sc-keyboard-adj {
+  background: #fff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  margin: 0 12px 8px; padding: 12px 14px;
+}
+.sc-keyboard-adj__row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.sc-keyboard-adj__label { font-size: 12px; color: #4B5563; width: 60px; flex-shrink: 0; }
+.sc-keyboard-adj__row input[type=range] { flex: 1; }
+.sc-keyboard-adj__val { font-size: 12px; color: #2563EB; width: 46px; text-align: right; flex-shrink: 0; }
+.sc-keyboard-adj__close {
+  width: 100%; background: #F3F4F6; color: #374151; border: none; border-radius: 10px;
+  padding: 8px 0; font-size: 13px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
 </style>
 </head>
 <body>
@@ -7615,7 +7649,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.31';
+App.VERSION = '8.6.32';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -22336,6 +22370,24 @@ renderHome(container) {
 
     this._topbar(container, '速算练习', () => App.Router.back());
 
+    // v8.6.32 最上行：是否需要确定（confirmAuto）开关，打开=是 / 关闭=否
+    const confirmRow = document.createElement('div');
+    confirmRow.className = 'sc-confirm-row';
+    const confirmLabel = document.createElement('span');
+    confirmLabel.className = 'sc-confirm-row__label';
+    confirmLabel.textContent = '是否需要确定';
+    const confirmSw = document.createElement('div');
+    confirmSw.className = 'sc-confirm-row__switch' + (settings.confirmAuto ? ' on' : '');
+    confirmSw.innerHTML = '<span class="sc-confirm-row__dot"></span>';
+    confirmSw.addEventListener('click', () => {
+      settings.confirmAuto = !settings.confirmAuto;
+      confirmSw.classList.toggle('on', settings.confirmAuto);
+      this.saveSettings(settings);
+    });
+    confirmRow.appendChild(confirmLabel);
+    confirmRow.appendChild(confirmSw);
+    container.appendChild(confirmRow);
+
     const body = document.createElement('div');
     body.className = 'sc-page';
 
@@ -22709,22 +22761,26 @@ renderHome(container) {
   },
   CUSTOM_ORDER: ['jinwei', 'tuiwei', 'jjMul', 'jjDiv', 'addsub2c', 'mul2x1c', 'div3x1c', 'div5x3c', 'divRem', 'mulHead', 'mulEstc'],
 
-  // 数据特征应用：重写表达式第一个数字并重算答案（fixedFirst / randomRange）
+  // v8.6.32 数据特征应用：固定首位=表达式内所有数字首位替换（效果明显）；随机范围=替换首个数字。
+  // 仅对纯四则运算表达式生效（含 ≈/余/首位 等语义的题型跳过，避免答案错位）；重算答案用简易求值器。
   _applyCustomFeature(q, feature) {
-    const m = String(q.expr).match(/^(\d+)\s*([+\-×÷])\s*(.+)$/);
-    if (!m) return q;
-    let newA = null;
-    if (feature === 'fixedFirst') newA = String(9) + m[1].slice(1);
-    else if (feature && feature.type === 'fixedFirst' && feature.number) newA = String(feature.number) + m[1].slice(1);
-    else if (feature && feature.type === 'randomRange' && feature.min != null && feature.max != null) newA = String(randInt(feature.min, feature.max));
-    if (newA === null) return q;
-    const op = m[2], rest = m[3], a = parseInt(newA, 10), r2 = parseInt(rest, 10);
-    let ans;
-    if (op === '+') ans = a + r2;
-    else if (op === '-') ans = a - r2;
-    else if (op === '×') ans = a * r2;
-    else ans = Math.round(a / r2);
-    return makeQ(newA + op + rest, ans);
+    let newExpr = null;
+    const expr = String(q.expr);
+    if (feature && feature.type === 'fixedFirst' && feature.number && /^[\d\s+\-×÷.]+$/.test(expr)) {
+      newExpr = expr.replace(/\d+/g, (m) => String(feature.number) + m.slice(1));
+    } else if (feature && feature.type === 'randomRange' && feature.min != null && feature.max != null && /^[\d\s+\-×÷.]+$/.test(expr)) {
+      newExpr = expr.replace(/^\d+/, () => String(randInt(feature.min, feature.max)));
+    }
+    if (newExpr === null || newExpr === expr) return q;
+    const ans = this._evalArith(newExpr);
+    if (ans === null) return q;
+    return makeQ(newExpr, Math.round(ans));
+  },
+  // 简易四则求值（×÷→*/，去空格，Function 求值；非法返回 null）
+  _evalArith(expr) {
+    const e = String(expr).replace(/×/g, '*').replace(/÷/g, '/').replace(/\s+/g, '');
+    if (!e || !/^[0-9+\-*/.]+$/.test(e)) return null;
+    try { const r = Function('"use strict"; return (' + e + ');')(); return (typeof r === 'number' && isFinite(r)) ? r : null; } catch (err) { return null; }
   },
 
   // ===== 自定义配置持久化（kg_speed_custom_presets）=====
@@ -23147,6 +23203,9 @@ renderHome(container) {
     const numpad = document.createElement('div');
     numpad.className = 'sc-numpad sc-numpad--v2';
     numpad.style.cssText = 'flex-shrink:0;';
+    // v8.6.32 应用持久化的键盘尺寸（高度/宽度调节）
+    if (settings.keyboardH) numpad.style.height = settings.keyboardH + 'px';
+    if (settings.keyboardW) numpad.style.width = settings.keyboardW + '%';
     const KEY_ROWS = [
       [ { k: 'restart', label: '重开', cls: 'func' }, { k: 'clear', label: '清空', cls: 'func' }, { k: 'backspace', label: '退格', cls: 'func' } ],
       [ { k: '1' }, { k: '2' }, { k: '3' } ],
@@ -23187,7 +23246,52 @@ renderHome(container) {
     numpad.appendChild(grid);
     const footer = document.createElement('div');
     footer.className = 'sc-numpad__footer';
-    footer.textContent = '第' + (this.state.idx + 1) + '/' + total + '题';
+    const footerLeft = document.createElement('span');
+    footerLeft.textContent = '第' + (this.state.idx + 1) + '/' + total + '题';
+    footer.appendChild(footerLeft);
+    // v8.6.32 键盘调节开关：点击弹高度/宽度滑条（实时生效 + 持久化）
+    const adjBtn = document.createElement('button');
+    adjBtn.type = 'button';
+    adjBtn.className = 'sc-numpad__adjbtn';
+    adjBtn.textContent = '调节';
+    adjBtn.addEventListener('click', () => {
+      const panel = document.createElement('div');
+      panel.className = 'sc-keyboard-adj';
+      const mkRange = (label, min, max, val, unit, cb) => {
+        const row = document.createElement('div');
+        row.className = 'sc-keyboard-adj__row';
+        const lb = document.createElement('span');
+        lb.className = 'sc-keyboard-adj__label';
+        lb.textContent = label;
+        const inp = document.createElement('input');
+        inp.type = 'range';
+        inp.min = String(min); inp.max = String(max); inp.value = String(val);
+        const out = document.createElement('span');
+        out.className = 'sc-keyboard-adj__val';
+        out.textContent = val + unit;
+        inp.addEventListener('input', () => {
+          const v = parseInt(inp.value, 10);
+          out.textContent = v + unit;
+          cb(v);
+        });
+        row.appendChild(lb);
+        row.appendChild(inp);
+        row.appendChild(out);
+        return row;
+      };
+      const curH = settings.keyboardH || 0, curW = settings.keyboardW || 0;
+      panel.appendChild(mkRange('键盘高度', 150, 340, curH || 280, 'px', (v) => { settings.keyboardH = v; numpad.style.height = v + 'px'; this.saveSettings(settings); }));
+      panel.appendChild(mkRange('键盘宽度', 50, 100, curW || 100, '%', (v) => { settings.keyboardW = v; numpad.style.width = v + '%'; this.saveSettings(settings); }));
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'sc-keyboard-adj__close';
+      closeBtn.textContent = '收起';
+      closeBtn.addEventListener('click', () => panel.remove());
+      panel.appendChild(closeBtn);
+      panel.addEventListener('click', (e) => e.stopPropagation());
+      numpad.insertBefore(panel, grid);
+    });
+    footer.appendChild(adjBtn);
     numpad.appendChild(footer);
 
     container.appendChild(body);

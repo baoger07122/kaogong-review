@@ -28,7 +28,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.31', 'App.VERSION === 8.6.31（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.32', 'App.VERSION === 8.6.32（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 题型生成器（13 种 = 基础计算 10 + 资料分析 3；含 1 个 ▼ 占位）');
     const typeKeys = Object.keys(SC.TYPES);
@@ -70,6 +70,17 @@ setTimeout(async () => {
     assert(builtSc.includes('.page-header') && builtSc.includes('padding-top: var(--top-buffer)'), 'v8.6.31 顶栏并入 page-header（安全区 padding-top 由 page-header 承担）');
     assert(home.querySelectorAll('.sc-opt-btn').length === 2, '题量/模式居中按钮（点击弹小窗）');
     assert(home.querySelector('.sc-opt-btn').textContent.includes('题量'), '题量按钮显示当前题量');
+    // v8.6.32 最上行「是否需要确定」开关
+    const confirmRow32 = home.querySelector('.sc-confirm-row');
+    assert(!!confirmRow32 && confirmRow32.textContent.includes('是否需要确定'), '最上行「是否需要确定」开关存在');
+    const csw = home.querySelector('.sc-confirm-row__switch');
+    assert(csw.classList.contains('on'), '默认打开（=是）');
+    csw.click();
+    await wait(20);
+    assert(!csw.classList.contains('on') && SC.loadSettings().confirmAuto === false, '点击关闭（=否）并持久化');
+    csw.click();
+    await wait(20);
+    assert(SC.loadSettings().confirmAuto === true, '再点恢复开启');
     const startBtn = home.querySelector('.sc-start-btn-v2');
     assert(!!startBtn && startBtn.classList.contains('disabled'), '未选题型时开始按钮为禁用态（disabled）');
     // 点击标签 → 单选高亮 + 开始按钮启用
@@ -92,6 +103,16 @@ setTimeout(async () => {
     assert(!!home.querySelector('.sc-practice__expr'), '大题目展示');
     assert(home.querySelectorAll('.sc-numpad--v2 .sc-numpad__btn').length === 15, '屏幕键盘 15 键');
     assert(!home.querySelector('input[type=text], input[type=number]'), '无系统输入框（强制屏幕键盘）');
+    // v8.6.32 键盘调节开关
+    const adjBtn32 = home.querySelector('.sc-numpad__adjbtn');
+    assert(!!adjBtn32 && adjBtn32.textContent === '调节', '键盘底部「调节」开关存在');
+    adjBtn32.click();
+    await wait(20);
+    const adjPanel32 = home.querySelector('.sc-keyboard-adj');
+    assert(!!adjPanel32 && adjPanel32.querySelectorAll('input[type=range]').length === 2, '调节面板含高度/宽度 2 个滑条');
+    home.querySelector('.sc-keyboard-adj__close').click();
+    await wait(20);
+    assert(!home.querySelector('.sc-keyboard-adj'), '收起按钮关闭调节面板');
     // 计时格式 M:SS:d
     const t0 = home.querySelector('#sc-timer');
     assert(/^\d+:\d{2}\.\d$/.test(t0.textContent), '计时格式 M:SS:d（' + t0.textContent + '）');
@@ -204,6 +225,18 @@ setTimeout(async () => {
     const presets = JSON.parse(win.localStorage.getItem(SC.CUSTOM_KEY) || '{}');
     assert(!!presets.lastUsed && Array.isArray(presets.history) && presets.history.length >= 1, '配置与历史已保存 kg_speed_custom_presets');
     assert(SC.state.type === 'custom', '自定义练习做题页 type=custom（标题/评级已适配）');
+    // v8.6.32 固定首位 9：题目所有数字首位均 9（纯四则，跳过语义题型）
+    win.localStorage.setItem(SC.SETTINGS_KEY, JSON.stringify(Object.assign(SC.defaultSettings(), { questionCount: 5, mode: 'train', selectedType: '' })));
+    SC.state.custom.types = ['addsub2c'];
+    SC.state.custom.featureType = 'fixedFirst';
+    SC.state.custom.fixedNum = 9;
+    SC.startPractice();
+    await wait(80);
+    const allFixed = SC.state.questions.every(q => {
+      const nums = String(q.expr).match(/\d+/g) || [];
+      return nums.length > 0 && nums.every(n => n.charAt(0) === '9');
+    });
+    assert(allFixed, '固定首位 9 应用到题目所有数字（v8.6.32 增强）');
 
     console.log('\n===== 速算专项: ' + pass + ' 通过, ' + fail + ' 失败 =====');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }

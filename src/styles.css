@@ -7513,3 +7513,37 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   scrollbar-width: none;
 }
 .todo-type-row::-webkit-scrollbar, .todo-date-row::-webkit-scrollbar { display: none; }
+
+/* ===== v8.6.32 速算：最上行确认开关 / 键盘调节 ===== */
+.sc-confirm-row {
+  background: #fff; margin: 0 16px 12px; border-radius: 14px; box-shadow: var(--shadow-sm);
+  padding: 10px 14px; display: flex; align-items: center; justify-content: space-between;
+}
+.sc-confirm-row__label { font-size: 14px; color: #1F2937; }
+.sc-confirm-row__switch {
+  width: 40px; height: 22px; border-radius: 9999px; background: #E5E7EB; position: relative;
+  cursor: pointer; transition: background 0.2s; -webkit-tap-highlight-color: transparent;
+}
+.sc-confirm-row__switch.on { background: #3B82F6; }
+.sc-confirm-row__dot {
+  position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.25); transition: left 0.2s;
+}
+.sc-confirm-row__switch.on .sc-confirm-row__dot { left: 20px; }
+.sc-numpad__footer { display: flex; align-items: center; justify-content: space-between; padding: 6px 14px; }
+.sc-numpad__adjbtn {
+  background: #EFF6FF; color: #2563EB; border: none; border-radius: 9999px;
+  padding: 4px 14px; font-size: 12px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sc-keyboard-adj {
+  background: #fff; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  margin: 0 12px 8px; padding: 12px 14px;
+}
+.sc-keyboard-adj__row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.sc-keyboard-adj__label { font-size: 12px; color: #4B5563; width: 60px; flex-shrink: 0; }
+.sc-keyboard-adj__row input[type=range] { flex: 1; }
+.sc-keyboard-adj__val { font-size: 12px; color: #2563EB; width: 46px; text-align: right; flex-shrink: 0; }
+.sc-keyboard-adj__close {
+  width: 100%; background: #F3F4F6; color: #374151; border: none; border-radius: 10px;
+  padding: 8px 0; font-size: 13px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
