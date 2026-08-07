@@ -7510,3 +7510,13 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-picker-sheet .sc-picker-histtitle { padding-top: 14px; }
 .sc-picker-sheet .sc-custom-feat-types { margin-top: 8px; }
 .sc-picker-sheet .sc-picker-selrow { padding-top: 8px; }
+
+/* ===== v8.6.28 待办：类型/日期标签行强制横向（防外部样式覆盖变纵向）===== */
+.todo-type-row, .todo-date-row {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.todo-type-row::-webkit-scrollbar, .todo-date-row::-webkit-scrollbar { display: none; }

@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.27';
+App.VERSION = '8.6.28';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9217,7 +9217,9 @@ App.Pages.Home = {
     };
 
     // 日期筛选（默认今日，解决「今日待办」显示昨天待办的问题；v8.6.19 单行横向不换行）
+    // v8.6.28 日期筛选：class + CSS !important 双保险（防横向变纵向）
     const dateRow = document.createElement('div');
+    dateRow.className = 'todo-date-row';
     dateRow.style.cssText = 'display:flex;gap:var(--spacing-sm);margin-bottom:var(--spacing-sm);flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;';
     [['today','今日'],['week','最近7天'],['all','全部']].forEach(function (pair) {
       const key = pair[0], label = pair[1];
@@ -9539,7 +9541,9 @@ App.Pages.Home = {
     todoWrap.appendChild(todoCard);
 
     // 类型快捷栏（v8.6.19 与日期筛选一致：单行横向排布，不换行、超出横向滑动）
+    // v8.6.28 类型快捷栏：class + CSS !important 双保险，杜绝任何外部样式覆盖导致横向变纵向
     const typeRow = document.createElement('div');
+    typeRow.className = 'todo-type-row';
     typeRow.style.cssText = 'display:flex;gap:var(--spacing-sm);margin-bottom:var(--spacing-sm);flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;';
     typeRow.style.setProperty('-webkit-scrollbar-display', 'none');
     TODO_TYPES.forEach(function (t) {

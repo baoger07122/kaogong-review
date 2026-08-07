@@ -126,6 +126,25 @@ setTimeout(async () => {
     const btnAfter7 = container.querySelector('#todo-collapse-btn');
     assert(btnAfter7.textContent.trim() === '▸', '重新进入后保持折叠（按钮显示 ▸）');
 
+    console.log('\n[8] v8.6.28 标签行强制横向（防纵向）');
+    const typeRow28 = container.querySelector('.todo-type-row');
+    const dateRow28 = container.querySelector('.todo-date-row');
+    assert(!!typeRow28 && typeRow28.style.flexWrap === 'nowrap' && typeRow28.style.display === 'flex', '类型标签行：flex + nowrap（横向不换行）');
+    assert(!!dateRow28 && dateRow28.style.flexWrap === 'nowrap', '日期筛选行：nowrap（横向）');
+    const built28 = fs.readFileSync('index.html', 'utf8');
+    assert(built28.includes('.todo-type-row, .todo-date-row') && built28.includes('display: flex !important'), 'CSS !important 防覆盖规则已注入');
+    // 折叠记忆全链路：当前为折叠态（[7] 保持）→ 展开 → 折叠 → 展开，循环正常（用按钮箭头 ▸/▾ 判断）
+    const btn8 = container.querySelector('#todo-collapse-btn');
+    btn8.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(30);
+    assert(btn8.textContent.trim() === '▾', '折叠→展开（按钮变 ▾）');
+    btn8.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(30);
+    assert(btn8.textContent.trim() === '▸', '展开→折叠（按钮变 ▸）');
+    btn8.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(30);
+    assert(btn8.textContent.trim() === '▾', '折叠→展开（按钮变 ▾）');
+
     console.log('\n===== 待办删除 UI 复现: ' + pass + ' 通过, ' + fail + ' 失败 =====');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }
     else { console.log('✓✓ 全部通过（删除 UI 全链路正常）'); process.exit(0); }
