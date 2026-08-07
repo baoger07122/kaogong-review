@@ -50,7 +50,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.35', 'App.VERSION === 8.6.35（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.36', 'App.VERSION === 8.6.36（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 首页便签：纵向瀑布流 + 卡片规格（v8.6.10 替代横向滚动）');
     // 5 条便签（1 置顶 + 4 普通）

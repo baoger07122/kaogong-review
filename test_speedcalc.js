@@ -28,7 +28,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.35', 'App.VERSION === 8.6.35（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.36', 'App.VERSION === 8.6.36（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 题型生成器（13 种 = 基础计算 10 + 资料分析 3；含 1 个 ▼ 占位）');
     const typeKeys = Object.keys(SC.TYPES);
@@ -52,6 +52,13 @@ setTimeout(async () => {
     win.localStorage.removeItem(SC.SETTINGS_KEY);
     const d = SC.loadSettings();
     assert(d.confirmAuto === true && d.questionCount === 10 && d.mode === 'train', '默认设置：确定ON/10题/训练');
+    // v8.6.36 言语理解模块调整为 7 个题型
+    const yanyu36 = App.Constants.MODULES['言语理解'];
+    assert(Array.isArray(yanyu36) && yanyu36.length === 7 && yanyu36[0] === '逻辑填空' && yanyu36[1] === '中心理解' && yanyu36[2] === '标题填入' && yanyu36[3] === '接语选择' && yanyu36[4] === '语句填入' && yanyu36[5] === '语句排序' && yanyu36[6] === '细节判断题', '言语理解 7 题型（逻辑填空/中心理解/标题填入/接语选择/语句填入/语句排序/细节判断题）');
+    assert(Array.isArray(App.Constants.KNOWLEDGE_POINTS['中心理解']) && App.Constants.KNOWLEDGE_POINTS['中心理解'].length >= 3, '新题型中心理解带考点');
+    assert(Array.isArray(App.Constants.KNOWLEDGE_POINTS['细节判断题']), '新题型细节判断题带考点');
+    const built36 = fs.readFileSync('index.html', 'utf8');
+    assert(!built36.includes('片段阅读') && !built36.includes('语句表达'), '旧模块名（片段阅读/语句表达）已移除');
     d.questionCount = 15;
     SC.saveSettings(d);
     assert(SC.loadSettings().questionCount === 15, '修改设置后持久化生效');
