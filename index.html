@@ -7510,7 +7510,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 }
 
 /* v8.6.27 自定义练习弹窗拉长：iPad 横屏一屏看全（94vh + 紧凑间距） */
-.sc-picker-sheet { max-height: 94vh; }
+.sc-picker-sheet { max-height: 94vh; min-height: 70vh; }
 .sc-picker-sheet .sc-custom-grid { gap: 8px; }
 .sc-picker-sheet .sc-custom-cell { padding: 10px 4px; }
 .sc-picker-sheet .sc-custom-numgrid { gap: 8px; margin-top: 8px; }
@@ -7658,7 +7658,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.33';
+App.VERSION = '8.6.34';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
