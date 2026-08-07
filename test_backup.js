@@ -30,7 +30,7 @@ setTimeout(async () => {
   const win = dom.window, App = win.App;
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.29', 'App.VERSION === 8.6.29（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.30', 'App.VERSION === 8.6.30（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] DB 初始化 + 塞数据（100 笔记含 base64 图片）');
     await App.DB.init();

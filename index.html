@@ -420,19 +420,25 @@ body.ipad-split .page-header__inner {
    机制：给「左上角有返回/退出按钮的页面」容器加 .ipad-back-shift，分屏时按钮右移避开系统侧边指示条
    （只动按钮，不动标题栏/页面）。已应用：错题详情/编辑、笔记详情/编辑、便签管理、速算练习全部视图。
    【后续新增页面】：容器 class 加上 ipad-back-shift 即可，无需改 CSS（详见 docs/技术文档.md）
-   v8.6.29 补速算页：.sc-topbar__back 接入同一机制（速算容器 page-speed-calc 已有 ipad-back-shift） */
+   v8.6.29 补速算页：.sc-topbar__back 接入同一机制（速算容器 page-speed-calc 已有 ipad-back-shift）
+   v8.6.30 速算分屏右移加大：笔记/错题页总左距=16(header)+24(inner)+24(margin)=64px；速算需 16+48=64px 对齐（此前 40px 仍被指示条擦到） */
 body.ipad-split .ipad-back-shift .page-header__back,
-body.ipad-split .ipad-back-shift .sc-back-btn,
-body.ipad-split .ipad-back-shift .sc-topbar__back {
+body.ipad-split .ipad-back-shift .sc-back-btn {
   margin-left: 24px;
   transition: margin-left 0.2s ease;
 }
-/* Slide Over / 窄窗口分屏（<=400px）：指示条更占空间，再让一点 */
+body.ipad-split .ipad-back-shift .sc-topbar__back {
+  margin-left: 48px;
+  transition: margin-left 0.2s ease;
+}
+/* Slide Over / 窄窗口分屏（<=400px）：指示条更占空间，再让一点（速算 16+56=72px 对齐笔记） */
 @media screen and (max-width: 400px) {
   body.ipad-split .ipad-back-shift .page-header__back,
-  body.ipad-split .ipad-back-shift .sc-back-btn,
-  body.ipad-split .ipad-back-shift .sc-topbar__back {
+  body.ipad-split .ipad-back-shift .sc-back-btn {
     margin-left: 32px;
+  }
+  body.ipad-split .ipad-back-shift .sc-topbar__back {
+    margin-left: 56px;
   }
 }
 /* 返回按钮点击热区扩大（分屏时更易误触，扩大可点区但视觉不变） */
@@ -7625,7 +7631,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.29';
+App.VERSION = '8.6.30';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
