@@ -28,7 +28,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.32', 'App.VERSION === 8.6.32（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.33', 'App.VERSION === 8.6.33（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 题型生成器（13 种 = 基础计算 10 + 资料分析 3；含 1 个 ▼ 占位）');
     const typeKeys = Object.keys(SC.TYPES);
@@ -202,7 +202,11 @@ setTimeout(async () => {
     assert(!!doc.querySelector('.sc-picker-feattitle') && !!doc.querySelector('.sc-custom-feat-types'), '弹窗含数据特征（固定首位/随机范围）');
     assert(!!doc.querySelector('.sc-picker-histtitle'), '弹窗含最近使用区域');
     assert(!!doc.querySelector('.sc-picker-foot') && doc.querySelectorAll('.sc-picker-foot .sc-custom-footbtn').length === 2, '底部固定栏（取消/确定）');
-    // 选 2 个 → 已选标签行实时联动 → 确定 → 标签高亮
+    // v8.6.33 第一项/第二项 双配置 tab
+    const tabs33 = doc.querySelectorAll('.sc-picker-tab');
+    assert(tabs33.length === 2 && tabs33[0].textContent.includes('第一项') && tabs33[1].textContent.includes('第二项'), '最上部「第一项/第二项」双配置 tab');
+    assert(tabs33[0].classList.contains('selected'), '默认编辑第一项');
+    // 第一项选 2 个题型 → 切到第二项（空）→ 选 1 个 → 切回第一项验证保存
     const pcells = pickGrid.querySelectorAll('.sc-custom-cell');
     pcells[0].click();
     pcells[1].click();
@@ -213,23 +217,38 @@ setTimeout(async () => {
     doc.querySelector('.sc-picker-selrow .sc-custom-selx').click();
     await wait(20);
     assert(doc.querySelectorAll('.sc-picker-selrow .sc-custom-selpill').length === 1 && pickGrid.querySelectorAll('.sc-custom-cell.selected').length === 1, '点 X 移除 → 标签与网格联动');
+    // 切到第二项
+    tabs33[1].click();
+    await wait(20);
+    assert(doc.querySelector('.sc-picker-tab.selected').textContent.includes('第二项'), '切换到第二项');
+    assert(doc.querySelectorAll('.sc-picker-selrow .sc-custom-selpill').length === 0, '第二项初始为空（无已选 pill）');
+    doc.querySelectorAll('.sc-custom-cell')[2].click();
+    await wait(20);
+    assert(doc.querySelectorAll('.sc-picker-selrow .sc-custom-selpill').length === 1, '第二项选 1 个题型');
+    // 切回第一项 → 保存恢复
+    doc.querySelector('.sc-picker-tab').click();
+    await wait(20);
+    assert(doc.querySelectorAll('.sc-picker-selrow .sc-custom-selpill').length === 1 && SC.state.custom.items.item1.types.length === 1, '切回第一项配置保留（1 个题型）');
     doc.querySelector('.sc-picker-foot .sc-custom-footbtn--ok').click();
     await wait(50);
     assert(SC.state.type === 'custom', '确定后题型标记为 custom（不进入新页面）');
+    assert(SC.state.custom.items.item1.types.length === 1 && SC.state.custom.items.item2.types.length === 1, '双项配置已保存（第一项 1 + 第二项 1）');
     assert(home.querySelectorAll('.sc-module-tag.selected').length === 1 && home.querySelector('.sc-module-tag.selected').textContent.includes('自定义练习'), '自定义练习标签高亮');
-    // 开始练习 → 自定义生成
+    // 开始练习 → 双项交替生成
     win.localStorage.setItem(SC.SETTINGS_KEY, JSON.stringify(Object.assign(SC.defaultSettings(), { questionCount: 5, mode: 'train', selectedType: '' })));
     home.querySelector('.sc-start-btn-v2').click();
     await wait(100);
     assert(SC.state.view === 'practice' && SC.state.questions.length === 5, '开始练习生成自定义题目（5 题）');
     const presets = JSON.parse(win.localStorage.getItem(SC.CUSTOM_KEY) || '{}');
     assert(!!presets.lastUsed && Array.isArray(presets.history) && presets.history.length >= 1, '配置与历史已保存 kg_speed_custom_presets');
+    assert(Array.isArray(presets.lastUsed.item2Types) && presets.lastUsed.item2Types.length === 1, 'lastUsed 含第二项配置（item2Types）');
     assert(SC.state.type === 'custom', '自定义练习做题页 type=custom（标题/评级已适配）');
     // v8.6.32 固定首位 9：题目所有数字首位均 9（纯四则，跳过语义题型）
     win.localStorage.setItem(SC.SETTINGS_KEY, JSON.stringify(Object.assign(SC.defaultSettings(), { questionCount: 5, mode: 'train', selectedType: '' })));
-    SC.state.custom.types = ['addsub2c'];
-    SC.state.custom.featureType = 'fixedFirst';
-    SC.state.custom.fixedNum = 9;
+    SC.state.custom.items.item1.types = ['addsub2c'];
+    SC.state.custom.items.item1.featureType = 'fixedFirst';
+    SC.state.custom.items.item1.fixedNum = 9;
+    SC.state.custom.items.item2.types = [];
     SC.startPractice();
     await wait(80);
     const allFixed = SC.state.questions.every(q => {

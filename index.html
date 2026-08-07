@@ -7565,6 +7565,15 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   width: 100%; background: #F3F4F6; color: #374151; border: none; border-radius: 10px;
   padding: 8px 0; font-size: 13px; cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
+
+/* v8.6.33 自定义弹窗：第一项/第二项 双配置 tab */
+.sc-picker-tabs { display: flex; gap: 8px; padding: 6px 16px 0; }
+.sc-picker-tab {
+  flex: 1; background: #F3F4F6; color: #4B5563; border-radius: 10px;
+  padding: 8px 0; text-align: center; font-size: 13px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sc-picker-tab.selected { background: #3B82F6; color: #fff; font-weight: 500; }
 </style>
 </head>
 <body>
@@ -7649,7 +7658,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.32';
+App.VERSION = '8.6.33';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -22538,15 +22547,30 @@ renderHome(container) {
 
   // 自定义练习小窗：11 个题型多选 → 确定（不进入新页面）
   // v8.6.26 自定义练习 Sheet 弹窗（完整版：已选标签行 / 11 题型多选 / 数据特征 / 最近使用）
+  // v8.6.33 双项配置：最上部「第一项 / 第二项」tab，各自独立编辑（题型+数据特征）
   showCustomPicker(onDone) {
     const self = this;
     if (!this.state.custom) this.resetCustomState();
     const cs = this.state.custom;
+    if (!cs.items) this.resetCustomState();
     const presets = this.loadCustomPresets();
-    const types = cs.types.slice();
-    let featureType = cs.featureType || 'fixedFirst';
-    let fixedNum = cs.fixedNum || 9;
-    let randMin = cs.randMin, randMax = cs.randMax;
+    let curKey = 'item1';
+    const itemOf = (k) => {
+      if (!cs.items[k]) cs.items[k] = { types: [], featureType: 'fixedFirst', fixedNum: 9, randMin: null, randMax: null };
+      return cs.items[k];
+    };
+    let types = itemOf(curKey).types.slice();
+    let featureType = itemOf(curKey).featureType || 'fixedFirst';
+    let fixedNum = itemOf(curKey).fixedNum || 9;
+    let randMin = itemOf(curKey).randMin, randMax = itemOf(curKey).randMax;
+    const saveCur = () => {
+      const it = itemOf(curKey);
+      it.types = types.slice();
+      it.featureType = featureType;
+      it.fixedNum = fixedNum;
+      it.randMin = randMin;
+      it.randMax = randMax;
+    };
 
     const overlay = document.createElement('div');
     overlay.className = 'notion-mobile-sheet-overlay';
@@ -22563,6 +22587,38 @@ renderHome(container) {
     title.className = 'sc-picker-title';
     title.textContent = '自定义练习·选择题型（可多选）';
     content.appendChild(title);
+
+    // v8.6.33 第一项 / 第二项 双配置 tab（各自独立编辑，切换前自动保存当前项）
+    const tabRow = document.createElement('div');
+    tabRow.className = 'sc-picker-tabs';
+    const renderTabs = () => {
+      tabRow.innerHTML = '';
+      ['item1', 'item2'].forEach(k => {
+        const tb = document.createElement('div');
+        tb.className = 'sc-picker-tab' + (k === curKey ? ' selected' : '');
+        tb.textContent = k === 'item1' ? '第一项' : '第二项';
+        const cnt = itemOf(k).types.length;
+        if (cnt > 0) tb.textContent += ' (' + cnt + ')';
+        tb.addEventListener('click', () => {
+          if (k === curKey) return;
+          saveCur();
+          curKey = k;
+          types = itemOf(k).types.slice();
+          featureType = itemOf(k).featureType || 'fixedFirst';
+          fixedNum = itemOf(k).fixedNum || 9;
+          randMin = itemOf(k).randMin;
+          randMax = itemOf(k).randMax;
+          renderTabs();
+          renderSelRow();
+          renderTypeGrid();
+          renderFeat();
+          renderOk();
+        });
+        tabRow.appendChild(tb);
+      });
+    };
+    renderTabs();
+    content.appendChild(tabRow);
 
     // ===== 已选标签行（动态，无已选项时隐藏）=====
     const selRow = document.createElement('div');
@@ -22726,13 +22782,14 @@ renderHome(container) {
     renderOk();
     okBtn.addEventListener('click', () => {
       if (!types.length) { App.Components.toast('请至少选择一个题型', 'error'); return; }
-      cs.types = types.slice();
-      cs.featureType = featureType;
-      cs.fixedNum = fixedNum;
-      cs.randMin = randMin;
-      cs.randMax = randMax;
+      saveCur();
+      const i1 = itemOf('item1'), i2 = itemOf('item2');
       const p = this.loadCustomPresets();
-      p.lastUsed = { types: types.slice(), featureType: featureType, fixedNum: fixedNum, randomMin: randMin, randomMax: randMax, settings: Object.assign({}, cs.settings) };
+      p.lastUsed = {
+        types: i1.types.slice(), featureType: i1.featureType, fixedNum: i1.fixedNum, randomMin: i1.randMin, randomMax: i1.randMax,
+        item2Types: i2.types.slice(), item2FeatureType: i2.featureType, item2FixedNum: i2.fixedNum, item2RandomMin: i2.randMin, item2RandomMax: i2.randMax,
+        settings: Object.assign({}, cs.settings)
+      };
       this.saveCustomPresets(p);
       overlay.remove();
       if (onDone) onDone(types.slice());
@@ -22797,12 +22854,12 @@ renderHome(container) {
   resetCustomState() {
     const presets = this.loadCustomPresets();
     const last = presets.lastUsed || {};
+    // v8.6.33 双项配置：第一项 / 第二项 各自独立（题型 + 数据特征），生成时交替出题
     this.state.custom = {
-      types: Array.isArray(last.types) ? last.types : [],
-      featureType: last.featureType || 'fixedFirst',
-      fixedNum: last.fixedNum || 9,
-      randMin: last.randomMin != null ? last.randomMin : null,
-      randMax: last.randomMax != null ? last.randomMax : null,
+      items: {
+        item1: { types: Array.isArray(last.types) ? last.types : [], featureType: last.featureType || 'fixedFirst', fixedNum: last.fixedNum || 9, randMin: last.randomMin != null ? last.randomMin : null, randMax: last.randomMax != null ? last.randomMax : null },
+        item2: { types: Array.isArray(last.item2Types) ? last.item2Types : [], featureType: last.item2FeatureType || 'fixedFirst', fixedNum: last.item2FixedNum || 9, randMin: last.item2RandomMin != null ? last.item2RandomMin : null, randMax: last.item2RandomMax != null ? last.item2RandomMax : null }
+      },
       settings: Object.assign({ confirmAuto: true, useScreenKeyboard: false, sequential: false, nightMode: false, noNegative: false, quickMemo: true }, last.settings || {})
     };
   },
@@ -23032,29 +23089,39 @@ renderHome(container) {
     const self = this;
     if (!this.state.custom) this.resetCustomState();
     const cs = this.state.custom;
+    if (!cs.items) this.resetCustomState();
     if (hist) {
-      // 从历史进入：历史存了已选题型数组
-      if (Array.isArray(hist.types) && hist.types.length) cs.types = hist.types.slice();
-      cs.featureType = hist.featureType || 'fixedFirst';
-      cs.fixedNum = hist.number || cs.fixedNum;
-      cs.randMin = hist.randomMin != null ? hist.randomMin : null;
-      cs.randMax = hist.randomMax != null ? hist.randomMax : null;
+      // 从历史进入：历史存了已选题型数组（第一项）
+      const i1 = cs.items.item1, i2 = cs.items.item2;
+      if (Array.isArray(hist.types) && hist.types.length) i1.types = hist.types.slice();
+      i1.featureType = hist.featureType || 'fixedFirst';
+      i1.fixedNum = hist.number || i1.fixedNum;
+      i1.randMin = hist.randomMin != null ? hist.randomMin : null;
+      i1.randMax = hist.randomMax != null ? hist.randomMax : null;
+      if (Array.isArray(hist.item2Types) && hist.item2Types.length) i2.types = hist.item2Types.slice();
+      i2.featureType = hist.item2FeatureType || 'fixedFirst';
+      i2.fixedNum = hist.item2FixedNum || i2.fixedNum;
+      i2.randMin = hist.item2RandomMin != null ? hist.item2RandomMin : null;
+      i2.randMax = hist.item2RandomMax != null ? hist.item2RandomMax : null;
     }
-    if (!cs.types.length) { App.Components.toast('请至少选择一个题型', 'error'); return; }
+    // v8.6.33 双项出题：第一项 / 第二项都有题型时交替随机，只有一项时用那一项
+    const items = [cs.items.item1, cs.items.item2].filter(it => it && it.types && it.types.length);
+    if (!items.length) { App.Components.toast('请至少选择一个题型', 'error'); return; }
     const settings = this.loadSettings();
     const count = settings.questionCount || 10;
     const mode = this.state.mode || 'train';
     this.state.type = 'custom';
     this.state.mode = mode;
 
-    // 生成题目：每题随机选一个已选题型，套用数据特征
+    // 生成题目：每轮随机选一项（有内容），从该项题型随机选一个，套用该项数据特征
     this.state.questions = [];
     for (let i = 0; i < count; i++) {
-      const key = cs.types[randInt(0, cs.types.length - 1)];
+      const it = items[randInt(0, items.length - 1)];
+      const key = it.types[randInt(0, it.types.length - 1)];
       const gen = this.CUSTOM_TYPES[key].gen;
       let q = gen();
-      if (cs.featureType === 'fixedFirst') q = this._applyCustomFeature(q, { type: 'fixedFirst', number: cs.fixedNum });
-      else if (cs.featureType === 'randomRange') q = this._applyCustomFeature(q, { type: 'randomRange', min: cs.randMin, max: cs.randMax });
+      if (it.featureType === 'fixedFirst') q = this._applyCustomFeature(q, { type: 'fixedFirst', number: it.fixedNum });
+      else if (it.featureType === 'randomRange') q = this._applyCustomFeature(q, { type: 'randomRange', min: it.randMin, max: it.randMax });
       q.user = '';
       q.correct = null;
       this.state.questions.push(q);
@@ -23066,26 +23133,38 @@ renderHome(container) {
     this.state.doodleData = null;
     this.state.autoNextTimer = null;
 
-    // 保存配置 + 历史（最多 12 条，新置顶）
+    // 保存配置 + 历史（最多 12 条，新置顶）——v8.6.33 双项配置
     const presets = this.loadCustomPresets();
-    const firstType = cs.types[0];
+    const i1 = cs.items.item1, i2 = cs.items.item2;
+    const allTypes = i1.types.concat(i2.types);
+    const firstType = allTypes[0];
     const histItem = {
       id: Date.now(),
-      name: cs.types.length > 1 ? (cs.types.length + ' 题组合') : this.CUSTOM_TYPES[firstType].name,
-      subName: cs.types.length > 1 ? cs.types.map(k => this.CUSTOM_TYPES[k].name).join('、') : (cs.featureType === 'fixedFirst' ? '固定首位' : '随机范围'),
-      number: cs.featureType === 'fixedFirst' ? cs.fixedNum : null,
-      featureType: cs.featureType,
-      randomMin: cs.randMin,
-      randomMax: cs.randMax,
-      types: cs.types.slice(),
+      name: allTypes.length > 1 ? (allTypes.length + ' 题组合') : this.CUSTOM_TYPES[firstType].name,
+      subName: allTypes.length > 1 ? allTypes.map(k => this.CUSTOM_TYPES[k].name).join('、') : (i1.featureType === 'fixedFirst' ? '固定首位' : '随机范围'),
+      number: i1.featureType === 'fixedFirst' ? i1.fixedNum : null,
+      featureType: i1.featureType,
+      randomMin: i1.randMin,
+      randomMax: i1.randMax,
+      types: i1.types.slice(),
+      item2Types: i2.types.slice(),
+      item2FeatureType: i2.featureType,
+      item2FixedNum: i2.fixedNum,
+      item2RandomMin: i2.randMin,
+      item2RandomMax: i2.randMax,
       date: new Date().toISOString().slice(0, 10)
     };
     presets.lastUsed = {
-      types: cs.types.slice(),
-      featureType: cs.featureType,
-      fixedNum: cs.fixedNum,
-      randomMin: cs.randMin,
-      randomMax: cs.randMax,
+      types: i1.types.slice(),
+      featureType: i1.featureType,
+      fixedNum: i1.fixedNum,
+      randomMin: i1.randMin,
+      randomMax: i1.randMax,
+      item2Types: i2.types.slice(),
+      item2FeatureType: i2.featureType,
+      item2FixedNum: i2.fixedNum,
+      item2RandomMin: i2.randMin,
+      item2RandomMax: i2.randMax,
       settings: Object.assign({}, cs.settings)
     };
     presets.history = [histItem].concat(presets.history.filter(h => h.id !== histItem.id)).slice(0, 12);
