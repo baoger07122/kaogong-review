@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.39';
+App.VERSION = '8.6.40';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -14698,7 +14698,7 @@ App.Pages.SpeedCalc = {
     addsub3:  { name: '三位数加减',     s: { excellent: 40, good: 50, pass: 70 }, gen: () => { const a = randInt(100, 999), b = randInt(100, 999); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } },
     mul2x1:   { name: '两位数乘一位数', s: { excellent: 20, good: 28, pass: 40 }, gen: () => { const a = randInt(10, 99), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
     mul3x1:   { name: '三位数乘一位数', s: { excellent: 35, good: 45, pass: 60 }, gen: () => { const a = randInt(100, 999), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
-    div3x1:   { name: '三位数除一位数', s: { excellent: 30, good: 45, pass: 60 }, gen: () => { const d = randInt(2, 9), q = randInt(20, 150); return makeQ((d * q) + ' ÷ ' + d, q); } },
+    div3x1:   { name: '三位数除一位数', s: { excellent: 24, good: 30, pass: 38 }, gen: () => { const d = randInt(2, 9), q = randInt(20, 150); return makeQ((d * q) + ' ÷ ' + d, q); } },
     div5x3:   { name: '五位数除三位数', s: { excellent: 45, good: 70, pass: 100 }, gen: () => { const d = randInt(100, 999), q = randInt(100, 999); return makeQ((d * q) + ' ÷ ' + d, q); } },
     spDen:    { name: '特殊分母练习',   s: { excellent: 10, good: 15, pass: 20 }, gen: () => { const pool = [[5, '5%'], [12.5, '12.5%'], [25, '25%'], [37.5, '37.5%'], [50, '50%'], [75, '75%'], [87.5, '87.5%']]; const p = pool[randInt(0, pool.length - 1)], n = randInt(40, 400); return makeQ(n + ' × ' + p[1] + ' =', Math.round(n * p[0] / 100)); } },
     est05:    { name: '零五十估算练习', s: { excellent: 20, good: 30, pass: 45 }, gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } },
@@ -15678,18 +15678,26 @@ renderHome(container) {
     expr.textContent = q.expr;
     body.appendChild(expr);
 
-    // 评级标准（v8.6.20 按题型 s:{excellent,good,pass} 显示；自定义练习用默认值）
-    const standard = document.createElement('div');
-    standard.className = 'sc-standard';
-    const sT = this.state.type === 'custom' ? null : this.TYPES[this.state.type].s;
-    standard.textContent = '合格: ' + (sT ? sT.pass : 28) + 's  良好: ' + (sT ? sT.good : 22) + 's  优秀: ' + (sT ? sT.excellent : 18) + 's';
-    body.appendChild(standard);
+    // 评级标准已移至输入区下方（v8.6.40）
 
     // 答案显示（div 模拟输入，禁止系统键盘）
     const answerDisplay = document.createElement('div');
     answerDisplay.className = 'sc-practice__answer';
     answerDisplay.textContent = this.state.showAns ? (this.state.currentInput || ' ') : '· · ·';
     body.appendChild(answerDisplay);
+
+    // v8.6.40 评级标准（输入区下方；v8.6.20 按题型 s:{excellent,good,pass}；自定义练习用默认值）
+    // 三位数除一位数：合格38s 良好30s 优秀24s，误差 ±3%
+    const standard = document.createElement('div');
+    standard.className = 'sc-standard';
+    const sT = this.state.type === 'custom' ? null : this.TYPES[this.state.type].s;
+    standard.textContent = '合格: ' + (sT ? sT.pass : 28) + 's  良好: ' + (sT ? sT.good : 22) + 's  优秀: ' + (sT ? sT.excellent : 18) + 's' + (this.state.type === 'div3x1' ? '  误差 ±3%' : '');
+    body.appendChild(standard);
+    // v8.6.40 三位数除一位数：本次评分展示（提交后更新）
+    const ratingLine = document.createElement('div');
+    ratingLine.className = 'sc-rating-line';
+    ratingLine.textContent = '';
+    body.appendChild(ratingLine);
 
     // v8.6.23 提交：立即下一题 + 弹出小对/错提示；不显示正确答案、不统计每题用时
     const submit = () => {
@@ -15713,10 +15721,22 @@ renderHome(container) {
           el.classList.add('sc-num-pop');
         });
       }
+      // v8.6.40 三位数除一位数：每题按用时评分（优秀≤24 / 良好≤30 / 合格≤38 / 否则加油）
+      if (this.state.type === 'div3x1') {
+        const t = q.timeUsed;
+        const rating = t <= 24 ? '优秀' : t <= 30 ? '良好' : t <= 38 ? '合格' : '加油';
+        const rl = container.querySelector('.sc-rating-line');
+        if (rl) {
+          rl.textContent = (q.correct ? rating + '！' : '✗ ') + t + 's';
+          rl.className = 'sc-rating-line' + (q.correct ? (rating === '优秀' ? ' ex' : rating === '良好' ? ' gd' : rating === '合格' ? ' ps' : ' go') : ' no');
+        }
+        App.Components.toast((q.correct ? rating + '！' : '✗') + ' ' + t + 's', q.correct ? 'success' : 'error');
+      } else {
+        App.Components.toast(q.correct ? '✓' : '✗', q.correct ? 'success' : 'error');
+      }
       if (isRace) {
         self.next();
       } else {
-        App.Components.toast(q.correct ? '✓' : '✗', q.correct ? 'success' : 'error');
         self.next();
       }
     };

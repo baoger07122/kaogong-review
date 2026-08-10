@@ -28,7 +28,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.39', 'App.VERSION === 8.6.39（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.40', 'App.VERSION === 8.6.40（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 题型生成器（13 种 = 基础计算 10 + 资料分析 3；含 1 个 ▼ 占位）');
     const typeKeys = Object.keys(SC.TYPES);
@@ -107,6 +107,11 @@ setTimeout(async () => {
     const std = home.querySelector('.sc-standard');
     const selS = SC.TYPES[SC.state.type].s;
     assert(!!std && std.textContent.includes('合格: ' + selS.pass + 's'), '评级按题型显示（合格: ' + selS.pass + 's）');
+    // v8.6.40 评级标准移到输入区下方（answer 之后；compareDocumentPosition FOLLOWING=4）
+    const ansEl40 = home.querySelector('.sc-practice__answer');
+    assert(!!std && !!ansEl40 && (ansEl40.compareDocumentPosition(std) & 4) !== 0, 'v8.6.40 评级标准显示在输入区下方');
+    assert(!!home.querySelector('.sc-rating-line'), 'v8.6.40 评分行存在');
+    assert(SC.TYPES.div3x1.s.pass === 38 && SC.TYPES.div3x1.s.good === 30 && SC.TYPES.div3x1.s.excellent === 24, 'v8.6.40 div3x1 评级标准（合格38/良好30/优秀24）');
     assert(!!home.querySelector('.sc-practice__expr'), '大题目展示');
     assert(home.querySelectorAll('.sc-numpad--v2 .sc-numpad__btn').length === 15, '屏幕键盘 15 键（3×4 数字 + C/⌫/✓）');
     // v8.6.38 键盘布局与动画
@@ -276,6 +281,48 @@ setTimeout(async () => {
       return nums.length > 0 && nums.every(n => n.charAt(0) === '9');
     });
     assert(allFixed, '固定首位 9 应用到题目所有数字（v8.6.32 增强）');
+
+    console.log('\n[11] v8.6.40 三位数除一位数评级（38/30/24 + 误差 ±3% + 每题评分）');
+    const lastToastText = () => {
+      const ts = doc.querySelectorAll('.toast');
+      return ts.length ? (ts[ts.length - 1].textContent || '') : '';
+    };
+    SC.state.view = 'practice';
+    SC.state.type = 'div3x1';
+    SC.state.questions = [{ expr: '81 ÷ 3', answer: 27, user: '', correct: null, timeUsed: 0 }];
+    SC.state.idx = 0;
+    await SC.render({});
+    await wait(60);
+    const std40 = home.querySelector('.sc-standard');
+    assert(!!std40 && std40.textContent.includes('误差 ±3%'), 'div3x1 评级行显示「误差 ±3%」');
+    // 提交（模拟 20s 用时）→ 优秀（toast 反馈；render 后设输入与 qStart）
+    SC.state.currentInput = '27';
+    SC.state.qStart = Date.now() - 20000;
+    home.querySelector('.sc-numpad__btn--confirm').click();
+    await wait(80);
+    assert(lastToastText().includes('优秀'), 'v8.6.40 每题评分（20s → 优秀）');
+    // 35s → 合格
+    SC.state.view = 'practice';
+    SC.state.questions = [{ expr: '81 ÷ 3', answer: 27, user: '', correct: null, timeUsed: 0 }];
+    SC.state.idx = 0;
+    await SC.render({});
+    await wait(60);
+    SC.state.currentInput = '27';
+    SC.state.qStart = Date.now() - 35000;
+    home.querySelector('.sc-numpad__btn--confirm').click();
+    await wait(80);
+    assert(lastToastText().includes('合格'), 'v8.6.40 每题评分（35s → 合格）');
+    // 50s → 加油
+    SC.state.view = 'practice';
+    SC.state.questions = [{ expr: '81 ÷ 3', answer: 27, user: '', correct: null, timeUsed: 0 }];
+    SC.state.idx = 0;
+    await SC.render({});
+    await wait(60);
+    SC.state.currentInput = '27';
+    SC.state.qStart = Date.now() - 50000;
+    home.querySelector('.sc-numpad__btn--confirm').click();
+    await wait(80);
+    assert(lastToastText().includes('加油'), 'v8.6.40 每题评分（50s → 加油）');
 
     console.log('\n===== 速算专项: ' + pass + ' 通过, ' + fail + ' 失败 =====');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }
