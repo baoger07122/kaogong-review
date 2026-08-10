@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.40';
+App.VERSION = '8.6.41';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -1979,7 +1979,7 @@ App.Components = {
 
     const colorWrap = document.createElement('div');
     colorWrap.className = 'sketch-pad__colors';
-    const colors = [ {n:'黑', v:'#1a1a1a'}, {n:'红', v:'#e53935'}, {n:'蓝', v:'#1e88e5'}, {n:'绿', v:'#43a047'} ];
+    const colors = [ {n:'黑', v:'#4d4d4d'}, {n:'红', v:'#e53935'}, {n:'蓝', v:'#1e88e5'}, {n:'绿', v:'#43a047'} ];
     let currentColor = colors[0].v;
     const colorDots = [];
     colors.forEach((c, i) => {
@@ -1997,7 +1997,8 @@ App.Components = {
     const sizeWrap = document.createElement('div');
     sizeWrap.className = 'sketch-pad__sizes';
     // v8.5.4：画笔三档 2.6/2.8/3.0；默认使用上次选择的档位（localStorage 记忆，跨页面/跨会话），无记录时默认细
-    const penSizes = [ {n:'细', v:2.6}, {n:'中', v:2.8}, {n:'粗', v:3.0} ];
+    // v8.6.41 笔档位拉开（细/中/粗可区分，旧值 2.6/2.8/3.0 回退细）
+    const penSizes = [ {n:'细', v:3.0}, {n:'中', v:4.5}, {n:'粗', v:6.5} ];
     const eraserSizes = [ {n:'细', v:36}, {n:'中', v:60}, {n:'粗', v:90} ];
     const readLastPenSize = () => {
       let v = NaN;
@@ -2094,6 +2095,8 @@ App.Components = {
       penBtn.classList.toggle('is-active', m === 'pen');
       eraserBtn.classList.toggle('is-active', m === 'eraser');
       if (m !== 'eraser') hideCursor();
+      // v8.6.41 切回画笔重置压力（防橡皮擦后首笔残留异常）
+      if (m === 'pen') lastPressure = 0.5;
       // 切换模式时同步 currentSize 并高亮对应按钮
       currentSize = (m === 'eraser') ? currentEraserSize : currentPenSize;
       const list = (m === 'eraser') ? eraserSizes : penSizes;
@@ -2165,7 +2168,7 @@ App.Components = {
     }
 
     // 三次贝塞尔中点法：以倒数第 3、2 点为控制点，从上一中点画到当前中点，
-    // 曲线再细分为 SEG 段，每段线宽在起止压力间线性渐变，粗细过渡自然无竹节
+    // v8.6.41 双描边柔和：先半透明粗晕（盖住段间棱角/毛边），再精确细线；SEG 8→14 更平滑
     function drawSegment() {
       const n = points.length;
       const c1 = points[n - 3];
@@ -2176,20 +2179,30 @@ App.Components = {
       const sf = scaleFactor();
       const w0 = penWidth(c1.p, sf);
       const w1 = penWidth(cur.p, sf);
-      const SEG = 8;
-      let px = lastX, py = lastY;
-      for (let i = 1; i <= SEG; i++) {
-        const t = i / SEG;
-        const mt = 1 - t;
-        const x = mt * mt * mt * lastX + 3 * mt * mt * t * c1.x + 3 * mt * t * t * c2.x + t * t * t * ex;
-        const y = mt * mt * mt * lastY + 3 * mt * mt * t * c1.y + 3 * mt * t * t * c2.y + t * t * t * ey;
-        ctx.lineWidth = w0 + (w1 - w0) * t;
-        ctx.beginPath();
-        ctx.moveTo(px, py);
-        ctx.lineTo(x, y);
-        ctx.stroke();
-        px = x; py = y;
-      }
+      const SEG = 14;
+      const paint = (alpha, widthMul) => {
+        let px = lastX, py = lastY;
+        for (let i = 1; i <= SEG; i++) {
+          const t = i / SEG;
+          const mt = 1 - t;
+          const x = mt * mt * mt * lastX + 3 * mt * mt * t * c1.x + 3 * mt * t * t * c2.x + t * t * t * ex;
+          const y = mt * mt * mt * lastY + 3 * mt * mt * t * c1.y + 3 * mt * t * t * c2.y + t * t * t * ey;
+          ctx.lineWidth = (w0 + (w1 - w0) * t) * widthMul;
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(x, y);
+          ctx.stroke();
+          px = x; py = y;
+        }
+      };
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = currentColor;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.globalAlpha = 0.16;
+      paint(0.16, 1.7);
+      ctx.globalAlpha = 1;
+      paint(1, 1);
       lastX = ex; lastY = ey;
       points = [c2, cur];
     }
@@ -2259,18 +2272,18 @@ App.Components = {
       drawing = false;
       hideCursor();
       try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
-      // 收尾：把剩余一段以「线宽渐变」连到终点，压至最细形成自然笔锋
-      // 距离过近跳过，避免小圆点；单点点击不画圆点
+      // 收尾：把剩余一段以「线宽渐变」连到终点，压至细尖形成自然笔锋
+      // v8.6.41 短笔/tap 不画（阈值 2→4）；收尾终点真正压细（0.4 系数），避免粗短段像大圆点
       if (mode !== 'eraser' && points.length > 0) {
         const last = points[points.length - 1];
         const dx = last.x - lastX;
         const dy = last.y - lastY;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist > 2) {
+        if (dist > 4) {
           const sf = scaleFactor();
           const w0 = penWidth(lastPressure, sf);
-          const w1 = penWidth(0.35, sf);
-          const SEG = 4;
+          const w1 = Math.max(1, currentPenSize * 0.4 * sf);
+          const SEG = 6;
           ctx.globalCompositeOperation = 'source-over';
           ctx.strokeStyle = currentColor;
           ctx.lineCap = 'round';
@@ -2420,7 +2433,7 @@ App.Components = {
       // 底部工具栏（从底部滑上）：颜色 + 笔触大小
       const sheet = document.createElement('div');
       sheet.className = 'doodle-overlay__sheet';
-      const colors = [ {n:'黑', v:'#1a1a1a'}, {n:'红', v:'#e53935'}, {n:'蓝', v:'#1e88e5'}, {n:'绿', v:'#43a047'} ];
+      const colors = [ {n:'黑', v:'#4d4d4d'}, {n:'红', v:'#e53935'}, {n:'蓝', v:'#1e88e5'}, {n:'绿', v:'#43a047'} ];
       let activeColor = colors[0].v;
       const colorWrap = document.createElement('div');
       colorWrap.className = 'doodle-overlay__colors';

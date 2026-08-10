@@ -28,7 +28,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.40', 'App.VERSION === 8.6.40（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.41', 'App.VERSION === 8.6.41（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 题型生成器（13 种 = 基础计算 10 + 资料分析 3；含 1 个 ▼ 占位）');
     const typeKeys = Object.keys(SC.TYPES);
@@ -323,6 +323,13 @@ setTimeout(async () => {
     home.querySelector('.sc-numpad__btn--confirm').click();
     await wait(80);
     assert(lastToastText().includes('加油'), 'v8.6.40 每题评分（50s → 加油）');
+
+    console.log('\n[12] v8.6.41 涂鸦笔优化（柔和/调灰/大圆点修复）');
+    const built41 = fs.readFileSync('index.html', 'utf8');
+    assert(built41.includes('globalAlpha = 0.16') && built41.includes('SEG = 14'), 'v8.6.41 双描边柔和（半透明粗晕 + 细线，SEG 14）');
+    assert(built41.includes("v:3.0}") && built41.includes("v:4.5}") && built41.includes("v:6.5}"), 'v8.6.41 笔档位拉开（细3/中4.5/粗6.5）');
+    assert(built41.includes("v:'#4d4d4d'"), 'v8.6.41 默认笔色调灰（#4d4d4d）');
+    assert(built41.includes('currentPenSize * 0.4') && built41.includes('dist > 4'), 'v8.6.41 收尾压细 + 短笔/tap 不画（大圆点修复）');
 
     console.log('\n===== 速算专项: ' + pass + ' 通过, ' + fail + ' 失败 =====');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }
