@@ -3,13 +3,13 @@
 
 /* ===== CSS 自定义属性（浅色模式 / 默认） ===== */
 :root {
-  /* --- 蓝白色系主题 --- */
-  --color-primary: #4A90E2;
-  --color-primary-light: #6BA5E8;
-  --color-primary-dark: #3A7BD5;
-  --color-primary-bg: #EBF2FC;
+  /* --- Apple 风格：Action Blue 单色强调 --- */
+  --color-primary: #0066CC;
+  --color-primary-light: #0071E3;
+  --color-primary-dark: #005BB5;
+  --color-primary-bg: #EAF2FE;
 
-  /* --- 辅助色 --- */
+  /* --- 辅助色（iOS 系统语义色） --- */
   --color-success: #34C759;
   --color-success-light: #E8F5E9;
   --color-warning: #FF9500;
@@ -20,33 +20,33 @@
   --color-teal: #1ABC9C;
   --color-gold: #F5A623;
 
-  /* --- 背景色（纯白背景） --- */
+  /* --- 背景色（纯白 + Parchment 灰） --- */
   --bg-primary: #FFFFFF;
   --bg-secondary: #FFFFFF;
-  --bg-tertiary: #F8FAFC;
+  --bg-tertiary: #F5F5F7;
   --bg-card: #FFFFFF;
   --bg-overlay: rgba(0,0,0,0.3);
 
-  /* --- 文字色 --- */
-  --text-primary: #1A1A1A;
-  --text-secondary: #666666;
-  --text-tertiary: #999999;
+  /* --- 文字色（Apple Ink 墨色系） --- */
+  --text-primary: #1D1D1F;
+  --text-secondary: #7A7A7A;
+  --text-tertiary: #A1A1A6;
   --text-light: #B0B0B0;
 
-  /* --- 边框/分割线 --- */
-  --border-color: #E8E8E8;
+  /* --- 边框/分割线（Apple Hairline） --- */
+  --border-color: #E0E0E0;
   --divider-color: #F0F0F0;
 
-  /* --- 阴影 --- */
-  --shadow-sm: 0 1px 4px rgba(0,0,0,0.04);
-  --shadow-md: 0 2px 12px rgba(0,0,0,0.06);
-  --shadow-lg: 0 4px 16px rgba(0,0,0,0.08);
-  --shadow-fab: 0 4px 16px rgba(74,144,226,0.35);
+  /* --- 阴影（Apple 弱化装饰阴影，靠层级与发丝线） --- */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
+  --shadow-md: 0 2px 12px rgba(0,0,0,0.07);
+  --shadow-lg: 0 6px 24px rgba(0,0,0,0.10);
+  --shadow-fab: 0 4px 16px rgba(0,102,204,0.35);
 
   /* --- 圆角 --- */
   --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
   --radius-xl: 20px;
   --radius-full: 9999px;
 
@@ -85,10 +85,10 @@
 
 /* ===== 深色模式 ===== */
 [data-theme="dark"] {
-  --color-primary: #5A9FE8;
-  --color-primary-light: #7BB5F0;
-  --color-primary-dark: #4A8FD5;
-  --color-primary-bg: #1A2535;
+  --color-primary: #2997FF;
+  --color-primary-light: #3FA0FF;
+  --color-primary-dark: #1F86F2;
+  --color-primary-bg: #14263C;
 
   --color-success: #34C759;
   --color-warning: #FF9500;
@@ -111,16 +111,16 @@
   --shadow-sm: 0 1px 4px rgba(0,0,0,0.2);
   --shadow-md: 0 2px 12px rgba(0,0,0,0.25);
   --shadow-lg: 0 4px 16px rgba(0,0,0,0.3);
-  --shadow-fab: 0 4px 16px rgba(74,144,226,0.2);
+  --shadow-fab: 0 4px 16px rgba(41,151,255,0.35);
 }
 
 /* 跟随系统深色模式 */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --color-primary: #5A9FE8;
-    --color-primary-light: #7BB5F0;
-    --color-primary-dark: #4A8FD5;
-    --color-primary-bg: #1A2535;
+    --color-primary: #2997FF;
+    --color-primary-light: #3FA0FF;
+    --color-primary-dark: #1F86F2;
+    --color-primary-bg: #14263C;
 
     --color-success: #34C759;
     --color-warning: #FF9500;
@@ -143,7 +143,7 @@
     --shadow-sm: 0 1px 4px rgba(0,0,0,0.2);
     --shadow-md: 0 2px 12px rgba(0,0,0,0.25);
     --shadow-lg: 0 4px 16px rgba(0,0,0,0.3);
-    --shadow-fab: 0 4px 16px rgba(74,144,226,0.2);
+    --shadow-fab: 0 4px 16px rgba(41,151,255,0.35);
   }
 }
 
@@ -216,9 +216,9 @@ input, textarea, select {
      安全区留白转移到吸顶元素内部 padding-top，背景从屏幕物理顶端开始铺，
      滚动时顶带被吸顶元素背景覆盖，内容不再从状态栏下方穿出。
      无吸顶标题栏的页面（首页/学习统计/考点管理）单独补顶部留白（见下）。 */
-  /* 底部仅预留固定底栏（nav 高度 + 底部安全区），不多留；
+  /* 底部仅预留固定底栏（nav 高度 + 底部安全区 + 浮动胶囊离地间距 20px），
      滚动范围严格等于页面内容，到底即止、无额外空白。 */
-  padding-bottom: calc(var(--nav-height) + var(--safe-bottom));
+  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 20px);
 }
 
 /* 无吸顶标题栏的页面：首元素是普通内容，需自行避开状态栏/iPad 三点 */
@@ -233,7 +233,7 @@ input, textarea, select {
 #page-home {
   min-height: 100vh;
   min-height: 100dvh;
-  padding-bottom: calc(var(--nav-height) + var(--safe-bottom));
+  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 20px);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -254,21 +254,35 @@ input, textarea, select {
 /* ===== 底部导航栏 ===== */
 #bottom-nav {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  /* min-height 含安全区：iPad 横屏 home 指示条 / iPhone 底部横条区域也保持完整背景 */
-  min-height: calc(var(--nav-height) + var(--safe-bottom));
-  padding-bottom: var(--safe-bottom);
-  background: var(--bg-card);
-  border-top: 0.5px solid var(--divider-color);
-  box-shadow: 0 -6px 20px rgba(0,0,0,0.04);
+  bottom: calc(var(--safe-bottom) + 10px);
+  left: 12px;
+  right: 12px;
+  /* 浮动胶囊：min-height 含安全区，毛玻璃 + 发丝边框 + 柔和阴影（iOS 风格） */
+  min-height: calc(var(--nav-height) - 2px);
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.92);
+  border: 0.5px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.10);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
   display: flex;
   justify-content: space-around;
   align-items: center;
   z-index: 9999;
   -webkit-transform: translateZ(0);
   transform: translateZ(0);
+}
+
+/* 深色模式下的浮动胶囊 */
+[data-theme="dark"] #bottom-nav {
+  background: rgba(28, 31, 38, 0.92);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) #bottom-nav {
+    background: rgba(28, 31, 38, 0.92);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
 }
 
 /* ===== 无底部导航页面（笔记详情/笔记编辑）：隐藏固定底栏，内容底部不再预留 nav 空间 ===== */
@@ -310,7 +324,7 @@ input, textarea, select {
 }
 
 .nav-item:not(.active) {
-  color: #B0B0B0;
+  color: var(--text-tertiary);
 }
 
 .nav-item.active {
@@ -318,13 +332,15 @@ input, textarea, select {
 }
 
 .nav-item.active .nav-icon {
-  background: rgba(74, 144, 226, 0.10);
+  background: var(--color-primary);
+  color: #fff;
   border-radius: 50%;
-  padding: 5px;
-  margin: -5px;
+  padding: 6px;
+  margin: -6px;
 }
 
 .nav-item.active .nav-label {
+  color: var(--color-primary);
   font-weight: 600;
 }
 
@@ -433,7 +449,8 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 
 .page-header__title {
   font-size: var(--font-xxl);
-  font-weight: 700;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
 }
 
@@ -1208,9 +1225,9 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   align-items: center;
   justify-content: center;
   font-size: 0;
-  color: white;
+  color: var(--color-primary);
   transition: all 0.15s ease;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  box-shadow: none;
 }
 
 .feature-grid-item__icon svg {
@@ -1224,6 +1241,64 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   font-weight: 500;
   color: var(--text-secondary);
   margin-top: 2px;
+}
+
+/* ===== 首页深色 Hero 卡（Apple 风格 Tile） ===== */
+.home-hero {
+  margin: 0 var(--page-padding);
+  margin-bottom: var(--spacing-xl);
+  background: #272729;
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  color: #fff;
+}
+.home-hero__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.home-hero__label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+}
+.home-hero__chip {
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  padding: 5px 12px;
+}
+.home-hero__num {
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+.home-hero__unit {
+  font-size: 14px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.7);
+  margin-left: 6px;
+  letter-spacing: 0;
+}
+.home-hero__bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.15);
+  margin: 14px 0 10px;
+  overflow: hidden;
+}
+.home-hero__bar i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: #2997FF;
+}
+.home-hero__foot {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 /* ===== 统计卡片区 ===== */
@@ -1241,14 +1316,15 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 
 .stat-item {
   background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 10px 4px;
+  padding: 12px 4px;
   text-align: center;
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
 }
 
 .stat-item__value {
-  font-size: var(--font-lg);
+  font-size: 20px;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1.2;
@@ -2192,7 +2268,7 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .fab {
   position: fixed;
   right: var(--page-padding);
-  bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--spacing-md));
+  bottom: calc(var(--nav-height) + var(--safe-bottom) + 30px);
   width: 56px;
   height: 56px;
   border-radius: 50%;

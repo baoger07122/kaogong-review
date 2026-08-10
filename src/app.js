@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.41';
+App.VERSION = '8.10.1';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -8942,7 +8942,7 @@ App.Pages.Home = {
     header.style.cssText = 'padding:var(--spacing-lg) var(--page-padding);padding-bottom:0;';
     header.innerHTML = `
       <div style="display:flex;align-items:center;gap:var(--spacing-sm);margin-bottom:var(--spacing-lg);">
-        <div style="font-size:var(--font-3xl);font-weight:700;color:var(--text-primary);">首页</div>
+        <div style="font-size:26px;font-weight:600;letter-spacing:-0.02em;color:var(--text-primary);">首页</div>
         <div class="search-bar" style="flex:1;margin:0;">
           <span class="search-bar__icon">🔍</span>
           <input type="text" placeholder="搜索错题 / 知识点" id="home-search"
@@ -8975,8 +8975,9 @@ App.Pages.Home = {
     features.forEach(f => {
       const item = document.createElement('div');
       item.className = 'feature-grid-item';
+      // Apple 风格：图标底浅灰（Parchment）+ Action Blue 单色图标
       item.innerHTML = `
-        <div class="feature-grid-item__icon" style="background:${f.color}">${f.icon}</div>
+        <div class="feature-grid-item__icon" style="background:var(--bg-tertiary);color:var(--color-primary)">${f.icon}</div>
         <div class="feature-grid-item__name">${f.label}</div>
       `;
       item.addEventListener('click', f.action);
@@ -9054,6 +9055,20 @@ App.Pages.Home = {
     const completedCount = todayTodos.filter(t => t.completed).length;
     const totalCount = todayTodos.length;
     const pct = totalCount > 0 ? Math.round(completedCount / totalCount * 100) : 0;
+
+    // ===== Apple 风格深色 Hero 卡：今日复盘进度 =====
+    const hero = document.createElement('div');
+    hero.className = 'home-hero';
+    hero.innerHTML = `
+      <div class="home-hero__top">
+        <span class="home-hero__label">今日复盘</span>
+        <span class="home-hero__chip">${completedCount}/${totalCount} 已完成</span>
+      </div>
+      <div class="home-hero__num">${completedCount}<span class="home-hero__unit">/ ${totalCount} 项待办</span></div>
+      <div class="home-hero__bar"><i style="width:${pct}%"></i></div>
+      <div class="home-hero__foot">还有 ${unmastered} 道错题待掌握 · 本周新增 ${weekNew} 道</div>
+    `;
+    container.insertBefore(hero, featureGrid);
 
     const todoWrap = document.createElement('div');
     todoWrap.style.cssText = 'padding:var(--spacing-lg) var(--page-padding) 0;';
