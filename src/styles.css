@@ -7001,7 +7001,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   transition: transform 150ms cubic-bezier(0.34, 1.56, 0.64, 1), filter 60ms ease-out;
   will-change: transform;
 }
-.sc-numpad__btn:active { transform: scale(0.93); filter: brightness(0.86); }
+.sc-numpad__btn:active { transform: scale(0.93) translateY(1px); filter: brightness(0.86); }
 .sc-numpad--v2 .sc-numpad__btn { background: #F3F4F6; color: #1F2937; font-size: 24px; border-radius: 14px; }
 .sc-numpad--v2 .sc-numpad__btn:active { background: #E5E7EB; }
 .sc-numpad--v2 .sc-numpad__btn--func { background: #059669; color: #fff; font-size: 20px; font-weight: 600; }

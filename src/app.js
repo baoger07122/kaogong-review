@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.38';
+App.VERSION = '8.6.39';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -14776,6 +14776,30 @@ App.Pages.SpeedCalc = {
     container.appendChild(header);
   },
 
+  // v8.6.39 iOS 触觉：Safari 不支持 navigator.vibrate，用 Web Audio 低频短脉冲（55Hz/70ms）近似按键触感
+  _tapHaptic() {
+    try { if (navigator.vibrate) { navigator.vibrate(8); return; } } catch (e) {}
+    try {
+      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (!isIOS) return;
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!this._hapticCtx) this._hapticCtx = new AC();
+      const ctx = this._hapticCtx;
+      if (ctx.state === 'suspended') ctx.resume();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 55;
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.07);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.07);
+    } catch (e) {}
+  },
+
   // ===== 视图：题型选择首页 =====
 renderHome(container) {
     const self = this;
@@ -15756,8 +15780,8 @@ renderHome(container) {
       b.className = 'sc-numpad__btn' + (k.cls ? ' sc-numpad__btn--' + k.cls : '') + (extraCls || '');
       b.textContent = k.label || k.k;
       b.addEventListener('click', () => press(k.k));
-      // v8.6.38 轻触反馈（Android vibrate / iOS 尽力）
-      b.addEventListener('pointerdown', () => { try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) {} });
+      // v8.6.39 触觉反馈：Android vibrate / iOS Web Audio 低频脉冲近似
+      b.addEventListener('pointerdown', () => this._tapHaptic());
       return b;
     };
     NUM_ROWS.forEach(row => row.forEach(k => grid.appendChild(mkBtn({ k: k }))));

@@ -28,7 +28,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.38', 'App.VERSION === 8.6.38（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.39', 'App.VERSION === 8.6.39（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 题型生成器（13 种 = 基础计算 10 + 资料分析 3；含 1 个 ▼ 占位）');
     const typeKeys = Object.keys(SC.TYPES);
@@ -118,6 +118,8 @@ setTimeout(async () => {
     const built38 = fs.readFileSync('index.html', 'utf8');
     assert(built38.includes('#059669') && built38.includes('cubic-bezier(0.34, 1.56, 0.64, 1)'), 'v8.6.38 功能键深绿 + 按压弹簧回弹');
     assert(built38.includes('scFlashOk') && built38.includes('scAnsPop') && built38.includes('scNumPop') && built38.includes('scExprIn'), 'v8.6.38 动画（正确闪烁/输入弹入/统计跳动/题目淡入）');
+    assert(built38.includes('_tapHaptic') && built38.includes('AudioContext') && built38.includes('navigator.vibrate'), 'v8.6.39 iOS 触觉（Web Audio 低频脉冲 + Android vibrate）');
+    assert(built38.includes('translateY(1px)'), 'v8.6.39 按压增加位移（增强按下感）');
     assert(!home.querySelector('input[type=text], input[type=number]'), '无系统输入框（强制屏幕键盘）');
     // v8.6.32 键盘调节开关
     const adjBtn32 = home.querySelector('.sc-numpad__adjbtn');
