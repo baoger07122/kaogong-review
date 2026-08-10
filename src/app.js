@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.37';
+App.VERSION = '8.6.38';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -15677,6 +15677,18 @@ renderHome(container) {
       q.timeUsed = Math.round((Date.now() - self.state.qStart) / 100) / 10;
       const isEst = /≈|估算/.test(q.expr);
       q.correct = isEst ? Math.abs(val - q.answer) <= Math.max(1, Math.abs(q.answer) * 0.03) : val === q.answer;
+      // v8.6.38 正确反馈：全屏淡青闪烁（inset box-shadow 覆盖）+ 顶部统计数字跳动
+      if (q.correct) {
+        const scBox = container;
+        scBox.classList.remove('sc-flash-ok');
+        void scBox.offsetWidth;
+        scBox.classList.add('sc-flash-ok');
+        container.querySelectorAll('.sc-statusbar__num, .sc-statusbar__pos').forEach(el => {
+          el.classList.remove('sc-num-pop');
+          void el.offsetWidth;
+          el.classList.add('sc-num-pop');
+        });
+      }
       if (isRace) {
         self.next();
       } else {
@@ -15692,44 +15704,67 @@ renderHome(container) {
     // v8.6.32 应用持久化的键盘尺寸（高度/宽度调节）
     if (settings.keyboardH) numpad.style.height = settings.keyboardH + 'px';
     if (settings.keyboardW) numpad.style.width = settings.keyboardW + '%';
-    const KEY_ROWS = [
-      [ { k: 'restart', label: '重开', cls: 'func' }, { k: 'clear', label: '清空', cls: 'func' }, { k: 'backspace', label: '退格', cls: 'func' } ],
-      [ { k: '1' }, { k: '2' }, { k: '3' } ],
-      [ { k: '4' }, { k: '5' }, { k: '6' } ],
-      [ { k: '7' }, { k: '8' }, { k: '9' } ],
-      [ { k: '.' }, { k: '0' }, { k: 'confirm', label: '确定', cls: 'confirm' } ]
+    // v8.6.38 键盘布局：左侧 3×4 数字网格（浅灰底大圆角黑字）+ 右侧功能列（深绿底，✓ 双倍高提交键）
+    const NUM_ROWS = [
+      ['1', '2', '3'],
+      ['4', '5', '6'],
+      ['7', '8', '9'],
+      ['+/-', '0', '.']
     ];
+    const FUNC_KEYS = [
+      { k: 'clear', label: 'C', cls: 'func' },
+      { k: 'backspace', label: '⌫', cls: 'func' },
+      { k: 'confirm', label: '✓', cls: 'confirm tall' }
+    ];
+    const kb = document.createElement('div');
+    kb.className = 'sc-numpad__kb';
     const grid = document.createElement('div');
     grid.className = 'sc-numpad__grid';
+    const funcCol = document.createElement('div');
+    funcCol.className = 'sc-numpad__func';
     const press = (key) => {
-      if (submitted && key !== 'restart') return;
+      if (submitted) return;
       switch (key) {
         case 'backspace': self.state.currentInput = self.state.currentInput.slice(0, -1); break;
         case 'clear': self.state.currentInput = ''; break;
-        case 'restart': if (confirm('确定重新开始本轮？')) { self.startPractice(); } return;
         case 'confirm': submit(); return;
+        case '+/-': {
+          const s = self.state.currentInput;
+          self.state.currentInput = s.startsWith('-') ? s.slice(1) : (s ? '-' + s : s);
+          break;
+        }
         case '.': if (!self.state.currentInput.includes('.')) self.state.currentInput += '.'; break;
         default:
           if (self.state.currentInput.length < 10) self.state.currentInput += key;
       }
+      // v8.6.38 输入动画：数字弹入（scale 0.8→1）
       const disp = container.querySelector('.sc-practice__answer');
-      if (disp) disp.textContent = self.state.showAns ? (self.state.currentInput || ' ') : '· · ·';
+      if (disp) {
+        disp.textContent = self.state.showAns ? (self.state.currentInput || ' ') : '· · ·';
+        disp.classList.remove('sc-ans-pop');
+        void disp.offsetWidth;
+        disp.classList.add('sc-ans-pop');
+      }
       // 确定开关 ON：答案位数与正确答案一致 → 自动提交
       if (confirmAuto && !submitted && !isNaN(parseFloat(self.state.currentInput)) && self.state.currentInput.length === String(q.answer).length) {
         submit();
       }
     };
-    KEY_ROWS.forEach(row => {
-      row.forEach(k => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'sc-numpad__btn' + (k.cls ? ' sc-numpad__btn--' + k.cls : '');
-        b.textContent = k.label || k.k;
-        b.addEventListener('click', () => press(k.k));
-        grid.appendChild(b);
-      });
-    });
-    numpad.appendChild(grid);
+    const mkBtn = (k, extraCls) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'sc-numpad__btn' + (k.cls ? ' sc-numpad__btn--' + k.cls : '') + (extraCls || '');
+      b.textContent = k.label || k.k;
+      b.addEventListener('click', () => press(k.k));
+      // v8.6.38 轻触反馈（Android vibrate / iOS 尽力）
+      b.addEventListener('pointerdown', () => { try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) {} });
+      return b;
+    };
+    NUM_ROWS.forEach(row => row.forEach(k => grid.appendChild(mkBtn({ k: k }))));
+    FUNC_KEYS.forEach(fk => funcCol.appendChild(mkBtn(fk)));
+    kb.appendChild(grid);
+    kb.appendChild(funcCol);
+    numpad.appendChild(kb);
     const footer = document.createElement('div');
     footer.className = 'sc-numpad__footer';
     const footerLeft = document.createElement('span');
@@ -15775,9 +15810,19 @@ renderHome(container) {
       closeBtn.addEventListener('click', () => panel.remove());
       panel.appendChild(closeBtn);
       panel.addEventListener('click', (e) => e.stopPropagation());
-      numpad.insertBefore(panel, grid);
+      numpad.insertBefore(panel, kb);
     });
     footer.appendChild(adjBtn);
+    // v8.6.38 重开（原键盘「重开」键移至底部，保持功能）
+    const restartBtn = document.createElement('button');
+    restartBtn.type = 'button';
+    restartBtn.className = 'sc-numpad__adjbtn';
+    restartBtn.textContent = '重开';
+    restartBtn.addEventListener('click', async () => {
+      const go = await App.Components.confirm('重新开始', '确定重新开始本轮练习？', '重开', '取消', true);
+      if (go) self.startPractice();
+    });
+    footer.appendChild(restartBtn);
     numpad.appendChild(footer);
 
     container.appendChild(body);

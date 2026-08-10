@@ -28,7 +28,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.6.37', 'App.VERSION === 8.6.37（当前 ' + App.VERSION + '）');
+    assert(App.VERSION === '8.6.38', 'App.VERSION === 8.6.38（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 题型生成器（13 种 = 基础计算 10 + 资料分析 3；含 1 个 ▼ 占位）');
     const typeKeys = Object.keys(SC.TYPES);
@@ -108,11 +108,21 @@ setTimeout(async () => {
     const selS = SC.TYPES[SC.state.type].s;
     assert(!!std && std.textContent.includes('合格: ' + selS.pass + 's'), '评级按题型显示（合格: ' + selS.pass + 's）');
     assert(!!home.querySelector('.sc-practice__expr'), '大题目展示');
-    assert(home.querySelectorAll('.sc-numpad--v2 .sc-numpad__btn').length === 15, '屏幕键盘 15 键');
+    assert(home.querySelectorAll('.sc-numpad--v2 .sc-numpad__btn').length === 15, '屏幕键盘 15 键（3×4 数字 + C/⌫/✓）');
+    // v8.6.38 键盘布局与动画
+    assert(!!home.querySelector('.sc-numpad__kb') && !!home.querySelector('.sc-numpad__func'), 'v8.6.38 键盘分左右（数字网格 + 功能列）');
+    assert(home.querySelectorAll('.sc-numpad__func .sc-numpad__btn').length === 3, '功能列 3 键（C/⌫/✓）');
+    assert(!!home.querySelector('.sc-numpad__btn--confirm.tall'), '✓ 提交键双倍高（tall）');
+    assert(home.querySelectorAll('.sc-numpad__grid .sc-numpad__btn').length === 12, '数字区 12 键（含 +/-）');
+    assert(!!Array.from(home.querySelectorAll('.sc-numpad__grid .sc-numpad__btn')).find(b => b.textContent === '+/-'), '+/- 正负切换键存在');
+    const built38 = fs.readFileSync('index.html', 'utf8');
+    assert(built38.includes('#059669') && built38.includes('cubic-bezier(0.34, 1.56, 0.64, 1)'), 'v8.6.38 功能键深绿 + 按压弹簧回弹');
+    assert(built38.includes('scFlashOk') && built38.includes('scAnsPop') && built38.includes('scNumPop') && built38.includes('scExprIn'), 'v8.6.38 动画（正确闪烁/输入弹入/统计跳动/题目淡入）');
     assert(!home.querySelector('input[type=text], input[type=number]'), '无系统输入框（强制屏幕键盘）');
     // v8.6.32 键盘调节开关
     const adjBtn32 = home.querySelector('.sc-numpad__adjbtn');
     assert(!!adjBtn32 && adjBtn32.textContent === '调节', '键盘底部「调节」开关存在');
+    assert(Array.from(home.querySelectorAll('.sc-numpad__adjbtn')).some(b => b.textContent === '重开'), 'v8.6.38 重开按钮移至键盘底部');
     adjBtn32.click();
     await wait(20);
     const adjPanel32 = home.querySelector('.sc-keyboard-adj');

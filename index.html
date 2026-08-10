@@ -6989,7 +6989,8 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-statusbar__timer { font-family: var(--font-mono, monospace); font-size: 14px; font-weight: 700; color: #3B82F6; }
 .sc-standard { text-align: center; font-size: 12px; color: var(--text-tertiary); margin-top: 8px; }
 .sc-practice__expr { text-align: center; font-size: 42px; font-weight: 700; color: var(--text-primary); margin: 10px 0 0; letter-spacing: 1px; line-height: 1.3; }
-.sc-practice__answer { text-align: center; font-size: 36px; font-weight: 700; color: #3B82F6; font-family: var(--font-mono, monospace); min-height: 52px; line-height: 52px; margin-top: 4px; }
+/* v8.6.38 输入区：大号绿色数字 + 底部下划线（答题线） */
+.sc-practice__answer { text-align: center; font-size: 42px; font-weight: 700; color: #059669; font-family: var(--font-mono, monospace); min-height: 56px; line-height: 56px; margin-top: 4px; background: transparent; border-bottom: 2.5px solid rgba(5, 150, 105, 0.35); border-radius: 0; padding: 0; }
 .sc-count-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 8px 16px 20px; }
 .sc-count-cell { background: var(--bg-tertiary); border: none; border-radius: 12px; padding: 14px 0; font-size: 16px; font-weight: 600; color: var(--text-primary); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .sc-count-cell:active { background: var(--divider-color); }
@@ -6998,14 +6999,46 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-night .sc-standard { color: #9CA3AF; }
 .sc-night .sc-practice__expr { color: #F5F5F5; }
 .sc-night .sc-count-picker, .sc-night .sc-count-cell { background: #2A2A2A; color: #E5E5E5; }
-/* 键盘 v2：数字键蓝底蓝字、功能键灰、确定键蓝（用户规格） */
+/* v8.6.38 键盘 v2：左侧 3×4 数字网格（浅灰底大圆角黑字）+ 右侧功能列（深绿底白字，✓ 双倍高）
+   按压动画：按下 scale 0.93 + 变深，抬起 150ms 弹簧回弹（cubic-bezier 过冲） */
 .sc-numpad--v2 { padding: 12px 12px calc(12px + var(--safe-bottom, 0px)); }
-.sc-numpad--v2 .sc-numpad__btn { background: #EFF6FF; color: #2563EB; font-size: 24px; border-radius: 12px; }
-.sc-numpad--v2 .sc-numpad__btn:active { background: #DBEAFE; }
-.sc-numpad--v2 .sc-numpad__btn--func { background: #F3F4F6; color: #374151; font-size: 15px; font-weight: 600; }
-.sc-numpad--v2 .sc-numpad__btn--func:active { background: #E5E7EB; }
-.sc-numpad--v2 .sc-numpad__btn--confirm { background: #3B82F6; color: #fff; font-size: 18px; font-weight: 700; }
-.sc-numpad--v2 .sc-numpad__btn--confirm:active { background: #2563EB; }
+.sc-numpad__kb { display: flex; gap: 7px; flex: 1; min-height: 0; }
+.sc-numpad__grid {
+  flex: 1; display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+  gap: 7px;
+}
+.sc-numpad__func { display: flex; flex-direction: column; gap: 7px; width: 22%; }
+.sc-numpad__func .sc-numpad__btn { flex: 1; }
+.sc-numpad__func .sc-numpad__btn--confirm.tall { flex: 2.1; }
+.sc-numpad__btn {
+  border: none; border-radius: 14px; font-size: 22px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 150ms cubic-bezier(0.34, 1.56, 0.64, 1), filter 60ms ease-out;
+  will-change: transform;
+}
+.sc-numpad__btn:active { transform: scale(0.93); filter: brightness(0.86); }
+.sc-numpad--v2 .sc-numpad__btn { background: #F3F4F6; color: #1F2937; font-size: 24px; border-radius: 14px; }
+.sc-numpad--v2 .sc-numpad__btn:active { background: #E5E7EB; }
+.sc-numpad--v2 .sc-numpad__btn--func { background: #059669; color: #fff; font-size: 20px; font-weight: 600; }
+.sc-numpad--v2 .sc-numpad__btn--func:active { background: #047857; }
+.sc-numpad--v2 .sc-numpad__btn--confirm { background: #059669; color: #fff; font-size: 24px; font-weight: 700; }
+.sc-numpad--v2 .sc-numpad__btn--confirm:active { background: #047857; }
+
+/* ===== v8.6.38 输入/反馈动画 ===== */
+@keyframes scAnsPop { from { transform: scale(0.8); opacity: 0.4; } to { transform: scale(1); opacity: 1; } }
+.sc-ans-pop { animation: scAnsPop 150ms ease-out; }
+@keyframes scFlashOk {
+  0% { box-shadow: inset 0 0 0 200vmax rgba(16, 185, 129, 0.18); }
+  100% { box-shadow: inset 0 0 0 200vmax rgba(16, 185, 129, 0); }
+}
+.sc-flash-ok { animation: scFlashOk 280ms ease-out; }
+@keyframes scNumPop { 0% { transform: scale(0.7); opacity: 0.5; } 100% { transform: scale(1); opacity: 1; } }
+.sc-num-pop { animation: scNumPop 200ms ease-out; }
+@keyframes scExprIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.sc-practice__expr { animation: scExprIn 320ms ease-out; }
 
 /* ===== 涂鸦按钮：右下角悬浮，位于键盘上方 ===== */
 .sc-doodle-btn {
@@ -7662,7 +7695,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.6.37';
+App.VERSION = '8.6.38';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -23336,6 +23369,18 @@ renderHome(container) {
       q.timeUsed = Math.round((Date.now() - self.state.qStart) / 100) / 10;
       const isEst = /≈|估算/.test(q.expr);
       q.correct = isEst ? Math.abs(val - q.answer) <= Math.max(1, Math.abs(q.answer) * 0.03) : val === q.answer;
+      // v8.6.38 正确反馈：全屏淡青闪烁（inset box-shadow 覆盖）+ 顶部统计数字跳动
+      if (q.correct) {
+        const scBox = container;
+        scBox.classList.remove('sc-flash-ok');
+        void scBox.offsetWidth;
+        scBox.classList.add('sc-flash-ok');
+        container.querySelectorAll('.sc-statusbar__num, .sc-statusbar__pos').forEach(el => {
+          el.classList.remove('sc-num-pop');
+          void el.offsetWidth;
+          el.classList.add('sc-num-pop');
+        });
+      }
       if (isRace) {
         self.next();
       } else {
@@ -23351,44 +23396,67 @@ renderHome(container) {
     // v8.6.32 应用持久化的键盘尺寸（高度/宽度调节）
     if (settings.keyboardH) numpad.style.height = settings.keyboardH + 'px';
     if (settings.keyboardW) numpad.style.width = settings.keyboardW + '%';
-    const KEY_ROWS = [
-      [ { k: 'restart', label: '重开', cls: 'func' }, { k: 'clear', label: '清空', cls: 'func' }, { k: 'backspace', label: '退格', cls: 'func' } ],
-      [ { k: '1' }, { k: '2' }, { k: '3' } ],
-      [ { k: '4' }, { k: '5' }, { k: '6' } ],
-      [ { k: '7' }, { k: '8' }, { k: '9' } ],
-      [ { k: '.' }, { k: '0' }, { k: 'confirm', label: '确定', cls: 'confirm' } ]
+    // v8.6.38 键盘布局：左侧 3×4 数字网格（浅灰底大圆角黑字）+ 右侧功能列（深绿底，✓ 双倍高提交键）
+    const NUM_ROWS = [
+      ['1', '2', '3'],
+      ['4', '5', '6'],
+      ['7', '8', '9'],
+      ['+/-', '0', '.']
     ];
+    const FUNC_KEYS = [
+      { k: 'clear', label: 'C', cls: 'func' },
+      { k: 'backspace', label: '⌫', cls: 'func' },
+      { k: 'confirm', label: '✓', cls: 'confirm tall' }
+    ];
+    const kb = document.createElement('div');
+    kb.className = 'sc-numpad__kb';
     const grid = document.createElement('div');
     grid.className = 'sc-numpad__grid';
+    const funcCol = document.createElement('div');
+    funcCol.className = 'sc-numpad__func';
     const press = (key) => {
-      if (submitted && key !== 'restart') return;
+      if (submitted) return;
       switch (key) {
         case 'backspace': self.state.currentInput = self.state.currentInput.slice(0, -1); break;
         case 'clear': self.state.currentInput = ''; break;
-        case 'restart': if (confirm('确定重新开始本轮？')) { self.startPractice(); } return;
         case 'confirm': submit(); return;
+        case '+/-': {
+          const s = self.state.currentInput;
+          self.state.currentInput = s.startsWith('-') ? s.slice(1) : (s ? '-' + s : s);
+          break;
+        }
         case '.': if (!self.state.currentInput.includes('.')) self.state.currentInput += '.'; break;
         default:
           if (self.state.currentInput.length < 10) self.state.currentInput += key;
       }
+      // v8.6.38 输入动画：数字弹入（scale 0.8→1）
       const disp = container.querySelector('.sc-practice__answer');
-      if (disp) disp.textContent = self.state.showAns ? (self.state.currentInput || ' ') : '· · ·';
+      if (disp) {
+        disp.textContent = self.state.showAns ? (self.state.currentInput || ' ') : '· · ·';
+        disp.classList.remove('sc-ans-pop');
+        void disp.offsetWidth;
+        disp.classList.add('sc-ans-pop');
+      }
       // 确定开关 ON：答案位数与正确答案一致 → 自动提交
       if (confirmAuto && !submitted && !isNaN(parseFloat(self.state.currentInput)) && self.state.currentInput.length === String(q.answer).length) {
         submit();
       }
     };
-    KEY_ROWS.forEach(row => {
-      row.forEach(k => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'sc-numpad__btn' + (k.cls ? ' sc-numpad__btn--' + k.cls : '');
-        b.textContent = k.label || k.k;
-        b.addEventListener('click', () => press(k.k));
-        grid.appendChild(b);
-      });
-    });
-    numpad.appendChild(grid);
+    const mkBtn = (k, extraCls) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'sc-numpad__btn' + (k.cls ? ' sc-numpad__btn--' + k.cls : '') + (extraCls || '');
+      b.textContent = k.label || k.k;
+      b.addEventListener('click', () => press(k.k));
+      // v8.6.38 轻触反馈（Android vibrate / iOS 尽力）
+      b.addEventListener('pointerdown', () => { try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) {} });
+      return b;
+    };
+    NUM_ROWS.forEach(row => row.forEach(k => grid.appendChild(mkBtn({ k: k }))));
+    FUNC_KEYS.forEach(fk => funcCol.appendChild(mkBtn(fk)));
+    kb.appendChild(grid);
+    kb.appendChild(funcCol);
+    numpad.appendChild(kb);
     const footer = document.createElement('div');
     footer.className = 'sc-numpad__footer';
     const footerLeft = document.createElement('span');
@@ -23434,9 +23502,19 @@ renderHome(container) {
       closeBtn.addEventListener('click', () => panel.remove());
       panel.appendChild(closeBtn);
       panel.addEventListener('click', (e) => e.stopPropagation());
-      numpad.insertBefore(panel, grid);
+      numpad.insertBefore(panel, kb);
     });
     footer.appendChild(adjBtn);
+    // v8.6.38 重开（原键盘「重开」键移至底部，保持功能）
+    const restartBtn = document.createElement('button');
+    restartBtn.type = 'button';
+    restartBtn.className = 'sc-numpad__adjbtn';
+    restartBtn.textContent = '重开';
+    restartBtn.addEventListener('click', async () => {
+      const go = await App.Components.confirm('重新开始', '确定重新开始本轮练习？', '重开', '取消', true);
+      if (go) self.startPractice();
+    });
+    footer.appendChild(restartBtn);
     numpad.appendChild(footer);
 
     container.appendChild(body);
