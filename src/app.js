@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.11.5';
+App.VERSION = '8.11.6';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9326,15 +9326,26 @@ App.Pages.Home = {
     else if (this.todoState.filter === 'done') listTodos = listTodos.filter(t => t.completed);
 
     if (listTodos.length === 0) {
-      const msg = this.todoState.filter === 'done' ? '还没有已完成的待办' : this.todoState.filter === 'active' ? '没有进行中的待办，很棒！' : '还没有待办事项';
-      const sub = this.todoState.filter === 'all' ? '选择下方类型并添加' : '切换筛选或添加新待办';
+      // v8.11.6 空态对齐画布定稿：清单图标 + 主文案 + 副文案 + 新建待办按钮
+      const emptyTxt = {
+        all: ['还没有待办事项', '点击右上角 ＋ 新增，开启今日计划'],
+        done: ['还没有已完成的待办', '勾选待办前的复选框即可标记完成'],
+        active: ['没有进行中的待办，很棒！', '全部完成了，点击 ＋ 新增开启新计划']
+      };
+      const em = emptyTxt[this.todoState.filter] || emptyTxt.all;
       todoCard.innerHTML = `
-        <div style='text-align:center;padding:var(--spacing-xl);'>
-          <div style='font-size:32px;margin-bottom:var(--spacing-sm);opacity:0.3;'>${this.todoState.filter === 'done' ? '🎉' : '✅'}</div>
-          <div style='font-size:var(--font-md);color:var(--text-secondary);margin-bottom:4px;'>${msg}</div>
-          <div style='font-size:var(--font-sm);color:var(--text-tertiary);'>${sub}</div>
+        <div class="todo-empty">
+          <svg width="44" height="44" viewBox="0 0 44 44" fill="none" stroke="#C7C7CC" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="8" width="33" height="31.5" rx="7"/><path d="M15 22L19.5 26.5L29.5 16.5"/><path d="M12 8V5H32V8"/></svg>
+          <div class="todo-empty__title">${em[0]}</div>
+          <div class="todo-empty__sub">${em[1]}</div>
+          <button type="button" class="todo-empty__btn" id="todo-empty-add">＋ 新建待办</button>
         </div>
       `;
+      const addEmptyBtn = todoCard.querySelector('#todo-empty-add');
+      if (addEmptyBtn) addEmptyBtn.addEventListener('click', () => {
+        const addBtn = document.getElementById('todo-add-btn');
+        if (addBtn) addBtn.click();
+      });
     } else {
       // v8.6.19 不再折叠已完成事项：全部待办直接显示（已完成沉底排序由 sort 保证）
       const renderItem = (todo) => {
