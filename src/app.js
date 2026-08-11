@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.11.4';
+App.VERSION = '8.11.5';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9098,8 +9098,8 @@ App.Pages.Home = {
     todoHead.innerHTML = `
       <div style='display:flex;align-items:center;justify-content:space-between;'>
         <div style='display:flex;align-items:center;gap:var(--spacing-sm);'>
-          <div style='font-size:var(--font-lg);font-weight:600;display:flex;align-items:center;gap:6px;'>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6h14"/><path d="M4 11h16"/><path d="M4 16h16"/><path d="M2.5 6l1.8 1.8L7 5"/></svg>
+          <div style='font-size:var(--font-lg);font-weight:600;display:flex;align-items:center;gap:7px;'>
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="10.5" rx="2.5"/><path d="M5.2 8.2L7 10L10.8 6.2"/></svg>
             <span>今日待办</span>
           </div>
         </div>
@@ -9127,59 +9127,63 @@ App.Pages.Home = {
       applyCollapsed(!this.todoState.collapsed);
     });
     applyCollapsed(!!this.todoState.collapsed);
-    // v8.11.3 去筛选下拉，改「＋ 新增」弹窗入口（对齐画布定稿）
+    // v8.11.5 新增待办：居中卡片弹窗（对齐画布 10:336：标题+关闭 / 待办内容输入 / 科目 chips / 取消保存）
     todoHead.querySelector('#todo-add-btn').addEventListener('click', (e) => {
       e.stopPropagation();
       const overlay = document.createElement('div');
-      overlay.className = 'notion-mobile-sheet-overlay';
-      const sheet = document.createElement('div');
-      sheet.className = 'notion-mobile-sheet is-format';
-      const handleBar = document.createElement('div');
-      handleBar.className = 'notion-mobile-sheet__handle';
-      sheet.appendChild(handleBar);
-      const content = document.createElement('div');
-      content.className = 'notion-mobile-sheet__content';
-      const title = document.createElement('div');
-      title.className = 'notion-mobile-fmt-title';
-      title.textContent = '新增待办';
-      const input = document.createElement('input');
-      input.className = 'form-input';
-      input.placeholder = '待办内容…';
-      input.style.marginBottom = '10px';
+      overlay.className = 'todo-modal-overlay';
+      const card = document.createElement('div');
+      card.className = 'todo-modal';
+      const head = document.createElement('div');
+      head.className = 'todo-modal__head';
+      const htitle = document.createElement('div');
+      htitle.className = 'todo-modal__title';
+      htitle.textContent = '新增待办';
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'todo-modal__close';
+      closeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l6 6M9 3L3 9"/></svg>';
+      head.appendChild(htitle); head.appendChild(closeBtn);
+      const lbl1 = document.createElement('div');
+      lbl1.className = 'todo-modal__label';
+      lbl1.textContent = '待办内容';
+      const input = document.createElement('textarea');
+      input.className = 'todo-modal__input';
+      input.placeholder = '输入待办内容…';
+      input.rows = 2;
+      const lbl2 = document.createElement('div');
+      lbl2.className = 'todo-modal__label';
+      lbl2.textContent = '科目';
       let curType = this.todoState.type || 'yanyu';
-      const typeLabel = document.createElement('div');
-      typeLabel.className = 'todo-add-type-label';
-      typeLabel.textContent = '科目';
-      const typeChips = document.createElement('div');
-      typeChips.className = 'todo-add-type-chips';
+      const chips = document.createElement('div');
+      chips.className = 'todo-modal__chips';
       const refreshChips = () => {
-        typeChips.innerHTML = '';
+        chips.innerHTML = '';
         TODO_TYPES.forEach(t => {
           const on = t.key === curType;
           const c = document.createElement('div');
-          c.className = 'todo-add-type-chip' + (on ? ' on' : '');
-          c.textContent = t.icon + ' ' + t.label;
+          c.className = 'todo-modal__chip' + (on ? ' on' : '');
+          c.textContent = t.label;   // 纯文字（对齐画布）
           c.addEventListener('click', () => { curType = t.key; refreshChips(); });
-          typeChips.appendChild(c);
+          chips.appendChild(c);
         });
       };
       refreshChips();
       const actions = document.createElement('div');
-      actions.className = 'cd-actions';
+      actions.className = 'todo-modal__actions';
       const cancelBtn = document.createElement('button');
-      cancelBtn.type = 'button'; cancelBtn.className = 'btn'; cancelBtn.textContent = '取消';
+      cancelBtn.type = 'button'; cancelBtn.className = 'todo-modal__btn todo-modal__btn--cancel'; cancelBtn.textContent = '取消';
       const okBtn = document.createElement('button');
-      okBtn.type = 'button'; okBtn.className = 'btn btn--primary'; okBtn.textContent = '保存';
+      okBtn.type = 'button'; okBtn.className = 'todo-modal__btn todo-modal__btn--ok'; okBtn.textContent = '保存';
       actions.appendChild(cancelBtn); actions.appendChild(okBtn);
-      content.appendChild(title);
-      content.appendChild(input);
-      content.appendChild(typeLabel);
-      content.appendChild(typeChips);
-      content.appendChild(actions);
-      sheet.appendChild(content);
-      overlay.appendChild(sheet);
+      card.appendChild(head);
+      card.appendChild(lbl1); card.appendChild(input);
+      card.appendChild(lbl2); card.appendChild(chips);
+      card.appendChild(actions);
+      overlay.appendChild(card);
       document.body.appendChild(overlay);
       const close = () => overlay.remove();
+      closeBtn.addEventListener('click', close);
       overlay.addEventListener('click', (ev) => { if (ev.target === overlay) close(); });
       cancelBtn.addEventListener('click', close);
       okBtn.addEventListener('click', async () => {
@@ -9364,7 +9368,7 @@ App.Pages.Home = {
         titleLine.className = 'todo-title-line';
         const typeTag = document.createElement('span');
         typeTag.className = 'todo-type-tag';
-        typeTag.textContent = typeIcon + ' ' + typeLabel;
+        typeTag.textContent = typeLabel;   // v8.11.5 纯文字（对齐画布：灰底胶囊内仅科目名，无 emoji）
         const title = document.createElement('div');
         title.className = 'todo-title';
         title.textContent = todo.text;

@@ -254,15 +254,18 @@ input, textarea, select {
 /* ===== 底部导航栏 ===== */
 #bottom-nav {
   position: fixed;
-  bottom: calc(var(--safe-bottom) + 10px);
-  left: 12px;
-  right: 12px;
-  /* 浮动胶囊：min-height 含安全区，毛玻璃 + 发丝边框 + 柔和阴影（iOS 风格） */
+  bottom: 0;
+  left: 0;
+  right: 0;
+  /* v8.11.5 通栏贴底（对齐画布定稿：无安全区间距、无左右留白、无圆角） */
   min-height: calc(var(--nav-height) - 2px);
-  border-radius: var(--radius-full);
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.92);
-  border: 0.5px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.10);
+  border-top: 0.5px solid rgba(0, 0, 0, 0.06);
+  border-bottom: none;
+  border-left: none;
+  border-right: none;
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.05);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
   display: flex;
@@ -1470,7 +1473,119 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   border-radius: 22px;
 }
 
-/* v8.11.3 新增待办弹窗：科目 chips */
+/* v8.11.5 新增待办：居中卡片弹窗（对齐画布） */
+.todo-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  animation: fadeIn 0.2s ease;
+}
+.todo-modal {
+  width: min(480px, calc(100% - 48px));
+  background: #fff;
+  border-radius: 20px;
+  padding: 22px 24px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  animation: cp-fade-in 0.22s ease;
+}
+.todo-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.todo-modal__title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.todo-modal__close {
+  width: 36px;
+  height: 36px;
+  border-radius: 18px;
+  background: var(--bg-tertiary);
+  border: none;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.todo-modal__label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-bottom: 8px;
+}
+.todo-modal__input {
+  width: 100%;
+  height: 72px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color, rgba(0,0,0,0.08));
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 14px;
+  margin-bottom: 14px;
+  outline: none;
+  resize: none;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+.todo-modal__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.todo-modal__chip {
+  height: 29px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.todo-modal__chip.on {
+  background: var(--color-primary);
+  color: #fff;
+  font-weight: 500;
+}
+.todo-modal__actions {
+  display: flex;
+  gap: 12px;
+}
+.todo-modal__btn {
+  flex: 1;
+  height: 46px;
+  border-radius: 23px;
+  border: none;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.todo-modal__btn--cancel {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+.todo-modal__btn--ok {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+/* v8.11.3 新增待办弹窗：科目 chips（旧版 sheet 遗留，保留兼容） */
 .todo-add-type-label {
   font-size: 12px;
   color: var(--text-tertiary);
