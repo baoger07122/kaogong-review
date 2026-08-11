@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.11.7';
+App.VERSION = '8.11.8';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9096,18 +9096,16 @@ App.Pages.Home = {
       return newPanel;
     };
     todoHead.innerHTML = `
-      <div style='display:flex;align-items:center;justify-content:space-between;'>
-        <div style='display:flex;align-items:center;gap:var(--spacing-sm);'>
-          <div style='font-size:var(--font-lg);font-weight:600;display:flex;align-items:center;gap:7px;'>
-            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="10.5" rx="2.5"/><path d="M5.2 8.2L7 10L10.8 6.2"/></svg>
-            <span>今日待办</span>
-          </div>
+      <div style='display:flex;align-items:center;gap:var(--spacing-sm);'>
+        <div style='font-size:var(--font-lg);font-weight:600;display:flex;align-items:center;gap:7px;'>
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="10.5" rx="2.5"/><path d="M5.2 8.2L7 10L10.8 6.2"/></svg>
+          <span>今日待办</span>
         </div>
-        <div style='display:flex;align-items:center;gap:8px;'>
-          <div id='todo-count-text' style='font-size:var(--font-sm);color:var(--text-tertiary);'>${completedCount}/${totalCount}</div>
-          <button id='todo-collapse-btn' type='button' style='border:none;background:var(--bg-tertiary);color:var(--text-secondary);width:30px;height:30px;border-radius:50%;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;' title='折叠/展开今日待办'>▾</button>
-          <button id='todo-add-btn' type='button' style='border:none;background:var(--color-primary);color:#fff;height:30px;padding:0 14px;border-radius:15px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:4px;-webkit-tap-highlight-color:transparent;'>＋ 新增</button>
-        </div>
+      </div>
+      <div style='display:flex;align-items:center;gap:8px;'>
+        <div id='todo-count-text' style='font-size:var(--font-sm);color:var(--text-tertiary);'>${completedCount}/${totalCount}</div>
+        <button id='todo-collapse-btn' type='button' style='border:none;background:var(--bg-tertiary);color:var(--text-secondary);width:30px;height:30px;border-radius:50%;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;' title='折叠/展开今日待办'>▾</button>
+        <button id='todo-add-btn' type='button' style='border:none;background:var(--color-primary);color:#fff;height:30px;padding:0 14px;border-radius:15px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:4px;-webkit-tap-highlight-color:transparent;'>＋ 新增</button>
       </div>
     `;
     // v8.6.12 模块级折叠：右侧按钮一键收起今日待办下方所有内容，只留标题；再点展开
