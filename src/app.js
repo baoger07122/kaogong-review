@@ -8977,9 +8977,9 @@ App.Pages.Home = {
     features.forEach(f => {
       const item = document.createElement('div');
       item.className = 'feature-grid-item';
-      // Apple 风格：图标底浅灰（Parchment）+ Action Blue 单色图标
+      // v8.11.3 多彩 tinted 入口：浅色底 + 同色图标（对齐画布定稿）
       item.innerHTML = `
-        <div class="feature-grid-item__icon" style="background:var(--bg-tertiary);color:var(--color-primary)">${f.icon}</div>
+        <div class="feature-grid-item__icon" style="background:${f.color}1F;color:${f.color}">${f.icon}</div>
         <div class="feature-grid-item__name">${f.label}</div>
       `;
       item.addEventListener('click', f.action);
@@ -8997,25 +8997,8 @@ App.Pages.Home = {
     const weekNew = stats.weekNewErrors || 0;
     const totalNotes = stats.totalNotes || 0;
 
-    statsRow.innerHTML = `
-      <div class="stat-item">
-        <div class="stat-item__value stat-item__value--primary">${totalErrors}</div>
-        <div class="stat-item__label">总错题</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-item__value">${weekNew}</div>
-        <div class="stat-item__label">本周错题</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-item__value">${unmastered}</div>
-        <div class="stat-item__label">待掌握</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-item__value">${totalNotes}</div>
-        <div class="stat-item__label">笔记</div>
-      </div>
-    `;
-    container.appendChild(statsRow);
+    // v8.11.3 统计卡片区（4列）移除：对齐画布定稿首页结构（5入口 + Hero + 今日待办 + 便签），
+    // 数据保留供 Hero 脚注使用（unmastered/weekNew）
 
     // ===== 7. 今日待办（丰富版） =====
     // v8.6.16 折叠状态持久化：上次折叠/已折叠，重新进入仍保持（localStorage kg_todo_ui）
@@ -9121,14 +9104,11 @@ App.Pages.Home = {
             <span>今日待办</span>
           </div>
         </div>
-        <button id='todo-collapse-btn' type='button' style='border:none;background:var(--bg-tertiary);color:var(--text-secondary);width:30px;height:30px;border-radius:50%;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;' title='折叠/展开今日待办'>▾</button>
-      </div>
-      <div style='display:flex;align-items:center;gap:var(--spacing-sm);'>
-        <div id='todo-filter-toggle' style='display:flex;align-items:center;gap:4px;font-size:var(--font-sm);color:var(--text-secondary);background:var(--bg-tertiary);padding:4px 10px;border-radius:9999px;cursor:pointer;-webkit-tap-highlight-color:transparent;'>
-          <span id='todo-filter-label-text'>${filterLabel}</span>
-          <span id='todo-filter-caret' style='transition:transform 0.2s;'>▼</span>
+        <div style='display:flex;align-items:center;gap:8px;'>
+          <div id='todo-count-text' style='font-size:var(--font-sm);color:var(--text-tertiary);'>${completedCount}/${totalCount}</div>
+          <button id='todo-add-btn' type='button' style='border:none;background:var(--color-primary);color:#fff;height:30px;padding:0 14px;border-radius:15px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:4px;-webkit-tap-highlight-color:transparent;'>＋ 新增</button>
+          <button id='todo-collapse-btn' type='button' style='border:none;background:var(--bg-tertiary);color:var(--text-secondary);width:30px;height:30px;border-radius:50%;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;' title='折叠/展开今日待办'>▾</button>
         </div>
-        <div id='todo-count-text' style='font-size:var(--font-sm);color:var(--text-tertiary);'>${completedCount}/${totalCount}</div>
       </div>
     `;
     // v8.6.12 模块级折叠：右侧按钮一键收起今日待办下方所有内容，只留标题；再点展开
@@ -9148,31 +9128,71 @@ App.Pages.Home = {
       applyCollapsed(!this.todoState.collapsed);
     });
     applyCollapsed(!!this.todoState.collapsed);
-    todoHead.querySelector('#todo-filter-toggle').addEventListener('click', (e) => {
+    // v8.11.3 去筛选下拉，改「＋ 新增」弹窗入口（对齐画布定稿）
+    todoHead.querySelector('#todo-add-btn').addEventListener('click', (e) => {
       e.stopPropagation();
-      const caret = document.getElementById('todo-filter-caret');
-      const existing = document.getElementById('todo-filter-panel');
-      if (existing) {
-        existing.style.maxHeight = '0px';
-        existing.style.opacity = '0';
-        existing.style.transform = 'translateY(-8px)';
-        const ep = existing;
-        setTimeout(() => { if (ep && ep.parentNode) ep.remove(); }, 280);
-        if (caret) caret.style.transform = 'rotate(0deg)';
-        this.todoState.filterOpen = false;
-      } else {
-        this.todoState.filterOpen = true;
-        if (caret) caret.style.transform = 'rotate(180deg)';
-        const panel = buildFilterPanel();
-        todoWrap.insertBefore(panel, todoHead.nextSibling);
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            panel.style.maxHeight = panel.scrollHeight + 'px';
-            panel.style.opacity = '1';
-            panel.style.transform = 'translateY(0)';
-          });
+      const overlay = document.createElement('div');
+      overlay.className = 'notion-mobile-sheet-overlay';
+      const sheet = document.createElement('div');
+      sheet.className = 'notion-mobile-sheet is-format';
+      const handleBar = document.createElement('div');
+      handleBar.className = 'notion-mobile-sheet__handle';
+      sheet.appendChild(handleBar);
+      const content = document.createElement('div');
+      content.className = 'notion-mobile-sheet__content';
+      const title = document.createElement('div');
+      title.className = 'notion-mobile-fmt-title';
+      title.textContent = '新增待办';
+      const input = document.createElement('input');
+      input.className = 'form-input';
+      input.placeholder = '待办内容…';
+      input.style.marginBottom = '10px';
+      let curType = this.todoState.type || 'yanyu';
+      const typeLabel = document.createElement('div');
+      typeLabel.className = 'todo-add-type-label';
+      typeLabel.textContent = '科目';
+      const typeChips = document.createElement('div');
+      typeChips.className = 'todo-add-type-chips';
+      const refreshChips = () => {
+        typeChips.innerHTML = '';
+        TODO_TYPES.forEach(t => {
+          const on = t.key === curType;
+          const c = document.createElement('div');
+          c.className = 'todo-add-type-chip' + (on ? ' on' : '');
+          c.textContent = t.icon + ' ' + t.label;
+          c.addEventListener('click', () => { curType = t.key; refreshChips(); });
+          typeChips.appendChild(c);
         });
-      }
+      };
+      refreshChips();
+      const actions = document.createElement('div');
+      actions.className = 'cd-actions';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button'; cancelBtn.className = 'btn'; cancelBtn.textContent = '取消';
+      const okBtn = document.createElement('button');
+      okBtn.type = 'button'; okBtn.className = 'btn btn--primary'; okBtn.textContent = '保存';
+      actions.appendChild(cancelBtn); actions.appendChild(okBtn);
+      content.appendChild(title);
+      content.appendChild(input);
+      content.appendChild(typeLabel);
+      content.appendChild(typeChips);
+      content.appendChild(actions);
+      sheet.appendChild(content);
+      overlay.appendChild(sheet);
+      document.body.appendChild(overlay);
+      const close = () => overlay.remove();
+      overlay.addEventListener('click', (ev) => { if (ev.target === overlay) close(); });
+      cancelBtn.addEventListener('click', close);
+      okBtn.addEventListener('click', async () => {
+        const text = input.value.trim();
+        if (!text) { App.Components.toast('请输入待办内容', 'error'); return; }
+        const newTodo = await App.DB.addTodo({ text: text, type: curType, completed: false, createdAt: new Date().toISOString() });
+        todos.push(newTodo);
+        App.Components.toast('已添加 ✓', 'success');
+        close();
+        refreshTodo();
+      });
+      setTimeout(() => input.focus(), 60);
     });
     todoWrap.appendChild(todoHead);
 
@@ -9272,7 +9292,7 @@ App.Pages.Home = {
       });
       dateRow.appendChild(chip);
     }.bind(this));
-    todoWrap.appendChild(dateRow);
+    // v8.11.3 日期筛选行不再挂载（对齐画布定稿：新增走「＋新增」弹窗）
 
     // 待办卡片（v8.11.1 整合大胶囊容器）
     const todoCard = document.createElement('div');
@@ -9643,7 +9663,7 @@ App.Pages.Home = {
       });
       typeRow.appendChild(tc);
     }.bind(this));
-    todoWrap.appendChild(typeRow);
+    // v8.11.3 类型快捷栏不再挂载（对齐画布定稿：科目选择移入新增弹窗）
 
     // 添加输入
     const addTodoRow = document.createElement('div');
@@ -9667,7 +9687,7 @@ App.Pages.Home = {
     addInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addBtn.click(); });
     addTodoRow.appendChild(addInput);
     addTodoRow.appendChild(addBtn);
-    todoWrap.appendChild(addTodoRow);
+    // v8.11.3 行内添加输入不再挂载（对齐画布定稿：由标题栏「＋新增」弹窗替代）
 
     container.appendChild(todoWrap);
 
@@ -9822,8 +9842,8 @@ App.Pages.Home = {
     const left = document.createElement('div');
     left.style.cssText = 'display:flex;align-items:center;gap:var(--spacing-sm);';
     const titleSpan = document.createElement('span');
-    titleSpan.style.cssText = 'font-size:var(--font-lg);font-weight:600;';
-    titleSpan.textContent = '📝 便签';
+    titleSpan.style.cssText = 'font-size:var(--font-lg);font-weight:600;display:flex;align-items:center;gap:7px;';
+    titleSpan.innerHTML = '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 2.5H12C13.1 2.5 14 3.4 14 4.5V11.5C14 12.6 13.1 13.5 12 13.5H4C2.9 13.5 2 12.6 2 11.5V4.5C2 3.4 2.9 2.5 4 2.5Z"/><path d="M5 6H11M5 8.5H11M5 11H8.5"/></svg><span>便签</span>';
     left.appendChild(titleSpan);
     if (stickies.length > 0) {
       const countEl = document.createElement('span');
