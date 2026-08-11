@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.11.1';
+App.VERSION = '8.11.2';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9274,9 +9274,9 @@ App.Pages.Home = {
     }.bind(this));
     todoWrap.appendChild(dateRow);
 
-    // 待办卡片
+    // 待办卡片（v8.11.1 整合大胶囊容器）
     const todoCard = document.createElement('div');
-    todoCard.className = 'card';
+    todoCard.className = 'todo-card';
     todoCard.style.cssText = 'margin-bottom:var(--spacing-md);';
 
     const fillTodoList = (card) => {
@@ -9318,6 +9318,7 @@ App.Pages.Home = {
         const item = document.createElement('div');
         item.className = 'todo-item' + (todo.completed ? ' completed' : '');
         const typeIcon = (TODO_TYPES.find(function (t) { return t.key === typeKeyOf(todo); }) || TODO_TYPES[0]).icon;
+        const typeLabel = (TODO_TYPES.find(function (t) { return t.key === typeKeyOf(todo); }) || TODO_TYPES[0]).label;
         const checkbox = document.createElement('div');
         checkbox.className = 'todo-checkbox' + (todo.completed ? ' checked' : '');
         checkbox.textContent = todo.completed ? '✓' : '';
@@ -9339,27 +9340,23 @@ App.Pages.Home = {
 
         const content = document.createElement('div');
         content.className = 'todo-content';
+        // v8.11.1 类型灰底胶囊标签 + 标题分离（对齐画布定稿）
+        const titleLine = document.createElement('div');
+        titleLine.className = 'todo-title-line';
+        const typeTag = document.createElement('span');
+        typeTag.className = 'todo-type-tag';
+        typeTag.textContent = typeIcon + ' ' + typeLabel;
         const title = document.createElement('div');
         title.className = 'todo-title';
-        title.textContent = typeIcon + '  ' + todo.text;
-        content.appendChild(title);
-        // v8.6.16 备注折叠：有备注的待办显示「📝 备注 ▾」开关，点击展开/收起备注内容
+        title.textContent = todo.text;
+        titleLine.appendChild(typeTag);
+        titleLine.appendChild(title);
+        content.appendChild(titleLine);
+        // v8.11.1 备注 Apple 风格：有备注直接行内显示（无底色、缩进对齐标题），点击行展开编辑
         let noteEl = null, noteToggle = null;
         if (todo.note) {
-          const noteOpen = !!this.todoState.notesOpen[todo.id];
-          noteToggle = document.createElement('div');
-          noteToggle.className = 'todo-note__toggle';
-          noteToggle.innerHTML = '<span>📝</span><span class="todo-note__caret">' + (noteOpen ? '▴' : '▾') + '</span>';
-          noteToggle.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.todoState.notesOpen[todo.id] = !this.todoState.notesOpen[todo.id];
-            noteEl.classList.toggle('is-open', this.todoState.notesOpen[todo.id]);
-            const caret = noteToggle.querySelector('.todo-note__caret');
-            if (caret) caret.textContent = this.todoState.notesOpen[todo.id] ? '▴' : '▾';
-          });
-          content.appendChild(noteToggle);
           noteEl = document.createElement('div');
-          noteEl.className = 'todo-note' + (noteOpen ? ' is-open' : '');
+          noteEl.className = 'todo-note';
           const noteBody = document.createElement('div');
           noteBody.className = 'todo-note__body';
           noteBody.textContent = todo.note;
@@ -9424,7 +9421,7 @@ App.Pages.Home = {
             if (newNote !== (todo.note || '')) { todo.note = newNote; changed = true; }
             if (changed) {
               await App.DB.updateTodo(todo);
-              title.textContent = typeIcon + '  ' + todo.text;
+              title.textContent = todo.text;
               if (todo.note) {
                 if (!noteEl) {
                   // 重建折叠备注（v8.6.16 结构：toggle + body）
@@ -9526,8 +9523,9 @@ App.Pages.Home = {
         // 右侧信息图标：点击查看备注 + 修改时间（可编辑时间）
         const infoBtn = document.createElement('div');
         infoBtn.className = 'todo-info-btn';
-        infoBtn.textContent = 'ⓘ';
+        infoBtn.textContent = 'i';
         infoBtn.title = '备注与时间';
+        item._infoBtn = infoBtn;
         infoBtn.addEventListener('click', async (e) => {
           e.stopPropagation();
           const itemEl = item;

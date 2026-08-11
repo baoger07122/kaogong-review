@@ -1305,10 +1305,11 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .home-hero {
   margin: 0 var(--page-padding);
   margin-bottom: var(--spacing-xl);
-  background: #272729;
+  background: linear-gradient(135deg, #EAF2FE 0%, #DCEBFF 100%);
+  border: 1px solid rgba(41, 151, 255, 0.18);
   border-radius: var(--radius-lg);
   padding: 20px;
-  color: #fff;
+  color: #1D1D1F;
 }
 .home-hero__top {
   display: flex;
@@ -1318,13 +1319,14 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 .home-hero__label {
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.8);
+  color: #4A4A4E;
 }
 .home-hero__chip {
   font-size: 11px;
   font-weight: 600;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.12);
+  color: #0066CC;
+  background: #FFFFFF;
+  border: 1px solid rgba(0, 102, 204, 0.18);
   border-radius: 999px;
   padding: 5px 12px;
 }
@@ -1333,18 +1335,19 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   font-weight: 700;
   line-height: 1.1;
   letter-spacing: -0.02em;
+  color: #1D1D1F;
 }
 .home-hero__unit {
   font-size: 14px;
   font-weight: 400;
-  color: rgba(255, 255, 255, 0.7);
+  color: #6E6E73;
   margin-left: 6px;
   letter-spacing: 0;
 }
 .home-hero__bar {
   height: 6px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(41, 151, 255, 0.16);
   margin: 14px 0 10px;
   overflow: hidden;
 }
@@ -1356,10 +1359,10 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 .home-hero__foot {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.6);
+  color: #7A7A7A;
 }
 
-/* v8.11.1 倒数日：Hero 右侧 */
+/* v8.11.1 倒数日：Hero 右侧（浅蓝底适配） */
 .home-hero--split {
   display: flex;
   gap: 14px;
@@ -1371,8 +1374,8 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .home-hero__countdown {
   width: 186px;
   flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 102, 204, 0.12);
   border-radius: 14px;
   padding: 12px;
   display: flex;
@@ -1383,14 +1386,14 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .home-hero__cd-title {
   font-size: 11px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.85);
+  color: #3A3A3C;
   letter-spacing: 0.02em;
   padding-bottom: 2px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: 1px solid rgba(0, 102, 204, 0.12);
 }
 .home-hero__cd-empty {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
+  color: #A1A1A6;
   text-align: center;
   padding: 8px 0;
 }
@@ -1398,7 +1401,8 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.1);
+  background: #FFFFFF;
+  border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: 10px;
   padding: 7px 8px;
   position: relative;
@@ -1409,7 +1413,7 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 .home-hero__cd-name {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.95);
+  color: #1D1D1F;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -1417,22 +1421,22 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 .home-hero__cd-date {
   font-size: 9px;
-  color: rgba(255, 255, 255, 0.5);
+  color: #A1A1A6;
   margin-top: 1px;
 }
 .home-hero__cd-num {
   font-size: 15px;
   font-weight: 700;
-  color: #2997FF;
+  color: #0066CC;
   letter-spacing: -0.02em;
   white-space: nowrap;
 }
-.home-hero__cd-num.is-urgent { color: #FFD60A; }
-.home-hero__cd-num.is-passed { color: rgba(255, 255, 255, 0.4); }
+.home-hero__cd-num.is-urgent { color: #E8590C; }
+.home-hero__cd-num.is-passed { color: #C7C7CC; }
 .home-hero__cd-unit {
   font-size: 9px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.55);
+  color: #8E8E93;
   margin-left: 1px;
 }
 .home-hero__cd-del {
@@ -1440,7 +1444,7 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   top: 2px;
   right: 4px;
   font-size: 8px;
-  color: rgba(255, 255, 255, 0.4);
+  color: #B0B0B6;
   cursor: pointer;
   padding: 2px;
   -webkit-tap-highlight-color: transparent;
@@ -1450,8 +1454,9 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   text-align: center;
   font-size: 11px;
   font-weight: 600;
-  color: #2997FF;
-  background: rgba(41, 151, 255, 0.14);
+  color: #0066CC;
+  background: #EAF2FE;
+  border: 1px solid rgba(0, 102, 204, 0.12);
   border-radius: 8px;
   padding: 6px 0;
   cursor: pointer;
@@ -1921,11 +1926,20 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   margin-bottom: var(--spacing-lg);
 }
 
+/* v8.11.1 待办整合大胶囊（对齐画布定稿：白底描边圆角16 + 缩进分割线） */
+.todo-card {
+  margin-bottom: var(--spacing-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color, rgba(0,0,0,0.08));
+  border-radius: 16px;
+  overflow: hidden;
+}
+
 .todo-item {
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-sm);
-  padding: 12px 0;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--divider-color);
   transition: background-color 0.15s ease;
   cursor: pointer;
@@ -1943,17 +1957,17 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 
 .todo-checkbox {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 2px solid var(--border-color);
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  border: 1.5px solid var(--border-color);
   flex-shrink: 0;
   cursor: pointer;
   transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: 2px;
+  margin-top: 3px;
 }
 
 .todo-checkbox.checked {
@@ -1961,6 +1975,40 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   border-color: var(--color-success);
   color: white;
   font-size: 12px;
+}
+
+/* v8.11.1 类型灰底胶囊标签（对齐画布：独立于标题的灰底小胶囊） */
+.todo-type-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-primary);
+  flex-shrink: 0;
+  margin-right: 8px;
+  vertical-align: 1px;
+}
+
+.todo-title-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.todo-title {
+  font-size: var(--font-md);
+  color: var(--text-primary);
+  line-height: 1.5;
+  transition: all 0.2s ease;
+  word-break: break-word;
+  white-space: normal;       /* 禁止强制不换行导致竖排 */
+  writing-mode: horizontal-tb;
+  min-width: 0;
 }
 
 .todo-content {
@@ -1972,34 +2020,47 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   overflow: hidden;
 }
 
-.todo-title {
-  font-size: var(--font-md);
-  color: var(--text-primary);
-  line-height: 1.5;
-  transition: all 0.2s ease;
-  word-break: break-word;
-  white-space: normal;       /* 禁止强制不换行导致竖排 */
-  writing-mode: horizontal-tb;
+/* v8.11.1 备注 Apple 风格：无底色、紧贴标题下方、缩进对齐标题 */
+.todo-note__toggle {
+  display: none;             /* 去掉 📝 toggle，备注随行展开 */
 }
-
 .todo-note {
-  font-size: var(--font-sm);
+  font-size: 12px;
   color: var(--text-tertiary);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  writing-mode: horizontal-tb;
-  display: none;          /* v8.6.16 备注默认折叠，点击「📝 备注」展开 */
+  padding-left: 0;
+  margin-top: 1px;
+  display: block;
 }
-.todo-note.is-open { display: block; }
-.todo-note__toggle {
-  display: flex; justify-content: space-between; align-items: center;
-  font-size: 12px; color: var(--text-tertiary);
-  cursor: pointer; padding: 3px 0 0;
+.todo-note__body {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* v8.11.1 i 信息按钮：默认隐藏，点击行展开编辑后出现（纯 i 无圆圈） */
+.todo-info-btn {
+  display: none;
+  font-size: 13px;
+  font-weight: 600;
+  font-style: normal;
+  color: var(--text-tertiary);
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.todo-note__toggle:active { color: var(--text-secondary); }
-.todo-note__body { font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+.todo-item--editing .todo-info-btn,
+.todo-item.is-open .todo-info-btn {
+  display: flex;
+}
 
 /* v8.11.1 学习计时：时长 + ▶/⏸ 按钮 */
 .todo-timer {
