@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.10.1';
+App.VERSION = '8.11.1';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -8919,6 +8919,8 @@ App.Pages = App.Pages || {};
 
 App.Pages.Home = {
   async render(params) {
+    // v8.11.1 页面重建前清理上轮计时刷新
+    if (this._timerInterval) { clearInterval(this._timerInterval); this._timerInterval = null; }
     const container = document.getElementById('page-home');
     container.innerHTML = '';
 
@@ -9056,19 +9058,23 @@ App.Pages.Home = {
     const totalCount = todayTodos.length;
     const pct = totalCount > 0 ? Math.round(completedCount / totalCount * 100) : 0;
 
-    // ===== Apple 风格深色 Hero 卡：今日复盘进度 =====
+    // ===== Apple 风格深色 Hero 卡：今日复盘进度 + 右侧倒数日（v8.11.1） =====
     const hero = document.createElement('div');
-    hero.className = 'home-hero';
+    hero.className = 'home-hero home-hero--split';
     hero.innerHTML = `
-      <div class="home-hero__top">
-        <span class="home-hero__label">今日复盘</span>
-        <span class="home-hero__chip">${completedCount}/${totalCount} 已完成</span>
+      <div class="home-hero__progress">
+        <div class="home-hero__top">
+          <span class="home-hero__label">今日复盘</span>
+          <span class="home-hero__chip">${completedCount}/${totalCount} 已完成</span>
+        </div>
+        <div class="home-hero__num">${completedCount}<span class="home-hero__unit">/ ${totalCount} 项待办</span></div>
+        <div class="home-hero__bar"><i style="width:${pct}%"></i></div>
+        <div class="home-hero__foot">还有 ${unmastered} 道错题待掌握 · 本周新增 ${weekNew} 道</div>
       </div>
-      <div class="home-hero__num">${completedCount}<span class="home-hero__unit">/ ${totalCount} 项待办</span></div>
-      <div class="home-hero__bar"><i style="width:${pct}%"></i></div>
-      <div class="home-hero__foot">还有 ${unmastered} 道错题待掌握 · 本周新增 ${weekNew} 道</div>
+      <div class="home-hero__countdown" id="home-countdown"></div>
     `;
     container.insertBefore(hero, featureGrid);
+    this._renderCountdown(hero.querySelector('#home-countdown'));
 
     const todoWrap = document.createElement('div');
     todoWrap.style.cssText = 'padding:var(--spacing-lg) var(--page-padding) 0;';
@@ -9321,6 +9327,11 @@ App.Pages.Home = {
           todo.status = todo.completed ? 'completed' : (todo.status === 'completed' ? 'pending' : (todo.status || 'pending'));
           if (todo.completed) todo.completedAt = new Date().toISOString();
           else todo.completedAt = null;
+          // v8.11.1 勾选完成时若正在计时，先结算累计时长
+          if (todo.completed && todo.timerStartedAt) {
+            todo.elapsedMs = (todo.elapsedMs || 0) + (Date.now() - todo.timerStartedAt);
+            todo.timerStartedAt = null;
+          }
           await App.DB.updateTodo(todo);
           App.Components.toast(todo.completed ? '已完成 ✓' : '已恢复', 'success');
           refreshTodo();
@@ -9469,6 +9480,48 @@ App.Pages.Home = {
 
         item.appendChild(checkbox);
         item.appendChild(content);
+
+        // v8.11.1 学习计时：时长显示 + ▶/⏸ 计时按钮（点开始/暂停，累计存入 todo.elapsedMs）
+        const fmtMs = (ms) => {
+          const s = Math.max(0, Math.floor(ms / 1000));
+          const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+          const p = (n) => String(n).padStart(2, '0');
+          return h > 0 ? h + ':' + p(m) + ':' + p(sec) : p(m) + ':' + p(sec);
+        };
+        const timerWrap = document.createElement('div');
+        timerWrap.className = 'todo-timer' + (todo.timerStartedAt ? ' running' : '');
+        const timerText = document.createElement('span');
+        timerText.className = 'todo-timer__text' + (todo.completed ? ' is-done' : '');
+        const timerCalcMs = () => (todo.elapsedMs || 0) + (todo.timerStartedAt ? (Date.now() - todo.timerStartedAt) : 0);
+        timerText.textContent = fmtMs(timerCalcMs());
+        const timerBtn = document.createElement('div');
+        timerBtn.className = 'todo-timer__btn';
+        timerBtn.textContent = todo.timerStartedAt ? '⏸' : '▶';
+        if (todo.completed) timerBtn.style.display = 'none';
+        timerBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (todo.completed) { App.Components.toast('已完成待办无需计时', 'info'); return; }
+          if (todo.timerStartedAt) {
+            todo.elapsedMs = (todo.elapsedMs || 0) + (Date.now() - todo.timerStartedAt);
+            todo.timerStartedAt = null;
+            timerBtn.textContent = '▶';
+            timerWrap.classList.remove('running');
+            timerText.classList.remove('is-running');
+            App.Components.toast('已暂停，累计 ' + fmtMs(todo.elapsedMs), 'info');
+          } else {
+            todo.timerStartedAt = Date.now();
+            timerBtn.textContent = '⏸';
+            timerWrap.classList.add('running');
+            timerText.classList.add('is-running');
+            App.Components.toast('开始计时 ⏱', 'success');
+          }
+          await App.DB.updateTodo(todo);
+        });
+        timerWrap.appendChild(timerText);
+        timerWrap.appendChild(timerBtn);
+        // 供页面级 interval 每秒刷新计时中的显示
+        item._timerRefresh = () => { if (todo.timerStartedAt) timerText.textContent = fmtMs(timerCalcMs()); };
+        item.appendChild(timerWrap);
 
         // 右侧信息图标：点击查看备注 + 修改时间（可编辑时间）
         const infoBtn = document.createElement('div');
@@ -9620,6 +9673,14 @@ App.Pages.Home = {
 
     container.appendChild(todoWrap);
 
+    // v8.11.1 每秒刷新计时中的待办时长显示（仅本页存在期间）
+    if (this._timerInterval) clearInterval(this._timerInterval);
+    this._timerInterval = setInterval(() => {
+      todoCard.querySelectorAll('.todo-item').forEach((el) => {
+        if (el._timerRefresh) el._timerRefresh();
+      });
+    }, 1000);
+
     // ===== 8. 便签（今日待办下方） =====
     await this._renderStickySection(container);
 
@@ -9627,6 +9688,120 @@ App.Pages.Home = {
     const spacer = document.createElement('div');
     spacer.style.height = '80px';
     container.appendChild(spacer);
+  },
+
+  // ===== v8.11.1 倒数日（首页 Hero 右侧）=====
+  _countdownKey: 'kg_countdown',
+  _loadCountdown() {
+    try { return JSON.parse(localStorage.getItem(this._countdownKey)) || []; } catch (e) { return []; }
+  },
+  _saveCountdown(list) { try { localStorage.setItem(this._countdownKey, JSON.stringify(list)); } catch (e) {} },
+  _daysUntil(dateStr) {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const t = new Date(dateStr + 'T00:00:00');
+    if (isNaN(t.getTime())) return null;
+    return Math.round((t.getTime() - today.getTime()) / 86400000);
+  },
+  _renderCountdown(el) {
+    if (!el) return;
+    const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const escapeAttr = escapeHtml;
+    const list = this._loadCountdown();
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const todayStr = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
+    let html = '<div class="home-hero__cd-title">倒数日</div>';
+    if (!list.length) {
+      html += '<div class="home-hero__cd-empty">暂无倒数日</div>';
+    } else {
+      list.slice(0, 4).forEach(it => {
+        const d = this._daysUntil(it.date);
+        if (d === null) return;
+        const cls = d <= 0 ? ' is-passed' : (d <= 30 ? ' is-urgent' : '');
+        html += '<div class="home-hero__cd-item" data-id="' + escapeAttr(it.id) + '">' +
+          '<div class="home-hero__cd-info">' +
+            '<div class="home-hero__cd-name">' + escapeHtml(it.name) + '</div>' +
+            '<div class="home-hero__cd-date">' + (d === 0 ? '今天' : (d === 1 ? '明天' : it.date.slice(5).replace('-', '月') + '日')) + '</div>' +
+          '</div>' +
+          '<div class="home-hero__cd-num' + cls + '">' + (d === 0 ? '今' : (d < 0 ? '已过' : d)) + '<span class="home-hero__cd-unit">' + (d > 0 ? '天' : '') + '</span></div>' +
+          '<div class="home-hero__cd-del" data-del="' + escapeAttr(it.id) + '">✕</div>' +
+        '</div>';
+      });
+    }
+    html += '<div class="home-hero__cd-add" id="home-cd-add">＋ 新增倒数日</div>';
+    el.innerHTML = html;
+
+    const addBtn = el.querySelector('#home-cd-add');
+    if (addBtn) addBtn.addEventListener('click', (e) => { e.stopPropagation(); this._countdownSheet(() => this._renderCountdown(el)); });
+    el.querySelectorAll('.home-hero__cd-del').forEach(b => {
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = b.getAttribute('data-del');
+        const next = this._loadCountdown().filter(x => x.id !== id);
+        this._saveCountdown(next);
+        this._renderCountdown(el);
+      });
+    });
+  },
+  _countdownSheet(onDone) {
+    const overlay = document.createElement('div');
+    overlay.className = 'notion-mobile-sheet-overlay';
+    const sheet = document.createElement('div');
+    sheet.className = 'notion-mobile-sheet is-format';
+    const handleBar = document.createElement('div');
+    handleBar.className = 'notion-mobile-sheet__handle';
+    sheet.appendChild(handleBar);
+    const content = document.createElement('div');
+    content.className = 'notion-mobile-sheet__content';
+    const nameInput = document.createElement('input');
+    nameInput.className = 'form-input';
+    nameInput.placeholder = '如：国考笔试';
+    nameInput.style.marginBottom = '10px';
+    const dateInput = document.createElement('input');
+    dateInput.type = 'date';
+    dateInput.className = 'form-input';
+    const today = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    dateInput.value = today.getFullYear() + '-' + pad(today.getMonth() + 1) + '-' + pad(today.getDate());
+    dateInput.style.marginBottom = '10px';
+    const preview = document.createElement('div');
+    preview.className = 'cd-preview';
+    const updatePreview = () => {
+      if (!dateInput.value) { preview.textContent = ''; return; }
+      const d = this._daysUntil(dateInput.value);
+      preview.textContent = d === null ? '日期无效' : (d === 0 ? '就是今天 🎉' : (d > 0 ? '距离还有 ' + d + ' 天' : '已过去 ' + (-d) + ' 天'));
+    };
+    dateInput.addEventListener('change', updatePreview);
+    updatePreview();
+    const actions = document.createElement('div');
+    actions.className = 'cd-actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button'; cancelBtn.className = 'btn'; cancelBtn.textContent = '取消';
+    const okBtn = document.createElement('button');
+    okBtn.type = 'button'; okBtn.className = 'btn btn--primary'; okBtn.textContent = '确定';
+    actions.appendChild(cancelBtn); actions.appendChild(okBtn);
+    content.appendChild(nameInput);
+    content.appendChild(dateInput);
+    content.appendChild(preview);
+    content.appendChild(actions);
+    sheet.appendChild(content);
+    overlay.appendChild(sheet);
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    cancelBtn.addEventListener('click', close);
+    okBtn.addEventListener('click', () => {
+      const name = nameInput.value.trim();
+      if (!name) { App.Components.toast('请输入事件名称', 'error'); return; }
+      if (!dateInput.value) { App.Components.toast('请选择日期', 'error'); return; }
+      const list = this._loadCountdown();
+      list.push({ id: 'cd_' + Date.now(), name: name, date: dateInput.value });
+      this._saveCountdown(list);
+      App.Components.toast('已添加 ✓', 'success');
+      close();
+      if (onDone) onDone();
+    });
+    setTimeout(() => nameInput.focus(), 60);
   },
 
   // ===== 便签模块（首页） =====
@@ -12260,6 +12435,51 @@ App.Pages.StudyStats = {
       <div style="font-size:var(--font-sm);color:var(--text-tertiary);line-height:1.6;">按日历查看每日待办，彩色标签为具体事项，绿色 = 全部完成，黄色 = 有未完成。</div>
     `;
     container.appendChild(header);
+
+    // v8.11.1 今日学习时长卡：按科目聚合待办计时（elapsedMs + 未结算的当前计时）
+    const fmtDur = (ms) => {
+      const s = Math.max(0, Math.floor(ms / 1000));
+      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+      if (h > 0) return h + 'h ' + (m > 0 ? m + 'm' : '');
+      return m + 'm';
+    };
+    const SUBJ_ORDER = [
+      { key: 'yanyu', name: '言语', color: '#4A90E2' },
+      { key: 'ziliao', name: '资料', color: '#34C759' },
+      { key: 'panduan', name: '判断', color: '#9B7BFF' },
+      { key: 'shuliang', name: '数量', color: '#FF9F43' },
+      { key: 'changshi', name: '常识', color: '#6B8EAD' },
+      { key: 'shenlun', name: '申论', color: '#F08C00' }
+    ];
+    const LEGACY_TM = { study: 'yanyu', review: 'yanyu', practice: 'yanyu', other: 'yanyu' };
+    const typeKeyOf2 = (t) => {
+      const raw = t.type || 'yanyu';
+      return SUBJ_ORDER.some(s => s.key === raw) ? raw : (LEGACY_TM[raw] || 'yanyu');
+    };
+    const todayDur = {};
+    let totalDurMs = 0;
+    (byDay[todayKey] ? byDay[todayKey].items : []).forEach(t => {
+      const ms = (t.elapsedMs || 0) + (t.timerStartedAt ? (Date.now() - t.timerStartedAt) : 0);
+      if (ms <= 0) return;
+      const k = typeKeyOf2(t);
+      todayDur[k] = (todayDur[k] || 0) + ms;
+      totalDurMs += ms;
+    });
+    const durCard = document.createElement('div');
+    durCard.className = 'stats-dur';
+    const durSub = SUBJ_ORDER.map(s => {
+      const ms = todayDur[s.key] || 0;
+      return '<div class="stats-dur__sub">' +
+        '<span class="stats-dur__dot" style="background:' + s.color + '"></span>' +
+        '<span class="stats-dur__name">' + s.name + '</span>' +
+        '<span class="stats-dur__val' + (ms > 0 ? ' has' : '') + '">' + (ms > 0 ? fmtDur(ms) : '—') + '</span>' +
+        '</div>';
+    }).join('');
+    durCard.innerHTML =
+      '<div class="stats-dur__head"><span class="stats-dur__title">⏱ 今日学习时长</span>' +
+      '<span class="stats-dur__total">' + (totalDurMs > 0 ? fmtDur(totalDurMs) : '0m') + '</span></div>' +
+      '<div class="stats-dur__row">' + durSub + '</div>';
+    container.appendChild(durCard);
 
     // 月份切换
     const nav = document.createElement('div');

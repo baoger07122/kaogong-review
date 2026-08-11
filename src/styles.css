@@ -1129,6 +1129,64 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 
 /* ===== 学习统计日历 ===== */
+
+/* v8.11.1 今日学习时长卡（按科目聚合待办计时） */
+.stats-dur {
+  margin: 0 var(--page-padding);
+  margin-bottom: var(--spacing-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color, rgba(0,0,0,0.06));
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+}
+.stats-dur__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.stats-dur__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.stats-dur__total {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-primary, #2997FF);
+  letter-spacing: -0.02em;
+}
+.stats-dur__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+.stats-dur__sub {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+.stats-dur__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.stats-dur__name {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.stats-dur__val {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+.stats-dur__val.has {
+  color: var(--text-primary);
+}
+
 .study-cal {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -1299,6 +1357,127 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .home-hero__foot {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.6);
+}
+
+/* v8.11.1 倒数日：Hero 右侧 */
+.home-hero--split {
+  display: flex;
+  gap: 14px;
+}
+.home-hero__progress {
+  flex: 1;
+  min-width: 0;
+}
+.home-hero__countdown {
+  width: 186px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+}
+.home-hero__cd-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  letter-spacing: 0.02em;
+  padding-bottom: 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.home-hero__cd-empty {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+  padding: 8px 0;
+}
+.home-hero__cd-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 7px 8px;
+  position: relative;
+}
+.home-hero__cd-info {
+  flex: 1;
+  min-width: 0;
+}
+.home-hero__cd-name {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-hero__cd-date {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 1px;
+}
+.home-hero__cd-num {
+  font-size: 15px;
+  font-weight: 700;
+  color: #2997FF;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.home-hero__cd-num.is-urgent { color: #FFD60A; }
+.home-hero__cd-num.is-passed { color: rgba(255, 255, 255, 0.4); }
+.home-hero__cd-unit {
+  font-size: 9px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.55);
+  margin-left: 1px;
+}
+.home-hero__cd-del {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 8px;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  padding: 2px;
+  -webkit-tap-highlight-color: transparent;
+}
+.home-hero__cd-add {
+  margin-top: auto;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #2997FF;
+  background: rgba(41, 151, 255, 0.14);
+  border-radius: 8px;
+  padding: 6px 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.home-hero__cd-add:active { opacity: 0.7; }
+
+/* 倒数日新增弹窗 */
+.cd-preview {
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-primary, #2997FF);
+  background: var(--color-primary-bg, rgba(41,151,255,0.1));
+  border-radius: var(--radius-md);
+  padding: 10px 0;
+  margin-bottom: 12px;
+}
+.cd-actions {
+  display: flex;
+  gap: 10px;
+}
+.cd-actions .btn {
+  flex: 1;
+  height: 44px;
+  border-radius: 22px;
 }
 
 /* ===== 统计卡片区 ===== */
@@ -1821,6 +2000,44 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 .todo-note__toggle:active { color: var(--text-secondary); }
 .todo-note__body { font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+
+/* v8.11.1 学习计时：时长 + ▶/⏸ 按钮 */
+.todo-timer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+.todo-timer__text {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+.todo-timer.running .todo-timer__text {
+  color: var(--color-primary, #2997FF);
+  font-weight: 600;
+}
+.todo-timer__btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+}
+.todo-timer.running .todo-timer__btn {
+  background: var(--color-primary, #2997FF);
+  color: #fff;
+}
 
 .todo-item.completed .todo-title,
 .todo-item.completed .todo-note {
