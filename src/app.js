@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.11.6';
+App.VERSION = '8.11.7';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9105,8 +9105,8 @@ App.Pages.Home = {
         </div>
         <div style='display:flex;align-items:center;gap:8px;'>
           <div id='todo-count-text' style='font-size:var(--font-sm);color:var(--text-tertiary);'>${completedCount}/${totalCount}</div>
-          <button id='todo-add-btn' type='button' style='border:none;background:var(--color-primary);color:#fff;height:30px;padding:0 14px;border-radius:15px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:4px;-webkit-tap-highlight-color:transparent;'>＋ 新增</button>
           <button id='todo-collapse-btn' type='button' style='border:none;background:var(--bg-tertiary);color:var(--text-secondary);width:30px;height:30px;border-radius:50%;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;' title='折叠/展开今日待办'>▾</button>
+          <button id='todo-add-btn' type='button' style='border:none;background:var(--color-primary);color:#fff;height:30px;padding:0 14px;border-radius:15px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:4px;-webkit-tap-highlight-color:transparent;'>＋ 新增</button>
         </div>
       </div>
     `;
