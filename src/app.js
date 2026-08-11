@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.11.2';
+App.VERSION = '8.11.4';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9041,14 +9041,13 @@ App.Pages.Home = {
     const totalCount = todayTodos.length;
     const pct = totalCount > 0 ? Math.round(completedCount / totalCount * 100) : 0;
 
-    // ===== Apple 风格深色 Hero 卡：今日复盘进度 + 右侧倒数日（v8.11.1） =====
+    // ===== Apple 风格浅蓝 Hero 卡：今日复盘进度 + 右侧倒数日（v8.11.1/8.11.4 对齐画布） =====
     const hero = document.createElement('div');
     hero.className = 'home-hero home-hero--split';
     hero.innerHTML = `
       <div class="home-hero__progress">
         <div class="home-hero__top">
           <span class="home-hero__label">今日复盘</span>
-          <span class="home-hero__chip">${completedCount}/${totalCount} 已完成</span>
         </div>
         <div class="home-hero__num">${completedCount}<span class="home-hero__unit">/ ${totalCount} 项待办</span></div>
         <div class="home-hero__bar"><i style="width:${pct}%"></i></div>

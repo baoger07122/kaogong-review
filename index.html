@@ -1323,9 +1323,9 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .home-hero {
   margin: 0 var(--page-padding);
   margin-bottom: var(--spacing-xl);
-  background: linear-gradient(135deg, #EAF2FE 0%, #DCEBFF 100%);
+  background: #EAF2FE;
   border: 1px solid rgba(41, 151, 255, 0.18);
-  border-radius: var(--radius-lg);
+  border-radius: 20px;
   padding: 20px;
   color: #1D1D1F;
 }
@@ -1337,16 +1337,8 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 .home-hero__label {
   font-size: 13px;
-  color: #4A4A4E;
-}
-.home-hero__chip {
-  font-size: 11px;
-  font-weight: 600;
   color: #0066CC;
-  background: #FFFFFF;
-  border: 1px solid rgba(0, 102, 204, 0.18);
-  border-radius: 999px;
-  padding: 5px 12px;
+  font-weight: 600;
 }
 .home-hero__num {
   font-size: 34px;
@@ -1358,14 +1350,14 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .home-hero__unit {
   font-size: 14px;
   font-weight: 400;
-  color: #6E6E73;
+  color: #7A7A7A;
   margin-left: 6px;
   letter-spacing: 0;
 }
 .home-hero__bar {
   height: 6px;
   border-radius: 3px;
-  background: rgba(41, 151, 255, 0.16);
+  background: rgba(0, 102, 204, 0.12);
   margin: 14px 0 10px;
   overflow: hidden;
 }
@@ -1373,41 +1365,35 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   display: block;
   height: 100%;
   border-radius: 3px;
-  background: #2997FF;
+  background: #0066CC;
 }
 .home-hero__foot {
   font-size: 11px;
   color: #7A7A7A;
 }
 
-/* v8.11.1 倒数日：Hero 右侧（浅蓝底适配） */
+/* v8.11.4 倒数日：Hero 右侧（对齐画布：无标题、白卡、竖分隔线） */
 .home-hero--split {
   display: flex;
-  gap: 14px;
+  gap: 0;
 }
 .home-hero__progress {
   flex: 1;
   min-width: 0;
+  padding-right: 14px;
 }
 .home-hero__countdown {
-  width: 186px;
+  flex-basis: 42%;
   flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.85);
-  border: 1px solid rgba(0, 102, 204, 0.12);
-  border-radius: 14px;
-  padding: 12px;
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  padding-left: 14px;
   display: flex;
   flex-direction: column;
   gap: 6px;
   overflow: hidden;
 }
 .home-hero__cd-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: #3A3A3C;
-  letter-spacing: 0.02em;
-  padding-bottom: 2px;
-  border-bottom: 1px solid rgba(0, 102, 204, 0.12);
+  display: none;             /* 画布定稿无「倒数日」标题 */
 }
 .home-hero__cd-empty {
   font-size: 11px;
@@ -1421,7 +1407,7 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   gap: 6px;
   background: #FFFFFF;
   border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 7px 8px;
   position: relative;
 }
@@ -1430,7 +1416,7 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   min-width: 0;
 }
 .home-hero__cd-name {
-  font-size: 11px;
+  font-size: 13px;
   color: #1D1D1F;
   font-weight: 500;
   white-space: nowrap;
@@ -1438,12 +1424,12 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   text-overflow: ellipsis;
 }
 .home-hero__cd-date {
-  font-size: 9px;
+  font-size: 10px;
   color: #A1A1A6;
   margin-top: 1px;
 }
 .home-hero__cd-num {
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 700;
   color: #0066CC;
   letter-spacing: -0.02em;
@@ -1452,9 +1438,9 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .home-hero__cd-num.is-urgent { color: #E8590C; }
 .home-hero__cd-num.is-passed { color: #C7C7CC; }
 .home-hero__cd-unit {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 500;
-  color: #8E8E93;
+  color: #7A7A7A;
   margin-left: 1px;
 }
 .home-hero__cd-del {
@@ -1474,9 +1460,8 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   font-weight: 600;
   color: #0066CC;
   background: #EAF2FE;
-  border: 1px solid rgba(0, 102, 204, 0.12);
-  border-radius: 8px;
-  padding: 6px 0;
+  border-radius: 12px;
+  padding: 7px 0;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
@@ -2022,17 +2007,17 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   font-size: 12px;
 }
 
-/* v8.11.1 类型灰底胶囊标签（对齐画布：独立于标题的灰底小胶囊） */
+/* v8.11.1 类型灰底胶囊标签（对齐画布：独立于标题的灰底小胶囊，24 高） */
 .todo-type-tag {
   display: inline-flex;
   align-items: center;
-  height: 20px;
-  padding: 0 8px;
+  height: 24px;
+  padding: 0 10px;
   border-radius: 999px;
-  background: var(--bg-tertiary);
-  font-size: 10px;
+  background: #F2F2F4;
+  font-size: 11px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: #1D1D1F;
   flex-shrink: 0;
   margin-right: 8px;
   vertical-align: 1px;
@@ -2065,17 +2050,17 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   overflow: hidden;
 }
 
-/* v8.11.1 备注 Apple 风格：无底色、紧贴标题下方、缩进对齐标题 */
+/* v8.11.1 备注 Apple 风格：无底色、紧贴标题下方、缩进对齐标题（checkbox20+gap8+类型40+gap8=76） */
 .todo-note__toggle {
   display: none;             /* 去掉 📝 toggle，备注随行展开 */
 }
 .todo-note {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: #7A7A7A;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  padding-left: 0;
+  padding-left: 76px;
   margin-top: 1px;
   display: block;
 }
@@ -2127,8 +2112,8 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   font-weight: 600;
 }
 .todo-timer__btn {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -8084,7 +8069,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.11.2';
+App.VERSION = '8.11.4';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -17122,14 +17107,13 @@ App.Pages.Home = {
     const totalCount = todayTodos.length;
     const pct = totalCount > 0 ? Math.round(completedCount / totalCount * 100) : 0;
 
-    // ===== Apple 风格深色 Hero 卡：今日复盘进度 + 右侧倒数日（v8.11.1） =====
+    // ===== Apple 风格浅蓝 Hero 卡：今日复盘进度 + 右侧倒数日（v8.11.1/8.11.4 对齐画布） =====
     const hero = document.createElement('div');
     hero.className = 'home-hero home-hero--split';
     hero.innerHTML = `
       <div class="home-hero__progress">
         <div class="home-hero__top">
           <span class="home-hero__label">今日复盘</span>
-          <span class="home-hero__chip">${completedCount}/${totalCount} 已完成</span>
         </div>
         <div class="home-hero__num">${completedCount}<span class="home-hero__unit">/ ${totalCount} 项待办</span></div>
         <div class="home-hero__bar"><i style="width:${pct}%"></i></div>
