@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.12.6';
+App.VERSION = '8.12.7';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -13741,20 +13741,20 @@ App.Pages.Settings = {
     const content = document.createElement('div');
     content.style.cssText = 'padding:var(--spacing-md) 0;';
 
-    // ===== 醒目备份卡片（顶部）=====
+    // ===== 醒目备份卡片（顶部，v8.12.7 对齐画布 7:366：深色 Tile 左右布局）=====
     const backupGroup = document.createElement('div');
     backupGroup.className = 'settings-group';
     backupGroup.innerHTML = `
-      <div style="padding:12px var(--spacing-md);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;">数据备份</div>
       <div class="backup-hero">
-        <div class="backup-hero__top">
-          <div class="backup-hero__icon">💾</div>
-          <div class="backup-hero__text">
-            <div class="backup-hero__title">一键备份到 iCloud 云盘</div>
-            <div class="backup-hero__sub" id="backup-sub">全部数据合并为 1 个文件「考公备考系统-backup.json」。导入时只需选这 1 个文件；多次保存到同一位置会覆盖旧文件。</div>
+        <div class="backup-hero__info">
+          <div class="backup-hero__tagrow">
+            <span class="backup-hero__tag">数据备份</span>
+            <span class="backup-hero__badge">iCloud</span>
           </div>
+          <div class="backup-hero__title">一键备份到 iCloud 云盘</div>
+          <div class="backup-hero__sub" id="backup-sub">全部数据合并为 1 个文件，导入时只需选这 1 个文件</div>
         </div>
-        <button class="btn btn--primary btn--full backup-hero__btn" id="backup-icloud">⬇️ 立即备份</button>
+        <button class="backup-hero__btn" id="backup-icloud">立即备份</button>
       </div>
       <div class="backup-hero__hint" id="backup-info">读取中…</div>
     `;
