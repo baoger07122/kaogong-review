@@ -1380,11 +1380,10 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .home-hero {
   margin: 0 var(--page-padding);
   margin-bottom: var(--spacing-xl);
-  /* v8.12.10 对齐画布 7:80：浅蓝 → 蓝紫渐变 + 圆角 24 + 品牌色双层柔和阴影 */
-  background: linear-gradient(135deg, #F0F4FF 0%, #F5EEFF 100%);
-  border: 1px solid rgba(41, 151, 255, 0.12);
+  /* v8.12.11 回退渐变/阴影：纯浅蓝底 + 无阴影（恢复简洁） */
+  background: #EAF2FE;
+  border: 1px solid rgba(41, 151, 255, 0.18);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-hero);
   /* v8.12.5 两侧留白对齐画布 7:80（左栏 x24 / 右栏右缘距卡右 24） */
   padding: 24px;
   color: #1D1D1F;
@@ -1426,8 +1425,8 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   display: block;
   height: 100%;
   border-radius: 4px;
-  /* v8.12.10 对齐画布 7:87：纯蓝 → 渐变蓝（深→亮） */
-  background: var(--gradient-primary);
+  /* v8.12.11 回退渐变：纯蓝填充 */
+  background: var(--color-primary);
 }
 .home-hero__foot {
   font-size: 11px;
@@ -8323,7 +8322,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.12.10';
+App.VERSION = '8.12.11';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
