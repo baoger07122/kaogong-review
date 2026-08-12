@@ -1295,9 +1295,10 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 
 .feature-grid-item__icon {
-  width: 52px;
-  height: 52px;
-  border-radius: 20px;
+  /* v8.12.4 对齐画布 7:103 等：56×56 圆角18 图标28 */
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1308,16 +1309,17 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 
 .feature-grid-item__icon svg {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
 }
 
 .feature-grid-item__name {
-  font-size: var(--font-xs);
+  /* v8.12.4 对齐画布 7:107：12px Medium */
+  font-size: 12px;
   font-weight: 500;
-  color: var(--text-secondary);
-  margin-top: 2px;
+  color: #7A7A7A;
+  margin-top: 6px;
 }
 
 /* ===== 首页深色 Hero 卡（Apple 风格 Tile） ===== */
@@ -1342,8 +1344,9 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   font-weight: 600;
 }
 .home-hero__num {
-  font-size: 34px;
-  font-weight: 700;
+  /* v8.12.4 对齐画布 7:84：40px SemiBold */
+  font-size: 40px;
+  font-weight: 600;
   line-height: 1.1;
   letter-spacing: -0.02em;
   color: #1D1D1F;
@@ -7619,7 +7622,27 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   column-gap: var(--spacing-sm);
 }
 .sticky-masonry--manage { column-gap: var(--spacing-md); }
-.sticky-masonry--home { column-count: 2; column-gap: var(--spacing-md); }   /* v8.6.10 首页便签改纵向瀑布流（两列，与管理页一致；原横向滚动已移除） */
+.sticky-masonry--home { column-count: 2; column-gap: 12px; }   /* v8.6.10 首页便签改纵向瀑布流（两列，与管理页一致；原横向滚动已移除） */
+
+/* v8.12.4 首页便签对齐画布 7:539：白底描边(无阴影)圆角16、内容13px两行、时间11px */
+.sticky-masonry--home .sticky-card {
+  border: 1px solid #E0E0E0;
+  border-radius: 16px;
+  background: #FFFFFF;
+  box-shadow: none;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.sticky-masonry--home .sticky-card__content {
+  font-size: 13px;
+  font-weight: 500;
+  color: #333333;
+  line-height: 20px;
+}
+.sticky-masonry--home .sticky-card__meta {
+  font-size: 11px;
+  color: #A1A1A6;
+}
 
 /* v8.4.19 首页便签：横向滚动卡片（150px 定宽 + 分页指示器），管理页仍瀑布流 */
 .sticky-scroll {

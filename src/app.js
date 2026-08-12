@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.12.3';
+App.VERSION = '8.12.4';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9047,7 +9047,7 @@ App.Pages.Home = {
     hero.innerHTML = `
       <div class="home-hero__progress">
         <div class="home-hero__top">
-          <span class="home-hero__label">今日复盘</span>
+          <span class="home-hero__label">今日待办</span>
         </div>
         <div class="home-hero__num">${completedCount}<span class="home-hero__unit">/ ${totalCount} 项待办</span></div>
         <div class="home-hero__bar"><i style="width:${pct}%"></i></div>
@@ -9104,28 +9104,11 @@ App.Pages.Home = {
       </div>
       <div style='display:flex;align-items:center;gap:8px;'>
         <div id='todo-count-text' style='font-size:var(--font-sm);color:var(--text-tertiary);'>${completedCount}/${totalCount}</div>
-        <button id='todo-collapse-btn' type='button' style='border:none;background:var(--bg-tertiary);color:var(--text-secondary);width:30px;height:30px;border-radius:50%;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;' title='折叠/展开今日待办'>▾</button>
         <button id='todo-add-btn' type='button' style='border:none;background:var(--color-primary);color:#fff;height:30px;padding:0 14px;border-radius:15px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:4px;-webkit-tap-highlight-color:transparent;'>＋ 新增</button>
       </div>
     `;
-    // v8.6.12 模块级折叠：右侧按钮一键收起今日待办下方所有内容，只留标题；再点展开
+    // v8.12.4 对齐画布 7:134：今日待办标题行去掉折叠按钮 ▾（设计稿仅「计数 + 新增」）
     // v8.6.37 去除「统计」按钮及功能
-    const todoCollapseBtn = todoHead.querySelector('#todo-collapse-btn');
-    const applyCollapsed = (collapsed) => {
-      this.todoState.collapsed = collapsed;
-      // v8.6.16 折叠状态持久化（重新进入保持）
-      try { localStorage.setItem('kg_todo_ui', JSON.stringify({ collapsed: !!this.todoState.collapsed, doneOpen: !!this.todoState.doneOpen })); } catch (e) {}
-      todoCollapseBtn.textContent = collapsed ? '▸' : '▾';
-      Array.prototype.forEach.call(todoWrap.children, (el) => {
-        if (el !== todoHead) el.style.display = collapsed ? 'none' : '';
-      });
-    };
-    todoCollapseBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      applyCollapsed(!this.todoState.collapsed);
-    });
-    applyCollapsed(!!this.todoState.collapsed);
-    // v8.11.5 新增待办：居中卡片弹窗（对齐画布 10:336：标题+关闭 / 待办内容输入 / 科目 chips / 取消保存）
     todoHead.querySelector('#todo-add-btn').addEventListener('click', (e) => {
       e.stopPropagation();
       const overlay = document.createElement('div');
@@ -9857,37 +9840,14 @@ App.Pages.Home = {
     titleSpan.style.cssText = 'font-size:var(--font-lg);font-weight:600;display:flex;align-items:center;gap:7px;';
     titleSpan.innerHTML = '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 2.5H12C13.1 2.5 14 3.4 14 4.5V11.5C14 12.6 13.1 13.5 12 13.5H4C2.9 13.5 2 12.6 2 11.5V4.5C2 3.4 2.9 2.5 4 2.5Z"/><path d="M5 6H11M5 8.5H11M5 11H8.5"/></svg><span>便签</span>';
     left.appendChild(titleSpan);
-    if (stickies.length > 0) {
-      const countEl = document.createElement('span');
-      countEl.style.cssText = 'font-size:var(--font-xs);color:var(--text-tertiary);';
-      countEl.textContent = stickies.length + ' 条';
-      left.appendChild(countEl);
-    }
     head.appendChild(left);
 
+    // v8.12.4 对齐画布 7:535：便签标题行右侧为「管理」文字链接（设计稿无 + 按钮 / 查看全部）
     const right = document.createElement('div');
     right.style.cssText = 'display:flex;align-items:center;gap:var(--spacing-sm);';
-    const addBtn = document.createElement('button');
-    addBtn.className = 'sticky-add-btn';
-    addBtn.type = 'button';
-    addBtn.textContent = '+';
-    addBtn.title = '新增便签';
-    addBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      App.Components.stickySheet({
-        title: '新增便签',
-        onSave: async (data) => {
-          try { await App.DB.addSticky(data); } catch (err) { App.Components.toast('保存失败', 'error'); return; }
-          App.Components.toast('已添加 ✓', 'success');
-          this._refreshStickySection();
-        }
-      });
-    });
-    right.appendChild(addBtn);
-
     const allLink = document.createElement('div');
-    allLink.style.cssText = 'font-size:var(--font-sm);color:var(--color-primary);cursor:pointer;padding:4px 2px;';
-    allLink.textContent = '查看全部 ›';
+    allLink.style.cssText = 'font-size:13px;color:var(--color-primary);font-weight:500;cursor:pointer;padding:4px 2px;';
+    allLink.textContent = '管理';
     allLink.addEventListener('click', () => App.Router.navigate('stickies'));
     right.appendChild(allLink);
 
