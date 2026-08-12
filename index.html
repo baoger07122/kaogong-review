@@ -1347,7 +1347,8 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   background: #EAF2FE;
   border: 1px solid rgba(41, 151, 255, 0.18);
   border-radius: 20px;
-  padding: 20px;
+  /* v8.12.5 两侧留白对齐画布 7:80（左栏 x24 / 右栏右缘距卡右 24） */
+  padding: 24px;
   color: #1D1D1F;
 }
 .home-hero__top {
@@ -1394,19 +1395,19 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   color: #7A7A7A;
 }
 
-/* v8.11.4 倒数日：Hero 右侧（对齐画布：无标题、白卡、竖分隔线） */
+/* v8.12.5 倒数日 Hero 右侧：左右对称各占一半，分隔线居中（对齐画布 7:89 x295.5=592/2） */
 .home-hero--split {
   display: flex;
   gap: 0;
 }
 .home-hero__progress {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
   padding-right: 14px;
 }
 .home-hero__countdown {
-  flex-basis: 42%;
-  flex-shrink: 0;
+  flex: 1 1 0;
+  min-width: 0;
   border-left: 1px solid rgba(0, 0, 0, 0.08);
   padding-left: 14px;
   display: flex;
@@ -8261,7 +8262,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.12.4';
+App.VERSION = '8.12.5';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
