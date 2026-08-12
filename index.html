@@ -26,6 +26,8 @@
   --color-primary-light: #0071E3;
   --color-primary-dark: #005BB5;
   --color-primary-bg: #EAF2FE;
+  /* v8.12.10 对齐画布视觉升级：品牌渐变（#0066CC → #1E8FFF） */
+  --gradient-primary: linear-gradient(135deg, #0066CC 0%, #1E8FFF 100%);
 
   /* --- 辅助色（iOS 系统语义色） --- */
   --color-success: #34C759;
@@ -51,21 +53,24 @@
   --text-tertiary: #A1A1A6;
   --text-light: #B0B0B0;
 
-  /* --- 边框/分割线（Apple Hairline） --- */
-  --border-color: #E0E0E0;
+  /* --- 边框/分割线（v8.12.10 柔化：E0E0E0 → F0F0F2 融入背景） --- */
+  --border-color: #F0F0F2;
   --divider-color: #F0F0F0;
 
-  /* --- 阴影（Apple 弱化装饰阴影，靠层级与发丝线） --- */
+  /* --- 阴影（v8.12.10 对齐画布：多层柔和阴影） --- */
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
-  --shadow-md: 0 2px 12px rgba(0,0,0,0.07);
-  --shadow-lg: 0 6px 24px rgba(0,0,0,0.10);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.04), 0 2px 6px rgba(0,0,0,0.03);
+  --shadow-lg: 0 12px 28px rgba(0.13, 0.19, 0.35, 0.10), 0 6px 16px rgba(0,0,0,0.06);
+  --shadow-hero: 0 12px 28px rgba(0.31, 0.45, 0.86, 0.12), 0 4px 10px rgba(0.31, 0.45, 0.86, 0.06);
+  --shadow-btn: 0 4px 12px rgba(0, 102, 204, 0.25);
   --shadow-fab: 0 4px 16px rgba(0,102,204,0.35);
 
-  /* --- 圆角 --- */
+  /* --- 圆角（v8.12.10 对齐画布：18→20 / 20→24 / 新增 28 弹窗） --- */
   --radius-sm: 8px;
-  --radius-md: 14px;
-  --radius-lg: 18px;
-  --radius-xl: 20px;
+  --radius-md: 16px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
+  --radius-2xl: 28px;
   --radius-full: 9999px;
 
   /* --- 间距 --- */
@@ -363,9 +368,10 @@ input, textarea, select {
 }
 
 .nav-item.active {
-  /* v8.12.3 对齐画布 NavBar-iPad(7:7)：选中态整块胶囊蓝底白字白图标，去圆圈 */
-  background: var(--color-primary);
+  /* v8.12.10 对齐画布 7:8：选中态整块胶囊 纯蓝 → 渐变蓝 + 蓝色光晕阴影 */
+  background: var(--gradient-primary);
   color: #fff;
+  box-shadow: 0 4px 12px rgba(0, 102, 204, 0.30), 0 1px 3px rgba(0, 102, 204, 0.18);
 }
 
 .nav-item.active .nav-icon {
@@ -1374,9 +1380,11 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .home-hero {
   margin: 0 var(--page-padding);
   margin-bottom: var(--spacing-xl);
-  background: #EAF2FE;
-  border: 1px solid rgba(41, 151, 255, 0.18);
-  border-radius: 20px;
+  /* v8.12.10 对齐画布 7:80：浅蓝 → 蓝紫渐变 + 圆角 24 + 品牌色双层柔和阴影 */
+  background: linear-gradient(135deg, #F0F4FF 0%, #F5EEFF 100%);
+  border: 1px solid rgba(41, 151, 255, 0.12);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-hero);
   /* v8.12.5 两侧留白对齐画布 7:80（左栏 x24 / 右栏右缘距卡右 24） */
   padding: 24px;
   color: #1D1D1F;
@@ -1393,36 +1401,37 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   font-weight: 600;
 }
 .home-hero__num {
-  /* v8.12.4 对齐画布 7:84：40px SemiBold */
-  font-size: 40px;
-  font-weight: 600;
+  /* v8.12.10 对齐画布 7:84：40px → 48px Bold，墨色加深 */
+  font-size: 48px;
+  font-weight: 700;
   line-height: 1.1;
   letter-spacing: -0.02em;
-  color: #1D1D1F;
+  color: #0F1628;
 }
 .home-hero__unit {
   font-size: 14px;
   font-weight: 400;
-  color: #7A7A7A;
+  color: #6B7380;
   margin-left: 6px;
   letter-spacing: 0;
 }
 .home-hero__bar {
-  height: 6px;
-  border-radius: 3px;
-  background: rgba(0, 102, 204, 0.12);
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(0, 102, 204, 0.10);
   margin: 14px 0 10px;
   overflow: hidden;
 }
 .home-hero__bar i {
   display: block;
   height: 100%;
-  border-radius: 3px;
-  background: #0066CC;
+  border-radius: 4px;
+  /* v8.12.10 对齐画布 7:87：纯蓝 → 渐变蓝（深→亮） */
+  background: var(--gradient-primary);
 }
 .home-hero__foot {
   font-size: 11px;
-  color: #7A7A7A;
+  color: #6B7380;
 }
 
 /* v8.12.5 倒数日 Hero 右侧：左右对称各占一半，分隔线居中（对齐画布 7:89 x295.5=592/2） */
@@ -1696,10 +1705,11 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .stat-item {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  /* v8.12.10 对齐画布统计行卡：圆角 18→20 + 柔和阴影 */
+  border-radius: var(--radius-lg);
   padding: 12px 4px;
   text-align: center;
-  box-shadow: none;
+  box-shadow: var(--shadow-sm);
 }
 
 .stat-item__value {
@@ -2868,10 +2878,11 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 
 .modal-dialog {
   background: var(--bg-card);
-  border-radius: var(--radius-lg);
+  /* v8.12.10 对齐画布弹窗：圆角 18 → 28 + 双层品牌色柔和阴影 */
+  border-radius: var(--radius-2xl);
   width: calc(100% - 64px);
   max-width: 320px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 16px 40px rgba(0.13, 0.19, 0.35, 0.18), 0 6px 16px rgba(0.13, 0.19, 0.35, 0.10);
   animation: scaleIn 0.2s ease;
   overflow: hidden;
 }
@@ -3081,9 +3092,11 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 
 .btn--primary {
-  background: var(--color-primary);
+  /* v8.12.10 对齐画布：纯蓝 → 渐变蓝 + 蓝色光晕 */
+  background: var(--gradient-primary);
   color: white;
   flex: 1;
+  box-shadow: var(--shadow-btn);
 }
 
 .btn--outline {
@@ -3646,15 +3659,16 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   margin-top: 2px;
 }
 
-/* ===== 数据备份区（v8.12.7 对齐画布 7:366：深色 Tile 左右布局） ===== */
+/* ===== 数据备份区（v8.12.10 对齐画布 7:366：深色 Tile，圆角 24 + 双层立体阴影） ===== */
 .backup-hero {
   display: flex;
   align-items: center;
   gap: 16px;
   background: #272729;
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   padding: 20px;
   margin: 0 0 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.20), 0 2px 6px rgba(0,0,0,0.10);
 }
 .backup-hero__info {
   flex: 1;
@@ -8309,7 +8323,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.12.9';
+App.VERSION = '8.12.10';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
