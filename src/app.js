@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.12.12';
+App.VERSION = '8.12.13';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9016,6 +9016,8 @@ App.Pages.Home = {
       { key: 'zhengzhi', icon: '🏛️', label: '政治' },
       { key: 'shenlun', icon: '✍️', label: '申论' }
     ];
+    // v8.12.13 对齐画布：列表左侧类型缩写改单字（言/资/判/数/常/政/申）
+    const TYPE_SHORT = { yanyu: '言', ziliao: '资', panduan: '判', shuliang: '数', changshi: '常', zhengzhi: '政', shenlun: '申' };
     const TODO_STATUS = [
       { key: 'pending', label: '未完成', color: '#FF9500' },
       { key: 'in_progress', label: '进行中', color: '#4A90E2' },
@@ -9103,7 +9105,7 @@ App.Pages.Home = {
         </div>
       </div>
       <div style='display:flex;align-items:center;gap:8px;'>
-        <div id='todo-count-text' style='font-size:var(--font-sm);color:var(--text-tertiary);'>${completedCount}/${totalCount}</div>
+        <!-- v8.12.13 取消标题区统计数字（对齐画布：仅保留新增按钮） -->
         <button id='todo-add-btn' type='button' style='border:none;background:var(--color-primary);color:#fff;height:30px;padding:0 14px;border-radius:15px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:4px;-webkit-tap-highlight-color:transparent;'>＋ 新增</button>
       </div>
     `;
@@ -9341,7 +9343,7 @@ App.Pages.Home = {
         const item = document.createElement('div');
         item.className = 'todo-item' + (todo.completed ? ' completed' : '');
         const typeIcon = (TODO_TYPES.find(function (t) { return t.key === typeKeyOf(todo); }) || TODO_TYPES[0]).icon;
-        const typeLabel = (TODO_TYPES.find(function (t) { return t.key === typeKeyOf(todo); }) || TODO_TYPES[0]).label;
+        const typeLabel = TYPE_SHORT[typeKeyOf(todo)] || (TODO_TYPES.find(function (t) { return t.key === typeKeyOf(todo); }) || TODO_TYPES[0]).label;
         const checkbox = document.createElement('div');
         checkbox.className = 'todo-checkbox' + (todo.completed ? ' checked' : '');
         checkbox.textContent = todo.completed ? '✓' : '';
@@ -9387,78 +9389,50 @@ App.Pages.Home = {
           content.appendChild(noteEl);
         }
 
-        // 在原始位置就地展开编辑区（标题 + 备注），不弹出独立页面
-        const openInlineEdit = (targetItem) => {
+        // v8.12.13 备注就地编辑：点击待办项 → 原地展开备注输入框（不弹窗、标题编辑走弹窗）
+        const openNoteEdit = (targetItem) => {
           if (targetItem.dataset.editing === '1') return;
           targetItem.dataset.editing = '1';
           targetItem.classList.add('todo-item--editing');
-          if (title) title.style.display = 'none';
           if (noteEl) noteEl.style.display = 'none';
 
-          const editWrap = document.createElement('div');
-          editWrap.className = 'todo-inline-edit';
-
-          const titleInput = document.createElement('input');
-          titleInput.className = 'todo-inline-edit__title';
-          titleInput.type = 'text';
-          titleInput.placeholder = '待办内容...';
-          titleInput.value = todo.text;
-
-          const noteArea = document.createElement('textarea');
-          noteArea.className = 'todo-inline-edit__note';
-          noteArea.placeholder = '添加备注...';
-          noteArea.value = todo.note || '';
-
+          const wrap = document.createElement('div');
+          wrap.className = 'todo-note-inline';
+          const input = document.createElement('textarea');
+          input.className = 'todo-note-inline__input';
+          input.placeholder = '添加备注...';
+          input.value = todo.note || '';
           const actions = document.createElement('div');
-          actions.className = 'todo-inline-edit__actions';
+          actions.className = 'todo-note-inline__actions';
           const doneBtn = document.createElement('button');
-          doneBtn.className = 'todo-inline-edit__btn todo-inline-edit__btn--done';
+          doneBtn.className = 'todo-note-inline__btn todo-note-inline__btn--done';
           doneBtn.type = 'button';
           doneBtn.textContent = '完成';
-          const delBtn = document.createElement('button');
-          delBtn.className = 'todo-inline-edit__btn todo-inline-edit__btn--del';
-          delBtn.type = 'button';
-          delBtn.textContent = '删除';
+          const cancelBtn = document.createElement('button');
+          cancelBtn.className = 'todo-note-inline__btn todo-note-inline__btn--cancel';
+          cancelBtn.type = 'button';
+          cancelBtn.textContent = '取消';
           actions.appendChild(doneBtn);
-          actions.appendChild(delBtn);
-
-          editWrap.appendChild(titleInput);
-          editWrap.appendChild(noteArea);
-          editWrap.appendChild(actions);
-          content.appendChild(editWrap);
+          actions.appendChild(cancelBtn);
+          wrap.appendChild(input);
+          wrap.appendChild(actions);
+          content.appendChild(wrap);
 
           const closeEdit = (rerender) => {
             targetItem.dataset.editing = '0';
             targetItem.classList.remove('todo-item--editing');
-            if (title) title.style.display = '';
             if (noteEl) noteEl.style.display = '';
-            if (editWrap.parentNode) editWrap.remove();
+            if (wrap.parentNode) wrap.remove();
             if (rerender) refreshTodo();
           };
 
           const save = async () => {
-            const newText = titleInput.value.trim();
-            const newNote = noteArea.value.trim();
-            let changed = false;
-            if (newText && newText !== todo.text) { todo.text = newText; changed = true; }
-            if (newNote !== (todo.note || '')) { todo.note = newNote; changed = true; }
-            if (changed) {
+            const newNote = input.value.trim();
+            if (newNote !== (todo.note || '')) {
+              todo.note = newNote;
               await App.DB.updateTodo(todo);
-              title.textContent = todo.text;
               if (todo.note) {
                 if (!noteEl) {
-                  // 重建折叠备注（v8.6.16 结构：toggle + body）
-                  noteToggle = document.createElement('div');
-                  noteToggle.className = 'todo-note__toggle';
-                  noteToggle.innerHTML = '<span>📝</span><span class="todo-note__caret">▾</span>';
-                  noteToggle.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    this.todoState.notesOpen[todo.id] = !this.todoState.notesOpen[todo.id];
-                    noteEl.classList.toggle('is-open', this.todoState.notesOpen[todo.id]);
-                    const caret = noteToggle.querySelector('.todo-note__caret');
-                    if (caret) caret.textContent = this.todoState.notesOpen[todo.id] ? '▴' : '▾';
-                  });
-                  content.appendChild(noteToggle);
                   noteEl = document.createElement('div');
                   noteEl.className = 'todo-note';
                   const nb = document.createElement('div');
@@ -9469,33 +9443,24 @@ App.Pages.Home = {
                 const nb0 = noteEl.querySelector('.todo-note__body');
                 if (nb0) nb0.textContent = todo.note;
               } else if (noteEl) {
-                if (noteToggle) noteToggle.remove();
                 noteEl.remove(); noteEl = null;
               }
+              App.Components.toast('备注已保存 ✓', 'success');
             }
             closeEdit(false);
           };
 
           doneBtn.addEventListener('click', (e) => { e.stopPropagation(); save(); });
-          titleInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } });
-          noteArea.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeEdit(false); } });
-          delBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const ok = await App.Components.confirm('删除待办', '确定删除这项待办？', '删除', '取消', true);
-            if (ok) {
-              await App.DB.remove('todos', todo.id);
-              App.Components.toast('已删除', 'success');
-              closeEdit(true);
-            }
-          });
-          editWrap.addEventListener('click', (e) => e.stopPropagation());
-
-          setTimeout(() => { noteArea.focus(); }, 0);
+          cancelBtn.addEventListener('click', (e) => { e.stopPropagation(); closeEdit(false); });
+          input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeEdit(false); } });
+          wrap.addEventListener('click', (e) => e.stopPropagation());
+          setTimeout(() => { input.focus(); }, 0);
         };
 
         item.addEventListener('click', (e) => {
           if (e.target === checkbox || e.target.closest('.todo-checkbox')) return;
-          openInlineEdit(item);
+          if (e.target.closest('.todo-item__edit-btn')) return;
+          openNoteEdit(item);
         });
 
         item.appendChild(checkbox);
@@ -9543,82 +9508,15 @@ App.Pages.Home = {
         item._timerRefresh = () => { if (todo.timerStartedAt) timerText.textContent = fmtMs(timerCalcMs()); };
         item.appendChild(timerWrap);
 
-        // 右侧信息图标：点击查看备注 + 修改时间（可编辑时间）
+        // v8.12.13 右侧编辑按钮：打开编辑待办弹窗（对齐画布 36:134：标题+类型+日历+删除+保存）
         const infoBtn = document.createElement('div');
-        infoBtn.className = 'todo-info-btn';
-        infoBtn.textContent = 'i';
-        infoBtn.title = '备注与时间';
+        infoBtn.className = 'todo-item__edit-btn';
+        infoBtn.title = '编辑待办';
+        infoBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>';
         item._infoBtn = infoBtn;
-        infoBtn.addEventListener('click', async (e) => {
+        infoBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          const itemEl = item;
-          // 备注/时间编辑面板
-          const infoPanel = document.createElement('div');
-          infoPanel.className = 'todo-info-panel';
-          const lbl = document.createElement('div');
-          lbl.className = 'todo-info-panel__label';
-          lbl.textContent = '备注';
-          const noteInput = document.createElement('textarea');
-          noteInput.className = 'todo-info-panel__note';
-          noteInput.placeholder = '添加备注...';
-          noteInput.value = todo.note || '';
-          const timeLbl = document.createElement('div');
-          timeLbl.className = 'todo-info-panel__label';
-          timeLbl.textContent = '待办时间';
-          const timeInput = document.createElement('input');
-          timeInput.type = 'datetime-local';
-          timeInput.className = 'todo-info-panel__time';
-          timeInput.value = (() => {
-            const d = new Date(todo.createdAt || Date.now());
-            const p = (n) => String(n).padStart(2, '0');
-            return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
-          })();
-          const actions = document.createElement('div');
-          actions.className = 'todo-info-panel__actions';
-          const saveBtn = document.createElement('button');
-          saveBtn.type = 'button';
-          saveBtn.className = 'todo-info-panel__btn todo-info-panel__btn--save';
-          saveBtn.textContent = '保存';
-          const cancelBtn = document.createElement('button');
-          cancelBtn.type = 'button';
-          cancelBtn.className = 'todo-info-panel__btn';
-          cancelBtn.textContent = '取消';
-          actions.appendChild(saveBtn);
-          actions.appendChild(cancelBtn);
-          infoPanel.appendChild(lbl);
-          infoPanel.appendChild(noteInput);
-          infoPanel.appendChild(timeLbl);
-          infoPanel.appendChild(timeInput);
-          infoPanel.appendChild(actions);
-          itemEl.appendChild(infoPanel);
-          // 面板定位：放在 item 下方
-          setTimeout(() => { noteInput.focus(); }, 0);
-          const closePanel = () => { if (infoPanel.parentNode) infoPanel.remove(); };
-          cancelBtn.addEventListener('click', (e) => { e.stopPropagation(); closePanel(); });
-          saveBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const newNote = noteInput.value.trim();
-            let newDate = null;
-            if (timeInput.value) {
-              newDate = new Date(timeInput.value);
-              if (!isNaN(newDate.getTime())) {
-                // 本地时间转 ISO（补时区）
-                newDate = new Date(newDate.getTime() - newDate.getTimezoneOffset() * 60000);
-              } else newDate = null;
-            }
-            let changed = false;
-            if (newNote !== (todo.note || '')) { todo.note = newNote; changed = true; }
-            if (newDate && new Date(todo.createdAt).getTime() !== newDate.getTime()) { todo.createdAt = newDate.toISOString(); changed = true; }
-            if (changed) {
-              await App.DB.updateTodo(todo);
-              App.Components.toast('已保存 ✓', 'success');
-              closePanel();
-              refreshTodo();
-            } else {
-              closePanel();
-            }
-          });
-          infoPanel.addEventListener('click', (e) => e.stopPropagation());
+          todoEditSheet(todo);
         });
         item.appendChild(infoBtn);
 
@@ -9636,12 +9534,172 @@ App.Pages.Home = {
       const cc = todayList.filter(t => t.completed).length;
       const tc = todayList.length;
       const pp = tc > 0 ? Math.round(cc / tc * 100) : 0;
-      const cnt = document.getElementById('todo-count-text');
-      if (cnt) cnt.textContent = cc + '/' + tc;
+      // v8.12.13 标题区计数已取消；进度条填充 + 右侧文字同步更新
       const pf = document.getElementById('todo-progress-fill');
       if (pf) pf.style.width = pp + '%';
+      const pl = document.getElementById('todo-progress-label');
+      if (pl) pl.textContent = cc + ' / ' + tc + ' 已完成';
       App.Utils.transitionSwap(todoCard, (c) => fillTodoList(c));
     };
+
+    // ===== v8.12.13 编辑待办弹窗（对齐画布 36:134：标题+类型+日历选日期+删除+保存） =====
+    const todoEditSheet = (todo) => {
+      const pad = (n) => String(n).padStart(2, '0');
+      const isoDay = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+      let selDate = (todo.scheduleDate || todo.createdAt || new Date().toISOString()).slice(0, 10);
+      let view = new Date(selDate.replace(/-/g, '/'));
+      const tDef = TODO_TYPES.find(function (t) { return t.key === typeKeyOf(todo); }) || TODO_TYPES[0];
+
+      const overlay = document.createElement('div');
+      overlay.className = 'todo-edit-overlay';
+      const dlg = document.createElement('div');
+      dlg.className = 'todo-edit';
+
+      const head = document.createElement('div');
+      head.className = 'todo-edit__head';
+      const headTitle = document.createElement('div');
+      headTitle.className = 'todo-edit__title';
+      headTitle.textContent = '编辑待办';
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'todo-edit__close';
+      closeBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l6 6M9 3L3 9"/></svg>';
+      head.appendChild(headTitle);
+      head.appendChild(closeBtn);
+
+      const info = document.createElement('div');
+      info.className = 'todo-edit__info';
+      const typeTag = document.createElement('span');
+      typeTag.className = 'todo-edit__type-tag';
+      typeTag.textContent = TYPE_SHORT[typeKeyOf(todo)] || tDef.label;
+      const titleInput = document.createElement('input');
+      titleInput.className = 'todo-edit__title-input';
+      titleInput.type = 'text';
+      titleInput.value = todo.text || '';
+      info.appendChild(typeTag);
+      info.appendChild(titleInput);
+
+      const secLabel = document.createElement('div');
+      secLabel.className = 'todo-edit__section-label';
+      secLabel.textContent = '日期';
+
+      const cal = document.createElement('div');
+      cal.className = 'todo-edit__cal';
+      const renderCal = () => {
+        cal.innerHTML = '';
+        const monthRow = document.createElement('div');
+        monthRow.className = 'todo-edit__cal-month';
+        const prevBtn = document.createElement('button');
+        prevBtn.type = 'button';
+        prevBtn.className = 'todo-edit__cal-nav';
+        prevBtn.textContent = '‹';
+        const monthLabel = document.createElement('div');
+        monthLabel.className = 'todo-edit__cal-month-label';
+        monthLabel.textContent = view.getFullYear() + '年' + (view.getMonth() + 1) + '月';
+        const nextBtn = document.createElement('button');
+        nextBtn.type = 'button';
+        nextBtn.className = 'todo-edit__cal-nav';
+        nextBtn.textContent = '›';
+        prevBtn.addEventListener('click', (e) => { e.stopPropagation(); view = new Date(view.getFullYear(), view.getMonth() - 1, 1); renderCal(); });
+        nextBtn.addEventListener('click', (e) => { e.stopPropagation(); view = new Date(view.getFullYear(), view.getMonth() + 1, 1); renderCal(); });
+        monthRow.appendChild(prevBtn);
+        monthRow.appendChild(monthLabel);
+        monthRow.appendChild(nextBtn);
+        cal.appendChild(monthRow);
+
+        const grid = document.createElement('div');
+        grid.className = 'todo-edit__cal-grid';
+        ['日','一','二','三','四','五','六'].forEach(function (w) {
+          const h = document.createElement('div');
+          h.className = 'todo-edit__cal-dow';
+          h.textContent = w;
+          grid.appendChild(h);
+        });
+        const firstDow = view.getDay();
+        const dim = new Date(view.getFullYear(), view.getMonth() + 1, 0).getDate();
+        for (let i = 0; i < firstDow; i++) {
+          const b = document.createElement('div');
+          b.className = 'todo-edit__cal-cell blank';
+          grid.appendChild(b);
+        }
+        const todayKeyStr = isoDay(new Date());
+        for (let d = 1; d <= dim; d++) {
+          const k = view.getFullYear() + '-' + pad(view.getMonth() + 1) + '-' + pad(d);
+          const cell = document.createElement('div');
+          cell.className = 'todo-edit__cal-cell';
+          cell.textContent = d;
+          if (k === todayKeyStr) cell.classList.add('is-today');
+          if (k === selDate) cell.classList.add('is-selected');
+          cell.addEventListener('click', (e) => {
+            e.stopPropagation();
+            selDate = k;
+            cal.querySelectorAll('.todo-edit__cal-cell').forEach(function (c) { c.classList.remove('is-selected'); });
+            cell.classList.add('is-selected');
+          });
+          grid.appendChild(cell);
+        }
+        cal.appendChild(grid);
+      };
+      renderCal();
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'todo-edit__delete';
+      delBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h9M5.5 4V2.5h3V4M3.5 4l.8 7h5.4l.8-7M6 6v3.5M8 6v3.5"/></svg>删除待办';
+
+      const actions = document.createElement('div');
+      actions.className = 'todo-edit__actions';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'todo-edit__btn todo-edit__btn--cancel';
+      cancelBtn.textContent = '取消';
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.className = 'todo-edit__btn todo-edit__btn--save';
+      saveBtn.textContent = '保存';
+      actions.appendChild(cancelBtn);
+      actions.appendChild(saveBtn);
+
+      dlg.appendChild(head);
+      dlg.appendChild(info);
+      dlg.appendChild(secLabel);
+      dlg.appendChild(cal);
+      dlg.appendChild(delBtn);
+      dlg.appendChild(actions);
+      overlay.appendChild(dlg);
+      document.body.appendChild(overlay);
+
+      const close = () => overlay.remove();
+      closeBtn.addEventListener('click', close);
+      overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+      cancelBtn.addEventListener('click', close);
+      saveBtn.addEventListener('click', async () => {
+        const newText = titleInput.value.trim();
+        if (!newText) { App.Components.toast('请输入待办内容', 'error'); return; }
+        let changed = false;
+        if (newText !== todo.text) { todo.text = newText; changed = true; }
+        const prevDate = (todo.scheduleDate || '').slice(0, 10);
+        if (selDate !== prevDate) { todo.scheduleDate = selDate + 'T00:00:00.000Z'; changed = true; }
+        todo.updatedAt = new Date().toISOString();
+        if (changed) {
+          await App.DB.updateTodo(todo);
+          App.Components.toast('已保存 ✓', 'success');
+        }
+        close();
+        refreshTodo();
+      });
+      delBtn.addEventListener('click', async () => {
+        const ok = await App.Components.confirm('删除待办', '确定删除这项待办？', '删除', '取消', true);
+        if (ok) {
+          await App.DB.remove('todos', todo.id);
+          App.Components.toast('已删除', 'success');
+          close();
+          refreshTodo();
+        }
+      });
+      setTimeout(function () { titleInput.focus(); }, 60);
+    };
+
     fillTodoList(todoCard);
     todoWrap.appendChild(todoCard);
 

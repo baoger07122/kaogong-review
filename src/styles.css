@@ -8220,3 +8220,255 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-rating-line.ps { color: #F59E0B; font-weight: 700; }
 .sc-rating-line.go { color: #9CA3AF; font-weight: 600; }
 .sc-rating-line.no { color: #EF4444; font-weight: 600; }
+
+/* ===== v8.12.13 编辑待办弹窗（对齐画布 36:134） ===== */
+.todo-edit-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+  padding: 24px;
+  box-sizing: border-box;
+}
+.todo-edit {
+  background: var(--bg-card);
+  border-radius: var(--radius-2xl);
+  width: 100%;
+  max-width: 480px;
+  max-height: 88vh;
+  overflow-y: auto;
+  box-shadow: 0 16px 40px rgba(0.13,0.19,0.35,0.18), 0 6px 16px rgba(0.13,0.19,0.35,0.10);
+  animation: scaleIn 0.2s ease;
+  padding: 22px 24px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.todo-edit__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.todo-edit__title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.todo-edit__close {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,0.06);
+  background: #F5F5F7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.todo-edit__info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.todo-edit__type-tag {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: #F5F5F7;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.todo-edit__title-input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  box-sizing: border-box;
+  outline: none;
+}
+.todo-edit__title-input:focus {
+  border-color: var(--color-primary);
+}
+.todo-edit__section-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #7A7A7A;
+}
+.todo-edit__cal {
+  background: #F7F7FA;
+  border-radius: 14px;
+  padding: 12px 8px 14px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+  box-sizing: border-box;
+}
+.todo-edit__cal-month {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px;
+  margin-bottom: 10px;
+}
+.todo-edit__cal-nav {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: 8px;
+  -webkit-tap-highlight-color: transparent;
+}
+.todo-edit__cal-nav:active { background: rgba(0,0,0,0.06); }
+.todo-edit__cal-month-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.todo-edit__cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.todo-edit__cal-dow {
+  text-align: center;
+  font-size: 11px;
+  color: #A1A1A6;
+  padding: 4px 0;
+}
+.todo-edit__cal-cell {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-primary);
+  padding: 7px 0;
+  border-radius: 8px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.todo-edit__cal-cell.blank { visibility: hidden; }
+.todo-edit__cal-cell.is-today { color: var(--color-primary); font-weight: 600; }
+.todo-edit__cal-cell.is-selected {
+  background: var(--color-primary);
+  color: #fff;
+  font-weight: 600;
+}
+.todo-edit__delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 42px;
+  border-radius: 14px;
+  border: 1px solid #FA8A85;
+  background: #FDEDEB;
+  color: #E03131;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 2px 6px rgba(224,49,49,0.10);
+}
+.todo-edit__delete:active { opacity: 0.75; }
+.todo-edit__actions {
+  display: flex;
+  gap: 12px;
+}
+.todo-edit__btn {
+  flex: 1;
+  height: 46px;
+  border-radius: 23px;
+  border: none;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.todo-edit__btn--cancel {
+  background: #F5F5F7;
+  border: 1px solid #EDEDF0;
+  color: var(--text-primary);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+}
+.todo-edit__btn--save {
+  background: var(--gradient-primary);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(0,102,204,0.25);
+}
+
+/* ===== v8.12.13 备注就地编辑（点击待办项原地展开） ===== */
+.todo-note-inline {
+  margin-top: 6px;
+}
+.todo-note-inline__input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-card);
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  resize: none;
+  outline: none;
+  min-height: 40px;
+  line-height: 1.5;
+}
+.todo-note-inline__input:focus {
+  border-color: var(--color-primary);
+}
+.todo-note-inline__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.todo-note-inline__btn {
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: none;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.todo-note-inline__btn--done {
+  background: var(--gradient-primary);
+  color: #fff;
+}
+.todo-note-inline__btn--cancel {
+  background: #F5F5F7;
+  color: var(--text-secondary);
+}
+.todo-item__edit-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: #A1A1A6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 999px;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.todo-item__edit-btn:active { background: rgba(0,0,0,0.06); color: var(--color-primary); }
