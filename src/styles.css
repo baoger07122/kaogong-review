@@ -1165,6 +1165,9 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   margin-bottom: 12px;
 }
 .stats-dur__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
@@ -1209,25 +1212,23 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .study-cal {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
+  gap: 8px;
   padding: 0 var(--page-padding);
   margin-bottom: var(--spacing-lg);
 }
 .study-cal__dow {
   text-align: center;
-  font-size: var(--font-xs);
+  font-size: 11px;
   color: var(--text-tertiary);
   font-weight: 600;
   padding: 6px 0;
-  background: var(--bg-card);
 }
 .study-cal__dow:nth-child(1) { color: #FF3B30; }
 .study-cal__dow:nth-child(7) { color: #007AFF; }
 .study-cal__cell {
-  min-height: 92px;
-  border-radius: 0;
-  border: none;
-  background: var(--bg-card);
+  min-height: 0;
+  border-radius: 10px;
+  background: #FFFFFF;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -1236,21 +1237,26 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   position: relative;
   padding: 6px 4px 4px;
   overflow: hidden;
+  aspect-ratio: 1 / 1.26;   /* v8.12.6 对齐画布 76×96 圆角卡片 */
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
-.study-cal__cell--blank { background: var(--bg-card); }
+.study-cal__cell.has-data { border: 1px solid #E0E0E0; }
+.study-cal__cell.no-data { border: 1px solid #F0F0F0; background: #FBFBFD; }
+.study-cal__cell--blank { background: transparent; border: none; }
 .study-cal__day {
-  font-size: 15px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-primary);
   text-align: left;
   line-height: 1;
   margin-bottom: 3px;
-  margin-left: 2px;
+  margin-left: 1px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
 }
 .study-cal__cell:nth-child(7n+1) .study-cal__day { color: #FF3B30; }
@@ -1269,20 +1275,32 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   overflow: hidden;
 }
 .study-cal__todo {
-  font-size: 11px;
-  line-height: 1.4;
-  padding: 2px 7px;
-  border-radius: 9999px;
-  background: color-mix(in srgb, var(--todo-color, #4A90E2) 50%, transparent);
-  color: color-mix(in srgb, var(--todo-color, #4A90E2) 60%, #000);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  line-height: 1;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--todo-color, #4A90E2) 18%, #fff);
+  color: color-mix(in srgb, var(--todo-color, #4A90E2) 70%, #000);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 600;
 }
+.study-cal__todo::before {
+  content: '';
+  width: 2px;
+  height: 10px;
+  border-radius: 1px;
+  background: var(--todo-color, #4A90E2);
+  flex-shrink: 0;
+}
 .study-cal__todo--done {
-  background: color-mix(in srgb, var(--todo-color, #4A90E2) 28%, transparent);
-  color: color-mix(in srgb, var(--todo-color, #4A90E2) 40%, #000);
+  background: color-mix(in srgb, var(--todo-color, #4A90E2) 12%, #fff);
+  color: color-mix(in srgb, var(--todo-color, #4A90E2) 45%, #000);
   text-decoration: line-through;
   opacity: 0.85;
 }

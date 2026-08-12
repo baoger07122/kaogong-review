@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.12.5';
+App.VERSION = '8.12.6';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -12466,7 +12466,7 @@ App.Pages.StudyStats = {
         '</div>';
     }).join('');
     durCard.innerHTML =
-      '<div class="stats-dur__head"><span class="stats-dur__title">⏱ 今日学习时长</span>' +
+      '<div class="stats-dur__head"><span class="stats-dur__title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>今日学习时长</span>' +
       '<span class="stats-dur__total">' + (totalDurMs > 0 ? fmtDur(totalDurMs) : '0m') + '</span></div>' +
       '<div class="stats-dur__row">' + durSub + '</div>';
     container.appendChild(durCard);
