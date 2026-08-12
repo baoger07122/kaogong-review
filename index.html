@@ -8222,7 +8222,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.11.8';
+App.VERSION = '8.12.1';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -17416,15 +17416,6 @@ App.Pages.Home = {
     });
     todoWrap.appendChild(todoHead);
 
-    // 进度条
-    const progressBar = document.createElement('div');
-    progressBar.style.cssText = 'height:6px;background:var(--bg-tertiary);border-radius:9999px;overflow:hidden;margin-bottom:var(--spacing-md);';
-    const progressFill = document.createElement('div');
-    progressFill.id = 'todo-progress-fill';
-    progressFill.style.cssText = 'height:100%;width:' + pct + '%;background:linear-gradient(90deg,#4A90E2,#34C759);border-radius:9999px;transition:width 0.3s ease;';
-    progressBar.appendChild(progressFill);
-    todoWrap.appendChild(progressBar);
-
     // 统计面板（就地展开/收起，不整页重绘）
     const buildStatsPanel = () => {
       const statsPanel = document.createElement('div');
@@ -17863,11 +17854,8 @@ App.Pages.Home = {
       const todayList = todos.filter(isTodayTodo);
       const cc = todayList.filter(t => t.completed).length;
       const tc = todayList.length;
-      const pp = tc > 0 ? Math.round(cc / tc * 100) : 0;
       const cnt = document.getElementById('todo-count-text');
       if (cnt) cnt.textContent = cc + '/' + tc;
-      const pf = document.getElementById('todo-progress-fill');
-      if (pf) pf.style.width = pp + '%';
       App.Utils.transitionSwap(todoCard, (c) => fillTodoList(c));
     };
     fillTodoList(todoCard);
