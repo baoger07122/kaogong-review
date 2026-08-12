@@ -8472,3 +8472,71 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   -webkit-tap-highlight-color: transparent;
 }
 .todo-item__edit-btn:active { background: rgba(0,0,0,0.06); color: var(--color-primary); }
+
+/* ===== v8.12.14 Apple 日历风格就地编辑（点击待办项原位编辑标题+备注，光标闪烁） ===== */
+.todo-inline-edit--apple {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  width: 100%;
+}
+.todo-inline-edit--apple__title {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: rgba(0,0,0,0.04);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 5px 8px;
+  outline: none;
+  caret-color: var(--color-primary);
+  -webkit-tap-highlight-color: transparent;
+}
+.todo-inline-edit--apple__title:focus {
+  border-color: var(--color-primary);
+  background: var(--bg-card);
+  box-shadow: 0 0 0 3px rgba(0,102,204,0.12);
+}
+.todo-inline-edit--apple__note {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+  max-height: 120px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: rgba(0,0,0,0.04);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 5px 8px;
+  resize: none;
+  outline: none;
+  caret-color: var(--color-primary);
+  -webkit-tap-highlight-color: transparent;
+}
+.todo-inline-edit--apple__note:focus {
+  border-color: var(--color-primary);
+  background: var(--bg-card);
+  box-shadow: 0 0 0 3px rgba(0,102,204,0.12);
+}
+.todo-inline-edit--apple__note::placeholder { color: var(--text-tertiary); }
+.todo-inline-edit--apple__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.todo-inline-edit--apple__btn {
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: none;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.todo-inline-edit--apple__btn--done { background: var(--gradient-primary); color: #fff; }
+.todo-inline-edit--apple__btn--cancel { background: #F5F5F7; color: var(--text-secondary); }

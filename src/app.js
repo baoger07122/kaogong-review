@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.12.13';
+App.VERSION = '8.12.14';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9389,48 +9389,60 @@ App.Pages.Home = {
           content.appendChild(noteEl);
         }
 
-        // v8.12.13 备注就地编辑：点击待办项 → 原地展开备注输入框（不弹窗、标题编辑走弹窗）
+        // v8.12.14 Apple 日历风格：点击待办项 → 原位置进入编辑态（标题输入光标闪烁 + 备注），不弹窗
         const openNoteEdit = (targetItem) => {
           if (targetItem.dataset.editing === '1') return;
           targetItem.dataset.editing = '1';
           targetItem.classList.add('todo-item--editing');
+          if (title) title.style.display = 'none';
           if (noteEl) noteEl.style.display = 'none';
 
           const wrap = document.createElement('div');
-          wrap.className = 'todo-note-inline';
-          const input = document.createElement('textarea');
-          input.className = 'todo-note-inline__input';
-          input.placeholder = '添加备注...';
-          input.value = todo.note || '';
+          wrap.className = 'todo-inline-edit--apple';
+          const titleInput = document.createElement('input');
+          titleInput.className = 'todo-inline-edit--apple__title';
+          titleInput.type = 'text';
+          titleInput.value = todo.text || '';
+          titleInput.placeholder = '待办内容...';
+          const noteArea = document.createElement('textarea');
+          noteArea.className = 'todo-inline-edit--apple__note';
+          noteArea.placeholder = '添加备注...';
+          noteArea.value = todo.note || '';
           const actions = document.createElement('div');
-          actions.className = 'todo-note-inline__actions';
+          actions.className = 'todo-inline-edit--apple__actions';
           const doneBtn = document.createElement('button');
-          doneBtn.className = 'todo-note-inline__btn todo-note-inline__btn--done';
           doneBtn.type = 'button';
+          doneBtn.className = 'todo-inline-edit--apple__btn todo-inline-edit--apple__btn--done';
           doneBtn.textContent = '完成';
           const cancelBtn = document.createElement('button');
-          cancelBtn.className = 'todo-note-inline__btn todo-note-inline__btn--cancel';
           cancelBtn.type = 'button';
+          cancelBtn.className = 'todo-inline-edit--apple__btn todo-inline-edit--apple__btn--cancel';
           cancelBtn.textContent = '取消';
           actions.appendChild(doneBtn);
           actions.appendChild(cancelBtn);
-          wrap.appendChild(input);
+          wrap.appendChild(titleInput);
+          wrap.appendChild(noteArea);
           wrap.appendChild(actions);
           content.appendChild(wrap);
 
           const closeEdit = (rerender) => {
             targetItem.dataset.editing = '0';
             targetItem.classList.remove('todo-item--editing');
+            if (title) title.style.display = '';
             if (noteEl) noteEl.style.display = '';
             if (wrap.parentNode) wrap.remove();
             if (rerender) refreshTodo();
           };
 
           const save = async () => {
-            const newNote = input.value.trim();
-            if (newNote !== (todo.note || '')) {
-              todo.note = newNote;
+            const newText = titleInput.value.trim();
+            const newNote = noteArea.value.trim();
+            let changed = false;
+            if (newText && newText !== todo.text) { todo.text = newText; changed = true; }
+            if (newNote !== (todo.note || '')) { todo.note = newNote; changed = true; }
+            if (changed) {
               await App.DB.updateTodo(todo);
+              if (title) title.textContent = todo.text;
               if (todo.note) {
                 if (!noteEl) {
                   noteEl = document.createElement('div');
@@ -9445,16 +9457,24 @@ App.Pages.Home = {
               } else if (noteEl) {
                 noteEl.remove(); noteEl = null;
               }
-              App.Components.toast('备注已保存 ✓', 'success');
+              App.Components.toast('已保存 ✓', 'success');
             }
             closeEdit(false);
           };
 
           doneBtn.addEventListener('click', (e) => { e.stopPropagation(); save(); });
           cancelBtn.addEventListener('click', (e) => { e.stopPropagation(); closeEdit(false); });
-          input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeEdit(false); } });
+          titleInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); save(); }
+            if (e.key === 'Escape') { e.stopPropagation(); closeEdit(false); }
+          });
+          noteArea.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeEdit(false); } });
           wrap.addEventListener('click', (e) => e.stopPropagation());
-          setTimeout(() => { input.focus(); }, 0);
+          // Apple 日历风格：自动聚焦标题，光标置于末尾闪烁（原生 caret）
+          setTimeout(function () {
+            titleInput.focus();
+            try { titleInput.setSelectionRange(titleInput.value.length, titleInput.value.length); } catch (e) { /* 忽略 */ }
+          }, 0);
         };
 
         item.addEventListener('click', (e) => {
