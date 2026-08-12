@@ -44,35 +44,47 @@ setTimeout(async () => {
     const item = container.querySelector('.todo-item');
     assert(!!item && item.textContent.includes('新增加的待办'), '新增待办出现在列表');
 
-    console.log('\n[3] 点待办展开就地编辑区');
+    console.log('\n[3] 点待办展开就地编辑区（v8.12.x：标题输入 + 备注输入行，失焦/回车保存，无删除按钮）');
     item.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
     await wait(50);
-    const delBtn = item.querySelector('.todo-inline-edit__btn--del');
-    assert(!!delBtn, '就地编辑区有「删除」按钮');
+    const editWrap3 = item.querySelector('.todo-inline-edit--apple');
+    assert(!!editWrap3, '就地编辑区展开');
+    assert(!!editWrap3.querySelector('.todo-inline-edit--apple__title'), '标题输入框存在（光标闪烁自动聚焦）');
+    assert(!!editWrap3.querySelector('.todo-inline-edit--apple__note'), '备注输入行存在');
+    assert(!item.querySelector('.todo-inline-edit__btn--del'), 'v8.12.x 就地编辑无删除按钮（删除在编辑弹窗）');
+    // 回车保存（标题改名）
+    const tInput3 = editWrap3.querySelector('.todo-inline-edit--apple__title');
+    tInput3.value = '改名后的待办';
+    tInput3.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await wait(120);
+    assert(container.textContent.includes('改名后的待办'), '回车保存标题成功');
 
-    console.log('\n[4] 点删除 → confirm 确认 → 待办应被删除');
-    const origConfirm = App.Components.confirm;
-    App.Components.confirm = async () => true;   // 模拟用户点「删除」确认
-    let removeCalled = null;
-    const origRemove = App.DB.remove;
-    App.DB.remove = async function (store, id) { removeCalled = { store, id }; return origRemove.call(this, store, id); };
-    try {
-      delBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
-      await wait(200);
-      assert(!!removeCalled && removeCalled.store === 'todos', '调用了 App.DB.remove(todos, id)');
-      const todos = await App.DB.getTodos();
-      assert(todos.length === 0, 'DB 中待办已删除（剩 ' + todos.length + ' 条）');
-    } finally {
-      App.Components.confirm = origConfirm;
-      App.DB.remove = origRemove;
-    }
+    console.log('\n[4] 就地编辑保存备注（v8.12.17 回退 8.6.41：保存后备注以 📝 折叠展示）');
+    const item4 = container.querySelector('.todo-item');
+    item4.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(50);
+    const wrap4 = item4.querySelector('.todo-inline-edit--apple');
+    const nInput4 = wrap4.querySelector('.todo-inline-edit--apple__note');
+    nInput4.value = '这是新备注';
+    // jsdom 下 blur 不转移焦点，用标题回车保存（save 读标题+备注）
+    wrap4.querySelector('.todo-inline-edit--apple__title').dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await wait(120);
+    const tog4 = item4.querySelector('.todo-note__toggle');
+    assert(!!tog4 && tog4.textContent.includes('📝'), '保存后备注以 📝 折叠开关展示');
+    const note4 = item4.querySelector('.todo-note');
+    assert(!!note4 && !note4.classList.contains('is-open'), '备注默认折叠');
+    tog4.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(30);
+    assert(item4.querySelector('.todo-note').classList.contains('is-open'), '点击 📝 展开备注');
+    assert(item4.querySelector('.todo-note__body').textContent === '这是新备注', '备注内容正确');
 
-    console.log('\n[5] 删除后列表刷新（refreshTodo 重渲染）');
+    console.log('\n[5] 编辑保存后列表刷新（备注折叠态保持）');
     await wait(300);
     const itemAfter = container.querySelector('.todo-item');
-    assert(itemAfter === null, '删除后列表不再显示该待办（已刷新）');
+    assert(!!itemAfter && itemAfter.textContent.includes('改名后的待办'), '编辑后列表正常显示（改名保留）');
+    assert(!!itemAfter.querySelector('.todo-note__toggle'), '编辑保存后备注折叠开关保留');
 
-    console.log('\n[6] v8.6.12 今日待办折叠：模块级折叠按钮 + 已完成事项折叠');
+    console.log('\n[6] v8.12.4 已移除折叠按钮：今日待办直出全部（含已完成）');
     // 准备数据：1 未完成 + 2 已完成
     await App.DB.addTodo({ text: '未完成事项', completed: false });
     await App.DB.addTodo({ text: '已完成A', completed: true, completedAt: new Date().toISOString() });
@@ -80,29 +92,16 @@ setTimeout(async () => {
     await App.Pages.Home.render({});
     await wait(100);
     const collapseBtn = container.querySelector('#todo-collapse-btn');
-    assert(!!collapseBtn, '今日待办标题右侧有折叠按钮');
+    assert(!collapseBtn, 'v8.12.4 今日待办折叠按钮已移除');
     // v8.6.19 不再折叠已完成：全部待办直接显示（3 条，含 2 条已完成）
     assert(!container.querySelector('.todo-done-toggle'), '无「已完成 N 项」折叠行（已完成不折叠）');
     const allItems = container.querySelectorAll('.todo-item');
-    assert(allItems.length === 3 && container.querySelectorAll('.todo-item.completed').length === 2, '已完成项直接显示（3 条全渲染，含 2 条已完成）');
-    // 模块级折叠：点击右侧按钮 → 列表隐藏，只留标题；按钮变 ▸
-    collapseBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
-    await wait(50);
-    const itemAny = container.querySelector('.todo-item');
-    const todoCardEl = itemAny ? itemAny.parentNode : null;
-    assert(!!todoCardEl && todoCardEl.style.display === 'none', '模块折叠后待办列表隐藏（只留标题）');
-    assert(collapseBtn.textContent.trim() === '▸', '折叠后按钮变为展开箭头 ▸');
+    assert(allItems.length >= 3 assert(allItems.length === 3 && container.querySelectorAll('.todo-item.completed').length === 2, '已完成项直接显示（3 条全渲染，含 2 条已完成）');assert(allItems.length === 3 && container.querySelectorAll('.todo-item.completed').length === 2, '已完成项直接显示（3 条全渲染，含 2 条已完成）'); container.querySelectorAll('.todo-item.completed').length === 2, '已完成项直接显示（>=3 条含 2 条已完成）');
     assert(!container.querySelector('#todo-stats-toggle'), 'v8.6.37 已去除统计按钮');
-    // 再点展开恢复
-    collapseBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
-    await wait(50);
-    assert(container.querySelectorAll('.todo-item').length === 3, '再次点击展开恢复列表');
 
-    console.log('\n[7] v8.6.19 新图标 + 折叠持久化 + 备注折叠开关');
-    // 标题图标：checklist SVG（三条横线 + 左上角对钩，非 ✅）
+    console.log('\n[7] checklist 图标 + 备注折叠开关（v8.12.17 回退 8.6.41 展示）');
     const headTitle7 = Array.from(container.querySelectorAll('div')).find(d => /今日待办/.test(d.textContent));
     assert(!!headTitle7 && !headTitle7.textContent.includes('✅'), '今日待办标题为 checklist 图标（无 ✅ 旧图标）');
-    assert(!!container.querySelector('#todo-collapse-btn') || true, '标题行存在');
     // 备注折叠：准备一条带备注的待办
     await App.DB.addTodo({ text: '带备注的待办', note: '这是备注内容', completed: false });
     await App.Pages.Home.render({});
@@ -114,36 +113,12 @@ setTimeout(async () => {
     noteToggle7.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
     await wait(30);
     assert(noteBody7.classList.contains('is-open'), '点击备注开关展开备注');
-    // 折叠状态持久化：折叠 → 重新渲染（清实例状态重读 localStorage）
-    const collapseBtn7 = container.querySelector('#todo-collapse-btn');
-    collapseBtn7.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
-    await wait(30);
-    const saved7 = JSON.parse(win.localStorage.getItem('kg_todo_ui') || '{}');
-    assert(saved7.collapsed === true, '折叠状态已写入 localStorage（kg_todo_ui.collapsed=true）');
-    delete App.Pages.Home.todoState;
-    await App.Pages.Home.render({});
-    await wait(100);
-    const btnAfter7 = container.querySelector('#todo-collapse-btn');
-    assert(btnAfter7.textContent.trim() === '▸', '重新进入后保持折叠（按钮显示 ▸）');
 
-    console.log('\n[8] v8.6.28 标签行强制横向（防纵向）');
-    const typeRow28 = container.querySelector('.todo-type-row');
-    const dateRow28 = container.querySelector('.todo-date-row');
-    assert(!!typeRow28 && typeRow28.style.flexWrap === 'nowrap' && typeRow28.style.display === 'flex', '类型标签行：flex + nowrap（横向不换行）');
-    assert(!!dateRow28 && dateRow28.style.flexWrap === 'nowrap', '日期筛选行：nowrap（横向）');
+    console.log('\n[8] v8.11.3+ 类型/日期行不挂载（新增走弹窗），防覆盖 CSS 保留');
+    assert(!container.querySelector('.todo-type-row') && !container.querySelector('.todo-date-row'), 'v8.11.3 类型/日期筛选行不再挂载（走「＋新增」弹窗）');
     const built28 = fs.readFileSync('index.html', 'utf8');
-    assert(built28.includes('.todo-type-row, .todo-date-row') && built28.includes('display: flex !important'), 'CSS !important 防覆盖规则已注入');
-    // 折叠记忆全链路：当前为折叠态（[7] 保持）→ 展开 → 折叠 → 展开，循环正常（用按钮箭头 ▸/▾ 判断）
-    const btn8 = container.querySelector('#todo-collapse-btn');
-    btn8.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
-    await wait(30);
-    assert(btn8.textContent.trim() === '▾', '折叠→展开（按钮变 ▾）');
-    btn8.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
-    await wait(30);
-    assert(btn8.textContent.trim() === '▸', '展开→折叠（按钮变 ▸）');
-    btn8.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
-    await wait(30);
-    assert(btn8.textContent.trim() === '▾', '折叠→展开（按钮变 ▾）');
+    assert(built28.includes('.todo-type-row, .todo-date-row') && built28.includes('display: flex !important'), 'CSS !important 防覆盖规则仍注入');
+    assert(built28.includes('todo-note__toggle') && built28.includes('.todo-note.is-open'), 'v8.12.17 备注折叠 CSS 已回退（📝 开关 + is-open）');
 
     console.log('\n[9] v8.6.37 未来日期待办不出现在今日 + 统计页新增科目标签');
     // 造一条未来日期待办 → 今日列表不应显示

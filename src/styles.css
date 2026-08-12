@@ -2245,27 +2245,33 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   overflow: hidden;
 }
 
-/* v8.11.1 备注 Apple 风格：无底色、紧贴标题下方、缩进对齐标题（checkbox20+gap8+类型40+gap8=76） */
+/* v8.12.17 回退 8.6.41：备注以「📝 备注 ▾」折叠开关展示，点击展开/收起 */
 .todo-note__toggle {
-  display: none;             /* 去掉 📝 toggle，备注随行展开 */
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; color: var(--text-tertiary);
+  cursor: pointer; padding: 3px 0 0;
+  -webkit-tap-highlight-color: transparent;
 }
+.todo-note__toggle:active { color: var(--text-secondary); }
 .todo-note {
-  font-size: 12px;
-  color: #7A7A7A;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-  /* v8.12.16 备注左对齐标题第一个字（checkbox20+gap8+类型28+gap8=64，+14=78 对齐 x78） */
-  padding-left: 78px;
-  margin-top: 1px;
-  display: block;
-}
-.todo-note__body {
   font-size: 12px;
   color: var(--text-tertiary);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+  writing-mode: horizontal-tb;
+  display: none;
+  padding-left: 0;
+  margin-top: 0;
+}
+.todo-note.is-open { display: block; }
+.todo-note__body {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 2px;
 }
 
 /* v8.11.1 i 信息按钮：默认隐藏，点击行展开编辑后出现（纯 i 无圆圈） */

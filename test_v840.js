@@ -56,12 +56,19 @@ setTimeout(async () => {
     const page = doc.getElementById('page-home');
     await App.Pages.Home.render.call(App.Pages.Home, {});
     await new Promise(r => setTimeout(r, 300));
-    // 类型快捷栏 7 个科目
-    const typeChips = Array.from(page.querySelectorAll('[data-tk]'));
-    const labels = typeChips.map(c => c.textContent);
-    const expects = ['言语', '资料', '判断', '数量', '常识', '政治', '申论'];
-    assert(typeChips.length === 7, '7 个科目分类');
+    // v8.11.3+ 类型快捷栏不挂载：科目分类在「＋新增」弹窗内（7 个单字）
+    const addBtn840 = page.querySelector('#todo-add-btn');
+    assert(!!addBtn840, '今日待办「＋新增」按钮存在');
+    addBtn840.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise(r => setTimeout(r, 120));
+    const typeChips = Array.from(doc.querySelectorAll('.todo-modal__chips span, .todo-modal__chips div'));
+    const labels = typeChips.map(c => (c.textContent || '').trim());
+    const expects = ['言', '资', '判', '数', '常', '政', '申'];
+    assert(typeChips.length === 7, '新增弹窗 7 个科目分类');
     expects.forEach(e => assert(labels.some(l => l.includes(e)), '包含「' + e + '」分类'));
+    // 关闭弹窗（恢复页面状态，供后续段使用）
+    const ov840 = doc.querySelector('.todo-modal-overlay');
+    if (ov840) ov840.remove();
 
     console.log('\n[2] 右侧统计只统计今日');
     // 造数据：今日 2 个（1 完成）+ 昨天 3 个
@@ -74,26 +81,25 @@ setTimeout(async () => {
     await App.Pages.Home.render.call(App.Pages.Home, {});
     await new Promise(r => setTimeout(r, 300));
     const cntText = page.querySelector('#todo-count-text');
-    assert(!!cntText, '计数文本存在');
-    assert(cntText.textContent === '1/2', '右侧统计 = 今日 1/2（不含昨天）');
+    assert(!cntText, 'v8.12.13 标题区统计数字已移除');
+    assert(page.querySelectorAll('.todo-item').length === 2, '今日待办 2 条（不含昨天 3 条）');
 
-    console.log('\n[3] 待办右侧信息图标 + 备注时间面板');
-    // 今日待办列表应有 2 个 item，每个有 info 按钮
+    console.log('\n[3] 点击待办就地编辑（标题+备注输入，v8.12.x；原 ⓘ 信息面板已并入弹窗）');
+    // 今日待办列表应有 2 个 item
     const todoItems = page.querySelectorAll('.todo-item');
     assert(todoItems.length === 2, '今日待办 2 条（已完成下沉在后）');
-    const infoBtns = page.querySelectorAll('.todo-info-btn');
-    assert(infoBtns.length === 2, '每条待办有信息图标');
-    // 点击第一个 info 按钮 → 面板出现
+    assert(page.querySelectorAll('.todo-info-btn').length === 0, 'v8.12.13 ⓘ 信息按钮已移除（编辑走弹窗/就地编辑）');
+    // 点击第一项 → 就地编辑区（标题 + 备注输入）
     const firstTodo = todoItems[0];
-    const infoBtn = firstTodo.querySelector('.todo-info-btn');
-    infoBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
-    await new Promise(r => setTimeout(r, 30));
-    const panel = firstTodo.querySelector('.todo-info-panel');
-    assert(!!panel, '信息面板出现');
-    assert(!!panel.querySelector('.todo-info-panel__note'), '有备注输入');
-    assert(!!panel.querySelector('.todo-info-panel__time'), '有时间输入(datetime-local)');
-    // 面板内保存按钮
-    assert(!!panel.querySelector('.todo-info-panel__btn--save'), '有保存按钮');
+    firstTodo.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise(r => setTimeout(r, 80));
+    const ewrap3 = firstTodo.querySelector('.todo-inline-edit--apple');
+    assert(!!ewrap3, '就地编辑区展开');
+    assert(!!ewrap3.querySelector('.todo-inline-edit--apple__title'), '标题输入框存在');
+    assert(!!ewrap3.querySelector('.todo-inline-edit--apple__note'), '备注输入行存在');
+    // 关闭编辑（Escape）
+    ewrap3.querySelector('.todo-inline-edit--apple__title').dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await new Promise(r => setTimeout(r, 40));
 
     console.log('\n[4] 已完成事项默认移到最下方');
     // 检查 item 顺序：未完成在前，已完成在后

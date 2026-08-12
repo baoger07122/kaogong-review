@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.12.16';
+App.VERSION = '8.12.17';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9377,11 +9377,23 @@ App.Pages.Home = {
         titleLine.appendChild(typeTag);
         titleLine.appendChild(title);
         content.appendChild(titleLine);
-        // v8.11.1 备注 Apple 风格：有备注直接行内显示（无底色、缩进对齐标题），点击行展开编辑
+        // v8.12.17 回退 8.6.41：有备注显示「📝 备注 ▾」折叠开关，点击展开/收起备注内容（编辑后展示备注回旧模式）
         let noteEl = null, noteToggle = null;
         if (todo.note) {
+          const noteOpen = !!this.todoState.notesOpen[todo.id];
+          noteToggle = document.createElement('div');
+          noteToggle.className = 'todo-note__toggle';
+          noteToggle.innerHTML = '<span>📝</span><span class="todo-note__caret">' + (noteOpen ? '▴' : '▾') + '</span>';
+          noteToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.todoState.notesOpen[todo.id] = !this.todoState.notesOpen[todo.id];
+            noteEl.classList.toggle('is-open', this.todoState.notesOpen[todo.id]);
+            const caret = noteToggle.querySelector('.todo-note__caret');
+            if (caret) caret.textContent = this.todoState.notesOpen[todo.id] ? '▴' : '▾';
+          });
+          content.appendChild(noteToggle);
           noteEl = document.createElement('div');
-          noteEl.className = 'todo-note';
+          noteEl.className = 'todo-note' + (noteOpen ? ' is-open' : '');
           const noteBody = document.createElement('div');
           noteBody.className = 'todo-note__body';
           noteBody.textContent = todo.note;
@@ -9432,7 +9444,19 @@ App.Pages.Home = {
               await App.DB.updateTodo(todo);
               if (title) title.textContent = todo.text;
               if (todo.note) {
+                // v8.12.17 回退 8.6.41：保存后备注以「📝 备注 ▾」折叠展示
                 if (!noteEl) {
+                  noteToggle = document.createElement('div');
+                  noteToggle.className = 'todo-note__toggle';
+                  noteToggle.innerHTML = '<span>📝</span><span class="todo-note__caret">▾</span>';
+                  noteToggle.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.todoState.notesOpen[todo.id] = !this.todoState.notesOpen[todo.id];
+                    noteEl.classList.toggle('is-open', this.todoState.notesOpen[todo.id]);
+                    const caret = noteToggle.querySelector('.todo-note__caret');
+                    if (caret) caret.textContent = this.todoState.notesOpen[todo.id] ? '▴' : '▾';
+                  });
+                  content.appendChild(noteToggle);
                   noteEl = document.createElement('div');
                   noteEl.className = 'todo-note';
                   const nb = document.createElement('div');
@@ -9443,6 +9467,7 @@ App.Pages.Home = {
                 const nb0 = noteEl.querySelector('.todo-note__body');
                 if (nb0) nb0.textContent = todo.note;
               } else if (noteEl) {
+                if (noteToggle) noteToggle.remove();
                 noteEl.remove(); noteEl = null;
               }
               App.Components.toast('已保存 ✓', 'success');
