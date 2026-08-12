@@ -2163,7 +2163,8 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-sm);
-  padding: 10px 14px;
+  /* v8.12.16 行高紧凑（对齐定稿 32）：padding 上下 10→6 */
+  padding: 6px 14px;
   border-bottom: 1px solid var(--divider-color);
   transition: background-color 0.15s ease;
   cursor: pointer;
@@ -2254,7 +2255,8 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  padding-left: 76px;
+  /* v8.12.16 备注左对齐标题第一个字（checkbox20+gap8+类型28+gap8=64，+14=78 对齐 x78） */
+  padding-left: 78px;
   margin-top: 1px;
   display: block;
 }
@@ -8484,8 +8486,9 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .todo-inline-edit--apple__title {
   width: 100%;
   box-sizing: border-box;
+  /* v8.12.16 对齐定稿：标题 Regular 14px */
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text-primary);
   background: rgba(0,0,0,0.04);
   border: 1px solid transparent;
@@ -8512,6 +8515,9 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   border: 1px solid transparent;
   border-radius: 8px;
   padding: 5px 8px;
+  /* v8.12.16 备注输入行左对齐标题（checkbox20+gap8+类型28+gap8=64，再补4px对齐 x78） */
+  margin-left: 68px;
+  width: calc(100% - 68px);
   resize: none;
   outline: none;
   caret-color: var(--color-primary);
@@ -8541,204 +8547,4 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .todo-inline-edit--apple__btn--done { background: var(--gradient-primary); color: #fff; }
 .todo-inline-edit--apple__btn--cancel { background: #F5F5F7; color: var(--text-secondary); }
 
-/* ===== v8.12.15 待办事项-备注页面（对齐画布 57:5） ===== */
-.todo-note-page-overlay {
-  position: fixed;
-  inset: 0;
-  background: #F5F5F7;
-  z-index: 10002;
-  display: flex;
-  flex-direction: column;
-  animation: fadeIn 0.2s ease;
-}
-.todo-note-page__topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 48px;
-  padding: 0 20px;
-  background: #FFFFFF;
-  flex-shrink: 0;
-  box-shadow: 0 1px 0 rgba(0,0,0,0.04);
-}
-.todo-note-page__back {
-  width: 36px;
-  height: 36px;
-  border-radius: 18px;
-  background: #F5F5F7;
-  border: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #1D1D1F;
-  font-size: 18px;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.todo-note-page__title {
-  font-size: 18px;
-  font-weight: 600;
-  color: #1D1D1F;
-}
-.todo-note-page__done {
-  height: 32px;
-  padding: 0 16px;
-  border-radius: 16px;
-  border: none;
-  background: var(--gradient-primary);
-  color: #FFFFFF;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0,102,204,0.25);
-  -webkit-tap-highlight-color: transparent;
-}
-.todo-note-page__body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px 24px;
-  box-sizing: border-box;
-  -webkit-overflow-scrolling: touch;
-}
-.todo-note-page__card {
-  background: #FFFFFF;
-  border: 1px solid var(--border-color);
-  border-radius: 16px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.03);
-  padding: 0 16px;
-  box-sizing: border-box;
-}
-.todo-note-page__row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-}
-.todo-note-page__checkbox {
-  width: 20px;
-  height: 20px;
-  border-radius: 5px;
-  border: 1px solid #C7C7CC;
-  background: #FFFFFF;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #FFFFFF;
-  font-size: 12px;
-  flex-shrink: 0;
-  cursor: pointer;
-  box-sizing: border-box;
-  -webkit-tap-highlight-color: transparent;
-}
-.todo-note-page__checkbox.checked {
-  background: var(--color-success);
-  border-color: var(--color-success);
-}
-.todo-note-page__type {
-  height: 24px;
-  min-width: 28px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: #F5F5F7;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 500;
-  color: #1D1D1F;
-  flex-shrink: 0;
-  box-sizing: border-box;
-}
-.todo-note-page__text {
-  flex: 1;
-  min-width: 0;
-  font-size: 14px;
-  font-weight: 400;
-  color: #1D1D1F;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: text;
-  padding: 2px 4px;
-  border-radius: 6px;
-  -webkit-tap-highlight-color: transparent;
-}
-.todo-note-page__text:active { background: rgba(0,0,0,0.05); }
-.todo-note-page__time {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-primary);
-  flex-shrink: 0;
-}
-.todo-note-page__timer {
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  background: var(--color-primary);
-  border: none;
-  color: #FFFFFF;
-  font-size: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.todo-note-page__editbtn {
-  width: 16px;
-  height: 22px;
-  border: none;
-  background: transparent;
-  color: #A1A1A6;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.todo-note-page__note {
-  font-size: 12px;
-  color: #7A7A7A;
-  padding: 0 4px 8px 78px;
-  box-sizing: border-box;
-  display: none;
-  cursor: text;
-  -webkit-tap-highlight-color: transparent;
-}
-.todo-note-page__note.has-note { display: block; }
-.todo-note-page__note:active { background: rgba(0,0,0,0.04); border-radius: 6px; }
-.todo-note-page__input {
-  flex: 1;
-  min-width: 0;
-  height: 26px;
-  border: none;
-  background: rgba(0,0,0,0.04);
-  border-radius: 6px;
-  padding: 0 6px;
-  font-size: 14px;
-  color: #1D1D1F;
-  outline: none;
-  caret-color: var(--color-primary);
-  box-sizing: border-box;
-  font-family: inherit;
-}
-.todo-note-page__input:focus { background: #FFFFFF; box-shadow: 0 0 0 2px rgba(0,102,204,0.15); }
-.todo-note-page__note-input {
-  display: none;
-  width: 100%;
-  border: none;
-  background: transparent;
-  font-size: 12px;
-  color: #A1A1A6;
-  padding: 0 4px 8px 74px;
-  box-sizing: border-box;
-  min-height: 26px;
-  outline: none;
-  caret-color: var(--color-primary);
-  resize: none;
-  line-height: 1.4;
-  font-family: inherit;
-}
-.todo-note-page__note-input.editing { display: block; }
+

@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.12.15';
+App.VERSION = '8.12.16';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9389,7 +9389,7 @@ App.Pages.Home = {
           content.appendChild(noteEl);
         }
 
-        // v8.12.14 Apple 日历风格：点击待办项 → 原位置进入编辑态（标题输入光标闪烁 + 备注），不弹窗
+        // v8.12.16 就地编辑（对齐画布 57:5 定稿）：点击待办项 → 标题原地变输入框（光标闪烁）+ 显示备注输入行；失焦/回车自动保存
         const openNoteEdit = (targetItem) => {
           if (targetItem.dataset.editing === '1') return;
           targetItem.dataset.editing = '1';
@@ -9408,21 +9408,8 @@ App.Pages.Home = {
           noteArea.className = 'todo-inline-edit--apple__note';
           noteArea.placeholder = '添加备注...';
           noteArea.value = todo.note || '';
-          const actions = document.createElement('div');
-          actions.className = 'todo-inline-edit--apple__actions';
-          const doneBtn = document.createElement('button');
-          doneBtn.type = 'button';
-          doneBtn.className = 'todo-inline-edit--apple__btn todo-inline-edit--apple__btn--done';
-          doneBtn.textContent = '完成';
-          const cancelBtn = document.createElement('button');
-          cancelBtn.type = 'button';
-          cancelBtn.className = 'todo-inline-edit--apple__btn todo-inline-edit--apple__btn--cancel';
-          cancelBtn.textContent = '取消';
-          actions.appendChild(doneBtn);
-          actions.appendChild(cancelBtn);
           wrap.appendChild(titleInput);
           wrap.appendChild(noteArea);
-          wrap.appendChild(actions);
           content.appendChild(wrap);
 
           const closeEdit = (rerender) => {
@@ -9435,6 +9422,7 @@ App.Pages.Home = {
           };
 
           const save = async () => {
+            if (targetItem.dataset.editing !== '1') return;
             const newText = titleInput.value.trim();
             const newNote = noteArea.value.trim();
             let changed = false;
@@ -9462,15 +9450,23 @@ App.Pages.Home = {
             closeEdit(false);
           };
 
-          doneBtn.addEventListener('click', (e) => { e.stopPropagation(); save(); });
-          cancelBtn.addEventListener('click', (e) => { e.stopPropagation(); closeEdit(false); });
+          // 失焦保存：焦点仍在编辑区（标题/备注输入）时不保存，点外部才保存
+          const saveIfLeaving = function () {
+            setTimeout(function () {
+              const active = document.activeElement;
+              if (active === titleInput || active === noteArea) return;
+              save();
+            }, 120);
+          };
+          titleInput.addEventListener('blur', saveIfLeaving);
+          noteArea.addEventListener('blur', saveIfLeaving);
           titleInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') { e.preventDefault(); save(); }
             if (e.key === 'Escape') { e.stopPropagation(); closeEdit(false); }
           });
           noteArea.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeEdit(false); } });
           wrap.addEventListener('click', (e) => e.stopPropagation());
-          // Apple 日历风格：自动聚焦标题，光标置于末尾闪烁（原生 caret）
+          // 光标闪烁：自动聚焦标题，光标置于末尾
           setTimeout(function () {
             titleInput.focus();
             try { titleInput.setSelectionRange(titleInput.value.length, titleInput.value.length); } catch (e) { /* 忽略 */ }
@@ -9481,8 +9477,8 @@ App.Pages.Home = {
           if (e.target === checkbox || e.target.closest('.todo-checkbox')) return;
           if (e.target.closest('.todo-item__edit-btn')) return;
           if (e.target.closest('.todo-timer')) return;
-          // v8.12.15 点击待办项 → 进入待办事项-备注页面
-          openTodoNotePage(todo);
+          // v8.12.16 点击待办项 → 就地编辑（标题光标闪烁 + 显示备注输入行），无独立备注页
+          openNoteEdit(item);
         });
 
         item.appendChild(checkbox);
@@ -9720,155 +9716,6 @@ App.Pages.Home = {
         }
       });
       setTimeout(function () { titleInput.focus(); }, 60);
-    };
-
-    // ===== v8.12.15 待办事项-备注页面（对齐画布 57:5：顶栏 + 待办项卡 + 备注行，点击标题就地编辑） =====
-    const openTodoNotePage = (todo) => {
-      const pad2n = (n) => String(n).padStart(2, '0');
-      const fmtTime = (ms) => {
-        const s = Math.max(0, Math.floor((ms || 0) / 1000));
-        const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-        if (h > 0) return h + ':' + pad2n(m) + ':' + pad2n(sec);
-        return pad2n(m) + ':' + pad2n(sec);
-      };
-      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; });
-      const typeShort = TYPE_SHORT[typeKeyOf(todo)] || (TODO_TYPES.find(function (t) { return t.key === typeKeyOf(todo); }) || TODO_TYPES[0]).label;
-
-      const overlay = document.createElement('div');
-      overlay.className = 'todo-note-page-overlay';
-      overlay.innerHTML = [
-        '<div class="todo-note-page__topbar">',
-        '  <button type="button" class="todo-note-page__back" aria-label="返回">‹</button>',
-        '  <div class="todo-note-page__title">备注</div>',
-        '  <button type="button" class="todo-note-page__done">完成</button>',
-        '</div>',
-        '<div class="todo-note-page__body">',
-        '  <div class="todo-note-page__card">',
-        '    <div class="todo-note-page__row">',
-        '      <div class="todo-note-page__checkbox' + (todo.completed ? ' checked' : '') + '">' + (todo.completed ? '✓' : '') + '</div>',
-        '      <div class="todo-note-page__type">' + esc(typeShort) + '</div>',
-        '      <div class="todo-note-page__text">' + esc(todo.text) + '</div>',
-        '      <div class="todo-note-page__time">' + fmtTime(todo.timerStartedAt ? (todo.elapsedMs || 0) + (Date.now() - todo.timerStartedAt) : (todo.elapsedMs || 0)) + '</div>',
-        '      <button type="button" class="todo-note-page__timer">' + (todo.timerStartedAt ? '⏸' : '▶') + '</button>',
-        '      <button type="button" class="todo-note-page__editbtn" aria-label="编辑待办">✎</button>',
-        '    </div>',
-        '    <div class="todo-note-page__note' + (todo.note ? ' has-note' : '') + '">' + (todo.note ? '备注：' + esc(todo.note) : '') + '</div>',
-        '    <textarea class="todo-note-page__note-input" placeholder="添加备注..." rows="2"></textarea>',
-        '  </div>',
-        '</div>'
-      ].join('');
-      document.body.appendChild(overlay);
-
-      const q = function (s) { return overlay.querySelector(s); };
-      let textEl = q('.todo-note-page__text');
-      const noteEl = q('.todo-note-page__note');
-      const noteInputEl = q('.todo-note-page__note-input');
-      const checkboxEl = q('.todo-note-page__checkbox');
-      const timerEl = q('.todo-note-page__timer');
-      const timeEl = q('.todo-note-page__time');
-      const editBtn = q('.todo-note-page__editbtn');
-      const backBtn = q('.todo-note-page__back');
-      const doneBtn = q('.todo-note-page__done');
-
-      const refreshView = function () {
-        const t = overlay.querySelector('.todo-note-page__text');
-        if (t) t.textContent = todo.text;
-        if (todo.note) {
-          noteEl.textContent = '备注：' + todo.note;
-          noteEl.classList.add('has-note');
-        } else {
-          noteEl.textContent = '';
-          noteEl.classList.remove('has-note');
-        }
-        checkboxEl.className = 'todo-note-page__checkbox' + (todo.completed ? ' checked' : '');
-        checkboxEl.textContent = todo.completed ? '✓' : '';
-        timeEl.textContent = fmtTime(todo.timerStartedAt ? (todo.elapsedMs || 0) + (Date.now() - todo.timerStartedAt) : (todo.elapsedMs || 0));
-        timerEl.textContent = todo.timerStartedAt ? '⏸' : '▶';
-      };
-
-      const close = function () { overlay.remove(); };
-
-      // 进入编辑态：标题变输入框（光标闪烁）+ 显示备注输入行（左对齐标题）
-      const enterEdit = function () {
-        if (overlay.dataset.editing === '1') return;
-        overlay.dataset.editing = '1';
-        const inp = document.createElement('input');
-        inp.type = 'text';
-        inp.className = 'todo-note-page__input';
-        inp.value = todo.text || '';
-        textEl.replaceWith(inp);
-        noteInputEl.value = todo.note || '';
-        noteInputEl.classList.add('editing');
-        const exitEdit = function () {
-          overlay.dataset.editing = '0';
-          noteInputEl.classList.remove('editing');
-          const fresh = document.createElement('div');
-          fresh.className = 'todo-note-page__text';
-          fresh.textContent = todo.text;
-          inp.replaceWith(fresh);
-          fresh.addEventListener('click', enterEdit);
-          textEl = fresh;
-        };
-        const save = function () {
-          const newText = inp.value.trim();
-          const newNote = noteInputEl.value.trim();
-          let changed = false;
-          if (newText && newText !== todo.text) { todo.text = newText; changed = true; }
-          if (newNote !== (todo.note || '')) { todo.note = newNote; changed = true; }
-          exitEdit();
-          if (changed) {
-            App.DB.updateTodo(todo).then(function () {
-              refreshView();
-              refreshTodo();
-              App.Components.toast('已保存 ✓', 'success');
-            });
-          }
-        };
-        inp.addEventListener('blur', save);
-        inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); save(); } });
-        noteInputEl.addEventListener('blur', save);
-        inp.focus();
-        try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch (e) { /* 忽略 */ }
-      };
-      textEl.addEventListener('click', enterEdit);
-      noteEl.addEventListener('click', enterEdit);
-
-      checkboxEl.addEventListener('click', function (e) {
-        e.stopPropagation();
-        todo.completed = !todo.completed;
-        todo.status = todo.completed ? 'completed' : 'pending';
-        if (todo.completed) todo.completedAt = new Date().toISOString();
-        else todo.completedAt = null;
-        if (todo.completed && todo.timerStartedAt) {
-          todo.elapsedMs = (todo.elapsedMs || 0) + (Date.now() - todo.timerStartedAt);
-          todo.timerStartedAt = null;
-        }
-        App.DB.updateTodo(todo).then(function () { refreshView(); refreshTodo(); });
-      });
-
-      timerEl.addEventListener('click', function (e) {
-        e.stopPropagation();
-        if (todo.completed) { App.Components.toast('已完成待办无需计时', 'info'); return; }
-        if (todo.timerStartedAt) {
-          todo.elapsedMs = (todo.elapsedMs || 0) + (Date.now() - todo.timerStartedAt);
-          todo.timerStartedAt = null;
-        } else {
-          todo.timerStartedAt = Date.now();
-        }
-        App.DB.updateTodo(todo).then(function () { refreshView(); });
-      });
-
-      editBtn.addEventListener('click', function (e) { e.stopPropagation(); todoEditSheet(todo); });
-      backBtn.addEventListener('click', function (e) { e.stopPropagation(); close(); });
-      doneBtn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        const inp = overlay.querySelector('.todo-note-page__input');
-        if (overlay.dataset.editing === '1') {
-          if (inp) inp.blur();
-          if (noteInputEl.classList.contains('editing')) noteInputEl.blur();
-        }
-        close();
-      });
     };
 
     fillTodoList(todoCard);
