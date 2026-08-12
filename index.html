@@ -632,6 +632,18 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   -webkit-tap-highlight-color: transparent;
   transition: opacity 0.15s ease, border-color 0.15s ease;
 }
+/* v8.12.8 错题本筛选条对齐画布 7:776：胶囊灰底圆角999 */
+.tag-select-row .tag-select__trigger {
+  height: 34px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 999px;
+  background: #F5F5F6;
+  font-size: 12px;
+  color: #666;
+  justify-content: center;
+  gap: 6px;
+}
 
 .tag-select__trigger:active {
   background: var(--bg-tertiary);
@@ -4274,9 +4286,11 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   -webkit-tap-highlight-color: transparent;
 }
 .gallery-size-switch__btn.active {
-  background: var(--color-primary);
-  color: #fff;
+  /* v8.12.8 对齐画布 7:792：选中项白底墨字（灰胶囊内白块） */
+  background: #FFFFFF;
+  color: #1D1D1F;
   font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 .error-card__min {
@@ -8299,7 +8313,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.12.7';
+App.VERSION = '8.12.8';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
