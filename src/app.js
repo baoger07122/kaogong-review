@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.12.17';
+App.VERSION = '8.12.19';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -8628,8 +8628,6 @@ App.Router = {
     // 更新底部导航高亮
     this.updateNavHighlight(base);
 
-    // 显示/隐藏 FAB
-    this.updateFabVisibility(base);
     this.updateNavVisibility(base);
 
     // 调用页面渲染
@@ -8656,17 +8654,7 @@ App.Router = {
     });
   },
 
-  updateFabVisibility(currentPage) {
-    const fab = document.getElementById('fab');
-    if (!fab) return;
-
-    const showPages = ['home', 'errors', 'notes', 'exams'];
-    if (showPages.includes(currentPage)) {
-      fab.classList.remove('fab--hidden');
-    } else {
-      fab.classList.add('fab--hidden');
-    }
-  },
+  // v8.12.19 移除右下角悬浮 FAB（用户决定删除一键添加错题按钮）
 
   // 无底部导航页面（笔记详情/笔记编辑）：隐藏固定底栏
   updateNavVisibility(currentPage) {
@@ -8871,47 +8859,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 初始化路由
   App.Router.init();
-
-  // 初始化 FAB 点击事件
-  const fab = document.getElementById('fab');
-  if (fab) {
-    fab.addEventListener('click', () => {
-      const page = App.Router.currentPage;
-      // 点「新建」前清掉进行中的草稿，保证打开的是空白表单
-      if (App.Draft && App.Draft.clearAllForms) App.Draft.clearAllForms();
-      switch (page) {
-        case 'home':
-          // 首页 FAB 可添加待办
-          App.Router.navigate('error-form');
-          break;
-        case 'errors': {
-          // 跟随错题本当前选中的科目-模块
-          const st = App.Pages.Errors && App.Pages.Errors.state;
-          let q = '';
-          if (st && st.subject) {
-            q = '?subject=' + encodeURIComponent(st.subject);
-            if (st.module) q += '&module=' + encodeURIComponent(st.module);
-          }
-          App.Router.navigate('error-form' + q);
-          break;
-        }
-        case 'notes': {
-          // 跟随笔记页当前选中的科目-模块
-          const st = App.Pages.Notes && App.Pages.Notes.state;
-          let q = '';
-          if (st && st.subject) {
-            q = '?subject=' + encodeURIComponent(st.subject);
-            if (st.module) q += '&module=' + encodeURIComponent(st.module);
-          }
-          App.Router.navigate('note-form' + q);
-          break;
-        }
-        case 'exams':
-          App.Router.navigate('exam-form');
-          break;
-      }
-    });
-  }
 });
 // ===== 考公笔试复盘系统 - 复盘首页 =====
 window.App = window.App || {};
@@ -9342,6 +9289,8 @@ App.Pages.Home = {
       const renderItem = (todo) => {
         const item = document.createElement('div');
         item.className = 'todo-item' + (todo.completed ? ' completed' : '');
+        // v8.12.18 就地编辑的保存引用（item 级），供点击切换用
+        let editSave = null;
         const typeIcon = (TODO_TYPES.find(function (t) { return t.key === typeKeyOf(todo); }) || TODO_TYPES[0]).icon;
         const typeLabel = TYPE_SHORT[typeKeyOf(todo)] || (TODO_TYPES.find(function (t) { return t.key === typeKeyOf(todo); }) || TODO_TYPES[0]).label;
         const checkbox = document.createElement('div');
@@ -9377,59 +9326,43 @@ App.Pages.Home = {
         titleLine.appendChild(typeTag);
         titleLine.appendChild(title);
         content.appendChild(titleLine);
-        // v8.12.17 回退 8.6.41：有备注显示「📝 备注 ▾」折叠开关，点击展开/收起备注内容（编辑后展示备注回旧模式）
-        let noteEl = null, noteToggle = null;
+        // v8.12.18 对齐画布 57:5：备注直接展示文字（有内容才显示，无折叠开关），左对齐标题
+        let noteEl = null;
         if (todo.note) {
-          const noteOpen = !!this.todoState.notesOpen[todo.id];
-          noteToggle = document.createElement('div');
-          noteToggle.className = 'todo-note__toggle';
-          noteToggle.innerHTML = '<span>📝</span><span class="todo-note__caret">' + (noteOpen ? '▴' : '▾') + '</span>';
-          noteToggle.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.todoState.notesOpen[todo.id] = !this.todoState.notesOpen[todo.id];
-            noteEl.classList.toggle('is-open', this.todoState.notesOpen[todo.id]);
-            const caret = noteToggle.querySelector('.todo-note__caret');
-            if (caret) caret.textContent = this.todoState.notesOpen[todo.id] ? '▴' : '▾';
-          });
-          content.appendChild(noteToggle);
           noteEl = document.createElement('div');
-          noteEl.className = 'todo-note' + (noteOpen ? ' is-open' : '');
-          const noteBody = document.createElement('div');
-          noteBody.className = 'todo-note__body';
-          noteBody.textContent = todo.note;
-          noteEl.appendChild(noteBody);
+          noteEl.className = 'todo-note';
+          noteEl.textContent = todo.note;
           content.appendChild(noteEl);
         }
 
-        // v8.12.16 就地编辑（对齐画布 57:5 定稿）：点击待办项 → 标题原地变输入框（光标闪烁）+ 显示备注输入行；失焦/回车自动保存
+        // v8.12.18 对齐画布 57:5：点击标题行 → 标题原位变输入框（同行，光标闪烁）+ 显示备注输入行（左对齐标题）；失焦/回车自动保存
         const openNoteEdit = (targetItem) => {
           if (targetItem.dataset.editing === '1') return;
           targetItem.dataset.editing = '1';
-          targetItem.classList.add('todo-item--editing');
-          if (title) title.style.display = 'none';
-          if (noteEl) noteEl.style.display = 'none';
-
-          const wrap = document.createElement('div');
-          wrap.className = 'todo-inline-edit--apple';
+          targetItem.classList.add('todo-item--editing');          // ① 标题原位变输入框：替换 titleLine 内的 title 元素（typeTag 之后同一行）
           const titleInput = document.createElement('input');
           titleInput.className = 'todo-inline-edit--apple__title';
           titleInput.type = 'text';
           titleInput.value = todo.text || '';
           titleInput.placeholder = '待办内容...';
+          titleLine.replaceChild(titleInput, title);
+
+          // ② 备注输入行：插入到 titleLine 之后（透明无底框，左对齐标题）
           const noteArea = document.createElement('textarea');
           noteArea.className = 'todo-inline-edit--apple__note';
           noteArea.placeholder = '添加备注...';
           noteArea.value = todo.note || '';
-          wrap.appendChild(titleInput);
-          wrap.appendChild(noteArea);
-          content.appendChild(wrap);
+          noteArea.rows = 1;
+          content.appendChild(noteArea);
+          if (noteEl) noteEl.style.display = 'none';
 
           const closeEdit = (rerender) => {
             targetItem.dataset.editing = '0';
             targetItem.classList.remove('todo-item--editing');
-            if (title) title.style.display = '';
+            // 恢复 title 原位
+            if (titleInput.parentNode) titleInput.parentNode.replaceChild(title, titleInput);
+            if (noteArea.parentNode) noteArea.remove();
             if (noteEl) noteEl.style.display = '';
-            if (wrap.parentNode) wrap.remove();
             if (rerender) refreshTodo();
           };
 
@@ -9443,37 +9376,24 @@ App.Pages.Home = {
             if (changed) {
               await App.DB.updateTodo(todo);
               if (title) title.textContent = todo.text;
+              // 备注展示：有内容显示文字，空则移除
               if (todo.note) {
-                // v8.12.17 回退 8.6.41：保存后备注以「📝 备注 ▾」折叠展示
                 if (!noteEl) {
-                  noteToggle = document.createElement('div');
-                  noteToggle.className = 'todo-note__toggle';
-                  noteToggle.innerHTML = '<span>📝</span><span class="todo-note__caret">▾</span>';
-                  noteToggle.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    this.todoState.notesOpen[todo.id] = !this.todoState.notesOpen[todo.id];
-                    noteEl.classList.toggle('is-open', this.todoState.notesOpen[todo.id]);
-                    const caret = noteToggle.querySelector('.todo-note__caret');
-                    if (caret) caret.textContent = this.todoState.notesOpen[todo.id] ? '▴' : '▾';
-                  });
-                  content.appendChild(noteToggle);
                   noteEl = document.createElement('div');
                   noteEl.className = 'todo-note';
-                  const nb = document.createElement('div');
-                  nb.className = 'todo-note__body';
-                  noteEl.appendChild(nb);
                   content.appendChild(noteEl);
                 }
-                const nb0 = noteEl.querySelector('.todo-note__body');
-                if (nb0) nb0.textContent = todo.note;
+                noteEl.textContent = todo.note;
+                noteEl.style.display = '';
               } else if (noteEl) {
-                if (noteToggle) noteToggle.remove();
                 noteEl.remove(); noteEl = null;
               }
               App.Components.toast('已保存 ✓', 'success');
             }
             closeEdit(false);
           };
+          // 挂载保存引用，供 item 点击 toggle（编辑中再点 = 保存退出）
+          editSave = save;
 
           // 失焦保存：焦点仍在编辑区（标题/备注输入）时不保存，点外部才保存
           const saveIfLeaving = function () {
@@ -9490,7 +9410,10 @@ App.Pages.Home = {
             if (e.key === 'Escape') { e.stopPropagation(); closeEdit(false); }
           });
           noteArea.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeEdit(false); } });
-          wrap.addEventListener('click', (e) => e.stopPropagation());
+          // v8.12.18 修复：只在输入框本身拦截 click（防止编辑态点输入框误触发 toggle），
+          // 不在 content 上全局拦截——否则退出编辑后点标题区域事件被吞，无法再次进入编辑
+          titleInput.addEventListener('click', (e) => e.stopPropagation());
+          noteArea.addEventListener('click', (e) => e.stopPropagation());
           // 光标闪烁：自动聚焦标题，光标置于末尾
           setTimeout(function () {
             titleInput.focus();
@@ -9502,7 +9425,11 @@ App.Pages.Home = {
           if (e.target === checkbox || e.target.closest('.todo-checkbox')) return;
           if (e.target.closest('.todo-item__edit-btn')) return;
           if (e.target.closest('.todo-timer')) return;
-          // v8.12.16 点击待办项 → 就地编辑（标题光标闪烁 + 显示备注输入行），无独立备注页
+          // v8.12.18 toggle：编辑中再点 = 保存退出；未编辑 = 进入就地编辑
+          if (item.dataset.editing === '1') {
+            if (editSave) editSave();
+            return;
+          }
           openNoteEdit(item);
         });
 
@@ -9951,14 +9878,27 @@ App.Pages.Home = {
     left.appendChild(titleSpan);
     head.appendChild(left);
 
-    // v8.12.4 对齐画布 7:535：便签标题行右侧为「管理」文字链接（设计稿无 + 按钮 / 查看全部）
+    // v8.12.19 便签标题行右侧：仅「＋ 新增」按钮（对齐今日待办 7:508 样式；用户确认不保留管理）
     const right = document.createElement('div');
-    right.style.cssText = 'display:flex;align-items:center;gap:var(--spacing-sm);';
-    const allLink = document.createElement('div');
-    allLink.style.cssText = 'font-size:13px;color:var(--color-primary);font-weight:500;cursor:pointer;padding:4px 2px;';
-    allLink.textContent = '管理';
-    allLink.addEventListener('click', () => App.Router.navigate('stickies'));
-    right.appendChild(allLink);
+    right.style.cssText = 'display:flex;align-items:center;gap:10px;';
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.style.cssText = 'border:none;background:var(--color-primary);color:#fff;height:30px;padding:0 14px;border-radius:15px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:4px;-webkit-tap-highlight-color:transparent;';
+    addBtn.textContent = '＋ 新增';
+    addBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      App.Components.stickySheet({
+        title: '新增便签',
+        onSave: async (data) => {
+          try {
+            await App.DB.addSticky(data);
+            App.Components.toast('已新增便签 ✓', 'success');
+            this._refreshStickySection();
+          } catch (err) { App.Components.toast('保存失败', 'error'); }
+        }
+      });
+    });
+    right.appendChild(addBtn);
 
     head.appendChild(right);
     wrap.appendChild(head);
@@ -9967,9 +9907,27 @@ App.Pages.Home = {
     const masonry = document.createElement('div');
     masonry.className = 'sticky-masonry sticky-masonry--home';
     if (stickies.length === 0) {
+      // v8.12.19 空态胶囊（对齐画布 72:4 便签空状态）：图标 + 主文案 + 副文案 + 新建按钮
       const empty = document.createElement('div');
-      empty.className = 'sticky-empty';
-      empty.textContent = '暂无便签，点击 + 添加第一条';
+      empty.className = 'sticky-empty--capsule';
+      empty.innerHTML =
+        '<div class="sticky-empty__icon"><svg width="44" height="44" viewBox="0 0 44 44" fill="none"><rect x="5.5" y="8" width="33" height="31.5" rx="2" stroke="#C7C7CC" stroke-width="1.5"/><path d="M12 15h20M12 21h20M12 27h14" stroke="#C7C7CC" stroke-width="1.5" stroke-linecap="round"/><path d="M29 28l3 3 6-7" stroke="#C7C7CC" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' +
+        '<div class="sticky-empty__title">还没有便签</div>' +
+        '<div class="sticky-empty__sub">点击右上角 ＋ 新增，写下第一条便签</div>' +
+        '<button type="button" class="sticky-empty__btn"><svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="#0066CC" stroke-width="1.5" stroke-linecap="round"><path d="M7.5 2.5v10M2.5 7.5h10"/></svg><span>新建便签</span></button>';
+      empty.querySelector('.sticky-empty__btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        App.Components.stickySheet({
+          title: '新增便签',
+          onSave: async (data) => {
+            try {
+              await App.DB.addSticky(data);
+              App.Components.toast('已新增便签 ✓', 'success');
+              this._refreshStickySection();
+            } catch (err) { App.Components.toast('保存失败', 'error'); }
+          }
+        });
+      });
       masonry.appendChild(empty);
     } else {
       stickies.slice(0, 10).forEach(s => {

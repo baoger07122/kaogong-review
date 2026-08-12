@@ -2240,19 +2240,13 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   flex: 1;                  /* 占据剩余空间 */
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  /* v8.12.18 对齐画布 57:5：标题行与备注行紧贴（itemSpacing 0） */
+  gap: 0;
   min-width: 0;             /* 关键：允许文字在 flex 容器内正常换行 */
   overflow: hidden;
 }
 
-/* v8.12.17 回退 8.6.41：备注以「📝 备注 ▾」折叠开关展示，点击展开/收起 */
-.todo-note__toggle {
-  display: flex; justify-content: space-between; align-items: center;
-  font-size: 12px; color: var(--text-tertiary);
-  cursor: pointer; padding: 3px 0 0;
-  -webkit-tap-highlight-color: transparent;
-}
-.todo-note__toggle:active { color: var(--text-secondary); }
+/* v8.12.18 对齐画布 57:5：备注直接展示文字，左对齐标题第一个字（x78），有内容才显示 */
 .todo-note {
   font-size: 12px;
   color: var(--text-tertiary);
@@ -2260,18 +2254,10 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   white-space: pre-wrap;
   word-break: break-word;
   writing-mode: horizontal-tb;
-  display: none;
-  padding-left: 0;
-  margin-top: 0;
-}
-.todo-note.is-open { display: block; }
-.todo-note__body {
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin-top: 2px;
+  /* 对齐标题 x78：item padding14 + checkbox20 + gap8 = content 起点42，再加 36 = 78 */
+  padding-left: 36px;
+  padding-right: 4px;
+  box-sizing: border-box;
 }
 
 /* v8.11.1 i 信息按钮：默认隐藏，点击行展开编辑后出现（纯 i 无圆圈） */
@@ -2338,14 +2324,9 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   color: var(--text-tertiary);
 }
 
-/* 待办内联编辑（就地展开，不弹页面） */
+/* 待办内联编辑（v8.12.18 无蓝色底纹：编辑态不染色、不位移，复选框始终可见） */
 .todo-item--editing {
-  background: var(--color-primary-bg);
-  border-radius: var(--radius-md);
-  padding-left: 8px;
-  padding-right: 8px;
-  margin-left: -8px;
-  margin-right: -8px;
+  background: transparent;
 }
 
 .todo-inline-edit {
@@ -2772,38 +2753,6 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .empty-state__action:active {
   transform: scale(0.95);
   opacity: 0.9;
-}
-
-/* ===== 悬浮操作按钮 ===== */
-.fab {
-  position: fixed;
-  right: var(--page-padding);
-  bottom: calc(var(--nav-height) + var(--safe-bottom) + 30px);
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: var(--color-primary);
-  color: white;
-  font-size: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: var(--shadow-fab);
-  cursor: pointer;
-  z-index: 500;
-  transition: all 0.2s ease;
-  border: none;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.fab:active {
-  transform: scale(0.9);
-}
-
-.fab--hidden {
-  transform: scale(0);
-  opacity: 0;
-  pointer-events: none;
 }
 
 /* ===== Toast 提示 ===== */
@@ -8481,76 +8430,109 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 }
 .todo-item__edit-btn:active { background: rgba(0,0,0,0.06); color: var(--color-primary); }
 
-/* ===== v8.12.14 Apple 日历风格就地编辑（点击待办项原位编辑标题+备注，光标闪烁） ===== */
+/* ===== v8.12.18 Apple 日历风格就地编辑（对齐画布 57:5：标题原位变输入框 + 备注行左对齐） ===== */
 .todo-inline-edit--apple {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 6px;
-  width: 100%;
+  display: contents;
 }
 .todo-inline-edit--apple__title {
-  width: 100%;
+  /* 原位替换标题：与 title 同一 flex 行内，不换行不占满 */
+  flex: 1;
+  min-width: 0;
   box-sizing: border-box;
-  /* v8.12.16 对齐定稿：标题 Regular 14px */
   font-size: 14px;
   font-weight: 400;
   color: var(--text-primary);
-  background: rgba(0,0,0,0.04);
-  border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 5px 8px;
+  /* v8.12.18 无蓝色底纹：透明背景 + 无边框，仅保留蓝色光标 */
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 1px 2px;
   outline: none;
   caret-color: var(--color-primary);
+  font-family: inherit;
+  line-height: 1.4;
   -webkit-tap-highlight-color: transparent;
 }
 .todo-inline-edit--apple__title:focus {
-  border-color: var(--color-primary);
-  background: var(--bg-card);
-  box-shadow: 0 0 0 3px rgba(0,102,204,0.12);
+  background: transparent;
+  box-shadow: none;
 }
 .todo-inline-edit--apple__note {
-  width: 100%;
+  /* 备注输入行：透明无底框，左对齐标题 x78（item padding14 + checkbox20 + gap8 = 42，+36 = 78） */
+  display: block;
+  width: calc(100% - 40px);
   box-sizing: border-box;
-  min-height: 40px;
-  max-height: 120px;
+  margin-left: 36px;
+  min-height: 20px;
+  max-height: 80px;
   font-size: 12px;
   line-height: 1.5;
   color: var(--text-primary);
-  background: rgba(0,0,0,0.04);
-  border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 5px 8px;
-  /* v8.12.16 备注输入行左对齐标题（checkbox20+gap8+类型28+gap8=64，再补4px对齐 x78） */
-  margin-left: 68px;
-  width: calc(100% - 68px);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 2px 0;
   resize: none;
   outline: none;
   caret-color: var(--color-primary);
+  font-family: inherit;
   -webkit-tap-highlight-color: transparent;
 }
 .todo-inline-edit--apple__note:focus {
-  border-color: var(--color-primary);
-  background: var(--bg-card);
-  box-shadow: 0 0 0 3px rgba(0,102,204,0.12);
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 .todo-inline-edit--apple__note::placeholder { color: var(--text-tertiary); }
-.todo-inline-edit--apple__actions {
+
+
+
+/* ===== v8.12.19 便签空态胶囊（对齐画布 72:4：白卡圆角16 + 图标 + 主副文案 + 新建按钮） ===== */
+.sticky-empty--capsule {
+  /* v8.12.19 修复：masonry 是 column-count:2 多列布局，空态胶囊必须横跨两列占满整行 */
+  column-span: all;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #E0E0E0;
+  border-radius: 16px;
+  background: #FFFFFF;
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 44px 24px;
+  margin-bottom: 4px;
 }
-.todo-inline-edit--apple__btn {
-  height: 28px;
-  padding: 0 14px;
-  border-radius: 14px;
+.sticky-empty__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sticky-empty__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1D1D1F;
+}
+.sticky-empty__sub {
+  font-size: 13px;
+  color: #A1A1A6;
+}
+.sticky-empty__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 40px;
+  padding: 0 20px;
   border: none;
-  font-size: 12px;
+  border-radius: 20px;
+  background: #EAEFFE;
+  color: #0066CC;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
+  margin-top: 4px;
   -webkit-tap-highlight-color: transparent;
 }
-.todo-inline-edit--apple__btn--done { background: var(--gradient-primary); color: #fff; }
-.todo-inline-edit--apple__btn--cancel { background: #F5F5F7; color: var(--text-secondary); }
-
-
+.sticky-empty__btn:active { opacity: 0.8; }
