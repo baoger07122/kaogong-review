@@ -4051,7 +4051,7 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   height: calc(100dvh - var(--nav-height) - var(--safe-bottom));
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  background: var(--bg-secondary);
+  background: #F7F8F9;
   border-right: 0.5px solid var(--border-color);
   padding: var(--top-buffer) 0 var(--spacing-sm);
   display: flex;
@@ -4077,17 +4077,13 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 .sidebar__item:active { background: var(--bg-tertiary); }
 .sidebar__item.active {
-  background: var(--color-primary-bg);
-  color: var(--color-primary);
+  /* v8.12.9 对齐画布侧边栏：白底墨字胶囊（浅灰侧边栏上白块选中） */
+  background: #FFFFFF;
+  color: #1D1D1F;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
-.sidebar__item.active::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 8px; bottom: 8px;
-  width: 3px;
-  border-radius: 0 2px 2px 0;
-  background: var(--color-primary);
-}
+.sidebar__item.active::before { display: none; }
 .sidebar__item-icon { font-size: 20px; line-height: 1; }
 .sidebar__item-name {
   font-size: 10px;
@@ -4304,8 +4300,8 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* 桌面端：边栏变宽、科目横向排列 */
-@media (min-width: 768px) {
+/* 桌面端：边栏变宽、科目横向排列（v8.12.9 断点 768→1024：让 iPad 竖屏保持设计稿 80px 竖排侧边栏） */
+@media (min-width: 1024px) {
   .sidebar { width: 172px; }
   .sidebar__item {
     flex-direction: row;
