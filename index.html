@@ -97,7 +97,8 @@
   --top-buffer: var(--safe-top);
 
   /* --- 导航栏高度 --- */
-  --nav-height: 56px;
+  /* v8.12.3 对齐画布 NavBar-iPad(7:7)：64 高（胶囊44 + 上下10留白） */
+  --nav-height: 64px;
   --page-padding: 16px;
 }
 
@@ -287,8 +288,12 @@ input, textarea, select {
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
   display: flex;
-  justify-content: space-around;
+  /* v8.12.3 对齐画布 NavBar-iPad(7:7)：Tab 项胶囊选中，均分+等间距 */
+  justify-content: space-between;
   align-items: center;
+  gap: 6px;
+  padding: 10px 10px;
+  box-sizing: border-box;
   z-index: 9999;
   -webkit-transform: translateZ(0);
   transform: translateZ(0);
@@ -318,12 +323,14 @@ input, textarea, select {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  /* v8.12.3 对齐画布 NavBar-iPad(7:7)：Tab 项高 44、胶囊圆角 22、项内间距 3 */
+  gap: 3px;
   flex: 1;
-  height: var(--nav-height);
-  padding: 6px 0 4px;
+  height: 44px;
+  padding: 0;
+  border-radius: 22px;
   position: relative;
-  transition: color 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -332,9 +339,15 @@ input, textarea, select {
 }
 
 .nav-icon {
-  font-size: 25px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
   transition: all 0.15s ease;
+}
+.nav-icon svg {
+  width: 22px;
+  height: 22px;
 }
 
 .nav-label {
@@ -342,6 +355,7 @@ input, textarea, select {
   font-weight: 500;
   letter-spacing: 0.02em;
   transition: all 0.15s ease;
+  line-height: 1;
 }
 
 .nav-item:not(.active) {
@@ -349,19 +363,21 @@ input, textarea, select {
 }
 
 .nav-item.active {
-  color: var(--color-primary);
+  /* v8.12.3 对齐画布 NavBar-iPad(7:7)：选中态整块胶囊蓝底白字白图标，去圆圈 */
+  background: var(--color-primary);
+  color: #fff;
 }
 
 .nav-item.active .nav-icon {
-  background: var(--color-primary);
+  background: none;
   color: #fff;
-  border-radius: 50%;
-  padding: 6px;
-  margin: -6px;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
 }
 
 .nav-item.active .nav-label {
-  color: var(--color-primary);
+  color: #fff;
   font-weight: 600;
 }
 
@@ -8222,7 +8238,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.12.2';
+App.VERSION = '8.12.3';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
