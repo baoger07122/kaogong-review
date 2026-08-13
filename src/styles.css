@@ -1167,66 +1167,6 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 
 /* ===== 学习统计日历 ===== */
 
-/* v8.11.1 今日学习时长卡（按科目聚合待办计时） */
-.stats-dur {
-  margin: 0 var(--page-padding);
-  margin-bottom: var(--spacing-md);
-  background: var(--bg-card);
-  border: 1px solid var(--border-color, rgba(0,0,0,0.06));
-  border-radius: var(--radius-lg);
-  padding: 14px 16px;
-}
-.stats-dur__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-.stats-dur__title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-.stats-dur__total {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--color-primary, #2997FF);
-  letter-spacing: -0.02em;
-}
-.stats-dur__row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 6px;
-}
-.stats-dur__sub {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  min-width: 0;
-}
-.stats-dur__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-.stats-dur__name {
-  font-size: 11px;
-  color: var(--text-tertiary);
-}
-.stats-dur__val {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-tertiary);
-}
-.stats-dur__val.has {
-  color: var(--text-primary);
-}
-
 .study-cal {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -8536,3 +8476,149 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   -webkit-tap-highlight-color: transparent;
 }
 .sticky-empty__btn:active { opacity: 0.8; }
+
+/* ===== v8.12.22 学习统计 周/月 切换 + 周视图两周网格（对齐画布 10:507 / 10:645） ===== */
+.stats-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  height: 35px;
+  padding: 3px;
+  border-radius: 999px;
+  background: #F5F5F7;
+  box-sizing: border-box;
+  margin: 0 var(--page-padding);
+  margin-bottom: var(--spacing-sm);
+}
+.stats-toggle__tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 29px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.18s ease;
+}
+.stats-toggle__tab.is-active {
+  background: #FFFFFF;
+  color: var(--text-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+/* 周视图：两周网格 */
+.week-grid {
+  padding: 0 var(--page-padding);
+}
+.week-grid__head {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.week-grid__head span {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+.week-grid__row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.week-grid__day {
+  background: #FAFAFC;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 6px;
+  min-height: 120px;
+  box-sizing: border-box;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.15s ease;
+}
+.week-grid__day.has-data {
+  background: #FFFFFF;
+  border-color: #E0E0E0;
+}
+.week-grid__day.is-today {
+  border-color: var(--color-primary, #2997FF);
+}
+.week-grid__date {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.week-grid__date .today-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-primary, #2997FF);
+  display: inline-block;
+}
+.week-grid__day.is-past .week-grid__date {
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+.week-grid__todo {
+  font-size: 10px;
+  line-height: 1.3;
+  padding: 2px 4px;
+  border-radius: 4px;
+  margin-bottom: 3px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: rgba(0,0,0,0.05);
+  cursor: pointer;
+}
+.week-grid__todo--done {
+  text-decoration: line-through;
+  opacity: 0.65;
+}
+.week-grid__more {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+.week-grid__hint {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+/* ===== v8.12.23 学习统计 月份/周切换按钮（对齐画布 10:377/10:380：灰底胶囊 63×29 圆角999） ===== */
+.stats-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 29px;
+  min-width: 63px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 999px;
+  background: #F5F5F7;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s ease;
+  box-sizing: border-box;
+}
+.stats-nav-btn:active { background: #EAEAEE; }
