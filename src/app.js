@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.14.7';
+App.VERSION = '8.14.8';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -8982,13 +8982,23 @@ App.Pages.Home = {
       if (todo.status && TODO_STATUS.some(s => s.key === todo.status)) return todo.status;
       return todo.completed ? 'completed' : 'pending';
     };
-    // 今日统计口径：只统计今日创建的待办（与「今日待办」列表一致）
+    // v8.14.8 顺延统计口径：未完成事项自动顺延到今日（任何创建日期都归入今日，直至完成）；
+    // 「今日统计」只统计"今天已完成"（completedAt 在今天），未完成不计入统计分母。
     const pad2 = (n) => String(n).padStart(2, '0');
-    const todayKey = (() => { const d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); })();
-    const isTodayTodo = (t) => { const d = new Date(t.createdAt); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) === todayKey; };
+    const nowD = new Date();
+    const todayKey = nowD.getFullYear() + '-' + pad2(nowD.getMonth() + 1) + '-' + pad2(nowD.getDate());
+    const todayStart = new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate());
+    const doneToday = (t) => {
+      if (!t.completed) return false;
+      const cd = new Date(t.completedAt || t.updatedAt);
+      return cd >= todayStart && cd < new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+    };
+    // 今日待办列表口径：未完成顺延 + 今日完成
+    const isTodayTodo = (t) => t.completed ? doneToday(t) : true;
     const todayTodos = todos.filter(isTodayTodo);
-    const completedCount = todayTodos.filter(t => t.completed).length;
-    const totalCount = todayTodos.length;
+    const completedCount = todos.filter(doneToday).length;   // 今日已完成数（唯一统计口径）
+    // 未完成自动顺延：今日列表里仍会出现的待办总数（用于 Hero 展示"可继续的待办"）
+    const totalCount = todos.filter(t => !t.completed).length + completedCount;
     const pct = totalCount > 0 ? Math.round(completedCount / totalCount * 100) : 0;
 
     // ===== Apple 风格浅蓝 Hero 卡：今日复盘进度 + 右侧倒数日（v8.11.1/8.11.4 对齐画布） =====
@@ -8999,7 +9009,7 @@ App.Pages.Home = {
         <div class="home-hero__top">
           <span class="home-hero__label">今日待办</span>
         </div>
-        <div class="home-hero__num">${completedCount}<span class="home-hero__unit">/ ${totalCount} 项待办</span></div>
+        <div class="home-hero__num">${completedCount}<span class="home-hero__unit"> 项已完成</span></div>
         <div class="home-hero__bar"><i style="width:${pct}%"></i></div>
         <div class="home-hero__foot">还有 ${unmastered} 道错题待掌握 · 本周新增 ${weekNew} 道</div>
       </div>
@@ -9137,12 +9147,13 @@ App.Pages.Home = {
     progressTrack.style.cssText = 'flex:1;height:8px;background:rgba(0,102,204,0.10);border-radius:4px;overflow:hidden;';
     const progressFill = document.createElement('div');
     progressFill.id = 'todo-progress-fill';
-    progressFill.style.cssText = 'height:100%;width:' + pct + '%;background:linear-gradient(90deg,#0066CC,#1E8FFF);border-radius:4px;transition:width 0.3s ease;';
+    // v8.14.8 只统计已完成：今日有完成即满格（突出完成成就感，不体现未完成数量）
+    progressFill.style.cssText = 'height:100%;width:' + (completedCount > 0 ? 100 : 0) + '%;background:linear-gradient(90deg,#0066CC,#1E8FFF);border-radius:4px;transition:width 0.3s ease;';
     progressTrack.appendChild(progressFill);
     const progressLabel = document.createElement('div');
     progressLabel.id = 'todo-progress-label';
     progressLabel.style.cssText = 'font-size:12px;color:#7A7A7A;white-space:nowrap;';
-    progressLabel.textContent = completedCount + ' / ' + totalCount + ' 已完成';
+    progressLabel.textContent = completedCount + ' 已完成';
     progressBar.appendChild(progressTrack);
     progressBar.appendChild(progressLabel);
     todoWrap.appendChild(progressBar);
@@ -9158,47 +9169,19 @@ App.Pages.Home = {
       const now = new Date();
       const todayStr = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
       const dateKey = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
-      const isInPeriod = (todo) => {
-        const d = new Date(todo.createdAt);
-        const ds = dateKey(d);
-        if (mode === 'day') return ds === todayStr;
-        if (mode === 'week') {
-          const day = now.getDay() || 7;
-          const start = new Date(now); start.setDate(now.getDate() - day + 1);
-          const end = new Date(now); end.setDate(now.getDate() + (7 - day));
-          return ds >= dateKey(start) && ds <= dateKey(end);
-        }
-        if (mode === 'month') {
-          const start = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-01';
-          const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-          const end = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(lastDay);
-          return ds >= start && ds <= end;
-        }
-        return false;
+      // v8.14.8 顺延统计：统计面板只统计"当日已完成"（completedAt 在今天），未完成自动顺延、不进入统计展示
+      const isDoneToday = (todo) => {
+        if (!todo.completed) return false;
+        const c = new Date(todo.completedAt || todo.updatedAt);
+        return dateKey(c) === todayStr;
       };
-      const periodTodos = todos.filter(isInPeriod);
-      const doneCount = periodTodos.filter(t => t.completed).length;
-      const undoneCount = periodTodos.length - doneCount;
-      const rate = periodTodos.length ? Math.round(doneCount / periodTodos.length * 100) : 0;
-      const labels = { day: '今日', week: '本周', month: '本月' };
+      const doneCount = todos.filter(isDoneToday).length;
       statsPanel.innerHTML = `
         <div class='todo-stats__tabs' id='todo-stats-tabs'></div>
-        <div class='todo-stats__grid'>
-          <div class='todo-stats__card'>
+        <div class='todo-stats__grid todo-stats__grid--doneonly'>
+          <div class='todo-stats__card todo-stats__card--full'>
             <div class='todo-stats__value todo-stats__value--done'>${doneCount}</div>
-            <div class='todo-stats__label'>已完成</div>
-          </div>
-          <div class='todo-stats__card'>
-            <div class='todo-stats__value todo-stats__value--undone'>${undoneCount}</div>
-            <div class='todo-stats__label'>未完成</div>
-          </div>
-          <div class='todo-stats__card'>
-            <div class='todo-stats__value todo-stats__value--rate'>${rate}%</div>
-            <div class='todo-stats__label'>完成率</div>
-          </div>
-          <div class='todo-stats__card'>
-            <div class='todo-stats__value'>${periodTodos.length}</div>
-            <div class='todo-stats__label'>${labels[mode]}总计</div>
+            <div class='todo-stats__label'>今日已完成</div>
           </div>
         </div>
       `;
@@ -9253,13 +9236,19 @@ App.Pages.Home = {
     const todayStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate());
     const weekStart = new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
     // v8.6.37 今日过滤 = 当天 00:00 ~ 24:00 区间（之前是 >= 今天起点，未来日期的待办也显示在今日）
+    // v8.14.8 未完成自动顺延：未完成事项无论哪天创建都一直归入今日（直至完成）；已完成仅显示"当日完成的"
     if (this.todoState.dateFilter === 'today') {
       listTodos = listTodos.filter(t => {
-        const d = new Date(t.createdAt);
-        return d >= todayStart && d < new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+        if (!t.completed) return true;                                   // 未完成 → 自动顺延到今日
+        const cd = new Date(t.completedAt || t.updatedAt);
+        return cd >= todayStart && cd < new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
       });
     } else if (this.todoState.dateFilter === 'week') {
-      listTodos = listTodos.filter(t => new Date(t.createdAt) >= weekStart);
+      listTodos = listTodos.filter(t => {
+        if (!t.completed) return true;                                   // 未完成 → 顺延始终归入
+        const cd = new Date(t.completedAt || t.updatedAt);
+        return cd >= weekStart;
+      });
     }
     if (this.todoState.filter === 'active') listTodos = listTodos.filter(t => !t.completed);
     else if (this.todoState.filter === 'done') listTodos = listTodos.filter(t => t.completed);
@@ -9501,15 +9490,14 @@ App.Pages.Home = {
     // 删除只动 DB、快照未更新 → 待办「删了还在」）。改为重新 getTodos 再刷新列表与进度。
     const refreshTodo = async () => {
       try { todos = await App.DB.getTodos(); } catch (e) { /* 拉取失败保持旧数据 */ }
-      const todayList = todos.filter(isTodayTodo);
-      const cc = todayList.filter(t => t.completed).length;
-      const tc = todayList.length;
-      const pp = tc > 0 ? Math.round(cc / tc * 100) : 0;
+      // v8.14.8 只统计已完成：进度条显示"今日已完成"数量，完成后满格
+      const cc = todos.filter(doneToday).length;
+      const pp = cc > 0 ? 100 : 0;
       // v8.12.13 标题区计数已取消；进度条填充 + 右侧文字同步更新
       const pf = document.getElementById('todo-progress-fill');
       if (pf) pf.style.width = pp + '%';
       const pl = document.getElementById('todo-progress-label');
-      if (pl) pl.textContent = cc + ' / ' + tc + ' 已完成';
+      if (pl) pl.textContent = cc + ' 已完成';
       App.Utils.transitionSwap(todoCard, (c) => fillTodoList(c));
     };
 

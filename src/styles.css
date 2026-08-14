@@ -2275,10 +2275,11 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   color: #fff;
 }
 
+/* v8.14.8 已完成待办不再划横线：仅文字变浅灰柔化，保留清晰可读 */
 .todo-item.completed .todo-title,
 .todo-item.completed .todo-note {
-  text-decoration: line-through;
   color: var(--text-tertiary);
+  text-decoration: none;
 }
 
 /* 待办内联编辑（v8.12.18 无蓝色底纹：编辑态不染色、不位移，复选框始终可见） */
@@ -2518,6 +2519,12 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   font-size: var(--font-xs);
   color: var(--text-tertiary);
 }
+
+/* v8.14.8 待办统计只统计已完成：单卡全宽居中，值加大突出完成数 */
+.todo-stats__grid--doneonly { grid-template-columns: 1fr; }
+.todo-stats__card--full { grid-column: 1 / -1; padding: var(--spacing-lg); }
+.todo-stats__grid--doneonly .todo-stats__value--done { font-size: 40px; }
+
 
 /* ===== 套卷时间线 ===== */
 .timeline {
