@@ -2771,7 +2771,9 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   position: fixed;
   inset: 0;
   background: var(--bg-overlay);
-  z-index: 10000;/* v8.6.9 高于底部导航(9999)，弹层内贴底按钮不被遮 */
+  /* v8.14.8 弹层层级提到最上层（> todo-edit-overlay 10001…），
+     使编辑待办里点"删除"弹出的确认框不被编辑弹窗遮挡、可直接看到 */
+  z-index: 10020;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -8088,8 +8090,8 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   display: flex; gap: 12px;
 }
 
-/* v8.6.27 自定义练习弹窗拉长：iPad 横屏一屏看全（94vh + 紧凑间距） */
-.sc-picker-sheet { max-height: 94vh; min-height: 70vh; }
+/* v8.6.27 自定义练习弹窗：统一用 svh 高度（横向正确适配 iPad Safari），内容超高时在弹窗内滚动、不穿透背景 */
+.sc-picker-sheet { max-height: 88svh; min-height: 0; }
 .sc-picker-sheet .sc-custom-grid { gap: 8px; }
 .sc-picker-sheet .sc-custom-cell { padding: 10px 4px; }
 .sc-picker-sheet .sc-custom-numgrid { gap: 8px; margin-top: 8px; }
@@ -8234,7 +8236,31 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
+.todo-edit__type-tag:active { background: #EAEAEF; }
+/* v8.14.8 编辑待办：左侧类型标签点开的科目选择（横向 chips，默认收起） */
+.todo-edit__type-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.22s ease;
+}
+.todo-edit__type-picker--open { max-height: 70px; }
+.todo-edit__type-picker--closed { max-height: 0; }
+.todo-edit__type-chip {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.todo-edit__type-chip.on { background: var(--color-primary); color: #fff; }
 .todo-edit__title-input {
   flex: 1;
   min-width: 0;

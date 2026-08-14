@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.14.8';
+App.VERSION = '8.14.9';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9528,14 +9528,44 @@ App.Pages.Home = {
 
       const info = document.createElement('div');
       info.className = 'todo-edit__info';
+      // v8.14.8 左侧类型标签可点击：点开横向科目 chips 选类型（对齐「新增待办」）
+      let curType = typeKeyOf(todo);
       const typeTag = document.createElement('span');
       typeTag.className = 'todo-edit__type-tag';
-      typeTag.textContent = TYPE_SHORT[typeKeyOf(todo)] || tDef.label;
+      typeTag.title = '点击更改科目';
+      const typePickers = document.createElement('div');
+      typePickers.className = 'todo-edit__type-picker todo-edit__type-picker--closed';
+      typePickers.innerHTML = '';
+      const refreshTag = () => {
+        const def = TODO_TYPES.find(function (t) { return t.key === curType; }) || TODO_TYPES[0];
+        typeTag.textContent = TYPE_SHORT[curType] || def.label;
+        typePickers.innerHTML = '';
+        TODO_TYPES.forEach(function (t) {
+          const c = document.createElement('span');
+          c.className = 'todo-edit__type-chip' + (t.key === curType ? ' on' : '');
+          c.textContent = t.label;
+          c.addEventListener('click', (e) => {
+            e.stopPropagation();
+            curType = t.key;
+            refreshTag();
+            closeTypePicker();
+          });
+          typePickers.appendChild(c);
+        });
+      };
+      const closeTypePicker = () => { typePickers.classList.add('todo-edit__type-picker--closed'); typePickers.classList.remove('todo-edit__type-picker--open'); };
+      typeTag.addEventListener('click', (e) => {
+        e.stopPropagation();
+        typePickers.classList.toggle('todo-edit__type-picker--open');
+        typePickers.classList.toggle('todo-edit__type-picker--closed');
+      });
+      refreshTag();
       const titleInput = document.createElement('input');
       titleInput.className = 'todo-edit__title-input';
       titleInput.type = 'text';
       titleInput.value = todo.text || '';
       info.appendChild(typeTag);
+      typePickers.id = 'todo-edit-type-picker';
       info.appendChild(titleInput);
 
       const secLabel = document.createElement('div');
@@ -9621,6 +9651,7 @@ App.Pages.Home = {
 
       dlg.appendChild(head);
       dlg.appendChild(info);
+      dlg.appendChild(typePickers);
       dlg.appendChild(secLabel);
       dlg.appendChild(cal);
       dlg.appendChild(delBtn);
@@ -9637,6 +9668,8 @@ App.Pages.Home = {
         if (!newText) { App.Components.toast('请输入待办内容', 'error'); return; }
         let changed = false;
         if (newText !== todo.text) { todo.text = newText; changed = true; }
+        // v8.14.8 编辑时可通过左侧类型标签更换科目，保存时写入
+        if (curType !== (typeKeyOf(todo) || 'yanyu')) { todo.type = curType; changed = true; }
         const prevDate = (todo.scheduleDate || '').slice(0, 10);
         if (selDate !== prevDate) { todo.scheduleDate = selDate + 'T00:00:00.000Z'; changed = true; }
         todo.updatedAt = new Date().toISOString();
@@ -15758,11 +15791,28 @@ renderHome(container) {
     content.className = 'notion-mobile-sheet__content';
 
     // v8.15 弹窗打开时锁定背景滚动，避免横/竖屏下滑动穿透到速算练习原生页面；关闭恢复
+    const pageEl = document.getElementById('page-speed-calc') || document.body;
+    const prevOverflow = { body: document.body.style.overflow, html: document.documentElement.style.overflow, page: pageEl.style.overflow };
     document.body.style.overflow = 'hidden';
     document.documentElement.style.overflow = 'hidden';
+    pageEl.style.overflow = 'hidden';
+    // 阻止 background 穿透：overlay 上 touchmove 一律 prevent，content 内部滚动时放行
+    const blockBgMove = (e) => e.preventDefault();
+    overlay.addEventListener('touchmove', blockBgMove, { passive: false });
+    content.addEventListener('touchmove', (e) => {
+      // content 未到滚动边界时放行（内部滚动），到顶/到底则阻止冒泡返弹背景
+      const sd = content.scrollHeight - content.clientHeight;
+      if (sd > 0 && !(content.scrollTop <= 0 && e.deltaY > 0) && !(content.scrollTop >= sd && e.deltaY < 0)) {
+        e.stopPropagation();
+      } else {
+        e.preventDefault();
+      }
+    }, { passive: false });
     const closeOverlay = () => {
-      document.body.style.overflow = '';
-      document.documentElement.style.overflow = '';
+      document.body.style.overflow = prevOverflow.body;
+      document.documentElement.style.overflow = prevOverflow.html;
+      pageEl.style.overflow = prevOverflow.page;
+      overlay.removeEventListener('touchmove', blockBgMove);
       if (overlay.parentNode) overlay.remove();
     };
 
