@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.14.6';
+App.VERSION = '8.14.7';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -15440,7 +15440,7 @@ App.Pages.SpeedCalc = {
     const submitted = q.correct !== null;
     this.state.currentInput = q.user !== undefined && q.user !== '' ? String(q.user) : '';
 
-    container.style.cssText = 'height:calc(100vh - var(--nav-height, 56px) - var(--safe-bottom, 0px));display:flex;flex-direction:column;overflow:hidden;';
+    container.style.cssText = 'height:calc(100svh - var(--nav-height, 56px) - var(--safe-bottom, 0px));display:flex;flex-direction:column;overflow:hidden;';
     this._topbar(container, '估算练习', () => { this.show('home'); });
 
     // 状态栏
@@ -16627,7 +16627,8 @@ renderHome(container) {
     this.state.currentInput = q.user && q.user !== '' ? String(q.user) : '';
     if (settings.nightMode) container.classList.add('sc-night');
     // v8.6.23 一屏布局：整页不滑动（顶栏/状态栏/题目区/键盘全部放一个屏幕内）
-    container.style.cssText = 'height:calc(100vh - var(--nav-height, 56px) - var(--safe-bottom, 0px));display:flex;flex-direction:column;overflow:hidden;';
+    // v8.15 改用 100svh，iPad 横屏 Safari 工具栏下 100vh 偏大导致底部被截/需滚动
+    container.style.cssText = 'height:calc(100svh - var(--nav-height, 56px) - var(--safe-bottom, 0px));display:flex;flex-direction:column;overflow:hidden;';
 
     // v8.6.27 左上角退出按钮：弹出「继续练习 / 退出练习」两选项
     this._topbar(container, (this.state.type === "custom" ? "自定义练习" : this.TYPES[this.state.type].name), async () => {
