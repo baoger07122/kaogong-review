@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.14.4';
+App.VERSION = '8.14.5';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -15427,11 +15427,20 @@ renderHome(container) {
     const content = document.createElement('div');
     content.className = 'notion-mobile-sheet__content';
 
+    // v8.15 弹窗打开时锁定背景滚动，避免横/竖屏下滑动穿透到速算练习原生页面；关闭恢复
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    const closeOverlay = () => {
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+      if (overlay.parentNode) overlay.remove();
+    };
+
     // 标题行
     const titleRow = document.createElement('div');
     titleRow.className = 'sc-custom-sheet-title';
     titleRow.innerHTML = '<div class="sc-custom-sheet-title__text">自定义练习</div><button type="button" class="sc-custom-sheet-title__close" aria-label="关闭">✕</button>';
-    titleRow.querySelector('.sc-custom-sheet-title__close').addEventListener('click', () => overlay.remove());
+    titleRow.querySelector('.sc-custom-sheet-title__close').addEventListener('click', () => closeOverlay());
     content.appendChild(titleRow);
 
     const body = document.createElement('div');
@@ -15563,7 +15572,7 @@ renderHome(container) {
         card.innerHTML = '<div class="sc-custom-histcard__name">' + (h.name || '') + '</div>' +
           '<div class="sc-custom-histcard__sub">' + (h.subName || '') + '</div>';
         card.addEventListener('click', () => {
-          overlay.remove();
+          closeOverlay();
           self.startCustomPractice(h);
         });
         histGrid.appendChild(card);
@@ -15581,7 +15590,7 @@ renderHome(container) {
     cancel.type = 'button';
     cancel.className = 'sc-custom-footbtn sc-custom-footbtn--cancel';
     cancel.textContent = '取消';
-    cancel.addEventListener('click', () => overlay.remove());
+    cancel.addEventListener('click', () => closeOverlay());
     const ok = document.createElement('button');
     ok.type = 'button';
     ok.className = 'sc-custom-footbtn sc-custom-footbtn--ok';
@@ -15596,7 +15605,7 @@ renderHome(container) {
       if (!cs.type) { App.Components.toast('请选择一个题型', 'error'); return; }
       if (cs.mode === 'range' && (cs.rangeMin == null || cs.rangeMax == null)) { App.Components.toast('请设置数字范围', 'error'); return; }
       if (cs.mode === 'fixed' && !cs.fixedNums.length) { App.Components.toast('请选择至少一个固定数字', 'error'); return; }
-      overlay.remove();
+      closeOverlay();
       if (onDone) onDone();
     });
     foot.appendChild(cancel);
@@ -15605,7 +15614,7 @@ renderHome(container) {
 
     overlay.appendChild(sheet);
     document.body.appendChild(overlay);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeOverlay(); });
   },
 
   // 自定义练习小窗：11 个题型多选 → 确定（不进入新页面）

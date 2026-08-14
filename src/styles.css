@@ -4636,6 +4636,7 @@ body.ipad-split .notion-mobile-toolbar {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   padding-bottom: env(safe-area-inset-bottom);
 }
 @keyframes notion-sheet-fade-in { from { opacity: 0; } to { opacity: 1; } }
@@ -7922,7 +7923,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-custom-title { font-size: 16px; font-weight: 600; color: #1F2937; padding: 16px 16px 10px; }
 .sc-custom-title--row { display: flex; justify-content: space-between; align-items: center; }
 .sc-custom-clear { font-size: 13px; color: #3B82F6; cursor: pointer; font-weight: 400; -webkit-tap-highlight-color: transparent; }
-.sc-custom-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0; }
+.sc-custom-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 0; }
 .sc-custom-cell {
   background: #FFFFFF; color: #3A3A3E; border: 1px solid #E5E5EA;
   border-radius: 10px; padding: 14px 4px; text-align: center; font-size: 14px;
@@ -7955,7 +7956,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   padding: 8px 12px; font-size: 14px; color: #1F2937; background: #fff; outline: none;
 }
 .sc-custom-range-input:focus { border-color: #3B82F6; }
-.sc-custom-hist { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 0; }
+.sc-custom-hist { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 0; }
 .sc-custom-histcard {
   background: #FFFFFF; border: 1px solid #E5E5EA; border-radius: 10px;
   padding: 10px 4px; text-align: center; cursor: pointer; box-sizing: border-box;
@@ -8798,7 +8799,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 .sc-custom-sheet-title__close:active { background: #E0E0E8; }
-.sc-custom-sheet-body { padding: 0 16px 20px; display: flex; flex-direction: column; gap: 18px; }
+.sc-custom-sheet-body { padding: 0 16px 20px; display: flex; flex-direction: column; gap: 16px; }
 
 /* 区块标题（题型选择 / 数字设置 / 最近使用，卡外大标题） */
 .sc-custom-block-title { font-size: 16px; font-weight: 600; color: #1D1D1F; white-space: nowrap; overflow: visible; }

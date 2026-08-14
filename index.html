@@ -4654,6 +4654,7 @@ body.ipad-split .notion-mobile-toolbar {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   padding-bottom: env(safe-area-inset-bottom);
 }
 @keyframes notion-sheet-fade-in { from { opacity: 0; } to { opacity: 1; } }
@@ -7940,7 +7941,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-custom-title { font-size: 16px; font-weight: 600; color: #1F2937; padding: 16px 16px 10px; }
 .sc-custom-title--row { display: flex; justify-content: space-between; align-items: center; }
 .sc-custom-clear { font-size: 13px; color: #3B82F6; cursor: pointer; font-weight: 400; -webkit-tap-highlight-color: transparent; }
-.sc-custom-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0; }
+.sc-custom-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 0; }
 .sc-custom-cell {
   background: #FFFFFF; color: #3A3A3E; border: 1px solid #E5E5EA;
   border-radius: 10px; padding: 14px 4px; text-align: center; font-size: 14px;
@@ -7973,7 +7974,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   padding: 8px 12px; font-size: 14px; color: #1F2937; background: #fff; outline: none;
 }
 .sc-custom-range-input:focus { border-color: #3B82F6; }
-.sc-custom-hist { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 0; }
+.sc-custom-hist { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 0; }
 .sc-custom-histcard {
   background: #FFFFFF; border: 1px solid #E5E5EA; border-radius: 10px;
   padding: 10px 4px; text-align: center; cursor: pointer; box-sizing: border-box;
@@ -8816,7 +8817,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 .sc-custom-sheet-title__close:active { background: #E0E0E8; }
-.sc-custom-sheet-body { padding: 0 16px 20px; display: flex; flex-direction: column; gap: 18px; }
+.sc-custom-sheet-body { padding: 0 16px 20px; display: flex; flex-direction: column; gap: 16px; }
 
 /* 区块标题（题型选择 / 数字设置 / 最近使用，卡外大标题） */
 .sc-custom-block-title { font-size: 16px; font-weight: 600; color: #1D1D1F; white-space: nowrap; overflow: visible; }
@@ -8953,7 +8954,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.14.4';
+App.VERSION = '8.14.5';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -24377,11 +24378,20 @@ renderHome(container) {
     const content = document.createElement('div');
     content.className = 'notion-mobile-sheet__content';
 
+    // v8.15 弹窗打开时锁定背景滚动，避免横/竖屏下滑动穿透到速算练习原生页面；关闭恢复
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    const closeOverlay = () => {
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+      if (overlay.parentNode) overlay.remove();
+    };
+
     // 标题行
     const titleRow = document.createElement('div');
     titleRow.className = 'sc-custom-sheet-title';
     titleRow.innerHTML = '<div class="sc-custom-sheet-title__text">自定义练习</div><button type="button" class="sc-custom-sheet-title__close" aria-label="关闭">✕</button>';
-    titleRow.querySelector('.sc-custom-sheet-title__close').addEventListener('click', () => overlay.remove());
+    titleRow.querySelector('.sc-custom-sheet-title__close').addEventListener('click', () => closeOverlay());
     content.appendChild(titleRow);
 
     const body = document.createElement('div');
@@ -24513,7 +24523,7 @@ renderHome(container) {
         card.innerHTML = '<div class="sc-custom-histcard__name">' + (h.name || '') + '</div>' +
           '<div class="sc-custom-histcard__sub">' + (h.subName || '') + '</div>';
         card.addEventListener('click', () => {
-          overlay.remove();
+          closeOverlay();
           self.startCustomPractice(h);
         });
         histGrid.appendChild(card);
@@ -24531,7 +24541,7 @@ renderHome(container) {
     cancel.type = 'button';
     cancel.className = 'sc-custom-footbtn sc-custom-footbtn--cancel';
     cancel.textContent = '取消';
-    cancel.addEventListener('click', () => overlay.remove());
+    cancel.addEventListener('click', () => closeOverlay());
     const ok = document.createElement('button');
     ok.type = 'button';
     ok.className = 'sc-custom-footbtn sc-custom-footbtn--ok';
@@ -24546,7 +24556,7 @@ renderHome(container) {
       if (!cs.type) { App.Components.toast('请选择一个题型', 'error'); return; }
       if (cs.mode === 'range' && (cs.rangeMin == null || cs.rangeMax == null)) { App.Components.toast('请设置数字范围', 'error'); return; }
       if (cs.mode === 'fixed' && !cs.fixedNums.length) { App.Components.toast('请选择至少一个固定数字', 'error'); return; }
-      overlay.remove();
+      closeOverlay();
       if (onDone) onDone();
     });
     foot.appendChild(cancel);
@@ -24555,7 +24565,7 @@ renderHome(container) {
 
     overlay.appendChild(sheet);
     document.body.appendChild(overlay);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeOverlay(); });
   },
 
   // 自定义练习小窗：11 个题型多选 → 确定（不进入新页面）
