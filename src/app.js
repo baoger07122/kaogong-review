@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.14.9';
+App.VERSION = '8.14.10';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -1123,6 +1123,7 @@ App.DB = (function() {
     todo.type = todo.type || 'yanyu';
     todo.createdAt = todo.createdAt || new Date().toISOString();
     todo.updatedAt = todo.updatedAt || new Date().toISOString();
+    todo.dailyTimes = todo.dailyTimes || {};   // v8.14.10 按日分段计时 { 'YYYY-MM-DD': ms }
     if (todo.completed && !todo.completedAt) todo.completedAt = todo.updatedAt;
     return add('todos', todo);
   }
@@ -1132,6 +1133,7 @@ App.DB = (function() {
     todo.status = todo.status || (todo.completed ? 'completed' : 'pending');
     todo.note = todo.note || '';
     todo.type = todo.type || 'yanyu';
+    if (!todo.dailyTimes) todo.dailyTimes = {};
     if (todo.completed && !todo.completedAt) todo.completedAt = todo.updatedAt;
     if (!todo.completed) todo.completedAt = null;
     return put('todos', todo);
@@ -9293,9 +9295,15 @@ App.Pages.Home = {
           if (todo.completed) todo.completedAt = new Date().toISOString();
           else todo.completedAt = null;
           // v8.11.1 勾选完成时若正在计时，先结算累计时长
+          // v8.14.10 结算时长同时写入 dailyTimes 按日分段（供学习报告日/周/月统计）
           if (todo.completed && todo.timerStartedAt) {
-            todo.elapsedMs = (todo.elapsedMs || 0) + (Date.now() - todo.timerStartedAt);
+            const ms = Math.max(0, Date.now() - todo.timerStartedAt);
+            todo.elapsedMs = todo.elapsedMs || 0;
+            todo.elapsedMs += ms;
             todo.timerStartedAt = null;
+            if (!todo.dailyTimes) todo.dailyTimes = {};
+            const d = new Date(); const k = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+            todo.dailyTimes[k] = (todo.dailyTimes[k] || 0) + ms;
           }
           await App.DB.updateTodo(todo);
           App.Components.toast(todo.completed ? '已完成 ✓' : '已恢复', 'success');
@@ -9447,8 +9455,13 @@ App.Pages.Home = {
           e.stopPropagation();
           if (todo.completed) { App.Components.toast('已完成待办无需计时', 'info'); return; }
           if (todo.timerStartedAt) {
-            todo.elapsedMs = (todo.elapsedMs || 0) + (Date.now() - todo.timerStartedAt);
+            // v8.14.10 暂停时把本次计时写入 elapsedMs + dailyTimes（供学习报告分时统计）
+            const ms = Math.max(0, Date.now() - todo.timerStartedAt);
+            todo.elapsedMs = (todo.elapsedMs || 0) + ms;
             todo.timerStartedAt = null;
+            if (!todo.dailyTimes) todo.dailyTimes = {};
+            const dd = new Date(); const dk = dd.getFullYear() + '-' + String(dd.getMonth() + 1).padStart(2, '0') + '-' + String(dd.getDate()).padStart(2, '0');
+            todo.dailyTimes[dk] = (todo.dailyTimes[dk] || 0) + ms;
             timerBtn.textContent = '▶';
             timerWrap.classList.remove('running');
             timerText.classList.remove('is-running');
@@ -10069,6 +10082,19 @@ App.Pages.Errors = {
 
     layout.appendChild(main);
     container.appendChild(layout);
+
+    // v8.14.10 错题本右下角新增按钮：圆形蓝色填充 + 号，点击新建错题
+    const fab = document.createElement('button');
+    fab.type = 'button';
+    fab.className = 'sc-fab fab--solid-blue';
+    fab.setAttribute('aria-label', '新增错题');
+    fab.title = '新增错题';
+    fab.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+    fab.addEventListener('click', () => {
+      const subject = this.state.subject ? ('?subject=' + encodeURIComponent(this.state.subject)) : '';
+      App.Router.navigate('error-form' + subject);
+    });
+    container.appendChild(fab);
 
     // 加载数据并渲染
     await this.loadData();
@@ -13517,15 +13543,415 @@ App.Pages.Workspace = {
     activeTab: 0,
     reviewTasks: [],
     notes: [],
-    errors: []
+    errors: [],
+    reportPeriod: 'day',   // v8.14.10 学习报告周期: day / week / month
+    reportTodos: [],
+    reportErrors: [],
+    reportNotes: [],
+    reportPendingSettle: false
+  },
+
+  // v8.14.10 学习报告（按画布设计稿：日/周/月三屏切换）
+  // 学习时长来自待办按日计时 dailyTimes；错题/笔记/待办同周期聚合
+  _pad2(n) { return String(n).padStart(2, '0'); },
+  _dkey(d) { return d.getFullYear() + '-' + this._pad2(d.getMonth() + 1) + '-' + this._pad2(d.getDate()); },
+  _fmtDur(ms) {
+    ms = Math.max(0, Math.round(ms || 0));
+    const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+    if (h > 0) return h + 'h ' + m + 'm';
+    if (m > 0) return m + 'm';
+    return Math.max(1, Math.round(ms / 60000)) + 'm';
+  },
+  _fmtMin(ms) {
+    ms = Math.max(0, Math.round(ms || 0));
+    const m = Math.round(ms / 60000);
+    return m + 'm';
+  },
+  // 待办计时跨天结算：把计时中待办的时长按天拆入 dailyTimes（供日/周/月统计）
+  _settleOngoing() {
+    const now = new Date();
+    const settled = [];
+    (this.state.reportTodos || []).forEach(t => {
+      if (!t.timerStartedAt) return;
+      const from = t.timerStartedAt, to = now.getTime();
+      if (!(from < to)) { t.timerStartedAt = null; settled.push(t); return; }
+      if (!t.dailyTimes) t.dailyTimes = {};
+      let cur = new Date(from);
+      let pass = 0;
+      while (cur < now) {
+        const dayEnd = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1);
+        const segEnd = dayEnd < now ? dayEnd : now;
+        const segStart = Math.max(from, cur.getTime());
+        const segMs = Math.max(0, segEnd.getTime() - segStart);
+        if (segMs > 0) {
+          const k = this._dkey(cur);
+          t.dailyTimes[k] = (t.dailyTimes[k] || 0) + segMs;
+        }
+        cur = dayEnd; pass++;
+        if (pass > 400) break;
+      }
+      t.elapsedMs = (t.elapsedMs || 0) + (to - from);
+      t.timerStartedAt = now.getTime(); // 保留进行中，已把本次累计段入账
+      settled.push(t);
+    });
+    return settled;
+  },
+
+  async renderLearnReport(container) {
+    const self = this;
+    container.innerHTML = '';
+    const [todos, errors, notes] = await Promise.all([
+      App.DB.getTodos().catch(() => []),
+      App.DB.getErrors().catch(() => []),
+      App.DB.getNotes().catch(() => [])
+    ]);
+    this.state.reportTodos = todos;
+    this.state.reportErrors = errors;
+    this.state.reportNotes = notes;
+    this.state.reportPeriod = this.state.reportPeriod || 'day';
+
+    // v8.14.10 跨天结算：把仍在计时的待办时长按天拆分写入 dailyTimes 并持久化
+    const settled = this._settleOngoing();
+    if (settled.length) {
+      await Promise.all(settled.map(t => App.DB.updateTodo(t).catch(() => {})));
+    }
+
+    // ===== 顶部返回 + 标题 =====
+    const header = document.createElement('div');
+    header.className = 'page-header';
+    const backBtn = document.createElement('button');
+    backBtn.className = 'page-header__back';
+    backBtn.innerHTML = '‹ 返回';
+    backBtn.addEventListener('click', () => App.Router.navigate('home'));
+    header.appendChild(backBtn);
+    const htitle = document.createElement('div');
+    htitle.className = 'page-header__title';
+    htitle.textContent = '学习报告';
+    header.appendChild(htitle);
+    container.appendChild(header);
+
+    // ===== 顶部周期切换胶囊（今日 / 本周 / 本月）=====
+    const seg = document.createElement('div');
+    seg.className = 'lr-seg';
+    const segs = [['day', '今日'], ['week', '本周'], ['month', '本月']];
+    seg.style.cssText = 'display:flex;margin:12px var(--page-padding) 6px;gap:6px;padding:4px;background:var(--bg-tertiary);border-radius:9999px;';
+    segs.forEach(([k, label]) => {
+      const chip = document.createElement('div');
+      chip.style.cssText = 'flex:1;text-align:center;padding:7px 0;border-radius:9999px;font-size:13px;font-weight:500;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background .18s,color .18s;';
+      const on = this.state.reportPeriod === k;
+      chip.style.background = on ? '#fff' : 'transparent';
+      chip.style.color = on ? '#1D1D1F' : '#7A7A7A';
+      chip.style.boxShadow = on ? '0 1px 4px rgba(0,0,0,0.08)' : 'none';
+      chip.textContent = label;
+      chip.addEventListener('click', () => {
+        this.state.reportPeriod = k;
+        seg.querySelectorAll('div').forEach((c, i) => {
+          const on2 = segs[i][0] === k;
+          c.style.background = on2 ? '#fff' : 'transparent';
+          c.style.color = on2 ? '#1D1D1F' : '#7A7A7A';
+          c.style.boxShadow = on2 ? '0 1px 4px rgba(0,0,0,0.08)' : 'none';
+        });
+        this.renderLearnBody(container);
+      });
+      seg.appendChild(chip);
+    });
+    container.appendChild(seg);
+
+    this.renderLearnBody(container);
+  },
+
+  // 计算周期范围
+  _periodRange() {
+    const now = new Date();
+    const k = this.state.reportPeriod;
+    if (k === 'day') {
+      const s = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      return { start: s.getTime(), end: s.getTime() + 86400000 };
+    }
+    if (k === 'week') {
+      const day = now.getDay() || 7;
+      const start = new Date(now); start.setDate(now.getDate() - day + 1); start.setHours(0, 0, 0, 0);
+      return { start: start.getTime(), end: now.getTime() };
+    }
+    // month
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { start: start.getTime(), end: now.getTime() };
+  },
+
+  // v8.14.10 判断某"日键"(YYYY-MM-DD)是否落在当前报告周期内
+  _inPeriod(dk) {
+    const p = this.state.reportPeriod;
+    if (!dk) return false;
+    const parts = dk.split('-');
+    if (parts.length < 3) return false;
+    const y = parseInt(parts[0], 10), m = parseInt(parts[1], 10), d = parseInt(parts[2], 10);
+    const now = new Date();
+    if (Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(d)) return false;
+    if (p === 'day') return y === now.getFullYear() && m === now.getMonth() + 1 && d === now.getDate();
+    if (p === 'week') {
+      const dow = now.getDay() || 7;
+      const ws = new Date(now); ws.setDate(now.getDate() - dow + 1); ws.setHours(0, 0, 0, 0);
+      const t = new Date(y, m - 1, d).getTime();
+      return t >= ws.getTime() && t <= now.getTime();
+    }
+    return y === now.getFullYear() && m === now.getMonth() + 1;
+  },
+
+  // v8.14.10 待办 type key → 科目名（SUBJECTS 无 key，需显式映射）
+  _TODO_SUBJECT_MAP: { yanyu: '言语理解', ziliao: '资料分析', panduan: '判断推理', shuliang: '数量关系', changshi: '常识判断', shenlun: '申论' },
+  _subNameOfType(type) {
+    const map = this._TODO_SUBJECT_MAP;
+    return (type && map[type]) || '常识';
+  },
+  _subjectByName(name) {
+    return App.Constants.SUBJECTS.find(s => s.name === name) || App.Constants.SUBJECTS[0];
+  },
+
+  renderLearnBody(container) {
+    const self = this;
+    const old = container.querySelector('.lr-body');
+    if (old) old.remove();
+    const body = document.createElement('div');
+    body.className = 'lr-body';
+    body.style.cssText = 'padding:var(--spacing-md) var(--page-padding) calc(var(--nav-height) + var(--safe-bottom) + 24px);';
+    container.appendChild(body);
+
+    const period = this.state.reportPeriod;
+    const r = this._periodRange();
+    const isToday = period === 'day';
+    const periodTodos = this.state.reportTodos.filter(t => t.completed && (t.updatedAt || t.createdAt));
+    // 待办明细：周期内完成的（completedAt 落在区间）
+    const doneInPeriod = this.state.reportTodos.filter(t => {
+      if (!t.completed) return false;
+      const d = new Date(t.completedAt || t.updatedAt).getTime();
+      return d >= r.start && d <= r.end;
+    });
+
+    // ===== 学习时长汇总 =====
+    // 日：今日学习时长卡（含科目时长行）；周/月：大字汇总 + 副文案
+    const SUBJECTS = App.Constants.SUBJECTS;
+    const subjectTime = {};
+    SUBJECTS.forEach(s => { subjectTime[s.name] = 0; });
+    let totalTime = 0;
+    this.state.reportTodos.forEach(t => {
+      const target = self._subNameOfType(t.type);
+      if (!t.dailyTimes) return;
+      Object.keys(t.dailyTimes).forEach(dk => {
+        if (self._inPeriod(dk)) {
+          const v = t.dailyTimes[dk];
+          subjectTime[target] = (subjectTime[target] || 0) + v;
+          totalTime += v;
+        }
+      });
+    });
+
+    // 科目类型色（与首页/设计稿一致）
+    const SUB_COLORS = [
+      '#4A90E2', '#FF9F43', '#9B7BFF', '#34C759', '#6B8EAD', '#1ABC9C'
+    ];
+
+    // 日报告卡1：今日学习时长（头部 + 科目时长行）
+    if (isToday) {
+      const card1 = document.createElement('div');
+      card1.className = 'lr-card';
+      card1.style.cssText = 'background:#fff;border-radius:16px;padding:14px 16px;margin-bottom:var(--spacing-md);box-shadow:0 2px 10px rgba(0,0,0,0.04);';
+      const hd = document.createElement('div');
+      hd.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;';
+      const hdl = document.createElement('div');
+      hdl.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#1D1D1F;';
+      hdl.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2162D8" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>今日学习时长';
+      hd.appendChild(hdl);
+      const totalBig = document.createElement('div');
+      totalBig.textContent = this._fmtDur(totalTime);
+      totalBig.style.cssText = 'font-size:20px;font-weight:600;color:#0066CC;';
+      hd.appendChild(totalBig);
+      card1.appendChild(hd);
+      // 科目时长行（6 科横排）
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;';
+      SUBJECTS.forEach((s, i) => {
+        const cell = document.createElement('div');
+        cell.style.cssText = 'text-align:center;flex:1;';
+        const dot = document.createElement('div');
+        dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:' + SUB_COLORS[i] + ';margin:0 auto;';
+        const nm = document.createElement('div');
+        nm.style.cssText = 'font-size:11px;color:#7A7A7A;margin-top:4px;';
+        nm.textContent = (s.icon || '') + ' ' + s.name.replace('理解', '').replace('判断推理', '判断').replace('数量关系', '数量').replace('资料分析', '资料').replace('常识判断', '常识');
+        const tm = document.createElement('div');
+        tm.style.cssText = 'font-size:12px;font-weight:600;color:#1D1D1F;margin-top:2px;';
+        tm.textContent = subjectTime[s.name] > 0 ? this._fmtMin(subjectTime[s.name]) : '—';
+        cell.appendChild(dot); cell.appendChild(nm); cell.appendChild(tm);
+        row.appendChild(cell);
+      });
+      card1.appendChild(row);
+      body.appendChild(card1);
+    } else {
+      // 周/月：时长汇总（大字）
+      const sum = document.createElement('div');
+      sum.style.cssText = 'padding:4px 2px 18px;';
+      const big = document.createElement('div');
+      big.textContent = this._fmtDur(totalTime);
+      big.style.cssText = 'font-size:34px;font-weight:600;color:#1D1D1F;';
+      sum.appendChild(big);
+      const sub = document.createElement('div');
+      const todoTotal = this.state.reportTodos.length;
+      const todoDone = doneInPeriod.length;
+      sub.textContent = (isToday ? '今日' : (period === 'week' ? '本周' : '本月')) + '学习时长 · ' + todoDone + ' 项待办完成';
+      sub.style.cssText = 'font-size:13px;color:#7A7A7A;margin-top:2px;';
+      sum.appendChild(sub);
+      body.appendChild(sum);
+    }
+
+    // ===== 科目时长卡 =====
+    const subCard = document.createElement('div');
+    subCard.className = 'lr-card';
+    subCard.style.cssText = 'background:#fff;border-radius:16px;padding:14px 16px;margin-bottom:var(--spacing-md);box-shadow:0 2px 10px rgba(0,0,0,0.04);';
+    const subT = document.createElement('div');
+    subT.textContent = '科目时长';
+    subT.style.cssText = 'font-size:14px;font-weight:600;color:#1D1D1F;margin-bottom:10px;';
+    subCard.appendChild(subT);
+    SUBJECTS.forEach((s, i) => {
+      const lr = document.createElement('div');
+      lr.style.cssText = 'display:flex;align-items:center;gap:10px;padding:5px 0;';
+      const dot = document.createElement('span');
+      dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:' + SUB_COLORS[i] + ';flex-shrink:0;';
+      const nm = document.createElement('span');
+      nm.style.cssText = 'font-size:13px;color:#4B4B50;flex:0 0 60px;';
+      nm.textContent = s.name.replace('理解', '').replace('判断推理', '判断').replace('数量关系', '数量').replace('资料分析', '资料').replace('常识判断', '常识');
+      // 进度条
+      const barWrap = document.createElement('div');
+      barWrap.style.cssText = 'flex:1;height:8px;background:rgba(0,0,0,0.06);border-radius:4px;overflow:hidden;';
+      const bar = document.createElement('div');
+      const maxT = Math.max.apply(null, SUBJECTS.map(x => subjectTime[x.name])); 
+      const pct = maxT > 0 ? Math.min(100, Math.round(subjectTime[s.name] / maxT * 100)) : 0;
+      bar.style.cssText = 'height:100%;width:' + pct + '%;background:' + SUB_COLORS[i] + ';border-radius:4px;';
+      barWrap.appendChild(bar);
+      const tm = document.createElement('span');
+      tm.style.cssText = 'font-size:13px;font-weight:600;color:#1D1D1F;flex:0 0 40px;text-align:right;';
+      tm.textContent = subjectTime[s.name] > 0 ? this._fmtMin(subjectTime[s.name]) : '—';
+      lr.appendChild(dot); lr.appendChild(nm); lr.appendChild(barWrap); lr.appendChild(tm);
+      subCard.appendChild(lr);
+    });
+    body.appendChild(subCard);
+
+    // ===== 周/月 额外卡片：错题统计 + 笔记动态 =====
+    if (!isToday) {
+      // 错题统计卡
+      const errs = this.state.reportErrors.filter(e => {
+        const d = new Date(e.createdAt).getTime();
+        return d >= r.start && d <= r.end;
+      });
+      const allErrs = this.state.reportErrors;
+      const unmasteredAll = allErrs.filter(e => e.status === '未掌握').length;
+      const masteredAll = allErrs.filter(e => e.status === '已掌握').length;
+      const errCard = document.createElement('div');
+      errCard.className = 'lr-card';
+      errCard.style.cssText = 'background:#fff;border-radius:16px;padding:14px 16px;margin-bottom:var(--spacing-md);box-shadow:0 2px 10px rgba(0,0,0,0.04);';
+      const errT = document.createElement('div');
+      errT.textContent = '错题统计';
+      errT.style.cssText = 'font-size:14px;font-weight:600;color:#1D1D1F;margin-bottom:10px;';
+      errCard.appendChild(errT);
+      const stats = [['本周新增', errs.length], ['待掌握', unmasteredAll], ['已掌握', masteredAll], ['总错题', allErrs.length]];
+      const grid = document.createElement('div');
+      grid.style.cssText = 'display:flex;text-align:center;';
+      stats.forEach(([lb, val]) => {
+        const it = document.createElement('div');
+        it.style.cssText = 'flex:1;';
+        const v = document.createElement('div');
+        v.textContent = val;
+        v.style.cssText = 'font-size:20px;font-weight:700;color:#1D1D1F;';
+        const l = document.createElement('div');
+        l.textContent = period === 'week' ? lb.replace('本周', '本') : (lb === '本周新增' ? '本月新增' : lb);
+        l.style.cssText = 'font-size:11px;color:#7A7A7A;margin-top:2px;';
+        it.appendChild(v); it.appendChild(l);
+        grid.appendChild(it);
+      });
+      errCard.appendChild(grid);
+      body.appendChild(errCard);
+
+      // 笔记动态卡
+      const notes = this.state.reportNotes.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 3);
+      const noteCard = document.createElement('div');
+      noteCard.className = 'lr-card';
+      noteCard.style.cssText = 'background:#fff;border-radius:16px;padding:14px 16px;margin-bottom:var(--spacing-md);box-shadow:0 2px 10px rgba(0,0,0,0.04);';
+      const noteT = document.createElement('div');
+      noteT.textContent = '笔记动态';
+      noteT.style.cssText = 'font-size:14px;font-weight:600;color:#1D1D1F;margin-bottom:10px;';
+      noteCard.appendChild(noteT);
+      if (notes.length === 0) {
+        const empty = document.createElement('div');
+        empty.textContent = '暂无笔记';
+        empty.style.cssText = 'font-size:13px;color:#9A9AA0;text-align:center;padding:10px 0;';
+        noteCard.appendChild(empty);
+      } else {
+        notes.forEach(n => {
+          const nrow = document.createElement('div');
+          nrow.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 0;';
+          const sub = App.Constants.SUBJECTS.find(s => s.name === n.subject);
+          const block = document.createElement('div');
+          block.style.cssText = 'width:30px;height:30px;border-radius:8px;background:' + (sub ? sub.color : '#9AA0A6') + '22;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;';
+          block.textContent = sub ? (sub.icon || '') : '📝';
+          const t2 = document.createElement('div');
+          t2.style.cssText = 'flex:1;font-size:13px;font-weight:500;color:#1D1D1F;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+          t2.textContent = n.title || '未命名笔记';
+          const d = document.createElement('div');
+          const dt = new Date(n.createdAt);
+          d.textContent = (dt. getMonth() + 1) + '月' + dt.getDate() + '日';
+          d.style.cssText = 'font-size:11px;color:#9A9AA0;flex-shrink:0;';
+          nrow.appendChild(block); nrow.appendChild(t2); nrow.appendChild(d);
+          noteCard.appendChild(nrow);
+        });
+      }
+      body.appendChild(noteCard);
+    }
+
+    // ===== 待办明细卡 =====
+    const todoCard = document.createElement('div');
+    todoCard.className = 'lr-card';
+    todoCard.style.cssText = 'background:#fff;border-radius:16px;padding:0 16px;margin-bottom:var(--spacing-md);box-shadow:0 2px 10px rgba(0,0,0,0.04);';
+    const th = document.createElement('div');
+    th.textContent = '待办明细';
+    th.style.cssText = 'font-size:14px;font-weight:600;color:#1D1D1F;padding:14px 0;border-bottom:1px solid #F2F2F4;';
+    todoCard.appendChild(th);
+    const list = doneInPeriod.slice().sort((a, b) => new Date(b.completedAt || b.updatedAt) - new Date(a.completedAt || a.updatedAt));
+    if (list.length === 0) {
+      const empty = document.createElement('div');
+      empty.textContent = '本期暂无完成的待办';
+      empty.style.cssText = 'font-size:13px;color:#9A9AA0;text-align:center;padding:16px 0;';
+      todoCard.appendChild(empty);
+    } else {
+      list.forEach(t => {
+        const sub = self._subjectByName(self._subNameOfType(t.type));
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid #F2F2F4;';
+        const check = document.createElement('div');
+        check.style.cssText = 'width:16px;height:16px;border-radius:50%;background:#34C759;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+        check.innerHTML = '<svg width="9" height="9" viewBox="0 0 10 10" fill="none"><path d="M2 5l2 2 3.5-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        const tx = document.createElement('div');
+        tx.style.cssText = 'flex:1;font-size:13px;color:#1D1D1F;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+        tx.textContent = t.text || '待办';
+        const tag = document.createElement('span');
+        tag.style.cssText = 'font-size:11px;color:' + sub.color + ';background:' + sub.color + '1A;padding:3px 8px;border-radius:9999px;flex-shrink:0;';
+        const tn = sub.name.replace('理解', '').replace('判断推理', '判断').replace('数量关系', '数量').replace('资料分析', '资料').replace('常识判断', '常识');
+        tag.textContent = tn;
+        const tm = document.createElement('div');
+        const durMs = (t.dailyTimes ? Object.keys(t.dailyTimes).reduce((s2, dk) => s2 + (self._inPeriod(dk) ? t.dailyTimes[dk] : 0), 0) : 0);
+        tm.textContent = durMs > 0 ? this._fmtMin(durMs) : '';
+        tm.style.cssText = 'font-size:13px;font-weight:600;color:#1D1D1F;flex-shrink:0;min-width:34px;text-align:right;';
+        row.appendChild(check); row.appendChild(tx); row.appendChild(tag); row.appendChild(tm);
+        todoCard.appendChild(row);
+      });
+    }
+    body.appendChild(todoCard);
   },
 
   async render(params) {
     const container = document.getElementById('page-workspace');
     container.innerHTML = '';
-
-    // 从 URL 参数获取科目
-    this.state.subject = params.subject || App.Constants.SUBJECTS[0].name;
+    // v8.14.10 学习报告重做：按画布设计稿（日/周/月三屏切换），替换原科目工作台
+    this.renderLearnReport(container);
+    return;
+    // == 以下为原科目工作台（废弃，不再渲染） ==
     this.state.activeTab = parseInt(params.tab) || 0;
 
     // 返回栏（padding 由 .page-header 统一 CSS 控制：贴顶 + 安全区留白，勿用 inline 覆盖）
