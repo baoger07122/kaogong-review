@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.14.3';
+App.VERSION = '8.14.4';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -15102,8 +15102,8 @@ App.Pages.SpeedCalc = {
     addsub3:  { name: '三位数加减',     s: { excellent: 40, good: 50, pass: 70 }, gen: () => { const a = randInt(100, 999), b = randInt(100, 999); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } },
     mul2x1:   { name: '两位数乘一位数', s: { excellent: 20, good: 28, pass: 40 }, gen: () => { const a = randInt(10, 99), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
     mul3x1:   { name: '三位数乘一位数', s: { excellent: 35, good: 45, pass: 60 }, gen: () => { const a = randInt(100, 999), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
-    div3x1:   { name: '三位数除一位数', s: { excellent: 24, good: 30, pass: 38 }, gen: () => { const d = randInt(2, 9), q = randInt(20, 150); return makeQ((d * q) + ' ÷ ' + d, q); } },
-    div5x3:   { name: '五位数除三位数', s: { excellent: 45, good: 70, pass: 100 }, gen: () => { const d = randInt(100, 999), q = randInt(100, 999); return makeQ((d * q) + ' ÷ ' + d, q); } },
+    div3x1:   { name: '三位数除一位数', s: { excellent: 24, good: 30, pass: 38 }, gen: () => { const d = randInt(2, 9), n = randInt(100, 999); const a = Math.round(n / d * 100) / 100; return makeQ(n + ' ÷ ' + d, a); } },
+    div5x3:   { name: '五位数除三位数', s: { excellent: 45, good: 70, pass: 100 }, gen: () => { const d = randInt(100, 999), n = randInt(2000, 99999); const a = Math.round(n / d * 100) / 100; return makeQ(n + ' ÷ ' + d, a); } },
     spDen:    { name: '特殊分母练习',   s: { excellent: 10, good: 15, pass: 20 }, gen: () => { const pool = [[5, '5%'], [12.5, '12.5%'], [25, '25%'], [37.5, '37.5%'], [50, '50%'], [75, '75%'], [87.5, '87.5%']]; const p = pool[randInt(0, pool.length - 1)], n = randInt(40, 400); return makeQ(n + ' × ' + p[1] + ' =', Math.round(n * p[0] / 100)); } },
     est05:    { name: '零五十估算练习', s: { excellent: 20, good: 30, pass: 45 }, gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } },
     // ===== 资料分析（3）=====
@@ -15417,7 +15417,7 @@ renderHome(container) {
     if (!this.state.custom) this.resetCustomState();
     const cs = this.state.custom;
     const presets = this.loadCustomPresets();
-    if (!cs.types) cs.types = [];
+    if (typeof cs.type !== 'string') cs.type = null;
     if (!Array.isArray(cs.fixedNums)) cs.fixedNums = [];
 
     const overlay = document.createElement('div');
@@ -15448,11 +15448,11 @@ renderHome(container) {
       typeGrid.innerHTML = '';
       this.CUSTOM_ORDER.forEach(key => {
         const c = document.createElement('div');
-        c.className = 'sc-custom-cell' + (cs.types.includes(key) ? ' selected' : '');
+        c.className = 'sc-custom-cell' + (cs.type === key ? ' selected' : '');
         c.textContent = this.CUSTOM_TYPES[key].name;
         c.addEventListener('click', () => {
-          if (cs.types.includes(key)) cs.types = cs.types.filter(k => k !== key);
-          else cs.types.push(key);
+          // 单选：点已选取消，点其他替换
+          cs.type = cs.type === key ? null : key;
           renderTypes(); renderOk();
         });
         typeGrid.appendChild(c);
@@ -15491,10 +15491,10 @@ renderHome(container) {
     const numInputArea = document.createElement('div');
     const renderNumInputs = () => {
       numInputArea.innerHTML = '';
+      const hint = document.createElement('div');
+      hint.className = 'sc-dnum-hint';
       if (cs.mode === 'range') {
-        const hint = document.createElement('div');
-        hint.className = 'sc-dnum-hint';
-        hint.textContent = '在范围内随机出题（001-999）';
+        hint.textContent = '在范围内随机出题';
         numInputArea.appendChild(hint);
         const rangeWrap = document.createElement('div');
         rangeWrap.className = 'sc-dnum-range';
@@ -15519,9 +15519,7 @@ renderHome(container) {
         rangeWrap.appendChild(mk('最大值', cs.rangeMax, (v) => { cs.rangeMax = v; }));
         numInputArea.appendChild(rangeWrap);
       } else {
-        const hint = document.createElement('div');
-        hint.className = 'sc-dnum-hint';
-        hint.textContent = '可选中多个数字，练习时从所选数字中随机出题';
+        hint.textContent = '可多选，出题时随机取用';
         numInputArea.appendChild(hint);
         const row = document.createElement('div');
         row.className = 'sc-dnum-fixrow';
@@ -15588,14 +15586,14 @@ renderHome(container) {
     ok.type = 'button';
     ok.className = 'sc-custom-footbtn sc-custom-footbtn--ok';
     const renderOk = () => {
-      const hasType = (cs.types || []).length > 0;
+      const hasType = !!cs.type;
       const hasNum = cs.mode === 'range' ? (cs.rangeMin != null && cs.rangeMax != null) : (Array.isArray(cs.fixedNums) && cs.fixedNums.length > 0);
       ok.textContent = '确定';
       ok.classList.toggle('disabled', !hasType || !hasNum);
     };
     renderOk();
     ok.addEventListener('click', () => {
-      if (!cs.types.length) { App.Components.toast('请至少选择一个题型', 'error'); return; }
+      if (!cs.type) { App.Components.toast('请选择一个题型', 'error'); return; }
       if (cs.mode === 'range' && (cs.rangeMin == null || cs.rangeMax == null)) { App.Components.toast('请设置数字范围', 'error'); return; }
       if (cs.mode === 'fixed' && !cs.fixedNums.length) { App.Components.toast('请选择至少一个固定数字', 'error'); return; }
       overlay.remove();
@@ -15875,8 +15873,8 @@ renderHome(container) {
     jjDiv:    { name: '九九除法', gen: () => { const d = randInt(2, 9), q = randInt(2, 9); return makeQ((d * q) + ' ÷ ' + d, q); } },
     addsub2c: { name: '两位数加减', gen: () => { const a = randInt(10, 99), b = randInt(10, 99); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } },
     mul2x1c:  { name: '两位数乘一位数', gen: () => { const a = randInt(10, 99), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
-    div3x1c:  { name: '三位数除一位数', gen: () => { const d = randInt(2, 9), q = randInt(20, 150); return makeQ((d * q) + ' ÷ ' + d, q); } },
-    div5x3c:  { name: '五位数除三位数', gen: () => { const d = randInt(100, 999), q = randInt(100, 999); return makeQ((d * q) + ' ÷ ' + d, q); } },
+    div3x1c:  { name: '三位数除一位数', gen: () => { const d = randInt(2, 9), n = randInt(100, 999); const a = Math.round(n / d * 100) / 100; return makeQ(n + ' ÷ ' + d, a); } },
+    div5x3c:  { name: '五位数除三位数', gen: () => { const d = randInt(100, 999), n = randInt(2000, 99999); const a = Math.round(n / d * 100) / 100; return makeQ(n + ' ÷ ' + d, a); } },
     divRem:   { name: '除法取余', gen: () => { const d = randInt(3, 9), q = randInt(2, 9), r = randInt(1, d - 1), a = d * q + r; return makeQ(a + ' ÷ ' + d + ' 余?', r); } },
     mulHead:  { name: '乘法截首', gen: () => { const a = randInt(11, 99), b = randInt(3, 9), p = a * b, s = String(p), first = parseInt(s.charAt(0), 10); return makeQ(a + ' × ' + b + ' 首位?', first); } },
     mulEstc:  { name: '乘法估算', gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } }
@@ -15909,13 +15907,19 @@ renderHome(container) {
     if (newExpr === null || newExpr === expr) return q;
     const ans = this._evalArith(newExpr);
     if (ans === null) return q;
-    return makeQ(newExpr, Math.round(ans));
+    return makeQ(newExpr, Math.round(ans * 100) / 100);
   },
   // 简易四则求值（×÷→*/，去空格，Function 求值；非法返回 null）
   _evalArith(expr) {
     const e = String(expr).replace(/×/g, '*').replace(/÷/g, '/').replace(/\s+/g, '');
     if (!e || !/^[0-9+\-*/.]+$/.test(e)) return null;
     try { const r = Function('"use strict"; return (' + e + ');')(); return (typeof r === 'number' && isFinite(r)) ? r : null; } catch (err) { return null; }
+  },
+  // 答案展示：整数原样，小数默认保留小数点后两位（v8.15）
+  fmtAns(v) {
+    const n = Number(v);
+    if (!isFinite(n)) return String(v == null ? '' : v);
+    return Number.isInteger(n) ? String(n) : n.toFixed(2);
   },
 
   // ===== 自定义配置持久化（kg_speed_custom_presets）=====
@@ -15932,9 +15936,11 @@ renderHome(container) {
   resetCustomState() {
     const presets = this.loadCustomPresets();
     const last = presets.lastUsed || {};
-    // v8.15 重构：单一题型多选 + 数字设置（数字范围 range / 固定数字 fixed 二选一），默认跟随全局设置
+    // v8.15 重构：单一题型单选 + 数字设置（数字范围 range / 固定数字 fixed 二选一），默认跟随全局设置
+    const lastType = Array.isArray(last.types) && last.types.length ? last.types[0]
+      : (typeof last.type === 'string' ? last.type : null);
     this.state.custom = {
-      types: Array.isArray(last.types) ? last.types.slice() : [],
+      type: lastType,
       mode: (last.mode === 'range' || last.mode === 'fixed') ? last.mode : (last.featureType === 'randomRange' ? 'range' : 'fixed'),
       rangeMin: last.rangeMin != null ? last.rangeMin : (last.randomMin != null ? last.randomMin : 1),
       rangeMax: last.rangeMax != null ? last.rangeMax : (last.randomMax != null ? last.randomMax : 99),
@@ -16168,25 +16174,26 @@ renderHome(container) {
     if (!this.state.custom) this.resetCustomState();
     const cs = this.state.custom;
     if (hist) {
-      cs.types = (Array.isArray(hist.types) ? hist.types : []).filter(k => this.CUSTOM_TYPES[k] && this.CUSTOM_TYPES[k].gen);
+      cs.type = (typeof hist.type === 'string' && this.CUSTOM_TYPES[hist.type] && this.CUSTOM_TYPES[hist.type].gen) ? hist.type
+        : (Array.isArray(hist.types) && hist.types.length && this.CUSTOM_TYPES[hist.types[0]] && this.CUSTOM_TYPES[hist.types[0]].gen) ? hist.types[0]
+        : null;
       cs.mode = (hist.mode === 'range' || hist.mode === 'fixed') ? hist.mode : 'fixed';
       cs.rangeMin = hist.rangeMin != null ? hist.rangeMin : 1;
       cs.rangeMax = hist.rangeMax != null ? hist.rangeMax : 99;
       cs.fixedNums = (Array.isArray(hist.fixedNums) ? hist.fixedNums : []).filter(n => n >= 2 && n <= 9);
     }
-    const types = (cs.types || []).filter(k => this.CUSTOM_TYPES[k] && this.CUSTOM_TYPES[k].gen);
+    const key = cs.type;
     const hasNum = cs.mode === 'range' ? (cs.rangeMin != null && cs.rangeMax != null) : (Array.isArray(cs.fixedNums) && cs.fixedNums.length > 0);
-    if (!types.length || !hasNum) { App.Components.toast('请先选择题型并设置数字', 'error'); return; }
+    if (!this.CUSTOM_TYPES[key] || !this.CUSTOM_TYPES[key].gen || !hasNum) { App.Components.toast('请先选择题型并设置数字', 'error'); return; }
     const settings = this.loadSettings();
     const count = settings.questionCount || 10;
     const mode = this.state.mode || 'train';
     this.state.type = 'custom';
     this.state.mode = mode;
 
-    // 出题：每轮从已选题型随机选一种 gen，再按数字设置（数字范围 / 固定数字）套用数字规则
+    // 出题：用所选单选题型 gen，再按数字设置（数字范围 / 固定数字）套用数字规则
     this.state.questions = [];
     for (let i = 0; i < count; i++) {
-      const key = types[randInt(0, types.length - 1)];
       let q = this.CUSTOM_TYPES[key].gen();
       if (cs.mode === 'range' && cs.rangeMin != null && cs.rangeMax != null) {
         q = this._applyCustomFeature(q, { mode: 'range', min: cs.rangeMin, max: cs.rangeMax });
@@ -16206,21 +16213,20 @@ renderHome(container) {
 
     // 保存配置 + 历史（最多 12 条，新置顶）
     const presets = this.loadCustomPresets();
-    const firstType = types[0];
     const fixedLabel = cs.fixedNums.slice().sort((a, b) => a - b).join('、');
     const histItem = {
       id: Date.now(),
-      types: types.slice(),
+      type: key,
       mode: cs.mode,
       rangeMin: cs.mode === 'range' ? cs.rangeMin : null,
       rangeMax: cs.mode === 'range' ? cs.rangeMax : null,
       fixedNums: cs.mode === 'fixed' ? cs.fixedNums.slice() : null,
-      name: types.length > 1 ? (types.length + ' 题组合') : this.CUSTOM_TYPES[firstType].name,
+      name: this.CUSTOM_TYPES[key].name,
       subName: cs.mode === 'range' ? ('数字 ' + cs.rangeMin + '-' + cs.rangeMax) : (fixedLabel ? '固定 ' + fixedLabel : '固定数字'),
       date: new Date().toISOString().slice(0, 10)
     };
     presets.lastUsed = {
-      types: types.slice(),
+      type: key,
       mode: cs.mode,
       rangeMin: cs.rangeMin,
       rangeMax: cs.rangeMax,
@@ -16337,7 +16343,8 @@ renderHome(container) {
       // v8.6.25 记录每题用时（做题页不显示，结果页表格展示）
       q.timeUsed = Math.round((Date.now() - self.state.qStart) / 100) / 10;
       const isEst = /≈|估算/.test(q.expr);
-      q.correct = isEst ? Math.abs(val - q.answer) <= Math.max(1, Math.abs(q.answer) * 0.03) : val === q.answer;
+      // 答案保留两位小数（三位数÷/五位数÷ 可产生小数），用 0.011 容差比对
+      q.correct = isEst ? Math.abs(val - q.answer) <= Math.max(1, Math.abs(q.answer) * 0.03) : Math.abs(val - q.answer) <= 0.011;
       // v8.6.38 正确反馈：全屏淡青闪烁（inset box-shadow 覆盖）+ 顶部统计数字跳动
       if (q.correct) {
         const scBox = container;
@@ -16418,8 +16425,8 @@ renderHome(container) {
         void disp.offsetWidth;
         disp.classList.add('sc-ans-pop');
       }
-      // 确定开关 ON：答案位数与正确答案一致 → 自动提交
-      if (confirmAuto && !submitted && !isNaN(parseFloat(self.state.currentInput)) && self.state.currentInput.length === String(q.answer).length) {
+      // 确定开关 ON：答案位数为整数时位数与正确答案一致 → 自动提交（小数答案需手动按 ✓）
+      if (confirmAuto && !submitted && Number.isInteger(q.answer) && !isNaN(parseFloat(self.state.currentInput)) && self.state.currentInput.length === String(q.answer).length) {
         submit();
       }
     };
@@ -16587,7 +16594,7 @@ renderHome(container) {
       row.innerHTML =
         '<div class="sc-rt-col sc-rt-col--no">' + (i + 1) + '</div>' +
         '<div class="sc-rt-col sc-rt-col--q">' + q.expr + '</div>' +
-        '<div class="sc-rt-col sc-rt-col--ans">= ' + q.answer + '</div>' +
+        '<div class="sc-rt-col sc-rt-col--ans">= ' + self.fmtAns(q.answer) + '</div>' +
         '<div class="sc-rt-col sc-rt-col--user ' + (q.correct ? 'ok' : 'no') + '">' + ua + (q.correct ? '✓' : '✗') + '</div>' +
         '<div class="sc-rt-col sc-rt-col--t">' + (q.timeUsed || 0).toFixed(1) + 's</div>';
       table.appendChild(row);
