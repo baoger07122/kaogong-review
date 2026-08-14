@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.14.5';
+App.VERSION = '8.14.6';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -15105,7 +15105,7 @@ App.Pages.SpeedCalc = {
     div3x1:   { name: '三位数除一位数', s: { excellent: 24, good: 30, pass: 38 }, gen: () => { const d = randInt(2, 9), n = randInt(100, 999); const a = Math.round(n / d * 100) / 100; return makeQ(n + ' ÷ ' + d, a); } },
     div5x3:   { name: '五位数除三位数', s: { excellent: 45, good: 70, pass: 100 }, gen: () => { const d = randInt(100, 999), n = randInt(2000, 99999); const a = Math.round(n / d * 100) / 100; return makeQ(n + ' ÷ ' + d, a); } },
     spDen:    { name: '特殊分母练习',   s: { excellent: 10, good: 15, pass: 20 }, gen: () => { const pool = [[5, '5%'], [12.5, '12.5%'], [25, '25%'], [37.5, '37.5%'], [50, '50%'], [75, '75%'], [87.5, '87.5%']]; const p = pool[randInt(0, pool.length - 1)], n = randInt(40, 400); return makeQ(n + ' × ' + p[1] + ' =', Math.round(n * p[0] / 100)); } },
-    est05:    { name: '零五十估算练习', s: { excellent: 20, good: 30, pass: 45 }, gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } },
+    est05:    { name: '估算练习', s: { excellent: 20, good: 30, pass: 45 }, gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } },
     // ===== 资料分析（3）=====
     base:     { name: '基期练习',       s: { excellent: 35, good: 50, pass: 70 }, gen: () => { const b = randInt(100, 9999), r = randInt(2, 30), cur = Math.round(b * (100 + r) / 100); return makeQ('现期 ' + cur + '，同比 +' + r + '%，求基期', Math.round(cur * 100 / (100 + r))); } },
     growth:   { name: '增量练习',       s: { excellent: 30, good: 45, pass: 60 }, gen: () => { const b = randInt(100, 9999), r = randInt(2, 30); return makeQ('基期 ' + b + '，增长率 ' + r + '%，求增量', Math.round(b * r / 100)); } },
@@ -15140,6 +15140,8 @@ App.Pages.SpeedCalc = {
     const view = this.state.view;
     if (view === 'home') this.renderHome(container);
     else if (view === 'custom') this.renderCustom(container);
+    else if (view === 'estimate') this.renderEstimate(container);
+    else if (view === 'estTable') this.renderEstTable(container);
     else if (view === 'practice') this.renderPractice(container);
     else if (view === 'result') this.renderResult(container);
     else if (view === 'history') this.renderHistory(container);
@@ -15210,6 +15212,335 @@ App.Pages.SpeedCalc = {
     } catch (e) {}
   },
 
+  // ============================================================
+  // v8.15 估算练习（零五十估算优化）+ 估算表
+  // 逻辑：A(真实分母,随机三位) → B(估算分母,查估算表)；C(估算结果,随机) → D(真实结果,要填)，D≈C×B/A，误差≤3%
+  // ============================================================
+  EST_KEY: 'kg_speed_est_table',
+  loadEstTable() {
+    try {
+      const rows = JSON.parse(localStorage.getItem(this.EST_KEY)) || [];
+      if (rows.length) return rows;
+    } catch (e) {}
+    return [
+      { min: 101, max: 149, value: 100 },
+      { min: 150, max: 179, value: 143 },
+      { min: 180, max: 199, value: 188 },
+      { min: 200, max: 249, value: 200 },
+      { min: 250, max: 299, value: 250 },
+      { min: 300, max: 399, value: 300 },
+      { min: 400, max: 499, value: 400 },
+      { min: 500, max: 599, value: 500 }
+    ];
+  },
+  saveEstTable(rows) { try { localStorage.setItem(this.EST_KEY, JSON.stringify(rows)); } catch (e) {} },
+  findEstVal(A) {
+    const rows = this.loadEstTable();
+    const hit = rows.find(r => r && r.min != null && r.max != null && A >= r.min && A <= r.max);
+    return hit ? hit.value : null;
+  },
+  startEstimate() {
+    const table = this.loadEstTable();
+    if (!table.length || !table.some(r => r && r.min != null && r.max != null)) {
+      App.Components.toast('请先在估算表中填写数据区间', 'error');
+      return;
+    }
+    const settings = this.loadSettings();
+    const count = settings.questionCount || 10;
+    const questions = [];
+    let tries = 0;
+    while (questions.length < count && tries < 600) {
+      tries++;
+      const A = randInt(101, 999);
+      const B = this.findEstVal(A);
+      if (B == null) continue;                       // 估算表未覆盖 → 忽略
+      const C = randInt(10, 999);                    // 随机二/三位数
+      const D = Math.round((C * B / A) * 100) / 100;
+      questions.push({ A: A, B: B, C: C, D: D, q: 'estimate', expr: (A + '→' + B + ' / ' + C + '→?'), answer: D, correct: null, user: '' });
+    }
+    if (!questions.length) { App.Components.toast('请先在估算表中填写数据区间', 'error'); return; }
+    this.state.type = 'est05';
+    this.state.questions = questions;
+    this.state.idx = 0;
+    this.state.startTime = Date.now();
+    this.state.qStart = Date.now();
+    this.state.currentInput = '';
+    this.state.doodleData = null;
+    this.state.showAns = true;
+    if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
+    if (this.state.qTimerId) { clearInterval(this.state.qTimerId); this.state.qTimerId = null; }
+    this.show('estimate');
+  },
+
+  // ===== 视图：估算表编辑页 =====
+  renderEstTable(container) {
+    const self = this;
+    this._topbar(container, '估算表', () => this.show('home'), '', true);
+
+    const body = document.createElement('div');
+    body.className = 'sc-page';
+
+    // 顶部：标题 + 新增
+    const header = document.createElement('div');
+    header.className = 'sc-esttable-header';
+    const title = document.createElement('div');
+    title.className = 'sc-esttable-title';
+    title.textContent = '范围 → 估算值';
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'sc-esttable-add';
+    addBtn.textContent = '+ 新增';
+    header.appendChild(title);
+    header.appendChild(addBtn);
+    body.appendChild(header);
+
+    // 表头
+    const cols = document.createElement('div');
+    cols.className = 'sc-esttable-cols';
+    cols.innerHTML = '<span>范围</span><span>估算值</span>';
+    body.appendChild(cols);
+
+    const sortHint = document.createElement('div');
+    sortHint.className = 'sc-esttable-sort';
+    sortHint.textContent = '新增行后自动按起始数字排序';
+    body.appendChild(sortHint);
+
+    // 列表
+    const list = document.createElement('div');
+    list.className = 'sc-esttable-list';
+    const renderRows = () => {
+      list.innerHTML = '';
+      const rows = self.loadEstTable().slice().sort((a, b) => (a.min || 0) - (b.min || 0));
+      if (!rows.length) {
+        const empty = document.createElement('div');
+        empty.className = 'sc-esttable-empty';
+        empty.textContent = '暂无估算区间，点「+ 新增」添加';
+        list.appendChild(empty);
+      }
+      rows.forEach((r, i) => {
+        const row = document.createElement('div');
+        row.className = 'sc-esttable-row';
+        const rg = document.createElement('span');
+        rg.className = 'sc-esttable-row__range';
+        rg.textContent = r.min + ' ~ ' + r.max;
+        const right = document.createElement('span');
+        right.style.display = 'flex'; right.style.alignItems = 'center';
+        const val = document.createElement('span');
+        val.className = 'sc-esttable-row__value';
+        val.textContent = String(r.value);
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'sc-esttable-row__del';
+        del.textContent = '✕';
+        del.addEventListener('click', () => {
+          const rows2 = self.loadEstTable().filter((_, j) => j !== i);
+          self.saveEstTable(rows2);
+          renderRows();
+        });
+        right.appendChild(val);
+        right.appendChild(del);
+        row.appendChild(rg);
+        row.appendChild(right);
+        list.appendChild(row);
+      });
+    };
+    renderRows();
+    body.appendChild(list);
+
+    container.appendChild(body);
+
+    // 新增行弹窗
+    addBtn.addEventListener('click', () => {
+      const overlay = document.createElement('div');
+      overlay.className = 'notion-mobile-sheet-overlay';
+      const card = document.createElement('div');
+      card.className = 'sc-notion-card';
+      card.style.cssText = 'position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);width:420px;max-width:calc(100vw - 40px);background:#fff;border-radius:22px;padding:22px;box-sizing:border-box;box-shadow:0 18px 60px rgba(0,0,0,0.22);';
+      const cardTitle = document.createElement('div');
+      cardTitle.style.cssText = 'font-size:17px;font-weight:600;color:#1D1D1F;margin-bottom:16px;';
+      cardTitle.textContent = '新增估算行';
+      card.appendChild(cardTitle);
+
+      const mkField = (label, placeholder, val) => {
+        const f = document.createElement('div');
+        f.className = 'sc-estmodal-field';
+        const lb = document.createElement('div');
+        lb.className = 'sc-estmodal-label';
+        lb.textContent = label;
+        const inp = document.createElement('input');
+        inp.type = 'number';
+        inp.className = 'sc-estmodal-input';
+        inp.value = val != null ? val : '';
+        inp.placeholder = placeholder;
+        f.appendChild(lb);
+        f.appendChild(inp);
+        card.appendChild(f);
+        return inp;
+      };
+      // 范围：最小值 ~ 最大值 两个输入框
+      const rField = document.createElement('div');
+      rField.className = 'sc-estmodal-field';
+      const rLabel = document.createElement('div');
+      rLabel.className = 'sc-estmodal-label';
+      rLabel.textContent = '范围';
+      const rWrap = document.createElement('div');
+      rWrap.className = 'sc-estmodal-range';
+      const minInp = document.createElement('input');
+      minInp.type = 'number'; minInp.className = 'sc-estmodal-input'; minInp.placeholder = '最小值';
+      const tilde = document.createElement('span');
+      tilde.style.cssText = 'color:#9A9AA0;font-size:16px;';
+      tilde.textContent = '~';
+      const maxInp = document.createElement('input');
+      maxInp.type = 'number'; maxInp.className = 'sc-estmodal-input'; maxInp.placeholder = '最大值';
+      rWrap.appendChild(minInp);
+      rWrap.appendChild(tilde);
+      rWrap.appendChild(maxInp);
+      rField.appendChild(rLabel);
+      rField.appendChild(rWrap);
+      card.appendChild(rField);
+      const valInp = mkField('估算值', '如 400', '');
+
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:12px;margin-top:6px;';
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.style.cssText = 'flex:1;height:46px;border:none;border-radius:23px;background:#ECECF2;color:#3A3A3E;font-size:15px;font-weight:500;cursor:pointer;';
+      cancel.textContent = '取消';
+      cancel.addEventListener('click', () => overlay.remove());
+      const ok = document.createElement('button');
+      ok.type = 'button';
+      ok.style.cssText = 'flex:1;height:46px;border:none;border-radius:23px;background:linear-gradient(135deg,#0066CC,#2996FF);color:#fff;font-size:15px;font-weight:600;cursor:pointer;';
+      ok.textContent = '保存';
+      ok.addEventListener('click', () => {
+        const mn = parseInt(minInp.value, 10), mx = parseInt(maxInp.value, 10), v = parseFloat(valInp.value);
+        if (isNaN(mn) || isNaN(mx) || isNaN(v)) { App.Components.toast('请填写范围与估算值', 'error'); return; }
+        if (mn >= mx) { App.Components.toast('最小值需小于最大值', 'error'); return; }
+        const rows = self.loadEstTable();
+        rows.push({ min: mn, max: mx, value: v });
+        self.saveEstTable(rows);
+        overlay.remove();
+        renderRows();
+      });
+      btnRow.appendChild(cancel);
+      btnRow.appendChild(ok);
+      card.appendChild(btnRow);
+
+      overlay.appendChild(card);
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+      document.body.appendChild(overlay);
+    });
+  },
+
+  // ===== 视图：估算练习做题页 =====
+  renderEstimate(container) {
+    const self = this;
+    const settings = this.loadSettings();
+    const q = this.state.questions[this.state.idx];
+    const total = this.state.questions.length;
+    const submitted = q.correct !== null;
+    this.state.currentInput = q.user !== undefined && q.user !== '' ? String(q.user) : '';
+
+    container.style.cssText = 'height:calc(100vh - var(--nav-height, 56px) - var(--safe-bottom, 0px));display:flex;flex-direction:column;overflow:hidden;';
+    this._topbar(container, '估算练习', () => { this.show('home'); });
+
+    // 状态栏
+    const statusBar = document.createElement('div');
+    statusBar.className = 'sc-statusbar';
+    statusBar.innerHTML = '<div class="sc-statusbar__pos">' + (this.state.idx + 1) + '/' + total + '</div><div class="sc-statusbar__timer" id="sc-estp-timer">0:00</div>';
+    container.appendChild(statusBar);
+    const tick = () => { const el = container.querySelector('#sc-estp-timer'); if (el) el.textContent = fmtClock((Date.now() - this.state.startTime) / 1000); };
+    tick();
+    this.state.timerId = setInterval(tick, 100);
+
+    // 题目体
+    const body = document.createElement('div');
+    body.className = 'sc-estp-body';
+    const hint = document.createElement('div');
+    hint.className = 'sc-estp-hint';
+    hint.textContent = '按 A→B 的比例，把 C 缩放成 D';
+    body.appendChild(hint);
+    const mkRow = (lVal, isB, rVal, isAnswer) => {
+      const row = document.createElement('div');
+      row.className = 'sc-estp-row';
+      const colL = document.createElement('div');
+      colL.className = 'sc-estp-col--l';
+      colL.innerHTML = '<span class="sc-estp-num">' + lVal + '</span>';
+      const arrow = document.createElement('div');
+      arrow.className = 'sc-estp-arrow';
+      arrow.textContent = '→';
+      const colR = document.createElement('div');
+      colR.className = 'sc-estp-col--r';
+      if (isAnswer) {
+        const ans = document.createElement('div');
+        ans.className = 'sc-estp-answer' + (q.user === '' ? ' sc-estp-answer--empty' : '');
+        ans.id = 'sc-estp-answer';
+        ans.textContent = q.user !== '' ? q.user : '答案';
+        colR.appendChild(ans);
+      } else {
+        colR.innerHTML = '<span class="sc-estp-num ' + (isB ? 'sc-estp-num--b' : '') + '">' + rVal + '</span>';
+      }
+      row.appendChild(colL); row.appendChild(arrow); row.appendChild(colR);
+      return row;
+    };
+    body.appendChild(mkRow(q.A, false, q.B, false));
+    body.appendChild(mkRow(q.C, false, null, true));
+    container.appendChild(body);
+
+    // 提交
+    const submit = () => {
+      if (submitted) return;
+      const val = parseFloat(self.state.currentInput);
+      if (isNaN(val) || self.state.currentInput === '') { App.Components.toast('请输入答案', 'error'); return; }
+      q.user = val;
+      q.timeUsed = Math.round((Date.now() - self.state.qStart) / 100) / 10;
+      q.correct = Math.abs(val - q.D) <= Math.max(1.5, Math.abs(q.D) * 0.03);
+      const disp = container.querySelector('#sc-estp-answer');
+      if (disp) { disp.textContent = val; disp.classList.remove('sc-estp-answer--empty'); }
+      App.Components.toast(q.correct ? '✓' : '✗', q.correct ? 'success' : 'error');
+      setTimeout(() => self.next(), 350);
+    };
+
+    // 数字键盘（复用现有样式/布局）
+    const numpad = document.createElement('div');
+    numpad.className = 'sc-numpad sc-numpad--v2';
+    numpad.style.cssText = 'flex-shrink:0;';
+    const NUM_ROWS = [['1','2','3'],['4','5','6'],['7','8','9'],['+/-','0','.']];
+    const FUNC_KEYS = [{ k: 'clear', label: 'C', cls: 'func' }, { k: 'backspace', label: '⌫', cls: 'func' }, { k: 'confirm', label: '✓', cls: 'confirm tall' }];
+    const kb = document.createElement('div');
+    kb.className = 'sc-numpad__kb';
+    const grid = document.createElement('div');
+    grid.className = 'sc-numpad__grid';
+    const funcCol = document.createElement('div');
+    funcCol.className = 'sc-numpad__func';
+    const press = (key) => {
+      if (submitted) return;
+      switch (key) {
+        case 'backspace': self.state.currentInput = self.state.currentInput.slice(0, -1); break;
+        case 'clear': self.state.currentInput = ''; break;
+        case 'confirm': submit(); return;
+        case '+/-': { const s = self.state.currentInput; self.state.currentInput = s.startsWith('-') ? s.slice(1) : (s ? '-' + s : s); break; }
+        case '.': if (!self.state.currentInput.includes('.')) self.state.currentInput += '.'; break;
+        default: if (self.state.currentInput.length < 10) self.state.currentInput += key;
+      }
+      const disp = container.querySelector('#sc-estp-answer');
+      if (disp) { disp.textContent = self.state.currentInput || '答案'; disp.classList.toggle('sc-estp-answer--empty', !self.state.currentInput); }
+    };
+    const mkBtn = (k, extraCls) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'sc-numpad__btn' + (k.cls ? ' sc-numpad__btn--' + k.cls : '') + (extraCls || '');
+      b.textContent = k.label || k.k;
+      b.addEventListener('click', () => press(k.k));
+      return b;
+    };
+    NUM_ROWS.forEach(row => row.forEach(k => grid.appendChild(mkBtn({ k: k, label: k }))));
+    FUNC_KEYS.forEach(k => funcCol.appendChild(mkBtn(k)));
+    kb.appendChild(grid);
+    kb.appendChild(funcCol);
+    numpad.appendChild(kb);
+    container.appendChild(numpad);
+  },
+
   // ===== 视图：题型选择首页 =====
 renderHome(container) {
     const self = this;
@@ -15233,6 +15564,11 @@ renderHome(container) {
     statBtn.className = 'sc-action-chip';
     statBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="2" y="6" width="2.2" height="3.6" rx="0.6" fill="currentColor"/><rect x="4.6" y="4.4" width="2.2" height="5.2" rx="0.6" fill="currentColor"/><rect x="7.2" y="2.6" width="2.2" height="7" rx="0.6" fill="currentColor"/></svg><span>统计</span>';
     statBtn.addEventListener('click', () => this.show('stats'));
+    const estBtn = document.createElement('button');
+    estBtn.type = 'button';
+    estBtn.className = 'sc-action-chip';
+    estBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M2 3.2V7.8C2 8.5 2.5 9 3.2 9H7.8C8.5 9 9 8.5 9 7.8V3.2C9 2.5 8.5 2 7.8 2H3.2C2.5 2 2 2.5 2 3.2Z"/><path d="M2.5 5h6M2.5 7h6"/></svg><span>估算表</span>';
+    estBtn.addEventListener('click', () => this.show('estTable'));
     const confirmChip = document.createElement('div');
     confirmChip.className = 'sc-action-chip sc-action-chip--confirm';
     const confirmSw = document.createElement('div');
@@ -15245,8 +15581,13 @@ renderHome(container) {
     });
     confirmChip.innerHTML = '<svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="5.5" r="4.2"/><path d="M3.6 5.7l1.4 1.5 2.4-2.7"/></svg><span>确定</span>';
     confirmChip.appendChild(confirmSw);
-    actionRow.appendChild(histBtn);
-    actionRow.appendChild(statBtn);
+    // v8.15 历史/统计/估算表 靠左一组，确定开关置右，不占满整行
+    const leftGroup = document.createElement('div');
+    leftGroup.className = 'sc-action-left';
+    leftGroup.appendChild(histBtn);
+    leftGroup.appendChild(statBtn);
+    leftGroup.appendChild(estBtn);
+    actionRow.appendChild(leftGroup);
     actionRow.appendChild(confirmChip);
     container.appendChild(actionRow);
 
@@ -15293,6 +15634,7 @@ renderHome(container) {
           '</div>';
         tag.addEventListener('click', (e) => {
           e.stopPropagation();
+          if (key === 'est05') { self.startEstimate(); return; }
           if (!t.gen) { App.Components.toast(t.name + '功能即将上线', 'info'); return; }
           this.state.type = key;
           settings.selectedType = key;
@@ -16254,6 +16596,8 @@ renderHome(container) {
   startPractice() {
     // v8.6.24 自定义练习：type='custom' 时走自定义生成（题型组合 + 数据特征）
     if (this.state.type === 'custom') { this.startCustomPractice(); return; }
+    // v8.15 估算练习：走估算修正专项
+    if (this.state.type === 'est05') { this.startEstimate(); return; }
     const settings = this.loadSettings();
     const count = settings.questionCount || 10;
     const gen = this.TYPES[this.state.type].gen;
