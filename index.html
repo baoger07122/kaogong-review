@@ -7940,13 +7940,15 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-custom-title { font-size: 16px; font-weight: 600; color: #1F2937; padding: 16px 16px 10px; }
 .sc-custom-title--row { display: flex; justify-content: space-between; align-items: center; }
 .sc-custom-clear { font-size: 13px; color: #3B82F6; cursor: pointer; font-weight: 400; -webkit-tap-highlight-color: transparent; }
-.sc-custom-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0 16px; }
+.sc-custom-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0; }
 .sc-custom-cell {
-  background: #F3F4F6; color: #4B5563; border-radius: 12px;
-  padding: 12px 4px; text-align: center; font-size: 13px; cursor: pointer;
-  -webkit-tap-highlight-color: transparent; transition: background 0.15s, color 0.15s;
+  background: #FFFFFF; color: #3A3A3E; border: 1px solid #E5E5EA;
+  border-radius: 10px; padding: 14px 4px; text-align: center; font-size: 14px;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  box-sizing: border-box;
 }
-.sc-custom-cell.selected { background: #3B82F6; color: #fff; font-weight: 500; }
+.sc-custom-cell.selected { background: #2162D8; border-color: #2162D8; color: #fff; font-weight: 500; }
 .sc-custom-cell:active { transform: scale(0.96); }
 .sc-custom-feat { padding: 0 16px; }
 .sc-custom-feat-types { display: flex; gap: 10px; margin-top: 10px; }
@@ -7971,15 +7973,16 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   padding: 8px 12px; font-size: 14px; color: #1F2937; background: #fff; outline: none;
 }
 .sc-custom-range-input:focus { border-color: #3B82F6; }
-.sc-custom-hist { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 0 16px; }
+.sc-custom-hist { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 0; }
 .sc-custom-histcard {
-  background: #F3F4F6; border-radius: 12px; padding: 10px 4px; text-align: center; cursor: pointer;
+  background: #FFFFFF; border: 1px solid #E5E5EA; border-radius: 10px;
+  padding: 10px 4px; text-align: center; cursor: pointer; box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
 }
 .sc-custom-histcard__name { font-size: 11px; color: #4B5563; word-break: break-all; }
 .sc-custom-histcard__sub { font-size: 11px; color: #6B7280; margin-top: 2px; word-break: break-all; }
-.sc-custom-histcard__num { font-size: 13px; color: #3B82F6; font-weight: 600; margin-top: 2px; }
-.sc-custom-histcard.selected { background: #3B82F6; }
+.sc-custom-histcard__num { font-size: 13px; color: #2162D8; font-weight: 600; margin-top: 2px; }
+.sc-custom-histcard.selected { background: #2162D8; border-color: #2162D8; }
 .sc-custom-histcard.selected .sc-custom-histcard__name,
 .sc-custom-histcard.selected .sc-custom-histcard__sub { color: #fff; }
 .sc-custom-histcard.selected .sc-custom-histcard__num { color: #fff; }
@@ -8816,7 +8819,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-custom-sheet-body { padding: 0 16px 20px; display: flex; flex-direction: column; gap: 18px; }
 
 /* 区块标题（题型选择 / 数字设置 / 最近使用，卡外大标题） */
-.sc-custom-block-title { font-size: 16px; font-weight: 600; color: #1D1D1F; }
+.sc-custom-block-title { font-size: 16px; font-weight: 600; color: #1D1D1F; white-space: nowrap; overflow: visible; }
 
 /* 数字设置卡（白底圆角） */
 .sc-dnum-card {
