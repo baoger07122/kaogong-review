@@ -502,6 +502,23 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   color: var(--text-secondary);
 }
 
+/* v8.12.27 错题本顶栏「更多」按钮：对齐画布 7:680（40×40 灰底圆角20 三点图标） */
+.page-header__more {
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
+  background: var(--bg-tertiary);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease;
+}
+.page-header__more:active { background: #E9E9ED; }
+
 /* 详情页右上角图标按钮（三点菜单 / 编辑等） */
 .note-detail-more {
   font-size: 22px !important;
@@ -4005,19 +4022,29 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 .sidebar__item:active { background: var(--bg-tertiary); }
 .sidebar__item.active {
-  /* v8.12.9 对齐画布侧边栏：白底墨字胶囊（浅灰侧边栏上白块选中） */
-  background: #FFFFFF;
-  color: #1D1D1F;
+  /* v8.12.27 对齐画布 7:696 选中态：浅蓝底 + 蓝色系（图标/名称/计数/箭头全蓝）；未选中透明灰字 */
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 .sidebar__item.active::before { display: none; }
 .sidebar__item-icon { font-size: 20px; line-height: 1; }
+.sidebar__item.active .sidebar__item-icon {
+  /* 图标随选中态变蓝 */
+  color: var(--color-primary);
+}
+/* v8.12.28 侧边栏 SVG 线性图标：20×20 居中（对齐画布 7:701 图标框） */
+.sidebar__item-icon svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
 .sidebar__item-name {
   font-size: 10px;
   font-weight: 600;
   line-height: 1.2;
 }
+.sidebar__item.active .sidebar__item-name { color: var(--color-primary); }
 .sidebar__item-count {
   font-size: 9px;
   color: var(--text-tertiary);
@@ -4030,18 +4057,18 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .sidebar__item.active .sidebar__item-count { color: var(--color-primary); }
 
 /* ===== 错题本 / 笔记 左侧两级折叠（科目 -> 模块） ===== */
+/* v8.12.32 箭头按设计稿相对位置：作为项内最后一项文档流排列（图标→名称→计数→箭头），
+   间距由项 gap(3px) 控制，与设计稿 itemSpacing(3) 一致；不再 absolute，避免与文字重叠 */
 .sidebar__arrow {
-  position: absolute;
-  top: 3px; right: 3px;
-  width: 14px; height: 14px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 8px; line-height: 1;
+  width: 10px; height: 10px;
+  margin-top: 1px;          /* 对齐设计稿：箭头与计数间 ≈3px（项 gap3 已含，此处微调） */
   color: var(--text-tertiary);
   transition: transform .15s ease;
   transform: rotate(0deg);
-  z-index: 1;
 }
-.sidebar__item--expanded > .sidebar__arrow { transform: rotate(90deg); }
+.sidebar__item.active > .sidebar__arrow { color: var(--color-primary); }
+.sidebar__item--expanded > .sidebar__arrow { transform: rotate(180deg); }
 
 .sidebar__sub {
   display: flex;
@@ -4103,19 +4130,22 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .error-gallery-card {
   background: var(--bg-card);
   border: 1px solid var(--divider-color);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-md);
+  /* v8.12.31 对齐画布错题卡 7:797：圆角 16（--radius-lg=20 改 --radius-md=16）+ 柔和阴影 */
+  border-radius: var(--radius-md);
+  padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-height: 110px;
   cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.04);
   transition: transform 0.1s ease, box-shadow 0.15s ease;
   -webkit-tap-highlight-color: transparent;
 }
 .error-gallery-card:active { transform: scale(0.98); }
 .error-gallery-card__question {
-  font-size: var(--font-md);
+  /* v8.12.31 对齐画布错题卡题目 7:798：13px（--font-md=14 改 13）行高20 */
+  font-size: 13px;
   line-height: 1.55;
   color: var(--text-primary);
   display: -webkit-box;
@@ -4163,14 +4193,21 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   white-space: nowrap;
 }
 .error-gallery-card__pitfall {
-  font-size: var(--font-xs);
+  font-size: 11px;
   color: var(--text-tertiary);
   margin-top: 6px;
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
   white-space: normal;
   word-break: break-word;
   line-height: 1.45;
   max-width: 100%;
+}
+.error-gallery-card__pitfall svg {
+  flex-shrink: 0;
+  align-self: center;
+  color: var(--text-tertiary);
 }
 .gallery-size-switch {
   display: flex;
@@ -6357,9 +6394,9 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .tag-module-count {
   font-size: 12px;
   color: var(--text-tertiary);
-  background: var(--bg-primary);
+  background: var(--bg-tertiary);
   padding: 2px 10px;
-  border-radius: 10px;
+  border-radius: 999px;
   border: 1px solid var(--border-color);
   flex-shrink: 0;
 }
@@ -6577,11 +6614,11 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   text-overflow: ellipsis;
 }
 .tag-subject-count {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-tertiary);
-  background: var(--bg-primary);
-  padding: 4px 12px;
-  border-radius: 12px;
+  background: var(--bg-tertiary);
+  padding: 2px 10px;
+  border-radius: 999px;
   border: 1px solid var(--border-color);
   flex-shrink: 0;
 }
@@ -7948,7 +7985,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-custom-histcard.selected .sc-custom-histcard__num { color: #fff; }
 .sc-custom-histempty { grid-column: 1 / -1; text-align: center; font-size: 12px; color: #9CA3AF; padding: 8px 0; }
 .sc-custom-foot {
-  position: fixed; bottom: 0; left: 0; right: 0; max-width: 430px; margin: 0 auto;
+  position: fixed; bottom: 0; left: 0; right: 0;
   background: #fff; border-top: 0.5px solid #F3F4F6;
   padding: 12px 16px calc(12px + var(--safe-bottom, 0px));
   display: flex; gap: 12px; z-index: 30;
@@ -8001,7 +8038,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-rt-col--user.no { color: #EF4444; }
 .sc-rt-col--t { font-size: 13px; color: #6B7280; }
 .sc-result-foot {
-  position: fixed; bottom: 0; left: 0; right: 0; max-width: 430px; margin: 0 auto;
+  position: fixed; bottom: 0; left: 0; right: 0;
   background: #fff; border-top: 0.5px solid #F3F4F6;
   padding: 12px 16px calc(12px + var(--safe-bottom, 0px));
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; z-index: 30;
@@ -8036,7 +8073,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-rt-col--user.no { color: #EF4444; }
 .sc-rt-col--t { font-size: 13px; color: #6B7280; }
 .sc-result-foot {
-  position: fixed; bottom: 0; left: 0; right: 0; max-width: 430px; margin: 0 auto;
+  position: fixed; bottom: 0; left: 0; right: 0;
   background: #fff; border-top: 0.5px solid #F3F4F6;
   padding: 12px 16px calc(12px + var(--safe-bottom, 0px));
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; z-index: 30;
@@ -8124,9 +8161,9 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 }
 .sc-picker-tab.selected { background: #3B82F6; color: #fff; font-weight: 500; }
 
-/* ===== v8.6.35 速算练习页限宽为手机比例（430px 居中，iPad 横屏不再全宽铺满）===== */
-#page-speed-calc { max-width: 430px; margin: 0 auto; width: 100%; }
-.sc-page { max-width: 430px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+/* ===== 速算练习页：全屏铺满（取消 430px 手机限宽，见 v8.13.1）===== */
+#page-speed-calc { width: 100%; }
+.sc-page { width: 100%; box-sizing: border-box; }
 
 /* ===== v8.6.40 三位数除一位数：本次评分行 ===== */
 .sc-rating-line { text-align: center; font-size: 13px; color: #9CA3AF; min-height: 18px; margin-top: 2px; }
@@ -8640,6 +8677,197 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   box-sizing: border-box;
 }
 .stats-nav-btn:active { background: #EAEAEE; }
+
+/* ===== 速算 v8.12.33 设计稿落地 ===== */
+/* ===== 首页：题型横向卡片网格 ===== */
+.sc-type-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  margin-top: 12px;
+}
+.sc-type-card {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  padding: 10px; min-height: 64px;
+  background: #F8FAFF; border: 1px solid #D9E2F7; border-radius: 14px;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box; transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.sc-type-card:active { transform: scale(0.97); }
+.sc-type-card.selected {
+  background: #E8F1FF;
+  border-color: #1E8FFF;
+  box-shadow: 0 3px 12px rgba(0,102,204,0.22);
+}
+.sc-type-card.selected .sc-type-card__name { color: #0066CC; }
+.sc-type-card.selected .sc-type-card__rate { color: #1E8FFF; }
+.sc-type-card.selected .sc-type-card__icon {
+  background: linear-gradient(135deg, #0066CC, #1E8FFF);
+  color: #fff; box-shadow: 0 2px 6px rgba(0,102,204,0.3);
+}
+.sc-type-card__icon {
+  width: 34px; height: 34px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: #E7F0FF; border-radius: 10px;
+  color: #0066CC; font-size: 18px; font-weight: 700;
+  transition: background-color 0.15s, color 0.15s;
+}
+.sc-type-card__body { min-width: 0; }
+.sc-type-card__name { font-size: 13px; font-weight: 600; color: #1D1D1F; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.15s; }
+.sc-type-card__rate { font-size: 10px; color: #A1A1A6; margin-top: 2px; }
+
+/* ===== 历史页：按时间分组 + 类型胶囊 + 展开明细 ===== */
+.sc-hist-page { padding-bottom: 100px; }
+.sc-hist-title { font-size: 14px; font-weight: 600; color: #1D1D1F; margin-bottom: 12px; }
+.sc-hsec { margin-bottom: 18px; }
+.sc-hsec__title { font-size: 13px; font-weight: 600; color: #8E8E93; margin-bottom: 8px; }
+.sc-hcap-wrap { margin-bottom: 8px; }
+.sc-hcap {
+  display: flex; align-items: center; padding: 10px 12px;
+  background: #fff; border: 1px solid #E8E8E9; border-radius: 16px;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sc-hcap:active { transform: scale(0.99); }
+.sc-hcap__icon {
+  width: 36px; height: 36px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: #E7F0FF; border-radius: 10px; color: #0066CC; font-size: 18px; font-weight: 700;
+}
+.sc-hcap__info { flex: 1; padding-left: 10px; min-width: 0; }
+.sc-hcap__name { font-size: 14px; font-weight: 600; color: #1D1D1F; }
+.sc-hcap__sub { font-size: 11px; color: #8E8E93; margin-top: 2px; }
+.sc-hcap__stat { text-align: right; flex-shrink: 0; }
+.sc-hcap__rate { font-size: 18px; font-weight: 700; }
+.sc-hcap__time { font-size: 11px; color: #7A7A7A; margin-top: 1px; }
+.sc-hcap__arrow { width: 24px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: transform 0.2s; }
+.sc-hcap.open .sc-hcap__arrow { transform: rotate(180deg); }
+.sc-hcap-detail { padding: 0; }
+.sc-hcap-detail__row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 12px 0 66px; height: 38px;
+  border-bottom: 1px solid #F2F2F3;
+}
+.sc-hcap-detail__row:last-child { border-bottom: none; }
+.sc-hcap-detail__t { font-size: 12px; color: #A1A1A6; }
+.sc-hcap-detail__c { font-size: 13px; font-weight: 600; }
+.sc-hcap-detail__u { font-size: 13px; font-weight: 600; color: #1D1D1F; }
+
+/* ===== 统计页：热门类型 + 正确率趋势 + 用时分析 ===== */
+.sc-stats-page { padding-bottom: 40px; }
+.sc-stats-hot {
+  background: #fff; border-radius: 18px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  padding: 16px; margin-bottom: 14px;
+}
+.sc-stats-hot__label { font-size: 11px; color: #8E8E93; }
+.sc-stats-hot__main { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.sc-stats-hot__icon { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: #E7F0FF; border-radius: 12px; color: #0066CC; font-size: 20px; font-weight: 700; }
+.sc-stats-hot__name { font-size: 16px; font-weight: 600; color: #1D1D1F; }
+.sc-stats-hot__nums { display: flex; justify-content: space-between; margin-top: 14px; }
+.sc-stats-num { text-align: center; flex: 1; }
+.sc-stats-num__v { display: block; font-size: 20px; font-weight: 700; color: #1D1D1F; }
+.sc-stats-num__l { display: block; font-size: 10px; color: #8E8E93; margin-top: 2px; }
+.sc-stats-card {
+  background: #fff; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  padding: 14px 16px; margin-bottom: 14px;
+}
+.sc-stats-card__head { display: flex; align-items: center; justify-content: space-between; }
+.sc-stats-card__title { font-size: 15px; font-weight: 600; color: #1D1D1F; }
+.sc-stats-card__hint { font-size: 11px; color: #8E8E93; }
+.sc-stats-card__chart { margin-top: 8px; }
+.sc-stats-card__x { text-align: center; font-size: 10px; color: #A1A1A6; padding-top: 2px; letter-spacing: 1px; }
+.sc-stats-bars { margin-top: 6px; }
+.sc-stats-bar { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+.sc-stats-bar__lbl { width: 84px; font-size: 12px; font-weight: 500; color: #3A3A3C; flex-shrink: 0; }
+.sc-stats-bar__track { flex: 1; height: 12px; background: #F0F1F3; border-radius: 6px; overflow: hidden; }
+.sc-stats-bar__fill { display: block; height: 100%; border-radius: 6px; background: linear-gradient(135deg, #0066CC, #1E8FFF); }
+.sc-stats-bar__val { width: 44px; font-size: 12px; font-weight: 600; color: #1D1D1F; text-align: right; flex-shrink: 0; }
+
+/* ===== 速算首页操作行：历史 + 统计 + 确定开关（三胶囊 v8.13.1）===== */
+.sc-action-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-bottom: 14px;
+}
+.sc-action-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 38px; padding: 0 14px;
+  background: #F5F5F7; border: none; border-radius: 19px;
+  color: #5A5A5E; font-size: 13px; font-weight: 500;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
+}
+.sc-action-chip svg { flex-shrink: 0; }
+.sc-action-chip:active { background: #EAEAEE; }
+.sc-action-chip--confirm { cursor: default; }
+.sc-action-chip--confirm .sc-confirm-row__switch { margin-left: 8px; }
+
+/* ===== v8.15 自定义练习弹窗重构：底部 Sheet（浅灰底）+ 题型选择置顶 + 数字设置（数字范围/固定数字）===== */
+.sc-custom-sheet { background: #F5F5FA; }
+.sc-custom-sheet .notion-mobile-sheet__handle { background: #D5D5DC; }
+.sc-custom-sheet-title {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 16px 12px;
+}
+.sc-custom-sheet-title__text { font-size: 18px; font-weight: 600; color: #1D1D1F; }
+.sc-custom-sheet-title__close {
+  width: 30px; height: 30px; border: none; border-radius: 50%;
+  background: #ECECF2; color: #3A3A3E; font-size: 16px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sc-custom-sheet-title__close:active { background: #E0E0E8; }
+.sc-custom-sheet-body { padding: 0 16px 20px; display: flex; flex-direction: column; gap: 18px; }
+
+/* 区块标题（题型选择 / 数字设置 / 最近使用，卡外大标题） */
+.sc-custom-block-title { font-size: 16px; font-weight: 600; color: #1D1D1F; }
+
+/* 数字设置卡（白底圆角） */
+.sc-dnum-card {
+  background: #FFFFFF; border-radius: 14px; padding: 16px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+/* 横排选择按钮组：数字范围 / 固定数字 */
+.sc-dnum-tabs {
+  display: inline-flex; padding: 3px; gap: 3px;
+  background: #EFF0F4; border-radius: 10px; align-self: flex-start;
+}
+.sc-dnum-tab {
+  border: none; border-radius: 8px; padding: 8px 22px;
+  font-size: 14px; font-weight: 500; color: #6E6E73;
+  background: transparent; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sc-dnum-tab.selected { background: #2162D8; color: #fff; font-weight: 500; }
+.sc-dnum-tab:active { opacity: 0.85; }
+
+/* 固定数字说明 */
+.sc-dnum-hint { font-size: 13px; color: #9A9AA0; }
+/* 固定数字格：2-9 可多选 */
+.sc-dnum-fixrow { display: flex; gap: 8px; }
+.sc-dnum-fix {
+  flex: 1; height: 44px; border-radius: 10px; border: 1px solid #E5E5EA;
+  background: #fff; color: #3A3A3E; font-size: 16px; font-weight: 500;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sc-dnum-fix.selected { background: #2162D8; border-color: #2162D8; color: #fff; font-weight: 600; }
+.sc-dnum-fix:active { transform: scale(0.96); }
+
+/* 数字范围：最小值 ~ 最大值（自适应宽度） */
+.sc-dnum-range { display: inline-flex; align-items: center; gap: 8px; }
+.sc-dnum-range-input {
+  width: 92px; height: 44px; border: 1px solid #E5E5EA; border-radius: 10px;
+  background: #F8F8FB; padding: 0 12px; font-size: 15px; font-weight: 600;
+  color: #1D1D1F; text-align: center; box-sizing: border-box;
+  outline: none; -moz-appearance: textfield;
+}
+.sc-dnum-range-input::-webkit-outer-spin-button,
+.sc-dnum-range-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.sc-dnum-range-input:focus { border-color: #2162D8; background: #fff; }
+.sc-dnum-range__tilde { color: #9A9AA0; font-size: 15px; }
+.sc-dnum-range__label { font-size: 12px; color: #6E6E73; margin-bottom: 4px; display: block; }
+
+/* 自定义弹窗底部操作栏 */
+.sc-custom-foot { padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); display: flex; gap: 12px; }
+.sc-custom-footbtn { flex: 1; padding: 14px 0; border-radius: 22px; font-size: 15px; cursor: pointer; border: none; -webkit-tap-highlight-color: transparent; }
+.sc-custom-footbtn--cancel { background: #ECECF2; color: #3A3A3E; font-weight: 500; }
+.sc-custom-footbtn--ok { background: linear-gradient(135deg, #0066CC, #2996FF); color: #fff; font-weight: 600; }
+.sc-custom-footbtn--ok.disabled { background: #D5D8DE; color: #fff; pointer-events: none; }
 </style>
 </head>
 <body>
@@ -8721,7 +8949,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.12.25';
+App.VERSION = '8.14.2';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -12316,11 +12544,11 @@ App.Components = {
       tagRow.appendChild(ct);
     }
     card.appendChild(tagRow);
-    // 挖坑点单独一行，自动换行
+    // 挖坑点单独一行，自动换行（v8.12.31 用设计稿挖坑点图标替代 ⛏ emoji，对齐画布 40:9）
     if (error.pitfall) {
       const pf = document.createElement('div');
       pf.className = 'error-gallery-card__pitfall';
-      pf.textContent = '⛏ ' + error.pitfall;
+      pf.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path fill="currentColor" transform="matrix(1 0 0 1 1.5 1.5)" d="M1.6279 6.1693Q1.35 6.8319 1.35 8Q1.35 10.3403 3.0049 11.9951Q4.6597 13.65 7 13.65Q9.3403 13.65 10.9951 11.9951Q12.65 10.3403 12.65 8Q12.65 6.8319 12.3721 6.1693Q10.9967 3.3417 8.3778 1.4711Q8.2093 1.347 8 1.35Q7.7907 1.347 7.6222 1.4711Q5.0033 3.3417 3.6279 6.1693ZM4.9241 11.0759Q3.65 9.8018 3.65 8Q3.65 5.6873 5.7471 3.3307Q7.8833 1.4079 8 1.8066Q7.1167 3.4079 8.2529 5.3307Q9.35 6.6873 9.35 8Q9.35 9.8018 8.0759 11.0759Q6.8018 12.35 5 12.35Q3.1982 12.35 2.9241 11.0759Z" fill-rule="evenodd"/><path fill="currentColor" transform="matrix(1 0 0 1 9 10.75)" d="M1.75 -0.6Q0.5015 -0.6 -0.4243 0.3257Q-0.6072 0.4985 -0.6 0.75Q-0.6072 1.0015 -0.4243 1.1743Q-0.2515 1.3572 0 1.35Q0.2515 1.3572 0.4243 1.1743Q1.4985 0.6 1.75 0.6Q2.5015 0.6 3.5757 1.1743Q3.7485 1.3572 4 1.35Q4.2515 1.3572 4.4243 1.1743Q4.6072 1.0015 4.6 0.75Q4.6072 0.4985 4.4243 0.3257Q3.9985 -0.6 2.75 -0.6Z" fill-rule="evenodd"/></svg> ' + error.pitfall;
       card.appendChild(pf);
     }
     // 录入时间（年月日）——最后一行
@@ -18685,6 +18913,21 @@ App.Pages.Errors = {
     gallerySizeAuto: true // 是否自动根据窗口宽度选择密度（用户手动切换后变为 false）
   },
 
+  // v8.12.30 错题本侧边栏 SVG 图标（像素级还原设计稿：直接引用设计稿导出路径，fill/stroke 用 currentColor）
+  // 每科目图标形状与设计稿 7:688/700/729/738/749/757 完全一致；颜色由外层 style(color) 控制（未选中主题色/选中蓝）
+  _subjectIconSvg(subjectName) {
+    const ICON = {
+      全部: '<svg width="20" height="20" viewBox="0 0 20 20"><rect fill="none" stroke="currentColor" stroke-width="1.5" transform="matrix(1 0 0 1 2.5 2.5)" width="5.8333" height="5.8333" rx="1.25" ry="1.25"/><rect fill="none" stroke="currentColor" stroke-width="1.5" transform="matrix(1 0 0 1 11.6667 2.5)" width="5.8333" height="5.8333" rx="1.25" ry="1.25"/><rect fill="none" stroke="currentColor" stroke-width="1.5" transform="matrix(1 0 0 1 2.5 11.6667)" width="5.8333" height="5.8333" rx="1.25" ry="1.25"/><rect fill="none" stroke="currentColor" stroke-width="1.5" transform="matrix(1 0 0 1 11.6667 11.6667)" width="5.8333" height="5.8333" rx="1.25" ry="1.25"/></svg>',
+      言语理解: '<svg width="20" height="20" viewBox="0 0 20 20"><path fill="currentColor" transform="matrix(1 0 0 1 1.66667 1.66667)" d="M2.0833 -0.75Q0.9097 -0.75 0.0799 0.0799L0.0799 0.0799Q-0.75 0.9097 -0.75 2.0833L-0.75 16.25Q-0.759 16.5644 -0.5303 16.7803Q-0.3144 17.0091 0 17Q0.3144 17.0091 0.5303 16.7803Q0.759 16.5644 0.75 16.25Q0.75 15.6977 1.1405 15.3072Q1.531 14.9167 2.0833 14.9167L7.5 14.9167Q7.8144 14.9257 8.0303 14.697Q8.259 14.4811 8.25 14.1667L8.25 0Q8.259 -0.3144 8.0303 -0.5303Q7.8144 -0.759 7.5 -0.75L2.0833 -0.75ZM0.75 13.7411Q1.3495 13.4167 2.0833 13.4167L6.75 13.4167L6.75 0.75L2.0833 0.75Q1.531 0.75 1.1405 1.1405Q0.75 1.531 0.75 2.0833L0.75 13.7411Z" fill-rule="evenodd"/><path fill="currentColor" transform="matrix(1 0 0 1 10.8333 1.66667)" d="M8.25 2.0833Q8.25 0.9097 7.4201 0.0799Q6.5903 -0.75 5.4167 -0.75L0 -0.75Q-0.3144 -0.759 -0.5303 -0.5303Q-0.759 -0.3144 -0.75 0L-0.75 14.1667Q-0.759 14.4811 -0.5303 14.697Q-0.3144 14.9257 0 14.9167L5.4167 14.9167Q5.969 14.9167 6.3595 15.3072Q6.75 15.6977 6.75 16.25Q6.741 16.5644 6.9697 16.7803Q7.1856 17.0091 7.5 17Q7.8144 17.0091 8.0303 16.7803Q8.259 16.5644 8.25 16.25L8.25 2.0833ZM6.75 13.7411L6.75 2.0833Q6.75 1.531 6.3595 1.1405Q5.969 0.75 5.4167 0.75L0.75 0.75L0.75 13.4167L5.4167 13.4167Q6.1505 13.4167 6.75 13.7411Z" fill-rule="evenodd"/></svg>',
+      资料分析: '<svg width="20" height="20" viewBox="0 0 20 20"><path fill="currentColor" transform="matrix(1 0 0 1 4.16667 3.75)" d="M5.303 -0.5303Q5.0743 -0.3144 5.0833 0L5.0833 13.3333Q5.0743 13.6477 5.303 13.8636Q5.5189 14.0924 5.8333 14.0833Q6.1477 14.0924 6.3636 13.8636Q6.5924 13.6477 6.5833 13.3333L6.5833 0Q6.5924 -0.3144 6.3637 -0.5303Q6.1477 -0.759 5.8333 -0.75Q5.5189 -0.759 5.303 -0.5303ZM-0.75 6.6667L-0.75 13.3333Q-0.759 13.6477 -0.5303 13.8636Q-0.3144 14.0924 0 14.0833Q0.3144 14.0924 0.5303 13.8636Q0.759 13.6477 0.75 13.3333L0.75 6.6667Q0.759 6.3523 0.5303 6.1363Q0.3144 5.9076 0 5.9167Q-0.3144 5.9076 -0.5303 6.1363Q-0.759 6.3523 -0.75 6.6667ZM10.9167 9.1667L10.9167 13.3333Q10.9076 13.6477 11.1363 13.8636Q11.3523 14.0924 11.6667 14.0833Q11.9811 14.0924 12.197 13.8636Q12.4257 13.6477 12.4167 13.3333L12.4167 9.1667Q12.4257 8.8523 12.197 8.6363Q11.9811 8.4076 11.6667 8.4167Q11.3523 8.4076 11.1363 8.6363Q10.9076 8.8523 10.9167 9.1667Z" fill-rule="evenodd"/><path fill="currentColor" transform="matrix(1 0 0 1 2.91667 17.0833)" d="M14.1667 -0.75L0 -0.75Q-0.3144 -0.759 -0.5303 -0.5303Q-0.759 -0.3144 -0.75 0Q-0.759 0.3144 -0.5303 0.5303Q-0.3144 0.759 0 0.75L14.1667 0.75Q14.4811 0.759 14.697 0.5303Q14.9257 0.3144 14.9167 0Q14.9257 -0.3144 14.697 -0.5303Q14.4811 -0.759 14.1667 -0.75Z" fill-rule="evenodd"/></svg>',
+      判断推理: '<svg width="20" height="20" viewBox="0 0 20 20"><rect fill="none" stroke="currentColor" stroke-width="1.5" transform="matrix(1 0 0 1 3.33333 3.33333)" width="5.8333" height="5.8333" rx="1.25" ry="1.25"/><rect fill="none" stroke="currentColor" stroke-width="1.5" transform="matrix(1 0 0 1 10 3.33333)" width="6.6667" height="5.8333" rx="1.25" ry="1.25"/><rect fill="none" stroke="currentColor" stroke-width="1.5" transform="matrix(1 0 0 1 3.33333 10.8333)" width="6.6667" height="5.8333" rx="1.25" ry="1.25"/><rect fill="none" stroke="currentColor" stroke-width="1.5" transform="matrix(1 0 0 1 11.6667 10.8333)" width="5" height="5.8333" rx="1.25" ry="1.25"/></svg>',
+      数量关系: '<svg width="20" height="20" viewBox="0 0 20 20"><path fill="currentColor" transform="matrix(1 0 0 1 3.33333 3.33333)" d="M4.9167 3.4167L4.9167 0Q4.9257 -0.3144 4.697 -0.5303Q4.4811 -0.759 4.1667 -0.75Q3.8523 -0.759 3.6363 -0.5303Q3.4076 -0.3144 3.4167 0L3.4167 3.4167L0 3.4167Q-0.3144 3.4076 -0.5303 3.6363Q-0.759 3.8523 -0.75 4.1667Q-0.759 4.4811 -0.5303 4.697Q-0.3144 4.9257 0 4.9167L3.4167 4.9167L3.4167 8.4167L0 8.4167Q-0.3144 8.4076 -0.5303 8.6364Q-0.759 8.8523 -0.75 9.1667Q-0.759 9.4811 -0.5303 9.697Q-0.3144 9.9257 0 9.9167L3.4167 9.9167L3.4167 13.3333Q3.4076 13.6477 3.6363 13.8637Q3.8523 14.0924 4.1667 14.0833Q4.4811 14.0924 4.697 13.8637Q4.9257 13.6477 4.9167 13.3333L4.9167 9.9167L8.4167 9.9167L8.4167 13.3333Q8.4076 13.6477 8.6364 13.8637Q8.8523 14.0924 9.1667 14.0833Q9.4811 14.0924 9.697 13.8637Q9.9257 13.6477 9.9167 13.3333L9.9167 9.9167L13.3333 9.9167Q13.6477 9.9257 13.8637 9.697Q14.0924 9.4811 14.0833 9.1667Q14.0924 8.8523 13.8637 8.6364Q13.6477 8.4076 13.3333 8.4167L9.9167 8.4167L9.9167 4.9167L13.3333 4.9167Q13.6477 4.9257 13.8637 4.697Q14.0924 4.4811 14.0833 4.1667Q14.0924 3.8523 13.8637 3.6363Q13.6477 3.4076 13.3333 3.4167L9.9167 3.4167L9.9167 0Q9.9257 -0.3144 9.697 -0.5303Q9.4811 -0.759 9.1667 -0.75Q8.8523 -0.759 8.6364 -0.5303Q8.4076 -0.3144 8.4167 0L8.4167 3.4167L4.9167 3.4167ZM4.9167 4.9167L4.9167 8.4167L8.4167 8.4167L8.4167 4.9167L4.9167 4.9167Z" fill-rule="evenodd"/></svg>',
+      常识判断: '<svg width="20" height="20" viewBox="0 0 20 20"><path fill="currentColor" transform="matrix(1 0 0 1 4.97378 2.49993)" d="M1.7471 0.2571Q3.2288 -0.7594 5.0251 -0.7499Q6.8136 -0.7594 8.2953 0.2571Q9.7768 1.2734 10.4161 2.9532Q11.0554 4.633 10.625 6.3781Q10.1945 8.1233 8.8476 9.3123Q8.8436 9.3158 8.8397 9.3192Q8.8357 9.3226 8.8316 9.326Q8.2687 9.7956 8.2687 10.4167Q8.2778 10.7311 8.049 10.9471Q7.8331 11.1758 7.5187 11.1667L2.5237 11.1667Q2.2093 11.1758 1.9934 10.9471Q1.7647 10.7311 1.7737 10.4167Q1.7737 9.7956 1.2108 9.326Q1.2068 9.3226 1.2028 9.3192Q1.1988 9.3158 1.1949 9.3123Q-0.1521 8.1233 -0.5826 6.3781Q-1.013 4.633 -0.3737 2.9532Q0.2656 1.2734 1.7471 0.2571ZM2.5956 1.494Q1.5008 2.2451 1.0282 3.4868Q0.5556 4.7287 0.8738 6.0189Q1.1908 7.3043 2.1804 8.1815Q2.9479 8.8254 3.1766 9.6667L6.8658 9.6667Q7.0946 8.8254 7.8621 8.1815Q8.8516 7.3043 9.1686 6.0189Q9.4869 4.7287 9.0143 3.4868Q8.5417 2.2451 7.4468 1.494Q6.3521 0.7431 5.0173 0.7501Q3.6903 0.7431 2.5956 1.494ZM7.5187 11.7501L2.5237 11.7501L2.5237 13.2501L7.5187 13.2501L7.5187 11.7501ZM6.6862 14.2501L3.3562 14.2501L3.3562 15.7501L6.6862 15.7501L6.6862 14.2501Z" fill-rule="evenodd"/></svg>',
+      申论: '<svg width="20" height="20" viewBox="0 0 20 20"><path fill="none" stroke="currentColor" stroke-width="1.5" transform="matrix(1 0 0 1 3.5 2.5)" d="M5 -0.75H11.5L15.5 3.25V13.5A2 2 0 0 1 13.5 15.5H6.5A2 2 0 0 1 4.5 13.5V1.25Q4.4888 0.9556 4.6888 0.75Q4.9096 0.5258 5.22 0.53" fill-rule="evenodd"/><line x1="6.5" y1="6.5" x2="13.5" y2="6.5" stroke="currentColor" stroke-width="1.3"/><line x1="6.5" y1="10" x2="13.5" y2="10" stroke="currentColor" stroke-width="1.3"/></svg>',
+    };
+    return ICON[subjectName] || null;
+  },
+
   async render(params) {
     const container = document.getElementById('page-errors');
     container.innerHTML = '';
@@ -18715,9 +18958,15 @@ App.Pages.Errors = {
     const header = document.createElement('div');
     header.className = 'page-header';
     header.innerHTML = `
-      <div class="page-header__title" style="flex:1;">错题本</div>
+      <div class="page-header__title" style="flex:1;font-size:26px;font-weight:600;">错题本</div>
       <div class="page-header__right" style="display:flex;align-items:center;gap:6px;">
-        <button class="detail-header-action" id="error-more" title="更多" style="font-size:20px;padding:4px 6px;">⋮</button>
+        <button class="page-header__more" id="error-more" title="更多" aria-label="更多">
+          <svg width="16" height="4" viewBox="0 0 16 4" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="2" cy="2" r="1.6" fill="#4A4A4A"/>
+            <circle cx="8" cy="2" r="1.6" fill="#4A4A4A"/>
+            <circle cx="14" cy="2" r="1.6" fill="#4A4A4A"/>
+          </svg>
+        </button>
       </div>
     `;
     stickyWrap.appendChild(header);
@@ -18941,7 +19190,7 @@ App.Pages.Errors = {
     const allItem = document.createElement('div');
     allItem.className = 'sidebar__item' + (this.state.subject === null ? ' active' : '');
     allItem.innerHTML = `
-      <span class="sidebar__item-icon">📚</span>
+      <span class="sidebar__item-icon" style="color:${this.state.subject === null ? '#0066CC' : '#7A7A7A'}">${this._subjectIconSvg('全部') || '📚'}</span>
       <span class="sidebar__item-name">全部</span>
     `;
     allItem.addEventListener('click', () => {
@@ -18963,10 +19212,10 @@ App.Pages.Errors = {
       row.className = 'sidebar__item' + (isActive ? ' active' : '') + (expanded ? ' sidebar__item--expanded' : '');
       const count = errorCounts[s.name];
       row.innerHTML = `
-        <span class="sidebar__arrow">▶</span>
-        <span class="sidebar__item-icon">${s.icon}</span>
+        <span class="sidebar__item-icon" style="color:${isActive ? '#0066CC' : s.color}">${this._subjectIconSvg(s.name) || s.icon}</span>
         <span class="sidebar__item-name">${s.name}</span>
         ${count > 0 ? `<span class="sidebar__item-count">${count}</span>` : ''}
+        <span class="sidebar__arrow"><svg width="8" height="5" viewBox="0 0 8 5" fill="none"><path d="M1 1l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       `;
       // 箭头：展开/收起该科目下的模块
       row.querySelector('.sidebar__arrow').addEventListener('click', (e) => {
@@ -23064,13 +23313,13 @@ App.Pages.KpManage = {
     const container = document.getElementById('page-kpmanage');
     container.innerHTML = '';
 
-    // 头部说明
+    // 头部说明（v8.12.26 对齐画布 21:573：标题 20px SemiBold + 说明 12px 灰，无返回）
     const header = document.createElement('div');
     header.style.cssText = 'padding:var(--spacing-lg) var(--page-padding);padding-bottom:var(--spacing-sm);';
     header.innerHTML = `
-      <div style="font-size:var(--font-3xl);font-weight:700;color:var(--text-primary);margin-bottom:var(--spacing-sm);">考点 / 错因管理</div>
-      <div style="font-size:var(--font-sm);color:var(--text-tertiary);line-height:1.6;">
-        考点按「科目 → 模块」分级管理；错因<b>按模块独立管理</b>，在模块内增删的错因仅属于该模块、与其它模块互不互通。
+      <div style="font-size:20px;font-weight:600;color:var(--text-primary);margin-bottom:6px;line-height:1.3;">考点 / 错因管理</div>
+      <div style="font-size:12px;color:var(--text-tertiary);line-height:1.5;">
+        考点按「科目 → 模块」分级管理；错因<i><b>按模块独立管理</b></i>，在模块内增删的错因仅属于该模块、与其它模块互不互通。
       </div>
     `;
     container.appendChild(header);
@@ -23840,6 +24089,7 @@ App.Pages.SpeedCalc = {
     else if (view === 'practice') this.renderPractice(container);
     else if (view === 'result') this.renderResult(container);
     else if (view === 'history') this.renderHistory(container);
+    else if (view === 'stats') this.renderStats(container);
   },
 
   show(view) {
@@ -23853,27 +24103,32 @@ App.Pages.SpeedCalc = {
     this.render({});
   },
 
-  // ===== 顶部栏（v8.6.31 并入 pageHeader 体系：返回键位置/颜色/大小与全 App 错题本等完全一致）=====
-  _topbar(container, title, onBack) {
+  // ===== 顶部栏（simple=true 时仅「返回+标题」，不含更多/眼睛，用于首页新布局）=====
+  _topbar(container, title, onBack, extraRight, simple) {
+    const noOps = !!simple;
     const header = App.Components.pageHeader(title, null, null, {
       onBack: onBack,
-      rightHtml: '<button class="sc-topbar__icon" type="button" id="sc-more" title="更多">⋯</button>' +
-                 '<button class="sc-topbar__icon" type="button" id="sc-eye" title="显示/隐藏答案输入">👁</button>'
+      rightHtml: (extraRight || '') +
+                 (noOps ? '' :
+                 '<button class="sc-topbar__icon" type="button" id="sc-more" title="更多">⋯</button>' +
+                 '<button class="sc-topbar__icon" type="button" id="sc-eye" title="显示/隐藏答案输入">👁</button>')
     });
-    header.querySelector('#sc-more').addEventListener('click', () => {
-      App.Components.actionSheet([
-        { text: '查看历史记录', icon: '🕘', action: () => this.show('history') },
-        { text: '清除全部历史记录', icon: '🗑', danger: true, action: async () => {
-          const ok = await App.Components.confirm('清除历史', '确定清空所有速算练习记录？', '清除', '取消', true);
-          if (ok) { this.saveHistory([]); App.Components.toast('已清除', 'success'); this.render({}); }
-        } }
-      ]);
-    });
-    header.querySelector('#sc-eye').addEventListener('click', () => {
-      this.state.showAns = !this.state.showAns;
-      if (this.state.view === 'practice') this.render({});
-      else App.Components.toast(this.state.showAns ? '显示答案输入' : '隐藏答案输入', 'info');
-    });
+    if (!noOps) {
+      header.querySelector('#sc-more').addEventListener('click', () => {
+        App.Components.actionSheet([
+          { text: '查看历史记录', icon: '🕘', action: () => this.show('history') },
+          { text: '清除全部历史记录', icon: '🗑', danger: true, action: async () => {
+            const ok = await App.Components.confirm('清除历史', '确定清空所有速算练习记录？', '清除', '取消', true);
+            if (ok) { this.saveHistory([]); App.Components.toast('已清除', 'success'); this.render({}); }
+          } }
+        ]);
+      });
+      header.querySelector('#sc-eye').addEventListener('click', () => {
+        this.state.showAns = !this.state.showAns;
+        if (this.state.view === 'practice') this.render({});
+        else App.Components.toast(this.state.showAns ? '显示答案输入' : '隐藏答案输入', 'info');
+      });
+    }
     container.appendChild(header);
   },
 
@@ -23909,14 +24164,23 @@ renderHome(container) {
     if (this.state.type === 'custom' && (!this.state.custom || !this.state.custom.types.length)) this.state.type = null;
     this.state.mode = settings.mode || 'train';
 
-    this._topbar(container, '速算练习', () => App.Router.back());
+    this._topbar(container, '速算练习', () => App.Router.back(), '', true);
 
-    // v8.6.32 最上行：是否需要确定（confirmAuto）开关，打开=是 / 关闭=否
-    const confirmRow = document.createElement('div');
-    confirmRow.className = 'sc-confirm-row';
-    const confirmLabel = document.createElement('span');
-    confirmLabel.className = 'sc-confirm-row__label';
-    confirmLabel.textContent = '是否需要确定';
+    // v8.13.1 首页操作行：历史 + 统计 + 确定开关（三胶囊同排）
+    const actionRow = document.createElement('div');
+    actionRow.className = 'sc-action-row';
+    const histBtn = document.createElement('button');
+    histBtn.type = 'button';
+    histBtn.className = 'sc-action-chip';
+    histBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="5.5" r="4.3"/><path d="M5.5 3.2V5.5l1.7 1"/></svg><span>历史</span>';
+    histBtn.addEventListener('click', () => this.show('history'));
+    const statBtn = document.createElement('button');
+    statBtn.type = 'button';
+    statBtn.className = 'sc-action-chip';
+    statBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="2" y="6" width="2.2" height="3.6" rx="0.6" fill="currentColor"/><rect x="4.6" y="4.4" width="2.2" height="5.2" rx="0.6" fill="currentColor"/><rect x="7.2" y="2.6" width="2.2" height="7" rx="0.6" fill="currentColor"/></svg><span>统计</span>';
+    statBtn.addEventListener('click', () => this.show('stats'));
+    const confirmChip = document.createElement('div');
+    confirmChip.className = 'sc-action-chip sc-action-chip--confirm';
     const confirmSw = document.createElement('div');
     confirmSw.className = 'sc-confirm-row__switch' + (settings.confirmAuto ? ' on' : '');
     confirmSw.innerHTML = '<span class="sc-confirm-row__dot"></span>';
@@ -23925,9 +24189,12 @@ renderHome(container) {
       confirmSw.classList.toggle('on', settings.confirmAuto);
       this.saveSettings(settings);
     });
-    confirmRow.appendChild(confirmLabel);
-    confirmRow.appendChild(confirmSw);
-    container.appendChild(confirmRow);
+    confirmChip.innerHTML = '<svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="5.5" r="4.2"/><path d="M3.6 5.7l1.4 1.5 2.4-2.7"/></svg><span>确定</span>';
+    confirmChip.appendChild(confirmSw);
+    actionRow.appendChild(histBtn);
+    actionRow.appendChild(statBtn);
+    actionRow.appendChild(confirmChip);
+    container.appendChild(actionRow);
 
     const body = document.createElement('div');
     body.className = 'sc-page';
@@ -23952,22 +24219,31 @@ renderHome(container) {
         '<div class="sc-module-title">' + mod.title + '</div>' +
         '<div class="sc-module-count">' + typeCount + '/' + typeCount + ' 可练习</div>' +
         '<div class="sc-module-arrow">❯</div>';
+      const scIcon = (key) => {
+        const m = { addsub2: '±', add3: '+', sub3: '−', addsub3: '±', mul2x1: '×', mul3x1: '×', div3x1: '÷', div5x3: '÷', spDen: '%', est05: '≈', base: '📈', growth: '📊', dataReal: '📋', custom: '+' };
+        return m[key] || '•';
+      };
       const tags = document.createElement('div');
-      tags.className = 'sc-module-tags';
+      tags.className = 'sc-type-grid';
       mod.types.forEach(key => {
         const t = this.TYPES[key];
         const hasDrop = !t.gen;   // ▼ 占位题型
-        const tag = document.createElement('span');
-        tag.className = 'sc-module-tag' + (this.state.type === key ? ' selected' : '');
+        const tag = document.createElement('div');
+        tag.className = 'sc-type-card' + (this.state.type === key ? ' selected' : '');
         tag.dataset.tk = key;
-        tag.innerHTML = '<span>' + t.name + '</span>' + (hasDrop ? '<span class="sc-type-item__drop">▾</span>' : '');
+        tag.innerHTML =
+          '<div class="sc-type-card__icon">' + scIcon(key) + '</div>' +
+          '<div class="sc-type-card__body">' +
+            '<div class="sc-type-card__name">' + t.name + (hasDrop ? ' <span class="sc-type-item__drop">▾</span>' : '') + '</div>' +
+            '<div class="sc-type-card__rate">' + (t.s ? '合格 ' + t.s.pass + 's' : '即将上线') + '</div>' +
+          '</div>';
         tag.addEventListener('click', (e) => {
           e.stopPropagation();
           if (!t.gen) { App.Components.toast(t.name + '功能即将上线', 'info'); return; }
           this.state.type = key;
           settings.selectedType = key;
           this.saveSettings(settings);
-          body.querySelectorAll('.sc-module-tag').forEach(x => x.classList.remove('selected'));
+          body.querySelectorAll('.sc-type-card').forEach(x => x.classList.remove('selected'));
           tag.classList.add('selected');
           startBtn.classList.remove('disabled');
           startBtn.textContent = '开始练习';
@@ -23976,15 +24252,19 @@ renderHome(container) {
       });
       // 自定义练习整合进基础模块：点击弹小窗选择（不进新页面）
       if (mod.custom) {
-        const ctag = document.createElement('span');
-        ctag.className = 'sc-module-tag' + (this.state.type === 'custom' ? ' selected' : '');
-        ctag.innerHTML = '<span>自定义练习</span><span class="sc-type-item__drop">▾</span>';
+        const ctag = document.createElement('div');
+        ctag.className = 'sc-type-card' + (this.state.type === 'custom' ? ' selected' : '');
+        ctag.innerHTML =
+          '<div class="sc-type-card__icon">' + scIcon('custom') + '</div>' +
+          '<div class="sc-type-card__body">' +
+            '<div class="sc-type-card__name">自定义练习 <span class="sc-type-item__drop">▾</span></div>' +
+            '<div class="sc-type-card__rate">自选题型组合</div>' +
+          '</div>';
         ctag.addEventListener('click', (e) => {
           e.stopPropagation();
-          self.showCustomPicker((types) => {
-            if (!types.length) return;
+          self.renderCustomSheet(() => {
             this.state.type = 'custom';
-            body.querySelectorAll('.sc-module-tag').forEach(x => x.classList.remove('selected'));
+            body.querySelectorAll('.sc-type-card').forEach(x => x.classList.remove('selected'));
             ctag.classList.add('selected');
             startBtn.classList.remove('disabled');
             startBtn.textContent = '开始自定义练习';
@@ -23995,7 +24275,7 @@ renderHome(container) {
       // 头部点击折叠/展开标签云
       let open = true;
       head.addEventListener('click', (e) => {
-        if (e.target.closest('.sc-module-tag')) return;
+        if (e.target.closest('.sc-type-card')) return;
         open = !open;
         tags.style.display = open ? '' : 'none';
         head.querySelector('.sc-module-arrow').style.transform = open ? '' : 'rotate(90deg)';
@@ -24075,6 +24355,205 @@ renderHome(container) {
       overlay.remove();
       if (cb) cb(/^\d+$/.test(v) ? parseInt(v, 10) : v);
     }));
+  },
+
+  // v8.15 自定义练习弹窗（设计稿重构）：底部 Sheet（浅灰底）+ 题型选择置顶 + 数字设置[数字范围/固定数字] + 最近使用
+  renderCustomSheet(onDone) {
+    const self = this;
+    if (!this.state.custom) this.resetCustomState();
+    const cs = this.state.custom;
+    const presets = this.loadCustomPresets();
+    if (!cs.types) cs.types = [];
+    if (!Array.isArray(cs.fixedNums)) cs.fixedNums = [];
+
+    const overlay = document.createElement('div');
+    overlay.className = 'notion-mobile-sheet-overlay';
+    const sheet = document.createElement('div');
+    sheet.className = 'notion-mobile-sheet sc-custom-sheet sc-picker-sheet';
+    const content = document.createElement('div');
+    content.className = 'notion-mobile-sheet__content';
+
+    // 标题行
+    const titleRow = document.createElement('div');
+    titleRow.className = 'sc-custom-sheet-title';
+    titleRow.innerHTML = '<div class="sc-custom-sheet-title__text">自定义练习</div><button type="button" class="sc-custom-sheet-title__close" aria-label="关闭">✕</button>';
+    titleRow.querySelector('.sc-custom-sheet-title__close').addEventListener('click', () => overlay.remove());
+    content.appendChild(titleRow);
+
+    const body = document.createElement('div');
+    body.className = 'sc-custom-sheet-body';
+
+    // ===== 题型选择（置顶，11 种多选）=====
+    const tyTitle = document.createElement('div');
+    tyTitle.className = 'sc-custom-block-title';
+    tyTitle.textContent = '题型选择';
+    body.appendChild(tyTitle);
+    const typeGrid = document.createElement('div');
+    typeGrid.className = 'sc-custom-grid';
+    const renderTypes = () => {
+      typeGrid.innerHTML = '';
+      this.CUSTOM_ORDER.forEach(key => {
+        const c = document.createElement('div');
+        c.className = 'sc-custom-cell' + (cs.types.includes(key) ? ' selected' : '');
+        c.textContent = this.CUSTOM_TYPES[key].name;
+        c.addEventListener('click', () => {
+          if (cs.types.includes(key)) cs.types = cs.types.filter(k => k !== key);
+          else cs.types.push(key);
+          renderTypes(); renderOk();
+        });
+        typeGrid.appendChild(c);
+      });
+    };
+    renderTypes();
+    body.appendChild(typeGrid);
+
+    // ===== 数字设置（白底卡 + 横排 tab 切换）=====
+    const numTitle = document.createElement('div');
+    numTitle.className = 'sc-custom-block-title';
+    numTitle.textContent = '数字设置';
+    body.appendChild(numTitle);
+    const dnumCard = document.createElement('div');
+    dnumCard.className = 'sc-dnum-card';
+
+    // 横排选择按钮组：数字范围 / 固定数字
+    const tabs = document.createElement('div');
+    tabs.className = 'sc-dnum-tabs';
+    const renderTabs = () => {
+      tabs.innerHTML = '';
+      [['range', '数字范围'], ['fixed', '固定数字']].forEach(function (pair) {
+        const mode = pair[0], label = pair[1];
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'sc-dnum-tab' + (cs.mode === mode ? ' selected' : '');
+        b.textContent = label;
+        b.addEventListener('click', function () { cs.mode = mode; renderTabs(); renderNumInputs(); });
+        tabs.appendChild(b);
+      });
+    };
+    renderTabs();
+    dnumCard.appendChild(tabs);
+
+    // 数字输入区（随 tab 切换）
+    const numInputArea = document.createElement('div');
+    const renderNumInputs = () => {
+      numInputArea.innerHTML = '';
+      if (cs.mode === 'range') {
+        const hint = document.createElement('div');
+        hint.className = 'sc-dnum-hint';
+        hint.textContent = '在范围内随机出题（001-999）';
+        numInputArea.appendChild(hint);
+        const rangeWrap = document.createElement('div');
+        rangeWrap.className = 'sc-dnum-range';
+        const mk = (label, val, cb) => {
+          const cell = document.createElement('div');
+          const lb = document.createElement('span');
+          lb.className = 'sc-dnum-range__label';
+          lb.textContent = label;
+          const inp = document.createElement('input');
+          inp.type = 'number';
+          inp.className = 'sc-dnum-range-input';
+          inp.value = val != null ? val : '';
+          inp.placeholder = label === '最小值' ? '001' : '999';
+          inp.addEventListener('input', () => cb(parseInt(inp.value, 10) || null));
+          cell.appendChild(lb); cell.appendChild(inp);
+          return cell;
+        };
+        rangeWrap.appendChild(mk('最小值', cs.rangeMin, (v) => { cs.rangeMin = v; }));
+        const tilde = document.createElement('span');
+        tilde.className = 'sc-dnum-range__tilde'; tilde.textContent = '~';
+        rangeWrap.appendChild(tilde);
+        rangeWrap.appendChild(mk('最大值', cs.rangeMax, (v) => { cs.rangeMax = v; }));
+        numInputArea.appendChild(rangeWrap);
+      } else {
+        const hint = document.createElement('div');
+        hint.className = 'sc-dnum-hint';
+        hint.textContent = '可选中多个数字，练习时从所选数字中随机出题';
+        numInputArea.appendChild(hint);
+        const row = document.createElement('div');
+        row.className = 'sc-dnum-fixrow';
+        for (let i = 2; i <= 9; i++) {
+          (function (n) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'sc-dnum-fix' + (cs.fixedNums.includes(n) ? ' selected' : '');
+            b.textContent = String(n);
+            b.addEventListener('click', () => {
+              if (cs.fixedNums.includes(n)) cs.fixedNums = cs.fixedNums.filter(x => x !== n);
+              else cs.fixedNums.push(n);
+              renderNumInputs(); renderOk();
+            });
+            row.appendChild(b);
+          })(i);
+        }
+        numInputArea.appendChild(row);
+      }
+    };
+    renderNumInputs();
+    dnumCard.appendChild(numInputArea);
+    body.appendChild(dnumCard);
+
+    // ===== 最近使用 =====
+    const histTitle = document.createElement('div');
+    histTitle.className = 'sc-custom-block-title';
+    histTitle.textContent = '最近使用';
+    body.appendChild(histTitle);
+    const histGrid = document.createElement('div');
+    histGrid.className = 'sc-custom-hist';
+    if (presets.history.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'sc-custom-histempty';
+      empty.textContent = '暂无历史，完成一次自定义练习后自动记录';
+      histGrid.appendChild(empty);
+    } else {
+      presets.history.forEach((h) => {
+        const card = document.createElement('div');
+        card.className = 'sc-custom-histcard';
+        card.innerHTML = '<div class="sc-custom-histcard__name">' + (h.name || '') + '</div>' +
+          '<div class="sc-custom-histcard__sub">' + (h.subName || '') + '</div>';
+        card.addEventListener('click', () => {
+          overlay.remove();
+          self.startCustomPractice(h);
+        });
+        histGrid.appendChild(card);
+      });
+    }
+    body.appendChild(histGrid);
+
+    content.appendChild(body);
+    sheet.appendChild(content);
+
+    // 底部操作栏
+    const foot = document.createElement('div');
+    foot.className = 'sc-custom-foot';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'sc-custom-footbtn sc-custom-footbtn--cancel';
+    cancel.textContent = '取消';
+    cancel.addEventListener('click', () => overlay.remove());
+    const ok = document.createElement('button');
+    ok.type = 'button';
+    ok.className = 'sc-custom-footbtn sc-custom-footbtn--ok';
+    const renderOk = () => {
+      const hasType = (cs.types || []).length > 0;
+      const hasNum = cs.mode === 'range' ? (cs.rangeMin != null && cs.rangeMax != null) : (Array.isArray(cs.fixedNums) && cs.fixedNums.length > 0);
+      ok.textContent = '确定';
+      ok.classList.toggle('disabled', !hasType || !hasNum);
+    };
+    renderOk();
+    ok.addEventListener('click', () => {
+      if (!cs.types.length) { App.Components.toast('请至少选择一个题型', 'error'); return; }
+      if (cs.mode === 'range' && (cs.rangeMin == null || cs.rangeMax == null)) { App.Components.toast('请设置数字范围', 'error'); return; }
+      if (cs.mode === 'fixed' && !cs.fixedNums.length) { App.Components.toast('请选择至少一个固定数字', 'error'); return; }
+      overlay.remove();
+      if (onDone) onDone();
+    });
+    foot.appendChild(cancel);
+    foot.appendChild(ok);
+    sheet.appendChild(foot);
+
+    overlay.appendChild(sheet);
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   },
 
   // 自定义练习小窗：11 个题型多选 → 确定（不进入新页面）
@@ -24350,14 +24829,27 @@ renderHome(container) {
   },
   CUSTOM_ORDER: ['jinwei', 'tuiwei', 'jjMul', 'jjDiv', 'addsub2c', 'mul2x1c', 'div3x1c', 'div5x3c', 'divRem', 'mulHead', 'mulEstc'],
 
-  // v8.6.32 数据特征应用：固定首位=表达式内所有数字首位替换（效果明显）；随机范围=替换首个数字。
+  // v8.15 数字设置应用：
+  //   mode='range'  → 数字范围(001-999)：把表达式首个数字替换为 range 内随机多位数（一位/两位/三位）；
+  //   mode='fixed'  → 固定数字(2-9 可多选)：把表达式中所有数字替换为从选中数字里随机取的一个数字。
   // 仅对纯四则运算表达式生效（含 ≈/余/首位 等语义的题型跳过，避免答案错位）；重算答案用简易求值器。
   _applyCustomFeature(q, feature) {
     let newExpr = null;
     const expr = String(q.expr);
-    if (feature && feature.type === 'fixedFirst' && feature.number && /^[\d\s+\-×÷.]+$/.test(expr)) {
+    const isArith = /^[\d\s+\-×÷.]+$/.test(expr);
+    if (!isArith) return q;
+    if (feature && feature.mode === 'range' && feature.min != null && feature.max != null) {
+      const lo = Math.max(1, Math.min(Math.round(feature.min), 999));
+      const hi = Math.max(lo, Math.min(Math.round(feature.max), 999));
+      newExpr = expr.replace(/^\d+/, () => String(randInt(lo, hi)));
+    } else if (feature && feature.mode === 'fixed' && Array.isArray(feature.nums) && feature.nums.length) {
+      const nums = feature.nums.filter(n => n >= 1 && n <= 9);
+      if (!nums.length) return q;
+      const d = nums[randInt(0, nums.length - 1)];
+      newExpr = expr.replace(/\d+/g, () => String(d));
+    } else if (feature && feature.type === 'fixedFirst' && feature.number) {
       newExpr = expr.replace(/\d+/g, (m) => String(feature.number) + m.slice(1));
-    } else if (feature && feature.type === 'randomRange' && feature.min != null && feature.max != null && /^[\d\s+\-×÷.]+$/.test(expr)) {
+    } else if (feature && feature.type === 'randomRange' && feature.min != null && feature.max != null) {
       newExpr = expr.replace(/^\d+/, () => String(randInt(feature.min, feature.max)));
     }
     if (newExpr === null || newExpr === expr) return q;
@@ -24386,13 +24878,14 @@ renderHome(container) {
   resetCustomState() {
     const presets = this.loadCustomPresets();
     const last = presets.lastUsed || {};
-    // v8.6.33 双项配置：第一项 / 第二项 各自独立（题型 + 数据特征），生成时交替出题
+    // v8.15 重构：单一题型多选 + 数字设置（数字范围 range / 固定数字 fixed 二选一），默认跟随全局设置
     this.state.custom = {
-      items: {
-        item1: { types: Array.isArray(last.types) ? last.types : [], featureType: last.featureType || 'fixedFirst', fixedNum: last.fixedNum || 9, randMin: last.randomMin != null ? last.randomMin : null, randMax: last.randomMax != null ? last.randomMax : null },
-        item2: { types: Array.isArray(last.item2Types) ? last.item2Types : [], featureType: last.item2FeatureType || 'fixedFirst', fixedNum: last.item2FixedNum || 9, randMin: last.item2RandomMin != null ? last.item2RandomMin : null, randMax: last.item2RandomMax != null ? last.item2RandomMax : null }
-      },
-      settings: Object.assign({ confirmAuto: true, useScreenKeyboard: false, sequential: false, nightMode: false, noNegative: false, quickMemo: true }, last.settings || {})
+      types: Array.isArray(last.types) ? last.types.slice() : [],
+      mode: (last.mode === 'range' || last.mode === 'fixed') ? last.mode : (last.featureType === 'randomRange' ? 'range' : 'fixed'),
+      rangeMin: last.rangeMin != null ? last.rangeMin : (last.randomMin != null ? last.randomMin : 1),
+      rangeMax: last.rangeMax != null ? last.rangeMax : (last.randomMax != null ? last.randomMax : 99),
+      fixedNums: Array.isArray(last.fixedNums) ? last.fixedNums.slice() : (last.fixedNum != null ? [last.fixedNum] : []),
+      settings: {}
     };
   },
 
@@ -24618,42 +25111,34 @@ renderHome(container) {
   // 开始自定义练习：保存配置 + 生成题目 + 进入做题页
   // hist（可选）：从最近使用历史进入时使用历史记录配置
   startCustomPractice(hist) {
-    const self = this;
     if (!this.state.custom) this.resetCustomState();
     const cs = this.state.custom;
-    if (!cs.items) this.resetCustomState();
     if (hist) {
-      // 从历史进入：历史存了已选题型数组（第一项）
-      const i1 = cs.items.item1, i2 = cs.items.item2;
-      if (Array.isArray(hist.types) && hist.types.length) i1.types = hist.types.slice();
-      i1.featureType = hist.featureType || 'fixedFirst';
-      i1.fixedNum = hist.number || i1.fixedNum;
-      i1.randMin = hist.randomMin != null ? hist.randomMin : null;
-      i1.randMax = hist.randomMax != null ? hist.randomMax : null;
-      if (Array.isArray(hist.item2Types) && hist.item2Types.length) i2.types = hist.item2Types.slice();
-      i2.featureType = hist.item2FeatureType || 'fixedFirst';
-      i2.fixedNum = hist.item2FixedNum || i2.fixedNum;
-      i2.randMin = hist.item2RandomMin != null ? hist.item2RandomMin : null;
-      i2.randMax = hist.item2RandomMax != null ? hist.item2RandomMax : null;
+      cs.types = (Array.isArray(hist.types) ? hist.types : []).filter(k => this.CUSTOM_TYPES[k] && this.CUSTOM_TYPES[k].gen);
+      cs.mode = (hist.mode === 'range' || hist.mode === 'fixed') ? hist.mode : 'fixed';
+      cs.rangeMin = hist.rangeMin != null ? hist.rangeMin : 1;
+      cs.rangeMax = hist.rangeMax != null ? hist.rangeMax : 99;
+      cs.fixedNums = (Array.isArray(hist.fixedNums) ? hist.fixedNums : []).filter(n => n >= 2 && n <= 9);
     }
-    // v8.6.33 双项出题：第一项 / 第二项都有题型时交替随机，只有一项时用那一项
-    const items = [cs.items.item1, cs.items.item2].filter(it => it && it.types && it.types.length);
-    if (!items.length) { App.Components.toast('请至少选择一个题型', 'error'); return; }
+    const types = (cs.types || []).filter(k => this.CUSTOM_TYPES[k] && this.CUSTOM_TYPES[k].gen);
+    const hasNum = cs.mode === 'range' ? (cs.rangeMin != null && cs.rangeMax != null) : (Array.isArray(cs.fixedNums) && cs.fixedNums.length > 0);
+    if (!types.length || !hasNum) { App.Components.toast('请先选择题型并设置数字', 'error'); return; }
     const settings = this.loadSettings();
     const count = settings.questionCount || 10;
     const mode = this.state.mode || 'train';
     this.state.type = 'custom';
     this.state.mode = mode;
 
-    // 生成题目：每轮随机选一项（有内容），从该项题型随机选一个，套用该项数据特征
+    // 出题：每轮从已选题型随机选一种 gen，再按数字设置（数字范围 / 固定数字）套用数字规则
     this.state.questions = [];
     for (let i = 0; i < count; i++) {
-      const it = items[randInt(0, items.length - 1)];
-      const key = it.types[randInt(0, it.types.length - 1)];
-      const gen = this.CUSTOM_TYPES[key].gen;
-      let q = gen();
-      if (it.featureType === 'fixedFirst') q = this._applyCustomFeature(q, { type: 'fixedFirst', number: it.fixedNum });
-      else if (it.featureType === 'randomRange') q = this._applyCustomFeature(q, { type: 'randomRange', min: it.randMin, max: it.randMax });
+      const key = types[randInt(0, types.length - 1)];
+      let q = this.CUSTOM_TYPES[key].gen();
+      if (cs.mode === 'range' && cs.rangeMin != null && cs.rangeMax != null) {
+        q = this._applyCustomFeature(q, { mode: 'range', min: cs.rangeMin, max: cs.rangeMax });
+      } else if (cs.mode === 'fixed' && Array.isArray(cs.fixedNums) && cs.fixedNums.length) {
+        q = this._applyCustomFeature(q, { mode: 'fixed', nums: cs.fixedNums });
+      }
       q.user = '';
       q.correct = null;
       this.state.questions.push(q);
@@ -24665,38 +25150,27 @@ renderHome(container) {
     this.state.doodleData = null;
     this.state.autoNextTimer = null;
 
-    // 保存配置 + 历史（最多 12 条，新置顶）——v8.6.33 双项配置
+    // 保存配置 + 历史（最多 12 条，新置顶）
     const presets = this.loadCustomPresets();
-    const i1 = cs.items.item1, i2 = cs.items.item2;
-    const allTypes = i1.types.concat(i2.types);
-    const firstType = allTypes[0];
+    const firstType = types[0];
+    const fixedLabel = cs.fixedNums.slice().sort((a, b) => a - b).join('、');
     const histItem = {
       id: Date.now(),
-      name: allTypes.length > 1 ? (allTypes.length + ' 题组合') : this.CUSTOM_TYPES[firstType].name,
-      subName: allTypes.length > 1 ? allTypes.map(k => this.CUSTOM_TYPES[k].name).join('、') : (i1.featureType === 'fixedFirst' ? '固定首位' : '随机范围'),
-      number: i1.featureType === 'fixedFirst' ? i1.fixedNum : null,
-      featureType: i1.featureType,
-      randomMin: i1.randMin,
-      randomMax: i1.randMax,
-      types: i1.types.slice(),
-      item2Types: i2.types.slice(),
-      item2FeatureType: i2.featureType,
-      item2FixedNum: i2.fixedNum,
-      item2RandomMin: i2.randMin,
-      item2RandomMax: i2.randMax,
+      types: types.slice(),
+      mode: cs.mode,
+      rangeMin: cs.mode === 'range' ? cs.rangeMin : null,
+      rangeMax: cs.mode === 'range' ? cs.rangeMax : null,
+      fixedNums: cs.mode === 'fixed' ? cs.fixedNums.slice() : null,
+      name: types.length > 1 ? (types.length + ' 题组合') : this.CUSTOM_TYPES[firstType].name,
+      subName: cs.mode === 'range' ? ('数字 ' + cs.rangeMin + '-' + cs.rangeMax) : (fixedLabel ? '固定 ' + fixedLabel : '固定数字'),
       date: new Date().toISOString().slice(0, 10)
     };
     presets.lastUsed = {
-      types: i1.types.slice(),
-      featureType: i1.featureType,
-      fixedNum: i1.fixedNum,
-      randomMin: i1.randMin,
-      randomMax: i1.randMax,
-      item2Types: i2.types.slice(),
-      item2FeatureType: i2.featureType,
-      item2FixedNum: i2.fixedNum,
-      item2RandomMin: i2.randMin,
-      item2RandomMax: i2.randMax,
+      types: types.slice(),
+      mode: cs.mode,
+      rangeMin: cs.rangeMin,
+      rangeMax: cs.rangeMax,
+      fixedNums: cs.fixedNums.slice(),
       settings: Object.assign({}, cs.settings)
     };
     presets.history = [histItem].concat(presets.history.filter(h => h.id !== histItem.id)).slice(0, 12);
@@ -25101,13 +25575,52 @@ renderHome(container) {
     this.show('practice');
   },
 
-  // ===== 视图：历史记录（kg_speed_records；兼容旧记录字段）=====
+  // 题型/模式 → 图标符号（历史/统计页用）
+  _scIcon(name) {
+    const m = {
+      '两位数加减':'±','三位数加法':'+','三位数减法':'−','三位数加减':'±',
+      '两位数乘一位数':'×','三位数乘一位数':'×','三位数除一位数':'÷','五位数除三位数':'÷',
+      '特殊分母练习':'%','零五十估算练习':'≈','基期练习':'📈','增量练习':'📊','资料分析实战':'📋',
+      '自定义练习':'+','竞速':'⚡'
+    };
+    return m[name] || '•';
+  },
+
+  // 历史记录按「时间分组(今天/昨天/更早) + 类型归并」汇总，用于对比准确率与用时
+  _groupHistory(list) {
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    const todayMs = now.getTime(), day = 86400000;
+    const idxOf = (ms) => (ms === todayMs ? 0 : ms === todayMs - day ? 1 : 2);
+    const bname = ['今天', '昨天', '更早'], bkey = ['today', 'yesterday', 'earlier'];
+    const groups = [null, null, null];
+    list.forEach((r) => {
+      let d;
+      try { d = new Date(r.date); } catch (e) { d = new Date(); }
+      const ds = new Date(d); ds.setHours(0, 0, 0, 0);
+      const gi = idxOf(ds.getTime());
+      if (!groups[gi]) groups[gi] = { key: bkey[gi], label: bname[gi], types: {} };
+      const g = groups[gi];
+      const tname = (r.type && r.type !== 'undefined' ? r.type : '速算练习');
+      if (!g.types[tname]) g.types[tname] = { name: tname, icon: this._scIcon(tname), countN: 0, correct: 0, total: 0, timeSum: 0, items: [] };
+      const T = g.types[tname];
+      const cc = r.correctCount !== undefined ? r.correctCount : (r.correct != null ? r.correct : 0);
+      const tc = r.totalCount !== undefined ? r.totalCount : (r.count != null ? r.count : 0);
+      const dur = r.duration !== undefined ? r.duration : (r.totalTime != null ? r.totalTime : 0);
+      T.countN++; T.correct += cc; T.total += tc; T.timeSum += dur;
+      T.items.push({ date: r.date, correct: cc, total: tc, dur: dur, mode: r.mode });
+    });
+    return groups.filter(Boolean).map((g) => ({
+      key: g.key, label: g.label,
+      types: Object.keys(g.types).map((k) => g.types[k]).sort((a, b) => b.countN - a.countN)
+    })).sort((a, b) => { const o = { today: 0, yesterday: 1, earlier: 2 }; return o[a.key] - o[b.key]; });
+  },
+
+  // ===== 视图：历史记录（设计稿：按时间分组 + 类型胶囊对比 + 点击展开明细）=====
   renderHistory(container) {
     const self = this;
     this._topbar(container, '历史记录', () => this.show('home'));
-
     const body = document.createElement('div');
-    body.className = 'sc-page';
+    body.className = 'sc-page sc-hist-page';
 
     const list = this.loadHistory();
     if (list.length === 0) {
@@ -25116,34 +25629,63 @@ renderHome(container) {
       empty.textContent = '暂无练习记录，快去练一练吧';
       body.appendChild(empty);
     } else {
-      const rows = document.createElement('div');
-      rows.className = 'sc-hist-list';
-      list.forEach((r, idx) => {
-        const row = document.createElement('div');
-        row.className = 'sc-hist-row';
-        row.dataset.idx = idx;
-        const cc = r.correctCount !== undefined ? r.correctCount : r.correct;
-        const tc = r.totalCount !== undefined ? r.totalCount : r.count;
-        const dur = r.duration !== undefined ? r.duration : r.totalTime;
-        const avg = r.avgTime !== undefined ? r.avgTime : (tc ? Math.round((dur || 0) / tc * 10) / 10 : 0);
-        row.innerHTML =
-          '<div class="sc-hist-row__main">' +
-            '<div class="sc-hist-row__title">' + esc(r.type) + ' · ' + esc(r.mode) + '</div>' +
-            '<div class="sc-hist-row__sub">' + fmtDate(r.date) + ' · 正确率 ' + cc + '/' + tc + ' · 用时 ' + fmtClock(dur || 0) + (avg ? ' · 平均 ' + avg + 's' : '') + '</div>' +
-          '</div>' +
-          '<button class="sc-hist-del" type="button">删除</button>';
-        bindSwipeDelete(row, rows, () => {
-          const ok2 = confirm('删除这条练习记录？');
-          if (ok2) {
-            const arr = this.loadHistory();
-            arr.splice(idx, 1);
-            this.saveHistory(arr);
-            this.render({});
-          }
+      const title = document.createElement('div');
+      title.className = 'sc-hist-title';
+      title.textContent = '按练习类型对比';
+      body.appendChild(title);
+      // 时间分组 + 类型胶囊
+      const groups = this._groupHistory(list);
+      groups.forEach((grp) => {
+        const sec = document.createElement('div');
+        sec.className = 'sc-hsec';
+        const secTitle = document.createElement('div');
+        secTitle.className = 'sc-hsec__title';
+        secTitle.textContent = grp.label;
+        sec.appendChild(secTitle);
+        grp.types.forEach((T) => {
+          const rate = T.total ? Math.round(T.correct / T.total * 100) : 0;
+          const avgT = (T.countN ? T.timeSum / T.countN : 0);   // 单次平均用时(s)
+          const wrap = document.createElement('div');
+          wrap.className = 'sc-hcap-wrap';
+          const cap = document.createElement('div');
+          cap.className = 'sc-hcap';
+          cap.setAttribute('role', 'button');
+          cap.innerHTML =
+            '<div class="sc-hcap__icon">' + T.icon + '</div>' +
+            '<div class="sc-hcap__info">' +
+              '<div class="sc-hcap__name">' + esc(T.name) + '</div>' +
+              '<div class="sc-hcap__sub">每次 ' + (T.total ? Math.round(T.total / T.countN) : 10) + ' 题</div>' +
+            '</div>' +
+            '<div class="sc-hcap__stat">' +
+              '<div class="sc-hcap__rate" style="color:' + (rate >= 80 ? '#0066CC' : rate >= 60 ? '#EB8A3A' : '#E03131') + '">' + rate + '%</div>' +
+              '<div class="sc-hcap__time">10题≈' + Math.round(avgT) + 's</div>' +
+            '</div>' +
+            '<div class="sc-hcap__arrow"><svg width="9" height="5" viewBox="0 0 9 5" fill="none"><path d="M1.5 1.2L4.5 4l3-2.8" stroke="#A1A1A6" stroke-width="1.6" stroke-linecap="round"/></svg></div>';
+          // 展开明细（平铺当日该类型每次完成）
+          const detail = document.createElement('div');
+          detail.className = 'sc-hcap-detail';
+          detail.style.display = 'none';
+          T.items.forEach((it) => {
+            const mini = document.createElement('div');
+            mini.className = 'sc-hcap-detail__row';
+            const drate = it.total ? Math.round(it.correct / it.total * 100) : 0;
+            mini.innerHTML =
+              '<span class="sc-hcap-detail__t">' + fmtDate(it.date) + '</span>' +
+              '<span class="sc-hcap-detail__c" style="color:' + (drate >= 80 ? '#0066CC' : drate >= 60 ? '#EB8A3A' : '#E03131') + '">正确 ' + (it.correct == null ? '-' : it.correct) + '/' + (it.total || 0) + '</span>' +
+              '<span class="sc-hcap-detail__u">' + fmtClock(it.dur || 0) + '</span>';
+            detail.appendChild(mini);
+          });
+          cap.addEventListener('click', () => {
+            const isOpen = detail.style.display !== 'none';
+            detail.style.display = isOpen ? 'none' : 'block';
+            cap.classList.toggle('open', !isOpen);
+          });
+          wrap.appendChild(cap);
+          wrap.appendChild(detail);
+          sec.appendChild(wrap);
         });
-        rows.appendChild(row);
+        body.appendChild(sec);
       });
-      body.appendChild(rows);
     }
 
     const btnRow = document.createElement('div');
@@ -25157,10 +25699,113 @@ renderHome(container) {
     body.appendChild(btnRow);
 
     container.appendChild(body);
+  },
+
+  // ===== 视图：速算统计（设计稿：热门类型 + 正确率趋势折线 + 用时分析条形）=====
+  renderStats(container) {
+    const self = this;
+    this._topbar(container, '速算统计', () => this.show('home'));
+    const body = document.createElement('div');
+    body.className = 'sc-page sc-stats-page';
+
+    const list = this.loadHistory();
+    const byType = {};
+    list.forEach((r) => {
+      const tname = (r.type && r.type !== 'undefined' ? r.type : '速算练习');
+      if (!byType[tname]) byType[tname] = { name: tname, icon: this._scIcon(tname), countN: 0, correct: 0, total: 0, timeSum: 0 };
+      const T = byType[tname];
+      const cc = r.correctCount !== undefined ? r.correctCount : (r.correct != null ? r.correct : 0);
+      const tc = r.totalCount !== undefined ? r.totalCount : (r.count != null ? r.count : 0);
+      const dur = r.duration !== undefined ? r.duration : (r.totalTime != null ? r.totalTime : 0);
+      T.countN++; T.correct += cc; T.total += tc; T.timeSum += dur;
+    });
+    const types = Object.keys(byType).map((k) => byType[k]);
+    const topType = types.slice().sort((a, b) => b.countN - a.countN)[0];
+
+    // ===== 汇总卡：最近练习最多的类型 =====
+    if (topType) {
+      const rate = topType.total ? Math.round(topType.correct / topType.total * 100) : 0;
+      const avgT10 = topType.countN ? Math.round(topType.timeSum / topType.countN) : 0;
+      const hot = document.createElement('div');
+      hot.className = 'sc-stats-hot';
+      hot.innerHTML =
+        '<div class="sc-stats-hot__label">最近练习最多</div>' +
+        '<div class="sc-stats-hot__main">' +
+          '<div class="sc-stats-hot__icon">' + topType.icon + '</div>' +
+          '<div class="sc-stats-hot__name">' + esc(topType.name) + '</div>' +
+        '</div>' +
+        '<div class="sc-stats-hot__nums">' +
+          '<div class="sc-stats-num"><span class="sc-stats-num__v">' + topType.countN + '</span><span class="sc-stats-num__l">练习次数</span></div>' +
+          '<div class="sc-stats-num"><span class="sc-stats-num__v" style="color:#0066CC">' + rate + '%</span><span class="sc-stats-num__l">正确率</span></div>' +
+          '<div class="sc-stats-num"><span class="sc-stats-num__v" style="color:#2E9E5B">' + avgT10 + 's</span><span class="sc-stats-num__l">10题用时</span></div>' +
+        '</div>';
+      body.appendChild(hot);
+    }
+
+    // ===== 正确率趋势卡：近7天折线 =====
+    const days = [];
+    for (let i = 6; i >= 0; i--) { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i); days.push({ ms: d.getTime(), correct: 0, total: 0 }); }
+    list.forEach((r) => {
+      let d; try { d = new Date(r.date); } catch (e) { return; }
+      const ds = new Date(d); ds.setHours(0, 0, 0, 0);
+      const dayEl = days.find((x) => x.ms === ds.getTime());
+      if (!dayEl) return;
+      dayEl.correct += (r.correctCount !== undefined ? r.correctCount : (r.correct != null ? r.correct : 0));
+      dayEl.total += (r.totalCount !== undefined ? r.totalCount : (r.count != null ? r.count : 0));
+    });
+    const labels = days.map((d) => { const dt = new Date(d.ms); return (dt.getMonth() + 1) + '/' + dt.getDate(); });
+    const rates = days.map((d) => (d.total ? Math.round(d.correct / d.total * 100) : 0));
+    // 折线坐标（viewBox 0 0 620 200）
+    const VW = 620, padL = 46, padR = 14, padT = 16, padB = 28;
+    const innerW = VW - padL - padR, chartH = 200 - padT - padB;
+    const maxY = 100, minY = 40;
+    const pts = rates.map((v, i) => {
+      const x = padL + (rates.length > 1 ? innerW * i / (rates.length - 1) : innerW / 2);
+      const y = padT + chartH * (1 - (v - minY) / (maxY - minY));
+      return [Math.round(x * 10) / 10, Math.round(y * 10) / 10];
+    });
+    const path = pts.map((p, i) => (i ? 'L' : 'M') + p[0] + ' ' + p[1]).join(' ');
+    const trend = document.createElement('div');
+    trend.className = 'sc-stats-card';
+    trend.innerHTML =
+      '<div class="sc-stats-card__head"><span class="sc-stats-card__title">正确率趋势</span><span class="sc-stats-card__hint">近7天</span></div>' +
+      '<div class="sc-stats-card__chart">' +
+        '<svg viewBox="0 0 620 200" width="100%" height="160" preserveAspectRatio="none">' +
+          '<line x1="' + padL + '" y1="' + padT + '" x2="' + padL + '" y2="' + (200 - padB) + '" stroke="#EFEFF2"/>' +
+          '<line x1="' + padL + '" y1="' + (200 - padB) + '" x2="' + (VW - padR) + '" y2="' + (200 - padB) + '" stroke="#EFEFF2"/>' +
+          '<path d="' + path + '" stroke="#0066CC" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+          pts.map((p) => '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="3.5" fill="#0066CC"/>').join('') +
+        '</svg>' +
+        '<div class="sc-stats-card__x">' + labels.join('&nbsp;&nbsp;&nbsp;') + '</div>' +
+      '</div>';
+    body.appendChild(trend);
+
+    // ===== 用时分析卡：各类型10题平均用时条形图（取前4）=====
+    const top4 = types.slice().sort((a, b) => b.timeSum - a.timeSum).slice(0, 4);
+    if (top4.length) {
+      const tcard = document.createElement('div');
+      tcard.className = 'sc-stats-card';
+      const maxT = Math.max.apply(null, top4.map((t) => (t.countN ? t.timeSum / t.countN : 0)), 1);
+      let barsHtml = '';
+      top4.forEach((t) => {
+        const avgT10 = t.countN ? Math.round(t.timeSum / t.countN) : 0;
+        const w = t.countN ? Math.round((t.timeSum / t.countN) / maxT * 100) : 0;
+        barsHtml +=
+          '<div class="sc-stats-bar">' +
+            '<span class="sc-stats-bar__lbl">' + esc(t.name) + '</span>' +
+            '<span class="sc-stats-bar__track"><span class="sc-stats-bar__fill" style="width:' + Math.max(w, 6) + '%"></span></span>' +
+            '<span class="sc-stats-bar__val">' + avgT10 + 's</span>' +
+          '</div>';
+      });
+      tcard.innerHTML =
+        '<div class="sc-stats-card__head"><span class="sc-stats-card__title">用时分析</span><span class="sc-stats-card__hint">10题用时</span></div>' +
+        '<div class="sc-stats-bars">' + barsHtml + '</div>';
+      body.appendChild(tcard);
+    }
+
+    container.appendChild(body);
   }
 };
-
-// ===== 速算工具函数 =====
 function randInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }

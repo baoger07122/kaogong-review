@@ -484,6 +484,23 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   color: var(--text-secondary);
 }
 
+/* v8.12.27 错题本顶栏「更多」按钮：对齐画布 7:680（40×40 灰底圆角20 三点图标） */
+.page-header__more {
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
+  background: var(--bg-tertiary);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease;
+}
+.page-header__more:active { background: #E9E9ED; }
+
 /* 详情页右上角图标按钮（三点菜单 / 编辑等） */
 .note-detail-more {
   font-size: 22px !important;
@@ -3987,19 +4004,29 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 .sidebar__item:active { background: var(--bg-tertiary); }
 .sidebar__item.active {
-  /* v8.12.9 对齐画布侧边栏：白底墨字胶囊（浅灰侧边栏上白块选中） */
-  background: #FFFFFF;
-  color: #1D1D1F;
+  /* v8.12.27 对齐画布 7:696 选中态：浅蓝底 + 蓝色系（图标/名称/计数/箭头全蓝）；未选中透明灰字 */
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 .sidebar__item.active::before { display: none; }
 .sidebar__item-icon { font-size: 20px; line-height: 1; }
+.sidebar__item.active .sidebar__item-icon {
+  /* 图标随选中态变蓝 */
+  color: var(--color-primary);
+}
+/* v8.12.28 侧边栏 SVG 线性图标：20×20 居中（对齐画布 7:701 图标框） */
+.sidebar__item-icon svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
 .sidebar__item-name {
   font-size: 10px;
   font-weight: 600;
   line-height: 1.2;
 }
+.sidebar__item.active .sidebar__item-name { color: var(--color-primary); }
 .sidebar__item-count {
   font-size: 9px;
   color: var(--text-tertiary);
@@ -4012,18 +4039,18 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .sidebar__item.active .sidebar__item-count { color: var(--color-primary); }
 
 /* ===== 错题本 / 笔记 左侧两级折叠（科目 -> 模块） ===== */
+/* v8.12.32 箭头按设计稿相对位置：作为项内最后一项文档流排列（图标→名称→计数→箭头），
+   间距由项 gap(3px) 控制，与设计稿 itemSpacing(3) 一致；不再 absolute，避免与文字重叠 */
 .sidebar__arrow {
-  position: absolute;
-  top: 3px; right: 3px;
-  width: 14px; height: 14px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 8px; line-height: 1;
+  width: 10px; height: 10px;
+  margin-top: 1px;          /* 对齐设计稿：箭头与计数间 ≈3px（项 gap3 已含，此处微调） */
   color: var(--text-tertiary);
   transition: transform .15s ease;
   transform: rotate(0deg);
-  z-index: 1;
 }
-.sidebar__item--expanded > .sidebar__arrow { transform: rotate(90deg); }
+.sidebar__item.active > .sidebar__arrow { color: var(--color-primary); }
+.sidebar__item--expanded > .sidebar__arrow { transform: rotate(180deg); }
 
 .sidebar__sub {
   display: flex;
@@ -4085,19 +4112,22 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .error-gallery-card {
   background: var(--bg-card);
   border: 1px solid var(--divider-color);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-md);
+  /* v8.12.31 对齐画布错题卡 7:797：圆角 16（--radius-lg=20 改 --radius-md=16）+ 柔和阴影 */
+  border-radius: var(--radius-md);
+  padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-height: 110px;
   cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.04);
   transition: transform 0.1s ease, box-shadow 0.15s ease;
   -webkit-tap-highlight-color: transparent;
 }
 .error-gallery-card:active { transform: scale(0.98); }
 .error-gallery-card__question {
-  font-size: var(--font-md);
+  /* v8.12.31 对齐画布错题卡题目 7:798：13px（--font-md=14 改 13）行高20 */
+  font-size: 13px;
   line-height: 1.55;
   color: var(--text-primary);
   display: -webkit-box;
@@ -4145,14 +4175,21 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   white-space: nowrap;
 }
 .error-gallery-card__pitfall {
-  font-size: var(--font-xs);
+  font-size: 11px;
   color: var(--text-tertiary);
   margin-top: 6px;
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
   white-space: normal;
   word-break: break-word;
   line-height: 1.45;
   max-width: 100%;
+}
+.error-gallery-card__pitfall svg {
+  flex-shrink: 0;
+  align-self: center;
+  color: var(--text-tertiary);
 }
 .gallery-size-switch {
   display: flex;
@@ -6339,9 +6376,9 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .tag-module-count {
   font-size: 12px;
   color: var(--text-tertiary);
-  background: var(--bg-primary);
+  background: var(--bg-tertiary);
   padding: 2px 10px;
-  border-radius: 10px;
+  border-radius: 999px;
   border: 1px solid var(--border-color);
   flex-shrink: 0;
 }
@@ -6559,11 +6596,11 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   text-overflow: ellipsis;
 }
 .tag-subject-count {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-tertiary);
-  background: var(--bg-primary);
-  padding: 4px 12px;
-  border-radius: 12px;
+  background: var(--bg-tertiary);
+  padding: 2px 10px;
+  border-radius: 999px;
   border: 1px solid var(--border-color);
   flex-shrink: 0;
 }
@@ -7930,7 +7967,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-custom-histcard.selected .sc-custom-histcard__num { color: #fff; }
 .sc-custom-histempty { grid-column: 1 / -1; text-align: center; font-size: 12px; color: #9CA3AF; padding: 8px 0; }
 .sc-custom-foot {
-  position: fixed; bottom: 0; left: 0; right: 0; max-width: 430px; margin: 0 auto;
+  position: fixed; bottom: 0; left: 0; right: 0;
   background: #fff; border-top: 0.5px solid #F3F4F6;
   padding: 12px 16px calc(12px + var(--safe-bottom, 0px));
   display: flex; gap: 12px; z-index: 30;
@@ -7983,7 +8020,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-rt-col--user.no { color: #EF4444; }
 .sc-rt-col--t { font-size: 13px; color: #6B7280; }
 .sc-result-foot {
-  position: fixed; bottom: 0; left: 0; right: 0; max-width: 430px; margin: 0 auto;
+  position: fixed; bottom: 0; left: 0; right: 0;
   background: #fff; border-top: 0.5px solid #F3F4F6;
   padding: 12px 16px calc(12px + var(--safe-bottom, 0px));
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; z-index: 30;
@@ -8018,7 +8055,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-rt-col--user.no { color: #EF4444; }
 .sc-rt-col--t { font-size: 13px; color: #6B7280; }
 .sc-result-foot {
-  position: fixed; bottom: 0; left: 0; right: 0; max-width: 430px; margin: 0 auto;
+  position: fixed; bottom: 0; left: 0; right: 0;
   background: #fff; border-top: 0.5px solid #F3F4F6;
   padding: 12px 16px calc(12px + var(--safe-bottom, 0px));
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; z-index: 30;
@@ -8106,9 +8143,9 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 }
 .sc-picker-tab.selected { background: #3B82F6; color: #fff; font-weight: 500; }
 
-/* ===== v8.6.35 速算练习页限宽为手机比例（430px 居中，iPad 横屏不再全宽铺满）===== */
-#page-speed-calc { max-width: 430px; margin: 0 auto; width: 100%; }
-.sc-page { max-width: 430px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+/* ===== 速算练习页：全屏铺满（取消 430px 手机限宽，见 v8.13.1）===== */
+#page-speed-calc { width: 100%; }
+.sc-page { width: 100%; box-sizing: border-box; }
 
 /* ===== v8.6.40 三位数除一位数：本次评分行 ===== */
 .sc-rating-line { text-align: center; font-size: 13px; color: #9CA3AF; min-height: 18px; margin-top: 2px; }
@@ -8622,3 +8659,194 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   box-sizing: border-box;
 }
 .stats-nav-btn:active { background: #EAEAEE; }
+
+/* ===== 速算 v8.12.33 设计稿落地 ===== */
+/* ===== 首页：题型横向卡片网格 ===== */
+.sc-type-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  margin-top: 12px;
+}
+.sc-type-card {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  padding: 10px; min-height: 64px;
+  background: #F8FAFF; border: 1px solid #D9E2F7; border-radius: 14px;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box; transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.sc-type-card:active { transform: scale(0.97); }
+.sc-type-card.selected {
+  background: #E8F1FF;
+  border-color: #1E8FFF;
+  box-shadow: 0 3px 12px rgba(0,102,204,0.22);
+}
+.sc-type-card.selected .sc-type-card__name { color: #0066CC; }
+.sc-type-card.selected .sc-type-card__rate { color: #1E8FFF; }
+.sc-type-card.selected .sc-type-card__icon {
+  background: linear-gradient(135deg, #0066CC, #1E8FFF);
+  color: #fff; box-shadow: 0 2px 6px rgba(0,102,204,0.3);
+}
+.sc-type-card__icon {
+  width: 34px; height: 34px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: #E7F0FF; border-radius: 10px;
+  color: #0066CC; font-size: 18px; font-weight: 700;
+  transition: background-color 0.15s, color 0.15s;
+}
+.sc-type-card__body { min-width: 0; }
+.sc-type-card__name { font-size: 13px; font-weight: 600; color: #1D1D1F; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.15s; }
+.sc-type-card__rate { font-size: 10px; color: #A1A1A6; margin-top: 2px; }
+
+/* ===== 历史页：按时间分组 + 类型胶囊 + 展开明细 ===== */
+.sc-hist-page { padding-bottom: 100px; }
+.sc-hist-title { font-size: 14px; font-weight: 600; color: #1D1D1F; margin-bottom: 12px; }
+.sc-hsec { margin-bottom: 18px; }
+.sc-hsec__title { font-size: 13px; font-weight: 600; color: #8E8E93; margin-bottom: 8px; }
+.sc-hcap-wrap { margin-bottom: 8px; }
+.sc-hcap {
+  display: flex; align-items: center; padding: 10px 12px;
+  background: #fff; border: 1px solid #E8E8E9; border-radius: 16px;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sc-hcap:active { transform: scale(0.99); }
+.sc-hcap__icon {
+  width: 36px; height: 36px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: #E7F0FF; border-radius: 10px; color: #0066CC; font-size: 18px; font-weight: 700;
+}
+.sc-hcap__info { flex: 1; padding-left: 10px; min-width: 0; }
+.sc-hcap__name { font-size: 14px; font-weight: 600; color: #1D1D1F; }
+.sc-hcap__sub { font-size: 11px; color: #8E8E93; margin-top: 2px; }
+.sc-hcap__stat { text-align: right; flex-shrink: 0; }
+.sc-hcap__rate { font-size: 18px; font-weight: 700; }
+.sc-hcap__time { font-size: 11px; color: #7A7A7A; margin-top: 1px; }
+.sc-hcap__arrow { width: 24px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: transform 0.2s; }
+.sc-hcap.open .sc-hcap__arrow { transform: rotate(180deg); }
+.sc-hcap-detail { padding: 0; }
+.sc-hcap-detail__row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 12px 0 66px; height: 38px;
+  border-bottom: 1px solid #F2F2F3;
+}
+.sc-hcap-detail__row:last-child { border-bottom: none; }
+.sc-hcap-detail__t { font-size: 12px; color: #A1A1A6; }
+.sc-hcap-detail__c { font-size: 13px; font-weight: 600; }
+.sc-hcap-detail__u { font-size: 13px; font-weight: 600; color: #1D1D1F; }
+
+/* ===== 统计页：热门类型 + 正确率趋势 + 用时分析 ===== */
+.sc-stats-page { padding-bottom: 40px; }
+.sc-stats-hot {
+  background: #fff; border-radius: 18px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  padding: 16px; margin-bottom: 14px;
+}
+.sc-stats-hot__label { font-size: 11px; color: #8E8E93; }
+.sc-stats-hot__main { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.sc-stats-hot__icon { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: #E7F0FF; border-radius: 12px; color: #0066CC; font-size: 20px; font-weight: 700; }
+.sc-stats-hot__name { font-size: 16px; font-weight: 600; color: #1D1D1F; }
+.sc-stats-hot__nums { display: flex; justify-content: space-between; margin-top: 14px; }
+.sc-stats-num { text-align: center; flex: 1; }
+.sc-stats-num__v { display: block; font-size: 20px; font-weight: 700; color: #1D1D1F; }
+.sc-stats-num__l { display: block; font-size: 10px; color: #8E8E93; margin-top: 2px; }
+.sc-stats-card {
+  background: #fff; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  padding: 14px 16px; margin-bottom: 14px;
+}
+.sc-stats-card__head { display: flex; align-items: center; justify-content: space-between; }
+.sc-stats-card__title { font-size: 15px; font-weight: 600; color: #1D1D1F; }
+.sc-stats-card__hint { font-size: 11px; color: #8E8E93; }
+.sc-stats-card__chart { margin-top: 8px; }
+.sc-stats-card__x { text-align: center; font-size: 10px; color: #A1A1A6; padding-top: 2px; letter-spacing: 1px; }
+.sc-stats-bars { margin-top: 6px; }
+.sc-stats-bar { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+.sc-stats-bar__lbl { width: 84px; font-size: 12px; font-weight: 500; color: #3A3A3C; flex-shrink: 0; }
+.sc-stats-bar__track { flex: 1; height: 12px; background: #F0F1F3; border-radius: 6px; overflow: hidden; }
+.sc-stats-bar__fill { display: block; height: 100%; border-radius: 6px; background: linear-gradient(135deg, #0066CC, #1E8FFF); }
+.sc-stats-bar__val { width: 44px; font-size: 12px; font-weight: 600; color: #1D1D1F; text-align: right; flex-shrink: 0; }
+
+/* ===== 速算首页操作行：历史 + 统计 + 确定开关（三胶囊 v8.13.1）===== */
+.sc-action-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-bottom: 14px;
+}
+.sc-action-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 38px; padding: 0 14px;
+  background: #F5F5F7; border: none; border-radius: 19px;
+  color: #5A5A5E; font-size: 13px; font-weight: 500;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
+}
+.sc-action-chip svg { flex-shrink: 0; }
+.sc-action-chip:active { background: #EAEAEE; }
+.sc-action-chip--confirm { cursor: default; }
+.sc-action-chip--confirm .sc-confirm-row__switch { margin-left: 8px; }
+
+/* ===== v8.15 自定义练习弹窗重构：底部 Sheet（浅灰底）+ 题型选择置顶 + 数字设置（数字范围/固定数字）===== */
+.sc-custom-sheet { background: #F5F5FA; }
+.sc-custom-sheet .notion-mobile-sheet__handle { background: #D5D5DC; }
+.sc-custom-sheet-title {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 16px 12px;
+}
+.sc-custom-sheet-title__text { font-size: 18px; font-weight: 600; color: #1D1D1F; }
+.sc-custom-sheet-title__close {
+  width: 30px; height: 30px; border: none; border-radius: 50%;
+  background: #ECECF2; color: #3A3A3E; font-size: 16px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sc-custom-sheet-title__close:active { background: #E0E0E8; }
+.sc-custom-sheet-body { padding: 0 16px 20px; display: flex; flex-direction: column; gap: 18px; }
+
+/* 区块标题（题型选择 / 数字设置 / 最近使用，卡外大标题） */
+.sc-custom-block-title { font-size: 16px; font-weight: 600; color: #1D1D1F; }
+
+/* 数字设置卡（白底圆角） */
+.sc-dnum-card {
+  background: #FFFFFF; border-radius: 14px; padding: 16px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+/* 横排选择按钮组：数字范围 / 固定数字 */
+.sc-dnum-tabs {
+  display: inline-flex; padding: 3px; gap: 3px;
+  background: #EFF0F4; border-radius: 10px; align-self: flex-start;
+}
+.sc-dnum-tab {
+  border: none; border-radius: 8px; padding: 8px 22px;
+  font-size: 14px; font-weight: 500; color: #6E6E73;
+  background: transparent; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sc-dnum-tab.selected { background: #2162D8; color: #fff; font-weight: 500; }
+.sc-dnum-tab:active { opacity: 0.85; }
+
+/* 固定数字说明 */
+.sc-dnum-hint { font-size: 13px; color: #9A9AA0; }
+/* 固定数字格：2-9 可多选 */
+.sc-dnum-fixrow { display: flex; gap: 8px; }
+.sc-dnum-fix {
+  flex: 1; height: 44px; border-radius: 10px; border: 1px solid #E5E5EA;
+  background: #fff; color: #3A3A3E; font-size: 16px; font-weight: 500;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.sc-dnum-fix.selected { background: #2162D8; border-color: #2162D8; color: #fff; font-weight: 600; }
+.sc-dnum-fix:active { transform: scale(0.96); }
+
+/* 数字范围：最小值 ~ 最大值（自适应宽度） */
+.sc-dnum-range { display: inline-flex; align-items: center; gap: 8px; }
+.sc-dnum-range-input {
+  width: 92px; height: 44px; border: 1px solid #E5E5EA; border-radius: 10px;
+  background: #F8F8FB; padding: 0 12px; font-size: 15px; font-weight: 600;
+  color: #1D1D1F; text-align: center; box-sizing: border-box;
+  outline: none; -moz-appearance: textfield;
+}
+.sc-dnum-range-input::-webkit-outer-spin-button,
+.sc-dnum-range-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.sc-dnum-range-input:focus { border-color: #2162D8; background: #fff; }
+.sc-dnum-range__tilde { color: #9A9AA0; font-size: 15px; }
+.sc-dnum-range__label { font-size: 12px; color: #6E6E73; margin-bottom: 4px; display: block; }
+
+/* 自定义弹窗底部操作栏 */
+.sc-custom-foot { padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); display: flex; gap: 12px; }
+.sc-custom-footbtn { flex: 1; padding: 14px 0; border-radius: 22px; font-size: 15px; cursor: pointer; border: none; -webkit-tap-highlight-color: transparent; }
+.sc-custom-footbtn--cancel { background: #ECECF2; color: #3A3A3E; font-weight: 500; }
+.sc-custom-footbtn--ok { background: linear-gradient(135deg, #0066CC, #2996FF); color: #fff; font-weight: 600; }
+.sc-custom-footbtn--ok.disabled { background: #D5D8DE; color: #fff; pointer-events: none; }
