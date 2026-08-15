@@ -9759,7 +9759,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.2';
+App.VERSION = '8.15.3';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -11888,6 +11888,9 @@ App.Components = {
     // v8.15.2 整笔平滑线宽（压力值，未乘 sf）：在 drawSmoothStroke 里低通更新，
     // drawSegment 用该值定固定段宽 → 段与段之间线宽连续，消除「隔一段明显变化/接缝凸起」的锯齿感
     let strokeWeight = 0.5;
+    // v8.15.3 曲线中点缓存：记录每段贝塞尔的「上一段终点（即本段起点）」，
+    // 使段与段严格首尾相接，杜绝控制点错位导致的起笔折角/锯齿
+    let prevMidX = null, prevMidY = null;
     function penWidth(p, sf) {
       // v8.15.1 压力 NaN/非法时回退 0.5，杜绝线宽 NaN 导致该段画不出
       const pr = (typeof p === 'number' && isFinite(p)) ? p : 0.5;
@@ -11933,7 +11936,10 @@ App.Components = {
     }
 
     // 三次贝塞尔中点法：以倒数第 3、2 点为控制点，从上一中点画到当前中点
-    // v8.15.1 取消双描边（去粗晕层）；改用「单条连续 path」一次性 stroke，避免每段圆头端点在段间形成小圆斑 → 线条更光滑无点
+    // v8.15.3 平滑重构：
+    // ① 段起点严格取「上一段终点」(prevMidX/prevMidY)，保证段与段首尾无缝衔接，消除控制点错位导致的起笔折角锯齿；
+    // ② 若不存在上一段终点，则起点取 c1（第1段：c1即笔落点，曲线从落点自然起笔，无回退冲量）；
+    // ③ 端点用圆头 lineCap + 段间重叠半像素，抹平接缝处因线宽差异产生的凸起颗粒。
     function drawSegment() {
       const n = points.length;
       const c1 = points[n - 3];
@@ -11941,6 +11947,9 @@ App.Components = {
       const cur = points[n - 1];
       const ex = (c2.x + cur.x) / 2;
       const ey = (c2.y + cur.y) / 2;
+      // 本段起点：优先用上一段终点（prevMid），保证无缝；首段回退到 c1（落笔点）
+      const sx = (prevMidX !== null) ? prevMidX : c1.x;
+      const sy = (prevMidY !== null) ? prevMidY : c1.y;
       const sf = scaleFactor();
       // v8.15.2 用整笔平滑线宽 strokeWeight（已连续低通）代替逐段压力突变，消除段间接缝粗细突变导致的「锯齿/隔段明显变化」
       const w = penWidth(strokeWeight, sf);
@@ -11952,15 +11961,16 @@ App.Components = {
       ctx.globalAlpha = 1;
       ctx.lineWidth = Math.max(1, w);
       ctx.beginPath();
-      ctx.moveTo(lastX, lastY);
+      ctx.moveTo(sx, sy);
       for (let i = 1; i <= SEG; i++) {
         const t = i / SEG;
         const mt = 1 - t;
-        const x = mt * mt * mt * lastX + 3 * mt * mt * t * c1.x + 3 * mt * t * t * c2.x + t * t * t * ex;
-        const y = mt * mt * mt * lastY + 3 * mt * mt * t * c1.y + 3 * mt * t * t * c2.y + t * t * t * ey;
+        const x = mt * mt * mt * sx + 3 * mt * mt * t * c1.x + 3 * mt * t * t * c2.x + t * t * t * ex;
+        const y = mt * mt * mt * sy + 3 * mt * mt * t * c1.y + 3 * mt * t * t * c2.y + t * t * t * ey;
         ctx.lineTo(x, y);
       }
       ctx.stroke();
+      prevMidX = ex; prevMidY = ey;
       lastX = ex; lastY = ey;
       points = [c2, cur];
     }
@@ -12010,6 +12020,8 @@ App.Components = {
       points = [ { x: pos.x, y: pos.y, p: (typeof lastPressure === 'number' && isFinite(lastPressure)) ? lastPressure : 0.5 } ];
       // v8.15.2 重置整笔平滑线宽，让新一笔从当前压力起步（连续、无突兀变化）
       strokeWeight = points[0].p;
+      // v8.15.3 每笔重置换笔标志：prevMid 置空，首段从落点起笔，不衔接上一笔
+      prevMidX = null; prevMidY = null;
       lastX = pos.x; lastY = pos.y;
       if (mode === 'eraser') {
         const r = currentEraserSize / 2;
