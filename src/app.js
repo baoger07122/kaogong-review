@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.34';
+App.VERSION = '8.15.35';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9026,7 +9026,8 @@ App.Router = {
       p.classList.remove('active');
     });
 
-    // v8.15.34 统一恢复 body/html 滚动（速算做题页会临时锁定；切到任意其他页面时兜底解锁，防残留锁死）
+    // v8.15.35 统一恢复 body/html 滚动 + 移除 sc-lock（速算做题页会临时锁定；切到任意其他页面时兜底解锁，防残留锁死）
+    document.body.classList.remove('sc-lock');
     document.body.style.overflow = '';
     document.documentElement.style.overflow = '';
 
@@ -17066,7 +17067,9 @@ App.Pages.SpeedCalc = {
     if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
     if (this.state.autoNextTimer) { clearTimeout(this.state.autoNextTimer); this.state.autoNextTimer = null; }
     const view = this.state.view;
-    // v8.15.34 做题页彻底锁死 body/html 滚动（修复「输入/不输入都还能滚动」），其他视图恢复
+    // v8.15.35 iOS standalone PWA 橡皮筋滚动：仅 overflow:hidden 无法阻止 body 回弹。
+    //   用 position:fixed 的 body.sc-lock class + overflow hidden 双重锁死做题页；其他视图恢复。
+    document.body.classList.toggle('sc-lock', view === 'practice');
     document.body.style.overflow = (view === 'practice') ? 'hidden' : '';
     document.documentElement.style.overflow = (view === 'practice') ? 'hidden' : '';
     if (view === 'home') this.renderHome(container);

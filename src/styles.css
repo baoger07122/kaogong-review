@@ -181,6 +181,18 @@ body {
      所有 .page 已有预留导航栏空间的 padding，叠加会产生底部大片空白。 */
 }
 
+/* v8.15.35 iOS standalone PWA 橡皮筋滚动锁：仅 overflow:hidden 拦不住 iOS Safari 的 body 回弹，
+   position: fixed 是唯一能彻底钉死视口、杜绝滚动/回弹的方案（用到全屏沉浸做题页）。 */
+body.sc-lock {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  margin: 0;
+  overscroll-behavior: none;
+}
+
 a {
   color: var(--color-primary);
   text-decoration: none;
