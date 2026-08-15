@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.17';
+App.VERSION = '8.15.18';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -2071,24 +2071,20 @@ App.Components = {
       };
     }
     function snapshot() { return canvas.toDataURL('image/png'); }
-    // v8.15.17 等比适配：把一张图按「等比缩放、居中」画到当前画布（CSS 像素坐标，ctx 已 scale(dpr)）。
-    // 用于解决「分屏改变宽度后，重新打开涂鸦，之前内容被拉伸变形/错位」的问题——
-    // 保持图片宽高比不变，整体等比缩放居中，不扭曲不变形。
+    // v8.15.18 适配：应用场景是「横屏分屏、只有宽度变、高度不变」，因此**只做宽度方向缩放、高度 1:1**，
+    // 且内容**左对齐（顶部对齐）**而非居中。这样宽度切换时内容不会等比缩放（等比会让高度也变、位置漂移），
+    // 只在水平方向伸拉，垂直方向与位置保持稳定。
     function drawContain(img) {
       const cw = canvas.width / dprCache;    // 当前画布 CSS 宽
       const ch = canvas.height / dprCache;   // 当前画布 CSS 高
-      const iw = img.naturalWidth || img.width;
-      const ih = img.naturalHeight || img.height;
+      // naturalWidth/Height 是物理像素（snapshot 用 toDataURL 导出），需 /dprCache 转成 CSS 像素
+      const iw = (img.naturalWidth || img.width) / dprCache;
+      const ih = (img.naturalHeight || img.height) / dprCache;
       if (iw <= 0 || ih <= 0) return;
-      // 计算等比缩放后的绘制尺寸（取可容纳的最小缩放比）
-      const scale = Math.min(cw / iw, ch / ih);
-      const dw = iw * scale;
-      const dh = ih * scale;
-      // 居中偏移
-      const dx = (cw - dw) / 2;
-      const dy = (ch - dh) / 2;
+      // 只做宽度缩放：宽度填满当前画布，高度保持原图 CSS 高度（1:1，不缩放）→ 高度不变、内容不变形
       ctx.clearRect(0, 0, cw, ch);
-      ctx.drawImage(img, dx, dy, dw, dh);
+      // 左对齐 + 顶部对齐，保证宽度变化时内容位置稳定不漂移
+      ctx.drawImage(img, 0, 0, cw, ih);
     }
     function restore(dataURL) {
       const img = new Image();
