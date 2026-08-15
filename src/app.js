@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.37';
+App.VERSION = '8.15.38';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -17494,8 +17494,8 @@ App.Pages.SpeedCalc = {
     const press = (key) => {
       if (submitted) return;
       switch (key) {
-        case 'backspace': self.state.currentInput = self.state.currentInput.slice(0, -1); break;
-        case 'clear': self.state.currentInput = ''; break;
+        case 'clear': self.state.currentInput = self.state.currentInput.slice(0, -1); break;   // C = 删一个
+        case 'backspace': self.state.currentInput = ''; break;                                   // ⌫ = 清空全部
         case 'confirm': submit(); return;
         case '+/-': { const s = self.state.currentInput; self.state.currentInput = s.startsWith('-') ? s.slice(1) : (s ? '-' + s : s); break; }
         case '.': if (!self.state.currentInput.includes('.')) self.state.currentInput += '.'; break;
@@ -18786,8 +18786,8 @@ renderHome(container) {
     const press = (key) => {
       if (submitted) return;
       switch (key) {
-        case 'backspace': self.state.currentInput = self.state.currentInput.slice(0, -1); break;
-        case 'clear': self.state.currentInput = ''; break;
+        case 'clear': self.state.currentInput = self.state.currentInput.slice(0, -1); break;   // C = 删一个
+        case 'backspace': self.state.currentInput = ''; break;                                   // ⌫ = 清空全部
         case 'confirm': submit(); return;
         case '+/-': {
           const s = self.state.currentInput;
