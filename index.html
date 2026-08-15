@@ -9759,7 +9759,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.1';
+App.VERSION = '8.15.2';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -11737,7 +11737,7 @@ App.Components = {
 
     const colorWrap = document.createElement('div');
     colorWrap.className = 'sketch-pad__colors';
-    const colors = [ {n:'黑', v:'#4d4d4d'}, {n:'红', v:'#e53935'}, {n:'蓝', v:'#1e88e5'}, {n:'绿', v:'#43a047'} ];
+    const colors = [ {n:'黑', v:'#666666'}, {n:'红', v:'#e53935'}, {n:'蓝', v:'#1e88e5'}, {n:'绿', v:'#43a047'} ];
     let currentColor = colors[0].v;
     const colorDots = [];
     colors.forEach((c, i) => {
@@ -11754,9 +11754,9 @@ App.Components = {
 
     const sizeWrap = document.createElement('div');
     sizeWrap.className = 'sketch-pad__sizes';
-    // v8.5.4：画笔三档 2.6/2.8/3.0；默认使用上次选择的档位（localStorage 记忆，跨页面/跨会话），无记录时默认细
-    // v8.6.41 笔档位拉开（细/中/粗可区分，旧值 2.6/2.8/3.0 回退细）
-    const penSizes = [ {n:'细', v:3.0}, {n:'中', v:4.5}, {n:'粗', v:6.5} ];
+    // v8.5.4：画笔三档；默认使用上次选择的档位（localStorage 记忆，跨页面/跨会话），无记录时默认细
+    // v8.15.1 笔档位：细2/中3/粗4（用户定），并取消双描边
+    const penSizes = [ {n:'细', v:2}, {n:'中', v:3}, {n:'粗', v:4} ];
     const eraserSizes = [ {n:'细', v:36}, {n:'中', v:60}, {n:'粗', v:90} ];
     const readLastPenSize = () => {
       let v = NaN;
@@ -11885,8 +11885,13 @@ App.Components = {
     // 相比二次贝塞尔：曲线更贴合手写轨迹、转角更圆润；线宽渐变消除「竹节」突变感
     let lastX = 0, lastY = 0;
     let lastPressure = 0.5;
+    // v8.15.2 整笔平滑线宽（压力值，未乘 sf）：在 drawSmoothStroke 里低通更新，
+    // drawSegment 用该值定固定段宽 → 段与段之间线宽连续，消除「隔一段明显变化/接缝凸起」的锯齿感
+    let strokeWeight = 0.5;
     function penWidth(p, sf) {
-      return Math.max(1, currentPenSize * (0.55 + p * 0.75) * sf);
+      // v8.15.1 压力 NaN/非法时回退 0.5，杜绝线宽 NaN 导致该段画不出
+      const pr = (typeof p === 'number' && isFinite(p)) ? p : 0.5;
+      return Math.max(1, currentPenSize * (0.55 + pr * 0.75) * (sf || 1));
     }
     function drawSmoothStroke(newPos, e) {
       ctx.globalCompositeOperation = 'source-over';
@@ -11901,6 +11906,8 @@ App.Components = {
         p = Math.min(1, Math.max(0.35, p));
       }
       lastPressure = p;
+      // 整笔平滑线宽：对目标压力做更强低通（历史权重 0.8），使宽度连续渐变而非逐段跳变
+      strokeWeight += (p - strokeWeight) * 0.18;
 
       const lastPt = points.length ? points[points.length - 1] : null;
       if (lastPt) {
@@ -11925,8 +11932,8 @@ App.Components = {
       drawSegment();
     }
 
-    // 三次贝塞尔中点法：以倒数第 3、2 点为控制点，从上一中点画到当前中点，
-    // v8.6.41 双描边柔和：先半透明粗晕（盖住段间棱角/毛边），再精确细线；SEG 8→14 更平滑
+    // 三次贝塞尔中点法：以倒数第 3、2 点为控制点，从上一中点画到当前中点
+    // v8.15.1 取消双描边（去粗晕层）；改用「单条连续 path」一次性 stroke，避免每段圆头端点在段间形成小圆斑 → 线条更光滑无点
     function drawSegment() {
       const n = points.length;
       const c1 = points[n - 3];
@@ -11935,32 +11942,25 @@ App.Components = {
       const ex = (c2.x + cur.x) / 2;
       const ey = (c2.y + cur.y) / 2;
       const sf = scaleFactor();
-      const w0 = penWidth(c1.p, sf);
-      const w1 = penWidth(cur.p, sf);
-      const SEG = 14;
-      const paint = (alpha, widthMul) => {
-        let px = lastX, py = lastY;
-        for (let i = 1; i <= SEG; i++) {
-          const t = i / SEG;
-          const mt = 1 - t;
-          const x = mt * mt * mt * lastX + 3 * mt * mt * t * c1.x + 3 * mt * t * t * c2.x + t * t * t * ex;
-          const y = mt * mt * mt * lastY + 3 * mt * mt * t * c1.y + 3 * mt * t * t * c2.y + t * t * t * ey;
-          ctx.lineWidth = (w0 + (w1 - w0) * t) * widthMul;
-          ctx.beginPath();
-          ctx.moveTo(px, py);
-          ctx.lineTo(x, y);
-          ctx.stroke();
-          px = x; py = y;
-        }
-      };
+      // v8.15.2 用整笔平滑线宽 strokeWeight（已连续低通）代替逐段压力突变，消除段间接缝粗细突变导致的「锯齿/隔段明显变化」
+      const w = penWidth(strokeWeight, sf);
+      const SEG = 20;
       ctx.globalCompositeOperation = 'source-over';
       ctx.strokeStyle = currentColor;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-      ctx.globalAlpha = 0.16;
-      paint(0.16, 1.7);
       ctx.globalAlpha = 1;
-      paint(1, 1);
+      ctx.lineWidth = Math.max(1, w);
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      for (let i = 1; i <= SEG; i++) {
+        const t = i / SEG;
+        const mt = 1 - t;
+        const x = mt * mt * mt * lastX + 3 * mt * mt * t * c1.x + 3 * mt * t * t * c2.x + t * t * t * ex;
+        const y = mt * mt * mt * lastY + 3 * mt * mt * t * c1.y + 3 * mt * t * t * c2.y + t * t * t * ey;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
       lastX = ex; lastY = ey;
       points = [c2, cur];
     }
@@ -11978,6 +11978,8 @@ App.Components = {
       ctx.moveTo(from.x, from.y);
       ctx.lineTo(to.x, to.y);
       ctx.stroke();
+      // v8.15.1 擦完立即重置合成模式，防止残留 destination-out 导致下一笔出现大黑点
+      ctx.globalCompositeOperation = 'source-over';
     }
 
     penBtn.addEventListener('click', () => setMode('pen'));
@@ -12004,7 +12006,10 @@ App.Components = {
       drawing = true;
       try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
       const pos = getPos(e);
-      points = [ pos ];
+      // v8.15.1 初始点补 p 压力，避免首段贝塞尔 penWidth 拿到 undefined 产生 NaN 线宽（首笔画不出）
+      points = [ { x: pos.x, y: pos.y, p: (typeof lastPressure === 'number' && isFinite(lastPressure)) ? lastPressure : 0.5 } ];
+      // v8.15.2 重置整笔平滑线宽，让新一笔从当前压力起步（连续、无突兀变化）
+      strokeWeight = points[0].p;
       lastX = pos.x; lastY = pos.y;
       if (mode === 'eraser') {
         const r = currentEraserSize / 2;
@@ -12191,7 +12196,7 @@ App.Components = {
       // 底部工具栏（从底部滑上）：颜色 + 笔触大小
       const sheet = document.createElement('div');
       sheet.className = 'doodle-overlay__sheet';
-      const colors = [ {n:'黑', v:'#4d4d4d'}, {n:'红', v:'#e53935'}, {n:'蓝', v:'#1e88e5'}, {n:'绿', v:'#43a047'} ];
+      const colors = [ {n:'黑', v:'#666666'}, {n:'红', v:'#e53935'}, {n:'蓝', v:'#1e88e5'}, {n:'绿', v:'#43a047'} ];
       let activeColor = colors[0].v;
       const colorWrap = document.createElement('div');
       colorWrap.className = 'doodle-overlay__colors';
@@ -12210,7 +12215,7 @@ App.Components = {
         colorDots.push(dot); colorWrap.appendChild(dot);
       });
       // v8.5.4：画笔三档 2.6/2.8/3.0；与 sketch 共用 localStorage key 记忆上次档位，无记录默认细
-      const penSizes = [ {n:'细', v:2.6}, {n:'中', v:2.8}, {n:'粗', v:3.0} ];
+      const penSizes = [ {n:'细', v:2}, {n:'中', v:3}, {n:'粗', v:4} ];
       const eraserSizes = [ {n:'细', v:36}, {n:'中', v:60}, {n:'粗', v:90} ];
       let lastPenSize = NaN;
       try { lastPenSize = parseFloat(window.localStorage.getItem('doodle_pen_size')); } catch (e) { /* 忽略 */ }
@@ -21972,38 +21977,81 @@ App.Pages.Notes = {
   // 左侧科目窄栏（对齐画布「iPad-笔记」7:1005：窄栏80，科目图标+名竖排，选中浅蓝圆角12）
   // 模块选择交由列表区顶部「模块chips」承担（对齐画布 8:4）
   renderSubjectGrid(container) {
+    // 完全复用错题本侧边栏风格（科目-模块树 + 计数 + 展开箭头 + SVG图标 + 二级模块）
+    this._expanded = this._expanded || {};
+    const noteCounts = {};
+    App.Constants.SUBJECTS.forEach(s => {
+      noteCounts[s.name] = this.state.allNotes.filter(n => n.subject === s.name).length;
+    });
+
     container.innerHTML = '';
 
-    const buildItem = (s, isAll) => {
-      const name = isAll ? '全部' : s.name;
-      const icon = isAll ? '📚' : s.icon;
-      const isActive = isAll ? (this.state.subject === null) : (this.state.subject === s.name);
-      const item = document.createElement('div');
-      item.className = 'sidebar__item sidebar__item--col' + (isActive ? ' active' : '');
-      const count = isAll ? this.state.allNotes.length : this.state.allNotes.filter(n => n.subject === s.name).length;
-      item.innerHTML = `
-        <span class="sidebar__item-icon">${icon}</span>
-        <span class="sidebar__item-name">${name}</span>
+    // 「全部」项
+    const allItem = document.createElement('div');
+    allItem.className = 'sidebar__item' + (this.state.subject === null ? ' active' : '');
+    allItem.innerHTML = `
+      <span class="sidebar__item-icon" style="color:${this.state.subject === null ? '#0066CC' : '#7A7A7A'}">${App.Pages.Errors._subjectIconSvg('全部') || '📚'}</span>
+      <span class="sidebar__item-name">全部</span>
+    `;
+    allItem.addEventListener('click', () => {
+      this.state.subject = null;
+      this.state.module = null;
+      this.state.knowledgePoint = null;
+      this._expanded = {};
+      this.refreshAll();
+    });
+    container.appendChild(allItem);
+
+    // 各科目（可展开 -> 模块）
+    App.Constants.SUBJECTS.forEach(s => {
+      const isActive = this.state.subject === s.name;
+      const expanded = !!this._expanded[s.name];
+      const modules = App.Constants.getModules(s.name);
+
+      const row = document.createElement('div');
+      row.className = 'sidebar__item' + (isActive ? ' active' : '') + (expanded ? ' sidebar__item--expanded' : '');
+      const count = noteCounts[s.name];
+      row.innerHTML = `
+        <span class="sidebar__item-icon" style="color:${isActive ? '#0066CC' : s.color}">${App.Pages.Errors._subjectIconSvg(s.name) || s.icon}</span>
+        <span class="sidebar__item-name">${s.name}</span>
         ${count > 0 ? `<span class="sidebar__item-count">${count}</span>` : ''}
+        <span class="sidebar__arrow"><svg width="8" height="5" viewBox="0 0 8 5" fill="none"><path d="M1 1l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       `;
-      item.addEventListener('click', () => {
-        if (isAll) {
-          this.state.subject = null;
-          this.state.module = null;
-        } else {
-          this.state.subject = (this.state.subject === s.name) ? null : s.name;
-        }
+      // 箭头：展开/收起该科目下的模块
+      row.querySelector('.sidebar__arrow').addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._expanded[s.name] = !this._expanded[s.name];
+        this.renderSubjectGrid(container);
+      });
+      // 点击科目行：选中 / 取消该科目
+      row.addEventListener('click', () => {
+        this.state.subject = (this.state.subject === s.name) ? null : s.name;
+        this.state.module = null;
         this.state.knowledgePoint = null;
         this.refreshAll();
       });
-      return item;
-    };
+      container.appendChild(row);
 
-    // 「全部」项
-    container.appendChild(buildItem(null, true));
-    // 各科目（窄栏图标项）
-    App.Constants.SUBJECTS.forEach(s => {
-      container.appendChild(buildItem(s, false));
+      // 模块（仅在该科目展开时显示，作为左侧二级导航；扁平科目如资料分析无模块层，不显示）
+      if (expanded && !App.Constants.isFlatSubject(s.name)) {
+        modules.forEach(mod => {
+          const mCount = this.state.allNotes.filter(n => n.subject === s.name && n.module === mod).length;
+          const sub = document.createElement('div');
+          sub.className = 'sidebar__sub' + (isActive && this.state.module === mod ? ' active' : '');
+          sub.innerHTML = `
+            <span class="sidebar__sub-name">${mod}</span>
+            ${mCount > 0 ? `<span class="sidebar__sub-count">${mCount}</span>` : ''}
+          `;
+          sub.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.state.subject = s.name;
+            this.state.module = (this.state.module === mod) ? null : mod;
+            this.state.knowledgePoint = null;
+            this.refreshAll();
+          });
+          container.appendChild(sub);
+        });
+      }
     });
   },
 
@@ -22159,22 +22207,36 @@ App.Pages.Notes = {
     }
 
     if (notes.length === 0) {
-      container.appendChild(App.Components.emptyState(
-        '📝',
-        '暂无笔记',
-        '点击右下角 + 号开始记录',
-        '新建笔记',
-        () => {
-          App.Draft.clearForm('note');
-          // 跟随当前选中的科目-模块
-          let q = '';
-          if (this.state.subject) {
-            q = '?subject=' + encodeURIComponent(this.state.subject);
-            if (this.state.module) q += '&module=' + encodeURIComponent(this.state.module);
-          }
-          App.Router.navigate('note-form' + q);
+      // v8.15.1 笔记空状态对齐错题本空状态（.eerr-empty 卡片：图标+文案+新建按钮，靠上）
+      const empty = document.createElement('div');
+      empty.className = 'eerr-empty';
+      const icon = document.createElement('div');
+      icon.className = 'eerr-empty__icon';
+      icon.innerHTML = '<svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6.5 8.5a3 3 0 013-3H20l3 3h11a3 3 0 013 3v24a3 3 0 01-3 3H9.5a3 3 0 01-3-3z" stroke="#C7C7CC" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 19h17M14 25h17M14 31h10" stroke="#C7C7CC" stroke-width="1.8" stroke-linecap="round"/></svg>';
+      empty.appendChild(icon);
+      const title = document.createElement('div');
+      title.className = 'eerr-empty__title';
+      title.textContent = '还没有笔记';
+      empty.appendChild(title);
+      const desc = document.createElement('div');
+      desc.className = 'eerr-empty__desc';
+      desc.textContent = '点击「新建笔记」，记录你的第一条复盘';
+      empty.appendChild(desc);
+      const action = document.createElement('button');
+      action.type = 'button';
+      action.className = 'eerr-empty__action';
+      action.textContent = '＋ 新建笔记';
+      action.addEventListener('click', () => {
+        App.Draft.clearForm('note');
+        let q = '';
+        if (this.state.subject) {
+          q = '?subject=' + encodeURIComponent(this.state.subject);
+          if (this.state.module) q += '&module=' + encodeURIComponent(this.state.module);
         }
-      ));
+        App.Router.navigate('note-form' + q);
+      });
+      empty.appendChild(action);
+      container.appendChild(empty);
       return;
     }
 
@@ -24501,11 +24563,13 @@ App.Pages.Workspace = {
     }
 
     // ===== 顶部返回 + 标题 =====
+    // v8.15.1 返回按钮应用全局统一设计（page-header__back + SVG 左箭头，与详情页一致）
     const header = document.createElement('div');
     header.className = 'page-header';
     const backBtn = document.createElement('button');
     backBtn.className = 'page-header__back';
-    backBtn.innerHTML = '‹ 返回';
+    backBtn.setAttribute('aria-label', '返回');
+    backBtn.innerHTML = '<svg width="10" height="18" viewBox="0 0 10 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1L1 9l7 8"/></svg>';
     backBtn.addEventListener('click', () => App.Router.navigate('home'));
     header.appendChild(backBtn);
     const htitle = document.createElement('div');
@@ -25406,14 +25470,23 @@ App.Pages.Settings = {
 
     content.appendChild(appearanceGroup);
 
-    // ===== 数据管理 =====
+    // ===== 数据组（对齐画布 7:451：组标题「数据」+ 白卡4行） =====
     const dataGroup = document.createElement('div');
     dataGroup.className = 'settings-group';
     dataGroup.innerHTML = `
-      <div style="padding:12px var(--spacing-md);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;">数据管理</div>
+      <div style="padding:12px var(--spacing-md);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;">数据</div>
     `;
 
-    // 导出备份
+    // iCloud 云备份（对齐画布 7:454：右侧绿色「已启用」）
+    const icloudItem = document.createElement('div');
+    icloudItem.className = 'settings-item';
+    icloudItem.innerHTML = `
+      <span class="settings-item__label">iCloud 云备份</span>
+      <span class="settings-item__value" style="color:#34C759;">已启用</span>
+    `;
+    dataGroup.appendChild(icloudItem);
+
+    // 导出备份（对齐画布 7:462）
     const exportItem = document.createElement('div');
     exportItem.className = 'settings-item';
     exportItem.innerHTML = `
@@ -25465,6 +25538,32 @@ App.Pages.Settings = {
       fileInput.click();
     });
     dataGroup.appendChild(importItem);
+
+    // 清除全部数据（对齐画布 7:478：红字+箭头，破坏性操作需确认）
+    const clearItem = document.createElement('div');
+    clearItem.className = 'settings-item';
+    clearItem.innerHTML = `
+      <span class="settings-item__label" style="color:#FF3B30;">清除全部数据</span>
+      <span class="settings-item__value" style="color:var(--text-tertiary);">›</span>
+    `;
+    clearItem.addEventListener('click', async () => {
+      const ok = await App.Components.confirm(
+        '清除全部数据',
+        '将永久清除本机全部错题、笔记、套卷、待办等数据，且不可恢复。建议先「导出备份」。确定继续吗？',
+        '清空', '取消', true
+      );
+      if (!ok) return;
+      // 删除 IndexedDB 库 + 清除本地应用 key
+      try { indexedDB.deleteDatabase('CivilExamReview'); } catch (e) { /* ignore */ }
+      try {
+        Object.keys(localStorage).forEach(k => {
+          if (k.indexOf('kg_') === 0 || k.indexOf('doodle_') === 0 || k === 'theme') localStorage.removeItem(k);
+        });
+      } catch (e) { /* ignore */ }
+      App.Components.toast('数据已清除，正在刷新…', 'success');
+      setTimeout(() => location.reload(), 1200);
+    });
+    dataGroup.appendChild(clearItem);
 
     content.appendChild(dataGroup);
 
@@ -25690,11 +25789,15 @@ App.Pages.Settings = {
     kpEntry.addEventListener('click', () => App.Router.navigate('kpmanage'));
     content.appendChild(kpEntry);
 
-    // ===== 关于 =====
+    // ===== 偏好组（对齐画布 7:485：组标题「偏好」+ 界面字号 + 关于版本） =====
     const aboutGroup = document.createElement('div');
     aboutGroup.className = 'settings-group';
     aboutGroup.innerHTML = `
-      <div style="padding:12px var(--spacing-md);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;">关于</div>
+      <div style="padding:12px var(--spacing-md);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;">偏好</div>
+      <div class="settings-item">
+        <span class="settings-item__label">界面字号</span>
+        <span class="settings-item__value">标准</span>
+      </div>
       <div class="settings-item">
         <span class="settings-item__label">版本</span>
         <span class="settings-item__value">${App.VERSION}</span>
