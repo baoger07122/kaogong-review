@@ -9862,7 +9862,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.29';
+App.VERSION = '8.15.30';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -27355,6 +27355,9 @@ renderHome(container) {
       else if (this.state.type === 'custom') this.state.type = null;
     }
     this.state.mode = settings.mode || 'train';
+
+    // v8.15.30 首页也强制一屏锁定：内容不满一屏时不滚动、不出现滚动条（对齐 App 原生手感）
+    container.style.cssText = 'height:100dvh;min-height:0;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;';
 
     this._topbar(container, '速算练习', () => App.Router.back(), '', true);
 
