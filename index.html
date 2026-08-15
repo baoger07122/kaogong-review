@@ -9759,7 +9759,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.12';
+App.VERSION = '8.15.13';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -11905,7 +11905,10 @@ App.Components = {
     }
     // One Euro Filter（1€ 滤波器）：速度自适应低通，慢速强平滑（压抖动）、快速保响应（跟手）。
     const euroFilter = (() => {
-      const mincutoff = 0.5;
+      // v8.15.13 大幅调松滤波：mincutoff 0.5→2.0。此前 0.5 导致慢速写字时 cutoff≈0.5、
+      // alpha≈0.048（每个采样点仅 4.8% 被采纳），笔迹严重滞后「写下去没字」。锯齿已靠 ctx.scale 根治，
+      // 不再需要强低通；mincutoff=2.0 让慢速书写几乎即时跟手，只对高速抖动做轻微抑制。
+      const mincutoff = 2.0;
       const beta = 0.005;
       const dcutoff = 1.0;
       let xPrev = null, yPrev = null, dxPrev = 0, dyPrev = 0, tPrev = null;
@@ -11946,7 +11949,9 @@ App.Components = {
         const dx = newPos.x - lastPt.x;
         const dy = newPos.y - lastPt.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 1.0) return;
+        // v8.15.13 阈值 1.0→0.5：配合松滤波，避免「滤波后点被粘住→距离<阈值→被丢弃」的恶性循环
+        // 导致慢速写字时隔空不出线。
+        if (dist < 0.5) return;
         if (dist > 14) {
           const steps = Math.ceil(dist / 6);
           for (let i = 1; i <= steps; i++) {
