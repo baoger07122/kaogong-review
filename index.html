@@ -9862,7 +9862,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.30';
+App.VERSION = '8.15.31';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -24899,20 +24899,8 @@ App.Pages.Workspace = {
     }
 
     // ===== 顶部返回 + 标题 =====
-    // v8.15.1 返回按钮应用全局统一设计（page-header__back + SVG 左箭头，与详情页一致）
-    const header = document.createElement('div');
-    header.className = 'page-header';
-    const backBtn = document.createElement('button');
-    backBtn.className = 'page-header__back';
-    backBtn.setAttribute('aria-label', '返回');
-    backBtn.innerHTML = '<svg width="10" height="18" viewBox="0 0 10 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1L1 9l7 8"/></svg>';
-    backBtn.addEventListener('click', () => App.Router.navigate('home'));
-    header.appendChild(backBtn);
-    const htitle = document.createElement('div');
-    htitle.className = 'page-header__title';
-    htitle.textContent = '学习报告';
-    header.appendChild(htitle);
-    container.appendChild(header);
+    // v8.15.31 复用全局 pageHeader（page-header__inner 限宽居中 + 标题居中），返回按钮位置与全局一致
+    container.appendChild(App.Components.pageHeader('学习报告', null, null, { onBack: () => App.Router.navigate('home') }));
 
     // ===== 顶部周期切换胶囊（今日 / 本周 / 本月）=====
     const seg = document.createElement('div');
@@ -28769,20 +28757,28 @@ renderHome(container) {
     return m[name] || '•';
   },
 
-  // 历史记录按「时间分组(今天/昨天/更早) + 类型归并」汇总，用于对比准确率与用时
+  // v8.15.31 历史记录按「具体日期降序分组（今天/昨天/更早·具体日期）→ 日期内按类型归并」：
+  //   时间维度优先（日期从新到旧），每个日期内再按类型聚类，类型按练习次数降序。
   _groupHistory(list) {
     const now = new Date(); now.setHours(0, 0, 0, 0);
     const todayMs = now.getTime(), day = 86400000;
-    const idxOf = (ms) => (ms === todayMs ? 0 : ms === todayMs - day ? 1 : 2);
-    const bname = ['今天', '昨天', '更早'], bkey = ['today', 'yesterday', 'earlier'];
-    const groups = [null, null, null];
+    const pad = (n) => (n < 10 ? '0' + n : '' + n);
+    // 日期 → 友好标签：今天 / 昨天 / M月D日（更早）
+    const labelOf = (ms) => {
+      if (ms === todayMs) return '今天';
+      if (ms === todayMs - day) return '昨天';
+      const d = new Date(ms);
+      return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+    };
+    // 按日期归并：map<日毫秒, group>
+    const byDate = {};
     list.forEach((r) => {
       let d;
       try { d = new Date(r.date); } catch (e) { d = new Date(); }
       const ds = new Date(d); ds.setHours(0, 0, 0, 0);
-      const gi = idxOf(ds.getTime());
-      if (!groups[gi]) groups[gi] = { key: bkey[gi], label: bname[gi], types: {} };
-      const g = groups[gi];
+      const keyMs = ds.getTime();
+      if (!byDate[keyMs]) byDate[keyMs] = { keyMs: keyMs, label: labelOf(keyMs), types: {} };
+      const g = byDate[keyMs];
       const tname = (r.type && r.type !== 'undefined' ? r.type : '速算练习');
       if (!g.types[tname]) g.types[tname] = { name: tname, icon: this._scIcon(tname), countN: 0, correct: 0, total: 0, timeSum: 0, items: [] };
       const T = g.types[tname];
@@ -28792,10 +28788,15 @@ renderHome(container) {
       T.countN++; T.correct += cc; T.total += tc; T.timeSum += dur;
       T.items.push({ date: r.date, correct: cc, total: tc, dur: dur, mode: r.mode });
     });
-    return groups.filter(Boolean).map((g) => ({
-      key: g.key, label: g.label,
-      types: Object.keys(g.types).map((k) => g.types[k]).sort((a, b) => b.countN - a.countN)
-    })).sort((a, b) => { const o = { today: 0, yesterday: 1, earlier: 2 }; return o[a.key] - o[b.key]; });
+    // 日期从新到旧排序；日期内类型按练习次数降序
+    return Object.keys(byDate)
+      .map((k) => Number(k))
+      .sort((a, b) => b - a)
+      .map((keyMs) => ({
+        key: String(keyMs),
+        label: byDate[keyMs].label,
+        types: Object.keys(byDate[keyMs].types).map((k) => byDate[keyMs].types[k]).sort((a, b) => b.countN - a.countN)
+      }));
   },
 
   // ===== 视图：历史记录（设计稿：按时间分组 + 类型胶囊对比 + 点击展开明细）=====
