@@ -9786,7 +9786,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.19';
+App.VERSION = '8.15.20';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -14503,6 +14503,61 @@ App.Components = {
     area.addEventListener('keyup', captureSel);
     area.addEventListener('focusin', captureSel);
     area.addEventListener('input', () => { if (opts.onChange) opts.onChange(area.innerHTML); });
+
+    // ===== v8.15.20 Markdown 粘贴自动转换：粘贴 md 语法 → 自动渲染成富文本格式 =====
+    // 背景：笔记/错题笔记此前为 HTML 所见即所得直存，导致粘贴 Markdown 语法（#/**/- 等）不生效、原样显示。
+    // 此处拦截粘贴：检测到 Markdown 块级/行内语法时，用 App.Utils.simpleMarkdown 渲染成 HTML 后以富文本插入，
+    // 存储仍是 HTML → 详情页格式 100% 保真不丢失；老笔记（HTML）天然兼容无需转换。
+    function detectMarkdown(text) {
+      if (!text) return false;
+      const t = text.trim();
+      // 多行（含换行）默认可按块解析；单行需命中块级或行内 md 标记
+      if (/\n/.test(text)) return true;
+      return /^#{1,4}\s/.test(t) || /^[-*]\s/.test(t) || /^\d+\.\s/.test(t) || /^>\s?/.test(t)
+        || /^```/.test(t) || /^\|.*\|$/.test(t) || /^---+$/.test(t) || /^\$\$/.test(t)
+        || /\*\*.+\*\*/.test(t) || /__.+__/.test(t) || /\*.+\*/.test(t) || /`[^`]+`/.test(t)
+        || /\[.+\]\(.+\)/.test(t) || /~~.+~~/.test(t) || /^>/.test(t);
+    }
+    area.addEventListener('paste', (e) => {
+      const clipboardData = e.clipboardData || window.clipboardData;
+      if (!clipboardData) return;
+      // 若有图片文件，交默认处理（图片粘贴不走 markdown 转换）
+      const imgFile = Array.from(clipboardData.items || []).map(it => it.kind === 'file' ? it.getAsFile() : null).find(Boolean);
+      if (imgFile) return;
+      let text = clipboardData.getData('text/plain');
+      if (!text) return;
+      // 未命中 md 语法 → 走默认粘贴（纯文本原样插入）
+      if (!detectMarkdown(text)) return;
+
+      // 命中 md 语法：阻止默认，转为 HTML 富文本插入
+      e.preventDefault();
+      try {
+        const rendered = App.Utils.simpleMarkdown(text);
+        if (!rendered) return;
+        const r = ensureSelection();
+        if (r) {
+          r.deleteContents();
+          // 将渲染 HTML 解析为节点插入
+          const tmp = document.createElement('div');
+          tmp.innerHTML = rendered;
+          const frag = document.createDocumentFragment();
+          let node;
+          while ((node = tmp.firstChild)) frag.appendChild(node);
+          r.insertNode(frag);
+        } else {
+          const tmp = document.createElement('div');
+          tmp.innerHTML = rendered;
+          let node;
+          while ((node = tmp.firstChild)) area.appendChild(node);
+        }
+        if (opts.onChange) opts.onChange(area.innerHTML);
+      } catch (err) {
+        // 转换失败回退：按纯文本插入，不丢内容
+        document.execCommand('insertText', false, text);
+        if (opts.onChange) opts.onChange(area.innerHTML);
+      }
+    });
+
     // v8.6.13 快捷键：Tab = 缩进，Shift+Tab = 取消缩进（阻止默认焦点切换）
     area.addEventListener('keydown', (e) => {
       if (e.key === 'Tab') {
