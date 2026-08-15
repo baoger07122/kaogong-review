@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.16';
+App.VERSION = '8.15.17';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -2071,13 +2071,31 @@ App.Components = {
       };
     }
     function snapshot() { return canvas.toDataURL('image/png'); }
+    // v8.15.17 等比适配：把一张图按「等比缩放、居中」画到当前画布（CSS 像素坐标，ctx 已 scale(dpr)）。
+    // 用于解决「分屏改变宽度后，重新打开涂鸦，之前内容被拉伸变形/错位」的问题——
+    // 保持图片宽高比不变，整体等比缩放居中，不扭曲不变形。
+    function drawContain(img) {
+      const cw = canvas.width / dprCache;    // 当前画布 CSS 宽
+      const ch = canvas.height / dprCache;   // 当前画布 CSS 高
+      const iw = img.naturalWidth || img.width;
+      const ih = img.naturalHeight || img.height;
+      if (iw <= 0 || ih <= 0) return;
+      // 计算等比缩放后的绘制尺寸（取可容纳的最小缩放比）
+      const scale = Math.min(cw / iw, ch / ih);
+      const dw = iw * scale;
+      const dh = ih * scale;
+      // 居中偏移
+      const dx = (cw - dw) / 2;
+      const dy = (ch - dh) / 2;
+      ctx.clearRect(0, 0, cw, ch);
+      ctx.drawImage(img, dx, dy, dw, dh);
+    }
     function restore(dataURL) {
       const img = new Image();
       img.onload = () => {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.scale(dprCache, dprCache);
-        ctx.clearRect(0, 0, canvas.width / dprCache, canvas.height / dprCache);
-        ctx.drawImage(img, 0, 0, canvas.width / dprCache, canvas.height / dprCache);
+        drawContain(img);
       };
       img.src = dataURL;
     }
@@ -2309,9 +2327,8 @@ App.Components = {
         const img = new Image();
         img.onload = () => {
           applySize();
-          // v8.15.16 关键修复：ctx 已 scale(dpr)，drawImage 目标尺寸必须用「CSS 像素」(canvas.width/dpr)，
-          // 而非物理像素 canvas.width。此前用物理像素 → 图片被放大 dpr 倍(线条放大)且位置偏移。
-          ctx.drawImage(img, 0, 0, canvas.width / dprCache, canvas.height / dprCache);
+          // v8.15.17 等比居中适配（不变形），解决分屏改变宽度后重新打开内容被拉伸/错位
+          drawContain(img);
           undoStack = [ snapshot() ];
           redoStack = [];
           baseHasContent = true;
@@ -2340,8 +2357,8 @@ App.Components = {
         if (!dataURL) return;
         const img = new Image();
         img.onload = () => {
-          // v8.15.16 drawImage 目标尺寸用 CSS 像素（ctx 已 scale(dpr)）
-          ctx.drawImage(img, 0, 0, canvas.width / dprCache, canvas.height / dprCache);
+          // v8.15.17 等比居中适配
+          drawContain(img);
           undoStack = [ snapshot() ];
           redoStack = [];
           baseHasContent = true;
