@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.31';
+App.VERSION = '8.15.32';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -18618,25 +18618,32 @@ renderHome(container) {
     body.className = 'sc-practice';
     body.style.cssText = 'flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:12px 16px;';
 
+    // v8.15.32 算式与答案同一行（flex 居中），输入变长时算式自动向左退让、整体保持居中
+    const exprRow = document.createElement('div');
+    exprRow.className = 'sc-practice__row';
     const expr = document.createElement('div');
     expr.className = 'sc-practice__expr';
     expr.textContent = q.expr;
-    body.appendChild(expr);
-
-    // 评级标准已移至输入区下方（v8.6.40）
+    exprRow.appendChild(expr);
+    // 等号连接符
+    const eq = document.createElement('span');
+    eq.className = 'sc-practice__eq';
+    eq.textContent = ' =';
+    exprRow.appendChild(eq);
 
     // 答案显示（div 模拟输入，禁止系统键盘）
     const answerDisplay = document.createElement('div');
     answerDisplay.className = 'sc-practice__answer';
     answerDisplay.textContent = this.state.showAns ? (this.state.currentInput || ' ') : '· · ·';
-    body.appendChild(answerDisplay);
+    exprRow.appendChild(answerDisplay);
+    body.appendChild(exprRow);
 
     // v8.6.40 评级标准（输入区下方；v8.6.20 按题型 s:{excellent,good,pass}；自定义练习用默认值）
-    // 三位数除一位数：合格38s 良好30s 优秀24s，误差 ±3%
+    // v8.15.32 误差 ±3% 对所有题型统一显示
     const standard = document.createElement('div');
     standard.className = 'sc-standard';
     const sT = this.state.type === 'custom' ? null : this.TYPES[this.state.type].s;
-    standard.textContent = '合格: ' + (sT ? sT.pass : 28) + 's  良好: ' + (sT ? sT.good : 22) + 's  优秀: ' + (sT ? sT.excellent : 18) + 's' + (this.state.type === 'div3x1' ? '  误差 ±3%' : '');
+    standard.textContent = '合格: ' + (sT ? sT.pass : 28) + 's  良好: ' + (sT ? sT.good : 22) + 's  优秀: ' + (sT ? sT.excellent : 18) + 's  误差 ±3%';
     body.appendChild(standard);
     // v8.6.40 三位数除一位数：本次评分展示（提交后更新）
     const ratingLine = document.createElement('div');

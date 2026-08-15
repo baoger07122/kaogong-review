@@ -8169,13 +8169,12 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-practice__type { margin-bottom: 14px; }
 .sc-practice__expr {
   font-size: 42px;
-  font-weight: 700;
+  font-weight: 400;
   color: var(--text-primary);
   line-height: 1.3;
   text-align: center;
   word-break: break-all;
-  letter-spacing: 2px;
-  margin-bottom: 18px;
+  letter-spacing: 1px;
 }
 /* 答案显示（蓝字大字号，替代原 input） */
 .sc-practice__answer {
@@ -8317,9 +8316,12 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-statusbar__restart { background: none; border: none; font-size: 13px; font-weight: 400; color: #3B82F6; cursor: pointer; -webkit-tap-highlight-color: transparent; padding: 2px 6px; }
 .sc-statusbar__timer { font-family: var(--font-mono, monospace); font-size: 14px; font-weight: 400; color: #3B82F6; }
 .sc-standard { text-align: center; font-size: 12px; color: var(--text-tertiary); margin-top: 8px; }
-.sc-practice__expr { text-align: center; font-size: 42px; font-weight: 400; color: var(--text-primary); margin: 10px 0 0; letter-spacing: 1px; line-height: 1.3; }
-/* v8.6.38 输入区：大号绿色数字 + 底部下划线（答题线） */
-.sc-practice__answer { text-align: center; font-size: 42px; font-weight: 400; color: #059669; font-family: var(--font-mono, monospace); min-height: 56px; line-height: 56px; margin-top: 4px; background: transparent; border-bottom: 2.5px solid rgba(5, 150, 105, 0.35); border-radius: 0; padding: 0; }
+.sc-practice__expr { font-size: 42px; font-weight: 400; color: var(--text-primary); letter-spacing: 1px; line-height: 1.3; flex-shrink: 0; }
+/* v8.15.32 算式与答案同一行：flex 居中，输入变长时整体居中、算式自动向左退让 */
+.sc-practice__row { display: flex; align-items: baseline; justify-content: center; gap: 8px; margin: 10px 0 0; white-space: nowrap; }
+.sc-practice__eq { font-size: 42px; color: var(--text-primary); flex-shrink: 0; line-height: 1.3; }
+/* v8.15.32 输入区：黑色数字 + 黑色下划线（答题线），替换原绿色 */
+.sc-practice__answer { text-align: center; font-size: 42px; font-weight: 400; color: #1F2937; font-family: var(--font-mono, monospace); min-width: 40px; max-width: 64vw; min-height: 56px; line-height: 56px; background: transparent; border-bottom: 2.5px solid rgba(31, 41, 55, 0.32); border-radius: 0; padding: 0 2px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .sc-count-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 8px 16px 20px; }
 .sc-count-cell { background: var(--bg-tertiary); border: none; border-radius: 12px; padding: 14px 0; font-size: 16px; font-weight: 600; color: var(--text-primary); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .sc-count-cell:active { background: var(--divider-color); }
@@ -8327,6 +8329,8 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-night .sc-topbar__title, .sc-night .sc-statusbar__pos { color: #F5F5F5; }
 .sc-night .sc-standard { color: #9CA3AF; }
 .sc-night .sc-practice__expr { color: #F5F5F5; }
+.sc-night .sc-practice__eq { color: #F5F5F5; }
+.sc-night .sc-practice__answer { color: #F5F5F5; border-bottom-color: rgba(245, 245, 245, 0.4); }
 .sc-night .sc-count-picker, .sc-night .sc-count-cell { background: #2A2A2A; color: #E5E5E5; }
 /* v8.6.38 键盘 v2：左侧 3×4 数字网格（浅灰底大圆角黑字）+ 右侧功能列（深绿底白字，✓ 双倍高）
    按压动画：按下 scale 0.93 + 变深，抬起 150ms 弹簧回弹（cubic-bezier 过冲） */
@@ -9862,7 +9866,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.31';
+App.VERSION = '8.15.32';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -28477,25 +28481,32 @@ renderHome(container) {
     body.className = 'sc-practice';
     body.style.cssText = 'flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:12px 16px;';
 
+    // v8.15.32 算式与答案同一行（flex 居中），输入变长时算式自动向左退让、整体保持居中
+    const exprRow = document.createElement('div');
+    exprRow.className = 'sc-practice__row';
     const expr = document.createElement('div');
     expr.className = 'sc-practice__expr';
     expr.textContent = q.expr;
-    body.appendChild(expr);
-
-    // 评级标准已移至输入区下方（v8.6.40）
+    exprRow.appendChild(expr);
+    // 等号连接符
+    const eq = document.createElement('span');
+    eq.className = 'sc-practice__eq';
+    eq.textContent = ' =';
+    exprRow.appendChild(eq);
 
     // 答案显示（div 模拟输入，禁止系统键盘）
     const answerDisplay = document.createElement('div');
     answerDisplay.className = 'sc-practice__answer';
     answerDisplay.textContent = this.state.showAns ? (this.state.currentInput || ' ') : '· · ·';
-    body.appendChild(answerDisplay);
+    exprRow.appendChild(answerDisplay);
+    body.appendChild(exprRow);
 
     // v8.6.40 评级标准（输入区下方；v8.6.20 按题型 s:{excellent,good,pass}；自定义练习用默认值）
-    // 三位数除一位数：合格38s 良好30s 优秀24s，误差 ±3%
+    // v8.15.32 误差 ±3% 对所有题型统一显示
     const standard = document.createElement('div');
     standard.className = 'sc-standard';
     const sT = this.state.type === 'custom' ? null : this.TYPES[this.state.type].s;
-    standard.textContent = '合格: ' + (sT ? sT.pass : 28) + 's  良好: ' + (sT ? sT.good : 22) + 's  优秀: ' + (sT ? sT.excellent : 18) + 's' + (this.state.type === 'div3x1' ? '  误差 ±3%' : '');
+    standard.textContent = '合格: ' + (sT ? sT.pass : 28) + 's  良好: ' + (sT ? sT.good : 22) + 's  优秀: ' + (sT ? sT.excellent : 18) + 's  误差 ±3%';
     body.appendChild(standard);
     // v8.6.40 三位数除一位数：本次评分展示（提交后更新）
     const ratingLine = document.createElement('div');
