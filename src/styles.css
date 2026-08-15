@@ -8334,10 +8334,10 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-numpad--v2 .sc-numpad__btn { background: #F3F4F6; color: #1F2937; font-size: 24px; border-radius: 14px; }
 /* v8.15.26 数字键按下变色更明显：浅灰→品牌蓝浅色（原来 #F3F4F6→#E5E7EB 太接近看不清是否按下） */
 .sc-numpad--v2 .sc-numpad__btn:active { background: #BFDBFE; }
-.sc-numpad--v2 .sc-numpad__btn--func { background: #0066CC; color: #fff; font-size: 20px; font-weight: 600; }
-.sc-numpad--v2 .sc-numpad__btn--func:active { background: #005BB5; }
-.sc-numpad--v2 .sc-numpad__btn--confirm { background: #0066CC; color: #fff; font-size: 24px; font-weight: 700; }
-.sc-numpad--v2 .sc-numpad__btn--confirm:active { background: #005BB5; }
+.sc-numpad--v2 .sc-numpad__btn--func { background: #4A90E2; color: #fff; font-size: 20px; font-weight: 600; }
+.sc-numpad--v2 .sc-numpad__btn--func:active { background: #3A7AC7; }
+.sc-numpad--v2 .sc-numpad__btn--confirm { background: #4A90E2; color: #fff; font-size: 24px; font-weight: 700; }
+.sc-numpad--v2 .sc-numpad__btn--confirm:active { background: #3A7AC7; }
 
 /* ===== v8.6.38 输入/反馈动画 ===== */
 @keyframes scAnsPop { from { transform: scale(0.8); opacity: 0.4; } to { transform: scale(1); opacity: 1; } }

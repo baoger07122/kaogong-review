@@ -8352,10 +8352,10 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-numpad--v2 .sc-numpad__btn { background: #F3F4F6; color: #1F2937; font-size: 24px; border-radius: 14px; }
 /* v8.15.26 数字键按下变色更明显：浅灰→品牌蓝浅色（原来 #F3F4F6→#E5E7EB 太接近看不清是否按下） */
 .sc-numpad--v2 .sc-numpad__btn:active { background: #BFDBFE; }
-.sc-numpad--v2 .sc-numpad__btn--func { background: #0066CC; color: #fff; font-size: 20px; font-weight: 600; }
-.sc-numpad--v2 .sc-numpad__btn--func:active { background: #005BB5; }
-.sc-numpad--v2 .sc-numpad__btn--confirm { background: #0066CC; color: #fff; font-size: 24px; font-weight: 700; }
-.sc-numpad--v2 .sc-numpad__btn--confirm:active { background: #005BB5; }
+.sc-numpad--v2 .sc-numpad__btn--func { background: #4A90E2; color: #fff; font-size: 20px; font-weight: 600; }
+.sc-numpad--v2 .sc-numpad__btn--func:active { background: #3A7AC7; }
+.sc-numpad--v2 .sc-numpad__btn--confirm { background: #4A90E2; color: #fff; font-size: 24px; font-weight: 700; }
+.sc-numpad--v2 .sc-numpad__btn--confirm:active { background: #3A7AC7; }
 
 /* ===== v8.6.38 输入/反馈动画 ===== */
 @keyframes scAnsPop { from { transform: scale(0.8); opacity: 0.4; } to { transform: scale(1); opacity: 1; } }
@@ -9862,7 +9862,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.28';
+App.VERSION = '8.15.29';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -28048,9 +28048,10 @@ renderHome(container) {
   },
   CUSTOM_ORDER: ['jinwei', 'tuiwei', 'jjMul', 'jjDiv', 'addsub2c', 'mul2x1c', 'div3x1c', 'div5x3c', 'divRem', 'mulHead', 'mulEstc'],
 
-  // v8.15 数字设置应用：
-  //   mode='range'  → 数字范围(001-999)：把表达式首个数字替换为 range 内随机多位数（一位/两位/三位）；
-  //   mode='fixed'  → 固定数字(2-9 可多选)：把表达式中所有数字替换为从选中数字里随机取的一个数字。
+  // v8.15 数字设置应用（v8.15.29：数字设置只针对第二个操作数 B，不动第一个操作数 A）：
+  //   二元表达式形如「A op B」，题型自带 A（如五位数被除数 34567），数字设置只调 B（除数/第二个数）。
+  //   mode='range'  → 数字范围(001-999)：把表达式最后一个数字(B)替换为 range 内随机多位数，保留 A；
+  //   mode='fixed'  → 固定数字(2-9 可多选)：把表达式最后一个数字(B)替换为从选中数字里随机取的一个数字。
   // 仅对纯四则运算表达式生效（含 ≈/余/首位 等语义的题型跳过，避免答案错位）；重算答案用简易求值器。
   _applyCustomFeature(q, feature) {
     let newExpr = null;
@@ -28060,12 +28061,12 @@ renderHome(container) {
     if (feature && feature.mode === 'range' && feature.min != null && feature.max != null) {
       const lo = Math.max(1, Math.min(Math.round(feature.min), 999));
       const hi = Math.max(lo, Math.min(Math.round(feature.max), 999));
-      newExpr = expr.replace(/^\d+/, () => String(randInt(lo, hi)));
+      newExpr = expr.replace(/\d+(?=\s*$)/, () => String(randInt(lo, hi)));
     } else if (feature && feature.mode === 'fixed' && Array.isArray(feature.nums) && feature.nums.length) {
       const nums = feature.nums.filter(n => n >= 1 && n <= 9);
       if (!nums.length) return q;
       const d = nums[randInt(0, nums.length - 1)];
-      newExpr = expr.replace(/\d+/g, () => String(d));
+      newExpr = expr.replace(/\d+(?=\s*$)/, () => String(d));
     } else if (feature && feature.type === 'fixedFirst' && feature.number) {
       newExpr = expr.replace(/\d+/g, (m) => String(feature.number) + m.slice(1));
     } else if (feature && feature.type === 'randomRange' && feature.min != null && feature.max != null) {

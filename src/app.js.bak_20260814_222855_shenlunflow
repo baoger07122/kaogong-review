@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.29';
+App.VERSION = '8.14.10';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -1738,40 +1738,6 @@ App.Components = {
   _activeMobileEditor: null,         // 当前活动编辑器实例（动作分发目标）
   _mobileToolbarEl: null,            // 工具栏 DOM
 
-  // ===== 全局滚动锁（弹窗打开时锁定背景滚动，关闭时恢复；支持嵌套计数） =====
-  // 背景：错题本/笔记等页面的弹窗打开后，底部背景仍可被滑动（滚动穿透），导致滑不动弹窗反而滚背景。
-  // 通过「计数器 + body/html 滚动锁 + 页面容器滚动锁」统一解决，供 confirm/prompt/actionSheet/
-  // pickerModal/centeredPicker/doodleOverlay 等所有弹窗复用。
-  _scrollLockCount: 0,
-  _scrollLockPrev: null,
-  _lockScroll() {
-    this._scrollLockCount++;
-    if (this._scrollLockCount === 1) {
-      // 找到当前处于 overflow 滚动的页面容器一并锁定（如 .page 主容器）
-      const pageEl = document.querySelector('.page') || document.body;
-      this._scrollLockPrev = {
-        body: document.body.style.overflow,
-        html: document.documentElement.style.overflow,
-        page: pageEl.style.overflow
-      };
-      document.body.style.overflow = 'hidden';
-      document.documentElement.style.overflow = 'hidden';
-      pageEl.style.overflow = 'hidden';
-    }
-  },
-  _unlockScroll() {
-    if (this._scrollLockCount > 0) this._scrollLockCount--;
-    if (this._scrollLockCount === 0 && this._scrollLockPrev) {
-      document.body.style.overflow = this._scrollLockPrev.body;
-      document.documentElement.style.overflow = this._scrollLockPrev.html;
-      try {
-        const pageEl = document.querySelector('.page');
-        if (pageEl) pageEl.style.overflow = this._scrollLockPrev.page;
-      } catch (e) {}
-      this._scrollLockPrev = null;
-    }
-  },
-
   // 注册当前活动编辑器（notionEditor 创建时调用）
   _registerMobileEditor(inst) { this._activeMobileEditor = inst; },
 
@@ -1956,28 +1922,18 @@ App.Components = {
     updateToolbarBottom();
 
     // ===== iPad 横屏/分屏自适应检测（单例级） =====
-    // 分屏检测（方向感知）：iPad 横屏 Split View 分屏沿「长边」方向压缩，最多占到 ~75%（25/75 档）；
-    // 横屏全屏时 w ≈ 屏幕长边。用「w < 长边×0.92」判定横屏分屏，同时覆盖 50% 与 75%(2/3) 分屏且全屏不误判。
-    // 竖屏全屏 w ≈ 短边、竖屏上下分屏宽度不变，故竖屏沿用「w < 短边-80」兜底（Slide Over/窄窗口）。
+    // 分屏检测（精准版）：分屏 = innerWidth 明显小于屏幕较短边长（宽度被压缩）。
+    // 覆盖横屏分屏、竖屏分屏、Slide Over、Stage Manager；全屏不误判（见全局检测注释）。
     const detectIpadSplit = () => {
       const isIpad = /iPad/.test(navigator.userAgent) ||
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       if (!isIpad) { document.body.classList.remove('ipad-split'); return; }
       const w = window.innerWidth;
-      const h = window.innerHeight;
       const sw = (screen && screen.width) || 0;
       const sh = (screen && screen.height) || 0;
       let isSplit = false;
       if (sw > 0 && sh > 0) {
-        const longEdge = Math.max(sw, sh);
-        const shortEdge = Math.min(sw, sh);
-        if (w > h) {
-          // 横屏：分屏沿长边压缩，阈值取长边×0.92（覆盖 25/75 档、排除全屏）
-          isSplit = w < longEdge * 0.92;
-        } else {
-          // 竖屏：宽度方向 = 短边，窄窗口/Slide Over 才压缩
-          isSplit = w < shortEdge - 80;
-        }
+        isSplit = w < Math.min(sw, sh) - 80;
       } else {
         isSplit = w < 1024;   // screen 不可用时兜底
       }
@@ -2025,7 +1981,7 @@ App.Components = {
 
     const colorWrap = document.createElement('div');
     colorWrap.className = 'sketch-pad__colors';
-    const colors = [ {n:'黑', v:'#000000'}, {n:'红', v:'#e53935'}, {n:'蓝', v:'#1e88e5'}, {n:'绿', v:'#43a047'} ];
+    const colors = [ {n:'黑', v:'#4d4d4d'}, {n:'红', v:'#e53935'}, {n:'蓝', v:'#1e88e5'}, {n:'绿', v:'#43a047'} ];
     let currentColor = colors[0].v;
     const colorDots = [];
     colors.forEach((c, i) => {
@@ -2042,9 +1998,9 @@ App.Components = {
 
     const sizeWrap = document.createElement('div');
     sizeWrap.className = 'sketch-pad__sizes';
-    // v8.5.4：画笔三档；默认使用上次选择的档位（localStorage 记忆，跨页面/跨会话），无记录时默认细
-    // v8.15.1 笔档位：细2/中3/粗4（用户定），并取消双描边
-    const penSizes = [ {n:'细', v:2}, {n:'中', v:3}, {n:'粗', v:4} ];
+    // v8.5.4：画笔三档 2.6/2.8/3.0；默认使用上次选择的档位（localStorage 记忆，跨页面/跨会话），无记录时默认细
+    // v8.6.41 笔档位拉开（细/中/粗可区分，旧值 2.6/2.8/3.0 回退细）
+    const penSizes = [ {n:'细', v:3.0}, {n:'中', v:4.5}, {n:'粗', v:6.5} ];
     const eraserSizes = [ {n:'细', v:36}, {n:'中', v:60}, {n:'粗', v:90} ];
     const readLastPenSize = () => {
       let v = NaN;
@@ -2105,58 +2061,32 @@ App.Components = {
     let touchEnabled = false; // 手指涂鸦开关：默认关闭，仅 Pencil/鼠标可画
     const MAX_HISTORY = 30;
 
-    // v8.15.12 坐标统一改用 CSS 像素（ctx 已 scale(dpr)），不再需要 scaleFactor
+    const scaleFactor = () => {
+      const rect = canvas.getBoundingClientRect();
+      return rect.width > 0 ? canvas.width / rect.width : 1;
+    };
     function getPos(e) {
-      // v8.15.12 坐标直接用 CSS 像素（ctx 已 scale(dpr)，坐标系是 CSS 像素）
       const rect = canvas.getBoundingClientRect();
       return {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
+        x: (e.clientX - rect.left) * (canvas.width / rect.width),
+        y: (e.clientY - rect.top) * (canvas.height / rect.height)
       };
     }
     function snapshot() { return canvas.toDataURL('image/png'); }
-    // v8.15.18 适配：应用场景是「横屏分屏、只有宽度变、高度不变」，因此**只做宽度方向缩放、高度 1:1**，
-    // 且内容**左对齐（顶部对齐）**而非居中。这样宽度切换时内容不会等比缩放（等比会让高度也变、位置漂移），
-    // 只在水平方向伸拉，垂直方向与位置保持稳定。
-    function drawContain(img) {
-      const cw = canvas.width / dprCache;    // 当前画布 CSS 宽
-      const ch = canvas.height / dprCache;   // 当前画布 CSS 高
-      // naturalWidth/Height 是物理像素（snapshot 用 toDataURL 导出），需 /dprCache 转成 CSS 像素
-      const iw = (img.naturalWidth || img.width) / dprCache;
-      const ih = (img.naturalHeight || img.height) / dprCache;
-      if (iw <= 0 || ih <= 0) return;
-      // 只做宽度缩放：宽度填满当前画布，高度保持原图 CSS 高度（1:1，不缩放）→ 高度不变、内容不变形
-      ctx.clearRect(0, 0, cw, ch);
-      // 左对齐 + 顶部对齐，保证宽度变化时内容位置稳定不漂移
-      ctx.drawImage(img, 0, 0, cw, ih);
-    }
     function restore(dataURL) {
       const img = new Image();
-      img.onload = () => {
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.scale(dprCache, dprCache);
-        drawContain(img);
-      };
+      img.onload = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(img, 0, 0, canvas.width, canvas.height); };
       img.src = dataURL;
     }
     function applySize() {
       const rect = canvas.getBoundingClientRect();
-      // v8.15.11 布局未完成时跳过，避免 canvas 被设成极小尺寸后拉伸放大 → 满屏锯齿
-      if (rect.width < 2 || rect.height < 2) return;
       const dpr = window.devicePixelRatio || 1;
-      dprCache = dpr;
-      const w = Math.max(2, Math.round(rect.width * dpr));
-      const h = Math.max(2, Math.round(rect.height * dpr));
+      const w = Math.max(1, Math.round(rect.width * dpr));
+      const h = Math.max(1, Math.round(rect.height * dpr));
       if (w === canvas.width && h === canvas.height) return;
       const prev = initialized ? snapshot() : null;
       canvas.width = w; canvas.height = h;
-      // v8.15.12 关键修复：ctx.scale(dpr) 让绘制坐标系回到 CSS 像素，
-      // 消除「坐标×sf 与 lineWidth×sf 的非整数亚像素误差」——这正是 iPad 上线条边缘毛糙(锯齿)的根因。
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.scale(dpr, dpr);
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
       if (prev) restore(prev);
     }
     function isEmpty() {
@@ -2189,92 +2119,100 @@ App.Components = {
     function showCursor() { cursor.style.display = 'block'; }
     function hideCursor() { cursor.style.display = 'none'; }
     function moveCursor(pos, radius) {
-      // v8.15.12 pos 已是 CSS 像素，直接用于定位
-      cursor.style.left = pos.x + 'px';
-      cursor.style.top = pos.y + 'px';
+      cursor.style.left = pos.x / scaleFactor() + 'px';
+      cursor.style.top = pos.y / scaleFactor() + 'px';
       cursor.style.width = (radius * 2) + 'px';
       cursor.style.height = (radius * 2) + 'px';
     }
 
-    // 画笔：采样去重 + 远距离插值 + One Euro 平滑 + 二次贝塞尔（中点法）+ 整笔连续 path 单次 stroke
+    // 画笔：采样去重 + 远距离插值 + 压力平滑 + 三次贝塞尔（中点法）+ 段内线宽渐变
+    // 相比二次贝塞尔：曲线更贴合手写轨迹、转角更圆润；线宽渐变消除「竹节」突变感
     let lastX = 0, lastY = 0;
     let lastPressure = 0.5;
-    let dprCache = 1;   // v8.15.12 缓存 devicePixelRatio，applySize 时更新
-    // v8.15.12 恒宽画笔：线宽直接 = 逻辑档位（CSS 像素），ctx 已 scale(dpr) 由 GPU 负责映射到物理像素，
-    // 消除「坐标×sf 与线宽×sf 各自取整不一致」导致的非整数亚像素 → iPad 线条边缘毛糙(锯齿)。
-    function penWidth() {
-      return Math.max(1, currentPenSize);
+    function penWidth(p, sf) {
+      return Math.max(1, currentPenSize * (0.55 + p * 0.75) * sf);
     }
+    function drawSmoothStroke(newPos, e) {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = currentColor;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
 
-    // 起笔前的画布快照（整笔重绘时用它同步恢复，避免叠加）
-    let strokeBase = null;         // ImageData 快照
+      // 压力平滑：低通滤波 + 钳制（加重历史权重，进一步抑制 Apple Pencil 压力抖动）
+      let p = 0.5;
+      if (e && e.pointerType === 'pen' && e.pressure > 0) {
+        p = e.pressure * 0.38 + lastPressure * 0.62;
+        p = Math.min(1, Math.max(0.35, p));
+      }
+      lastPressure = p;
 
-    // v8.15.15 终局简化：彻底移除 One Euro 滤波与复杂插值。
-    // 回退原因：v8.15.14「插值点不滤波」后，dist>14 的快速移动产生直线折线段破坏曲线平滑(锯齿)，
-    // 且与滤波/阈值组合交互脆弱，反复「画线锯齿 + 字不完整」。
-    // 正确做法：采样点最简去重后直接进 points，靠「ctx.scale(dpr)」保证清晰(锯齿已根治)，
-    // 靠「二次贝塞尔中点法」保证平滑，靠「不滤波不丢点」保证笔画完整与跟手。
-    // 中间恢复(bug 已反复验证)：整笔一条连续 path 单次 stroke + putImageData 同步快照恢复。
-    function drawSmoothStroke(newPos) {
       const lastPt = points.length ? points[points.length - 1] : null;
       if (lastPt) {
         const dx = newPos.x - lastPt.x;
         const dy = newPos.y - lastPt.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        // 仅做最小距离去重（<1px 的微小抖动跳过），不做任何滤波/插值
-        if (dist < 1.0) return;
+        // 距离过近：跳过，消除短线段堆积产生的小圆点
+        if (dist < 1.2) return;
+        // 距离过远：按 10px 步长线性插值细分，避免远点直接拉直线「连成一团」
+        if (dist > 20) {
+          const steps = Math.ceil(dist / 10);
+          for (let i = 1; i <= steps; i++) {
+            points.push({ x: lastPt.x + dx * i / steps, y: lastPt.y + dy * i / steps, p: p });
+            if (points.length >= 3) drawSegment();
+          }
+          return;
+        }
       }
-      points.push({ x: newPos.x, y: newPos.y });
-      renderStroke();
+
+      points.push({ x: newPos.x, y: newPos.y, p: p });
+      if (points.length < 3) return; // 前两个点只记录，到第三个点开始出曲线
+      drawSegment();
     }
 
-    // 同步恢复起笔前快照 + 重画「完整当前一笔」（一条连续 path，仅 stroke 一次）
-    function renderStroke() {
-      const w = penWidth();
-
-      // 1. 同步恢复起笔前快照
-      if (strokeBase) {
-        ctx.putImageData(strokeBase, 0, 0);
-      } else {
-        ctx.clearRect(0, 0, canvas.width / dprCache, canvas.height / dprCache);
-      }
-
-      // 2. 整笔一条连续 path（坐标为 CSS 像素，ctx 已 scale(dpr)）
+    // 三次贝塞尔中点法：以倒数第 3、2 点为控制点，从上一中点画到当前中点，
+    // v8.6.41 双描边柔和：先半透明粗晕（盖住段间棱角/毛边），再精确细线；SEG 8→14 更平滑
+    function drawSegment() {
+      const n = points.length;
+      const c1 = points[n - 3];
+      const c2 = points[n - 2];
+      const cur = points[n - 1];
+      const ex = (c2.x + cur.x) / 2;
+      const ey = (c2.y + cur.y) / 2;
+      const sf = scaleFactor();
+      const w0 = penWidth(c1.p, sf);
+      const w1 = penWidth(cur.p, sf);
+      const SEG = 14;
+      const paint = (alpha, widthMul) => {
+        let px = lastX, py = lastY;
+        for (let i = 1; i <= SEG; i++) {
+          const t = i / SEG;
+          const mt = 1 - t;
+          const x = mt * mt * mt * lastX + 3 * mt * mt * t * c1.x + 3 * mt * t * t * c2.x + t * t * t * ex;
+          const y = mt * mt * mt * lastY + 3 * mt * mt * t * c1.y + 3 * mt * t * t * c2.y + t * t * t * ey;
+          ctx.lineWidth = (w0 + (w1 - w0) * t) * widthMul;
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(x, y);
+          ctx.stroke();
+          px = x; py = y;
+        }
+      };
       ctx.globalCompositeOperation = 'source-over';
       ctx.strokeStyle = currentColor;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
+      ctx.globalAlpha = 0.16;
+      paint(0.16, 1.7);
       ctx.globalAlpha = 1;
-      ctx.lineWidth = Math.max(1, w);
-
-      if (points.length === 1) {
-        const p0 = points[0];
-        ctx.beginPath();
-        ctx.arc(p0.x, p0.y, w / 2, 0, Math.PI * 2);
-        ctx.fillStyle = currentColor;
-        ctx.fill();
-        return;
-      }
-
-      // 二次贝塞尔中点法：一条 path 从头画到尾，中间绝无接缝
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-      for (let i = 1; i < points.length - 1; i++) {
-        const p = points[i];
-        const nx = points[i + 1].x, ny = points[i + 1].y;
-        const midX = (p.x + nx) / 2;
-        const midY = (p.y + ny) / 2;
-        ctx.quadraticCurveTo(p.x, p.y, midX, midY);
-      }
-      // 末段：连到最后一点（round cap 会让笔尾自然圆润收尾）
-      const last = points[points.length - 1];
-      ctx.lineTo(last.x, last.y);
-      ctx.stroke();
+      paint(1, 1);
+      lastX = ex; lastY = ey;
+      points = [c2, cur];
     }
 
-    // 橡皮擦：直接在主 canvas 上用 destination-out 擦除
+    // 橡皮擦：只显示范围圈，轨迹透明；使用独立橡皮擦粗细
     function eraseStroke(from, to) {
-      const w = currentEraserSize;
+      const sf = scaleFactor();
+      const w = currentEraserSize * sf;
       ctx.globalCompositeOperation = 'destination-out';
       ctx.strokeStyle = 'rgba(0,0,0,1)';
       ctx.lineWidth = Math.max(1, w);
@@ -2284,7 +2222,6 @@ App.Components = {
       ctx.moveTo(from.x, from.y);
       ctx.lineTo(to.x, to.y);
       ctx.stroke();
-      ctx.globalCompositeOperation = 'source-over';
     }
 
     penBtn.addEventListener('click', () => setMode('pen'));
@@ -2311,17 +2248,12 @@ App.Components = {
       drawing = true;
       try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
       const pos = getPos(e);
-      // 起笔：记录落点，保存「起笔前快照」用于整笔重绘时同步恢复
-      points = [ { x: pos.x, y: pos.y } ];
+      points = [ pos ];
       lastX = pos.x; lastY = pos.y;
-      strokeBase = ctx.getImageData(0, 0, canvas.width, canvas.height);   // 同步快照
       if (mode === 'eraser') {
         const r = currentEraserSize / 2;
         moveCursor(pos, r);
         showCursor();
-      } else {
-        // 起笔落墨：画一个点
-        renderStroke();
       }
     });
     canvas.addEventListener('pointermove', (e) => {
@@ -2334,7 +2266,7 @@ App.Components = {
         eraseStroke(points[points.length - 1], pos);
         points = [ pos ];
       } else {
-        drawSmoothStroke(pos);
+        drawSmoothStroke(pos, e);
       }
     });
     function endDraw(e) {
@@ -2342,8 +2274,35 @@ App.Components = {
       drawing = false;
       hideCursor();
       try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+      // 收尾：把剩余一段以「线宽渐变」连到终点，压至细尖形成自然笔锋
+      // v8.6.41 短笔/tap 不画（阈值 2→4）；收尾终点真正压细（0.4 系数），避免粗短段像大圆点
+      if (mode !== 'eraser' && points.length > 0) {
+        const last = points[points.length - 1];
+        const dx = last.x - lastX;
+        const dy = last.y - lastY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 4) {
+          const sf = scaleFactor();
+          const w0 = penWidth(lastPressure, sf);
+          const w1 = Math.max(1, currentPenSize * 0.4 * sf);
+          const SEG = 6;
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.strokeStyle = currentColor;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          let px = lastX, py = lastY;
+          for (let i = 1; i <= SEG; i++) {
+            const t = i / SEG;
+            ctx.lineWidth = w0 + (w1 - w0) * t;
+            ctx.beginPath();
+            ctx.moveTo(px, py);
+            ctx.lineTo(lastX + dx * t, lastY + dy * t);
+            ctx.stroke();
+            px = lastX + dx * t; py = lastY + dy * t;
+          }
+        }
+      }
       points = [];
-      strokeBase = null;
       lastPressure = 0.5;
       pushHistory();
       commit();
@@ -2354,21 +2313,10 @@ App.Components = {
 
     function init() {
       applySize();
-      // v8.15.11 布局兜底：多次重试 applySize，直到 canvas 尺寸正确（>2px）或有初始内容。
-      // 之前若 init 时 rect=0，applySize 直接跳过，canvas 保持默认/极小尺寸被 CSS 拉伸 → 满屏锯齿。
-      let retries = 0;
-      const retrySize = () => {
-        if (canvas.width >= 2 && canvas.height >= 2) return;
-        applySize();
-        if (++retries < 20) setTimeout(retrySize, 30);
-      };
-      retrySize();
       if (opts.initial) {
         const img = new Image();
         img.onload = () => {
-          applySize();
-          // v8.15.17 等比居中适配（不变形），解决分屏改变宽度后重新打开内容被拉伸/错位
-          drawContain(img);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           undoStack = [ snapshot() ];
           redoStack = [];
           baseHasContent = true;
@@ -2383,10 +2331,10 @@ App.Components = {
       }
     }
     if (window.ResizeObserver) {
-      const ro = new ResizeObserver(() => { applySize(); });
+      const ro = new ResizeObserver(() => { if (initialized) applySize(); });
       ro.observe(canvasWrap);
     } else {
-      window.addEventListener('resize', () => { applySize(); });
+      window.addEventListener('resize', () => { if (initialized) applySize(); });
     }
     requestAnimationFrame(() => requestAnimationFrame(init));
 
@@ -2397,15 +2345,14 @@ App.Components = {
         if (!dataURL) return;
         const img = new Image();
         img.onload = () => {
-          // v8.15.17 等比居中适配
-          drawContain(img);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           undoStack = [ snapshot() ];
           redoStack = [];
           baseHasContent = true;
         };
         img.src = dataURL;
       },
-      clear: () => { ctx.clearRect(0, 0, canvas.width / dprCache, canvas.height / dprCache); undoStack = [ snapshot() ]; redoStack = []; baseHasContent = false; },
+      clear: () => { ctx.clearRect(0, 0, canvas.width, canvas.height); undoStack = [ snapshot() ]; redoStack = []; baseHasContent = false; },
       undo: () => { if (undoStack.length > 1) { redoStack.push(undoStack.pop()); restore(undoStack[undoStack.length - 1]); } },
       redo: () => { if (redoStack.length > 0) { undoStack.push(redoStack.pop()); restore(undoStack[undoStack.length - 1]); } },
       setMode: (m) => setMode(m),
@@ -2434,9 +2381,6 @@ App.Components = {
 
       const overlay = document.createElement('div');
       overlay.className = 'doodle-overlay';
-
-      // 滚动锁：全屏涂鸦层打开时锁定背景；关闭时恢复
-      App.Components._lockScroll();
 
       // 顶部栏：左上角退出，右上角工具
       const bar = document.createElement('div');
@@ -2491,7 +2435,7 @@ App.Components = {
       // 底部工具栏（从底部滑上）：颜色 + 笔触大小
       const sheet = document.createElement('div');
       sheet.className = 'doodle-overlay__sheet';
-      const colors = [ {n:'黑', v:'#000000'}, {n:'红', v:'#e53935'}, {n:'蓝', v:'#1e88e5'}, {n:'绿', v:'#43a047'} ];
+      const colors = [ {n:'黑', v:'#4d4d4d'}, {n:'红', v:'#e53935'}, {n:'蓝', v:'#1e88e5'}, {n:'绿', v:'#43a047'} ];
       let activeColor = colors[0].v;
       const colorWrap = document.createElement('div');
       colorWrap.className = 'doodle-overlay__colors';
@@ -2510,7 +2454,7 @@ App.Components = {
         colorDots.push(dot); colorWrap.appendChild(dot);
       });
       // v8.5.4：画笔三档 2.6/2.8/3.0；与 sketch 共用 localStorage key 记忆上次档位，无记录默认细
-      const penSizes = [ {n:'细', v:2}, {n:'中', v:3}, {n:'粗', v:4} ];
+      const penSizes = [ {n:'细', v:2.6}, {n:'中', v:2.8}, {n:'粗', v:3.0} ];
       const eraserSizes = [ {n:'细', v:36}, {n:'中', v:60}, {n:'粗', v:90} ];
       let lastPenSize = NaN;
       try { lastPenSize = parseFloat(window.localStorage.getItem('doodle_pen_size')); } catch (e) { /* 忽略 */ }
@@ -2560,7 +2504,6 @@ App.Components = {
       const finish = () => {
         if (done) return;
         done = true;
-        App.Components._unlockScroll();
         if (overlay.parentNode) overlay.remove();
         let img = null;
         try { img = pad.getImage(); } catch (e) { img = null; }
@@ -2701,24 +2644,20 @@ App.Components = {
         </div>
       `;
 
-      // 滚动锁：弹窗打开锁定背景，关闭/取消/确认时恢复
-      App.Components._lockScroll();
-      const closeOverlay = () => { App.Components._unlockScroll(); overlay.remove(); };
-
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) {
-          closeOverlay();
+          overlay.remove();
           resolve(false);
         }
       });
 
       overlay.querySelector('.btn-cancel').addEventListener('click', () => {
-        closeOverlay();
+        overlay.remove();
         resolve(false);
       });
 
       overlay.querySelector(isDanger ? '.btn-danger' : '.btn-confirm').addEventListener('click', () => {
-        closeOverlay();
+        overlay.remove();
         resolve(true);
       });
 
@@ -2752,9 +2691,7 @@ App.Components = {
       const input = overlay.querySelector('.modal-dialog__input input');
       const confirmBtn = overlay.querySelector('.btn-confirm');
       const cancelBtn = overlay.querySelector('.btn-cancel');
-      // 滚动锁
-      App.Components._lockScroll();
-      const finish = (val) => { App.Components._unlockScroll(); overlay.remove(); resolve(val); };
+      const finish = (val) => { overlay.remove(); resolve(val); };
       const submit = () => { const v = input.value.trim(); if (v) finish(v); };
       setTimeout(() => { input.focus(); }, 0);
       overlay.addEventListener('click', (e) => { if (e.target === overlay) finish(null); });
@@ -3663,7 +3600,7 @@ App.Components = {
       tagRow.appendChild(ct);
     }
     card.appendChild(tagRow);
-    // 思维误区单独一行，自动换行（用图标替代 ⛏ emoji，对齐画布 40:9）
+    // 挖坑点单独一行，自动换行（v8.12.31 用设计稿挖坑点图标替代 ⛏ emoji，对齐画布 40:9）
     if (error.pitfall) {
       const pf = document.createElement('div');
       pf.className = 'error-gallery-card__pitfall';
@@ -4250,8 +4187,8 @@ App.Components = {
     const subKey = (sub) => 'sub:' + sub;
     const modKey = (sub, mod) => 'mod:' + sub + '|' + mod;
     const editKey = (sub, mod, kind, name) => sub + '|' + mod + '|' + kind + '|' + name;
-    // 科目：默认全部折叠；模块：默认全部折叠（v8.15.22 取消「第一个科目默认展开」）
-    const isSubOpen = (sub, idx) => (state.expanded[subKey(sub.name)] === true);
+    // 科目：第一个默认展开，其余折叠；模块：默认全部折叠
+    const isSubOpen = (sub, idx) => (state.expanded[subKey(sub.name)] !== undefined ? state.expanded[subKey(sub.name)] : idx === 0);
     const isModOpen = (sub, mod) => state.expanded[modKey(sub, mod)] === true;
     // 【扁平科目】仅科目一层级，不显示模块细分（如资料分析：4 个模块标签相同，
     // 管理页合并展示，编辑操作同步到该科目所有模块，错题编辑页按模块选标签仍可见）
@@ -4322,13 +4259,19 @@ App.Components = {
       container.innerHTML = '';
       container.className = 'tag-manager' + (state.edit ? ' edit-mode' : '');
 
-      // 顶部标题栏：仅标题（v8.15.22 管理入口下放到每个模块内部，不再于顶部右侧统一放「编辑」按钮）
+      // 顶部工具条：标题 + 编辑/完成切换
       const bar = document.createElement('div');
       bar.className = 'tag-manager__bar';
       const title = document.createElement('div');
       title.className = 'tag-manager__title';
       title.textContent = opts.title || '标签管理';
+      const toggleBtn = document.createElement('button');
+      toggleBtn.type = 'button';
+      toggleBtn.className = 'tag-manager__edit-toggle' + (state.edit ? ' is-active' : '');
+      toggleBtn.textContent = state.edit ? '完成' : '编辑';
+      toggleBtn.addEventListener('click', toggleEdit);
       bar.appendChild(title);
+      bar.appendChild(toggleBtn);
       container.appendChild(bar);
 
       // 科目折叠卡片
@@ -4354,24 +4297,7 @@ App.Components = {
         subCount.className = 'tag-subject-count';
         subCount.textContent = subTotal + ' 个';
         subHead.appendChild(subLeft);
-        // 右侧：计数 +（扁平科目时）管理按钮
-        const subRight = document.createElement('div');
-        subRight.className = 'tag-subject-header__right';
-        subRight.appendChild(subCount);
-        // 扁平科目（无模块细分）：在科目头部直接提供「管理」入口（普通科目在下层模块内）
-        if (isFlatSub(sub.name)) {
-          const subManage = document.createElement('button');
-          subManage.type = 'button';
-          subManage.className = 'tag-manager__manage' + (state.edit ? ' is-active' : '');
-          subManage.textContent = state.edit ? '完成' : '管理';
-          subManage.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (!state.edit) state.expanded[subKey(sub.name)] = true;
-            toggleEdit();
-          });
-          subRight.appendChild(subManage);
-        }
-        subHead.appendChild(subRight);
+        subHead.appendChild(subCount);
         subHead.addEventListener('click', () => {
           state.expanded[subKey(sub.name)] = !isSubOpen(sub, subIdx);
           render();
@@ -4415,26 +4341,8 @@ App.Components = {
             let modTotal = 0;
             kinds.forEach(k => { modTotal += KIND_META[k].get(mod).length; });
             modCount.textContent = modTotal + ' 个';
-            // 右侧：计数 + 「管理」按钮（v8.15.22 下放到每个模块内部）
-            const modRight = document.createElement('div');
-            modRight.className = 'tag-module-header__right';
-            modRight.appendChild(modCount);
-            const manageBtn = document.createElement('button');
-            manageBtn.type = 'button';
-            manageBtn.className = 'tag-manager__manage' + (state.edit ? ' is-active' : '');
-            manageBtn.textContent = state.edit ? '完成' : '管理';
-            manageBtn.addEventListener('click', (e) => {
-              e.stopPropagation();
-              // 从非编辑态进入编辑态时，同时展开本模块，便于直接看到可编辑的标签
-              if (!state.edit) {
-                state.expanded[subKey(sub.name)] = true;
-                state.expanded[modKey(sub.name, mod)] = true;
-              }
-              toggleEdit();
-            });
-            modRight.appendChild(manageBtn);
             modHead.appendChild(modLeft);
-            modHead.appendChild(modRight);
+            modHead.appendChild(modCount);
             modHead.addEventListener('click', () => {
               state.expanded[modKey(sub.name, mod)] = !isModOpen(sub.name, mod);
               render();
@@ -4759,61 +4667,6 @@ App.Components = {
     area.addEventListener('keyup', captureSel);
     area.addEventListener('focusin', captureSel);
     area.addEventListener('input', () => { if (opts.onChange) opts.onChange(area.innerHTML); });
-
-    // ===== v8.15.20 Markdown 粘贴自动转换：粘贴 md 语法 → 自动渲染成富文本格式 =====
-    // 背景：笔记/错题笔记此前为 HTML 所见即所得直存，导致粘贴 Markdown 语法（#/**/- 等）不生效、原样显示。
-    // 此处拦截粘贴：检测到 Markdown 块级/行内语法时，用 App.Utils.simpleMarkdown 渲染成 HTML 后以富文本插入，
-    // 存储仍是 HTML → 详情页格式 100% 保真不丢失；老笔记（HTML）天然兼容无需转换。
-    function detectMarkdown(text) {
-      if (!text) return false;
-      const t = text.trim();
-      // 多行（含换行）默认可按块解析；单行需命中块级或行内 md 标记
-      if (/\n/.test(text)) return true;
-      return /^#{1,4}\s/.test(t) || /^[-*]\s/.test(t) || /^\d+\.\s/.test(t) || /^>\s?/.test(t)
-        || /^```/.test(t) || /^\|.*\|$/.test(t) || /^---+$/.test(t) || /^\$\$/.test(t)
-        || /\*\*.+\*\*/.test(t) || /__.+__/.test(t) || /\*.+\*/.test(t) || /`[^`]+`/.test(t)
-        || /\[.+\]\(.+\)/.test(t) || /~~.+~~/.test(t) || /^>/.test(t);
-    }
-    area.addEventListener('paste', (e) => {
-      const clipboardData = e.clipboardData || window.clipboardData;
-      if (!clipboardData) return;
-      // 若有图片文件，交默认处理（图片粘贴不走 markdown 转换）
-      const imgFile = Array.from(clipboardData.items || []).map(it => it.kind === 'file' ? it.getAsFile() : null).find(Boolean);
-      if (imgFile) return;
-      let text = clipboardData.getData('text/plain');
-      if (!text) return;
-      // 未命中 md 语法 → 走默认粘贴（纯文本原样插入）
-      if (!detectMarkdown(text)) return;
-
-      // 命中 md 语法：阻止默认，转为 HTML 富文本插入
-      e.preventDefault();
-      try {
-        const rendered = App.Utils.simpleMarkdown(text);
-        if (!rendered) return;
-        const r = ensureSelection();
-        if (r) {
-          r.deleteContents();
-          // 将渲染 HTML 解析为节点插入
-          const tmp = document.createElement('div');
-          tmp.innerHTML = rendered;
-          const frag = document.createDocumentFragment();
-          let node;
-          while ((node = tmp.firstChild)) frag.appendChild(node);
-          r.insertNode(frag);
-        } else {
-          const tmp = document.createElement('div');
-          tmp.innerHTML = rendered;
-          let node;
-          while ((node = tmp.firstChild)) area.appendChild(node);
-        }
-        if (opts.onChange) opts.onChange(area.innerHTML);
-      } catch (err) {
-        // 转换失败回退：按纯文本插入，不丢内容
-        document.execCommand('insertText', false, text);
-        if (opts.onChange) opts.onChange(area.innerHTML);
-      }
-    });
-
     // v8.6.13 快捷键：Tab = 缩进，Shift+Tab = 取消缩进（阻止默认焦点切换）
     area.addEventListener('keydown', (e) => {
       if (e.key === 'Tab') {
@@ -7860,10 +7713,6 @@ App.Components = {
       const sheet = document.createElement('div');
       sheet.className = 'actionsheet';
 
-      // 滚动锁：锁定背景，关闭时恢复
-      App.Components._lockScroll();
-      const closeOverlay = () => { App.Components._unlockScroll(); overlay.remove(); };
-
       if (title) {
         const titleEl = document.createElement('div');
         titleEl.style.cssText = 'text-align:center;padding:14px;font-size:var(--font-sm);color:var(--text-tertiary);border-bottom:1px solid var(--divider-color);';
@@ -7876,7 +7725,7 @@ App.Components = {
         item.className = 'actionsheet__item';
         item.textContent = opt.label;
         item.addEventListener('click', () => {
-          closeOverlay();
+          overlay.remove();
           resolve(opt.value !== undefined ? opt.value : opt.label);
         });
         sheet.appendChild(item);
@@ -7886,7 +7735,7 @@ App.Components = {
       cancel.className = 'actionsheet__cancel';
       cancel.textContent = '取消';
       cancel.addEventListener('click', () => {
-        closeOverlay();
+        overlay.remove();
         resolve(null);
       });
       sheet.appendChild(cancel);
@@ -7894,7 +7743,7 @@ App.Components = {
       overlay.appendChild(sheet);
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) {
-          closeOverlay();
+          overlay.remove();
           resolve(null);
         }
       });
@@ -8109,10 +7958,6 @@ App.Components = {
       const overlay = document.createElement('div');
       overlay.className = 'cp-overlay';
 
-      // 滚动锁：锁定背景，关闭/选中/取消时恢复
-      App.Components._lockScroll();
-      const closeOverlay = () => { App.Components._unlockScroll(); overlay.remove(); };
-
       const card = document.createElement('div');
       card.className = 'cp-card';
 
@@ -8129,7 +7974,7 @@ App.Components = {
       closeBtn.className = 'cp-close';
       closeBtn.innerHTML = '✕';
       closeBtn.title = '关闭';
-      closeBtn.addEventListener('click', () => { closeOverlay(); resolve(null); });
+      closeBtn.addEventListener('click', () => { overlay.remove(); resolve(null); });
       headerRow.appendChild(closeBtn);
       card.appendChild(headerRow);
 
@@ -8174,7 +8019,7 @@ App.Components = {
         item.appendChild(textWrap);
 
         item.addEventListener('click', () => {
-          closeOverlay();
+          overlay.remove();
           resolve(opt.value !== undefined ? opt.value : opt.label);
         });
 
@@ -8206,13 +8051,13 @@ App.Components = {
       const cancelBtn = document.createElement('button');
       cancelBtn.className = 'cp-cancel-btn';
       cancelBtn.textContent = '取消';
-      cancelBtn.addEventListener('click', () => { closeOverlay(); resolve(null); });
+      cancelBtn.addEventListener('click', () => { overlay.remove(); resolve(null); });
       cancelRow.appendChild(cancelBtn);
       card.appendChild(cancelRow);
 
       overlay.appendChild(card);
       overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) { closeOverlay(); resolve(null); }
+        if (e.target === overlay) { overlay.remove(); resolve(null); }
       });
 
       container.appendChild(overlay);
@@ -8306,10 +8151,6 @@ App.Components.pickerModal = function (opts) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
 
-  // 滚动锁：锁定背景，关闭/确定时恢复
-  App.Components._lockScroll();
-  const closeOverlay = () => { App.Components._unlockScroll(); overlay.remove(); };
-
   // 选中态
   let selected = opts.mode === 'list'
     ? (opts.selected || '')
@@ -8332,26 +8173,11 @@ App.Components.pickerModal = function (opts) {
   titleEl.className = 'picker-modal__title';
   titleEl.textContent = opts.title || '选择';
   headRow.appendChild(titleEl);
-  // 占位：把标题推到左侧，管理/关闭按钮靠右
-  const headSpacer = document.createElement('div');
-  headSpacer.style.flex = '1';
-  headRow.appendChild(headSpacer);
-  // 管理按钮（可选）：opts.manage 为 { kind: 'kp'|'ec', module } 时，右上角显示「管理」，点击切换到标签管理视图
-  if (opts.manage) {
-    const manageBtn = document.createElement('button');
-    manageBtn.type = 'button';
-    manageBtn.className = 'picker-modal__manage';
-    manageBtn.textContent = '管理';
-    manageBtn.addEventListener('click', () => {
-      renderManageView();
-    });
-    headRow.appendChild(manageBtn);
-  }
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button';
   closeBtn.className = 'picker-modal__close';
   closeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
-  closeBtn.addEventListener('click', () => closeOverlay());
+  closeBtn.addEventListener('click', () => overlay.remove());
   headRow.appendChild(closeBtn);
   dialog.appendChild(headRow);
 
@@ -8448,118 +8274,19 @@ App.Components.pickerModal = function (opts) {
   okBtn.textContent = '确定';
   okBtn.addEventListener('click', () => {
     const result = opts.mode === 'list' ? selected : selected.slice();
-    closeOverlay();
+    overlay.remove();
     if (opts.onDone) opts.onDone(result);
   });
   dialog.appendChild(okBtn);
 
   overlay.appendChild(dialog);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeOverlay(); });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
   container.appendChild(overlay);
   if (opts.mode === 'chips') {
     setTimeout(() => { const inp = overlay.querySelector('.picker-modal__input'); if (inp) inp.focus(); }, 0);
   }
-
-  // ===== 管理视图：点击右上角「管理」后，把弹窗内容切换为考点/错因管理（与考点管理页 UI 一致）=====
-  function renderManageView() {
-    // 清空弹窗内容
-    dialog.innerHTML = '';
-    dialog.style.gap = '0';
-
-    // 头部：标题 + 返回 + 关闭
-    const mHead = document.createElement('div');
-    mHead.className = 'picker-modal__head';
-    const backBtn = document.createElement('button');
-    backBtn.type = 'button';
-    backBtn.className = 'picker-modal__manage';
-    backBtn.textContent = '‹ 返回';
-    backBtn.addEventListener('click', () => {
-      // 返回选择视图：整弹窗重建（重新打开 pickerModal）
-      const prevSelected = selected;
-      closeOverlay();
-      App.Components.pickerModal(Object.assign({}, opts, { selected: prevSelected }));
-    });
-    mHead.appendChild(backBtn);
-    const mTitle = document.createElement('div');
-    mTitle.className = 'picker-modal__title';
-    mTitle.textContent = (opts.manage.kind === 'kp' ? '考点' : '错因') + '管理';
-    mHead.appendChild(mTitle);
-    const mSpacer = document.createElement('div');
-    mSpacer.style.flex = '1';
-    mHead.appendChild(mSpacer);
-    const mClose = document.createElement('button');
-    mClose.type = 'button';
-    mClose.className = 'picker-modal__close';
-    mClose.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
-    mClose.addEventListener('click', () => closeOverlay());
-    mHead.appendChild(mClose);
-    dialog.appendChild(mHead);
-
-    // 管理内容容器（可滚动）。注意：tagManager 会覆盖其挂载元素的 className，
-    // 故用外层 .picker-modal__mgm 承载滚动，内层再给 tagManager，避免滚动样式被冲掉。
-    const mgrWrap = document.createElement('div');
-    mgrWrap.className = 'picker-modal__mgm';
-    const mgrInner = document.createElement('div');
-    mgrWrap.appendChild(mgrInner);
-    dialog.appendChild(mgrWrap);
-
-    // 复用考点管理页同款 tagManager 组件：考点(kp) 或 错因(ec) 单独管理
-    App.Components.tagManager(mgrInner, {
-      title: (opts.manage.kind === 'kp' ? '考点' : '错因') + '管理',
-      kinds: [opts.manage.kind],
-      onDone: () => {}
-    });
-  }
-
   return overlay;
 };
-
-// ===== 笔记类型（对齐画布「iPad-笔记类型管理」8:170 /「新增类型」10:1 / 弹窗 10:114） =====
-window.App = window.App || {};
-App.NoteTypes = (function () {
-  const KEY = 'kg_note_types';
-  const DEFAULT_TYPES = [
-    { name: '技巧总结', color: '#0066CC' },
-    { name: '解题方法', color: '#FF9500' },
-    { name: '知识积累', color: '#34C759' },
-    { name: '错题复盘', color: '#9B7BFF' }
-  ];
-
-  function getAll() {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (!raw) return [];
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) return arr;
-    } catch (e) { /* ignore */ }
-    return [];
-  }
-  function ensureDefault() {
-    if (getAll().length === 0) {
-      try { localStorage.setItem(KEY, JSON.stringify(DEFAULT_TYPES)); } catch (e) { /* ignore */ }
-    }
-  }
-  function saveAll(list) {
-    try { localStorage.setItem(KEY, JSON.stringify(list)); } catch (e) { /* ignore */ }
-  }
-  function add(name, color) {
-    ensureDefault();
-    const list = getAll();
-    if (list.some(t => t.name === name)) return false;
-    list.push({ name, color: color || '#0066CC' });
-    saveAll(list);
-    return true;
-  }
-  function remove(name) {
-    const list = getAll().filter(t => t.name !== name);
-    saveAll(list);
-  }
-  function getColor(name) {
-    const t = getAll().find(x => x.name === name);
-    return t ? t.color : '#0066CC';
-  }
-  return { getAll, ensureDefault, add, remove, getColor, DEFAULT_COLORS: DEFAULT_TYPES.map(t => t.color) };
-})();
 
 // ===== 考公笔试复盘系统 - 云端同步层 =====
 // 与同源 /api 接口对接；登录后本地数据实时镜像到云端，可跨设备 / 跨版本访问。
@@ -9155,12 +8882,6 @@ App.Router = {
       case 'note-form':
         if (App.Pages.Notes && App.Pages.Notes.renderForm) App.Pages.Notes.renderForm(params);
         break;
-      case 'note-type-manage':
-        if (App.Pages.Notes && App.Pages.Notes.renderTypeManage) App.Pages.Notes.renderTypeManage(params);
-        break;
-      case 'note-type-form':
-        if (App.Pages.Notes && App.Pages.Notes.renderTypeForm) App.Pages.Notes.renderTypeForm(params);
-        break;
       case 'exam-detail':
         if (App.Pages.Exams && App.Pages.Exams.renderDetail) await App.Pages.Exams.renderDetail(params);
         break;
@@ -9234,27 +8955,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 分屏/Stage Manager 下 iPad 系统「三点」多任务条位于左上角，会压住页面返回按钮。
   // 检测到分屏时给 body 加 ipad-split class → 返回按钮 margin-left 右移避开（见 styles.css）。
   // 之前该检测放在移动端工具栏构建内（惰性），详情页/编辑页无编辑器时不执行 → 分屏下返回键被遮挡。
-  // 判定（方向感知，v8.15.23）：横屏分屏沿「长边」方向压缩、最多占到 ~75%（25/75 档），
-  // 横屏全屏 w≈长边，故用「w < 长边×0.92」判定横屏分屏——同时覆盖 50% 与 75%(2/3) 分屏、全屏不误判；
-  // 竖屏全屏 w≈短边、上下分屏宽度不变，沿用「w < 短边-80」兜底（Slide Over/窄窗口）。
+  // 判定：分屏 = innerWidth 明显小于屏幕较短的边长（宽度方向被压缩）。
+  // 注意不能简单用「innerWidth 与任一屏幕边长的差 > 80」——竖屏全屏时 innerWidth==screen.width
+  // 但 < screen.height，会被误判为分屏；用 min(sw,sh) 作基准可同时覆盖竖屏/横屏分屏且全屏不误判。
   const _detectIpadSplitGlobal = () => {
     try {
       const isIpad = /iPad/.test(navigator.userAgent) ||
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       if (!isIpad) { document.body.classList.remove('ipad-split'); return; }
       const w = window.innerWidth;
-      const h = window.innerHeight;
       const sw = (screen && screen.width) || 0;
       const sh = (screen && screen.height) || 0;
       let isSplit = false;
       if (sw > 0 && sh > 0) {
-        const longEdge = Math.max(sw, sh);
-        const shortEdge = Math.min(sw, sh);
-        if (w > h) {
-          isSplit = w < longEdge * 0.92;
-        } else {
-          isSplit = w < shortEdge - 80;
-        }
+        isSplit = w < Math.min(sw, sh) - 80;
       } else {
         isSplit = w < 1024;   // screen 不可用时兜底
       }
@@ -10918,35 +10632,21 @@ App.Pages.Errors = {
     const errors = await App.DB.getErrors(filters);
 
     if (errors.length === 0) {
-      // v8.14.11 按画布「iPad-错题本-空状态」卡片式空态（对齐便签/待办空态风格），胶囊靠上不居中
-      const empty = document.createElement('div');
-      empty.className = 'eerr-empty';
-      const icon = document.createElement('div');
-      icon.className = 'eerr-empty__icon';
-      icon.innerHTML = '<svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="5.5" y="8" width="33" height="31.5" rx="4" stroke="#C7C7CC" stroke-width="1.8"/><path d="M11 15h11M11 20h11M11 25h11M11 30h7" stroke="#C7C7CC" stroke-width="1.8" stroke-linecap="round"/><path d="M27 27l3 3 6-7" stroke="#A1A1A6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      empty.appendChild(icon);
-      const title = document.createElement('div');
-      title.className = 'eerr-empty__title';
-      title.textContent = '还没有错题';
-      empty.appendChild(title);
-      const desc = document.createElement('div');
-      desc.className = 'eerr-empty__desc';
-      desc.textContent = '点击「新建错题」，收录你的第一道题';
-      empty.appendChild(desc);
-      const action = document.createElement('button');
-      action.type = 'button';
-      action.className = 'eerr-empty__action';
-      action.textContent = '＋ 新建错题';
-      action.addEventListener('click', () => {
-        let q = '';
-        if (this.state.subject) {
-          q = '?subject=' + encodeURIComponent(this.state.subject);
-          if (this.state.module) q += '&module=' + encodeURIComponent(this.state.module);
+      container.appendChild(App.Components.emptyState(
+        '📋',
+        '还没有错题',
+        '复盘时记录的错题会自动收录到这里',
+        '添加错题',
+        () => {
+          // 跟随当前选中的科目-模块
+          let q = '';
+          if (this.state.subject) {
+            q = '?subject=' + encodeURIComponent(this.state.subject);
+            if (this.state.module) q += '&module=' + encodeURIComponent(this.state.module);
+          }
+          App.Router.navigate('error-form' + q);
         }
-        App.Router.navigate('error-form' + q);
-      });
-      empty.appendChild(action);
-      container.appendChild(empty);
+      ));
       return;
     }
 
@@ -11093,7 +10793,7 @@ App.Pages.Errors = {
       detailLines += `<div style="margin-bottom:4px;"><span style="font-weight:600;color:var(--text-secondary);font-size:var(--font-xs);">错因：</span><span class="tag tag--neutral">${error.errorCause}</span></div>`;
     }
     if (error.pitfall) {
-      detailLines += `<div style="margin-bottom:4px;"><span style="font-weight:600;color:var(--text-secondary);font-size:var(--font-xs);">思维误区：</span><span style="font-size:var(--font-sm);color:var(--text-secondary);">${error.pitfall}</span></div>`;
+      detailLines += `<div style="margin-bottom:4px;"><span style="font-weight:600;color:var(--text-secondary);font-size:var(--font-xs);">挖坑点：</span><span style="font-size:var(--font-sm);color:var(--text-secondary);">${error.pitfall}</span></div>`;
     }
     headerInfo.innerHTML = `
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
@@ -11458,13 +11158,6 @@ App.Pages.Errors = {
         // 从某套卷点「加错题」时，关联回该套卷
         if (params.examId && !formData.sourceExamId) formData.sourceExamId = params.examId;
       }
-
-      // v8.14.11 申论错题统一走专属表单：无论从哪条路径进入，只要科目固定为申论即切换
-      if (formData.subject === '申论') {
-        App.Pages.Errors.renderShenlunForm(isEdit && formData._formId ? { id: formData.id || formData._formId } : { module: formData.module || '' });
-        return;
-      }
-
       buildForm();
     };
 
@@ -11566,7 +11259,7 @@ App.Pages.Errors = {
       }
       form.appendChild(efCard(topCardChildren));
 
-      // ===== 卡片二：考点（最多3个）+ 错因 + 思维误区 =====
+      // ===== 卡片二：考点（最多3个）+ 错因 + 挖坑点 =====
       const kpEcChildren = [];
       // 考点（多选，最多3个）弹窗
       if (formData.module || (isFlatError && formData.subject)) {
@@ -11578,7 +11271,6 @@ App.Pages.Errors = {
             selected: formData.knowledgePoints,
             max: 3,
             allowCustom: true,
-            manage: { kind: 'kp', module: formData.module },
             placeholder: '输入自定义考点，回车添加',
             onAddCustom: (v) => { if (isFlatError) App.Tags.addSubjectKnowledgePoint(formData.subject, v); else App.Tags.addKnowledgePoint(formData.module, v); },
             onDone: (sel) => { formData.knowledgePoints = sel; buildForm(); }
@@ -11594,16 +11286,15 @@ App.Pages.Errors = {
           selected: formData.errorCause ? [formData.errorCause] : [],
           max: 1,
           allowCustom: true,
-          manage: { kind: 'ec', module: formData.module },
           placeholder: '选择或输入错因，回车添加',
           onAddCustom: (v) => { if (isFlatError) App.Tags.addSubjectErrorCause(formData.subject, v); else App.Tags.addModuleErrorCause(formData.module, v); },
           onDone: (sel) => { formData.errorCause = (sel && sel.length) ? sel[0] : ''; buildForm(); }
         });
       }));
       kpEcChildren.push(App.Components.formInput(
-        '思维误区',
+        '挖坑点',
         formData.pitfall,
-        '一句话记录这道题容易踩的思维误区（可选）',
+        '一句话记录这道题的坑在哪（可选）',
         (val) => { formData.pitfall = val; },
         'input'
       ));
@@ -12016,55 +11707,21 @@ App.Pages.Errors.renderShenlunForm = function (params) {
       return ta;
     };
 
-    // v8.14.11 灰底选择条（与普通错题表单一致的弹窗选择）：显示当前值 + 右侧箭头，点击打开居中弹窗
-    const efSelectBar = (label, value, placeholder, onClick) => {
-      const row = document.createElement('div');
-      row.className = 'ef-selectbar';
-      if (label) {
-        const lb = document.createElement('div');
-        lb.className = 'ef-selectbar__label';
-        lb.textContent = label;
-        row.appendChild(lb);
-      }
-      const valEl = document.createElement('div');
-      valEl.className = 'ef-selectbar__value' + (value ? '' : ' ef-selectbar__value--ph');
-      valEl.textContent = value || placeholder || ('请选择' + (label || ''));
-      row.appendChild(valEl);
-      const arrow = document.createElement('div');
-      arrow.className = 'ef-selectbar__arrow';
-      arrow.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      row.appendChild(arrow);
-      row.addEventListener('click', onClick);
-      return row;
-    };
-
     // ===== 模块1：题目信息 =====
     const m1 = [];
-    // ① 题干（挪到模块选择框上方）
+    m1.push(App.Components.formSelector(
+      '模块',
+      App.Constants.getModules('申论'),
+      d.module,
+      (val) => { d.module = val; },
+      true
+    ));
     const qArea = slArea('粘贴/输入申论题目题干…');
     qArea.value = d.question;
     qArea.addEventListener('input', () => { d.question = qArea.value; });
-    m1.push(slRow('题干', qArea));
+    const qRow = slRow('题干', qArea);
+    m1.push(qRow);
 
-    // ② 模块（改为弹窗选择，挪到题干下方）
-    const moduleBar = efSelectBar('模块', d.module, '归纳概括 / 综合分析 / 提出对策…', () => {
-      App.Components.pickerModal({
-        title: '选择模块',
-        mode: 'list',
-        options: App.Constants.getModules('申论'),
-        selected: d.module,
-        onDone: (val) => { if (val) d.module = val; if (typeof build === 'function') build(); }
-      });
-    });
-    m1.push(moduleBar);
-
-    // ③ 得分标题
-    const scoreTitle = document.createElement('div');
-    scoreTitle.className = 'sl-score-title';
-    scoreTitle.textContent = '得分';
-    m1.push(scoreTitle);
-
-    // ④ 得分 / 总分（并排）
     const scoreInput = slField('得分');
     scoreInput.type = 'number'; scoreInput.value = d.score;
     scoreInput.addEventListener('input', () => { d.score = scoreInput.value; });
@@ -12356,7 +12013,6 @@ App.Pages.Notes = {
     subject: null,
     module: null,
     knowledgePoint: null,
-    type: null,
     search: '',
     searchVisible: false,
     allNotes: []
@@ -12379,49 +12035,24 @@ App.Pages.Notes = {
     main.className = 'page-main';
 
     // 页面标题
-    // v8.14.11 顶栏搜索常驻（对齐画布「iPad-笔记」7:31：大标题 + 搜索栏 + 三点更多）
-    const stickyWrap = document.createElement('div');
-    stickyWrap.className = 'page-sticky';
     const header = document.createElement('div');
-    header.className = 'page-header note-page-header';
-    const kw = (this.state.search || '').replace(/"/g, '&quot;');
+    header.className = 'page-header';
     header.innerHTML = `
-      <div class="page-header__title" style="font-size:26px;font-weight:600;">笔记</div>
-      <div class="note-header-search">
-        <span class="search-bar__icon">🔍</span>
-        <input type="text" placeholder="搜索笔记标题 / 内容" id="note-search" value="${kw}">
+      <div class="page-header__title" style="flex:1;">笔记</div>
+      <div class="page-header__right" style="display:flex;align-items:center;gap:6px;">
+        <button class="detail-header-action" id="note-more" title="更多" style="font-size:20px;padding:4px 6px;">⋮</button>
       </div>
-      <button class="page-header__more" id="note-more" title="更多" aria-label="更多">
-        <svg width="16" height="4" viewBox="0 0 16 4" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="2" cy="2" r="1.6" fill="#4A4A4A"/>
-          <circle cx="8" cy="2" r="1.6" fill="#4A4A4A"/>
-          <circle cx="14" cy="2" r="1.6" fill="#4A4A4A"/>
-        </svg>
-      </button>
     `;
-    stickyWrap.appendChild(header);
-    main.appendChild(stickyWrap);
+    main.appendChild(header);
     header.querySelector('#note-more').addEventListener('click', (e) => {
       e.stopPropagation();
       this._showPageMenu();
     });
-    // 顶栏搜索常驻：输入即过滤列表
-    const nSearch = header.querySelector('#note-search');
-    nSearch.addEventListener('input', App.Utils.debounce((e) => {
-      this.state.search = e.target.value;
-      const listArea = document.getElementById('note-tree-area');
-      if (listArea) this.renderList(listArea);
-    }, 300));
 
-    // 模块chips（对齐画布 8:4：选中科目后，列表区顶部横向选择该科目模块）
-    const moduleFilterArea = document.createElement('div');
-    moduleFilterArea.id = 'note-module-filter';
-    main.appendChild(moduleFilterArea);
-
-    // 类型chips（对齐画布：按笔记类型筛选）
-    const typeFilterArea = document.createElement('div');
-    typeFilterArea.id = 'note-type-filter';
-    main.appendChild(typeFilterArea);
+    // 搜索区（通过右上角三点菜单展开）
+    const searchArea = document.createElement('div');
+    searchArea.id = 'note-search-area';
+    main.appendChild(searchArea);
 
     // 考点筛选条（科目-模块由侧边栏管理，与错题本一致）
     const filterArea = document.createElement('div');
@@ -12438,8 +12069,6 @@ App.Pages.Notes = {
     // 加载数据
     await this.loadData();
     this.renderSubjectGrid(sidebar);
-    this.renderModuleFilter(moduleFilterArea);
-    this.renderTypeFilter(typeFilterArea);
     this.renderFilters(filterArea);
     this.renderList(listArea);
   },
@@ -12448,10 +12077,8 @@ App.Pages.Notes = {
     this.state.allNotes = await App.DB.getNotes();
   },
 
-  // 左侧科目窄栏（对齐画布「iPad-笔记」7:1005：窄栏80，科目图标+名竖排，选中浅蓝圆角12）
-  // 模块选择交由列表区顶部「模块chips」承担（对齐画布 8:4）
+  // 左侧科目 - 模块树（与错题本一致的侧边栏导航）
   renderSubjectGrid(container) {
-    // 完全复用错题本侧边栏风格（科目-模块树 + 计数 + 展开箭头 + SVG图标 + 二级模块）
     this._expanded = this._expanded || {};
     const noteCounts = {};
     App.Constants.SUBJECTS.forEach(s => {
@@ -12464,7 +12091,7 @@ App.Pages.Notes = {
     const allItem = document.createElement('div');
     allItem.className = 'sidebar__item' + (this.state.subject === null ? ' active' : '');
     allItem.innerHTML = `
-      <span class="sidebar__item-icon" style="color:${this.state.subject === null ? '#0066CC' : '#7A7A7A'}">${App.Pages.Errors._subjectIconSvg('全部') || '📚'}</span>
+      <span class="sidebar__item-icon">📚</span>
       <span class="sidebar__item-name">全部</span>
     `;
     allItem.addEventListener('click', () => {
@@ -12486,18 +12113,16 @@ App.Pages.Notes = {
       row.className = 'sidebar__item' + (isActive ? ' active' : '') + (expanded ? ' sidebar__item--expanded' : '');
       const count = noteCounts[s.name];
       row.innerHTML = `
-        <span class="sidebar__item-icon" style="color:${isActive ? '#0066CC' : s.color}">${App.Pages.Errors._subjectIconSvg(s.name) || s.icon}</span>
+        <span class="sidebar__arrow">▶</span>
+        <span class="sidebar__item-icon">${s.icon}</span>
         <span class="sidebar__item-name">${s.name}</span>
         ${count > 0 ? `<span class="sidebar__item-count">${count}</span>` : ''}
-        <span class="sidebar__arrow"><svg width="8" height="5" viewBox="0 0 8 5" fill="none"><path d="M1 1l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       `;
-      // 箭头：展开/收起该科目下的模块
       row.querySelector('.sidebar__arrow').addEventListener('click', (e) => {
         e.stopPropagation();
         this._expanded[s.name] = !this._expanded[s.name];
         this.renderSubjectGrid(container);
       });
-      // 点击科目行：选中 / 取消该科目
       row.addEventListener('click', () => {
         this.state.subject = (this.state.subject === s.name) ? null : s.name;
         this.state.module = null;
@@ -12506,7 +12131,6 @@ App.Pages.Notes = {
       });
       container.appendChild(row);
 
-      // 模块（仅在该科目展开时显示，作为左侧二级导航；扁平科目如资料分析无模块层，不显示）
       if (expanded && !App.Constants.isFlatSubject(s.name)) {
         modules.forEach(mod => {
           const mCount = this.state.allNotes.filter(n => n.subject === s.name && n.module === mod).length;
@@ -12527,79 +12151,6 @@ App.Pages.Notes = {
         });
       }
     });
-  },
-
-  // 模块chips（对齐画布 8:4：选中科目后，列表区顶部横向选择该科目模块）
-  renderModuleFilter(container) {
-    container.innerHTML = '';
-    if (!this.state.subject) return;
-    const modules = App.Constants.getModules(this.state.subject);
-    if (!modules || !modules.length) return;
-    const wrap = document.createElement('div');
-    wrap.classList.add('note-modchips');
-    // 「全部」chip
-    const mkChip = (label, active, onClick) => {
-      const chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = 'note-modchip' + (active ? ' active' : '');
-      chip.textContent = label;
-      chip.addEventListener('click', onClick);
-      return chip;
-    };
-    wrap.appendChild(mkChip('全部', !this.state.module, () => {
-      this.state.module = null;
-      this.state.knowledgePoint = null;
-      this.refreshAll();
-    }));
-    modules.forEach(mod => {
-      wrap.appendChild(mkChip(mod, this.state.module === mod, () => {
-        this.state.module = (this.state.module === mod) ? null : mod;
-        this.state.knowledgePoint = null;
-        this.refreshAll();
-      }));
-    });
-    container.appendChild(wrap);
-  },
-
-  // 类型chips（对齐画布 A3：按笔记类型筛选，含「全部」）
-  renderTypeFilter(container) {
-    container.innerHTML = '';
-    App.NoteTypes.ensureDefault();
-    const types = App.NoteTypes.getAll();
-    if (!types.length) return;
-    const wrap = document.createElement('div');
-    wrap.classList.add('note-modchips');
-    const mk = (label, active, onClick) => {
-      const chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = 'note-modchip' + (active ? ' active' : '');
-      chip.textContent = label;
-      chip.addEventListener('click', onClick);
-      return chip;
-    };
-    wrap.appendChild(mk('类型全部', !this.state.type, () => {
-      this.state.type = null;
-      this.refreshFiltersAndList();
-    }));
-    types.forEach(t => {
-      const isActive = this.state.type === t.name;
-      const chip = document.createElement('button');
-      chip.type = 'button';
-      chip.className = 'note-modchip' + (isActive ? ' active' : '');
-      chip.style.cssText = isActive ? ('background:' + hexToRgba4(t.color, 0.14) + ';color:' + t.color + ';') : '';
-      chip.textContent = t.name;
-      chip.addEventListener('click', () => {
-        this.state.type = (this.state.type === t.name) ? null : t.name;
-        this.refreshFiltersAndList();
-      });
-      wrap.appendChild(chip);
-    });
-    function hexToRgba4(hex, a) {
-      const h = String(hex).replace('#', '');
-      if (/^[0-9a-fA-F]{6}$/.test(h)) return 'rgba(' + [0, 2, 4].map(i => parseInt(h.substr(i, 2), 16)).join(',') + ',' + a + ')';
-      return 'rgba(0,102,204,' + a + ')';
-    }
-    container.appendChild(wrap);
   },
 
   // 考点筛选条（科目-模块由侧边栏管理；仅选中科目后显示）
@@ -12644,7 +12195,6 @@ App.Pages.Notes = {
     if (this.state.subject) notes = notes.filter(n => n.subject === this.state.subject);
     if (this.state.module) notes = notes.filter(n => n.module === this.state.module);
     if (this.state.knowledgePoint) notes = notes.filter(n => n.knowledgePoint === this.state.knowledgePoint);
-    if (this.state.type) notes = notes.filter(n => n.type === this.state.type);
     if (this.state.search) {
       const kw = this.state.search.toLowerCase();
       const noteText = (n) => {
@@ -12681,86 +12231,39 @@ App.Pages.Notes = {
     }
 
     if (notes.length === 0) {
-      // v8.15.1 笔记空状态对齐错题本空状态（.eerr-empty 卡片：图标+文案+新建按钮，靠上）
-      const empty = document.createElement('div');
-      empty.className = 'eerr-empty';
-      const icon = document.createElement('div');
-      icon.className = 'eerr-empty__icon';
-      icon.innerHTML = '<svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6.5 8.5a3 3 0 013-3H20l3 3h11a3 3 0 013 3v24a3 3 0 01-3 3H9.5a3 3 0 01-3-3z" stroke="#C7C7CC" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 19h17M14 25h17M14 31h10" stroke="#C7C7CC" stroke-width="1.8" stroke-linecap="round"/></svg>';
-      empty.appendChild(icon);
-      const title = document.createElement('div');
-      title.className = 'eerr-empty__title';
-      title.textContent = '还没有笔记';
-      empty.appendChild(title);
-      const desc = document.createElement('div');
-      desc.className = 'eerr-empty__desc';
-      desc.textContent = '点击「新建笔记」，记录你的第一条复盘';
-      empty.appendChild(desc);
-      const action = document.createElement('button');
-      action.type = 'button';
-      action.className = 'eerr-empty__action';
-      action.textContent = '＋ 新建笔记';
-      action.addEventListener('click', () => {
-        App.Draft.clearForm('note');
-        let q = '';
-        if (this.state.subject) {
-          q = '?subject=' + encodeURIComponent(this.state.subject);
-          if (this.state.module) q += '&module=' + encodeURIComponent(this.state.module);
+      container.appendChild(App.Components.emptyState(
+        '📝',
+        '暂无笔记',
+        '点击右下角 + 号开始记录',
+        '新建笔记',
+        () => {
+          App.Draft.clearForm('note');
+          // 跟随当前选中的科目-模块
+          let q = '';
+          if (this.state.subject) {
+            q = '?subject=' + encodeURIComponent(this.state.subject);
+            if (this.state.module) q += '&module=' + encodeURIComponent(this.state.module);
+          }
+          App.Router.navigate('note-form' + q);
         }
-        App.Router.navigate('note-form' + q);
-      });
-      empty.appendChild(action);
-      container.appendChild(empty);
+      ));
       return;
     }
 
-    notes.forEach((note, idx) => container.appendChild(this.buildNoteCard(note)));
+    notes.forEach((note, idx) => container.appendChild(this.buildNoteCard(note, idx)));
   },
 
-  // 笔记卡片（对齐画布「iPad-笔记」7:964：科目色块首字 + 标题/摘要 + 右侧日期 + 箭头）
-  buildNoteCard(note) {
+  // 单条笔记卡片（去掉科目-模块与考点标签，仅标题 + 元信息）
+  buildNoteCard(note, index) {
     const card = document.createElement('div');
-    card.className = 'note-item note-item--card';
-    const subj = note.subject ? App.Constants.SUBJECTS.find(s => s.name === note.subject) : null;
-    const color = subj && subj.color ? subj.color : '#4A90E2';
-    const firstChar = note.subject ? note.subject.slice(0, 1) : '记';
-    const hex = String(color).replace('#', '');
-    let bg = 'rgba(74,144,226,0.12)';
-    if (/^[0-9a-fA-F]{6}$/.test(hex)) {
-      bg = 'rgba(' + [0, 2, 4].map(i => parseInt(hex.substr(i, 2), 16)).join(',') + ',0.12)';
-    }
-    // 摘要：去 HTML 标签取纯文本前若干字
-    let summary = '';
-    try {
-      let txt = Array.isArray(note.content) ? JSON.stringify(note.content) : String(note.content || '');
-      txt = txt.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-      if (!txt || txt === '""' || txt === '[]') txt = '';
-      if (txt) summary = App.Utils.truncate(txt, 34);
-    } catch (e) { summary = ''; }
-    let dateTxt = '';
-    try {
-      const dd = new Date(note.updatedAt);
-      if (!isNaN(dd.getTime())) dateTxt = (dd.getMonth() + 1) + ' 月 ' + dd.getDate() + ' 日';
-    } catch (e) { dateTxt = ''; }
-    // 类型 pill（对齐画布：类型在笔记卡上显示效果）
-    let typePill = '';
-    if (note.type && App.NoteTypes.getAll().some(t => t.name === note.type)) {
-      const tc = App.NoteTypes.getColor(note.type);
-      const tHex = String(tc).replace('#', '');
-      const tBg = /^[0-9a-fA-F]{6}$/.test(tHex)
-        ? 'rgba(' + [0, 2, 4].map(i => parseInt(tHex.substr(i, 2), 16)).join(',') + ',0.12)'
-        : 'rgba(0,102,204,0.12)';
-      typePill = `<div class="note-type-pill" style="background:${tBg};color:${tc};">${note.type}</div>`;
-    }
+    card.className = 'note-item note-item--flat';
+    const idxHtml = typeof index === 'number' ? `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:9999px;background:var(--bg-tertiary);color:var(--text-tertiary);font-size:10px;font-weight:600;margin-right:6px;">${index + 1}</span>` : '';
     card.innerHTML = `
-      <div class="note-avatar" style="background:${bg};color:${color};">${firstChar}</div>
-      <div class="note-item__body">
-        ${typePill ? `<div class="note-type-pill-row">${typePill}</div>` : ''}
-        <div class="note-item__title">${App.Utils.truncate(note.title, 26)}</div>
-        ${summary ? `<div class="note-item__summary">${summary}</div>` : ''}
+      <div class="note-item__title">${idxHtml}${App.Utils.truncate(note.title, 30)}</div>
+      <div class="note-item__meta">
+        <span>${App.Utils.formatDate(note.updatedAt, 'MM-DD HH:mm')}</span>
+        ${note.linkedErrors && note.linkedErrors.length > 0 ? `<span>关联错题：${note.linkedErrors.length}</span>` : ''}
       </div>
-      <div class="note-item__right"><div class="note-item__date">${dateTxt}</div></div>
-      <div class="note-item__arrow">›</div>
     `;
     card.addEventListener('click', () => App.Router.navigate('note-detail?id=' + note.id));
     return card;
@@ -12768,40 +12271,52 @@ App.Pages.Notes = {
 
   // 局部刷新：筛选条即时切换不动画，列表仅做进入动画
   refreshFiltersAndList() {
-    const moduleFilter = document.getElementById('note-module-filter');
-    const typeFilter = document.getElementById('note-type-filter');
     const filterArea = document.getElementById('note-filter-area');
     const listArea = document.getElementById('note-tree-area');
-    if (moduleFilter) this.renderModuleFilter(moduleFilter);
-    if (typeFilter) this.renderTypeFilter(typeFilter);
     if (filterArea) this.renderFilters(filterArea);
     if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
   },
 
   refreshAll() {
     const sidebar = document.getElementById('note-sidebar');
-    const moduleFilter = document.getElementById('note-module-filter');
-    const typeFilter = document.getElementById('note-type-filter');
+    const searchArea = document.getElementById('note-search-area');
     const filterArea = document.getElementById('note-filter-area');
     const listArea = document.getElementById('note-tree-area');
     if (sidebar) this.renderSubjectGrid(sidebar);
-    if (moduleFilter) this.renderModuleFilter(moduleFilter);
-    if (typeFilter) this.renderTypeFilter(typeFilter);
+    if (searchArea) this.renderSearchBar(searchArea);
     if (filterArea) this.renderFilters(filterArea);
     if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
   },
 
-  // 右上角三点菜单（v8.14.11 搜索已常驻顶栏，菜单只保留轻量项）
+  // 右上角三点菜单
   async _showPageMenu() {
-    const items = [];
-    if (this.state.subject === '言语理解') {
-      items.push({ label: '📚 词语库', value: 'worddb' });
+    const action = await App.Components.actionSheet([
+      { label: '🔍 ' + (this.state.searchVisible ? '隐藏搜索' : '搜索笔记'), value: 'search' }
+    ], '笔记');
+    if (action === 'search') {
+      this.state.searchVisible = !this.state.searchVisible;
+      const searchArea = document.getElementById('note-search-area');
+      if (searchArea) this.renderSearchBar(searchArea);
     }
-    if (!items.length) { App.Components.toast('暂无可选项', 'info'); return; }
-    const action = await App.Components.actionSheet(items, '笔记');
-    if (action === 'worddb') {
-      App.Router.navigate('worddb?subject=' + encodeURIComponent('言语理解') + '&module=' + encodeURIComponent('逻辑填空'));
-    }
+  },
+
+  renderSearchBar(container) {
+    container.innerHTML = '';
+    if (!this.state.searchVisible) return;
+    const searchBar = document.createElement('div');
+    searchBar.className = 'search-bar';
+    searchBar.style.marginBottom = 'var(--spacing-md)';
+    const val = (this.state.search || '').replace(/"/g, '&quot;');
+    searchBar.innerHTML = `
+      <span class="search-bar__icon">🔍</span>
+      <input type="text" placeholder="搜索笔记 / 知识点" id="note-search" value="${val}">
+    `;
+    container.appendChild(searchBar);
+    const input = searchBar.querySelector('input');
+    input.addEventListener('input', App.Utils.debounce((e) => {
+      this.state.search = e.target.value;
+      this.renderList(document.getElementById('note-tree-area'));
+    }, 300));
   },
 
   // ===== 笔记详情页（Notion 式无模式就地编辑：点击即编辑，失焦即保存回查看） =====
@@ -13251,7 +12766,6 @@ App.Pages.Notes = {
       subject: params.subject || '',
       module: '',
       knowledgePoint: '',
-      type: '',
       title: '',
       content: '',
       linkedErrors: []
@@ -13265,7 +12779,6 @@ App.Pages.Notes = {
             subject: note.subject || '',
             module: note.module || '',
             knowledgePoint: note.knowledgePoint || '',
-            type: note.type || '',
             title: note.title || '',
             content: note.content || '',
             linkedErrors: note.linkedErrors || [],
@@ -13289,7 +12802,7 @@ App.Pages.Notes = {
               isEdit = true;
               formData = {
                 subject: note.subject || '', module: note.module || '',
-                knowledgePoint: note.knowledgePoint || '', type: note.type || '', title: note.title || '',
+                knowledgePoint: note.knowledgePoint || '', title: note.title || '',
                 content: note.content || '', linkedErrors: note.linkedErrors || [],
                 id: note.id
               };
@@ -13350,53 +12863,6 @@ App.Pages.Notes = {
       titleInput.value = formData.title || '';
       titleInput.addEventListener('input', () => { formData.title = titleInput.value; });
       form.appendChild(titleInput);
-
-      // ===== 笔记类型选择（对齐画布：类型chips，可多选? 单选一个类型） =====
-      const typeWrap = document.createElement('div');
-      typeWrap.className = 'note-type-field';
-      App.NoteTypes.ensureDefault();
-      const typeChips = App.NoteTypes.getAll();
-      typeWrap.innerHTML = '<div class="note-type-kw">类型（可选）</div>';
-      const chipsBox = document.createElement('div');
-      chipsBox.className = 'note-modchips';
-      const typeNone = document.createElement('button');
-      typeNone.type = 'button';
-      typeNone.className = 'note-modchip note-modchip--type' + (!formData.type ? ' active' : '');
-      typeNone.textContent = '无';
-      typeNone.addEventListener('click', () => { formData.type = ''; renderTypeChips(); });
-      chipsBox.appendChild(typeNone);
-      const renderTypeChips = () => {
-        chipsBox.innerHTML = '';
-        const mk = (label, active, onClick) => {
-          const b = document.createElement('button');
-          b.type = 'button';
-          b.className = 'note-modchip note-modchip--type' + (active ? ' active' : '');
-          b.textContent = label;
-          b.addEventListener('click', onClick);
-          return b;
-        };
-        chipsBox.appendChild(mk('无', !formData.type, () => { formData.type = ''; renderTypeChips(); }));
-        App.NoteTypes.getAll().forEach(t => {
-          const c = t.color;
-          const isActive = formData.type === t.name;
-          const b = document.createElement('button');
-          b.type = 'button';
-          b.className = 'note-modchip note-modchip--type' + (isActive ? ' active' : '');
-          b.style.cssText = isActive ? ('background:' + hexToRgba3(c, 0.14) + ';color:' + c + ';') : '';
-          b.textContent = t.name;
-          b.addEventListener('click', () => { formData.type = t.name; renderTypeChips(); });
-          chipsBox.appendChild(b);
-        });
-      };
-      renderTypeChips();
-      typeWrap.appendChild(chipsBox);
-      form.appendChild(typeWrap);
-
-      function hexToRgba3(hex, a) {
-        const h = String(hex).replace('#', '');
-        if (/^[0-9a-fA-F]{6}$/.test(h)) return 'rgba(' + [0, 2, 4].map(i => parseInt(h.substr(i, 2), 16)).join(',') + ',' + a + ')';
-        return 'rgba(0,102,204,' + a + ')';
-      }
 
       // ===== 单一分类选择框（科目 › 模块 › 考点 级联） =====
       const catSelector = document.createElement('button');
@@ -13575,7 +13041,7 @@ App.Pages.Notes = {
         const existing = await App.DB.get('notes', formData.id);
         await App.DB.updateNote({
           id: formData.id, subject: formData.subject, module: formData.module,
-          knowledgePoint: formData.knowledgePoint, type: formData.type, title: formData.title,
+          knowledgePoint: formData.knowledgePoint, title: formData.title,
           content: formData.content, linkedErrors: formData.linkedErrors,
           linkedReviews: existing ? existing.linkedReviews || [] : [],
           updatedAt: new Date().toISOString()
@@ -13584,7 +13050,7 @@ App.Pages.Notes = {
         if (!formData.id) {
           formData.id = await App.DB.addNote({
             subject: formData.subject, module: formData.module,
-            knowledgePoint: formData.knowledgePoint, type: formData.type,
+            knowledgePoint: formData.knowledgePoint,
             title: formData.title || '未命名笔记', content: formData.content,
             linkedErrors: formData.linkedErrors, linkedReviews: [],
             updatedAt: new Date().toISOString()
@@ -13593,7 +13059,7 @@ App.Pages.Notes = {
         } else {
           await App.DB.updateNote({
             id: formData.id, subject: formData.subject, module: formData.module,
-            knowledgePoint: formData.knowledgePoint, type: formData.type, title: formData.title,
+            knowledgePoint: formData.knowledgePoint, title: formData.title,
             content: formData.content, linkedErrors: formData.linkedErrors,
             linkedReviews: [], updatedAt: new Date().toISOString()
           });
@@ -13616,235 +13082,6 @@ App.Pages.Notes = {
     };
 
     loadAndRender();
-  },
-
-  // ===== 笔记类型管理页（A4，对齐画布 8:170：返回+标题+说明+类型列表+新增按钮） =====
-  async renderTypeManage(params) {
-    const container = document.getElementById('page-note-type-manage');
-    container.innerHTML = '';
-    App.NoteTypes.ensureDefault();
-    await this.loadData();
-
-    container.appendChild(App.Components.pageHeader(
-      '笔记类型',
-      '', () => App.Router.navigate('settings')
-    ));
-
-    const body = document.createElement('div');
-    body.style.cssText = 'padding:var(--spacing-md) var(--page-padding) 40px;';
-
-    // 说明
-    const hint = document.createElement('div');
-    hint.style.cssText = 'font-size:13px;color:var(--text-tertiary);margin-bottom:14px;';
-    hint.textContent = '自定义类型可自由新增、修改、删除，笔记页顶部按类型筛选';
-    body.appendChild(hint);
-
-    // 类型列表
-    const listBox = document.createElement('div');
-    listBox.className = 'ntype-list';
-    const renderRows = () => {
-      listBox.innerHTML = '';
-      const types = App.NoteTypes.getAll();
-      if (!types.length) {
-        const empty = document.createElement('div');
-        empty.style.cssText = 'padding:30px;text-align:center;color:var(--text-tertiary);font-size:13px;';
-        empty.textContent = '暂无类型，点击下方新增';
-        listBox.appendChild(empty);
-        return;
-      }
-      types.forEach((t, idx) => {
-        const count = (this.state.allNotes || []).filter(n => n.type === t.name).length;
-        const row = document.createElement('div');
-        row.className = 'ntype-row';
-        const left = document.createElement('div');
-        left.className = 'ntype-row__left';
-        const dot = document.createElement('span');
-        dot.className = 'ntype-dot';
-        dot.style.background = t.color;
-        const name = document.createElement('span');
-        name.className = 'ntype-name';
-        name.textContent = t.name;
-        left.appendChild(dot); left.appendChild(name);
-        row.appendChild(left);
-        const right = document.createElement('div');
-        right.className = 'ntype-row__right';
-        const num = document.createElement('span');
-        num.className = 'ntype-count';
-        num.textContent = count + ' 篇';
-        right.appendChild(num);
-        // 编辑（点击名称改色/改名）
-        const editBtn = document.createElement('button');
-        editBtn.type = 'button';
-        editBtn.className = 'ntype-op';
-        editBtn.title = '编辑';
-        editBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.85 0 114 4L7.5 20.5 2 22l1.5-5.5z"/></svg>';
-        editBtn.addEventListener('click', (e) => { e.stopPropagation(); App.Router.navigate('note-type-form?name=' + encodeURIComponent(t.name)); });
-        right.appendChild(editBtn);
-        // 删除
-        const delBtn = document.createElement('button');
-        delBtn.type = 'button';
-        delBtn.className = 'ntype-op ntype-op--danger';
-        delBtn.title = '删除';
-        delBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>';
-        delBtn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          const ok = await App.Components.confirm('删除类型', '确定删除类型「' + t.name + '」？该类型下的笔记不受影响（无类型）。', '删除', '取消', true);
-          if (!ok) return;
-          App.NoteTypes.remove(t.name);
-          App.Components.toast('已删除', 'success');
-          renderRows();
-        });
-        right.appendChild(delBtn);
-        row.appendChild(right);
-        // 点击整行编辑
-        row.addEventListener('click', () => App.Router.navigate('note-type-form?name=' + encodeURIComponent(t.name)));
-        listBox.appendChild(row);
-        if (idx < types.length - 1) {
-          const sep = document.createElement('div');
-          sep.className = 'ntype-sep';
-          listBox.appendChild(sep);
-        }
-      });
-    };
-    renderRows();
-    body.appendChild(listBox);
-
-    // 底部新增按钮（对齐画布 8:215：主色圆角25全宽）
-    const addBtn = document.createElement('button');
-    addBtn.type = 'button';
-    addBtn.className = 'ntype-add';
-    addBtn.textContent = '+ 新增类型';
-    addBtn.addEventListener('click', () => App.Router.navigate('note-type-form'));
-    body.appendChild(addBtn);
-
-    container.appendChild(body);
-  },
-
-  // ===== 新增/编辑笔记类型页（A5/A6，对齐画布 10:1：名称+色板+预览+保存） =====
-  async renderTypeForm(params) {
-    const container = document.getElementById('page-note-type-form');
-    container.innerHTML = '';
-    App.NoteTypes.ensureDefault();
-
-    const editing = !!(params && params.name);
-    const list = App.NoteTypes.getAll();
-    let d = editing
-      ? (list.find(t => t.name === params.name) || { name: '', color: '#0066CC' })
-      : { name: '', color: '#0066CC' };
-
-    const header = App.Components.pageHeader(
-      editing ? '编辑类型' : '新增类型',
-      '保存',
-      async () => {
-        const nm = d.name.trim();
-        if (!nm) { App.Components.toast('请输入类型名称', 'error'); return; }
-        if (!editing && App.NoteTypes.getAll().some(t => t.name === nm)) {
-          App.Components.toast('已存在同名类型', 'error'); return;
-        }
-        if (editing) {
-          // 改名：更新存储 + 同步笔记里的 type
-          App.NoteTypes.remove(params.name);
-          App.NoteTypes.add(nm, d.color);
-          try {
-            const notes = await App.DB.getNotes();
-            for (const n of notes) { if (n.type === params.name) { n.type = nm; await App.DB.updateNote(n); } }
-          } catch (e) { /* ignore */ }
-        } else {
-          App.NoteTypes.add(nm, d.color);
-        }
-        App.Components.toast('已保存', 'success');
-        App.Router.navigate('note-type-manage');
-      }
-    );
-    container.appendChild(header);
-
-    const body = document.createElement('div');
-    body.className = 'ntype-form';
-
-    // 名称区
-    const nameLabel = document.createElement('div');
-    nameLabel.className = 'ntype-label';
-    nameLabel.textContent = '名称';
-    body.appendChild(nameLabel);
-    const nameInput = document.createElement('input');
-    nameInput.className = 'ntype-input';
-    nameInput.placeholder = '输入类型名称，如：高频考点';
-    nameInput.value = d.name;
-    nameInput.addEventListener('input', () => { d.name = nameInput.value; refreshPreview(); });
-    body.appendChild(nameInput);
-
-    // 颜色区
-    const colorLabel = document.createElement('div');
-    colorLabel.className = 'ntype-label';
-    colorLabel.textContent = '颜色';
-    body.appendChild(colorLabel);
-    const palette = document.createElement('div');
-    palette.className = 'ntype-palette';
-    const COLORS = ['#0066CC', '#FF9500', '#34C759', '#9B7BFF', '#00BFA5', '#FF3B30', '#FF5B9E'];
-    COLORS.forEach(c => {
-      const sw = document.createElement('button');
-      sw.type = 'button';
-      sw.className = 'ntype-swatch' + (d.color === c ? ' active' : '');
-      sw.style.background = c;
-      if (d.color === c) sw.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>';
-      sw.addEventListener('click', () => { d.color = c; buildPalette(); refreshPreview(); });
-      palette.appendChild(sw);
-    });
-    const buildPalette = () => {
-      palette.innerHTML = '';
-      COLORS.forEach(c => {
-        const sw = document.createElement('button');
-        sw.type = 'button';
-        sw.className = 'ntype-swatch' + (d.color === c ? ' active' : '');
-        sw.style.background = c;
-        if (d.color === c) sw.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>';
-        sw.addEventListener('click', () => { d.color = c; buildPalette(); refreshPreview(); });
-        palette.appendChild(sw);
-      });
-    };
-    body.appendChild(palette);
-
-    // 预览区
-    const prevLabel = document.createElement('div');
-    prevLabel.className = 'ntype-label';
-    prevLabel.textContent = '预览';
-    body.appendChild(prevLabel);
-    const prevCard = document.createElement('div');
-    prevCard.className = 'ntype-preview';
-    const prevPill = document.createElement('div');
-    prevPill.className = 'ntype-pill';
-    prevCard.appendChild(prevPill);
-    const prevNote = document.createElement('div');
-    prevNote.className = 'ntype-preview-note';
-    prevNote.textContent = '新类型在笔记卡上的显示效果';
-    prevCard.appendChild(prevNote);
-    body.appendChild(prevCard);
-    const refreshPreview = () => {
-      const c = d.color || '#0066CC';
-      const txt = d.name.trim() || '高频考点';
-      prevPill.style.background = hexToRgba2(c, 0.12);
-      prevPill.style.color = c;
-      prevPill.textContent = txt;
-    };
-
-    // 提示
-    const tip = document.createElement('div');
-    tip.className = 'ntype-tip';
-    tip.textContent = '保存后即可在笔记页顶部按此类型筛选';
-    body.appendChild(tip);
-
-    // hex→rgba(alpha)
-    function hexToRgba2(hex, a) {
-      const h = String(hex).replace('#', '');
-      if (/^[0-9a-fA-F]{6}$/.test(h)) {
-        return 'rgba(' + [0, 2, 4].map(i => parseInt(h.substr(i, 2), 16)).join(',') + ',' + a + ')';
-      }
-      return 'rgba(0,102,204,' + a + ')';
-    }
-
-    buildPalette();
-    refreshPreview();
-    container.appendChild(body);
   }
 };
 // ===== 考公笔试复盘系统 - 便签管理页（查看全部） =====
@@ -13916,18 +13153,15 @@ App.Pages.StudyStats = {
     const key = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
     const todayKey = key(now);
 
-    // 聚合每日待办：只统计「已完成」事项，且按「完成时间 completedAt」分组（而非新建时间 createdAt），
-    // 实现完成事项自动顺延到完成当天展示；未完成事项不进日历（用户 v8.15.21 要求只显示已完成）。
+    // 聚合每日待办（含具体事项，用于日历格子展示）
     let todos = [];
     try { todos = await App.DB.getTodos(); } catch (e) { todos = []; }
     const byDay = {};
     todos.forEach(t => {
-      if (!t.completed) return;   // 只统计已完成的待办
-      const doneDate = t.completedAt || t.updatedAt || t.createdAt;   // 完成时间（兜底 updatedAt/createdAt）
-      const k = key(new Date(doneDate));
+      const k = key(new Date(t.createdAt));
       if (!byDay[k]) byDay[k] = { total: 0, done: 0, items: [] };
       byDay[k].total++;
-      byDay[k].done++;
+      if (t.completed) byDay[k].done++;
       byDay[k].items.push(t);
     });
 
@@ -13955,7 +13189,7 @@ App.Pages.StudyStats = {
     }));
     const desc = document.createElement('div');
     desc.style.cssText = 'padding:0 var(--page-padding);margin-top:var(--spacing-sm);margin-bottom:var(--spacing-md);font-size:12px;color:var(--text-tertiary);line-height:1.6;';
-    desc.textContent = '按日历查看每日已完成待办；点击日期可补充新建待办。';
+    desc.textContent = '点击待办开始计时，自动统计每日学习时长；按日历查看每日待办，绿色 = 全部完成，黄色 = 有未完成。';
     container.appendChild(desc);
 
     // v8.12.22 周/月 切换胶囊（对齐画布 10:507：灰底胶囊，选中白底+阴影深色字）
@@ -14248,24 +13482,25 @@ App.Pages.Exams = {
     const container = document.getElementById('page-exams');
     container.innerHTML = '';
 
-    // 页面标题（对齐画布 7:35：大标题26px + 常驻搜索 + 计数） + 常驻搜索入顶栏
-    const stickyWrap = document.createElement('div');
-    stickyWrap.className = 'page-sticky';
+    // 页面标题
     const header = document.createElement('div');
-    header.className = 'page-header exam-page-header';
-    const kw = (this.state.search || '').replace(/"/g, '&quot;');
+    header.className = 'page-header';
     header.innerHTML = `
-      <div class="page-header__title" style="font-size:26px;font-weight:600;">套卷记录</div>
-      <div class="note-header-search">
-        <span class="search-bar__icon">🔍</span>
-        <input type="text" placeholder="搜索套卷名称" id="exam-search" value="${kw}">
-      </div>
+      <div class="page-header__title">套卷记录</div>
       <div class="page-header__right" id="exam-count">共 0 套</div>
     `;
-    stickyWrap.appendChild(header);
-    container.appendChild(stickyWrap);
+    container.appendChild(header);
 
-    header.querySelector('#exam-search').addEventListener('input', App.Utils.debounce((e) => {
+    // 搜索栏
+    const searchBar = document.createElement('div');
+    searchBar.className = 'search-bar';
+    searchBar.innerHTML = `
+      <span class="search-bar__icon">🔍</span>
+      <input type="text" placeholder="搜索套卷名称..." id="exam-search">
+    `;
+    container.appendChild(searchBar);
+
+    searchBar.querySelector('input').addEventListener('input', App.Utils.debounce((e) => {
       this.state.search = e.target.value;
       this.refreshList();
     }, 300));
@@ -14322,11 +13557,11 @@ App.Pages.Exams = {
       </div>
       <div class="stat-item">
         <div class="stat-item__value">${thisWeek}</div>
-        <div class="stat-item__label">本周</div>
+        <div class="stat-item__label">本周套卷</div>
       </div>
       <div class="stat-item">
         <div class="stat-item__value">${Math.round(totalTime / 60)}h</div>
-        <div class="stat-item__label">总时长</div>
+        <div class="stat-item__label">累计用时</div>
       </div>
     `;
   },
@@ -14413,14 +13648,30 @@ App.Pages.Exams = {
       return;
     }
 
-    // 卡片列表（对齐画布 7:35：无时间线，三栏套卷卡并排）
-    const listWrap = document.createElement('div');
-    listWrap.className = 'exam-cardlist';
+    // 时间线布局
+    const timeline = document.createElement('div');
+    timeline.className = 'timeline';
 
-    exams.forEach((exam) => {
-      const card = this.buildExamItemCard(exam, () => {
+    exams.forEach((exam, idx) => {
+      const item = document.createElement('div');
+      item.className = 'timeline-item';
+
+      // 时间线圆点
+      const dot = document.createElement('div');
+      dot.className = 'timeline-dot';
+      item.appendChild(dot);
+
+      // 日期标签
+      const dateLabel = document.createElement('div');
+      dateLabel.style.cssText = 'font-size:var(--font-xs);color:var(--text-tertiary);margin-bottom:8px;';
+      dateLabel.textContent = App.Utils.formatDate(exam.examDate);
+      item.appendChild(dateLabel);
+
+      // 套卷卡片
+      const card = App.Components.examCard(exam, () => {
         App.Router.navigate('exam-detail?id=' + exam.id);
       });
+      item.appendChild(card);
 
       // 左滑操作
       App.Utils.initSwipeable(card, {
@@ -14448,50 +13699,10 @@ App.Pages.Exams = {
         }
       });
 
-      listWrap.appendChild(card);
+      timeline.appendChild(item);
     });
 
-    container.appendChild(listWrap);
-  },
-
-  // 套卷卡（对齐画布 7:329：左[标题+副信息]｜中[科目正确率]｜右[总正确率大数字+标签]+箭头）
-  buildExamItemCard(exam, onClick) {
-    const card = document.createElement('div');
-    card.className = 'exam-card ex3-card';
-    // 左：标题 + 副信息（日期·用时）
-    let dateTxt = '';
-    try {
-      const dd = new Date(exam.examDate);
-      if (!isNaN(dd.getTime())) dateTxt = (dd.getMonth() + 1) + ' 月 ' + dd.getDate() + ' 日';
-    } catch (e) { dateTxt = ''; }
-    const mins = exam.totalTime || 0;
-    let durTxt = mins >= 60 ? Math.floor(mins / 60) + 'h' + (mins % 60 ? Math.floor(mins % 60) + 'm' : '') : (mins + 'm');
-    const subInfo = [dateTxt, '用时 ' + durTxt].filter(Boolean).join(' · ');
-    // 中：科目正确率（科目首字+单科%）
-    const subjAcc = (exam.subjectScores || [])
-      .filter(s => s && s.subject)
-      .map(s => {
-        const pct = s.totalScore ? Math.round((s.score || 0) / s.totalScore * 100) : 0;
-        return s.subject.slice(0, 1) + ' ' + pct + '%';
-      }).join(' · ');
-    // 右：总正确率 + 标签
-    const acc = Math.round(exam.totalAccuracy || 0);
-
-    card.innerHTML = `
-      <div class="ex3-left">
-        <div class="ex3-title">${App.Utils.truncate(exam.name, 20)}</div>
-        <div class="ex3-sub">${subInfo}</div>
-      </div>
-      ${subjAcc ? `<div class="ex3-mid">${subjAcc}</div>` : ''}
-      <div class="ex3-right">
-        <div class="ex3-acc">${acc}%</div>
-        <div class="ex3-acc-label">总正确率</div>
-      </div>
-      <div class="ex3-arrow">›</div>
-    `;
-
-    if (onClick) card.addEventListener('click', onClick);
-    return card;
+    container.appendChild(timeline);
   },
 
   refreshAll() {
@@ -14503,12 +13714,6 @@ App.Pages.Exams = {
       if (filterBar) this.renderFilters(filterBar);
       if (listArea) this.renderList(listArea);
     });
-  },
-
-  // 搜索/排序变化时只刷新列表（统计不变）
-  refreshList() {
-    const listArea = document.getElementById('exam-list');
-    if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
   },
 
   // ===== 套卷详情页 =====
@@ -15040,13 +14245,11 @@ App.Pages.Workspace = {
     }
 
     // ===== 顶部返回 + 标题 =====
-    // v8.15.1 返回按钮应用全局统一设计（page-header__back + SVG 左箭头，与详情页一致）
     const header = document.createElement('div');
     header.className = 'page-header';
     const backBtn = document.createElement('button');
     backBtn.className = 'page-header__back';
-    backBtn.setAttribute('aria-label', '返回');
-    backBtn.innerHTML = '<svg width="10" height="18" viewBox="0 0 10 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1L1 9l7 8"/></svg>';
+    backBtn.innerHTML = '‹ 返回';
     backBtn.addEventListener('click', () => App.Router.navigate('home'));
     header.appendChild(backBtn);
     const htitle = document.createElement('div');
@@ -15770,13 +14973,10 @@ App.Pages.Settings = {
     const container = document.getElementById('page-settings');
     container.innerHTML = '';
 
-    // 页面标题（对齐画布 7:357：标题26px + 右侧版本号 v8.x.x）
+    // 页面标题
     const header = document.createElement('div');
     header.className = 'page-header';
-    header.innerHTML = `
-      <div class="page-header__title" style="font-size:26px;font-weight:600;">设置</div>
-      <div class="settings-version">v${App.VERSION || ''}</div>
-    `;
+    header.innerHTML = `<div class="page-header__title">设置</div>`;
     container.appendChild(header);
 
     const content = document.createElement('div');
@@ -15947,23 +15147,14 @@ App.Pages.Settings = {
 
     content.appendChild(appearanceGroup);
 
-    // ===== 数据组（对齐画布 7:451：组标题「数据」+ 白卡4行） =====
+    // ===== 数据管理 =====
     const dataGroup = document.createElement('div');
     dataGroup.className = 'settings-group';
     dataGroup.innerHTML = `
-      <div style="padding:12px var(--spacing-md);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;">数据</div>
+      <div style="padding:12px var(--spacing-md);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;">数据管理</div>
     `;
 
-    // iCloud 云备份（对齐画布 7:454：右侧绿色「已启用」）
-    const icloudItem = document.createElement('div');
-    icloudItem.className = 'settings-item';
-    icloudItem.innerHTML = `
-      <span class="settings-item__label">iCloud 云备份</span>
-      <span class="settings-item__value" style="color:#34C759;">已启用</span>
-    `;
-    dataGroup.appendChild(icloudItem);
-
-    // 导出备份（对齐画布 7:462）
+    // 导出备份
     const exportItem = document.createElement('div');
     exportItem.className = 'settings-item';
     exportItem.innerHTML = `
@@ -16016,55 +15207,7 @@ App.Pages.Settings = {
     });
     dataGroup.appendChild(importItem);
 
-    // 清除全部数据（对齐画布 7:478：红字+箭头，破坏性操作需确认）
-    const clearItem = document.createElement('div');
-    clearItem.className = 'settings-item';
-    clearItem.innerHTML = `
-      <span class="settings-item__label" style="color:#FF3B30;">清除全部数据</span>
-      <span class="settings-item__value" style="color:var(--text-tertiary);">›</span>
-    `;
-    clearItem.addEventListener('click', async () => {
-      const ok = await App.Components.confirm(
-        '清除全部数据',
-        '将永久清除本机全部错题、笔记、套卷、待办等数据，且不可恢复。建议先「导出备份」。确定继续吗？',
-        '清空', '取消', true
-      );
-      if (!ok) return;
-      // 删除 IndexedDB 库 + 清除本地应用 key
-      try { indexedDB.deleteDatabase('CivilExamReview'); } catch (e) { /* ignore */ }
-      try {
-        Object.keys(localStorage).forEach(k => {
-          if (k.indexOf('kg_') === 0 || k.indexOf('doodle_') === 0 || k === 'theme') localStorage.removeItem(k);
-        });
-      } catch (e) { /* ignore */ }
-      App.Components.toast('数据已清除，正在刷新…', 'success');
-      setTimeout(() => location.reload(), 1200);
-    });
-    dataGroup.appendChild(clearItem);
-
     content.appendChild(dataGroup);
-
-    // ===== 笔记组（对齐画布 8:157：含「笔记类型」入口） =====
-    const noteGroup = document.createElement('div');
-    noteGroup.className = 'settings-group';
-    const ntTitle = document.createElement('div');
-    ntTitle.style.cssText = 'padding:12px var(--spacing-lg);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;';
-    ntTitle.textContent = '笔记';
-    noteGroup.appendChild(ntTitle);
-    const ntRow = document.createElement('div');
-    ntRow.className = 'settings-item';
-    const ntLabel = document.createElement('span');
-    ntLabel.className = 'settings-item__label';
-    ntLabel.textContent = '笔记类型';
-    const ntValue = document.createElement('span');
-    ntValue.className = 'settings-item__value';
-    ntValue.style.cssText = 'display:flex;align-items:center;gap:4px;';
-    ntValue.innerHTML = '管理中 <span style="color:var(--text-tertiary);">›</span>';
-    ntRow.appendChild(ntLabel);
-    ntRow.appendChild(ntValue);
-    ntRow.addEventListener('click', () => App.Router.navigate('note-type-manage'));
-    noteGroup.appendChild(ntRow);
-    content.appendChild(noteGroup);
 
     // ===== 考点管理（多级折叠列表 + 管理模式） =====
     // 折叠/管理状态保存在实例 _state 上，避免每次重渲染丢失
@@ -16266,15 +15409,11 @@ App.Pages.Settings = {
     kpEntry.addEventListener('click', () => App.Router.navigate('kpmanage'));
     content.appendChild(kpEntry);
 
-    // ===== 偏好组（对齐画布 7:485：组标题「偏好」+ 界面字号 + 关于版本） =====
+    // ===== 关于 =====
     const aboutGroup = document.createElement('div');
     aboutGroup.className = 'settings-group';
     aboutGroup.innerHTML = `
-      <div style="padding:12px var(--spacing-md);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;">偏好</div>
-      <div class="settings-item">
-        <span class="settings-item__label">界面字号</span>
-        <span class="settings-item__value">标准</span>
-      </div>
+      <div style="padding:12px var(--spacing-md);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;">关于</div>
       <div class="settings-item">
         <span class="settings-item__label">版本</span>
         <span class="settings-item__value">${App.VERSION}</span>
@@ -17039,7 +16178,7 @@ App.Pages.SpeedCalc = {
     mul2x1:   { name: '两位数乘一位数', s: { excellent: 20, good: 28, pass: 40 }, gen: () => { const a = randInt(10, 99), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
     mul3x1:   { name: '三位数乘一位数', s: { excellent: 35, good: 45, pass: 60 }, gen: () => { const a = randInt(100, 999), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
     div3x1:   { name: '三位数除一位数', s: { excellent: 24, good: 30, pass: 38 }, gen: () => { const d = randInt(2, 9), n = randInt(100, 999); const a = Math.round(n / d * 100) / 100; return makeQ(n + ' ÷ ' + d, a); } },
-    div5x3:   { name: '五位数除三位数', s: { excellent: 45, good: 70, pass: 100 }, gen: () => { const d = randInt(100, 999), n = randInt(10000, 99999); const a = Math.round(n / d * 100) / 100; return makeQ(n + ' ÷ ' + d, a); } },
+    div5x3:   { name: '五位数除三位数', s: { excellent: 45, good: 70, pass: 100 }, gen: () => { const d = randInt(100, 999), n = randInt(2000, 99999); const a = Math.round(n / d * 100) / 100; return makeQ(n + ' ÷ ' + d, a); } },
     spDen:    { name: '特殊分母练习',   s: { excellent: 10, good: 15, pass: 20 }, gen: () => { const pool = [[5, '5%'], [12.5, '12.5%'], [25, '25%'], [37.5, '37.5%'], [50, '50%'], [75, '75%'], [87.5, '87.5%']]; const p = pool[randInt(0, pool.length - 1)], n = randInt(40, 400); return makeQ(n + ' × ' + p[1] + ' =', Math.round(n * p[0] / 100)); } },
     est05:    { name: '估算练习', s: { excellent: 20, good: 30, pass: 45 }, gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } },
     // ===== 资料分析（3）=====
@@ -17086,9 +16225,6 @@ App.Pages.SpeedCalc = {
 
   show(view) {
     this.state.view = view;
-    // v8.15.28 做题页（practice）沉浸式隐藏底部导航，键盘贴屏幕最底；其余视图恢复导航
-    const nav = document.getElementById('bottom-nav');
-    if (nav) nav.classList.toggle('nav--hidden', view === 'practice');
     if (view !== 'practice') {
       if (this.state.timerId) { clearInterval(this.state.timerId); this.state.timerId = null; }
       if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
@@ -17098,15 +16234,15 @@ App.Pages.SpeedCalc = {
     this.render({});
   },
 
-  // ===== 顶部栏（simple=true 时仅「返回+标题」，不含更多/眼睛；hideEye=true 时仅隐藏眼睛按钮）=====
-  _topbar(container, title, onBack, extraRight, simple, hideEye) {
+  // ===== 顶部栏（simple=true 时仅「返回+标题」，不含更多/眼睛，用于首页新布局）=====
+  _topbar(container, title, onBack, extraRight, simple) {
     const noOps = !!simple;
     const header = App.Components.pageHeader(title, null, null, {
       onBack: onBack,
       rightHtml: (extraRight || '') +
                  (noOps ? '' :
                  '<button class="sc-topbar__icon" type="button" id="sc-more" title="更多">⋯</button>' +
-                 (hideEye ? '' : '<button class="sc-topbar__icon" type="button" id="sc-eye" title="显示/隐藏答案输入">👁</button>'))
+                 '<button class="sc-topbar__icon" type="button" id="sc-eye" title="显示/隐藏答案输入">👁</button>')
     });
     if (!noOps) {
       header.querySelector('#sc-more').addEventListener('click', () => {
@@ -17118,14 +16254,11 @@ App.Pages.SpeedCalc = {
           } }
         ]);
       });
-      const eyeBtn = header.querySelector('#sc-eye');
-      if (eyeBtn) {
-        eyeBtn.addEventListener('click', () => {
-          this.state.showAns = !this.state.showAns;
-          if (this.state.view === 'practice') this.render({});
-          else App.Components.toast(this.state.showAns ? '显示答案输入' : '隐藏答案输入', 'info');
-        });
-      }
+      header.querySelector('#sc-eye').addEventListener('click', () => {
+        this.state.showAns = !this.state.showAns;
+        if (this.state.view === 'practice') this.render({});
+        else App.Components.toast(this.state.showAns ? '显示答案输入' : '隐藏答案输入', 'info');
+      });
     }
     container.appendChild(header);
   },
@@ -17487,21 +16620,15 @@ App.Pages.SpeedCalc = {
 renderHome(container) {
     const self = this;
     const settings = this.loadSettings();
-    // v8.15.28 修复自定义选中态丢失：
-    // 自定义(custom)是内存态(不进 selectedType)，重进首页时若 custom 已配置(type 有效)则保留，
-    // 不被 selectedType(普通题型)覆盖；否则恢复 selectedType 或清空。
-    const customActive = this.state.type === 'custom' && this.state.custom && this.state.custom.type;
-    if (!customActive) {
-      if (settings.selectedType && this.TYPES[settings.selectedType]) this.state.type = settings.selectedType;
-      else if (this.state.type === 'custom') this.state.type = null;
-    }
+    if (settings.selectedType && this.TYPES[settings.selectedType]) this.state.type = settings.selectedType;
+    if (this.state.type === 'custom' && (!this.state.custom || !this.state.custom.types.length)) this.state.type = null;
     this.state.mode = settings.mode || 'train';
 
     this._topbar(container, '速算练习', () => App.Router.back(), '', true);
 
     // v8.13.1 首页操作行：历史 + 统计 + 确定开关（三胶囊同排）
     const actionRow = document.createElement('div');
-    actionRow.className = 'sc-action-row sc-action-row--home';
+    actionRow.className = 'sc-action-row';
     const histBtn = document.createElement('button');
     histBtn.type = 'button';
     histBtn.className = 'sc-action-chip';
@@ -17540,7 +16667,7 @@ renderHome(container) {
     container.appendChild(actionRow);
 
     const body = document.createElement('div');
-    body.className = 'sc-page sc-page--home';
+    body.className = 'sc-page';
 
     // ===== v8.6.24 模块卡片（基础计算 10 项 + 自定义练习 / 资料分析 3 项）=====
     const MODULES = [
@@ -17582,6 +16709,7 @@ renderHome(container) {
           '</div>';
         tag.addEventListener('click', (e) => {
           e.stopPropagation();
+          if (key === 'est05') { self.startEstimate(); return; }
           if (!t.gen) { App.Components.toast(t.name + '功能即将上线', 'info'); return; }
           this.state.type = key;
           settings.selectedType = key;
@@ -17716,13 +16844,29 @@ renderHome(container) {
     const content = document.createElement('div');
     content.className = 'notion-mobile-sheet__content';
 
-    // v8.15 弹窗打开时锁定背景滚动，避免横/竖屏下滑动穿透到速算练习原生页面；关闭恢复。
-    // v8.15.26 改用统一 _lockScroll/_unlockScroll（仅锁 body overflow，不拦截 touchmove），
-    // 避免在 iPad Safari 上 touchmove preventDefault 干扰按钮点击导致「弹窗完全卡死」。
-    App.Components._lockScroll ? App.Components._lockScroll() : (document.body.style.overflow = 'hidden');
+    // v8.15 弹窗打开时锁定背景滚动，避免横/竖屏下滑动穿透到速算练习原生页面；关闭恢复
+    const pageEl = document.getElementById('page-speed-calc') || document.body;
+    const prevOverflow = { body: document.body.style.overflow, html: document.documentElement.style.overflow, page: pageEl.style.overflow };
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    pageEl.style.overflow = 'hidden';
+    // 阻止 background 穿透：overlay 上 touchmove 一律 prevent，content 内部滚动时放行
+    const blockBgMove = (e) => e.preventDefault();
+    overlay.addEventListener('touchmove', blockBgMove, { passive: false });
+    content.addEventListener('touchmove', (e) => {
+      // content 未到滚动边界时放行（内部滚动），到顶/到底则阻止冒泡返弹背景
+      const sd = content.scrollHeight - content.clientHeight;
+      if (sd > 0 && !(content.scrollTop <= 0 && e.deltaY > 0) && !(content.scrollTop >= sd && e.deltaY < 0)) {
+        e.stopPropagation();
+      } else {
+        e.preventDefault();
+      }
+    }, { passive: false });
     const closeOverlay = () => {
-      if (App.Components._unlockScroll) App.Components._unlockScroll();
-      else document.body.style.overflow = '';
+      document.body.style.overflow = prevOverflow.body;
+      document.documentElement.style.overflow = prevOverflow.html;
+      pageEl.style.overflow = prevOverflow.page;
+      overlay.removeEventListener('touchmove', blockBgMove);
       if (overlay.parentNode) overlay.remove();
     };
 
@@ -17760,13 +16904,13 @@ renderHome(container) {
     renderTypes();
     body.appendChild(typeGrid);
 
-    // ===== 数字设置（白底卡 + 横排 tab 切换；对所有题型生效）=====
+    // ===== 数字设置（白底卡 + 横排 tab 切换）=====
     const numTitle = document.createElement('div');
     numTitle.className = 'sc-custom-block-title';
     numTitle.textContent = '数字设置';
+    body.appendChild(numTitle);
     const dnumCard = document.createElement('div');
     dnumCard.className = 'sc-dnum-card';
-    // v8.15.26 撤回显隐控制：数字设置对所有题型都显示并生效（这是自定义练习的核心逻辑）
 
     // 横排选择按钮组：数字范围 / 固定数字
     const tabs = document.createElement('div');
@@ -17841,7 +16985,6 @@ renderHome(container) {
     };
     renderNumInputs();
     dnumCard.appendChild(numInputArea);
-    body.appendChild(numTitle);
     body.appendChild(dnumCard);
 
     // ===== 最近使用 =====
@@ -17863,16 +17006,8 @@ renderHome(container) {
         card.innerHTML = '<div class="sc-custom-histcard__name">' + (h.name || '') + '</div>' +
           '<div class="sc-custom-histcard__sub">' + (h.subName || '') + '</div>';
         card.addEventListener('click', () => {
-          // v8.15.28 最近使用点击只回填配置并选中（不直接开始），返回主页后由「开始练习」触发
-          cs.type = (typeof h.type === 'string' && this.CUSTOM_TYPES[h.type] && this.CUSTOM_TYPES[h.type].gen) ? h.type
-            : (Array.isArray(h.types) && h.types.length && this.CUSTOM_TYPES[h.types[0]] && this.CUSTOM_TYPES[h.types[0]].gen) ? h.types[0]
-            : null;
-          cs.mode = (h.mode === 'range' || h.mode === 'fixed') ? h.mode : 'fixed';
-          cs.rangeMin = h.rangeMin != null ? h.rangeMin : null;
-          cs.rangeMax = h.rangeMax != null ? h.rangeMax : null;
-          cs.fixedNums = (Array.isArray(h.fixedNums) ? h.fixedNums : []).filter(n => n >= 2 && n <= 9);
           closeOverlay();
-          if (onDone) onDone();
+          self.startCustomPractice(h);
         });
         histGrid.appendChild(card);
       });
@@ -17882,9 +17017,9 @@ renderHome(container) {
     content.appendChild(body);
     sheet.appendChild(content);
 
-    // 底部操作栏（v8.15.26 改用 sheet 内 flex 定位，不再 fixed，避免遮挡内容底部）
+    // 底部操作栏
     const foot = document.createElement('div');
-    foot.className = 'sc-custom-foot sc-sheet-foot';
+    foot.className = 'sc-custom-foot';
     const cancel = document.createElement('button');
     cancel.type = 'button';
     cancel.className = 'sc-custom-footbtn sc-custom-footbtn--cancel';
@@ -18182,17 +17317,16 @@ renderHome(container) {
     addsub2c: { name: '两位数加减', gen: () => { const a = randInt(10, 99), b = randInt(10, 99); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } },
     mul2x1c:  { name: '两位数乘一位数', gen: () => { const a = randInt(10, 99), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
     div3x1c:  { name: '三位数除一位数', gen: () => { const d = randInt(2, 9), n = randInt(100, 999); const a = Math.round(n / d * 100) / 100; return makeQ(n + ' ÷ ' + d, a); } },
-    div5x3c:  { name: '五位数除三位数', gen: () => { const d = randInt(100, 999), n = randInt(10000, 99999); const a = Math.round(n / d * 100) / 100; return makeQ(n + ' ÷ ' + d, a); } },
+    div5x3c:  { name: '五位数除三位数', gen: () => { const d = randInt(100, 999), n = randInt(2000, 99999); const a = Math.round(n / d * 100) / 100; return makeQ(n + ' ÷ ' + d, a); } },
     divRem:   { name: '除法取余', gen: () => { const d = randInt(3, 9), q = randInt(2, 9), r = randInt(1, d - 1), a = d * q + r; return makeQ(a + ' ÷ ' + d + ' 余?', r); } },
     mulHead:  { name: '乘法截首', gen: () => { const a = randInt(11, 99), b = randInt(3, 9), p = a * b, s = String(p), first = parseInt(s.charAt(0), 10); return makeQ(a + ' × ' + b + ' 首位?', first); } },
     mulEstc:  { name: '乘法估算', gen: () => { const a = randInt(11, 99), b = randInt(11, 99), ra = Math.round(a / 10) * 10, rb = Math.round(b / 10) * 10; return makeQ(a + ' × ' + b + ' ≈', ra * rb); } }
   },
   CUSTOM_ORDER: ['jinwei', 'tuiwei', 'jjMul', 'jjDiv', 'addsub2c', 'mul2x1c', 'div3x1c', 'div5x3c', 'divRem', 'mulHead', 'mulEstc'],
 
-  // v8.15 数字设置应用（v8.15.29：数字设置只针对第二个操作数 B，不动第一个操作数 A）：
-  //   二元表达式形如「A op B」，题型自带 A（如五位数被除数 34567），数字设置只调 B（除数/第二个数）。
-  //   mode='range'  → 数字范围(001-999)：把表达式最后一个数字(B)替换为 range 内随机多位数，保留 A；
-  //   mode='fixed'  → 固定数字(2-9 可多选)：把表达式最后一个数字(B)替换为从选中数字里随机取的一个数字。
+  // v8.15 数字设置应用：
+  //   mode='range'  → 数字范围(001-999)：把表达式首个数字替换为 range 内随机多位数（一位/两位/三位）；
+  //   mode='fixed'  → 固定数字(2-9 可多选)：把表达式中所有数字替换为从选中数字里随机取的一个数字。
   // 仅对纯四则运算表达式生效（含 ≈/余/首位 等语义的题型跳过，避免答案错位）；重算答案用简易求值器。
   _applyCustomFeature(q, feature) {
     let newExpr = null;
@@ -18202,12 +17336,12 @@ renderHome(container) {
     if (feature && feature.mode === 'range' && feature.min != null && feature.max != null) {
       const lo = Math.max(1, Math.min(Math.round(feature.min), 999));
       const hi = Math.max(lo, Math.min(Math.round(feature.max), 999));
-      newExpr = expr.replace(/\d+(?=\s*$)/, () => String(randInt(lo, hi)));
+      newExpr = expr.replace(/^\d+/, () => String(randInt(lo, hi)));
     } else if (feature && feature.mode === 'fixed' && Array.isArray(feature.nums) && feature.nums.length) {
       const nums = feature.nums.filter(n => n >= 1 && n <= 9);
       if (!nums.length) return q;
       const d = nums[randInt(0, nums.length - 1)];
-      newExpr = expr.replace(/\d+(?=\s*$)/, () => String(d));
+      newExpr = expr.replace(/\d+/g, () => String(d));
     } else if (feature && feature.type === 'fixedFirst' && feature.number) {
       newExpr = expr.replace(/\d+/g, (m) => String(feature.number) + m.slice(1));
     } else if (feature && feature.type === 'randomRange' && feature.min != null && feature.max != null) {
@@ -18500,8 +17634,7 @@ renderHome(container) {
     this.state.type = 'custom';
     this.state.mode = mode;
 
-    // 出题：用所选单选题型 gen，再按数字设置（数字范围 / 固定数字）套用数字规则。
-    // v8.15.26 撤回白名单限制：数字设置对所有题型都生效（这是自定义练习的核心逻辑，调整被除数等数字）。
+    // 出题：用所选单选题型 gen，再按数字设置（数字范围 / 固定数字）套用数字规则
     this.state.questions = [];
     for (let i = 0; i < count; i++) {
       let q = this.CUSTOM_TYPES[key].gen();
@@ -18586,33 +17719,27 @@ renderHome(container) {
     this.state.currentInput = q.user && q.user !== '' ? String(q.user) : '';
     if (settings.nightMode) container.classList.add('sc-night');
     // v8.6.23 一屏布局：整页不滑动（顶栏/状态栏/题目区/键盘全部放一个屏幕内）
-    // v8.15.24 补 min-height:0 —— CSS #page-speed-calc 有 min-height:100vh 会把 height 撑大。
-    // v8.15.28 做题页已隐藏底部导航，直接用 100dvh 满屏 + numpad 自身 safe-bottom 兜底，键盘贴最底。
-    container.style.cssText = 'height:100dvh;min-height:0;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;';
+    // v8.15 改用 100svh，iPad 横屏 Safari 工具栏下 100vh 偏大导致底部被截/需滚动
+    container.style.cssText = 'height:calc(100svh - var(--nav-height, 56px) - var(--safe-bottom, 0px));display:flex;flex-direction:column;overflow:hidden;';
 
-    // v8.6.27 左上角退出按钮：弹出「继续练习 / 退出练习」两选项；v8.15.26 取消小眼睛按钮
+    // v8.6.27 左上角退出按钮：弹出「继续练习 / 退出练习」两选项
     this._topbar(container, (this.state.type === "custom" ? "自定义练习" : this.TYPES[this.state.type].name), async () => {
       const go = await App.Components.confirm('退出练习', '当前练习进度将丢失，确定退出吗？', '退出', '继续', true);
       if (go) this.show('home');
-    }, '', false, true);
+    });
 
-    // ===== 状态栏：1/10  笔  重开  计时（100ms 刷新）；v8.15.26 重开按钮移到状态栏上侧 =====
+    // ===== 状态栏：1/10  笔  计时（100ms 刷新）=====
     const statusBar = document.createElement('div');
     statusBar.className = 'sc-statusbar';
     statusBar.innerHTML =
       '<div class="sc-statusbar__pos">' + (this.state.idx + 1) + '/' + total + '</div>' +
       '<button class="sc-statusbar__pen" type="button" title="草稿涂鸦">✏️</button>' +
-      '<button class="sc-statusbar__restart" type="button" title="重新开始">重开</button>' +
       '<div class="sc-statusbar__timer" id="sc-timer">0:00</div>';
     statusBar.querySelector('.sc-statusbar__pen').addEventListener('click', () => {
       App.Components.doodleOverlay({
         initial: self.state.doodleData || null,
         onChange: (dataURL) => { self.state.doodleData = dataURL || null; }
       });
-    });
-    statusBar.querySelector('.sc-statusbar__restart').addEventListener('click', async () => {
-      const go = await App.Components.confirm('重新开始', '确定重新开始本轮练习？', '重开', '取消', true);
-      if (go) self.startPractice();
     });
     container.appendChild(statusBar);
     const tick = () => {
@@ -18764,6 +17891,65 @@ renderHome(container) {
     kb.appendChild(grid);
     kb.appendChild(funcCol);
     numpad.appendChild(kb);
+    const footer = document.createElement('div');
+    footer.className = 'sc-numpad__footer';
+    const footerLeft = document.createElement('span');
+    footerLeft.textContent = '第' + (this.state.idx + 1) + '/' + total + '题';
+    footer.appendChild(footerLeft);
+    // v8.6.32 键盘调节开关：点击弹高度/宽度滑条（实时生效 + 持久化）
+    const adjBtn = document.createElement('button');
+    adjBtn.type = 'button';
+    adjBtn.className = 'sc-numpad__adjbtn';
+    adjBtn.textContent = '调节';
+    adjBtn.addEventListener('click', () => {
+      const panel = document.createElement('div');
+      panel.className = 'sc-keyboard-adj';
+      const mkRange = (label, min, max, val, unit, cb) => {
+        const row = document.createElement('div');
+        row.className = 'sc-keyboard-adj__row';
+        const lb = document.createElement('span');
+        lb.className = 'sc-keyboard-adj__label';
+        lb.textContent = label;
+        const inp = document.createElement('input');
+        inp.type = 'range';
+        inp.min = String(min); inp.max = String(max); inp.value = String(val);
+        const out = document.createElement('span');
+        out.className = 'sc-keyboard-adj__val';
+        out.textContent = val + unit;
+        inp.addEventListener('input', () => {
+          const v = parseInt(inp.value, 10);
+          out.textContent = v + unit;
+          cb(v);
+        });
+        row.appendChild(lb);
+        row.appendChild(inp);
+        row.appendChild(out);
+        return row;
+      };
+      const curH = settings.keyboardH || 0, curW = settings.keyboardW || 0;
+      panel.appendChild(mkRange('键盘高度', 150, 340, curH || 280, 'px', (v) => { settings.keyboardH = v; numpad.style.height = v + 'px'; this.saveSettings(settings); }));
+      panel.appendChild(mkRange('键盘宽度', 50, 100, curW || 100, '%', (v) => { settings.keyboardW = v; numpad.style.width = v + '%'; this.saveSettings(settings); }));
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'sc-keyboard-adj__close';
+      closeBtn.textContent = '收起';
+      closeBtn.addEventListener('click', () => panel.remove());
+      panel.appendChild(closeBtn);
+      panel.addEventListener('click', (e) => e.stopPropagation());
+      numpad.insertBefore(panel, kb);
+    });
+    footer.appendChild(adjBtn);
+    // v8.6.38 重开（原键盘「重开」键移至底部，保持功能）
+    const restartBtn = document.createElement('button');
+    restartBtn.type = 'button';
+    restartBtn.className = 'sc-numpad__adjbtn';
+    restartBtn.textContent = '重开';
+    restartBtn.addEventListener('click', async () => {
+      const go = await App.Components.confirm('重新开始', '确定重新开始本轮练习？', '重开', '取消', true);
+      if (go) self.startPractice();
+    });
+    footer.appendChild(restartBtn);
+    numpad.appendChild(footer);
 
     container.appendChild(body);
     container.appendChild(numpad);
