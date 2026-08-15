@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.35';
+App.VERSION = '8.15.36';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -17042,7 +17042,7 @@ App.Pages.SpeedCalc = {
   },
 
   defaultSettings() {
-    return { confirmAuto: true, useScreenKeyboard: true, sequential: false, nightMode: false, noNegative: false, quickMemo: true, selectedType: 'addsub2', questionCount: 10, mode: 'train' };
+    return { confirmAuto: true, useScreenKeyboard: true, sequential: false, nightMode: false, noNegative: false, quickMemo: true, selectedType: 'addsub2', lastActiveType: 'addsub2', questionCount: 10, mode: 'train' };
   },
   loadSettings() {
     try { return Object.assign(this.defaultSettings(), JSON.parse(localStorage.getItem(this.SETTINGS_KEY)) || {}); }
@@ -17062,16 +17062,21 @@ App.Pages.SpeedCalc = {
   async render(params) {
     const container = document.getElementById('page-speed-calc');
     container.innerHTML = '';
+    // v8.15.36 先解绑上一轮的橡皮筋拦截器，避免重复绑定
+    this._unbindRubberLock();
     if (this.state.timerId) { clearInterval(this.state.timerId); this.state.timerId = null; }
     if (this.state.qTimerId) { clearInterval(this.state.qTimerId); this.state.qTimerId = null; }
     if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
     if (this.state.autoNextTimer) { clearTimeout(this.state.autoNextTimer); this.state.autoNextTimer = null; }
     const view = this.state.view;
-    // v8.15.35 iOS standalone PWA 橡皮筋滚动：仅 overflow:hidden 无法阻止 body 回弹。
-    //   用 position:fixed 的 body.sc-lock class + overflow hidden 双重锁死做题页；其他视图恢复。
-    document.body.classList.toggle('sc-lock', view === 'practice');
-    document.body.style.overflow = (view === 'practice') ? 'hidden' : '';
-    document.documentElement.style.overflow = (view === 'practice') ? 'hidden' : '';
+    // v8.15.36 iOS standalone PWA 橡皮筋滚动三层锁：
+    //   1) body.sc-lock(position:fixed) 钉死 body；2) body/html overflow hidden；3) 容器 touchmove 拦截纵向回弹。
+    //   锁应用于「做题页 practice + 首页 home」（两页都要求一屏不滚动）。
+    const lockScroll = (view === 'practice' || view === 'home');
+    document.body.classList.toggle('sc-lock', lockScroll);
+    document.body.style.overflow = lockScroll ? 'hidden' : '';
+    document.documentElement.style.overflow = lockScroll ? 'hidden' : '';
+    if (lockScroll) this._bindRubberLock(container);
     if (view === 'home') this.renderHome(container);
     else if (view === 'custom') this.renderCustom(container);
     else if (view === 'estimate') this.renderEstimate(container);
@@ -17094,6 +17099,40 @@ App.Pages.SpeedCalc = {
       if (this.state.autoNextTimer) { clearTimeout(this.state.autoNextTimer); this.state.autoNextTimer = null; }
     }
     this.render({});
+  },
+
+  // v8.15.36 iOS standalone 橡皮筋回弹拦截：在非被动 touchmove 上，仅当纵向位移 > 阈值才 preventDefault，
+  //   从而阻断 window/body 的回弹滚动，同时不影响普通点击（tap 几乎无位移，不会命中阈值）。
+  _bindRubberLock(container) {
+    this._unbindRubberLock();
+    let startY = null, startX = null;
+    const onStart = (e) => { const t = e.touches && e.touches[0]; if (t) { startY = t.clientY; startX = t.clientX; } };
+    const onMove = (e) => {
+      const t = e.touches && e.touches[0];
+      if (!t || startY == null) return;
+      const dy = t.clientY - startY, dx = t.clientX - startX;
+      // 纵向位移明显且以纵向为主 → 判定为意图滚动，阻止（含回弹）
+      if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    const onEnd = () => { startY = null; startX = null; };
+    container.addEventListener('touchstart', onStart, { passive: true });
+    container.addEventListener('touchmove', onMove, { passive: false });
+    container.addEventListener('touchend', onEnd, { passive: true });
+    container.addEventListener('touchcancel', onEnd, { passive: true });
+    this._rubberLock = { el: container, onStart, onMove, onEnd };
+  },
+  _unbindRubberLock() {
+    if (this._rubberLock && this._rubberLock.el) {
+      const l = this._rubberLock;
+      l.el.removeEventListener('touchstart', l.onStart);
+      l.el.removeEventListener('touchmove', l.onMove);
+      l.el.removeEventListener('touchend', l.onEnd);
+      l.el.removeEventListener('touchcancel', l.onEnd);
+    }
+    this._rubberLock = null;
   },
 
   // ===== 顶部栏（simple=true 时仅「返回+标题」，不含更多/眼睛；hideEye=true 时仅隐藏眼睛按钮）=====
@@ -17485,13 +17524,21 @@ App.Pages.SpeedCalc = {
 renderHome(container) {
     const self = this;
     const settings = this.loadSettings();
-    // v8.15.28 修复自定义选中态丢失：
-    // 自定义(custom)是内存态(不进 selectedType)，重进首页时若 custom 已配置(type 有效)则保留，
-    // 不被 selectedType(普通题型)覆盖；否则恢复 selectedType 或清空。
-    const customActive = this.state.type === 'custom' && this.state.custom && this.state.custom.type;
-    if (!customActive) {
-      if (settings.selectedType && this.TYPES[settings.selectedType]) this.state.type = settings.selectedType;
-      else if (this.state.type === 'custom') this.state.type = null;
+    // v8.15.36 保持上次练习记忆：优先恢复「上次激活题型」（普通题型或自定义练习）
+    // lastActiveType 记录最后选的题型：'custom' 或 普通题型 key，普通与自定义统一记忆。
+    if (settings.lastActiveType === 'custom') {
+      const presets = this.loadCustomPresets();
+      const last = presets.lastUsed;
+      if (last && (typeof last.type === 'string' || (Array.isArray(last.types) && last.types.length))) {
+        this.state.type = 'custom';
+        this.resetCustomState();
+      } else {
+        // 无有效自定义记忆，回退普通题型
+        this.state.type = (settings.selectedType && this.TYPES[settings.selectedType]) ? settings.selectedType : null;
+      }
+    } else {
+      this.state.type = (settings.lastActiveType && this.TYPES[settings.lastActiveType]) ? settings.lastActiveType
+        : ((settings.selectedType && this.TYPES[settings.selectedType]) ? settings.selectedType : null);
     }
     this.state.mode = settings.mode || 'train';
 
@@ -17586,6 +17633,7 @@ renderHome(container) {
           if (!t.gen) { App.Components.toast(t.name + '功能即将上线', 'info'); return; }
           this.state.type = key;
           settings.selectedType = key;
+          settings.lastActiveType = key;
           this.saveSettings(settings);
           body.querySelectorAll('.sc-type-card').forEach(x => x.classList.remove('selected'));
           tag.classList.add('selected');
@@ -18546,6 +18594,10 @@ renderHome(container) {
     };
     presets.history = [histItem].concat(presets.history.filter(h => h.id !== histItem.id)).slice(0, 12);
     this.saveCustomPresets(presets);
+    // v8.15.36 记录「上次激活 = 自定义练习」，下次进入默认选中自定义配置
+    const _s = this.loadSettings();
+    _s.lastActiveType = 'custom';
+    this.saveSettings(_s);
 
     if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
     if (this.state.qTimerId) { clearInterval(this.state.qTimerId); this.state.qTimerId = null; }
