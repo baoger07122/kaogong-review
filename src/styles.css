@@ -9518,6 +9518,38 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-type-card__name { font-size: 13px; font-weight: 600; color: #1D1D1F; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.15s; }
 .sc-type-card__rate { font-size: 10px; color: #A1A1A6; margin-top: 2px; }
 
+/* ===== v8.15.24 速算首页紧凑布局：所有模块内容压到一屏内，无需滚动 ===== */
+.sc-page--home {
+  padding: 8px 12px calc(var(--nav-height) + var(--safe-bottom) + 8px);
+}
+.sc-page--home .sc-module-card {
+  padding: 10px;
+  margin-bottom: 8px;
+}
+.sc-page--home .sc-module-head { gap: 8px; }
+.sc-page--home .sc-module-icon {
+  width: 32px; height: 32px; border-radius: 9px; font-size: 16px;
+}
+.sc-page--home .sc-module-title { font-size: 15px; }
+.sc-page--home .sc-module-count { font-size: 11px; }
+.sc-page--home .sc-module-arrow { font-size: 13px; }
+.sc-page--home .sc-type-grid { gap: 6px; margin-top: 8px; }
+.sc-page--home .sc-type-card {
+  padding: 7px; min-height: 46px; gap: 6px; border-radius: 11px;
+}
+.sc-page--home .sc-type-card__icon {
+  width: 26px; height: 26px; border-radius: 8px; font-size: 14px;
+}
+.sc-page--home .sc-type-card__name { font-size: 12px; }
+.sc-page--home .sc-type-card__rate { font-size: 9px; margin-top: 1px; }
+.sc-page--home .sc-opts-row { gap: 10px; margin-bottom: 10px; }
+.sc-page--home .sc-opt-btn { padding: 8px 16px; font-size: 13px; border-radius: 12px; }
+.sc-page--home .sc-start-btn-v2 { height: 44px; font-size: 15px; margin-top: 2px; }
+/* 首页操作行收紧 */
+.sc-action-row--home { margin-bottom: 10px; }
+.sc-action-row--home .sc-action-chip { height: 32px; padding: 0 12px; font-size: 12px; }
+
+
 /* ===== 历史页：按时间分组 + 类型胶囊 + 展开明细 ===== */
 .sc-hist-page { padding-bottom: 100px; }
 .sc-hist-title { font-size: 14px; font-weight: 600; color: #1D1D1F; margin-bottom: 12px; }

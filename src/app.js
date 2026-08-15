@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.23';
+App.VERSION = '8.15.24';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -17489,7 +17489,7 @@ renderHome(container) {
 
     // v8.13.1 首页操作行：历史 + 统计 + 确定开关（三胶囊同排）
     const actionRow = document.createElement('div');
-    actionRow.className = 'sc-action-row';
+    actionRow.className = 'sc-action-row sc-action-row--home';
     const histBtn = document.createElement('button');
     histBtn.type = 'button';
     histBtn.className = 'sc-action-chip';
@@ -17528,7 +17528,7 @@ renderHome(container) {
     container.appendChild(actionRow);
 
     const body = document.createElement('div');
-    body.className = 'sc-page';
+    body.className = 'sc-page sc-page--home';
 
     // ===== v8.6.24 模块卡片（基础计算 10 项 + 自定义练习 / 资料分析 3 项）=====
     const MODULES = [
@@ -18581,7 +18581,9 @@ renderHome(container) {
     if (settings.nightMode) container.classList.add('sc-night');
     // v8.6.23 一屏布局：整页不滑动（顶栏/状态栏/题目区/键盘全部放一个屏幕内）
     // v8.15 改用 100svh，iPad 横屏 Safari 工具栏下 100vh 偏大导致底部被截/需滚动
-    container.style.cssText = 'height:calc(100svh - var(--nav-height, 56px) - var(--safe-bottom, 0px));display:flex;flex-direction:column;overflow:hidden;';
+    // v8.15.24 补 min-height:0 —— CSS #page-speed-calc 有 min-height:100vh 会把 height 撑大，
+    // 导致容器实际高于可视区、底部键盘被 nav 遮挡、点击提交后页面「往下滚一下」。
+    container.style.cssText = 'height:calc(100svh - var(--nav-height, 56px) - var(--safe-bottom, 0px));min-height:0;display:flex;flex-direction:column;overflow:hidden;';
 
     // v8.6.27 左上角退出按钮：弹出「继续练习 / 退出练习」两选项
     this._topbar(container, (this.state.type === "custom" ? "自定义练习" : this.TYPES[this.state.type].name), async () => {
