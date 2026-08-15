@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.39';
+App.VERSION = '8.15.40';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -19101,18 +19101,22 @@ renderHome(container) {
           const cap = document.createElement('div');
           cap.className = 'sc-hcap';
           cap.setAttribute('role', 'button');
-          cap.innerHTML =
+          // 标题行（固定在卡片顶部）
+          const headRow = document.createElement('div');
+          headRow.className = 'sc-hcap__row';
+          headRow.innerHTML =
             '<div class="sc-hcap__icon">' + T.icon + '</div>' +
             '<div class="sc-hcap__info">' +
               '<div class="sc-hcap__name">' + esc(T.name) + '</div>' +
-              '<div class="sc-hcap__sub">' + (T.total ? Math.round(T.total / T.countN) : 10) + ' 题</div>' +
+              (T.countN > 1 ? '<div class="sc-hcap__sub">共 ' + T.countN + ' 次</div>' : '') +
             '</div>' +
             '<div class="sc-hcap__stat">' +
               '<div class="sc-hcap__rate" style="color:' + (rate >= 80 ? '#0066CC' : rate >= 60 ? '#EB8A3A' : '#E03131') + '">' + rate + '%</div>' +
               '<div class="sc-hcap__time">10题≈' + Math.round(avgT) + 's</div>' +
             '</div>' +
             '<div class="sc-hcap__arrow"><svg width="9" height="5" viewBox="0 0 9 5" fill="none"><path d="M1.5 1.2L4.5 4l3-2.8" stroke="#A1A1A6" stroke-width="1.6" stroke-linecap="round"/></svg></div>';
-          // 展开明细（平铺当日该类型每次完成）
+          cap.appendChild(headRow);
+          // v8.15.40 每次记录明细：嵌入胶囊卡片内部（点击展开/收起），卡片整体统一样式
           const detail = document.createElement('div');
           detail.className = 'sc-hcap-detail';
           detail.style.display = 'none';
@@ -19126,13 +19130,13 @@ renderHome(container) {
               '<span class="sc-hcap-detail__u">' + fmtClock(it.dur || 0) + '</span>';
             detail.appendChild(mini);
           });
+          cap.appendChild(detail);
           cap.addEventListener('click', () => {
             const isOpen = detail.style.display !== 'none';
             detail.style.display = isOpen ? 'none' : 'block';
             cap.classList.toggle('open', !isOpen);
           });
           wrap.appendChild(cap);
-          wrap.appendChild(detail);
           sec.appendChild(wrap);
         });
         body.appendChild(sec);

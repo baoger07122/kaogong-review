@@ -9608,12 +9608,16 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-hsec { margin-bottom: 18px; }
 .sc-hsec__title { font-size: 13px; font-weight: 600; color: #8E8E93; margin-bottom: 8px; }
 .sc-hcap-wrap { margin-bottom: 8px; }
+/* v8.15.40 胶囊卡片改为纵向：标题行在顶，每次记录明细内嵌（点击展开/收起） */
 .sc-hcap {
-  display: flex; align-items: center; padding: 10px 12px;
   background: #fff; border: 1px solid #E8E8E9; border-radius: 16px;
   cursor: pointer; -webkit-tap-highlight-color: transparent;
+  overflow: hidden;
 }
 .sc-hcap:active { transform: scale(0.99); }
+.sc-hcap__row {
+  display: flex; align-items: center; padding: 10px 12px;
+}
 .sc-hcap__icon {
   width: 36px; height: 36px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
@@ -9627,10 +9631,11 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-hcap__time { font-size: 11px; color: #7A7A7A; margin-top: 1px; }
 .sc-hcap__arrow { width: 24px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: transform 0.2s; }
 .sc-hcap.open .sc-hcap__arrow { transform: rotate(180deg); }
-.sc-hcap-detail { padding: 0; }
+/* 明细：内嵌卡片，展开时以细分割线上方显示每次记录 */
+.sc-hcap-detail { padding: 0; border-top: 1px solid #F2F2F3; background: #FAFAFC; }
 .sc-hcap-detail__row {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 12px 0 66px; height: 38px;
+  padding: 0 12px 0 58px; height: 38px;
   border-bottom: 1px solid #F2F2F3;
 }
 .sc-hcap-detail__row:last-child { border-bottom: none; }
@@ -9887,7 +9892,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.39';
+App.VERSION = '8.15.40';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -28985,18 +28990,22 @@ renderHome(container) {
           const cap = document.createElement('div');
           cap.className = 'sc-hcap';
           cap.setAttribute('role', 'button');
-          cap.innerHTML =
+          // 标题行（固定在卡片顶部）
+          const headRow = document.createElement('div');
+          headRow.className = 'sc-hcap__row';
+          headRow.innerHTML =
             '<div class="sc-hcap__icon">' + T.icon + '</div>' +
             '<div class="sc-hcap__info">' +
               '<div class="sc-hcap__name">' + esc(T.name) + '</div>' +
-              '<div class="sc-hcap__sub">' + (T.total ? Math.round(T.total / T.countN) : 10) + ' 题</div>' +
+              (T.countN > 1 ? '<div class="sc-hcap__sub">共 ' + T.countN + ' 次</div>' : '') +
             '</div>' +
             '<div class="sc-hcap__stat">' +
               '<div class="sc-hcap__rate" style="color:' + (rate >= 80 ? '#0066CC' : rate >= 60 ? '#EB8A3A' : '#E03131') + '">' + rate + '%</div>' +
               '<div class="sc-hcap__time">10题≈' + Math.round(avgT) + 's</div>' +
             '</div>' +
             '<div class="sc-hcap__arrow"><svg width="9" height="5" viewBox="0 0 9 5" fill="none"><path d="M1.5 1.2L4.5 4l3-2.8" stroke="#A1A1A6" stroke-width="1.6" stroke-linecap="round"/></svg></div>';
-          // 展开明细（平铺当日该类型每次完成）
+          cap.appendChild(headRow);
+          // v8.15.40 每次记录明细：嵌入胶囊卡片内部（点击展开/收起），卡片整体统一样式
           const detail = document.createElement('div');
           detail.className = 'sc-hcap-detail';
           detail.style.display = 'none';
@@ -29010,13 +29019,13 @@ renderHome(container) {
               '<span class="sc-hcap-detail__u">' + fmtClock(it.dur || 0) + '</span>';
             detail.appendChild(mini);
           });
+          cap.appendChild(detail);
           cap.addEventListener('click', () => {
             const isOpen = detail.style.display !== 'none';
             detail.style.display = isOpen ? 'none' : 'block';
             cap.classList.toggle('open', !isOpen);
           });
           wrap.appendChild(cap);
-          wrap.appendChild(detail);
           sec.appendChild(wrap);
         });
         body.appendChild(sec);

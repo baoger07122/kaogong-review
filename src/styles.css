@@ -9590,12 +9590,16 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-hsec { margin-bottom: 18px; }
 .sc-hsec__title { font-size: 13px; font-weight: 600; color: #8E8E93; margin-bottom: 8px; }
 .sc-hcap-wrap { margin-bottom: 8px; }
+/* v8.15.40 胶囊卡片改为纵向：标题行在顶，每次记录明细内嵌（点击展开/收起） */
 .sc-hcap {
-  display: flex; align-items: center; padding: 10px 12px;
   background: #fff; border: 1px solid #E8E8E9; border-radius: 16px;
   cursor: pointer; -webkit-tap-highlight-color: transparent;
+  overflow: hidden;
 }
 .sc-hcap:active { transform: scale(0.99); }
+.sc-hcap__row {
+  display: flex; align-items: center; padding: 10px 12px;
+}
 .sc-hcap__icon {
   width: 36px; height: 36px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
@@ -9609,10 +9613,11 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-hcap__time { font-size: 11px; color: #7A7A7A; margin-top: 1px; }
 .sc-hcap__arrow { width: 24px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: transform 0.2s; }
 .sc-hcap.open .sc-hcap__arrow { transform: rotate(180deg); }
-.sc-hcap-detail { padding: 0; }
+/* 明细：内嵌卡片，展开时以细分割线上方显示每次记录 */
+.sc-hcap-detail { padding: 0; border-top: 1px solid #F2F2F3; background: #FAFAFC; }
 .sc-hcap-detail__row {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 12px 0 66px; height: 38px;
+  padding: 0 12px 0 58px; height: 38px;
   border-bottom: 1px solid #F2F2F3;
 }
 .sc-hcap-detail__row:last-child { border-bottom: none; }
