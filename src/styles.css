@@ -501,6 +501,231 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 .page-header__more:active { background: #E9E9ED; }
 
+/* ===== 笔记模块chips（对齐画布 8:4：横向圆角999，「全部」主色实心白字，其它灰底） ===== */
+.note-modchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 0 2px;
+}
+.note-modchip {
+  height: 31px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: none;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.15s ease;
+}
+.note-modchip.active {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+/* ===== 笔记类型管理页（对齐画布 8:170） ===== */
+.ntype-list {
+  background: var(--bg-primary);
+  border: 1px solid #E0E0E0;
+  border-radius: 16px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.ntype-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  height: 52px;
+  cursor: pointer;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+.ntype-row:active { background: var(--bg-tertiary); }
+.ntype-row__left { display: flex; align-items: center; gap: 12px; }
+.ntype-dot { width: 12px; height: 12px; border-radius: 6px; flex-shrink: 0; }
+.ntype-name { font-size: 15px; font-weight: 500; color: var(--text-primary); }
+.ntype-row__right { display: flex; align-items: center; gap: 10px; }
+.ntype-count { font-size: 12px; color: var(--text-tertiary); }
+.ntype-op {
+  width: 28px; height: 28px;
+  border: none; background: transparent;
+  color: var(--text-tertiary);
+  border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ntype-op:active { background: var(--bg-tertiary); }
+.ntype-op--danger { color: #FF3B30; }
+.ntype-sep { height: 1px; background: #F0F0F0; margin: 0 14px; }
+.ntype-add {
+  margin-top: 16px;
+  width: 100%;
+  height: 50px;
+  border-radius: 25px;
+  border: none;
+  background: #0066CC;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s;
+}
+.ntype-add:active { opacity: 0.88; }
+
+/* ===== 新增/编辑笔记类型页（对齐画布 10:1：名称+色板+预览+提示） ===== */
+.ntype-form { padding: var(--spacing-md) var(--page-padding) 40px; }
+.ntype-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+.ntype-input {
+  width: 100%;
+  height: 48px;
+  border: 1px solid #E0E0E0;
+  border-radius: 14px;
+  padding: 0 14px;
+  font-size: 14px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  box-sizing: border-box;
+  outline: none;
+}
+.ntype-input::placeholder { color: var(--text-tertiary); }
+.ntype-input:focus { border-color: #0066CC; }
+.ntype-palette { display: flex; gap: 12px; flex-wrap: wrap; }
+.ntype-swatch {
+  width: 36px; height: 36px;
+  border-radius: 18px;
+  border: 2px solid transparent;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s;
+}
+.ntype-swatch.active { border-color: var(--text-primary); }
+.ntype-swatch:active { transform: scale(0.9); }
+.ntype-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-tertiary);
+  border-radius: 16px;
+  padding: 16px;
+  box-sizing: border-box;
+  min-height: 59px;
+}
+.ntype-pill {
+  width: auto;
+  min-width: 48px;
+  max-width: 180px;
+  height: 27px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.ntype-preview-note { font-size: 12px; color: var(--text-tertiary); }
+.ntype-tip {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+/* 暗色适配 */
+[data-theme="dark"] .ntype-list { background: #1C1C1E; border-color: #3A3A3C; }
+[data-theme="dark"] .ntype-sep { background: #3A3A3C; }
+[data-theme="dark"] .ntype-input { background: #1C1C1E; border-color: #3A3A3C; }
+[data-theme="dark"] .ntype-preview { background: #2C2C2E; }
+[data-theme="dark"] .ntype-swatch.active { border-color: #F5F5F7; }
+
+/* ===== 套卷记录（对齐画布 7:35：顶栏搜索常驻 + 三栏卡片列表） ===== */
+.exam-page-header { gap: 12px; }
+.exam-cardlist { display: flex; flex-direction: column; gap: 12px; padding: 0 0 24px; }
+.ex3-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--bg-primary);
+  border: 1px solid #F0F0F2;
+  border-radius: 16px;
+  box-shadow: 0 4px 12px -2px rgba(0,0,0,0.04);
+  cursor: pointer;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+.ex3-card:active { background: var(--bg-tertiary); }
+.ex3-left { flex: 1; min-width: 0; }
+.ex3-title { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ex3-sub { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ex3-mid { font-size: 12px; color: var(--text-secondary); font-weight: 500; text-align: center; white-space: nowrap; flex-shrink: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
+.ex3-right { text-align: right; flex-shrink: 0; }
+.ex3-acc { font-size: 24px; font-weight: 700; color: var(--color-primary); line-height: 1.1; }
+.ex3-acc-label { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
+.ex3-arrow { flex-shrink: 0; font-size: 20px; color: var(--text-tertiary); line-height: 1; }
+/* 暗色适配 */
+[data-theme="dark"] .ex3-card { background: #1C1C1E; border-color: #3A3A3C; box-shadow: none; }
+[data-theme="dark"] .ex3-card:active { background: #2C2C2E; }
+
+/* ===== 笔记顶栏搜索常驻（对齐画布 7:31/7:1061/8:19：大标题 + 搜索栏 + 三点更多） ===== */
+.note-page-header { gap: 12px; }
+.note-header-search {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 20px;
+  height: 40px;
+  padding: 0 14px;
+  margin: 0 6px;
+  box-sizing: border-box;
+}
+.note-header-search .search-bar__icon { font-size: 14px; opacity: 0.5; flex-shrink: 0; }
+.note-header-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.note-header-search input::placeholder { color: var(--text-tertiary); }
+
+/* ===== 笔记表单类型字段 ===== */
+.note-type-field { margin-top: 10px; }
+.note-type-kw { font-size: 12px; color: var(--text-tertiary); font-weight: 600; margin-bottom: 8px; }
+.note-type-pill-row { margin-bottom: 4px; }
+.note-type-pill {
+  display: inline-block;
+  max-width: 150px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* 详情页右上角图标按钮（三点菜单 / 编辑等） */
 .note-detail-more {
   font-size: 22px !important;
@@ -2663,6 +2888,68 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   box-shadow: 0 1px 2px rgba(0,0,0,0.04);
 }
 
+/* ===== 笔记卡片（对齐画布 7:964：科目色块首字 + 标题/摘要 + 右侧日期 + 箭头，白底圆角16） ===== */
+.note-item--card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  margin-bottom: 12px;
+  background: var(--bg-primary);
+  border: 1px solid #F0F0F2;
+  border-radius: 16px;
+  box-shadow: 0 4px 12px -2px rgba(0,0,0,0.04);
+  cursor: pointer;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+.note-item--card:active { background: var(--bg-tertiary); }
+.note-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.note-item__body { flex: 1; min-width: 0; }
+.note-item__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.note-item__summary {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.note-item__right { flex-shrink: 0; }
+.note-item__date {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.note-item__arrow {
+  flex-shrink: 0;
+  font-size: 20px;
+  color: var(--text-tertiary);
+  line-height: 1;
+}
+/* 暗色适配 */
+[data-theme="dark"] .note-item--card { background: #1C1C1E; border-color: #3A3A3C; box-shadow: none; }
+[data-theme="dark"] .note-item--card:active { background: #2C2C2E; }
+
 .note-card__tags {
   display: flex;
   align-items: center;
@@ -2718,6 +3005,59 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   transform: scale(0.95);
   opacity: 0.9;
 }
+
+/* ===== 错题本卡片式空态（对齐画布空态胶囊，靠上不居中） ===== */
+.eerr-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 40px 24px 36px;
+  text-align: center;
+  margin: 12px;
+  background: #FFFFFF;
+  border: 1px solid #E0E0E0;
+  border-radius: 16px;
+  min-height: 220px;
+  box-sizing: border-box;
+}
+.eerr-empty__icon { font-size: 0; margin-bottom: 12px; }
+.eerr-empty__icon svg { display: block; }
+.eerr-empty__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1D1D21;
+  margin-bottom: 6px;
+}
+.eerr-empty__desc {
+  font-size: 13px;
+  color: #A1A1A6;
+  line-height: 1.5;
+  max-width: 240px;
+  margin-bottom: 4px;
+}
+.eerr-empty__action {
+  margin-top: 16px;
+  padding: 0 18px;
+  height: 40px;
+  border-radius: 20px;
+  background: #EBF1FF;
+  color: #0066CC;
+  font-size: 14px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.eerr-empty__action:active { transform: scale(0.95); opacity: 0.9; }
+
+/* 暗色适配 */
+[data-theme="dark"] .eerr-empty { background: #1C1C1E; border-color: #3A3A3C; }
+[data-theme="dark"] .eerr-empty__title { color: #F5F5F7; }
+[data-theme="dark"] .eerr-empty__action { background: rgba(107, 161, 232, 0.12); color: #6BA1E8; }
 
 /* ===== Toast 提示 ===== */
 #toast-container {
@@ -3495,6 +3835,11 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 
 /* ===== 设置页 ===== */
+.settings-version {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
 .settings-group {
   margin: 0 var(--page-padding);
   margin-bottom: var(--spacing-lg);
@@ -6311,6 +6656,377 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 #page-error-form .tag-input__empty { padding: 4px 0; font-size: 11px; }
 #page-error-form .tag-input__manage { margin-top: 6px; }
 #page-error-form .tag-input__manage-btn { height: 32px; font-size: 11px; }
+
+/* ===== 【v8.14.11 错题添加表单卡片化】对齐画布 10:758 =====
+   扁平 form-group 分组为卡片：白底 + 1px #E0E0E0 边框 + 圆角16 */
+#page-error-form .manual-card-form .form-page { padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 30px); }
+#page-error-form .ef-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid #E0E0E0;
+  border-radius: 16px;
+  padding: 14px;
+  margin-bottom: 10px;
+}
+[data-theme="dark"] #page-error-form .ef-card {
+  background: #1C1C1E;
+  border-color: #3A3A3C;
+}
+/* 卡片内：去掉 form-group 默认大间距，改用卡片 gap 统一控制 */
+#page-error-form .ef-card .form-group { margin-bottom: 0; }
+#page-error-form .ef-card .form-group + .form-group { margin-bottom: 0; }
+/* 灰底选择条（科目/模块/考点/错因）：点击弹窗入口 */
+#page-error-form .ef-selectbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #F5F5F7;
+  border-radius: 10px;
+  height: 40px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+[data-theme="dark"] #page-error-form .ef-selectbar { background: #2C2C2E; }
+#page-error-form .ef-selectbar__label {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #A1A1A6;
+}
+#page-error-form .ef-selectbar__value {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#page-error-form .ef-selectbar__value--ph { color: #B8B8BC; font-weight: 400; }
+#page-error-form .ef-selectbar__arrow { color: #A1A1A6; flex-shrink: 0; display: flex; }
+/* 两栏并排（答案/来源） */
+#page-error-form .ef-box {
+  display: flex;
+  gap: 12px;
+}
+#page-error-form .ef-box > .form-group {
+  flex: 1;
+  min-width: 0;
+}
+/* AI 智能拆分按钮：浅蓝描边、圆角12、居中、白底（非衬底灰） */
+#page-error-form .ef-ai-btn {
+  height: 44px;
+  font-size: 14px;
+  font-weight: 600;
+  background: #fff;
+  color: #0066CC;
+  border: 1px solid #C7DDF8;
+  border-radius: 12px;
+  margin-bottom: 10px;
+  box-shadow: none;
+}
+[data-theme="dark"] #page-error-form .ef-ai-btn { background: #1C1C1E; border-color: #2A5C8F; }
+/* 底部保存按钮：品牌渐变、全宽、圆角25、白字 */
+#page-error-form .ef-save-btn {
+  height: 50px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, #0066CC, #1E8FFF);
+  border: none;
+  border-radius: 25px;
+  width: 100%;
+  margin-top: 4px;
+  box-shadow: 0 4px 12px rgba(0, 102, 204, 0.25);
+}
+#page-error-form .ef-save-btn:active { opacity: 0.88; }
+
+/* ===== 【v8.14.11 申论错题专属表单】对齐画布 113:1 ===== */
+#page-error-form .shenlun-form { background: transparent; }
+#page-error-form .sl-card { gap: 10px; margin-bottom: 12px; }
+#page-error-form .sl-card__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+/* 行：标签 + 控件 */
+#page-error-form .sl-row { display: flex; align-items: center; gap: 12px; }
+#page-error-form .sl-row__label {
+  flex-shrink: 0;
+  width: 86px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+/* 单行控件 */
+#page-error-form .sl-field {
+  flex: 1;
+  min-height: 40px !important;
+  background: #F7F7F9;
+}
+/* 多行文本域 */
+#page-error-form .sl-area {
+  flex: 1;
+  min-height: 72px;
+  background: #F7F7F9;
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+}
+#page-error-form .sl-row__label[style*="2162D8"] { color: #2162D8 !important; }
+#page-error-form .sl-row__label[style*="2E8B57"] { color: #2E8B57 !important; }
+/* 分数行：得分 / 总分 并排 */
+#page-error-form .sl-score-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #3A3A3F;
+  margin-top: 4px;
+}
+#page-error-form .sl-score-row { display: flex; gap: 12px; }
+#page-error-form .sl-score-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #F7F7F9;
+  border-radius: 10px;
+  padding: 0 12px;
+  box-sizing: border-box;
+}
+#page-error-form .sl-score-label { font-size: 14px; color: #6E6E73; white-space: nowrap; }
+#page-error-form .sl-score-item .form-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  text-align: right;
+}
+/* 说明文字 */
+#page-error-form .sl-hint { font-size: 13px; color: var(--text-tertiary); line-height: 1.5; }
+/* 核心思维偏差表 */
+#page-error-form .sl-tbl-head,
+#page-error-form .sl-tbl-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+#page-error-form .sl-tbl-head {
+  background: #F2F2F4;
+  border-radius: 8px;
+  height: 34px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+#page-error-form .sl-tbl-head span { flex: 1; }
+#page-error-form .sl-tbl-head span:first-child { flex: 0 0 64px; text-align: center; }
+#page-error-form .sl-tbl-row {
+  border-bottom: 1px solid #EDEDF0;
+  gap: 6px;
+  padding: 6px 0;
+}
+#page-error-form .sl-tbl-num {
+  flex: 0 0 64px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+#page-error-form .sl-tbl-input {
+  flex: 1;
+  min-height: 34px;
+  background: #F7F7F9;
+}
+#page-error-form .sl-tbl-input + .sl-tbl-input { margin-left: 6px; }
+/* 添加行按钮 */
+#page-error-form .sl-addbtn {
+  height: 40px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #2162D8;
+  background: rgba(33, 98, 216, 0.10);
+  border: none;
+  border-radius: 20px;
+  cursor: pointer;
+  width: 100%;
+}
+#page-error-form .sl-addbtn--sm { margin-top: 4px; height: 36px; border-radius: 18px; }
+/* 踩分点清单 */
+#page-error-form .sl-listwrap { display: flex; flex-direction: column; gap: 8px; }
+#page-error-form .sl-listlabel { font-size: 14px; font-weight: 500; }
+#page-error-form .sl-listlabel--red { color: #C62828; }
+#page-error-form .sl-listlabel--green { color: #2E8B57; }
+/* 框架对比：竖向彩色标题 + 文本域 */
+#page-error-form .sl-frame { display: flex; flex-direction: column; gap: 6px; }
+#page-error-form .sl-frame__label { font-size: 14px; font-weight: 500; }
+#page-error-form .sl-frame__label--blue { color: #2162D8; }
+#page-error-form .sl-frame__label--green { color: #2E8B57; }
+#page-error-form .sl-clips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  background: #F7F7F9;
+  border-radius: 10px;
+  padding: 8px;
+  min-height: 40px;
+  box-sizing: border-box;
+}
+#page-error-form .sl-clip-input {
+  flex: 1;
+  min-width: 220px;
+  min-height: 36px;
+  background: #fff;
+  border: 1px solid #E5E5EA;
+}
+#page-error-form .sl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #fff;
+  border: 1px solid #E5E5EA;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+#page-error-form .sl-chip-x { cursor: pointer; color: var(--text-tertiary); font-weight: 700; padding: 0 2px; }
+/* 暗色适配 */
+[data-theme="dark"] #page-error-form .sl-field,
+[data-theme="dark"] #page-error-form .sl-area,
+[data-theme="dark"] #page-error-form .sl-tbl-input,
+[data-theme="dark"] #page-error-form .sl-score-item,
+[data-theme="dark"] #page-error-form .sl-clips { background: #2C2C2E; }
+[data-theme="dark"] #page-error-form .sl-tbl-head { background: #2C2C2E; }
+[data-theme="dark"] #page-error-form .sl-score-title { color: #C7C7CC; }
+[data-theme="dark"] #page-error-form .sl-chip,
+[data-theme="dark"] #page-error-form .sl-clip-input { background: #1C1C1E; border-color: #3A3A3C; }
+[data-theme="dark"] #page-error-form .sl-addbtn { color: #6BA1E8; background: rgba(107, 161, 232, 0.12); }
+
+/* ===== 【v8.14.11 通用选择弹窗 pickerModal】对齐画布选科目/模块/考点/错因 ===== */
+.picker-modal {
+  width: min(480px, 92vw);
+  max-height: 82vh;
+  background: #fff;
+  border-radius: 28px;
+  padding: 22px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  box-shadow:
+    0 16px 40px rgba(33, 48, 89, 0.18),
+    0 6px 16px rgba(33, 48, 89, 0.10);
+}
+[data-theme="dark"] .picker-modal { background: #1C1C1E; }
+.picker-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.picker-modal__title { font-size: 20px; font-weight: 600; color: var(--text-primary); }
+.picker-modal__close {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #F5F5F7;
+  border: 1px solid #EDEDF0;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+[data-theme="dark"] .picker-modal__close { background: #2C2C2E; border-color: #3A3A3C; }
+.picker-modal__close:active { opacity: 0.7; }
+/* list 模式 */
+.picker-modal__list { display: flex; flex-direction: column; gap: 6px; }
+.picker-modal__item {
+  display: flex;
+  align-items: center;
+  height: 46px;
+  padding: 0 16px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.picker-modal__item.active {
+  background: #EAEFFF;
+  box-shadow: 0 2px 6px rgba(0, 102, 204, 0.10);
+  color: #0066CC;
+}
+[data-theme="dark"] .picker-modal__item.active { background: rgba(0, 102, 204, 0.25); color: #6BA1E8; }
+/* chips 模式 */
+.picker-modal__inputrow { display: flex; gap: 8px; }
+.picker-modal__input {
+  flex: 1;
+  min-height: 40px;
+  background: #F5F5F7;
+  border: none;
+  border-radius: 14px;
+  padding: 0 14px;
+  font-size: 14px;
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+[data-theme="dark"] .picker-modal__input { background: #2C2C2E; }
+.picker-modal__addbtn {
+  width: 60px;
+  min-height: 40px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #0066CC, #1E8FFF);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 102, 204, 0.25);
+}
+.picker-modal__addbtn:active { opacity: 0.88; }
+.picker-modal__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.picker-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: #fff;
+  border: 1px solid #EDEDF0;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+.picker-chip--sel {
+  background: #F2F2F4;
+  border-color: #EDEDF0;
+}
+[data-theme="dark"] .picker-chip,
+[data-theme="dark"] .picker-chip--sel { background: #2C2C2E; border-color: #3A3A3C; }
+.picker-chip__x { cursor: pointer; color: var(--text-tertiary); font-weight: 700; }
+.picker-modal__ok {
+  width: 100%;
+  height: 48px;
+  margin-top: 2px;
+  border: none;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #0066CC, #1E8FFF);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 102, 204, 0.25);
+}
+.picker-modal__ok:active { opacity: 0.88; }
 
 /* ===== 【考点/错因标签管理】折叠卡片管理组件（tagManager） ===== */
 .tag-manager { width: 100%; }

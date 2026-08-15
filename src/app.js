@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.14.10';
+App.VERSION = '8.15.1';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -8131,6 +8131,210 @@ App.Components = {
     return el;
   }
 };
+
+// v8.14.11 通用选择弹窗（对齐画布：选科目/选模块/选择考点/选择错因弹窗）
+// opts:
+//   title: 弹窗标题
+//   mode: 'list' | 'chips'
+//     'list'  → 选项横向列表（单选，选中浅蓝底）——科目/模块
+//     'chips' → 输入行 + 已选chips + 建议chips（多选）——考点/错因
+//   options: 可选项字符串数组（list 为全部选项；chips 为建议标签）
+//   selected: 当前已选（list 为 string；chips 为 array/string）
+//   max: chips 多选最大数量（0=不限）
+//   allowCustom: chips 是否允许自定义输入
+//   placeholder: 输入框占位
+//   onAddCustom: 自定义值回调（添加时）
+//   onDone(sel): 点「确定」回调（返回最终选中值）
+App.Components.pickerModal = function (opts) {
+  opts = opts || {};
+  const container = document.getElementById('modal-container');
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+
+  // 选中态
+  let selected = opts.mode === 'list'
+    ? (opts.selected || '')
+    : (Array.isArray(opts.selected) ? opts.selected.slice() : (opts.selected ? [opts.selected] : []));
+  const maxCount = opts.max || 0;
+  // 归一化选项：兼容「字符串数组」与「{name:...}对象数组」
+  const normOpts = (opts.options || []).map(function (o) { return typeof o === 'string' ? o : (o && o.name) || String(o); });
+  opts.options = normOpts;
+
+  const dialog = document.createElement('div');
+  dialog.className = 'picker-modal';
+  dialog.style.display = 'flex';
+  dialog.style.flexDirection = 'column';
+  dialog.style.gap = '14px';
+
+  // 标题行
+  const headRow = document.createElement('div');
+  headRow.className = 'picker-modal__head';
+  const titleEl = document.createElement('div');
+  titleEl.className = 'picker-modal__title';
+  titleEl.textContent = opts.title || '选择';
+  headRow.appendChild(titleEl);
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'picker-modal__close';
+  closeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  closeBtn.addEventListener('click', () => overlay.remove());
+  headRow.appendChild(closeBtn);
+  dialog.appendChild(headRow);
+
+  if (opts.mode === 'list') {
+    // ===== 单项列表 =====
+    const list = document.createElement('div');
+    list.className = 'picker-modal__list';
+    opts.options.forEach(opt => {
+      const item = document.createElement('div');
+      item.className = 'picker-modal__item';
+      if (selected === opt) item.classList.add('active');
+      item.textContent = opt;
+      item.addEventListener('click', () => {
+        selected = opt;
+        list.querySelectorAll('.picker-modal__item').forEach(i => i.classList.remove('active'));
+        item.classList.add('active');
+      });
+      list.appendChild(item);
+    });
+    dialog.appendChild(list);
+  } else {
+    // ===== chips：输入行 + 已选 + 建议 =====
+    const inputRow = document.createElement('div');
+    inputRow.className = 'picker-modal__inputrow';
+    const input = document.createElement('input');
+    input.className = 'picker-modal__input';
+    input.placeholder = opts.placeholder || '输入自定义标签…';
+    inputRow.appendChild(input);
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'picker-modal__addbtn';
+    addBtn.textContent = '添加';
+    addBtn.addEventListener('click', () => addValue());
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addValue(); } });
+    inputRow.appendChild(addBtn);
+    dialog.appendChild(inputRow);
+
+    // 已选 chips
+    const selWrap = document.createElement('div');
+    selWrap.className = 'picker-modal__chips';
+    const renderSelected = () => {
+      selWrap.innerHTML = '';
+      selected.forEach((v, i) => {
+        const chip = document.createElement('span');
+        chip.className = 'picker-chip picker-chip--sel';
+        chip.textContent = v;
+        const x = document.createElement('span');
+        x.className = 'picker-chip__x';
+        x.textContent = '×';
+        x.addEventListener('click', () => { selected.splice(i, 1); renderSelected(); });
+        chip.appendChild(x);
+        selWrap.appendChild(chip);
+      });
+    };
+    renderSelected();
+    dialog.appendChild(selWrap);
+
+    // 建议 chips
+    const sugWrap = document.createElement('div');
+    sugWrap.className = 'picker-modal__chips';
+    const suggestions = (opts.options || []).filter(o => !selected.includes(o));
+    suggestions.forEach(sug => {
+      const chip = document.createElement('span');
+      chip.className = 'picker-chip';
+      chip.textContent = sug;
+      chip.addEventListener('click', () => {
+        if (selected.includes(sug)) return;
+        if (maxCount === 1) selected = [sug];
+        else if (maxCount > 1 && selected.length >= maxCount) { App.Components.toast('最多选择 ' + maxCount + ' 个', 'error'); return; }
+        else selected.push(sug);
+        renderSelected();
+      });
+      sugWrap.appendChild(chip);
+    });
+    dialog.appendChild(sugWrap);
+
+    function addValue() {
+      const val = input.value.trim();
+      if (!val) return;
+      if (selected.includes(val)) { input.value = ''; return; }
+      if (maxCount === 1) selected = [val];
+      else if (maxCount > 1 && selected.length >= maxCount) { App.Components.toast('最多选择 ' + maxCount + ' 个', 'error'); return; }
+      else selected.push(val);
+      if (opts.onAddCustom) opts.onAddCustom(val);
+      input.value = '';
+      renderSelected();
+    }
+  }
+
+  // 确定按钮
+  const okBtn = document.createElement('button');
+  okBtn.type = 'button';
+  okBtn.className = 'picker-modal__ok';
+  okBtn.textContent = '确定';
+  okBtn.addEventListener('click', () => {
+    const result = opts.mode === 'list' ? selected : selected.slice();
+    overlay.remove();
+    if (opts.onDone) opts.onDone(result);
+  });
+  dialog.appendChild(okBtn);
+
+  overlay.appendChild(dialog);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  container.appendChild(overlay);
+  if (opts.mode === 'chips') {
+    setTimeout(() => { const inp = overlay.querySelector('.picker-modal__input'); if (inp) inp.focus(); }, 0);
+  }
+  return overlay;
+};
+
+// ===== 笔记类型（对齐画布「iPad-笔记类型管理」8:170 /「新增类型」10:1 / 弹窗 10:114） =====
+window.App = window.App || {};
+App.NoteTypes = (function () {
+  const KEY = 'kg_note_types';
+  const DEFAULT_TYPES = [
+    { name: '技巧总结', color: '#0066CC' },
+    { name: '解题方法', color: '#FF9500' },
+    { name: '知识积累', color: '#34C759' },
+    { name: '错题复盘', color: '#9B7BFF' }
+  ];
+
+  function getAll() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return arr;
+    } catch (e) { /* ignore */ }
+    return [];
+  }
+  function ensureDefault() {
+    if (getAll().length === 0) {
+      try { localStorage.setItem(KEY, JSON.stringify(DEFAULT_TYPES)); } catch (e) { /* ignore */ }
+    }
+  }
+  function saveAll(list) {
+    try { localStorage.setItem(KEY, JSON.stringify(list)); } catch (e) { /* ignore */ }
+  }
+  function add(name, color) {
+    ensureDefault();
+    const list = getAll();
+    if (list.some(t => t.name === name)) return false;
+    list.push({ name, color: color || '#0066CC' });
+    saveAll(list);
+    return true;
+  }
+  function remove(name) {
+    const list = getAll().filter(t => t.name !== name);
+    saveAll(list);
+  }
+  function getColor(name) {
+    const t = getAll().find(x => x.name === name);
+    return t ? t.color : '#0066CC';
+  }
+  return { getAll, ensureDefault, add, remove, getColor, DEFAULT_COLORS: DEFAULT_TYPES.map(t => t.color) };
+})();
+
 // ===== 考公笔试复盘系统 - 云端同步层 =====
 // 与同源 /api 接口对接；登录后本地数据实时镜像到云端，可跨设备 / 跨版本访问。
 // 同步集合：errors / notes / exams / todos / subject_reviews / words
@@ -8724,6 +8928,12 @@ App.Router = {
         break;
       case 'note-form':
         if (App.Pages.Notes && App.Pages.Notes.renderForm) App.Pages.Notes.renderForm(params);
+        break;
+      case 'note-type-manage':
+        if (App.Pages.Notes && App.Pages.Notes.renderTypeManage) App.Pages.Notes.renderTypeManage(params);
+        break;
+      case 'note-type-form':
+        if (App.Pages.Notes && App.Pages.Notes.renderTypeForm) App.Pages.Notes.renderTypeForm(params);
         break;
       case 'exam-detail':
         if (App.Pages.Exams && App.Pages.Exams.renderDetail) await App.Pages.Exams.renderDetail(params);
@@ -10475,21 +10685,35 @@ App.Pages.Errors = {
     const errors = await App.DB.getErrors(filters);
 
     if (errors.length === 0) {
-      container.appendChild(App.Components.emptyState(
-        '📋',
-        '还没有错题',
-        '复盘时记录的错题会自动收录到这里',
-        '添加错题',
-        () => {
-          // 跟随当前选中的科目-模块
-          let q = '';
-          if (this.state.subject) {
-            q = '?subject=' + encodeURIComponent(this.state.subject);
-            if (this.state.module) q += '&module=' + encodeURIComponent(this.state.module);
-          }
-          App.Router.navigate('error-form' + q);
+      // v8.14.11 按画布「iPad-错题本-空状态」卡片式空态（对齐便签/待办空态风格），胶囊靠上不居中
+      const empty = document.createElement('div');
+      empty.className = 'eerr-empty';
+      const icon = document.createElement('div');
+      icon.className = 'eerr-empty__icon';
+      icon.innerHTML = '<svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="5.5" y="8" width="33" height="31.5" rx="4" stroke="#C7C7CC" stroke-width="1.8"/><path d="M11 15h11M11 20h11M11 25h11M11 30h7" stroke="#C7C7CC" stroke-width="1.8" stroke-linecap="round"/><path d="M27 27l3 3 6-7" stroke="#A1A1A6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      empty.appendChild(icon);
+      const title = document.createElement('div');
+      title.className = 'eerr-empty__title';
+      title.textContent = '还没有错题';
+      empty.appendChild(title);
+      const desc = document.createElement('div');
+      desc.className = 'eerr-empty__desc';
+      desc.textContent = '点击「新建错题」，收录你的第一道题';
+      empty.appendChild(desc);
+      const action = document.createElement('button');
+      action.type = 'button';
+      action.className = 'eerr-empty__action';
+      action.textContent = '＋ 新建错题';
+      action.addEventListener('click', () => {
+        let q = '';
+        if (this.state.subject) {
+          q = '?subject=' + encodeURIComponent(this.state.subject);
+          if (this.state.module) q += '&module=' + encodeURIComponent(this.state.module);
         }
-      ));
+        App.Router.navigate('error-form' + q);
+      });
+      empty.appendChild(action);
+      container.appendChild(empty);
       return;
     }
 
@@ -10920,6 +11144,11 @@ App.Pages.Errors = {
       if (isEdit) {
         const error = await App.DB.get('errors', params.id);
         if (error) {
+          // v8.14.11 编辑申论错题 → 切到申论专属表单
+          if (error.subject === '申论') {
+            App.Pages.Errors.renderShenlunForm({ id: params.id });
+            return;
+          }
           formData = {
             subject: error.subject || '',
             module: error.module || '',
@@ -10996,6 +11225,13 @@ App.Pages.Errors = {
         // 从某套卷点「加错题」时，关联回该套卷
         if (params.examId && !formData.sourceExamId) formData.sourceExamId = params.examId;
       }
+
+      // v8.14.11 申论错题统一走专属表单：无论从哪条路径进入，只要科目固定为申论即切换
+      if (formData.subject === '申论') {
+        App.Pages.Errors.renderShenlunForm(isEdit && formData._formId ? { id: formData.id || formData._formId } : { module: formData.module || '' });
+        return;
+      }
+
       buildForm();
     };
 
@@ -11016,74 +11252,127 @@ App.Pages.Errors = {
       ));
 
       const form = document.createElement('div');
-      form.className = 'form-page';
+      form.className = 'form-page manual-card-form';
 
-      // 科目
-      form.appendChild(App.Components.formSelector(
-        '科目',
-        App.Constants.SUBJECTS,
-        formData.subject,
-        (val) => {
-          formData.subject = val;
-          formData.module = '';
-          formData.knowledgePoints = [];
-          buildForm();
-        },
-        true
-      ));
+      // v8.14.11 卡片式重构（对齐画布"iPad-添加错题"10:758）：把扁平 form-group 分组进卡片
+      // efCard: 白底 + 1px #E0E0E0 边框 + 圆角16 卡片容器
+      const efCard = (children) => {
+        const card = document.createElement('div');
+        card.className = 'ef-card';
+        (Array.isArray(children) ? children : [children]).forEach(c => { if (c) card.appendChild(c); });
+        return card;
+      };
+      // efBox: 行内并排两栏（答案/来源等）
+      const efBox = (a, b) => {
+        const row = document.createElement('div');
+        row.className = 'ef-box';
+        if (a) row.appendChild(a);
+        if (b) row.appendChild(b);
+        return row;
+      };
 
-      // 模块（扁平科目如资料分析：无模块层，直接跳到考点/错因）
+      // ===== 卡片一：科目 + 模块（扁平科目资料分析等直接隐藏模块，仅科目） =====
       const isFlatError = App.Constants.isFlatSubject(formData.subject);
-      if (formData.subject && !isFlatError) {
-        form.appendChild(App.Components.formSelector(
-          '模块',
-          App.Constants.getModules(formData.subject),
-          formData.module,
-          (val) => {
-            formData.module = val;
+      // v8.14.11 灰底选择条：显示当前值 + 右侧箭头，点击打开居中选择弹窗
+      const efSelectBar = (label, value, placeholder, onClick) => {
+        const row = document.createElement('div');
+        row.className = 'ef-selectbar';
+        if (label) {
+          const lb = document.createElement('div');
+          lb.className = 'ef-selectbar__label';
+          lb.textContent = label;
+          row.appendChild(lb);
+        }
+        const valEl = document.createElement('div');
+        valEl.className = 'ef-selectbar__value' + (value ? '' : ' ef-selectbar__value--ph');
+        valEl.textContent = value || placeholder || ('请选择' + (label || ''));
+        row.appendChild(valEl);
+        const arrow = document.createElement('div');
+        arrow.className = 'ef-selectbar__arrow';
+        arrow.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        row.appendChild(arrow);
+        row.addEventListener('click', onClick);
+        return row;
+      };
+      const subjectSel = efSelectBar('科目', formData.subject, '请选择科目', () => {
+        App.Components.pickerModal({
+          title: '选择科目',
+          mode: 'list',
+          options: App.Constants.SUBJECTS.map(function (s) { return typeof s === 'string' ? s : s.name; }),
+          selected: formData.subject,
+          onDone: (val) => {
+            if (!val) return;
+            // v8.14.11 科目选「申论」→ 切换为申论专属表单
+            if (val === '申论') {
+              App.Draft.clearForm('error');
+              App.Pages.Errors.renderShenlunForm({ module: formData.module });
+              return;
+            }
+            formData.subject = val;
+            formData.module = '';
             formData.knowledgePoints = [];
             buildForm();
-          },
-          true
-        ));
+          }
+        });
+      });
+      const topCardChildren = [subjectSel];
+      if (formData.subject && !isFlatError) {
+        topCardChildren.push(efSelectBar('模块', formData.module, '请选择模块', () => {
+          App.Components.pickerModal({
+            title: '选择模块',
+            mode: 'list',
+            options: App.Constants.getModules(formData.subject),
+            selected: formData.module,
+            onDone: (val) => {
+              formData.module = val;
+              formData.knowledgePoints = [];
+              buildForm();
+            }
+          });
+        }));
       }
+      form.appendChild(efCard(topCardChildren));
 
-      // 考点（扁平科目用科目级合并标签）
+      // ===== 卡片二：考点（最多3个）+ 错因 + 挖坑点 =====
+      const kpEcChildren = [];
+      // 考点（多选，最多3个）弹窗
       if (formData.module || (isFlatError && formData.subject)) {
-        form.appendChild(App.Components.tagInput(
-          '考点',
-          isFlatError ? App.Tags.getSubjectKnowledgePoints(formData.subject) : App.Tags.getKnowledgePointSuggestions(formData.module),
-          formData.knowledgePoints,
-          (val) => { formData.knowledgePoints = val; },
-          3,
-          true,
-          '输入自定义考点，回车添加',
-          (v) => isFlatError ? App.Tags.addSubjectKnowledgePoint(formData.subject, v) : App.Tags.addKnowledgePoint(formData.module, v),
-          { kind: 'kp', module: isFlatError ? formData.subject : formData.module, onDone: () => buildForm() }
-        ));
+        kpEcChildren.push(efSelectBar('考点', formData.knowledgePoints && formData.knowledgePoints.length ? formData.knowledgePoints.join('、') : '', '最多选 3 个', () => {
+          App.Components.pickerModal({
+            title: '选择考点',
+            mode: 'chips',
+            options: isFlatError ? App.Tags.getSubjectKnowledgePoints(formData.subject) : App.Tags.getKnowledgePointSuggestions(formData.module),
+            selected: formData.knowledgePoints,
+            max: 3,
+            allowCustom: true,
+            placeholder: '输入自定义考点，回车添加',
+            onAddCustom: (v) => { if (isFlatError) App.Tags.addSubjectKnowledgePoint(formData.subject, v); else App.Tags.addKnowledgePoint(formData.module, v); },
+            onDone: (sel) => { formData.knowledgePoints = sel; buildForm(); }
+          });
+        }));
       }
-
-      // 错因（扁平科目用科目级合并标签；仅该模块的专属错因）
-      form.appendChild(App.Components.tagInput(
-        '错因',
-        isFlatError ? App.Tags.getSubjectErrorCauses(formData.subject) : App.Tags.getMergedErrorCauses(formData.module),
-        formData.errorCause ? [formData.errorCause] : [],
-        (val) => { formData.errorCause = val[0] || ''; },
-        1,
-        true,
-        '选择或输入错因，回车添加',
-        (v) => isFlatError ? App.Tags.addSubjectErrorCause(formData.subject, v) : App.Tags.addModuleErrorCause(formData.module, v),
-        { kind: 'ec', module: isFlatError ? formData.subject : formData.module, onDone: () => buildForm() }
-      ));
-
-      // 挖坑点（简短文字，不需要格式，不参与筛选）
-      form.appendChild(App.Components.formInput(
+      // 错因（单选）弹窗
+      kpEcChildren.push(efSelectBar('错因', formData.errorCause, '请选择错因', () => {
+        App.Components.pickerModal({
+          title: '选择错因',
+          mode: 'chips',
+          options: isFlatError ? App.Tags.getSubjectErrorCauses(formData.subject) : App.Tags.getMergedErrorCauses(formData.module),
+          selected: formData.errorCause ? [formData.errorCause] : [],
+          max: 1,
+          allowCustom: true,
+          placeholder: '选择或输入错因，回车添加',
+          onAddCustom: (v) => { if (isFlatError) App.Tags.addSubjectErrorCause(formData.subject, v); else App.Tags.addModuleErrorCause(formData.module, v); },
+          onDone: (sel) => { formData.errorCause = (sel && sel.length) ? sel[0] : ''; buildForm(); }
+        });
+      }));
+      kpEcChildren.push(App.Components.formInput(
         '挖坑点',
         formData.pitfall,
         '一句话记录这道题的坑在哪（可选）',
         (val) => { formData.pitfall = val; },
         'input'
       ));
+      form.appendChild(efCard(kpEcChildren));
 
       // 图片（可选）：支持多张；点击插入，逐张删除
       const imgGroup = document.createElement('div');
@@ -11170,19 +11459,20 @@ App.Pages.Errors = {
         addBtn.addEventListener('click', (e) => { e.stopPropagation(); pickImg(); });
         imgGroup.appendChild(addBtn);
       }
-      form.appendChild(imgGroup);
+      // ===== 卡片三：图片（可选） =====
+      form.appendChild(efCard(imgGroup));
 
       // AI 智能拆分（题干 + 选项）
       const aiBtn = document.createElement('button');
       aiBtn.type = 'button';
-      aiBtn.className = 'btn btn--outline btn--full';
-      aiBtn.style.marginBottom = 'var(--spacing-md)';
+      aiBtn.className = 'btn btn--outline ef-ai-btn';
       aiBtn.innerHTML = '🤖 AI 智能拆分题干与选项';
       aiBtn.addEventListener('click', () => this.openSmartSplit(formData, buildForm));
       form.appendChild(aiBtn);
 
-      // 题目
-      form.appendChild(App.Components.formInput(
+      // ===== 卡片四：题目 + 选项 ABCD =====
+      const qCardChildren = [];
+      qCardChildren.push(App.Components.formInput(
         '题目',
         formData.question,
         '请输入完整题干',
@@ -11219,49 +11509,53 @@ App.Pages.Errors = {
         wrapper.appendChild(input);
         optionsGroup.appendChild(wrapper);
       });
-      form.appendChild(optionsGroup);
+      qCardChildren.push(optionsGroup);
+      form.appendChild(efCard(qCardChildren));
 
-      // 正确选项 + 错误选项
-      const selectRow = document.createElement('div');
-      selectRow.className = 'error-form-select-row';
-      selectRow.style.cssText = 'display:flex;gap:var(--spacing-md);';
-      selectRow.appendChild(App.Components.formSelector(
-        '正确选项',
-        ['A', 'B', 'C', 'D'],
-        formData.correctOption,
-        (val) => { formData.correctOption = val; buildForm(); },
-        true
-      ));
-      selectRow.appendChild(App.Components.formSelector(
-        '你的选项',
-        ['A', 'B', 'C', 'D'],
-        formData.userOption,
-        (val) => { formData.userOption = val; buildForm(); },
-        false
-      ));
-      form.appendChild(selectRow);
+      // ===== 卡片五：答案（正确选项/你的选项 + 正确率/来源） =====
+      const ansCardChildren = [];
 
-      // 正确率
-      form.appendChild(App.Components.formInput(
-        '全站正确率（%）',
-        formData.accuracy,
-        '例如：65',
-        (val) => { formData.accuracy = val; },
-        'number',
-        false
-      ));
+      // 正确选项 + 你的选项（并排）
+      const selRow = efBox(
+        App.Components.formSelector(
+          '正确选项',
+          ['A', 'B', 'C', 'D'],
+          formData.correctOption,
+          (val) => { formData.correctOption = val; buildForm(); },
+          true
+        ),
+        App.Components.formSelector(
+          '你的选项',
+          ['A', 'B', 'C', 'D'],
+          formData.userOption,
+          (val) => { formData.userOption = val; buildForm(); },
+          false
+        )
+      );
+      ansCardChildren.push(selRow);
 
-      // 题目来源
-      form.appendChild(App.Components.formInput(
-        '题目来源',
-        formData.questionSource,
-        '如：2023 国考真题 / 某机构模拟卷 / 日常练习',
-        (val) => { formData.questionSource = val; },
-        'text',
-        false
+      // 正确率 + 题目来源（并排）
+      ansCardChildren.push(efBox(
+        App.Components.formInput(
+          '全站正确率（%）',
+          formData.accuracy,
+          '例如：65',
+          (val) => { formData.accuracy = val; },
+          'number',
+          false
+        ),
+        App.Components.formInput(
+          '题目来源',
+          formData.questionSource,
+          '如：2023 国考真题',
+          (val) => { formData.questionSource = val; },
+          'text',
+          false
+        )
       ));
+      form.appendChild(efCard(ansCardChildren));
 
-      // 错题笔记（个人复盘心得）
+      // ===== 卡片六：错题笔记（个人复盘心得） =====
       const enoteGroup = document.createElement('div');
       enoteGroup.className = 'form-group';
       const enoteLabel = document.createElement('label');
@@ -11278,7 +11572,21 @@ App.Pages.Errors = {
       });
       enoteGroup.appendChild(enoteEditor.element);
       formData._getENote = enoteEditor.getHtml;
-      form.appendChild(enoteGroup);
+      form.appendChild(efCard(enoteGroup));
+
+      // ===== 保存按钮（底部渐变主色，全宽圆角25） =====
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.className = 'btn ef-save-btn';
+      saveBtn.innerHTML = isEdit ? '保存修改' : '保存错题';
+      saveBtn.addEventListener('click', async () => {
+        if (!formData.subject || (!App.Constants.isFlatSubject(formData.subject) && !formData.module) || formData.knowledgePoints.length === 0 || !formData.errorCause || !formData.question) {
+          App.Components.toast('请先完成必填项', 'error');
+          return;
+        }
+        await submitForm();
+      });
+      form.appendChild(saveBtn);
 
       container.appendChild(form);
 
@@ -11355,6 +11663,434 @@ App.Pages.Errors = {
   }
 };
 
+// v8.14.11 申论专属错题表单（对齐画布"iPad-新建错题-申论"113:1）
+// 需求：科目选「申论」时自动切换为本表单；扩展现有 errors 存储（subject='申论' + 扩展字段）
+App.Pages.Errors.renderShenlunForm = function (params) {
+  const container = document.getElementById('page-error-form');
+  container.innerHTML = '';
+  const self = App.Pages.Errors;
+
+  let isEdit = !!params.id;
+  // 申论错题数据（扁平存于 errors 记录上，与通用错题共存）
+  let d = {
+    subject: '申论', module: '', question: '',
+    score: '', totalScore: '', source: '',
+    myFramework: '', stdFramework: '', paragraph: '',
+    bias: [{ wrong: '', right: '' }],
+    wrongList: [''], missedList: [''],
+    note: '', status: '待吸收', _formId: null, id: null
+  };
+
+  const loadAndRender = async () => {
+    if (isEdit) {
+      const e = await App.DB.get('errors', params.id);
+      if (e) {
+        d = {
+          subject: '申论', module: e.module || '', question: e.question || '',
+          score: e.score !== undefined ? String(e.score) : '',
+          totalScore: e.totalScore !== undefined ? String(e.totalScore) : '',
+          source: e.source || e.questionSource || '',
+          myFramework: e.myFramework || '', stdFramework: e.stdFramework || '', paragraph: e.paragraph || '',
+          bias: (e.bias && e.bias.length) ? e.bias.slice() : [{ wrong: '', right: '' }],
+          wrongList: (e.wrongList && e.wrongList.length) ? e.wrongList.slice() : [''],
+          missedList: (e.missedList && e.missedList.length) ? e.missedList.slice() : [''],
+          note: e.note || '', status: e.status || '待吸收', _formId: e.id, id: e.id
+        };
+      }
+      if (!d._formId) d._formId = params.id;
+    } else {
+      const fid = App.Draft.getFormId('shenlun');
+      if (fid) {
+        if (App.Draft.formIdIsTemp(fid)) {
+          const dr = App.Draft.loadForm('shenlun', fid);
+          if (dr) Object.assign(d, dr);
+          d._formId = fid;
+        } else {
+          const e = await App.DB.get('errors', fid);
+          if (e && e.subject === '申论') {
+            isEdit = true;
+            d = {
+              subject: '申论', module: e.module || '', question: e.question || '',
+              score: e.score !== undefined ? String(e.score) : '',
+              totalScore: e.totalScore !== undefined ? String(e.totalScore) : '',
+              source: e.source || e.questionSource || '',
+              myFramework: e.myFramework || '', stdFramework: e.stdFramework || '', paragraph: e.paragraph || '',
+              bias: (e.bias && e.bias.length) ? e.bias.slice() : [{ wrong: '', right: '' }],
+              wrongList: (e.wrongList && e.wrongList.length) ? e.wrongList.slice() : [''],
+              missedList: (e.missedList && e.missedList.length) ? e.missedList.slice() : [''],
+              note: e.note || '', status: e.status || '待吸收', _formId: fid, id: e.id
+            };
+          }
+        }
+      }
+      if (params.module && App.Constants.getModules('申论').indexOf(params.module) !== -1) d.module = params.module;
+      if (!d._formId) {
+        d._formId = App.Draft.newTempId();
+        App.Draft.setFormId('shenlun', d._formId);
+      }
+    }
+    build();
+  };
+
+  const build = () => {
+    container.innerHTML = '';
+
+    container.appendChild(App.Components.pageHeader(
+      isEdit ? '编辑申论错题' : '添加申论错题',
+      '', null
+    ));
+
+    const form = document.createElement('div');
+    form.className = 'form-page shenlun-form';
+
+    // 卡片容器辅助
+    const slCard = (title, children) => {
+      const card = document.createElement('div');
+      card.className = 'ef-card sl-card';
+      if (title) {
+        const t = document.createElement('div');
+        t.className = 'sl-card__title';
+        t.textContent = title;
+        card.appendChild(t);
+      }
+      (Array.isArray(children) ? children : [children]).forEach(c => { if (c) card.appendChild(c); });
+      return card;
+    };
+    const slRow = (label, control) => {
+      const row = document.createElement('div');
+      row.className = 'sl-row';
+      if (label) {
+        const lb = document.createElement('div');
+        lb.className = 'sl-row__label';
+        lb.textContent = label;
+        row.appendChild(lb);
+      }
+      if (control) row.appendChild(control);
+      return row;
+    };
+    const slField = (placeholder) => {
+      const input = document.createElement('input');
+      input.className = 'form-input sl-field';
+      input.placeholder = placeholder || '';
+      return input;
+    };
+    const slArea = (placeholder) => {
+      const ta = document.createElement('textarea');
+      ta.className = 'form-textarea sl-area';
+      ta.placeholder = placeholder || '';
+      return ta;
+    };
+
+    // v8.14.11 灰底选择条（与普通错题表单一致的弹窗选择）：显示当前值 + 右侧箭头，点击打开居中弹窗
+    const efSelectBar = (label, value, placeholder, onClick) => {
+      const row = document.createElement('div');
+      row.className = 'ef-selectbar';
+      if (label) {
+        const lb = document.createElement('div');
+        lb.className = 'ef-selectbar__label';
+        lb.textContent = label;
+        row.appendChild(lb);
+      }
+      const valEl = document.createElement('div');
+      valEl.className = 'ef-selectbar__value' + (value ? '' : ' ef-selectbar__value--ph');
+      valEl.textContent = value || placeholder || ('请选择' + (label || ''));
+      row.appendChild(valEl);
+      const arrow = document.createElement('div');
+      arrow.className = 'ef-selectbar__arrow';
+      arrow.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      row.appendChild(arrow);
+      row.addEventListener('click', onClick);
+      return row;
+    };
+
+    // ===== 模块1：题目信息 =====
+    const m1 = [];
+    // ① 题干（挪到模块选择框上方）
+    const qArea = slArea('粘贴/输入申论题目题干…');
+    qArea.value = d.question;
+    qArea.addEventListener('input', () => { d.question = qArea.value; });
+    m1.push(slRow('题干', qArea));
+
+    // ② 模块（改为弹窗选择，挪到题干下方）
+    const moduleBar = efSelectBar('模块', d.module, '归纳概括 / 综合分析 / 提出对策…', () => {
+      App.Components.pickerModal({
+        title: '选择模块',
+        mode: 'list',
+        options: App.Constants.getModules('申论'),
+        selected: d.module,
+        onDone: (val) => { if (val) d.module = val; if (typeof build === 'function') build(); }
+      });
+    });
+    m1.push(moduleBar);
+
+    // ③ 得分标题
+    const scoreTitle = document.createElement('div');
+    scoreTitle.className = 'sl-score-title';
+    scoreTitle.textContent = '得分';
+    m1.push(scoreTitle);
+
+    // ④ 得分 / 总分（并排）
+    const scoreInput = slField('得分');
+    scoreInput.type = 'number'; scoreInput.value = d.score;
+    scoreInput.addEventListener('input', () => { d.score = scoreInput.value; });
+    const totalInput = slField('总分');
+    totalInput.type = 'number'; totalInput.value = d.totalScore;
+    totalInput.addEventListener('input', () => { d.totalScore = totalInput.value; });
+    const scoreRow = document.createElement('div');
+    scoreRow.className = 'sl-score-row';
+    const scA = document.createElement('div'); scA.className = 'sl-score-item';
+    const scAl = document.createElement('span'); scAl.className = 'sl-score-label'; scAl.textContent = '得分';
+    scA.appendChild(scAl); scA.appendChild(scoreInput);
+    const scB = document.createElement('div'); scB.className = 'sl-score-item';
+    const scBl = document.createElement('span'); scBl.className = 'sl-score-label'; scBl.textContent = '总分';
+    scB.appendChild(scBl); scB.appendChild(totalInput);
+    scoreRow.appendChild(scA); scoreRow.appendChild(scB);
+    m1.push(scoreRow);
+
+    const srcInput = slField('如 2024年国考申论真题');
+    srcInput.value = d.source;
+    srcInput.addEventListener('input', () => { d.source = srcInput.value; });
+    m1.push(slRow('来源', srcInput));
+    form.appendChild(slCard('题目信息', m1));
+
+    // ===== 模块2：框架对比 =====
+    const m2 = [];
+    // 我的答案框架：蓝色标题 + textarea
+    const myWrap = document.createElement('div');
+    myWrap.className = 'sl-frame';
+    const myTitle = document.createElement('div');
+    myTitle.className = 'sl-frame__label sl-frame__label--blue';
+    myTitle.textContent = '我的答案框架';
+    myWrap.appendChild(myTitle);
+    const myA = slArea('我的答题框架要点…');
+    myA.value = d.myFramework;
+    myA.addEventListener('input', () => { d.myFramework = myA.value; });
+    myWrap.appendChild(myA);
+    m2.push(myWrap);
+    // 标准答案框架：绿色标题 + textarea
+    const stdWrap = document.createElement('div');
+    stdWrap.className = 'sl-frame';
+    const stdTitle = document.createElement('div');
+    stdTitle.className = 'sl-frame__label sl-frame__label--green';
+    stdTitle.textContent = '标准答案框架';
+    stdWrap.appendChild(stdTitle);
+    const stdA = slArea('标准答案框架要点…');
+    stdA.value = d.stdFramework;
+    stdA.addEventListener('input', () => { d.stdFramework = stdA.value; });
+    stdWrap.appendChild(stdA);
+    m2.push(stdWrap);
+    form.appendChild(slCard('框架对比', m2));
+
+    // ===== 模块3：逐段分析差距 =====
+    const m3 = [];
+    const hint = document.createElement('div');
+    hint.className = 'sl-hint';
+    hint.textContent = '对照我的答案与标准答案，逐段分析哪里多写、少写、移位';
+    m3.push(hint);
+    const pA = slArea('逐段写出与标准答案的差距…');
+    pA.value = d.paragraph;
+    pA.addEventListener('input', () => { d.paragraph = pA.value; });
+    m3.push(pA);
+    form.appendChild(slCard('逐段分析差距', m3));
+
+    // ===== 模块4：核心思维偏差表 =====
+    const m4 = [];
+    const tblHead = document.createElement('div');
+    tblHead.className = 'sl-tbl-head';
+    tblHead.innerHTML = '<span>偏差编号</span><span>我的错误</span><span>正确思维</span>';
+    m4.push(tblHead);
+    const tblWrap = document.createElement('div');
+    tblWrap.className = 'sl-tbl';
+    const renderBias = () => {
+      tblWrap.innerHTML = '';
+      d.bias.forEach((row, idx) => {
+        const r = document.createElement('div');
+        r.className = 'sl-tbl-row';
+        const num = document.createElement('span'); num.className = 'sl-tbl-num'; num.textContent = (idx + 1);
+        const w = document.createElement('input'); w.className = 'form-input sl-tbl-input'; w.placeholder = '我的错误'; w.value = row.wrong || '';
+        w.addEventListener('input', () => { row.wrong = w.value; });
+        const rt = document.createElement('input'); rt.className = 'form-input sl-tbl-input'; rt.placeholder = '正确思维'; rt.value = row.right || '';
+        rt.addEventListener('input', () => { row.right = rt.value; });
+        r.appendChild(num); r.appendChild(w); r.appendChild(rt);
+        tblWrap.appendChild(r);
+      });
+    };
+    renderBias();
+    m4.push(tblWrap);
+    const addBiasBtn = document.createElement('button');
+    addBiasBtn.type = 'button';
+    addBiasBtn.className = 'sl-addbtn';
+    addBiasBtn.innerHTML = '＋ 添加一行';
+    addBiasBtn.addEventListener('click', () => { d.bias.push({ wrong: '', right: '' }); renderBias(); });
+    m4.push(addBiasBtn);
+    form.appendChild(slCard('核心思维偏差', m4));
+
+    // ===== 模块5：踩分点错误/遗漏清单 =====
+    const m5 = [];
+    const wrongWrap = document.createElement('div');
+    wrongWrap.className = 'sl-listwrap';
+    const wrongL = document.createElement('div');
+    wrongL.className = 'sl-listlabel sl-listlabel--red';
+    wrongL.textContent = '我错误的';
+    wrongWrap.appendChild(wrongL);
+    const wrongClips = document.createElement('div');
+    wrongClips.className = 'sl-clips';
+    const renderWrongClips = () => {
+      wrongClips.innerHTML = '';
+      d.wrongList.forEach((v, idx) => {
+        if (idx === 0) {
+          const inp = document.createElement('input');
+          inp.className = 'form-input sl-clip-input';
+          inp.placeholder = '漏掉了踩分点「对策具体可操作性」…';
+          inp.value = v;
+          inp.addEventListener('input', () => { d.wrongList[0] = inp.value; });
+          wrongClips.appendChild(inp);
+        } else {
+          const chip = document.createElement('span');
+          chip.className = 'sl-chip';
+          chip.textContent = v;
+          const x = document.createElement('span'); x.className = 'sl-chip-x'; x.textContent = '×';
+          x.addEventListener('click', () => { d.wrongList.splice(idx, 1); renderWrongClips(); });
+          chip.appendChild(x);
+          wrongClips.appendChild(chip);
+        }
+      });
+    };
+    renderWrongClips();
+    wrongWrap.appendChild(wrongClips);
+    const addWrongBtn = document.createElement('button');
+    addWrongBtn.type = 'button';
+    addWrongBtn.className = 'sl-addbtn sl-addbtn--sm';
+    addWrongBtn.innerHTML = '＋ 添加踩分点';
+    addWrongBtn.addEventListener('click', () => {
+      const lastVal = d.wrongList[0] || '';
+      if (!lastVal.trim()) { App.Components.toast('请先填写第一项', 'error'); return; }
+      d.wrongList.push(lastVal); d.wrongList[0] = ''; renderWrongClips();
+    });
+    wrongWrap.appendChild(addWrongBtn);
+    m5.push(wrongWrap);
+
+    const missedWrap = document.createElement('div');
+    missedWrap.className = 'sl-listwrap';
+    const missedL = document.createElement('div');
+    missedL.className = 'sl-listlabel sl-listlabel--green';
+    missedL.textContent = '我遗漏的';
+    missedWrap.appendChild(missedL);
+    const missedClips = document.createElement('div');
+    missedClips.className = 'sl-clips';
+    const renderMissedClips = () => {
+      missedClips.innerHTML = '';
+      d.missedList.forEach((v, idx) => {
+        if (idx === 0) {
+          const inp = document.createElement('input');
+          inp.className = 'form-input sl-clip-input';
+          inp.placeholder = '遗漏了「分条作答、序号清晰」…';
+          inp.value = v;
+          inp.addEventListener('input', () => { d.missedList[0] = inp.value; });
+          missedClips.appendChild(inp);
+        } else {
+          const chip = document.createElement('span');
+          chip.className = 'sl-chip';
+          chip.textContent = v;
+          const x = document.createElement('span'); x.className = 'sl-chip-x'; x.textContent = '×';
+          x.addEventListener('click', () => { d.missedList.splice(idx, 1); renderMissedClips(); });
+          chip.appendChild(x);
+          missedClips.appendChild(chip);
+        }
+      });
+    };
+    renderMissedClips();
+    missedWrap.appendChild(missedClips);
+    const addMissedBtn = document.createElement('button');
+    addMissedBtn.type = 'button';
+    addMissedBtn.className = 'sl-addbtn sl-addbtn--sm';
+    addMissedBtn.innerHTML = '＋ 添加踩分点';
+    addMissedBtn.addEventListener('click', () => {
+      const lastVal = d.missedList[0] || '';
+      if (!lastVal.trim()) { App.Components.toast('请先填写第一项', 'error'); return; }
+      d.missedList.push(lastVal); d.missedList[0] = ''; renderMissedClips();
+    });
+    missedWrap.appendChild(addMissedBtn);
+    m5.push(missedWrap);
+    form.appendChild(slCard('踩分点错误/遗漏清单', m5));
+
+    // ===== 复盘笔记（可选） =====
+    const enoteGroup = document.createElement('div');
+    enoteGroup.className = 'ef-card';
+    const enoteLabel = document.createElement('label');
+    enoteLabel.className = 'form-label';
+    enoteLabel.textContent = '复盘笔记（一句话总结本次错因，可选）';
+    enoteGroup.appendChild(enoteLabel);
+    const enoteHtml = App.Utils.toNoteHtml(d.note);
+    if (d.note !== enoteHtml) d.note = enoteHtml;
+    const enoteEditor = App.Components.htmlEditor(enoteHtml, {
+      placeholder: false,
+      onChange: function (html) { d.note = html; }
+    });
+    enoteGroup.appendChild(enoteEditor.element);
+    d._getENote = enoteEditor.getHtml;
+    form.appendChild(enoteGroup);
+
+    // ===== 底部保存按钮 =====
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'btn ef-save-btn';
+    saveBtn.innerHTML = '保存申论错题';
+    saveBtn.addEventListener('click', async () => {
+      if (!d.module || !d.question.trim()) { App.Components.toast('请先填模块和题干', 'error'); return; }
+      await submit();
+    });
+    form.appendChild(saveBtn);
+
+    container.appendChild(form);
+
+    // 草稿自动暂存
+    App.Draft.autoSaveForm('shenlun', d._formId, container, function () {
+      if (d._getENote) { try { d.note = d._getENote(); } catch (e) {} }
+      return JSON.parse(JSON.stringify(d));
+    });
+  };
+
+  const submit = async () => {
+    if (d._getENote) { try { d.note = d._getENote(); } catch (e) {} }
+    if (!d.module) { App.Components.toast('请选择模块', 'error'); return; }
+    if (!d.question.trim()) { App.Components.toast('请输入题干', 'error'); return; }
+
+    const data = {
+      subject: '申论', module: d.module, question: d.question,
+      score: parseInt(d.score) || 0, totalScore: parseInt(d.totalScore) || 0,
+      source: d.source || '', questionSource: d.source || '',
+      myFramework: d.myFramework || '', stdFramework: d.stdFramework || '', paragraph: d.paragraph || '',
+      bias: (d.bias || []).filter(r => r.wrong || r.right),
+      wrongList: (d.wrongList || []).filter(x => x.trim()),
+      missedList: (d.missedList || []).filter(x => x.trim()),
+      note: d.note || '', status: d.status || '待吸收',
+      isShenlun: true,
+      knowledgePoints: [], options: [], errorCause: '', pitfall: '',
+      sourceExamId: null
+    };
+
+    try {
+      App.Utils.rememberSelect.set('error', '申论', d.module);
+      if (d.id) {
+        data.id = d.id;
+        const existing = await App.DB.get('errors', d.id);
+        data.reviewCount = existing ? existing.reviewCount || 0 : 0;
+        data.lastReviewDate = new Date().toISOString();
+        data.createdAt = existing ? existing.createdAt : new Date().toISOString();
+        await App.DB.updateError(data);
+      } else {
+        await App.DB.addError(data);
+      }
+      App.Components.toast('已保存 ✓', 'success');
+      App.Draft.clearForm('shenlun');
+      App.Router.navigate('errors');
+    } catch (e) { App.Components.toast('保存失败', 'error'); }
+  };
+
+  loadAndRender();
+};
+
 // 错题本画廊：窗口尺寸变化时，自动模式下重新选择密度
 (function galleryResizeAuto() {
   let resizeTimer = null;
@@ -11385,6 +12121,7 @@ App.Pages.Notes = {
     subject: null,
     module: null,
     knowledgePoint: null,
+    type: null,
     search: '',
     searchVisible: false,
     allNotes: []
@@ -11407,24 +12144,49 @@ App.Pages.Notes = {
     main.className = 'page-main';
 
     // 页面标题
+    // v8.14.11 顶栏搜索常驻（对齐画布「iPad-笔记」7:31：大标题 + 搜索栏 + 三点更多）
+    const stickyWrap = document.createElement('div');
+    stickyWrap.className = 'page-sticky';
     const header = document.createElement('div');
-    header.className = 'page-header';
+    header.className = 'page-header note-page-header';
+    const kw = (this.state.search || '').replace(/"/g, '&quot;');
     header.innerHTML = `
-      <div class="page-header__title" style="flex:1;">笔记</div>
-      <div class="page-header__right" style="display:flex;align-items:center;gap:6px;">
-        <button class="detail-header-action" id="note-more" title="更多" style="font-size:20px;padding:4px 6px;">⋮</button>
+      <div class="page-header__title" style="font-size:26px;font-weight:600;">笔记</div>
+      <div class="note-header-search">
+        <span class="search-bar__icon">🔍</span>
+        <input type="text" placeholder="搜索笔记标题 / 内容" id="note-search" value="${kw}">
       </div>
+      <button class="page-header__more" id="note-more" title="更多" aria-label="更多">
+        <svg width="16" height="4" viewBox="0 0 16 4" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="2" cy="2" r="1.6" fill="#4A4A4A"/>
+          <circle cx="8" cy="2" r="1.6" fill="#4A4A4A"/>
+          <circle cx="14" cy="2" r="1.6" fill="#4A4A4A"/>
+        </svg>
+      </button>
     `;
-    main.appendChild(header);
+    stickyWrap.appendChild(header);
+    main.appendChild(stickyWrap);
     header.querySelector('#note-more').addEventListener('click', (e) => {
       e.stopPropagation();
       this._showPageMenu();
     });
+    // 顶栏搜索常驻：输入即过滤列表
+    const nSearch = header.querySelector('#note-search');
+    nSearch.addEventListener('input', App.Utils.debounce((e) => {
+      this.state.search = e.target.value;
+      const listArea = document.getElementById('note-tree-area');
+      if (listArea) this.renderList(listArea);
+    }, 300));
 
-    // 搜索区（通过右上角三点菜单展开）
-    const searchArea = document.createElement('div');
-    searchArea.id = 'note-search-area';
-    main.appendChild(searchArea);
+    // 模块chips（对齐画布 8:4：选中科目后，列表区顶部横向选择该科目模块）
+    const moduleFilterArea = document.createElement('div');
+    moduleFilterArea.id = 'note-module-filter';
+    main.appendChild(moduleFilterArea);
+
+    // 类型chips（对齐画布：按笔记类型筛选）
+    const typeFilterArea = document.createElement('div');
+    typeFilterArea.id = 'note-type-filter';
+    main.appendChild(typeFilterArea);
 
     // 考点筛选条（科目-模块由侧边栏管理，与错题本一致）
     const filterArea = document.createElement('div');
@@ -11441,6 +12203,8 @@ App.Pages.Notes = {
     // 加载数据
     await this.loadData();
     this.renderSubjectGrid(sidebar);
+    this.renderModuleFilter(moduleFilterArea);
+    this.renderTypeFilter(typeFilterArea);
     this.renderFilters(filterArea);
     this.renderList(listArea);
   },
@@ -11449,80 +12213,115 @@ App.Pages.Notes = {
     this.state.allNotes = await App.DB.getNotes();
   },
 
-  // 左侧科目 - 模块树（与错题本一致的侧边栏导航）
+  // 左侧科目窄栏（对齐画布「iPad-笔记」7:1005：窄栏80，科目图标+名竖排，选中浅蓝圆角12）
+  // 模块选择交由列表区顶部「模块chips」承担（对齐画布 8:4）
   renderSubjectGrid(container) {
-    this._expanded = this._expanded || {};
-    const noteCounts = {};
-    App.Constants.SUBJECTS.forEach(s => {
-      noteCounts[s.name] = this.state.allNotes.filter(n => n.subject === s.name).length;
-    });
-
     container.innerHTML = '';
 
-    // 「全部」项
-    const allItem = document.createElement('div');
-    allItem.className = 'sidebar__item' + (this.state.subject === null ? ' active' : '');
-    allItem.innerHTML = `
-      <span class="sidebar__item-icon">📚</span>
-      <span class="sidebar__item-name">全部</span>
-    `;
-    allItem.addEventListener('click', () => {
-      this.state.subject = null;
-      this.state.module = null;
-      this.state.knowledgePoint = null;
-      this._expanded = {};
-      this.refreshAll();
-    });
-    container.appendChild(allItem);
-
-    // 各科目（可展开 -> 模块）
-    App.Constants.SUBJECTS.forEach(s => {
-      const isActive = this.state.subject === s.name;
-      const expanded = !!this._expanded[s.name];
-      const modules = App.Constants.getModules(s.name);
-
-      const row = document.createElement('div');
-      row.className = 'sidebar__item' + (isActive ? ' active' : '') + (expanded ? ' sidebar__item--expanded' : '');
-      const count = noteCounts[s.name];
-      row.innerHTML = `
-        <span class="sidebar__arrow">▶</span>
-        <span class="sidebar__item-icon">${s.icon}</span>
-        <span class="sidebar__item-name">${s.name}</span>
+    const buildItem = (s, isAll) => {
+      const name = isAll ? '全部' : s.name;
+      const icon = isAll ? '📚' : s.icon;
+      const isActive = isAll ? (this.state.subject === null) : (this.state.subject === s.name);
+      const item = document.createElement('div');
+      item.className = 'sidebar__item sidebar__item--col' + (isActive ? ' active' : '');
+      const count = isAll ? this.state.allNotes.length : this.state.allNotes.filter(n => n.subject === s.name).length;
+      item.innerHTML = `
+        <span class="sidebar__item-icon">${icon}</span>
+        <span class="sidebar__item-name">${name}</span>
         ${count > 0 ? `<span class="sidebar__item-count">${count}</span>` : ''}
       `;
-      row.querySelector('.sidebar__arrow').addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._expanded[s.name] = !this._expanded[s.name];
-        this.renderSubjectGrid(container);
-      });
-      row.addEventListener('click', () => {
-        this.state.subject = (this.state.subject === s.name) ? null : s.name;
-        this.state.module = null;
+      item.addEventListener('click', () => {
+        if (isAll) {
+          this.state.subject = null;
+          this.state.module = null;
+        } else {
+          this.state.subject = (this.state.subject === s.name) ? null : s.name;
+        }
         this.state.knowledgePoint = null;
         this.refreshAll();
       });
-      container.appendChild(row);
+      return item;
+    };
 
-      if (expanded && !App.Constants.isFlatSubject(s.name)) {
-        modules.forEach(mod => {
-          const mCount = this.state.allNotes.filter(n => n.subject === s.name && n.module === mod).length;
-          const sub = document.createElement('div');
-          sub.className = 'sidebar__sub' + (isActive && this.state.module === mod ? ' active' : '');
-          sub.innerHTML = `
-            <span class="sidebar__sub-name">${mod}</span>
-            ${mCount > 0 ? `<span class="sidebar__sub-count">${mCount}</span>` : ''}
-          `;
-          sub.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.state.subject = s.name;
-            this.state.module = (this.state.module === mod) ? null : mod;
-            this.state.knowledgePoint = null;
-            this.refreshAll();
-          });
-          container.appendChild(sub);
-        });
-      }
+    // 「全部」项
+    container.appendChild(buildItem(null, true));
+    // 各科目（窄栏图标项）
+    App.Constants.SUBJECTS.forEach(s => {
+      container.appendChild(buildItem(s, false));
     });
+  },
+
+  // 模块chips（对齐画布 8:4：选中科目后，列表区顶部横向选择该科目模块）
+  renderModuleFilter(container) {
+    container.innerHTML = '';
+    if (!this.state.subject) return;
+    const modules = App.Constants.getModules(this.state.subject);
+    if (!modules || !modules.length) return;
+    const wrap = document.createElement('div');
+    wrap.classList.add('note-modchips');
+    // 「全部」chip
+    const mkChip = (label, active, onClick) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'note-modchip' + (active ? ' active' : '');
+      chip.textContent = label;
+      chip.addEventListener('click', onClick);
+      return chip;
+    };
+    wrap.appendChild(mkChip('全部', !this.state.module, () => {
+      this.state.module = null;
+      this.state.knowledgePoint = null;
+      this.refreshAll();
+    }));
+    modules.forEach(mod => {
+      wrap.appendChild(mkChip(mod, this.state.module === mod, () => {
+        this.state.module = (this.state.module === mod) ? null : mod;
+        this.state.knowledgePoint = null;
+        this.refreshAll();
+      }));
+    });
+    container.appendChild(wrap);
+  },
+
+  // 类型chips（对齐画布 A3：按笔记类型筛选，含「全部」）
+  renderTypeFilter(container) {
+    container.innerHTML = '';
+    App.NoteTypes.ensureDefault();
+    const types = App.NoteTypes.getAll();
+    if (!types.length) return;
+    const wrap = document.createElement('div');
+    wrap.classList.add('note-modchips');
+    const mk = (label, active, onClick) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'note-modchip' + (active ? ' active' : '');
+      chip.textContent = label;
+      chip.addEventListener('click', onClick);
+      return chip;
+    };
+    wrap.appendChild(mk('类型全部', !this.state.type, () => {
+      this.state.type = null;
+      this.refreshFiltersAndList();
+    }));
+    types.forEach(t => {
+      const isActive = this.state.type === t.name;
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'note-modchip' + (isActive ? ' active' : '');
+      chip.style.cssText = isActive ? ('background:' + hexToRgba4(t.color, 0.14) + ';color:' + t.color + ';') : '';
+      chip.textContent = t.name;
+      chip.addEventListener('click', () => {
+        this.state.type = (this.state.type === t.name) ? null : t.name;
+        this.refreshFiltersAndList();
+      });
+      wrap.appendChild(chip);
+    });
+    function hexToRgba4(hex, a) {
+      const h = String(hex).replace('#', '');
+      if (/^[0-9a-fA-F]{6}$/.test(h)) return 'rgba(' + [0, 2, 4].map(i => parseInt(h.substr(i, 2), 16)).join(',') + ',' + a + ')';
+      return 'rgba(0,102,204,' + a + ')';
+    }
+    container.appendChild(wrap);
   },
 
   // 考点筛选条（科目-模块由侧边栏管理；仅选中科目后显示）
@@ -11567,6 +12366,7 @@ App.Pages.Notes = {
     if (this.state.subject) notes = notes.filter(n => n.subject === this.state.subject);
     if (this.state.module) notes = notes.filter(n => n.module === this.state.module);
     if (this.state.knowledgePoint) notes = notes.filter(n => n.knowledgePoint === this.state.knowledgePoint);
+    if (this.state.type) notes = notes.filter(n => n.type === this.state.type);
     if (this.state.search) {
       const kw = this.state.search.toLowerCase();
       const noteText = (n) => {
@@ -11622,20 +12422,53 @@ App.Pages.Notes = {
       return;
     }
 
-    notes.forEach((note, idx) => container.appendChild(this.buildNoteCard(note, idx)));
+    notes.forEach((note, idx) => container.appendChild(this.buildNoteCard(note)));
   },
 
-  // 单条笔记卡片（去掉科目-模块与考点标签，仅标题 + 元信息）
-  buildNoteCard(note, index) {
+  // 笔记卡片（对齐画布「iPad-笔记」7:964：科目色块首字 + 标题/摘要 + 右侧日期 + 箭头）
+  buildNoteCard(note) {
     const card = document.createElement('div');
-    card.className = 'note-item note-item--flat';
-    const idxHtml = typeof index === 'number' ? `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:9999px;background:var(--bg-tertiary);color:var(--text-tertiary);font-size:10px;font-weight:600;margin-right:6px;">${index + 1}</span>` : '';
+    card.className = 'note-item note-item--card';
+    const subj = note.subject ? App.Constants.SUBJECTS.find(s => s.name === note.subject) : null;
+    const color = subj && subj.color ? subj.color : '#4A90E2';
+    const firstChar = note.subject ? note.subject.slice(0, 1) : '记';
+    const hex = String(color).replace('#', '');
+    let bg = 'rgba(74,144,226,0.12)';
+    if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+      bg = 'rgba(' + [0, 2, 4].map(i => parseInt(hex.substr(i, 2), 16)).join(',') + ',0.12)';
+    }
+    // 摘要：去 HTML 标签取纯文本前若干字
+    let summary = '';
+    try {
+      let txt = Array.isArray(note.content) ? JSON.stringify(note.content) : String(note.content || '');
+      txt = txt.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!txt || txt === '""' || txt === '[]') txt = '';
+      if (txt) summary = App.Utils.truncate(txt, 34);
+    } catch (e) { summary = ''; }
+    let dateTxt = '';
+    try {
+      const dd = new Date(note.updatedAt);
+      if (!isNaN(dd.getTime())) dateTxt = (dd.getMonth() + 1) + ' 月 ' + dd.getDate() + ' 日';
+    } catch (e) { dateTxt = ''; }
+    // 类型 pill（对齐画布：类型在笔记卡上显示效果）
+    let typePill = '';
+    if (note.type && App.NoteTypes.getAll().some(t => t.name === note.type)) {
+      const tc = App.NoteTypes.getColor(note.type);
+      const tHex = String(tc).replace('#', '');
+      const tBg = /^[0-9a-fA-F]{6}$/.test(tHex)
+        ? 'rgba(' + [0, 2, 4].map(i => parseInt(tHex.substr(i, 2), 16)).join(',') + ',0.12)'
+        : 'rgba(0,102,204,0.12)';
+      typePill = `<div class="note-type-pill" style="background:${tBg};color:${tc};">${note.type}</div>`;
+    }
     card.innerHTML = `
-      <div class="note-item__title">${idxHtml}${App.Utils.truncate(note.title, 30)}</div>
-      <div class="note-item__meta">
-        <span>${App.Utils.formatDate(note.updatedAt, 'MM-DD HH:mm')}</span>
-        ${note.linkedErrors && note.linkedErrors.length > 0 ? `<span>关联错题：${note.linkedErrors.length}</span>` : ''}
+      <div class="note-avatar" style="background:${bg};color:${color};">${firstChar}</div>
+      <div class="note-item__body">
+        ${typePill ? `<div class="note-type-pill-row">${typePill}</div>` : ''}
+        <div class="note-item__title">${App.Utils.truncate(note.title, 26)}</div>
+        ${summary ? `<div class="note-item__summary">${summary}</div>` : ''}
       </div>
+      <div class="note-item__right"><div class="note-item__date">${dateTxt}</div></div>
+      <div class="note-item__arrow">›</div>
     `;
     card.addEventListener('click', () => App.Router.navigate('note-detail?id=' + note.id));
     return card;
@@ -11643,52 +12476,40 @@ App.Pages.Notes = {
 
   // 局部刷新：筛选条即时切换不动画，列表仅做进入动画
   refreshFiltersAndList() {
+    const moduleFilter = document.getElementById('note-module-filter');
+    const typeFilter = document.getElementById('note-type-filter');
     const filterArea = document.getElementById('note-filter-area');
     const listArea = document.getElementById('note-tree-area');
+    if (moduleFilter) this.renderModuleFilter(moduleFilter);
+    if (typeFilter) this.renderTypeFilter(typeFilter);
     if (filterArea) this.renderFilters(filterArea);
     if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
   },
 
   refreshAll() {
     const sidebar = document.getElementById('note-sidebar');
-    const searchArea = document.getElementById('note-search-area');
+    const moduleFilter = document.getElementById('note-module-filter');
+    const typeFilter = document.getElementById('note-type-filter');
     const filterArea = document.getElementById('note-filter-area');
     const listArea = document.getElementById('note-tree-area');
     if (sidebar) this.renderSubjectGrid(sidebar);
-    if (searchArea) this.renderSearchBar(searchArea);
+    if (moduleFilter) this.renderModuleFilter(moduleFilter);
+    if (typeFilter) this.renderTypeFilter(typeFilter);
     if (filterArea) this.renderFilters(filterArea);
     if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
   },
 
-  // 右上角三点菜单
+  // 右上角三点菜单（v8.14.11 搜索已常驻顶栏，菜单只保留轻量项）
   async _showPageMenu() {
-    const action = await App.Components.actionSheet([
-      { label: '🔍 ' + (this.state.searchVisible ? '隐藏搜索' : '搜索笔记'), value: 'search' }
-    ], '笔记');
-    if (action === 'search') {
-      this.state.searchVisible = !this.state.searchVisible;
-      const searchArea = document.getElementById('note-search-area');
-      if (searchArea) this.renderSearchBar(searchArea);
+    const items = [];
+    if (this.state.subject === '言语理解') {
+      items.push({ label: '📚 词语库', value: 'worddb' });
     }
-  },
-
-  renderSearchBar(container) {
-    container.innerHTML = '';
-    if (!this.state.searchVisible) return;
-    const searchBar = document.createElement('div');
-    searchBar.className = 'search-bar';
-    searchBar.style.marginBottom = 'var(--spacing-md)';
-    const val = (this.state.search || '').replace(/"/g, '&quot;');
-    searchBar.innerHTML = `
-      <span class="search-bar__icon">🔍</span>
-      <input type="text" placeholder="搜索笔记 / 知识点" id="note-search" value="${val}">
-    `;
-    container.appendChild(searchBar);
-    const input = searchBar.querySelector('input');
-    input.addEventListener('input', App.Utils.debounce((e) => {
-      this.state.search = e.target.value;
-      this.renderList(document.getElementById('note-tree-area'));
-    }, 300));
+    if (!items.length) { App.Components.toast('暂无可选项', 'info'); return; }
+    const action = await App.Components.actionSheet(items, '笔记');
+    if (action === 'worddb') {
+      App.Router.navigate('worddb?subject=' + encodeURIComponent('言语理解') + '&module=' + encodeURIComponent('逻辑填空'));
+    }
   },
 
   // ===== 笔记详情页（Notion 式无模式就地编辑：点击即编辑，失焦即保存回查看） =====
@@ -12138,6 +12959,7 @@ App.Pages.Notes = {
       subject: params.subject || '',
       module: '',
       knowledgePoint: '',
+      type: '',
       title: '',
       content: '',
       linkedErrors: []
@@ -12151,6 +12973,7 @@ App.Pages.Notes = {
             subject: note.subject || '',
             module: note.module || '',
             knowledgePoint: note.knowledgePoint || '',
+            type: note.type || '',
             title: note.title || '',
             content: note.content || '',
             linkedErrors: note.linkedErrors || [],
@@ -12174,7 +12997,7 @@ App.Pages.Notes = {
               isEdit = true;
               formData = {
                 subject: note.subject || '', module: note.module || '',
-                knowledgePoint: note.knowledgePoint || '', title: note.title || '',
+                knowledgePoint: note.knowledgePoint || '', type: note.type || '', title: note.title || '',
                 content: note.content || '', linkedErrors: note.linkedErrors || [],
                 id: note.id
               };
@@ -12235,6 +13058,53 @@ App.Pages.Notes = {
       titleInput.value = formData.title || '';
       titleInput.addEventListener('input', () => { formData.title = titleInput.value; });
       form.appendChild(titleInput);
+
+      // ===== 笔记类型选择（对齐画布：类型chips，可多选? 单选一个类型） =====
+      const typeWrap = document.createElement('div');
+      typeWrap.className = 'note-type-field';
+      App.NoteTypes.ensureDefault();
+      const typeChips = App.NoteTypes.getAll();
+      typeWrap.innerHTML = '<div class="note-type-kw">类型（可选）</div>';
+      const chipsBox = document.createElement('div');
+      chipsBox.className = 'note-modchips';
+      const typeNone = document.createElement('button');
+      typeNone.type = 'button';
+      typeNone.className = 'note-modchip note-modchip--type' + (!formData.type ? ' active' : '');
+      typeNone.textContent = '无';
+      typeNone.addEventListener('click', () => { formData.type = ''; renderTypeChips(); });
+      chipsBox.appendChild(typeNone);
+      const renderTypeChips = () => {
+        chipsBox.innerHTML = '';
+        const mk = (label, active, onClick) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'note-modchip note-modchip--type' + (active ? ' active' : '');
+          b.textContent = label;
+          b.addEventListener('click', onClick);
+          return b;
+        };
+        chipsBox.appendChild(mk('无', !formData.type, () => { formData.type = ''; renderTypeChips(); }));
+        App.NoteTypes.getAll().forEach(t => {
+          const c = t.color;
+          const isActive = formData.type === t.name;
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'note-modchip note-modchip--type' + (isActive ? ' active' : '');
+          b.style.cssText = isActive ? ('background:' + hexToRgba3(c, 0.14) + ';color:' + c + ';') : '';
+          b.textContent = t.name;
+          b.addEventListener('click', () => { formData.type = t.name; renderTypeChips(); });
+          chipsBox.appendChild(b);
+        });
+      };
+      renderTypeChips();
+      typeWrap.appendChild(chipsBox);
+      form.appendChild(typeWrap);
+
+      function hexToRgba3(hex, a) {
+        const h = String(hex).replace('#', '');
+        if (/^[0-9a-fA-F]{6}$/.test(h)) return 'rgba(' + [0, 2, 4].map(i => parseInt(h.substr(i, 2), 16)).join(',') + ',' + a + ')';
+        return 'rgba(0,102,204,' + a + ')';
+      }
 
       // ===== 单一分类选择框（科目 › 模块 › 考点 级联） =====
       const catSelector = document.createElement('button');
@@ -12413,7 +13283,7 @@ App.Pages.Notes = {
         const existing = await App.DB.get('notes', formData.id);
         await App.DB.updateNote({
           id: formData.id, subject: formData.subject, module: formData.module,
-          knowledgePoint: formData.knowledgePoint, title: formData.title,
+          knowledgePoint: formData.knowledgePoint, type: formData.type, title: formData.title,
           content: formData.content, linkedErrors: formData.linkedErrors,
           linkedReviews: existing ? existing.linkedReviews || [] : [],
           updatedAt: new Date().toISOString()
@@ -12422,7 +13292,7 @@ App.Pages.Notes = {
         if (!formData.id) {
           formData.id = await App.DB.addNote({
             subject: formData.subject, module: formData.module,
-            knowledgePoint: formData.knowledgePoint,
+            knowledgePoint: formData.knowledgePoint, type: formData.type,
             title: formData.title || '未命名笔记', content: formData.content,
             linkedErrors: formData.linkedErrors, linkedReviews: [],
             updatedAt: new Date().toISOString()
@@ -12431,7 +13301,7 @@ App.Pages.Notes = {
         } else {
           await App.DB.updateNote({
             id: formData.id, subject: formData.subject, module: formData.module,
-            knowledgePoint: formData.knowledgePoint, title: formData.title,
+            knowledgePoint: formData.knowledgePoint, type: formData.type, title: formData.title,
             content: formData.content, linkedErrors: formData.linkedErrors,
             linkedReviews: [], updatedAt: new Date().toISOString()
           });
@@ -12454,6 +13324,235 @@ App.Pages.Notes = {
     };
 
     loadAndRender();
+  },
+
+  // ===== 笔记类型管理页（A4，对齐画布 8:170：返回+标题+说明+类型列表+新增按钮） =====
+  async renderTypeManage(params) {
+    const container = document.getElementById('page-note-type-manage');
+    container.innerHTML = '';
+    App.NoteTypes.ensureDefault();
+    await this.loadData();
+
+    container.appendChild(App.Components.pageHeader(
+      '笔记类型',
+      '', () => App.Router.navigate('settings')
+    ));
+
+    const body = document.createElement('div');
+    body.style.cssText = 'padding:var(--spacing-md) var(--page-padding) 40px;';
+
+    // 说明
+    const hint = document.createElement('div');
+    hint.style.cssText = 'font-size:13px;color:var(--text-tertiary);margin-bottom:14px;';
+    hint.textContent = '自定义类型可自由新增、修改、删除，笔记页顶部按类型筛选';
+    body.appendChild(hint);
+
+    // 类型列表
+    const listBox = document.createElement('div');
+    listBox.className = 'ntype-list';
+    const renderRows = () => {
+      listBox.innerHTML = '';
+      const types = App.NoteTypes.getAll();
+      if (!types.length) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'padding:30px;text-align:center;color:var(--text-tertiary);font-size:13px;';
+        empty.textContent = '暂无类型，点击下方新增';
+        listBox.appendChild(empty);
+        return;
+      }
+      types.forEach((t, idx) => {
+        const count = (this.state.allNotes || []).filter(n => n.type === t.name).length;
+        const row = document.createElement('div');
+        row.className = 'ntype-row';
+        const left = document.createElement('div');
+        left.className = 'ntype-row__left';
+        const dot = document.createElement('span');
+        dot.className = 'ntype-dot';
+        dot.style.background = t.color;
+        const name = document.createElement('span');
+        name.className = 'ntype-name';
+        name.textContent = t.name;
+        left.appendChild(dot); left.appendChild(name);
+        row.appendChild(left);
+        const right = document.createElement('div');
+        right.className = 'ntype-row__right';
+        const num = document.createElement('span');
+        num.className = 'ntype-count';
+        num.textContent = count + ' 篇';
+        right.appendChild(num);
+        // 编辑（点击名称改色/改名）
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'ntype-op';
+        editBtn.title = '编辑';
+        editBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.85 0 114 4L7.5 20.5 2 22l1.5-5.5z"/></svg>';
+        editBtn.addEventListener('click', (e) => { e.stopPropagation(); App.Router.navigate('note-type-form?name=' + encodeURIComponent(t.name)); });
+        right.appendChild(editBtn);
+        // 删除
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'ntype-op ntype-op--danger';
+        delBtn.title = '删除';
+        delBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>';
+        delBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const ok = await App.Components.confirm('删除类型', '确定删除类型「' + t.name + '」？该类型下的笔记不受影响（无类型）。', '删除', '取消', true);
+          if (!ok) return;
+          App.NoteTypes.remove(t.name);
+          App.Components.toast('已删除', 'success');
+          renderRows();
+        });
+        right.appendChild(delBtn);
+        row.appendChild(right);
+        // 点击整行编辑
+        row.addEventListener('click', () => App.Router.navigate('note-type-form?name=' + encodeURIComponent(t.name)));
+        listBox.appendChild(row);
+        if (idx < types.length - 1) {
+          const sep = document.createElement('div');
+          sep.className = 'ntype-sep';
+          listBox.appendChild(sep);
+        }
+      });
+    };
+    renderRows();
+    body.appendChild(listBox);
+
+    // 底部新增按钮（对齐画布 8:215：主色圆角25全宽）
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'ntype-add';
+    addBtn.textContent = '+ 新增类型';
+    addBtn.addEventListener('click', () => App.Router.navigate('note-type-form'));
+    body.appendChild(addBtn);
+
+    container.appendChild(body);
+  },
+
+  // ===== 新增/编辑笔记类型页（A5/A6，对齐画布 10:1：名称+色板+预览+保存） =====
+  async renderTypeForm(params) {
+    const container = document.getElementById('page-note-type-form');
+    container.innerHTML = '';
+    App.NoteTypes.ensureDefault();
+
+    const editing = !!(params && params.name);
+    const list = App.NoteTypes.getAll();
+    let d = editing
+      ? (list.find(t => t.name === params.name) || { name: '', color: '#0066CC' })
+      : { name: '', color: '#0066CC' };
+
+    const header = App.Components.pageHeader(
+      editing ? '编辑类型' : '新增类型',
+      '保存',
+      async () => {
+        const nm = d.name.trim();
+        if (!nm) { App.Components.toast('请输入类型名称', 'error'); return; }
+        if (!editing && App.NoteTypes.getAll().some(t => t.name === nm)) {
+          App.Components.toast('已存在同名类型', 'error'); return;
+        }
+        if (editing) {
+          // 改名：更新存储 + 同步笔记里的 type
+          App.NoteTypes.remove(params.name);
+          App.NoteTypes.add(nm, d.color);
+          try {
+            const notes = await App.DB.getNotes();
+            for (const n of notes) { if (n.type === params.name) { n.type = nm; await App.DB.updateNote(n); } }
+          } catch (e) { /* ignore */ }
+        } else {
+          App.NoteTypes.add(nm, d.color);
+        }
+        App.Components.toast('已保存', 'success');
+        App.Router.navigate('note-type-manage');
+      }
+    );
+    container.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'ntype-form';
+
+    // 名称区
+    const nameLabel = document.createElement('div');
+    nameLabel.className = 'ntype-label';
+    nameLabel.textContent = '名称';
+    body.appendChild(nameLabel);
+    const nameInput = document.createElement('input');
+    nameInput.className = 'ntype-input';
+    nameInput.placeholder = '输入类型名称，如：高频考点';
+    nameInput.value = d.name;
+    nameInput.addEventListener('input', () => { d.name = nameInput.value; refreshPreview(); });
+    body.appendChild(nameInput);
+
+    // 颜色区
+    const colorLabel = document.createElement('div');
+    colorLabel.className = 'ntype-label';
+    colorLabel.textContent = '颜色';
+    body.appendChild(colorLabel);
+    const palette = document.createElement('div');
+    palette.className = 'ntype-palette';
+    const COLORS = ['#0066CC', '#FF9500', '#34C759', '#9B7BFF', '#00BFA5', '#FF3B30', '#FF5B9E'];
+    COLORS.forEach(c => {
+      const sw = document.createElement('button');
+      sw.type = 'button';
+      sw.className = 'ntype-swatch' + (d.color === c ? ' active' : '');
+      sw.style.background = c;
+      if (d.color === c) sw.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>';
+      sw.addEventListener('click', () => { d.color = c; buildPalette(); refreshPreview(); });
+      palette.appendChild(sw);
+    });
+    const buildPalette = () => {
+      palette.innerHTML = '';
+      COLORS.forEach(c => {
+        const sw = document.createElement('button');
+        sw.type = 'button';
+        sw.className = 'ntype-swatch' + (d.color === c ? ' active' : '');
+        sw.style.background = c;
+        if (d.color === c) sw.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>';
+        sw.addEventListener('click', () => { d.color = c; buildPalette(); refreshPreview(); });
+        palette.appendChild(sw);
+      });
+    };
+    body.appendChild(palette);
+
+    // 预览区
+    const prevLabel = document.createElement('div');
+    prevLabel.className = 'ntype-label';
+    prevLabel.textContent = '预览';
+    body.appendChild(prevLabel);
+    const prevCard = document.createElement('div');
+    prevCard.className = 'ntype-preview';
+    const prevPill = document.createElement('div');
+    prevPill.className = 'ntype-pill';
+    prevCard.appendChild(prevPill);
+    const prevNote = document.createElement('div');
+    prevNote.className = 'ntype-preview-note';
+    prevNote.textContent = '新类型在笔记卡上的显示效果';
+    prevCard.appendChild(prevNote);
+    body.appendChild(prevCard);
+    const refreshPreview = () => {
+      const c = d.color || '#0066CC';
+      const txt = d.name.trim() || '高频考点';
+      prevPill.style.background = hexToRgba2(c, 0.12);
+      prevPill.style.color = c;
+      prevPill.textContent = txt;
+    };
+
+    // 提示
+    const tip = document.createElement('div');
+    tip.className = 'ntype-tip';
+    tip.textContent = '保存后即可在笔记页顶部按此类型筛选';
+    body.appendChild(tip);
+
+    // hex→rgba(alpha)
+    function hexToRgba2(hex, a) {
+      const h = String(hex).replace('#', '');
+      if (/^[0-9a-fA-F]{6}$/.test(h)) {
+        return 'rgba(' + [0, 2, 4].map(i => parseInt(h.substr(i, 2), 16)).join(',') + ',' + a + ')';
+      }
+      return 'rgba(0,102,204,' + a + ')';
+    }
+
+    buildPalette();
+    refreshPreview();
+    container.appendChild(body);
   }
 };
 // ===== 考公笔试复盘系统 - 便签管理页（查看全部） =====
@@ -12854,25 +13953,24 @@ App.Pages.Exams = {
     const container = document.getElementById('page-exams');
     container.innerHTML = '';
 
-    // 页面标题
+    // 页面标题（对齐画布 7:35：大标题26px + 常驻搜索 + 计数） + 常驻搜索入顶栏
+    const stickyWrap = document.createElement('div');
+    stickyWrap.className = 'page-sticky';
     const header = document.createElement('div');
-    header.className = 'page-header';
+    header.className = 'page-header exam-page-header';
+    const kw = (this.state.search || '').replace(/"/g, '&quot;');
     header.innerHTML = `
-      <div class="page-header__title">套卷记录</div>
+      <div class="page-header__title" style="font-size:26px;font-weight:600;">套卷记录</div>
+      <div class="note-header-search">
+        <span class="search-bar__icon">🔍</span>
+        <input type="text" placeholder="搜索套卷名称" id="exam-search" value="${kw}">
+      </div>
       <div class="page-header__right" id="exam-count">共 0 套</div>
     `;
-    container.appendChild(header);
+    stickyWrap.appendChild(header);
+    container.appendChild(stickyWrap);
 
-    // 搜索栏
-    const searchBar = document.createElement('div');
-    searchBar.className = 'search-bar';
-    searchBar.innerHTML = `
-      <span class="search-bar__icon">🔍</span>
-      <input type="text" placeholder="搜索套卷名称..." id="exam-search">
-    `;
-    container.appendChild(searchBar);
-
-    searchBar.querySelector('input').addEventListener('input', App.Utils.debounce((e) => {
+    header.querySelector('#exam-search').addEventListener('input', App.Utils.debounce((e) => {
       this.state.search = e.target.value;
       this.refreshList();
     }, 300));
@@ -12929,11 +14027,11 @@ App.Pages.Exams = {
       </div>
       <div class="stat-item">
         <div class="stat-item__value">${thisWeek}</div>
-        <div class="stat-item__label">本周套卷</div>
+        <div class="stat-item__label">本周</div>
       </div>
       <div class="stat-item">
         <div class="stat-item__value">${Math.round(totalTime / 60)}h</div>
-        <div class="stat-item__label">累计用时</div>
+        <div class="stat-item__label">总时长</div>
       </div>
     `;
   },
@@ -13020,30 +14118,14 @@ App.Pages.Exams = {
       return;
     }
 
-    // 时间线布局
-    const timeline = document.createElement('div');
-    timeline.className = 'timeline';
+    // 卡片列表（对齐画布 7:35：无时间线，三栏套卷卡并排）
+    const listWrap = document.createElement('div');
+    listWrap.className = 'exam-cardlist';
 
-    exams.forEach((exam, idx) => {
-      const item = document.createElement('div');
-      item.className = 'timeline-item';
-
-      // 时间线圆点
-      const dot = document.createElement('div');
-      dot.className = 'timeline-dot';
-      item.appendChild(dot);
-
-      // 日期标签
-      const dateLabel = document.createElement('div');
-      dateLabel.style.cssText = 'font-size:var(--font-xs);color:var(--text-tertiary);margin-bottom:8px;';
-      dateLabel.textContent = App.Utils.formatDate(exam.examDate);
-      item.appendChild(dateLabel);
-
-      // 套卷卡片
-      const card = App.Components.examCard(exam, () => {
+    exams.forEach((exam) => {
+      const card = this.buildExamItemCard(exam, () => {
         App.Router.navigate('exam-detail?id=' + exam.id);
       });
-      item.appendChild(card);
 
       // 左滑操作
       App.Utils.initSwipeable(card, {
@@ -13071,10 +14153,50 @@ App.Pages.Exams = {
         }
       });
 
-      timeline.appendChild(item);
+      listWrap.appendChild(card);
     });
 
-    container.appendChild(timeline);
+    container.appendChild(listWrap);
+  },
+
+  // 套卷卡（对齐画布 7:329：左[标题+副信息]｜中[科目正确率]｜右[总正确率大数字+标签]+箭头）
+  buildExamItemCard(exam, onClick) {
+    const card = document.createElement('div');
+    card.className = 'exam-card ex3-card';
+    // 左：标题 + 副信息（日期·用时）
+    let dateTxt = '';
+    try {
+      const dd = new Date(exam.examDate);
+      if (!isNaN(dd.getTime())) dateTxt = (dd.getMonth() + 1) + ' 月 ' + dd.getDate() + ' 日';
+    } catch (e) { dateTxt = ''; }
+    const mins = exam.totalTime || 0;
+    let durTxt = mins >= 60 ? Math.floor(mins / 60) + 'h' + (mins % 60 ? Math.floor(mins % 60) + 'm' : '') : (mins + 'm');
+    const subInfo = [dateTxt, '用时 ' + durTxt].filter(Boolean).join(' · ');
+    // 中：科目正确率（科目首字+单科%）
+    const subjAcc = (exam.subjectScores || [])
+      .filter(s => s && s.subject)
+      .map(s => {
+        const pct = s.totalScore ? Math.round((s.score || 0) / s.totalScore * 100) : 0;
+        return s.subject.slice(0, 1) + ' ' + pct + '%';
+      }).join(' · ');
+    // 右：总正确率 + 标签
+    const acc = Math.round(exam.totalAccuracy || 0);
+
+    card.innerHTML = `
+      <div class="ex3-left">
+        <div class="ex3-title">${App.Utils.truncate(exam.name, 20)}</div>
+        <div class="ex3-sub">${subInfo}</div>
+      </div>
+      ${subjAcc ? `<div class="ex3-mid">${subjAcc}</div>` : ''}
+      <div class="ex3-right">
+        <div class="ex3-acc">${acc}%</div>
+        <div class="ex3-acc-label">总正确率</div>
+      </div>
+      <div class="ex3-arrow">›</div>
+    `;
+
+    if (onClick) card.addEventListener('click', onClick);
+    return card;
   },
 
   refreshAll() {
@@ -13086,6 +14208,12 @@ App.Pages.Exams = {
       if (filterBar) this.renderFilters(filterBar);
       if (listArea) this.renderList(listArea);
     });
+  },
+
+  // 搜索/排序变化时只刷新列表（统计不变）
+  refreshList() {
+    const listArea = document.getElementById('exam-list');
+    if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
   },
 
   // ===== 套卷详情页 =====
@@ -14345,10 +15473,13 @@ App.Pages.Settings = {
     const container = document.getElementById('page-settings');
     container.innerHTML = '';
 
-    // 页面标题
+    // 页面标题（对齐画布 7:357：标题26px + 右侧版本号 v8.x.x）
     const header = document.createElement('div');
     header.className = 'page-header';
-    header.innerHTML = `<div class="page-header__title">设置</div>`;
+    header.innerHTML = `
+      <div class="page-header__title" style="font-size:26px;font-weight:600;">设置</div>
+      <div class="settings-version">v${App.VERSION || ''}</div>
+    `;
     container.appendChild(header);
 
     const content = document.createElement('div');
@@ -14580,6 +15711,28 @@ App.Pages.Settings = {
     dataGroup.appendChild(importItem);
 
     content.appendChild(dataGroup);
+
+    // ===== 笔记组（对齐画布 8:157：含「笔记类型」入口） =====
+    const noteGroup = document.createElement('div');
+    noteGroup.className = 'settings-group';
+    const ntTitle = document.createElement('div');
+    ntTitle.style.cssText = 'padding:12px var(--spacing-lg);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;';
+    ntTitle.textContent = '笔记';
+    noteGroup.appendChild(ntTitle);
+    const ntRow = document.createElement('div');
+    ntRow.className = 'settings-item';
+    const ntLabel = document.createElement('span');
+    ntLabel.className = 'settings-item__label';
+    ntLabel.textContent = '笔记类型';
+    const ntValue = document.createElement('span');
+    ntValue.className = 'settings-item__value';
+    ntValue.style.cssText = 'display:flex;align-items:center;gap:4px;';
+    ntValue.innerHTML = '管理中 <span style="color:var(--text-tertiary);">›</span>';
+    ntRow.appendChild(ntLabel);
+    ntRow.appendChild(ntValue);
+    ntRow.addEventListener('click', () => App.Router.navigate('note-type-manage'));
+    noteGroup.appendChild(ntRow);
+    content.appendChild(noteGroup);
 
     // ===== 考点管理（多级折叠列表 + 管理模式） =====
     // 折叠/管理状态保存在实例 _state 上，避免每次重渲染丢失
