@@ -9581,7 +9581,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   background: #E7F0FF; border-radius: 10px; color: #0066CC; font-size: 18px; font-weight: 700;
 }
 .sc-hcap__info { flex: 1; padding-left: 10px; min-width: 0; }
-.sc-hcap__name { font-size: 14px; font-weight: 600; color: #1D1D1F; }
+.sc-hcap__name { font-size: 14px; font-weight: 600; color: #1D1D1F; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sc-hcap__sub { font-size: 11px; color: #8E8E93; margin-top: 2px; }
 .sc-hcap__stat { text-align: right; flex-shrink: 0; }
 .sc-hcap__rate { font-size: 18px; font-weight: 700; }

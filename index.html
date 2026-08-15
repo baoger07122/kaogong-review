@@ -9599,7 +9599,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   background: #E7F0FF; border-radius: 10px; color: #0066CC; font-size: 18px; font-weight: 700;
 }
 .sc-hcap__info { flex: 1; padding-left: 10px; min-width: 0; }
-.sc-hcap__name { font-size: 14px; font-weight: 600; color: #1D1D1F; }
+.sc-hcap__name { font-size: 14px; font-weight: 600; color: #1D1D1F; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sc-hcap__sub { font-size: 11px; color: #8E8E93; margin-top: 2px; }
 .sc-hcap__stat { text-align: right; flex-shrink: 0; }
 .sc-hcap__rate { font-size: 18px; font-weight: 700; }
@@ -9866,7 +9866,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.32';
+App.VERSION = '8.15.33';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -28658,6 +28658,8 @@ renderHome(container) {
     const record = {
       id: 'sc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       type: (this.state.type === "custom" ? "自定义练习" : this.TYPES[this.state.type].name),
+      // v8.15.33 自定义练习存完整标题（题型 + 数字设置），历史页显示用
+      name: this.state.type === 'custom' ? this._customLabel(this.state.custom) : null,
       mode: this.state.mode === 'race' ? '竞速模式' : '训练模式',
       count: qs.length,
       correct: correct,
@@ -28757,6 +28759,19 @@ renderHome(container) {
     this.show('practice');
   },
 
+  // v8.15.33 自定义练习显示标题：题型名 + 数字设置效果（如「自定义练习 五位数除三位数 450-850」）
+  _customLabel(cs) {
+    if (!cs) return '自定义练习';
+    const sub = (cs.type && this.CUSTOM_TYPES[cs.type] && this.CUSTOM_TYPES[cs.type].name) ? this.CUSTOM_TYPES[cs.type].name : '';
+    let num = '';
+    if (cs.mode === 'range' && cs.rangeMin != null && cs.rangeMax != null) {
+      num = cs.rangeMin + '-' + cs.rangeMax;
+    } else if (cs.mode === 'fixed' && Array.isArray(cs.fixedNums) && cs.fixedNums.length) {
+      num = '固定' + cs.fixedNums.slice().sort((a, b) => a - b).join('、');
+    }
+    return '自定义练习' + (sub ? ' ' + sub : '') + (num ? ' ' + num : '');
+  },
+
   // 题型/模式 → 图标符号（历史/统计页用）
   _scIcon(name) {
     const m = {
@@ -28765,6 +28780,7 @@ renderHome(container) {
       '特殊分母练习':'%','零五十估算练习':'≈','基期练习':'📈','增量练习':'📊','资料分析实战':'📋',
       '自定义练习':'+','竞速':'⚡'
     };
+    if (typeof name === 'string' && name.startsWith('自定义练习')) return '+';
     return m[name] || '•';
   },
 
@@ -28790,7 +28806,9 @@ renderHome(container) {
       const keyMs = ds.getTime();
       if (!byDate[keyMs]) byDate[keyMs] = { keyMs: keyMs, label: labelOf(keyMs), types: {} };
       const g = byDate[keyMs];
-      const tname = (r.type && r.type !== 'undefined' ? r.type : '速算练习');
+      // v8.15.33 自定义练习按完整标题（题型+数字设置）分组，普通题型用题型名
+      const tname = (r.type === '自定义练习' && r.name) ? r.name
+        : (r.type && r.type !== 'undefined' ? r.type : '速算练习');
       if (!g.types[tname]) g.types[tname] = { name: tname, icon: this._scIcon(tname), countN: 0, correct: 0, total: 0, timeSum: 0, items: [] };
       const T = g.types[tname];
       const cc = r.correctCount !== undefined ? r.correctCount : (r.correct != null ? r.correct : 0);
@@ -28813,7 +28831,8 @@ renderHome(container) {
   // ===== 视图：历史记录（设计稿：按时间分组 + 类型胶囊对比 + 点击展开明细）=====
   renderHistory(container) {
     const self = this;
-    this._topbar(container, '历史记录', () => this.show('home'));
+    // v8.15.33 去掉右上角「⋯」「👁」，只保留返回
+    this._topbar(container, '历史记录', () => this.show('home'), '', true);
     const body = document.createElement('div');
     body.className = 'sc-page sc-hist-page';
 
@@ -28849,7 +28868,7 @@ renderHome(container) {
             '<div class="sc-hcap__icon">' + T.icon + '</div>' +
             '<div class="sc-hcap__info">' +
               '<div class="sc-hcap__name">' + esc(T.name) + '</div>' +
-              '<div class="sc-hcap__sub">每次 ' + (T.total ? Math.round(T.total / T.countN) : 10) + ' 题</div>' +
+              '<div class="sc-hcap__sub">' + (T.total ? Math.round(T.total / T.countN) : 10) + ' 题</div>' +
             '</div>' +
             '<div class="sc-hcap__stat">' +
               '<div class="sc-hcap__rate" style="color:' + (rate >= 80 ? '#0066CC' : rate >= 60 ? '#EB8A3A' : '#E03131') + '">' + rate + '%</div>' +
