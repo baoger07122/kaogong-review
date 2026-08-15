@@ -9887,7 +9887,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.36';
+App.VERSION = '8.15.37';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -20942,8 +20942,8 @@ App.Pages.Errors = {
 
       const doodleBtn = document.createElement('button');
       doodleBtn.className = 'detail-header-action';
-      doodleBtn.title = error.screenDoodle ? '屏幕勾画（已隐藏保存）' : '屏幕勾画';
-      doodleBtn.innerHTML = '✏️' + (error.screenDoodle ? '<span class="detail-header-action__dot"></span>' : '');
+      doodleBtn.title = error.screenDoodle ? '屏幕勾画' : '屏幕勾画';
+      doodleBtn.innerHTML = '✍️';
       doodleBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         this._openScreenDoodle(error, params);
@@ -28538,7 +28538,7 @@ renderHome(container) {
     statusBar.className = 'sc-statusbar';
     statusBar.innerHTML =
       '<div class="sc-statusbar__pos">' + (this.state.idx + 1) + '/' + total + '</div>' +
-      '<button class="sc-statusbar__pen" type="button" title="草稿涂鸦">✏️</button>' +
+      '<button class="sc-statusbar__pen" type="button" title="草稿涂鸦">✍️</button>' +
       '<button class="sc-statusbar__restart" type="button" title="重新开始">重开</button>' +
       '<div class="sc-statusbar__timer" id="sc-timer">0:00</div>';
     statusBar.querySelector('.sc-statusbar__pen').addEventListener('click', () => {
@@ -28769,7 +28769,18 @@ renderHome(container) {
     const typeName = (this.state.type === "custom" ? "自定义练习" : this.TYPES[this.state.type].name);
     const fmTotal = (sec) => { sec = Math.max(0, Math.round(sec || 0)); const m = Math.floor(sec / 60), s = sec % 60; return m + ':' + (s < 10 ? '0' : '') + s; };
 
-    this._topbar(container, typeName, () => this.show('home'));
+    // v8.15.37 结果页：去掉 ⋯/👁，右上角换成 ✍️ 涂鸦按钮（复用错题本 doodleOverlay 涂鸦）
+    this._topbar(container, typeName, () => this.show('home'),
+      '<button class="sc-topbar__icon" type="button" id="sc-doodle" title="涂鸦">✍️</button>', true);
+    const doodleBtn = container.querySelector('#sc-doodle');
+    if (doodleBtn) {
+      doodleBtn.addEventListener('click', () => {
+        App.Components.doodleOverlay({
+          initial: self.state.doodleData || null,
+          onChange: (dataURL) => { self.state.doodleData = dataURL || null; }
+        });
+      });
+    }
 
     const body = document.createElement('div');
     body.className = 'sc-page';
