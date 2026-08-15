@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.20';
+App.VERSION = '8.15.21';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -13870,15 +13870,18 @@ App.Pages.StudyStats = {
     const key = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
     const todayKey = key(now);
 
-    // 聚合每日待办（含具体事项，用于日历格子展示）
+    // 聚合每日待办：只统计「已完成」事项，且按「完成时间 completedAt」分组（而非新建时间 createdAt），
+    // 实现完成事项自动顺延到完成当天展示；未完成事项不进日历（用户 v8.15.21 要求只显示已完成）。
     let todos = [];
     try { todos = await App.DB.getTodos(); } catch (e) { todos = []; }
     const byDay = {};
     todos.forEach(t => {
-      const k = key(new Date(t.createdAt));
+      if (!t.completed) return;   // 只统计已完成的待办
+      const doneDate = t.completedAt || t.updatedAt || t.createdAt;   // 完成时间（兜底 updatedAt/createdAt）
+      const k = key(new Date(doneDate));
       if (!byDay[k]) byDay[k] = { total: 0, done: 0, items: [] };
       byDay[k].total++;
-      if (t.completed) byDay[k].done++;
+      byDay[k].done++;
       byDay[k].items.push(t);
     });
 
@@ -13906,7 +13909,7 @@ App.Pages.StudyStats = {
     }));
     const desc = document.createElement('div');
     desc.style.cssText = 'padding:0 var(--page-padding);margin-top:var(--spacing-sm);margin-bottom:var(--spacing-md);font-size:12px;color:var(--text-tertiary);line-height:1.6;';
-    desc.textContent = '点击待办开始计时，自动统计每日学习时长；按日历查看每日待办，绿色 = 全部完成，黄色 = 有未完成。';
+    desc.textContent = '按日历查看每日已完成待办；点击日期可补充新建待办。';
     container.appendChild(desc);
 
     // v8.12.22 周/月 切换胶囊（对齐画布 10:507：灰底胶囊，选中白底+阴影深色字）
