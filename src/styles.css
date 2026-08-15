@@ -452,6 +452,12 @@ body.ipad-split .page-header__inner {
   max-width: 100%;
   padding: 0 24px;
 }
+/* v8.15.41 iPad 横屏全屏：header 内容全宽，返回键贴左（不再限宽 720 居中导致返回键远离左边缘） */
+@media (orientation: landscape) and (min-width: 1024px) {
+  .page-header__inner {
+    max-width: 100%;
+  }
+}
 /* v8.15.36 返回按钮 iPad 分屏右移改为【全局默认】：
    所有 .page-header__back（统一页头返回键）与 .sc-back-btn（自定义返回键）在分屏模式下自动右移，
    避开系统侧边指示条，无需再给每个新页面手动加 .ipad-back-shift class。
