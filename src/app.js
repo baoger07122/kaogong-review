@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.3';
+App.VERSION = '8.15.4';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -1981,7 +1981,7 @@ App.Components = {
 
     const colorWrap = document.createElement('div');
     colorWrap.className = 'sketch-pad__colors';
-    const colors = [ {n:'黑', v:'#666666'}, {n:'红', v:'#e53935'}, {n:'蓝', v:'#1e88e5'}, {n:'绿', v:'#43a047'} ];
+    const colors = [ {n:'黑', v:'#000000'}, {n:'红', v:'#e53935'}, {n:'蓝', v:'#1e88e5'}, {n:'绿', v:'#43a047'} ];
     let currentColor = colors[0].v;
     const colorDots = [];
     colors.forEach((c, i) => {
@@ -2125,36 +2125,33 @@ App.Components = {
       cursor.style.height = (radius * 2) + 'px';
     }
 
-    // 画笔：采样去重 + 远距离插值 + 压力平滑 + 三次贝塞尔（中点法）+ 段内线宽渐变
-    // 相比二次贝塞尔：曲线更贴合手写轨迹、转角更圆润；线宽渐变消除「竹节」突变感
+    // 画笔：采样去重 + 远距离插值 + 压力平滑 + 二次贝塞尔（中点法）
     let lastX = 0, lastY = 0;
     let lastPressure = 0.5;
-    // v8.15.2 整笔平滑线宽（压力值，未乘 sf）：在 drawSmoothStroke 里低通更新，
-    // drawSegment 用该值定固定段宽 → 段与段之间线宽连续，消除「隔一段明显变化/接缝凸起」的锯齿感
+    // 整笔平滑线宽（压力值，未乘 sf）：低通更新，宽度连续渐变
     let strokeWeight = 0.5;
-    // v8.15.3 曲线中点缓存：记录每段贝塞尔的「上一段终点（即本段起点）」，
-    // 使段与段严格首尾相接，杜绝控制点错位导致的起笔折角/锯齿
-    let prevMidX = null, prevMidY = null;
+    // v8.15.4 整笔累积单条 path 绘制：彻底消除「一笔由一串圆点组成」「段间接缝锯齿」。
+    // 原理：起笔时 beginPath + moveTo 一次；此后每段用 quadraticCurveTo 追加到
+    // 同一条 path 上并 stroke —— Canvas 的 stroke() 不会清空 path，后续段持续累积。
+    // lineCap round 只在一笔的首尾两端各出现一次，中间是连续曲线，无圆头凸起。
+    // 由于画笔颜色均为不透明纯色，重复 stroke 同一 path 视觉无差异（覆盖相同像素）。
+    let curMidX = 0, curMidY = 0;        // 当前笔 path 的累积锚点（上一段终点）
+    let strokePathLive = false;          // 当前笔是否已有活动的累积 path
     function penWidth(p, sf) {
-      // v8.15.1 压力 NaN/非法时回退 0.5，杜绝线宽 NaN 导致该段画不出
+      // 压力 NaN/非法时回退 0.5，杜绝线宽 NaN 导致该段画不出
       const pr = (typeof p === 'number' && isFinite(p)) ? p : 0.5;
       return Math.max(1, currentPenSize * (0.55 + pr * 0.75) * (sf || 1));
     }
     function drawSmoothStroke(newPos, e) {
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.strokeStyle = currentColor;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-
       // 压力平滑：低通滤波 + 钳制（加重历史权重，进一步抑制 Apple Pencil 压力抖动）
       let p = 0.5;
       if (e && e.pointerType === 'pen' && e.pressure > 0) {
-        p = e.pressure * 0.38 + lastPressure * 0.62;
-        p = Math.min(1, Math.max(0.35, p));
+        p = e.pressure * 0.30 + lastPressure * 0.70;
+        p = Math.min(1, Math.max(0.20, p));
       }
       lastPressure = p;
-      // 整笔平滑线宽：对目标压力做更强低通（历史权重 0.8），使宽度连续渐变而非逐段跳变
-      strokeWeight += (p - strokeWeight) * 0.18;
+      // 整笔平滑线宽：更强低通（历史权重 0.85），宽度连续渐变
+      strokeWeight += (p - strokeWeight) * 0.15;
 
       const lastPt = points.length ? points[points.length - 1] : null;
       if (lastPt) {
@@ -2162,61 +2159,53 @@ App.Components = {
         const dy = newPos.y - lastPt.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
         // 距离过近：跳过，消除短线段堆积产生的小圆点
-        if (dist < 1.2) return;
-        // 距离过远：按 10px 步长线性插值细分，避免远点直接拉直线「连成一团」
-        if (dist > 20) {
-          const steps = Math.ceil(dist / 10);
+        if (dist < 0.6) return;
+        // 距离过远：按 8px 步长线性插值细分，避免远点直接拉直线「连成一团」
+        if (dist > 12) {
+          const steps = Math.ceil(dist / 8);
           for (let i = 1; i <= steps; i++) {
             points.push({ x: lastPt.x + dx * i / steps, y: lastPt.y + dy * i / steps, p: p });
-            if (points.length >= 3) drawSegment();
+            if (points.length >= 3) incrementStroke();
           }
           return;
         }
       }
-
       points.push({ x: newPos.x, y: newPos.y, p: p });
-      if (points.length < 3) return; // 前两个点只记录，到第三个点开始出曲线
-      drawSegment();
+      if (points.length >= 3) incrementStroke();
     }
 
-    // 三次贝塞尔中点法：以倒数第 3、2 点为控制点，从上一中点画到当前中点
-    // v8.15.3 平滑重构：
-    // ① 段起点严格取「上一段终点」(prevMidX/prevMidY)，保证段与段首尾无缝衔接，消除控制点错位导致的起笔折角锯齿；
-    // ② 若不存在上一段终点，则起点取 c1（第1段：c1即笔落点，曲线从落点自然起笔，无回退冲量）；
-    // ③ 端点用圆头 lineCap + 段间重叠半像素，抹平接缝处因线宽差异产生的凸起颗粒。
-    function drawSegment() {
+    // 二次贝塞尔「中点法」增量追加：把 p2~p3 的中点作为终点追加到当前笔的累积 path。
+    function incrementStroke() {
       const n = points.length;
-      const c1 = points[n - 3];
-      const c2 = points[n - 2];
-      const cur = points[n - 1];
-      const ex = (c2.x + cur.x) / 2;
-      const ey = (c2.y + cur.y) / 2;
-      // 本段起点：优先用上一段终点（prevMid），保证无缝；首段回退到 c1（落笔点）
-      const sx = (prevMidX !== null) ? prevMidX : c1.x;
-      const sy = (prevMidY !== null) ? prevMidY : c1.y;
+      const p2 = points[n - 2];           // 控制点（倒数第二点）
+      const p3 = points[n - 1];           // 当前点
+      const midX = (p2.x + p3.x) / 2;     // 本段终点 = p2~p3 中点
+      const midY = (p2.y + p3.y) / 2;
+
       const sf = scaleFactor();
-      // v8.15.2 用整笔平滑线宽 strokeWeight（已连续低通）代替逐段压力突变，消除段间接缝粗细突变导致的「锯齿/隔段明显变化」
       const w = penWidth(strokeWeight, sf);
-      const SEG = 20;
+
       ctx.globalCompositeOperation = 'source-over';
       ctx.strokeStyle = currentColor;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.globalAlpha = 1;
       ctx.lineWidth = Math.max(1, w);
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      for (let i = 1; i <= SEG; i++) {
-        const t = i / SEG;
-        const mt = 1 - t;
-        const x = mt * mt * mt * sx + 3 * mt * mt * t * c1.x + 3 * mt * t * t * c2.x + t * t * t * ex;
-        const y = mt * mt * mt * sy + 3 * mt * mt * t * c1.y + 3 * mt * t * t * c2.y + t * t * t * ey;
-        ctx.lineTo(x, y);
+
+      if (!strokePathLive) {
+        // 起笔：新建累积 path，起点为当前锚点
+        ctx.beginPath();
+        ctx.moveTo(curMidX, curMidY);
+        strokePathLive = true;
       }
+      // 追加曲线段（不重新 beginPath → 保持同一条 path）
+      ctx.quadraticCurveTo(p2.x, p2.y, midX, midY);
       ctx.stroke();
-      prevMidX = ex; prevMidY = ey;
-      lastX = ex; lastY = ey;
-      points = [c2, cur];
+
+      // 更新累积锚点
+      curMidX = midX; curMidY = midY;
+      // 保留尾部两个点供下一段作「起点 + 控制点」
+      points = [p2, p3];
     }
 
     // 橡皮擦：只显示范围圈，轨迹透明；使用独立橡皮擦粗细
@@ -2264,8 +2253,9 @@ App.Components = {
       points = [ { x: pos.x, y: pos.y, p: (typeof lastPressure === 'number' && isFinite(lastPressure)) ? lastPressure : 0.5 } ];
       // v8.15.2 重置整笔平滑线宽，让新一笔从当前压力起步（连续、无突兀变化）
       strokeWeight = points[0].p;
-      // v8.15.3 每笔重置换笔标志：prevMid 置空，首段从落点起笔，不衔接上一笔
-      prevMidX = null; prevMidY = null;
+      // v8.15.4 每笔重置累积 path：锚点置为落点，strokePathLive 置空，下段重新 moveTo 起笔
+      curMidX = pos.x; curMidY = pos.y;
+      strokePathLive = false;
       lastX = pos.x; lastY = pos.y;
       if (mode === 'eraser') {
         const r = currentEraserSize / 2;
@@ -2291,35 +2281,27 @@ App.Components = {
       drawing = false;
       hideCursor();
       try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
-      // 收尾：把剩余一段以「线宽渐变」连到终点，压至细尖形成自然笔锋
-      // v8.6.41 短笔/tap 不画（阈值 2→4）；收尾终点真正压细（0.4 系数），避免粗短段像大圆点
-      if (mode !== 'eraser' && points.length > 0) {
+      // v8.15.4 收尾简化：整笔已是连续累积 path（quadraticCurveTo），无需再逐段补变宽折线。
+      // 短笔/tap（未形成曲线，points<3 且未移动）不落墨，避免点一下出个大圆点。
+      // 若最后一两点尚未并入 path（不足 3 点），退回用圆头短线段补一段，保证笔迹完整收口。
+      if (mode !== 'eraser' && points.length >= 2 && strokePathLive) {
         const last = points[points.length - 1];
-        const dx = last.x - lastX;
-        const dy = last.y - lastY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist > 4) {
-          const sf = scaleFactor();
-          const w0 = penWidth(lastPressure, sf);
-          const w1 = Math.max(1, currentPenSize * 0.4 * sf);
-          const SEG = 6;
-          ctx.globalCompositeOperation = 'source-over';
-          ctx.strokeStyle = currentColor;
+        // 若累积锚点与最后点仍有距离，补一段短曲线到终点收口
+        const dx = last.x - curMidX;
+        const dy = last.y - curMidY;
+        if (dx * dx + dy * dy > 1) {
           ctx.lineCap = 'round';
           ctx.lineJoin = 'round';
-          let px = lastX, py = lastY;
-          for (let i = 1; i <= SEG; i++) {
-            const t = i / SEG;
-            ctx.lineWidth = w0 + (w1 - w0) * t;
-            ctx.beginPath();
-            ctx.moveTo(px, py);
-            ctx.lineTo(lastX + dx * t, lastY + dy * t);
-            ctx.stroke();
-            px = lastX + dx * t; py = lastY + dy * t;
-          }
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.strokeStyle = currentColor;
+          const sf = scaleFactor();
+          ctx.lineWidth = Math.max(1, penWidth(strokeWeight, sf));
+          ctx.quadraticCurveTo(last.x, last.y, last.x, last.y);
+          ctx.stroke();
         }
       }
       points = [];
+      strokePathLive = false;
       lastPressure = 0.5;
       pushHistory();
       commit();
@@ -2452,7 +2434,7 @@ App.Components = {
       // 底部工具栏（从底部滑上）：颜色 + 笔触大小
       const sheet = document.createElement('div');
       sheet.className = 'doodle-overlay__sheet';
-      const colors = [ {n:'黑', v:'#666666'}, {n:'红', v:'#e53935'}, {n:'蓝', v:'#1e88e5'}, {n:'绿', v:'#43a047'} ];
+      const colors = [ {n:'黑', v:'#000000'}, {n:'红', v:'#e53935'}, {n:'蓝', v:'#1e88e5'}, {n:'绿', v:'#43a047'} ];
       let activeColor = colors[0].v;
       const colorWrap = document.createElement('div');
       colorWrap.className = 'doodle-overlay__colors';
