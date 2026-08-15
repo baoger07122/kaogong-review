@@ -9821,7 +9821,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.22';
+App.VERSION = '8.15.23';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -11774,18 +11774,28 @@ App.Components = {
     updateToolbarBottom();
 
     // ===== iPad 横屏/分屏自适应检测（单例级） =====
-    // 分屏检测（精准版）：分屏 = innerWidth 明显小于屏幕较短边长（宽度被压缩）。
-    // 覆盖横屏分屏、竖屏分屏、Slide Over、Stage Manager；全屏不误判（见全局检测注释）。
+    // 分屏检测（方向感知）：iPad 横屏 Split View 分屏沿「长边」方向压缩，最多占到 ~75%（25/75 档）；
+    // 横屏全屏时 w ≈ 屏幕长边。用「w < 长边×0.92」判定横屏分屏，同时覆盖 50% 与 75%(2/3) 分屏且全屏不误判。
+    // 竖屏全屏 w ≈ 短边、竖屏上下分屏宽度不变，故竖屏沿用「w < 短边-80」兜底（Slide Over/窄窗口）。
     const detectIpadSplit = () => {
       const isIpad = /iPad/.test(navigator.userAgent) ||
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       if (!isIpad) { document.body.classList.remove('ipad-split'); return; }
       const w = window.innerWidth;
+      const h = window.innerHeight;
       const sw = (screen && screen.width) || 0;
       const sh = (screen && screen.height) || 0;
       let isSplit = false;
       if (sw > 0 && sh > 0) {
-        isSplit = w < Math.min(sw, sh) - 80;
+        const longEdge = Math.max(sw, sh);
+        const shortEdge = Math.min(sw, sh);
+        if (w > h) {
+          // 横屏：分屏沿长边压缩，阈值取长边×0.92（覆盖 25/75 档、排除全屏）
+          isSplit = w < longEdge * 0.92;
+        } else {
+          // 竖屏：宽度方向 = 短边，窄窗口/Slide Over 才压缩
+          isSplit = w < shortEdge - 80;
+        }
       } else {
         isSplit = w < 1024;   // screen 不可用时兜底
       }
@@ -19042,20 +19052,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 分屏/Stage Manager 下 iPad 系统「三点」多任务条位于左上角，会压住页面返回按钮。
   // 检测到分屏时给 body 加 ipad-split class → 返回按钮 margin-left 右移避开（见 styles.css）。
   // 之前该检测放在移动端工具栏构建内（惰性），详情页/编辑页无编辑器时不执行 → 分屏下返回键被遮挡。
-  // 判定：分屏 = innerWidth 明显小于屏幕较短的边长（宽度方向被压缩）。
-  // 注意不能简单用「innerWidth 与任一屏幕边长的差 > 80」——竖屏全屏时 innerWidth==screen.width
-  // 但 < screen.height，会被误判为分屏；用 min(sw,sh) 作基准可同时覆盖竖屏/横屏分屏且全屏不误判。
+  // 判定（方向感知，v8.15.23）：横屏分屏沿「长边」方向压缩、最多占到 ~75%（25/75 档），
+  // 横屏全屏 w≈长边，故用「w < 长边×0.92」判定横屏分屏——同时覆盖 50% 与 75%(2/3) 分屏、全屏不误判；
+  // 竖屏全屏 w≈短边、上下分屏宽度不变，沿用「w < 短边-80」兜底（Slide Over/窄窗口）。
   const _detectIpadSplitGlobal = () => {
     try {
       const isIpad = /iPad/.test(navigator.userAgent) ||
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       if (!isIpad) { document.body.classList.remove('ipad-split'); return; }
       const w = window.innerWidth;
+      const h = window.innerHeight;
       const sw = (screen && screen.width) || 0;
       const sh = (screen && screen.height) || 0;
       let isSplit = false;
       if (sw > 0 && sh > 0) {
-        isSplit = w < Math.min(sw, sh) - 80;
+        const longEdge = Math.max(sw, sh);
+        const shortEdge = Math.min(sw, sh);
+        if (w > h) {
+          isSplit = w < longEdge * 0.92;
+        } else {
+          isSplit = w < shortEdge - 80;
+        }
       } else {
         isSplit = w < 1024;   // screen 不可用时兜底
       }
