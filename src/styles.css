@@ -8312,7 +8312,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-night .sc-count-picker, .sc-night .sc-count-cell { background: #2A2A2A; color: #E5E5E5; }
 /* v8.6.38 键盘 v2：左侧 3×4 数字网格（浅灰底大圆角黑字）+ 右侧功能列（深绿底白字，✓ 双倍高）
    按压动画：按下 scale 0.93 + 变深，抬起 150ms 弹簧回弹（cubic-bezier 过冲） */
-.sc-numpad--v2 { padding: 12px 12px calc(12px + var(--safe-bottom, 0px)); }
+.sc-numpad--v2 { padding: 12px 12px var(--safe-bottom, 0px); }
 .sc-numpad__kb { display: flex; gap: 7px; flex: 1; min-height: 0; }
 .sc-numpad__grid {
   flex: 1; display: grid;
@@ -8776,6 +8776,13 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-custom-footbtn--cancel { background: #F3F4F6; color: #374151; font-weight: 500; }
 .sc-custom-footbtn--ok { background: #3B82F6; color: #fff; font-weight: 700; }
 .sc-custom-footbtn--ok.disabled { background: #D1D5DB; color: #fff; pointer-events: none; }
+/* v8.15.26 弹窗内底部按钮：改为 sheet 内 flex 定位（覆盖 .sc-custom-foot 的 fixed），贴底不遮挡内容 */
+.sc-sheet-foot {
+  position: static;
+  z-index: auto;
+  flex-shrink: 0;
+  padding: 12px 16px calc(12px + var(--safe-bottom, 0px));
+}
 
 /* ===== v8.6.24 速算：题量/模式居中弹窗按钮 + 自定义练习小窗 ===== */
 .sc-opts-row { display: flex; justify-content: center; gap: 12px; margin-bottom: 14px; }

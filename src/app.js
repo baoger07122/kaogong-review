@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.26';
+App.VERSION = '8.15.27';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -17707,29 +17707,13 @@ renderHome(container) {
     const content = document.createElement('div');
     content.className = 'notion-mobile-sheet__content';
 
-    // v8.15 弹窗打开时锁定背景滚动，避免横/竖屏下滑动穿透到速算练习原生页面；关闭恢复
-    const pageEl = document.getElementById('page-speed-calc') || document.body;
-    const prevOverflow = { body: document.body.style.overflow, html: document.documentElement.style.overflow, page: pageEl.style.overflow };
-    document.body.style.overflow = 'hidden';
-    document.documentElement.style.overflow = 'hidden';
-    pageEl.style.overflow = 'hidden';
-    // 阻止 background 穿透：overlay 上 touchmove 一律 prevent，content 内部滚动时放行
-    const blockBgMove = (e) => e.preventDefault();
-    overlay.addEventListener('touchmove', blockBgMove, { passive: false });
-    content.addEventListener('touchmove', (e) => {
-      // content 未到滚动边界时放行（内部滚动），到顶/到底则阻止冒泡返弹背景
-      const sd = content.scrollHeight - content.clientHeight;
-      if (sd > 0 && !(content.scrollTop <= 0 && e.deltaY > 0) && !(content.scrollTop >= sd && e.deltaY < 0)) {
-        e.stopPropagation();
-      } else {
-        e.preventDefault();
-      }
-    }, { passive: false });
+    // v8.15 弹窗打开时锁定背景滚动，避免横/竖屏下滑动穿透到速算练习原生页面；关闭恢复。
+    // v8.15.26 改用统一 _lockScroll/_unlockScroll（仅锁 body overflow，不拦截 touchmove），
+    // 避免在 iPad Safari 上 touchmove preventDefault 干扰按钮点击导致「弹窗完全卡死」。
+    App.Components._lockScroll ? App.Components._lockScroll() : (document.body.style.overflow = 'hidden');
     const closeOverlay = () => {
-      document.body.style.overflow = prevOverflow.body;
-      document.documentElement.style.overflow = prevOverflow.html;
-      pageEl.style.overflow = prevOverflow.page;
-      overlay.removeEventListener('touchmove', blockBgMove);
+      if (App.Components._unlockScroll) App.Components._unlockScroll();
+      else document.body.style.overflow = '';
       if (overlay.parentNode) overlay.remove();
     };
 
@@ -17760,7 +17744,6 @@ renderHome(container) {
           // 单选：点已选取消，点其他替换
           cs.type = cs.type === key ? null : key;
           renderTypes(); renderOk();
-          if (typeof updateNumVisibility === 'function') updateNumVisibility();
         });
         typeGrid.appendChild(c);
       });
@@ -17768,18 +17751,13 @@ renderHome(container) {
     renderTypes();
     body.appendChild(typeGrid);
 
-    // ===== 数字设置（白底卡 + 横排 tab 切换；v8.15.25 位数固定题型不显示）=====
+    // ===== 数字设置（白底卡 + 横排 tab 切换；对所有题型生效）=====
     const numTitle = document.createElement('div');
     numTitle.className = 'sc-custom-block-title';
     numTitle.textContent = '数字设置';
     const dnumCard = document.createElement('div');
     dnumCard.className = 'sc-dnum-card';
-    // 根据当前题型控制「数字设置」区块显隐（仅基础四则题型显示）
-    const updateNumVisibility = () => {
-      const showNum = ['addsub2c', 'mul2x1c'].indexOf(cs.type) !== -1;
-      numTitle.style.display = showNum ? '' : 'none';
-      dnumCard.style.display = showNum ? '' : 'none';
-    };
+    // v8.15.26 撤回显隐控制：数字设置对所有题型都显示并生效（这是自定义练习的核心逻辑）
 
     // 横排选择按钮组：数字范围 / 固定数字
     const tabs = document.createElement('div');
@@ -17856,7 +17834,6 @@ renderHome(container) {
     dnumCard.appendChild(numInputArea);
     body.appendChild(numTitle);
     body.appendChild(dnumCard);
-    updateNumVisibility();   // v8.15.25 初始按当前题型显隐数字设置区块
 
     // ===== 最近使用 =====
     const histTitle = document.createElement('div');
@@ -17888,9 +17865,9 @@ renderHome(container) {
     content.appendChild(body);
     sheet.appendChild(content);
 
-    // 底部操作栏
+    // 底部操作栏（v8.15.26 改用 sheet 内 flex 定位，不再 fixed，避免遮挡内容底部）
     const foot = document.createElement('div');
-    foot.className = 'sc-custom-foot';
+    foot.className = 'sc-custom-foot sc-sheet-foot';
     const cancel = document.createElement('button');
     cancel.type = 'button';
     cancel.className = 'sc-custom-footbtn sc-custom-footbtn--cancel';
@@ -17901,17 +17878,13 @@ renderHome(container) {
     ok.className = 'sc-custom-footbtn sc-custom-footbtn--ok';
     const renderOk = () => {
       const hasType = !!cs.type;
-      // v8.15.25 位数固定题型无需设置数字即可确定；基础四则题型才强制数字设置
-      const needsNum = ['addsub2c', 'mul2x1c'].indexOf(cs.type) !== -1;
-      const hasNum = !needsNum || (cs.mode === 'range' ? (cs.rangeMin != null && cs.rangeMax != null) : (Array.isArray(cs.fixedNums) && cs.fixedNums.length > 0));
+      const hasNum = cs.mode === 'range' ? (cs.rangeMin != null && cs.rangeMax != null) : (Array.isArray(cs.fixedNums) && cs.fixedNums.length > 0);
       ok.textContent = '确定';
       ok.classList.toggle('disabled', !hasType || !hasNum);
     };
     renderOk();
     ok.addEventListener('click', () => {
       if (!cs.type) { App.Components.toast('请选择一个题型', 'error'); return; }
-      const needsNum = ['addsub2c', 'mul2x1c'].indexOf(cs.type) !== -1;
-      if (!needsNum) { closeOverlay(); if (onDone) onDone(); return; }
       if (cs.mode === 'range' && (cs.rangeMin == null || cs.rangeMax == null)) { App.Components.toast('请设置数字范围', 'error'); return; }
       if (cs.mode === 'fixed' && !cs.fixedNums.length) { App.Components.toast('请选择至少一个固定数字', 'error'); return; }
       closeOverlay();
@@ -18501,31 +18474,23 @@ renderHome(container) {
       cs.fixedNums = (Array.isArray(hist.fixedNums) ? hist.fixedNums : []).filter(n => n >= 2 && n <= 9);
     }
     const key = cs.type;
-    // v8.15.25 位数固定题型不要求设置数字（数字设置对其不生效）；基础四则题型才需要数字设置
-    const needsNum = ['addsub2c', 'mul2x1c'].indexOf(key) !== -1;
-    const hasNum = !needsNum || (cs.mode === 'range' ? (cs.rangeMin != null && cs.rangeMax != null) : (Array.isArray(cs.fixedNums) && cs.fixedNums.length > 0));
-    if (!this.CUSTOM_TYPES[key] || !this.CUSTOM_TYPES[key].gen || !hasNum) { App.Components.toast('请先选择题型' + (needsNum ? '并设置数字' : ''), 'error'); return; }
+    const hasNum = cs.mode === 'range' ? (cs.rangeMin != null && cs.rangeMax != null) : (Array.isArray(cs.fixedNums) && cs.fixedNums.length > 0);
+    if (!this.CUSTOM_TYPES[key] || !this.CUSTOM_TYPES[key].gen || !hasNum) { App.Components.toast('请先选择题型并设置数字', 'error'); return; }
     const settings = this.loadSettings();
     const count = settings.questionCount || 10;
     const mode = this.state.mode || 'train';
     this.state.type = 'custom';
     this.state.mode = mode;
 
-    // 出题：用所选单选题型 gen，再按数字设置（数字范围 / 固定数字）套用数字规则
+    // 出题：用所选单选题型 gen，再按数字设置（数字范围 / 固定数字）套用数字规则。
+    // v8.15.26 撤回白名单限制：数字设置对所有题型都生效（这是自定义练习的核心逻辑，调整被除数等数字）。
     this.state.questions = [];
-    // v8.15.25 数字设置仅对「基础四则数字可自由替换」的题型生效（两位数加减/两位乘一位），
-    // 位数/语义固定的题型（五位数除三位数、三位数除一位数、九九乘除、进退位等）数字是其题义，
-    // 强行套用数字范围/固定数字会把被除数等替换成小数字 → 出题与所选题型不符（如选五位数÷三位数却出三位数÷三位数）。
-    const ARITH_FREE_TYPES = ['addsub2c', 'mul2x1c'];
-    const canApplyFeature = ARITH_FREE_TYPES.indexOf(key) !== -1;
     for (let i = 0; i < count; i++) {
       let q = this.CUSTOM_TYPES[key].gen();
-      if (canApplyFeature) {
-        if (cs.mode === 'range' && cs.rangeMin != null && cs.rangeMax != null) {
-          q = this._applyCustomFeature(q, { mode: 'range', min: cs.rangeMin, max: cs.rangeMax });
-        } else if (cs.mode === 'fixed' && Array.isArray(cs.fixedNums) && cs.fixedNums.length) {
-          q = this._applyCustomFeature(q, { mode: 'fixed', nums: cs.fixedNums });
-        }
+      if (cs.mode === 'range' && cs.rangeMin != null && cs.rangeMax != null) {
+        q = this._applyCustomFeature(q, { mode: 'range', min: cs.rangeMin, max: cs.rangeMax });
+      } else if (cs.mode === 'fixed' && Array.isArray(cs.fixedNums) && cs.fixedNums.length) {
+        q = this._applyCustomFeature(q, { mode: 'fixed', nums: cs.fixedNums });
       }
       q.user = '';
       q.correct = null;
