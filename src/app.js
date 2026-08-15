@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.13';
+App.VERSION = '8.15.14';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -2193,14 +2193,14 @@ App.Components = {
         const dx = newPos.x - lastPt.x;
         const dy = newPos.y - lastPt.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        // v8.15.13 阈值 1.0→0.5：配合松滤波，避免「滤波后点被粘住→距离<阈值→被丢弃」的恶性循环
-        // 导致慢速写字时隔空不出线。
         if (dist < 0.5) return;
         if (dist > 14) {
+          // v8.15.14 关键修复：快速移动的插值点「不做滤波」直接按线性插值 push。
+          // 此前插值点也过 One Euro，且共用同一 time → dt≈0 → alpha≈0，滤波把整段插值点
+          // 压缩粘连成一点，快速笔画被「吃掉」→ 写字只显示几笔、字不完整。
           const steps = Math.ceil(dist / 6);
           for (let i = 1; i <= steps; i++) {
-            const f = euroFilter.filter(lastPt.x + dx * i / steps, lastPt.y + dy * i / steps, time);
-            points.push({ x: f.x, y: f.y });
+            points.push({ x: lastPt.x + dx * i / steps, y: lastPt.y + dy * i / steps });
           }
           renderStroke();
           return;
