@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.27';
+App.VERSION = '8.15.28';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -17086,6 +17086,9 @@ App.Pages.SpeedCalc = {
 
   show(view) {
     this.state.view = view;
+    // v8.15.28 做题页（practice）沉浸式隐藏底部导航，键盘贴屏幕最底；其余视图恢复导航
+    const nav = document.getElementById('bottom-nav');
+    if (nav) nav.classList.toggle('nav--hidden', view === 'practice');
     if (view !== 'practice') {
       if (this.state.timerId) { clearInterval(this.state.timerId); this.state.timerId = null; }
       if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
@@ -17484,8 +17487,14 @@ App.Pages.SpeedCalc = {
 renderHome(container) {
     const self = this;
     const settings = this.loadSettings();
-    if (settings.selectedType && this.TYPES[settings.selectedType]) this.state.type = settings.selectedType;
-    if (this.state.type === 'custom' && (!this.state.custom || !this.state.custom.types.length)) this.state.type = null;
+    // v8.15.28 修复自定义选中态丢失：
+    // 自定义(custom)是内存态(不进 selectedType)，重进首页时若 custom 已配置(type 有效)则保留，
+    // 不被 selectedType(普通题型)覆盖；否则恢复 selectedType 或清空。
+    const customActive = this.state.type === 'custom' && this.state.custom && this.state.custom.type;
+    if (!customActive) {
+      if (settings.selectedType && this.TYPES[settings.selectedType]) this.state.type = settings.selectedType;
+      else if (this.state.type === 'custom') this.state.type = null;
+    }
     this.state.mode = settings.mode || 'train';
 
     this._topbar(container, '速算练习', () => App.Router.back(), '', true);
@@ -17854,8 +17863,16 @@ renderHome(container) {
         card.innerHTML = '<div class="sc-custom-histcard__name">' + (h.name || '') + '</div>' +
           '<div class="sc-custom-histcard__sub">' + (h.subName || '') + '</div>';
         card.addEventListener('click', () => {
+          // v8.15.28 最近使用点击只回填配置并选中（不直接开始），返回主页后由「开始练习」触发
+          cs.type = (typeof h.type === 'string' && this.CUSTOM_TYPES[h.type] && this.CUSTOM_TYPES[h.type].gen) ? h.type
+            : (Array.isArray(h.types) && h.types.length && this.CUSTOM_TYPES[h.types[0]] && this.CUSTOM_TYPES[h.types[0]].gen) ? h.types[0]
+            : null;
+          cs.mode = (h.mode === 'range' || h.mode === 'fixed') ? h.mode : 'fixed';
+          cs.rangeMin = h.rangeMin != null ? h.rangeMin : null;
+          cs.rangeMax = h.rangeMax != null ? h.rangeMax : null;
+          cs.fixedNums = (Array.isArray(h.fixedNums) ? h.fixedNums : []).filter(n => n >= 2 && n <= 9);
           closeOverlay();
-          self.startCustomPractice(h);
+          if (onDone) onDone();
         });
         histGrid.appendChild(card);
       });
@@ -18568,10 +18585,9 @@ renderHome(container) {
     this.state.currentInput = q.user && q.user !== '' ? String(q.user) : '';
     if (settings.nightMode) container.classList.add('sc-night');
     // v8.6.23 一屏布局：整页不滑动（顶栏/状态栏/题目区/键盘全部放一个屏幕内）
-    // v8.15 改用 100svh，iPad 横屏 Safari 工具栏下 100vh 偏大导致底部被截/需滚动
-    // v8.15.24 补 min-height:0 —— CSS #page-speed-calc 有 min-height:100vh 会把 height 撑大，
-    // 导致容器实际高于可视区、底部键盘被 nav 遮挡、点击提交后页面「往下滚一下」。
-    container.style.cssText = 'height:calc(100svh - var(--nav-height, 56px) - var(--safe-bottom, 0px));min-height:0;display:flex;flex-direction:column;overflow:hidden;';
+    // v8.15.24 补 min-height:0 —— CSS #page-speed-calc 有 min-height:100vh 会把 height 撑大。
+    // v8.15.28 做题页已隐藏底部导航，直接用 100dvh 满屏 + numpad 自身 safe-bottom 兜底，键盘贴最底。
+    container.style.cssText = 'height:100dvh;min-height:0;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;';
 
     // v8.6.27 左上角退出按钮：弹出「继续练习 / 退出练习」两选项；v8.15.26 取消小眼睛按钮
     this._topbar(container, (this.state.type === "custom" ? "自定义练习" : this.TYPES[this.state.type].name), async () => {
