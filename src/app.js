@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.33';
+App.VERSION = '8.15.34';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9026,6 +9026,10 @@ App.Router = {
       p.classList.remove('active');
     });
 
+    // v8.15.34 统一恢复 body/html 滚动（速算做题页会临时锁定；切到任意其他页面时兜底解锁，防残留锁死）
+    document.body.style.overflow = '';
+    document.documentElement.style.overflow = '';
+
     // 离开错题本时销毁瀑布流实例（解绑 resize 监听，防内存泄漏）
     if (base !== 'errors' && App.Pages.Errors && App.Pages.Errors._masonryInst) {
       try { App.Pages.Errors._masonryInst.destroy(); } catch (e) {}
@@ -17062,6 +17066,9 @@ App.Pages.SpeedCalc = {
     if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
     if (this.state.autoNextTimer) { clearTimeout(this.state.autoNextTimer); this.state.autoNextTimer = null; }
     const view = this.state.view;
+    // v8.15.34 做题页彻底锁死 body/html 滚动（修复「输入/不输入都还能滚动」），其他视图恢复
+    document.body.style.overflow = (view === 'practice') ? 'hidden' : '';
+    document.documentElement.style.overflow = (view === 'practice') ? 'hidden' : '';
     if (view === 'home') this.renderHome(container);
     else if (view === 'custom') this.renderCustom(container);
     else if (view === 'estimate') this.renderEstimate(container);
@@ -18638,12 +18645,11 @@ renderHome(container) {
     exprRow.appendChild(answerDisplay);
     body.appendChild(exprRow);
 
-    // v8.6.40 评级标准（输入区下方；v8.6.20 按题型 s:{excellent,good,pass}；自定义练习用默认值）
-    // v8.15.32 误差 ±3% 对所有题型统一显示
+    // v8.15.32 误差 ±3% 对所有题型统一显示；v8.15.34 移到最前
     const standard = document.createElement('div');
     standard.className = 'sc-standard';
     const sT = this.state.type === 'custom' ? null : this.TYPES[this.state.type].s;
-    standard.textContent = '合格: ' + (sT ? sT.pass : 28) + 's  良好: ' + (sT ? sT.good : 22) + 's  优秀: ' + (sT ? sT.excellent : 18) + 's  误差 ±3%';
+    standard.textContent = '误差 ±3%   合格: ' + (sT ? sT.pass : 28) + 's  良好: ' + (sT ? sT.good : 22) + 's  优秀: ' + (sT ? sT.excellent : 18) + 's';
     body.appendChild(standard);
     // v8.6.40 三位数除一位数：本次评分展示（提交后更新）
     const ratingLine = document.createElement('div');
@@ -18659,9 +18665,12 @@ renderHome(container) {
       q.user = val;
       // v8.6.25 记录每题用时（做题页不显示，结果页表格展示）
       q.timeUsed = Math.round((Date.now() - self.state.qStart) / 100) / 10;
-      const isEst = /≈|估算/.test(q.expr);
-      // 答案保留两位小数（三位数÷/五位数÷ 可产生小数），用 0.011 容差比对
-      q.correct = isEst ? Math.abs(val - q.answer) <= Math.max(1, Math.abs(q.answer) * 0.03) : Math.abs(val - q.answer) <= 0.011;
+      // v8.15.34 全局误差 ±3%：|输入-答案| ≤ 3%×|答案|（兜底 0.011 绝对容差用于答案接近 0 的题）即算正确；
+      //   同时记录误差百分比(保留1位小数)供结果页展示。
+      const errAbs = Math.abs(val - q.answer);
+      const errPct = Math.abs(q.answer) < 1e-9 ? (errAbs > 1e-9 ? 999 : 0) : (errAbs / Math.abs(q.answer)) * 100;
+      q.correct = errAbs <= Math.max(0.011, Math.abs(q.answer) * 0.03);
+      q.errPct = Math.round(errPct * 10) / 10;
       // v8.6.38 正确反馈：全屏淡青闪烁（inset box-shadow 覆盖）+ 顶部统计数字跳动
       if (q.correct) {
         const scBox = container;
@@ -18835,7 +18844,7 @@ renderHome(container) {
       '<div class="sc-result-summary__time">本次练习用时:' + fmTotal(totalTime) + ' 加油</div>';
     body.appendChild(summary);
 
-    // ===== 结果表格（题号/题目/正确答案/你的答案/用时）=====
+    // ===== 结果表格（题号/题目/正确答案/你的答案/误差/用时）=====
     const table = document.createElement('div');
     table.className = 'sc-result-table';
     const head = document.createElement('div');
@@ -18845,10 +18854,16 @@ renderHome(container) {
       '<div class="sc-rt-col">题目</div>' +
       '<div class="sc-rt-col">正确答案</div>' +
       '<div class="sc-rt-col">你的答案</div>' +
+      '<div class="sc-rt-col">误差</div>' +
       '<div class="sc-rt-col">用时</div>';
     table.appendChild(head);
     qs.forEach((q, i) => {
       const ua = q.user !== undefined && q.user !== '' ? q.user : '—';
+      // v8.15.34 误差百分比(保留1位小数)；未作答显示 —
+      const answered = q.user !== undefined && q.user !== '';
+      const errCell = answered
+        ? (q.errPct != null ? q.errPct.toFixed(1) + '%' : '—')
+        : '—';
       const row = document.createElement('div');
       row.className = 'sc-result-table__row' + (q.correct ? '' : ' wrong');
       row.innerHTML =
@@ -18856,6 +18871,7 @@ renderHome(container) {
         '<div class="sc-rt-col sc-rt-col--q">' + q.expr + '</div>' +
         '<div class="sc-rt-col sc-rt-col--ans">= ' + self.fmtAns(q.answer) + '</div>' +
         '<div class="sc-rt-col sc-rt-col--user ' + (q.correct ? 'ok' : 'no') + '">' + ua + (q.correct ? '✓' : '✗') + '</div>' +
+        '<div class="sc-rt-col sc-rt-col--err ' + (q.correct ? 'ok' : 'no') + '">' + errCell + '</div>' +
         '<div class="sc-rt-col sc-rt-col--t">' + (q.timeUsed || 0).toFixed(1) + 's</div>';
       table.appendChild(row);
     });
