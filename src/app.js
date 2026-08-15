@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.25';
+App.VERSION = '8.15.26';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -17095,15 +17095,15 @@ App.Pages.SpeedCalc = {
     this.render({});
   },
 
-  // ===== 顶部栏（simple=true 时仅「返回+标题」，不含更多/眼睛，用于首页新布局）=====
-  _topbar(container, title, onBack, extraRight, simple) {
+  // ===== 顶部栏（simple=true 时仅「返回+标题」，不含更多/眼睛；hideEye=true 时仅隐藏眼睛按钮）=====
+  _topbar(container, title, onBack, extraRight, simple, hideEye) {
     const noOps = !!simple;
     const header = App.Components.pageHeader(title, null, null, {
       onBack: onBack,
       rightHtml: (extraRight || '') +
                  (noOps ? '' :
                  '<button class="sc-topbar__icon" type="button" id="sc-more" title="更多">⋯</button>' +
-                 '<button class="sc-topbar__icon" type="button" id="sc-eye" title="显示/隐藏答案输入">👁</button>')
+                 (hideEye ? '' : '<button class="sc-topbar__icon" type="button" id="sc-eye" title="显示/隐藏答案输入">👁</button>'))
     });
     if (!noOps) {
       header.querySelector('#sc-more').addEventListener('click', () => {
@@ -17115,11 +17115,14 @@ App.Pages.SpeedCalc = {
           } }
         ]);
       });
-      header.querySelector('#sc-eye').addEventListener('click', () => {
-        this.state.showAns = !this.state.showAns;
-        if (this.state.view === 'practice') this.render({});
-        else App.Components.toast(this.state.showAns ? '显示答案输入' : '隐藏答案输入', 'info');
-      });
+      const eyeBtn = header.querySelector('#sc-eye');
+      if (eyeBtn) {
+        eyeBtn.addEventListener('click', () => {
+          this.state.showAns = !this.state.showAns;
+          if (this.state.view === 'practice') this.render({});
+          else App.Components.toast(this.state.showAns ? '显示答案输入' : '隐藏答案输入', 'info');
+        });
+      }
     }
     container.appendChild(header);
   },
@@ -18605,24 +18608,29 @@ renderHome(container) {
     // 导致容器实际高于可视区、底部键盘被 nav 遮挡、点击提交后页面「往下滚一下」。
     container.style.cssText = 'height:calc(100svh - var(--nav-height, 56px) - var(--safe-bottom, 0px));min-height:0;display:flex;flex-direction:column;overflow:hidden;';
 
-    // v8.6.27 左上角退出按钮：弹出「继续练习 / 退出练习」两选项
+    // v8.6.27 左上角退出按钮：弹出「继续练习 / 退出练习」两选项；v8.15.26 取消小眼睛按钮
     this._topbar(container, (this.state.type === "custom" ? "自定义练习" : this.TYPES[this.state.type].name), async () => {
       const go = await App.Components.confirm('退出练习', '当前练习进度将丢失，确定退出吗？', '退出', '继续', true);
       if (go) this.show('home');
-    });
+    }, '', false, true);
 
-    // ===== 状态栏：1/10  笔  计时（100ms 刷新）=====
+    // ===== 状态栏：1/10  笔  重开  计时（100ms 刷新）；v8.15.26 重开按钮移到状态栏上侧 =====
     const statusBar = document.createElement('div');
     statusBar.className = 'sc-statusbar';
     statusBar.innerHTML =
       '<div class="sc-statusbar__pos">' + (this.state.idx + 1) + '/' + total + '</div>' +
       '<button class="sc-statusbar__pen" type="button" title="草稿涂鸦">✏️</button>' +
+      '<button class="sc-statusbar__restart" type="button" title="重新开始">重开</button>' +
       '<div class="sc-statusbar__timer" id="sc-timer">0:00</div>';
     statusBar.querySelector('.sc-statusbar__pen').addEventListener('click', () => {
       App.Components.doodleOverlay({
         initial: self.state.doodleData || null,
         onChange: (dataURL) => { self.state.doodleData = dataURL || null; }
       });
+    });
+    statusBar.querySelector('.sc-statusbar__restart').addEventListener('click', async () => {
+      const go = await App.Components.confirm('重新开始', '确定重新开始本轮练习？', '重开', '取消', true);
+      if (go) self.startPractice();
     });
     container.appendChild(statusBar);
     const tick = () => {
@@ -18774,65 +18782,6 @@ renderHome(container) {
     kb.appendChild(grid);
     kb.appendChild(funcCol);
     numpad.appendChild(kb);
-    const footer = document.createElement('div');
-    footer.className = 'sc-numpad__footer';
-    const footerLeft = document.createElement('span');
-    footerLeft.textContent = '第' + (this.state.idx + 1) + '/' + total + '题';
-    footer.appendChild(footerLeft);
-    // v8.6.32 键盘调节开关：点击弹高度/宽度滑条（实时生效 + 持久化）
-    const adjBtn = document.createElement('button');
-    adjBtn.type = 'button';
-    adjBtn.className = 'sc-numpad__adjbtn';
-    adjBtn.textContent = '调节';
-    adjBtn.addEventListener('click', () => {
-      const panel = document.createElement('div');
-      panel.className = 'sc-keyboard-adj';
-      const mkRange = (label, min, max, val, unit, cb) => {
-        const row = document.createElement('div');
-        row.className = 'sc-keyboard-adj__row';
-        const lb = document.createElement('span');
-        lb.className = 'sc-keyboard-adj__label';
-        lb.textContent = label;
-        const inp = document.createElement('input');
-        inp.type = 'range';
-        inp.min = String(min); inp.max = String(max); inp.value = String(val);
-        const out = document.createElement('span');
-        out.className = 'sc-keyboard-adj__val';
-        out.textContent = val + unit;
-        inp.addEventListener('input', () => {
-          const v = parseInt(inp.value, 10);
-          out.textContent = v + unit;
-          cb(v);
-        });
-        row.appendChild(lb);
-        row.appendChild(inp);
-        row.appendChild(out);
-        return row;
-      };
-      const curH = settings.keyboardH || 0, curW = settings.keyboardW || 0;
-      panel.appendChild(mkRange('键盘高度', 150, 340, curH || 280, 'px', (v) => { settings.keyboardH = v; numpad.style.height = v + 'px'; this.saveSettings(settings); }));
-      panel.appendChild(mkRange('键盘宽度', 50, 100, curW || 100, '%', (v) => { settings.keyboardW = v; numpad.style.width = v + '%'; this.saveSettings(settings); }));
-      const closeBtn = document.createElement('button');
-      closeBtn.type = 'button';
-      closeBtn.className = 'sc-keyboard-adj__close';
-      closeBtn.textContent = '收起';
-      closeBtn.addEventListener('click', () => panel.remove());
-      panel.appendChild(closeBtn);
-      panel.addEventListener('click', (e) => e.stopPropagation());
-      numpad.insertBefore(panel, kb);
-    });
-    footer.appendChild(adjBtn);
-    // v8.6.38 重开（原键盘「重开」键移至底部，保持功能）
-    const restartBtn = document.createElement('button');
-    restartBtn.type = 'button';
-    restartBtn.className = 'sc-numpad__adjbtn';
-    restartBtn.textContent = '重开';
-    restartBtn.addEventListener('click', async () => {
-      const go = await App.Components.confirm('重新开始', '确定重新开始本轮练习？', '重开', '取消', true);
-      if (go) self.startPractice();
-    });
-    footer.appendChild(restartBtn);
-    numpad.appendChild(footer);
 
     container.appendChild(body);
     container.appendChild(numpad);

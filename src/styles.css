@@ -8294,13 +8294,14 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   box-shadow: 0 6px 18px rgba(0, 102, 204, 0.4);
 }
 .sc-statusbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: #fff; box-shadow: var(--shadow-sm); flex-shrink: 0; border-radius: 0 0 14px 14px; }
-.sc-statusbar__pos { font-size: 14px; font-weight: 700; color: var(--text-primary); }
+.sc-statusbar__pos { font-size: 14px; font-weight: 400; color: var(--text-primary); }
 .sc-statusbar__pen { background: none; border: none; font-size: 18px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.sc-statusbar__timer { font-family: var(--font-mono, monospace); font-size: 14px; font-weight: 700; color: #3B82F6; }
+.sc-statusbar__restart { background: none; border: none; font-size: 13px; font-weight: 400; color: #3B82F6; cursor: pointer; -webkit-tap-highlight-color: transparent; padding: 2px 6px; }
+.sc-statusbar__timer { font-family: var(--font-mono, monospace); font-size: 14px; font-weight: 400; color: #3B82F6; }
 .sc-standard { text-align: center; font-size: 12px; color: var(--text-tertiary); margin-top: 8px; }
-.sc-practice__expr { text-align: center; font-size: 42px; font-weight: 700; color: var(--text-primary); margin: 10px 0 0; letter-spacing: 1px; line-height: 1.3; }
+.sc-practice__expr { text-align: center; font-size: 42px; font-weight: 400; color: var(--text-primary); margin: 10px 0 0; letter-spacing: 1px; line-height: 1.3; }
 /* v8.6.38 输入区：大号绿色数字 + 底部下划线（答题线） */
-.sc-practice__answer { text-align: center; font-size: 42px; font-weight: 700; color: #059669; font-family: var(--font-mono, monospace); min-height: 56px; line-height: 56px; margin-top: 4px; background: transparent; border-bottom: 2.5px solid rgba(5, 150, 105, 0.35); border-radius: 0; padding: 0; }
+.sc-practice__answer { text-align: center; font-size: 42px; font-weight: 400; color: #059669; font-family: var(--font-mono, monospace); min-height: 56px; line-height: 56px; margin-top: 4px; background: transparent; border-bottom: 2.5px solid rgba(5, 150, 105, 0.35); border-radius: 0; padding: 0; }
 .sc-count-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 8px 16px 20px; }
 .sc-count-cell { background: var(--bg-tertiary); border: none; border-radius: 12px; padding: 14px 0; font-size: 16px; font-weight: 600; color: var(--text-primary); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .sc-count-cell:active { background: var(--divider-color); }
@@ -8331,7 +8332,8 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 }
 .sc-numpad__btn:active { transform: scale(0.93) translateY(1px); filter: brightness(0.86); }
 .sc-numpad--v2 .sc-numpad__btn { background: #F3F4F6; color: #1F2937; font-size: 24px; border-radius: 14px; }
-.sc-numpad--v2 .sc-numpad__btn:active { background: #E5E7EB; }
+/* v8.15.26 数字键按下变色更明显：浅灰→品牌蓝浅色（原来 #F3F4F6→#E5E7EB 太接近看不清是否按下） */
+.sc-numpad--v2 .sc-numpad__btn:active { background: #BFDBFE; }
 .sc-numpad--v2 .sc-numpad__btn--func { background: #059669; color: #fff; font-size: 20px; font-weight: 600; }
 .sc-numpad--v2 .sc-numpad__btn--func:active { background: #047857; }
 .sc-numpad--v2 .sc-numpad__btn--confirm { background: #059669; color: #fff; font-size: 24px; font-weight: 700; }
@@ -9518,36 +9520,36 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-type-card__name { font-size: 13px; font-weight: 600; color: #1D1D1F; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.15s; }
 .sc-type-card__rate { font-size: 10px; color: #A1A1A6; margin-top: 2px; }
 
-/* ===== v8.15.24 速算首页紧凑布局：所有模块内容压到一屏内，无需滚动 ===== */
+/* ===== v8.15.24 速算首页紧凑布局：所有模块内容压到一屏内，无需滚动；v8.15.26 微调回调，减少底部留白 ===== */
 .sc-page--home {
   padding: 8px 12px calc(var(--nav-height) + var(--safe-bottom) + 8px);
 }
 .sc-page--home .sc-module-card {
-  padding: 10px;
-  margin-bottom: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
 }
 .sc-page--home .sc-module-head { gap: 8px; }
 .sc-page--home .sc-module-icon {
-  width: 32px; height: 32px; border-radius: 9px; font-size: 16px;
+  width: 36px; height: 36px; border-radius: 10px; font-size: 18px;
 }
 .sc-page--home .sc-module-title { font-size: 15px; }
 .sc-page--home .sc-module-count { font-size: 11px; }
 .sc-page--home .sc-module-arrow { font-size: 13px; }
-.sc-page--home .sc-type-grid { gap: 6px; margin-top: 8px; }
+.sc-page--home .sc-type-grid { gap: 8px; margin-top: 10px; }
 .sc-page--home .sc-type-card {
-  padding: 7px; min-height: 46px; gap: 6px; border-radius: 11px;
+  padding: 9px; min-height: 52px; gap: 7px; border-radius: 12px;
 }
 .sc-page--home .sc-type-card__icon {
-  width: 26px; height: 26px; border-radius: 8px; font-size: 14px;
+  width: 30px; height: 30px; border-radius: 9px; font-size: 15px;
 }
 .sc-page--home .sc-type-card__name { font-size: 12px; }
 .sc-page--home .sc-type-card__rate { font-size: 9px; margin-top: 1px; }
-.sc-page--home .sc-opts-row { gap: 10px; margin-bottom: 10px; }
-.sc-page--home .sc-opt-btn { padding: 8px 16px; font-size: 13px; border-radius: 12px; }
-.sc-page--home .sc-start-btn-v2 { height: 44px; font-size: 15px; margin-top: 2px; }
+.sc-page--home .sc-opts-row { gap: 10px; margin-bottom: 12px; }
+.sc-page--home .sc-opt-btn { padding: 9px 18px; font-size: 13px; border-radius: 12px; }
+.sc-page--home .sc-start-btn-v2 { height: 48px; font-size: 15px; margin-top: 4px; }
 /* 首页操作行收紧 */
-.sc-action-row--home { margin-bottom: 10px; }
-.sc-action-row--home .sc-action-chip { height: 32px; padding: 0 12px; font-size: 12px; }
+.sc-action-row--home { margin-bottom: 12px; }
+.sc-action-row--home .sc-action-chip { height: 34px; padding: 0 13px; font-size: 12px; }
 
 
 /* ===== 历史页：按时间分组 + 类型胶囊 + 展开明细 ===== */
