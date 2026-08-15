@@ -9759,7 +9759,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.4';
+App.VERSION = '8.15.12';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -11817,32 +11817,44 @@ App.Components = {
     let touchEnabled = false; // 手指涂鸦开关：默认关闭，仅 Pencil/鼠标可画
     const MAX_HISTORY = 30;
 
-    const scaleFactor = () => {
-      const rect = canvas.getBoundingClientRect();
-      return rect.width > 0 ? canvas.width / rect.width : 1;
-    };
+    // v8.15.12 坐标统一改用 CSS 像素（ctx 已 scale(dpr)），不再需要 scaleFactor
     function getPos(e) {
+      // v8.15.12 坐标直接用 CSS 像素（ctx 已 scale(dpr)，坐标系是 CSS 像素）
       const rect = canvas.getBoundingClientRect();
       return {
-        x: (e.clientX - rect.left) * (canvas.width / rect.width),
-        y: (e.clientY - rect.top) * (canvas.height / rect.height)
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
       };
     }
     function snapshot() { return canvas.toDataURL('image/png'); }
     function restore(dataURL) {
       const img = new Image();
-      img.onload = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(img, 0, 0, canvas.width, canvas.height); };
+      img.onload = () => {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.scale(dprCache, dprCache);
+        ctx.clearRect(0, 0, canvas.width / dprCache, canvas.height / dprCache);
+        ctx.drawImage(img, 0, 0, canvas.width / dprCache, canvas.height / dprCache);
+      };
       img.src = dataURL;
     }
     function applySize() {
       const rect = canvas.getBoundingClientRect();
+      // v8.15.11 布局未完成时跳过，避免 canvas 被设成极小尺寸后拉伸放大 → 满屏锯齿
+      if (rect.width < 2 || rect.height < 2) return;
       const dpr = window.devicePixelRatio || 1;
-      const w = Math.max(1, Math.round(rect.width * dpr));
-      const h = Math.max(1, Math.round(rect.height * dpr));
+      dprCache = dpr;
+      const w = Math.max(2, Math.round(rect.width * dpr));
+      const h = Math.max(2, Math.round(rect.height * dpr));
       if (w === canvas.width && h === canvas.height) return;
       const prev = initialized ? snapshot() : null;
       canvas.width = w; canvas.height = h;
+      // v8.15.12 关键修复：ctx.scale(dpr) 让绘制坐标系回到 CSS 像素，
+      // 消除「坐标×sf 与 lineWidth×sf 的非整数亚像素误差」——这正是 iPad 上线条边缘毛糙(锯齿)的根因。
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(dpr, dpr);
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
       if (prev) restore(prev);
     }
     function isEmpty() {
@@ -11875,72 +11887,93 @@ App.Components = {
     function showCursor() { cursor.style.display = 'block'; }
     function hideCursor() { cursor.style.display = 'none'; }
     function moveCursor(pos, radius) {
-      cursor.style.left = pos.x / scaleFactor() + 'px';
-      cursor.style.top = pos.y / scaleFactor() + 'px';
+      // v8.15.12 pos 已是 CSS 像素，直接用于定位
+      cursor.style.left = pos.x + 'px';
+      cursor.style.top = pos.y + 'px';
       cursor.style.width = (radius * 2) + 'px';
       cursor.style.height = (radius * 2) + 'px';
     }
 
-    // 画笔：采样去重 + 远距离插值 + 压力平滑 + 二次贝塞尔（中点法）
+    // 画笔：采样去重 + 远距离插值 + One Euro 平滑 + 二次贝塞尔（中点法）+ 整笔连续 path 单次 stroke
     let lastX = 0, lastY = 0;
     let lastPressure = 0.5;
-    // 整笔平滑线宽（压力值，未乘 sf）：低通更新，宽度连续渐变
-    let strokeWeight = 0.5;
-    // v8.15.4 整笔累积单条 path 绘制：彻底消除「一笔由一串圆点组成」「段间接缝锯齿」。
-    // 原理：起笔时 beginPath + moveTo 一次；此后每段用 quadraticCurveTo 追加到
-    // 同一条 path 上并 stroke —— Canvas 的 stroke() 不会清空 path，后续段持续累积。
-    // lineCap round 只在一笔的首尾两端各出现一次，中间是连续曲线，无圆头凸起。
-    // 由于画笔颜色均为不透明纯色，重复 stroke 同一 path 视觉无差异（覆盖相同像素）。
-    let curMidX = 0, curMidY = 0;        // 当前笔 path 的累积锚点（上一段终点）
-    let strokePathLive = false;          // 当前笔是否已有活动的累积 path
-    function penWidth(p, sf) {
-      // 压力 NaN/非法时回退 0.5，杜绝线宽 NaN 导致该段画不出
-      const pr = (typeof p === 'number' && isFinite(p)) ? p : 0.5;
-      return Math.max(1, currentPenSize * (0.55 + pr * 0.75) * (sf || 1));
+    let dprCache = 1;   // v8.15.12 缓存 devicePixelRatio，applySize 时更新
+    // v8.15.12 恒宽画笔：线宽直接 = 逻辑档位（CSS 像素），ctx 已 scale(dpr) 由 GPU 负责映射到物理像素，
+    // 消除「坐标×sf 与线宽×sf 各自取整不一致」导致的非整数亚像素 → iPad 线条边缘毛糙(锯齿)。
+    function penWidth() {
+      return Math.max(1, currentPenSize);
     }
-    function drawSmoothStroke(newPos, e) {
-      // 压力平滑：低通滤波 + 钳制（加重历史权重，进一步抑制 Apple Pencil 压力抖动）
-      let p = 0.5;
-      if (e && e.pointerType === 'pen' && e.pressure > 0) {
-        p = e.pressure * 0.30 + lastPressure * 0.70;
-        p = Math.min(1, Math.max(0.20, p));
+    // One Euro Filter（1€ 滤波器）：速度自适应低通，慢速强平滑（压抖动）、快速保响应（跟手）。
+    const euroFilter = (() => {
+      const mincutoff = 0.5;
+      const beta = 0.005;
+      const dcutoff = 1.0;
+      let xPrev = null, yPrev = null, dxPrev = 0, dyPrev = 0, tPrev = null;
+      function lowpass(prev, cur, alpha) { return prev + alpha * (cur - prev); }
+      function alpha(cutoff, dt) {
+        const tau = 1.0 / (2.0 * Math.PI * cutoff);
+        return 1.0 / (1.0 + tau / dt);
       }
-      lastPressure = p;
-      // 整笔平滑线宽：更强低通（历史权重 0.85），宽度连续渐变
-      strokeWeight += (p - strokeWeight) * 0.15;
+      return {
+        reset(x, y, t) { xPrev = x; yPrev = y; dxPrev = 0; dyPrev = 0; tPrev = t; },
+        filter(x, y, t) {
+          if (xPrev === null || tPrev === null) { this.reset(x, y, t); return { x, y }; }
+          const dt = Math.max(0.001, (t - tPrev) / 1000);
+          const dxRaw = (x - xPrev) / dt;
+          const dyRaw = (y - yPrev) / dt;
+          const adx = alpha(dcutoff, dt);
+          const dx = lowpass(dxPrev, dxRaw, adx);
+          const dy = lowpass(dyPrev, dyRaw, adx);
+          dxPrev = dx; dyPrev = dy;
+          const speed = Math.sqrt(dx * dx + dy * dy);
+          const cutoff = mincutoff + beta * speed;
+          const a = alpha(cutoff, dt);
+          const xf = lowpass(xPrev, x, a);
+          const yf = lowpass(yPrev, y, a);
+          xPrev = xf; yPrev = yf; tPrev = t;
+          return { x: xf, y: yf };
+        }
+      };
+    })();
 
+    // 起笔前的画布快照（整笔重绘时用它同步恢复，避免叠加）
+    let strokeBase = null;         // ImageData 快照
+    let strokeActive = false;      // 当前笔是否在进行中
+
+    function drawSmoothStroke(newPos, time) {
       const lastPt = points.length ? points[points.length - 1] : null;
       if (lastPt) {
         const dx = newPos.x - lastPt.x;
         const dy = newPos.y - lastPt.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        // 距离过近：跳过，消除短线段堆积产生的小圆点
-        if (dist < 0.6) return;
-        // 距离过远：按 8px 步长线性插值细分，避免远点直接拉直线「连成一团」
-        if (dist > 12) {
-          const steps = Math.ceil(dist / 8);
+        if (dist < 1.0) return;
+        if (dist > 14) {
+          const steps = Math.ceil(dist / 6);
           for (let i = 1; i <= steps; i++) {
-            points.push({ x: lastPt.x + dx * i / steps, y: lastPt.y + dy * i / steps, p: p });
-            if (points.length >= 3) incrementStroke();
+            const f = euroFilter.filter(lastPt.x + dx * i / steps, lastPt.y + dy * i / steps, time);
+            points.push({ x: f.x, y: f.y });
           }
+          renderStroke();
           return;
         }
       }
-      points.push({ x: newPos.x, y: newPos.y, p: p });
-      if (points.length >= 3) incrementStroke();
+      const f = euroFilter.filter(newPos.x, newPos.y, time);
+      points.push({ x: f.x, y: f.y });
+      renderStroke();
     }
 
-    // 二次贝塞尔「中点法」增量追加：把 p2~p3 的中点作为终点追加到当前笔的累积 path。
-    function incrementStroke() {
-      const n = points.length;
-      const p2 = points[n - 2];           // 控制点（倒数第二点）
-      const p3 = points[n - 1];           // 当前点
-      const midX = (p2.x + p3.x) / 2;     // 本段终点 = p2~p3 中点
-      const midY = (p2.y + p3.y) / 2;
+    // 同步恢复起笔前快照 + 重画「完整当前一笔」（一条连续 path，仅 stroke 一次）
+    function renderStroke() {
+      const w = penWidth();
 
-      const sf = scaleFactor();
-      const w = penWidth(strokeWeight, sf);
+      // 1. 同步恢复起笔前快照（putImageData 是同步的，无叠加、无异步空档）
+      if (strokeBase) {
+        ctx.putImageData(strokeBase, 0, 0);
+      } else {
+        ctx.clearRect(0, 0, canvas.width / dprCache, canvas.height / dprCache);
+      }
 
+      // 2. 整笔一条连续 path（坐标为 CSS 像素，ctx 已 scale(dpr)）
       ctx.globalCompositeOperation = 'source-over';
       ctx.strokeStyle = currentColor;
       ctx.lineCap = 'round';
@@ -11948,26 +11981,34 @@ App.Components = {
       ctx.globalAlpha = 1;
       ctx.lineWidth = Math.max(1, w);
 
-      if (!strokePathLive) {
-        // 起笔：新建累积 path，起点为当前锚点
+      if (points.length === 1) {
+        const p0 = points[0];
         ctx.beginPath();
-        ctx.moveTo(curMidX, curMidY);
-        strokePathLive = true;
+        ctx.arc(p0.x, p0.y, w / 2, 0, Math.PI * 2);
+        ctx.fillStyle = currentColor;
+        ctx.fill();
+        return;
       }
-      // 追加曲线段（不重新 beginPath → 保持同一条 path）
-      ctx.quadraticCurveTo(p2.x, p2.y, midX, midY);
-      ctx.stroke();
 
-      // 更新累积锚点
-      curMidX = midX; curMidY = midY;
-      // 保留尾部两个点供下一段作「起点 + 控制点」
-      points = [p2, p3];
+      // 二次贝塞尔中点法：一条 path 从头画到尾，中间绝无接缝
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length - 1; i++) {
+        const p = points[i];
+        const nx = points[i + 1].x, ny = points[i + 1].y;
+        const midX = (p.x + nx) / 2;
+        const midY = (p.y + ny) / 2;
+        ctx.quadraticCurveTo(p.x, p.y, midX, midY);
+      }
+      // 末段：连到最后一点（round cap 会让笔尾自然圆润收尾）
+      const last = points[points.length - 1];
+      ctx.lineTo(last.x, last.y);
+      ctx.stroke();
     }
 
-    // 橡皮擦：只显示范围圈，轨迹透明；使用独立橡皮擦粗细
+    // 橡皮擦：直接在主 canvas 上用 destination-out 擦除
     function eraseStroke(from, to) {
-      const sf = scaleFactor();
-      const w = currentEraserSize * sf;
+      const w = currentEraserSize;
       ctx.globalCompositeOperation = 'destination-out';
       ctx.strokeStyle = 'rgba(0,0,0,1)';
       ctx.lineWidth = Math.max(1, w);
@@ -11977,7 +12018,6 @@ App.Components = {
       ctx.moveTo(from.x, from.y);
       ctx.lineTo(to.x, to.y);
       ctx.stroke();
-      // v8.15.1 擦完立即重置合成模式，防止残留 destination-out 导致下一笔出现大黑点
       ctx.globalCompositeOperation = 'source-over';
     }
 
@@ -12005,18 +12045,19 @@ App.Components = {
       drawing = true;
       try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
       const pos = getPos(e);
-      // v8.15.1 初始点补 p 压力，避免首段贝塞尔 penWidth 拿到 undefined 产生 NaN 线宽（首笔画不出）
-      points = [ { x: pos.x, y: pos.y, p: (typeof lastPressure === 'number' && isFinite(lastPressure)) ? lastPressure : 0.5 } ];
-      // v8.15.2 重置整笔平滑线宽，让新一笔从当前压力起步（连续、无突兀变化）
-      strokeWeight = points[0].p;
-      // v8.15.4 每笔重置累积 path：锚点置为落点，strokePathLive 置空，下段重新 moveTo 起笔
-      curMidX = pos.x; curMidY = pos.y;
-      strokePathLive = false;
+      // 起笔：记录落点，保存「起笔前快照」用于整笔重绘时同步恢复
+      points = [ { x: pos.x, y: pos.y } ];
       lastX = pos.x; lastY = pos.y;
+      strokeActive = true;
+      strokeBase = ctx.getImageData(0, 0, canvas.width, canvas.height);   // 同步快照
+      euroFilter.reset(pos.x, pos.y, (typeof performance !== 'undefined' ? performance.now() : Date.now()));
       if (mode === 'eraser') {
         const r = currentEraserSize / 2;
         moveCursor(pos, r);
         showCursor();
+      } else {
+        // 起笔落墨：画一个点
+        renderStroke();
       }
     });
     canvas.addEventListener('pointermove', (e) => {
@@ -12029,7 +12070,7 @@ App.Components = {
         eraseStroke(points[points.length - 1], pos);
         points = [ pos ];
       } else {
-        drawSmoothStroke(pos, e);
+        drawSmoothStroke(pos, (typeof performance !== 'undefined' ? performance.now() : Date.now()));
       }
     });
     function endDraw(e) {
@@ -12037,27 +12078,9 @@ App.Components = {
       drawing = false;
       hideCursor();
       try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
-      // v8.15.4 收尾简化：整笔已是连续累积 path（quadraticCurveTo），无需再逐段补变宽折线。
-      // 短笔/tap（未形成曲线，points<3 且未移动）不落墨，避免点一下出个大圆点。
-      // 若最后一两点尚未并入 path（不足 3 点），退回用圆头短线段补一段，保证笔迹完整收口。
-      if (mode !== 'eraser' && points.length >= 2 && strokePathLive) {
-        const last = points[points.length - 1];
-        // 若累积锚点与最后点仍有距离，补一段短曲线到终点收口
-        const dx = last.x - curMidX;
-        const dy = last.y - curMidY;
-        if (dx * dx + dy * dy > 1) {
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-          ctx.globalCompositeOperation = 'source-over';
-          ctx.strokeStyle = currentColor;
-          const sf = scaleFactor();
-          ctx.lineWidth = Math.max(1, penWidth(strokeWeight, sf));
-          ctx.quadraticCurveTo(last.x, last.y, last.x, last.y);
-          ctx.stroke();
-        }
-      }
       points = [];
-      strokePathLive = false;
+      strokeActive = false;
+      strokeBase = null;
       lastPressure = 0.5;
       pushHistory();
       commit();
@@ -12068,9 +12091,19 @@ App.Components = {
 
     function init() {
       applySize();
+      // v8.15.11 布局兜底：多次重试 applySize，直到 canvas 尺寸正确（>2px）或有初始内容。
+      // 之前若 init 时 rect=0，applySize 直接跳过，canvas 保持默认/极小尺寸被 CSS 拉伸 → 满屏锯齿。
+      let retries = 0;
+      const retrySize = () => {
+        if (canvas.width >= 2 && canvas.height >= 2) return;
+        applySize();
+        if (++retries < 20) setTimeout(retrySize, 30);
+      };
+      retrySize();
       if (opts.initial) {
         const img = new Image();
         img.onload = () => {
+          applySize();
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           undoStack = [ snapshot() ];
           redoStack = [];
@@ -12086,10 +12119,10 @@ App.Components = {
       }
     }
     if (window.ResizeObserver) {
-      const ro = new ResizeObserver(() => { if (initialized) applySize(); });
+      const ro = new ResizeObserver(() => { applySize(); });
       ro.observe(canvasWrap);
     } else {
-      window.addEventListener('resize', () => { if (initialized) applySize(); });
+      window.addEventListener('resize', () => { applySize(); });
     }
     requestAnimationFrame(() => requestAnimationFrame(init));
 
