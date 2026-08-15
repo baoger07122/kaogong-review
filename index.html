@@ -9759,7 +9759,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.14';
+App.VERSION = '8.15.15';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -11903,67 +11903,26 @@ App.Components = {
     function penWidth() {
       return Math.max(1, currentPenSize);
     }
-    // One Euro Filter（1€ 滤波器）：速度自适应低通，慢速强平滑（压抖动）、快速保响应（跟手）。
-    const euroFilter = (() => {
-      // v8.15.13 大幅调松滤波：mincutoff 0.5→2.0。此前 0.5 导致慢速写字时 cutoff≈0.5、
-      // alpha≈0.048（每个采样点仅 4.8% 被采纳），笔迹严重滞后「写下去没字」。锯齿已靠 ctx.scale 根治，
-      // 不再需要强低通；mincutoff=2.0 让慢速书写几乎即时跟手，只对高速抖动做轻微抑制。
-      const mincutoff = 2.0;
-      const beta = 0.005;
-      const dcutoff = 1.0;
-      let xPrev = null, yPrev = null, dxPrev = 0, dyPrev = 0, tPrev = null;
-      function lowpass(prev, cur, alpha) { return prev + alpha * (cur - prev); }
-      function alpha(cutoff, dt) {
-        const tau = 1.0 / (2.0 * Math.PI * cutoff);
-        return 1.0 / (1.0 + tau / dt);
-      }
-      return {
-        reset(x, y, t) { xPrev = x; yPrev = y; dxPrev = 0; dyPrev = 0; tPrev = t; },
-        filter(x, y, t) {
-          if (xPrev === null || tPrev === null) { this.reset(x, y, t); return { x, y }; }
-          const dt = Math.max(0.001, (t - tPrev) / 1000);
-          const dxRaw = (x - xPrev) / dt;
-          const dyRaw = (y - yPrev) / dt;
-          const adx = alpha(dcutoff, dt);
-          const dx = lowpass(dxPrev, dxRaw, adx);
-          const dy = lowpass(dyPrev, dyRaw, adx);
-          dxPrev = dx; dyPrev = dy;
-          const speed = Math.sqrt(dx * dx + dy * dy);
-          const cutoff = mincutoff + beta * speed;
-          const a = alpha(cutoff, dt);
-          const xf = lowpass(xPrev, x, a);
-          const yf = lowpass(yPrev, y, a);
-          xPrev = xf; yPrev = yf; tPrev = t;
-          return { x: xf, y: yf };
-        }
-      };
-    })();
 
     // 起笔前的画布快照（整笔重绘时用它同步恢复，避免叠加）
     let strokeBase = null;         // ImageData 快照
-    let strokeActive = false;      // 当前笔是否在进行中
 
-    function drawSmoothStroke(newPos, time) {
+    // v8.15.15 终局简化：彻底移除 One Euro 滤波与复杂插值。
+    // 回退原因：v8.15.14「插值点不滤波」后，dist>14 的快速移动产生直线折线段破坏曲线平滑(锯齿)，
+    // 且与滤波/阈值组合交互脆弱，反复「画线锯齿 + 字不完整」。
+    // 正确做法：采样点最简去重后直接进 points，靠「ctx.scale(dpr)」保证清晰(锯齿已根治)，
+    // 靠「二次贝塞尔中点法」保证平滑，靠「不滤波不丢点」保证笔画完整与跟手。
+    // 中间恢复(bug 已反复验证)：整笔一条连续 path 单次 stroke + putImageData 同步快照恢复。
+    function drawSmoothStroke(newPos) {
       const lastPt = points.length ? points[points.length - 1] : null;
       if (lastPt) {
         const dx = newPos.x - lastPt.x;
         const dy = newPos.y - lastPt.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 0.5) return;
-        if (dist > 14) {
-          // v8.15.14 关键修复：快速移动的插值点「不做滤波」直接按线性插值 push。
-          // 此前插值点也过 One Euro，且共用同一 time → dt≈0 → alpha≈0，滤波把整段插值点
-          // 压缩粘连成一点，快速笔画被「吃掉」→ 写字只显示几笔、字不完整。
-          const steps = Math.ceil(dist / 6);
-          for (let i = 1; i <= steps; i++) {
-            points.push({ x: lastPt.x + dx * i / steps, y: lastPt.y + dy * i / steps });
-          }
-          renderStroke();
-          return;
-        }
+        // 仅做最小距离去重（<1px 的微小抖动跳过），不做任何滤波/插值
+        if (dist < 1.0) return;
       }
-      const f = euroFilter.filter(newPos.x, newPos.y, time);
-      points.push({ x: f.x, y: f.y });
+      points.push({ x: newPos.x, y: newPos.y });
       renderStroke();
     }
 
@@ -11971,7 +11930,7 @@ App.Components = {
     function renderStroke() {
       const w = penWidth();
 
-      // 1. 同步恢复起笔前快照（putImageData 是同步的，无叠加、无异步空档）
+      // 1. 同步恢复起笔前快照
       if (strokeBase) {
         ctx.putImageData(strokeBase, 0, 0);
       } else {
@@ -12053,9 +12012,7 @@ App.Components = {
       // 起笔：记录落点，保存「起笔前快照」用于整笔重绘时同步恢复
       points = [ { x: pos.x, y: pos.y } ];
       lastX = pos.x; lastY = pos.y;
-      strokeActive = true;
       strokeBase = ctx.getImageData(0, 0, canvas.width, canvas.height);   // 同步快照
-      euroFilter.reset(pos.x, pos.y, (typeof performance !== 'undefined' ? performance.now() : Date.now()));
       if (mode === 'eraser') {
         const r = currentEraserSize / 2;
         moveCursor(pos, r);
@@ -12075,7 +12032,7 @@ App.Components = {
         eraseStroke(points[points.length - 1], pos);
         points = [ pos ];
       } else {
-        drawSmoothStroke(pos, (typeof performance !== 'undefined' ? performance.now() : Date.now()));
+        drawSmoothStroke(pos);
       }
     });
     function endDraw(e) {
@@ -12084,7 +12041,6 @@ App.Components = {
       hideCursor();
       try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
       points = [];
-      strokeActive = false;
       strokeBase = null;
       lastPressure = 0.5;
       pushHistory();
