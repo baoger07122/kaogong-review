@@ -7086,6 +7086,41 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 }
 .tag-manager__edit-toggle:active { transform: scale(0.95); }
 
+/* v8.15.22 模块/科目头部内的「管理」按钮（下放替代顶部全局编辑按钮） */
+.tag-manager__manage {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--color-primary);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+}
+.tag-manager__manage.is-active {
+  background: var(--color-primary);
+  color: #fff;
+}
+.tag-manager__manage:active { transform: scale(0.95); }
+
+/* 模块头部右侧：计数 + 管理按钮 */
+.tag-module-header__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+/* 科目头部右侧：计数 +（扁平科目）管理按钮 */
+.tag-subject-header__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 /* 模块折叠卡片 */
 .tag-module {
   margin-bottom: 12px;

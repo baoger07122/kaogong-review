@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.21';
+App.VERSION = '8.15.22';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -3653,7 +3653,7 @@ App.Components = {
       tagRow.appendChild(ct);
     }
     card.appendChild(tagRow);
-    // 挖坑点单独一行，自动换行（v8.12.31 用设计稿挖坑点图标替代 ⛏ emoji，对齐画布 40:9）
+    // 思维误区单独一行，自动换行（用图标替代 ⛏ emoji，对齐画布 40:9）
     if (error.pitfall) {
       const pf = document.createElement('div');
       pf.className = 'error-gallery-card__pitfall';
@@ -4240,8 +4240,8 @@ App.Components = {
     const subKey = (sub) => 'sub:' + sub;
     const modKey = (sub, mod) => 'mod:' + sub + '|' + mod;
     const editKey = (sub, mod, kind, name) => sub + '|' + mod + '|' + kind + '|' + name;
-    // 科目：第一个默认展开，其余折叠；模块：默认全部折叠
-    const isSubOpen = (sub, idx) => (state.expanded[subKey(sub.name)] !== undefined ? state.expanded[subKey(sub.name)] : idx === 0);
+    // 科目：默认全部折叠；模块：默认全部折叠（v8.15.22 取消「第一个科目默认展开」）
+    const isSubOpen = (sub, idx) => (state.expanded[subKey(sub.name)] === true);
     const isModOpen = (sub, mod) => state.expanded[modKey(sub, mod)] === true;
     // 【扁平科目】仅科目一层级，不显示模块细分（如资料分析：4 个模块标签相同，
     // 管理页合并展示，编辑操作同步到该科目所有模块，错题编辑页按模块选标签仍可见）
@@ -4312,19 +4312,13 @@ App.Components = {
       container.innerHTML = '';
       container.className = 'tag-manager' + (state.edit ? ' edit-mode' : '');
 
-      // 顶部工具条：标题 + 编辑/完成切换
+      // 顶部标题栏：仅标题（v8.15.22 管理入口下放到每个模块内部，不再于顶部右侧统一放「编辑」按钮）
       const bar = document.createElement('div');
       bar.className = 'tag-manager__bar';
       const title = document.createElement('div');
       title.className = 'tag-manager__title';
       title.textContent = opts.title || '标签管理';
-      const toggleBtn = document.createElement('button');
-      toggleBtn.type = 'button';
-      toggleBtn.className = 'tag-manager__edit-toggle' + (state.edit ? ' is-active' : '');
-      toggleBtn.textContent = state.edit ? '完成' : '编辑';
-      toggleBtn.addEventListener('click', toggleEdit);
       bar.appendChild(title);
-      bar.appendChild(toggleBtn);
       container.appendChild(bar);
 
       // 科目折叠卡片
@@ -4350,7 +4344,24 @@ App.Components = {
         subCount.className = 'tag-subject-count';
         subCount.textContent = subTotal + ' 个';
         subHead.appendChild(subLeft);
-        subHead.appendChild(subCount);
+        // 右侧：计数 +（扁平科目时）管理按钮
+        const subRight = document.createElement('div');
+        subRight.className = 'tag-subject-header__right';
+        subRight.appendChild(subCount);
+        // 扁平科目（无模块细分）：在科目头部直接提供「管理」入口（普通科目在下层模块内）
+        if (isFlatSub(sub.name)) {
+          const subManage = document.createElement('button');
+          subManage.type = 'button';
+          subManage.className = 'tag-manager__manage' + (state.edit ? ' is-active' : '');
+          subManage.textContent = state.edit ? '完成' : '管理';
+          subManage.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!state.edit) state.expanded[subKey(sub.name)] = true;
+            toggleEdit();
+          });
+          subRight.appendChild(subManage);
+        }
+        subHead.appendChild(subRight);
         subHead.addEventListener('click', () => {
           state.expanded[subKey(sub.name)] = !isSubOpen(sub, subIdx);
           render();
@@ -4394,8 +4405,26 @@ App.Components = {
             let modTotal = 0;
             kinds.forEach(k => { modTotal += KIND_META[k].get(mod).length; });
             modCount.textContent = modTotal + ' 个';
+            // 右侧：计数 + 「管理」按钮（v8.15.22 下放到每个模块内部）
+            const modRight = document.createElement('div');
+            modRight.className = 'tag-module-header__right';
+            modRight.appendChild(modCount);
+            const manageBtn = document.createElement('button');
+            manageBtn.type = 'button';
+            manageBtn.className = 'tag-manager__manage' + (state.edit ? ' is-active' : '');
+            manageBtn.textContent = state.edit ? '完成' : '管理';
+            manageBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              // 从非编辑态进入编辑态时，同时展开本模块，便于直接看到可编辑的标签
+              if (!state.edit) {
+                state.expanded[subKey(sub.name)] = true;
+                state.expanded[modKey(sub.name, mod)] = true;
+              }
+              toggleEdit();
+            });
+            modRight.appendChild(manageBtn);
             modHead.appendChild(modLeft);
-            modHead.appendChild(modCount);
+            modHead.appendChild(modRight);
             modHead.addEventListener('click', () => {
               state.expanded[modKey(sub.name, mod)] = !isModOpen(sub.name, mod);
               render();
@@ -11047,7 +11076,7 @@ App.Pages.Errors = {
       detailLines += `<div style="margin-bottom:4px;"><span style="font-weight:600;color:var(--text-secondary);font-size:var(--font-xs);">错因：</span><span class="tag tag--neutral">${error.errorCause}</span></div>`;
     }
     if (error.pitfall) {
-      detailLines += `<div style="margin-bottom:4px;"><span style="font-weight:600;color:var(--text-secondary);font-size:var(--font-xs);">挖坑点：</span><span style="font-size:var(--font-sm);color:var(--text-secondary);">${error.pitfall}</span></div>`;
+      detailLines += `<div style="margin-bottom:4px;"><span style="font-weight:600;color:var(--text-secondary);font-size:var(--font-xs);">思维误区：</span><span style="font-size:var(--font-sm);color:var(--text-secondary);">${error.pitfall}</span></div>`;
     }
     headerInfo.innerHTML = `
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
@@ -11520,7 +11549,7 @@ App.Pages.Errors = {
       }
       form.appendChild(efCard(topCardChildren));
 
-      // ===== 卡片二：考点（最多3个）+ 错因 + 挖坑点 =====
+      // ===== 卡片二：考点（最多3个）+ 错因 + 思维误区 =====
       const kpEcChildren = [];
       // 考点（多选，最多3个）弹窗
       if (formData.module || (isFlatError && formData.subject)) {
@@ -11555,9 +11584,9 @@ App.Pages.Errors = {
         });
       }));
       kpEcChildren.push(App.Components.formInput(
-        '挖坑点',
+        '思维误区',
         formData.pitfall,
-        '一句话记录这道题的坑在哪（可选）',
+        '一句话记录这道题容易踩的思维误区（可选）',
         (val) => { formData.pitfall = val; },
         'input'
       ));
