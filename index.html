@@ -3705,6 +3705,10 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   padding-bottom: var(--safe-bottom);
   z-index: 1801;
+  /* v8.15.19 选项过多时可内部滚动，避免溢出屏幕或穿透背景 */
+  max-height: 70vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   animation: slideUp 0.25s ease;
 }
 
@@ -6959,6 +6963,29 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 }
 [data-theme="dark"] .picker-modal__close { background: #2C2C2E; border-color: #3A3A3C; }
 .picker-modal__close:active { opacity: 0.7; }
+/* 右上角「管理」按钮（考点/错因选择弹窗内，点击切换到标签管理视图） */
+.picker-modal__manage {
+  height: 32px;
+  padding: 0 14px;
+  flex: none;
+  font-size: 14px;
+  font-weight: 500;
+  color: #0066CC;
+  background: #EAEFFF;
+  border: 1px solid #D5E2FF;
+  border-radius: 999px;
+  cursor: pointer;
+  margin-right: 8px;
+}
+[data-theme="dark"] .picker-modal__manage { color: #6BA1E8; background: rgba(0, 102, 204, 0.18); border-color: rgba(0, 102, 204, 0.35); }
+.picker-modal__manage:active { opacity: 0.7; }
+/* 管理视图内容容器：在弹窗内可滚动，供 tagManager 挂载 */
+.picker-modal__mgm {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
 /* list 模式 */
 .picker-modal__list { display: flex; flex-direction: column; gap: 6px; }
 .picker-modal__item {
@@ -9759,7 +9786,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.18';
+App.VERSION = '8.15.19';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -11494,6 +11521,40 @@ App.Components = {
   _activeMobileEditor: null,         // 当前活动编辑器实例（动作分发目标）
   _mobileToolbarEl: null,            // 工具栏 DOM
 
+  // ===== 全局滚动锁（弹窗打开时锁定背景滚动，关闭时恢复；支持嵌套计数） =====
+  // 背景：错题本/笔记等页面的弹窗打开后，底部背景仍可被滑动（滚动穿透），导致滑不动弹窗反而滚背景。
+  // 通过「计数器 + body/html 滚动锁 + 页面容器滚动锁」统一解决，供 confirm/prompt/actionSheet/
+  // pickerModal/centeredPicker/doodleOverlay 等所有弹窗复用。
+  _scrollLockCount: 0,
+  _scrollLockPrev: null,
+  _lockScroll() {
+    this._scrollLockCount++;
+    if (this._scrollLockCount === 1) {
+      // 找到当前处于 overflow 滚动的页面容器一并锁定（如 .page 主容器）
+      const pageEl = document.querySelector('.page') || document.body;
+      this._scrollLockPrev = {
+        body: document.body.style.overflow,
+        html: document.documentElement.style.overflow,
+        page: pageEl.style.overflow
+      };
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+      pageEl.style.overflow = 'hidden';
+    }
+  },
+  _unlockScroll() {
+    if (this._scrollLockCount > 0) this._scrollLockCount--;
+    if (this._scrollLockCount === 0 && this._scrollLockPrev) {
+      document.body.style.overflow = this._scrollLockPrev.body;
+      document.documentElement.style.overflow = this._scrollLockPrev.html;
+      try {
+        const pageEl = document.querySelector('.page');
+        if (pageEl) pageEl.style.overflow = this._scrollLockPrev.page;
+      } catch (e) {}
+      this._scrollLockPrev = null;
+    }
+  },
+
   // 注册当前活动编辑器（notionEditor 创建时调用）
   _registerMobileEditor(inst) { this._activeMobileEditor = inst; },
 
@@ -12147,6 +12208,9 @@ App.Components = {
       const overlay = document.createElement('div');
       overlay.className = 'doodle-overlay';
 
+      // 滚动锁：全屏涂鸦层打开时锁定背景；关闭时恢复
+      App.Components._lockScroll();
+
       // 顶部栏：左上角退出，右上角工具
       const bar = document.createElement('div');
       bar.className = 'doodle-overlay__bar';
@@ -12269,6 +12333,7 @@ App.Components = {
       const finish = () => {
         if (done) return;
         done = true;
+        App.Components._unlockScroll();
         if (overlay.parentNode) overlay.remove();
         let img = null;
         try { img = pad.getImage(); } catch (e) { img = null; }
@@ -12409,20 +12474,24 @@ App.Components = {
         </div>
       `;
 
+      // 滚动锁：弹窗打开锁定背景，关闭/取消/确认时恢复
+      App.Components._lockScroll();
+      const closeOverlay = () => { App.Components._unlockScroll(); overlay.remove(); };
+
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) {
-          overlay.remove();
+          closeOverlay();
           resolve(false);
         }
       });
 
       overlay.querySelector('.btn-cancel').addEventListener('click', () => {
-        overlay.remove();
+        closeOverlay();
         resolve(false);
       });
 
       overlay.querySelector(isDanger ? '.btn-danger' : '.btn-confirm').addEventListener('click', () => {
-        overlay.remove();
+        closeOverlay();
         resolve(true);
       });
 
@@ -12456,7 +12525,9 @@ App.Components = {
       const input = overlay.querySelector('.modal-dialog__input input');
       const confirmBtn = overlay.querySelector('.btn-confirm');
       const cancelBtn = overlay.querySelector('.btn-cancel');
-      const finish = (val) => { overlay.remove(); resolve(val); };
+      // 滚动锁
+      App.Components._lockScroll();
+      const finish = (val) => { App.Components._unlockScroll(); overlay.remove(); resolve(val); };
       const submit = () => { const v = input.value.trim(); if (v) finish(v); };
       setTimeout(() => { input.focus(); }, 0);
       overlay.addEventListener('click', (e) => { if (e.target === overlay) finish(null); });
@@ -17478,6 +17549,10 @@ App.Components = {
       const sheet = document.createElement('div');
       sheet.className = 'actionsheet';
 
+      // 滚动锁：锁定背景，关闭时恢复
+      App.Components._lockScroll();
+      const closeOverlay = () => { App.Components._unlockScroll(); overlay.remove(); };
+
       if (title) {
         const titleEl = document.createElement('div');
         titleEl.style.cssText = 'text-align:center;padding:14px;font-size:var(--font-sm);color:var(--text-tertiary);border-bottom:1px solid var(--divider-color);';
@@ -17490,7 +17565,7 @@ App.Components = {
         item.className = 'actionsheet__item';
         item.textContent = opt.label;
         item.addEventListener('click', () => {
-          overlay.remove();
+          closeOverlay();
           resolve(opt.value !== undefined ? opt.value : opt.label);
         });
         sheet.appendChild(item);
@@ -17500,7 +17575,7 @@ App.Components = {
       cancel.className = 'actionsheet__cancel';
       cancel.textContent = '取消';
       cancel.addEventListener('click', () => {
-        overlay.remove();
+        closeOverlay();
         resolve(null);
       });
       sheet.appendChild(cancel);
@@ -17508,7 +17583,7 @@ App.Components = {
       overlay.appendChild(sheet);
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) {
-          overlay.remove();
+          closeOverlay();
           resolve(null);
         }
       });
@@ -17723,6 +17798,10 @@ App.Components = {
       const overlay = document.createElement('div');
       overlay.className = 'cp-overlay';
 
+      // 滚动锁：锁定背景，关闭/选中/取消时恢复
+      App.Components._lockScroll();
+      const closeOverlay = () => { App.Components._unlockScroll(); overlay.remove(); };
+
       const card = document.createElement('div');
       card.className = 'cp-card';
 
@@ -17739,7 +17818,7 @@ App.Components = {
       closeBtn.className = 'cp-close';
       closeBtn.innerHTML = '✕';
       closeBtn.title = '关闭';
-      closeBtn.addEventListener('click', () => { overlay.remove(); resolve(null); });
+      closeBtn.addEventListener('click', () => { closeOverlay(); resolve(null); });
       headerRow.appendChild(closeBtn);
       card.appendChild(headerRow);
 
@@ -17784,7 +17863,7 @@ App.Components = {
         item.appendChild(textWrap);
 
         item.addEventListener('click', () => {
-          overlay.remove();
+          closeOverlay();
           resolve(opt.value !== undefined ? opt.value : opt.label);
         });
 
@@ -17816,13 +17895,13 @@ App.Components = {
       const cancelBtn = document.createElement('button');
       cancelBtn.className = 'cp-cancel-btn';
       cancelBtn.textContent = '取消';
-      cancelBtn.addEventListener('click', () => { overlay.remove(); resolve(null); });
+      cancelBtn.addEventListener('click', () => { closeOverlay(); resolve(null); });
       cancelRow.appendChild(cancelBtn);
       card.appendChild(cancelRow);
 
       overlay.appendChild(card);
       overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) { overlay.remove(); resolve(null); }
+        if (e.target === overlay) { closeOverlay(); resolve(null); }
       });
 
       container.appendChild(overlay);
@@ -17916,6 +17995,10 @@ App.Components.pickerModal = function (opts) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
 
+  // 滚动锁：锁定背景，关闭/确定时恢复
+  App.Components._lockScroll();
+  const closeOverlay = () => { App.Components._unlockScroll(); overlay.remove(); };
+
   // 选中态
   let selected = opts.mode === 'list'
     ? (opts.selected || '')
@@ -17938,11 +18021,26 @@ App.Components.pickerModal = function (opts) {
   titleEl.className = 'picker-modal__title';
   titleEl.textContent = opts.title || '选择';
   headRow.appendChild(titleEl);
+  // 占位：把标题推到左侧，管理/关闭按钮靠右
+  const headSpacer = document.createElement('div');
+  headSpacer.style.flex = '1';
+  headRow.appendChild(headSpacer);
+  // 管理按钮（可选）：opts.manage 为 { kind: 'kp'|'ec', module } 时，右上角显示「管理」，点击切换到标签管理视图
+  if (opts.manage) {
+    const manageBtn = document.createElement('button');
+    manageBtn.type = 'button';
+    manageBtn.className = 'picker-modal__manage';
+    manageBtn.textContent = '管理';
+    manageBtn.addEventListener('click', () => {
+      renderManageView();
+    });
+    headRow.appendChild(manageBtn);
+  }
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button';
   closeBtn.className = 'picker-modal__close';
   closeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
-  closeBtn.addEventListener('click', () => overlay.remove());
+  closeBtn.addEventListener('click', () => closeOverlay());
   headRow.appendChild(closeBtn);
   dialog.appendChild(headRow);
 
@@ -18039,17 +18137,69 @@ App.Components.pickerModal = function (opts) {
   okBtn.textContent = '确定';
   okBtn.addEventListener('click', () => {
     const result = opts.mode === 'list' ? selected : selected.slice();
-    overlay.remove();
+    closeOverlay();
     if (opts.onDone) opts.onDone(result);
   });
   dialog.appendChild(okBtn);
 
   overlay.appendChild(dialog);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeOverlay(); });
   container.appendChild(overlay);
   if (opts.mode === 'chips') {
     setTimeout(() => { const inp = overlay.querySelector('.picker-modal__input'); if (inp) inp.focus(); }, 0);
   }
+
+  // ===== 管理视图：点击右上角「管理」后，把弹窗内容切换为考点/错因管理（与考点管理页 UI 一致）=====
+  function renderManageView() {
+    // 清空弹窗内容
+    dialog.innerHTML = '';
+    dialog.style.gap = '0';
+
+    // 头部：标题 + 返回 + 关闭
+    const mHead = document.createElement('div');
+    mHead.className = 'picker-modal__head';
+    const backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'picker-modal__manage';
+    backBtn.textContent = '‹ 返回';
+    backBtn.addEventListener('click', () => {
+      // 返回选择视图：整弹窗重建（重新打开 pickerModal）
+      const prevSelected = selected;
+      closeOverlay();
+      App.Components.pickerModal(Object.assign({}, opts, { selected: prevSelected }));
+    });
+    mHead.appendChild(backBtn);
+    const mTitle = document.createElement('div');
+    mTitle.className = 'picker-modal__title';
+    mTitle.textContent = (opts.manage.kind === 'kp' ? '考点' : '错因') + '管理';
+    mHead.appendChild(mTitle);
+    const mSpacer = document.createElement('div');
+    mSpacer.style.flex = '1';
+    mHead.appendChild(mSpacer);
+    const mClose = document.createElement('button');
+    mClose.type = 'button';
+    mClose.className = 'picker-modal__close';
+    mClose.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+    mClose.addEventListener('click', () => closeOverlay());
+    mHead.appendChild(mClose);
+    dialog.appendChild(mHead);
+
+    // 管理内容容器（可滚动）。注意：tagManager 会覆盖其挂载元素的 className，
+    // 故用外层 .picker-modal__mgm 承载滚动，内层再给 tagManager，避免滚动样式被冲掉。
+    const mgrWrap = document.createElement('div');
+    mgrWrap.className = 'picker-modal__mgm';
+    const mgrInner = document.createElement('div');
+    mgrWrap.appendChild(mgrInner);
+    dialog.appendChild(mgrWrap);
+
+    // 复用考点管理页同款 tagManager 组件：考点(kp) 或 错因(ec) 单独管理
+    App.Components.tagManager(mgrInner, {
+      title: (opts.manage.kind === 'kp' ? '考点' : '错因') + '管理',
+      kinds: [opts.manage.kind],
+      onDone: () => {}
+    });
+  }
+
   return overlay;
 };
 
@@ -21110,6 +21260,7 @@ App.Pages.Errors = {
             selected: formData.knowledgePoints,
             max: 3,
             allowCustom: true,
+            manage: { kind: 'kp', module: formData.module },
             placeholder: '输入自定义考点，回车添加',
             onAddCustom: (v) => { if (isFlatError) App.Tags.addSubjectKnowledgePoint(formData.subject, v); else App.Tags.addKnowledgePoint(formData.module, v); },
             onDone: (sel) => { formData.knowledgePoints = sel; buildForm(); }
@@ -21125,6 +21276,7 @@ App.Pages.Errors = {
           selected: formData.errorCause ? [formData.errorCause] : [],
           max: 1,
           allowCustom: true,
+          manage: { kind: 'ec', module: formData.module },
           placeholder: '选择或输入错因，回车添加',
           onAddCustom: (v) => { if (isFlatError) App.Tags.addSubjectErrorCause(formData.subject, v); else App.Tags.addModuleErrorCause(formData.module, v); },
           onDone: (sel) => { formData.errorCause = (sel && sel.length) ? sel[0] : ''; buildForm(); }

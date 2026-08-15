@@ -3687,6 +3687,10 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   padding-bottom: var(--safe-bottom);
   z-index: 1801;
+  /* v8.15.19 选项过多时可内部滚动，避免溢出屏幕或穿透背景 */
+  max-height: 70vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   animation: slideUp 0.25s ease;
 }
 
@@ -6941,6 +6945,29 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 }
 [data-theme="dark"] .picker-modal__close { background: #2C2C2E; border-color: #3A3A3C; }
 .picker-modal__close:active { opacity: 0.7; }
+/* 右上角「管理」按钮（考点/错因选择弹窗内，点击切换到标签管理视图） */
+.picker-modal__manage {
+  height: 32px;
+  padding: 0 14px;
+  flex: none;
+  font-size: 14px;
+  font-weight: 500;
+  color: #0066CC;
+  background: #EAEFFF;
+  border: 1px solid #D5E2FF;
+  border-radius: 999px;
+  cursor: pointer;
+  margin-right: 8px;
+}
+[data-theme="dark"] .picker-modal__manage { color: #6BA1E8; background: rgba(0, 102, 204, 0.18); border-color: rgba(0, 102, 204, 0.35); }
+.picker-modal__manage:active { opacity: 0.7; }
+/* 管理视图内容容器：在弹窗内可滚动，供 tagManager 挂载 */
+.picker-modal__mgm {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
 /* list 模式 */
 .picker-modal__list { display: flex; flex-direction: column; gap: 6px; }
 .picker-modal__item {
