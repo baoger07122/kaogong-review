@@ -9759,7 +9759,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.15';
+App.VERSION = '8.15.16';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -12065,7 +12065,9 @@ App.Components = {
         const img = new Image();
         img.onload = () => {
           applySize();
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          // v8.15.16 关键修复：ctx 已 scale(dpr)，drawImage 目标尺寸必须用「CSS 像素」(canvas.width/dpr)，
+          // 而非物理像素 canvas.width。此前用物理像素 → 图片被放大 dpr 倍(线条放大)且位置偏移。
+          ctx.drawImage(img, 0, 0, canvas.width / dprCache, canvas.height / dprCache);
           undoStack = [ snapshot() ];
           redoStack = [];
           baseHasContent = true;
@@ -12094,14 +12096,15 @@ App.Components = {
         if (!dataURL) return;
         const img = new Image();
         img.onload = () => {
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          // v8.15.16 drawImage 目标尺寸用 CSS 像素（ctx 已 scale(dpr)）
+          ctx.drawImage(img, 0, 0, canvas.width / dprCache, canvas.height / dprCache);
           undoStack = [ snapshot() ];
           redoStack = [];
           baseHasContent = true;
         };
         img.src = dataURL;
       },
-      clear: () => { ctx.clearRect(0, 0, canvas.width, canvas.height); undoStack = [ snapshot() ]; redoStack = []; baseHasContent = false; },
+      clear: () => { ctx.clearRect(0, 0, canvas.width / dprCache, canvas.height / dprCache); undoStack = [ snapshot() ]; redoStack = []; baseHasContent = false; },
       undo: () => { if (undoStack.length > 1) { redoStack.push(undoStack.pop()); restore(undoStack[undoStack.length - 1]); } },
       redo: () => { if (redoStack.length > 0) { undoStack.push(redoStack.pop()); restore(undoStack[undoStack.length - 1]); } },
       setMode: (m) => setMode(m),
