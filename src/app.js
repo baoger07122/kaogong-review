@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.49';
+App.VERSION = '8.15.50';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -18765,6 +18765,8 @@ renderHome(container) {
             });
           }
         });
+        // v8.15.50 块内明细改为「最近的在最上面」：反转 items（原为正序：旧→新）
+        blocks.forEach(b => b.items.reverse());
         // 最近完成的块排最上面
         blocks.reverse();
         return { key: String(keyMs), label: g.label, types: blocks };
