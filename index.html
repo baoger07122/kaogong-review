@@ -1540,7 +1540,6 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .study-cal__todo--done {
   background: color-mix(in srgb, var(--todo-color, #4A90E2) 12%, #fff);
   color: color-mix(in srgb, var(--todo-color, #4A90E2) 45%, #000);
-  text-decoration: line-through;
   opacity: 0.85;
 }
 .study-cal__more {
@@ -3920,6 +3919,33 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   color: var(--text-tertiary);
 }
 
+/* ===== 设计稿图标底行（对齐画布 7:451 数据组 / 8:157 笔记组 / 7:485 偏好组）===== */
+.ss-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--divider-color);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.ss-row:last-child { border-bottom: none; }
+.ss-row:active { background: var(--bg-tertiary); }
+.ss-row__left { display: flex; align-items: center; gap: 12px; }
+.ss-ico {
+  width: 32px; height: 32px;
+  border-radius: 10px;
+  background: #F5F5F7;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.ss-ico svg { width: 18px; height: 18px; display: block; }
+.ss-ico--red { background: #FFEBEE; }
+.ss-row__label { font-size: 15px; font-weight: 500; color: var(--text-primary); }
+.ss-row__val { font-size: 13px; color: var(--text-tertiary); }
+.ss-arrow { font-size: 16px; color: var(--text-tertiary); margin-left: 4px; }
+
 /* ===== 云同步卡片 ===== */
 .cloud-card {
   padding: 14px var(--spacing-lg) 16px;
@@ -3951,50 +3977,27 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   margin-top: 2px;
 }
 
-/* ===== 数据备份区（v8.12.10 对齐画布 7:366：深色 Tile，圆角 24 + 双层立体阴影） ===== */
+/* ===== 数据备份区（对齐首页 hero：浅蓝底 #EAF2FE + 细边框，无阴影无底纹） ===== */
 .backup-hero {
   display: flex;
   align-items: center;
   gap: 16px;
-  background: #272729;
+  background: #EAF2FE;
+  border: 1px solid rgba(41, 151, 255, 0.18);
   border-radius: var(--radius-xl);
   padding: 20px;
   margin: 0 0 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.20), 0 2px 6px rgba(0,0,0,0.10);
+  box-shadow: none;
 }
 .backup-hero__info {
   flex: 1;
   min-width: 0;
 }
-.backup-hero__tagrow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-.backup-hero__tag {
-  font-size: 13px;
-  color: #CCCCCC;
-}
-.backup-hero__badge {
-  font-size: 11px;
-  font-weight: 500;
-  color: #FFFFFF;
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  padding: 4px 12px;
-}
 .backup-hero__title {
   font-size: 16px;
   font-weight: 600;
-  color: #FFFFFF;
+  color: #1D1D1F;
   line-height: 1.35;
-}
-.backup-hero__sub {
-  font-size: 12px;
-  color: #A1A1A6;
-  margin-top: 4px;
-  line-height: 1.5;
 }
 .backup-hero__btn {
   flex-shrink: 0;
@@ -9504,7 +9507,6 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   cursor: pointer;
 }
 .week-grid__todo--done {
-  text-decoration: line-through;
   opacity: 0.65;
 }
 .week-grid__more {
@@ -9898,7 +9900,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.41';
+App.VERSION = '8.15.42';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -25676,12 +25678,7 @@ App.Pages.Settings = {
     backupGroup.innerHTML = `
       <div class="backup-hero">
         <div class="backup-hero__info">
-          <div class="backup-hero__tagrow">
-            <span class="backup-hero__tag">数据备份</span>
-            <span class="backup-hero__badge">iCloud</span>
-          </div>
           <div class="backup-hero__title">一键备份到 iCloud 云盘</div>
-          <div class="backup-hero__sub" id="backup-sub">全部数据合并为 1 个文件，导入时只需选这 1 个文件</div>
         </div>
         <button class="backup-hero__btn" id="backup-icloud">立即备份</button>
       </div>
@@ -25723,117 +25720,7 @@ App.Pages.Settings = {
     refreshBackupInfo();
 
 
-    // ===== 云同步（折叠式：点击才展开登录，避免无后端时暴露未就绪状态）=====
-    const cloudGroup = document.createElement('div');
-    cloudGroup.className = 'settings-group';
-    const loggedIn = App.Cloud && App.Cloud.isLoggedIn();
-    const cloudCardHTML = loggedIn ? `
-        <div class="cloud-card">
-          <div class="cloud-status">☁️ 已开启 · ${App.Cloud.getEmail()}</div>
-          <div class="cloud-sub">上次同步：${App.Cloud.getLastSyncText()}</div>
-          <div class="cloud-actions">
-            <button class="btn btn--primary" id="cloud-sync" style="flex:1">立即同步</button>
-            <button class="btn btn--outline" id="cloud-logout" style="flex:1">退出登录</button>
-          </div>
-          <div class="cloud-hint">保存即自动上传云端；换设备后点「立即同步」即可把云端数据合并到本机（按时间保留最新，不会覆盖未上传的内容）。</div>
-        </div>
-      ` : `
-        <div class="cloud-card">
-          <input class="form-input" id="cloud-email" type="email" inputmode="email" autocomplete="email" placeholder="邮箱（用作登录账号）">
-          <input class="form-input" id="cloud-password" type="password" autocomplete="current-password" placeholder="密码（至少 6 位）">
-          <div class="cloud-actions">
-            <button class="btn btn--primary" id="cloud-login" style="flex:1">登录</button>
-            <button class="btn btn--outline" id="cloud-register" style="flex:1">注册</button>
-          </div>
-          <div class="cloud-hint">需配套后端（Node 服务）才能使用。登录后保存即自动上传云端，可跨设备访问；换设备时点「立即同步」即可把云端数据合并到本机。</div>
-        </div>
-      `;
-    cloudGroup.innerHTML = `
-      <div class="fold-box">
-        <button class="fold-head" type="button" id="cloud-fold-head">
-          <span class="fold-title">☁️ 云同步</span>
-          <span class="fold-status">${loggedIn ? '已登录' : '点击展开登录'}</span>
-          <span class="fold-arrow">▾</span>
-        </button>
-        <div class="fold-body" id="cloud-fold-body" style="display:none;">
-          ${cloudCardHTML}
-        </div>
-      </div>
-    `;
-    content.appendChild(cloudGroup);
 
-    // 云同步折叠开合
-    const cloudFoldHead = cloudGroup.querySelector('#cloud-fold-head');
-    const cloudFoldBody = cloudGroup.querySelector('#cloud-fold-body');
-    const cloudFoldArrow = cloudFoldHead.querySelector('.fold-arrow');
-    cloudFoldHead.addEventListener('click', () => {
-      const isOpen = cloudFoldBody.style.display !== 'none';
-      cloudFoldBody.style.display = isOpen ? 'none' : 'block';
-      cloudFoldArrow.classList.toggle('fold-open', !isOpen);
-    });
-
-    const doCloudAuth = async (mode) => {
-      const emailEl = cloudGroup.querySelector('#cloud-email');
-      const pwdEl = cloudGroup.querySelector('#cloud-password');
-      const email = (emailEl && emailEl.value || '').trim();
-      const pwd = (pwdEl && pwdEl.value || '').trim();
-      if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-        App.Components.toast('请输入有效邮箱', 'error'); return;
-      }
-      if (!pwd || pwd.length < 6) {
-        App.Components.toast('密码至少 6 位', 'error'); return;
-      }
-      try {
-        if (mode === 'login') await App.Cloud.login(email, pwd);
-        else await App.Cloud.register(email, pwd);
-        App.Pages.Settings.render({});
-      } catch (e) {
-        App.Components.toast(e.message || '操作失败', 'error');
-      }
-    };
-
-    if (loggedIn) {
-      const syncBtn = cloudGroup.querySelector('#cloud-sync');
-      const logoutBtn = cloudGroup.querySelector('#cloud-logout');
-      if (syncBtn) syncBtn.addEventListener('click', () => App.Cloud.syncNow());
-      if (logoutBtn) logoutBtn.addEventListener('click', () => App.Cloud.logout());
-    } else {
-      const loginBtn = cloudGroup.querySelector('#cloud-login');
-      const regBtn = cloudGroup.querySelector('#cloud-register');
-      if (loginBtn) loginBtn.addEventListener('click', () => doCloudAuth('login'));
-      if (regBtn) regBtn.addEventListener('click', () => doCloudAuth('register'));
-    }
-
-    // ===== 外观设置 =====
-    const appearanceGroup = document.createElement('div');
-    appearanceGroup.className = 'settings-group';
-    appearanceGroup.innerHTML = `
-      <div style="padding:12px var(--spacing-md);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;">外观</div>
-    `;
-
-    const themeModes = [
-      { label: '跟随系统', value: 'auto' },
-      { label: '浅色模式', value: 'light' },
-      { label: '深色模式', value: 'dark' }
-    ];
-
-    const currentTheme = App.Utils.Theme.get();
-    themeModes.forEach(mode => {
-      const item = document.createElement('div');
-      item.className = 'settings-item';
-      item.innerHTML = `
-        <span class="settings-item__label">${mode.label}</span>
-        <span class="settings-item__value">${currentTheme === mode.value ? '✓' : ''}</span>
-      `;
-      item.addEventListener('click', () => {
-        App.Utils.Theme.set(mode.value);
-        App.Components.toast('主题已切换', 'success');
-        App.Pages.Settings.render({});
-      });
-      appearanceGroup.appendChild(item);
-    });
-
-    content.appendChild(appearanceGroup);
 
     // ===== 数据组（对齐画布 7:451：组标题「数据」+ 白卡4行） =====
     const dataGroup = document.createElement('div');
@@ -25842,21 +25729,27 @@ App.Pages.Settings = {
       <div style="padding:12px var(--spacing-md);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;">数据</div>
     `;
 
-    // iCloud 云备份（对齐画布 7:454：右侧绿色「已启用」）
+    // iCloud 云备份（对齐画布 7:454：图标底 + 右侧绿色「已启用」）
     const icloudItem = document.createElement('div');
-    icloudItem.className = 'settings-item';
+    icloudItem.className = 'ss-row';
     icloudItem.innerHTML = `
-      <span class="settings-item__label">iCloud 云备份</span>
-      <span class="settings-item__value" style="color:#34C759;">已启用</span>
+      <div class="ss-row__left">
+        <span class="ss-ico"><svg viewBox="0 0 24 24" fill="none" stroke="#5A67D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4 4 0 1 1 .5-7.97A5 5 0 0 1 17 11a3.6 3.6 0 0 1 .5 7.16"/><path d="M12 13v5M9.5 15.5 12 18l2.5-2.5"/></svg></span>
+        <span class="ss-row__label">iCloud 云备份</span>
+      </div>
+      <span class="ss-row__val" style="color:#34C759;">已启用</span>
     `;
     dataGroup.appendChild(icloudItem);
 
-    // 导出备份（对齐画布 7:462）
+    // 导出数据（对齐画布 7:462：图标底+箭头）
     const exportItem = document.createElement('div');
-    exportItem.className = 'settings-item';
+    exportItem.className = 'ss-row';
     exportItem.innerHTML = `
-      <span class="settings-item__label">导出备份</span>
-      <span class="settings-item__value">JSON</span>
+      <div class="ss-row__left">
+        <span class="ss-ico"><svg viewBox="0 0 24 24" fill="none" stroke="#5A67D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7 9l5-5 5 5"/><path d="M5 20h14"/></svg></span>
+        <span class="ss-row__label">导出数据</span>
+      </div>
+      <span class="ss-row__val"><span class="ss-arrow">›</span></span>
     `;
     exportItem.addEventListener('click', async () => {
       try {
@@ -25868,12 +25761,15 @@ App.Pages.Settings = {
     });
     dataGroup.appendChild(exportItem);
 
-    // 导入恢复
+    // 导入恢复（对齐画布 7:470：图标底+箭头）
     const importItem = document.createElement('div');
-    importItem.className = 'settings-item';
+    importItem.className = 'ss-row';
     importItem.innerHTML = `
-      <span class="settings-item__label">导入恢复</span>
-      <span class="settings-item__value">从单个 JSON 文件恢复 ›</span>
+      <div class="ss-row__left">
+        <span class="ss-ico"><svg viewBox="0 0 24 24" fill="none" stroke="#5A67D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5"/><path d="M5 20h14"/></svg></span>
+        <span class="ss-row__label">导入恢复</span>
+      </div>
+      <span class="ss-row__val"><span class="ss-arrow">›</span></span>
     `;
     importItem.addEventListener('click', () => {
       const fileInput = document.getElementById('import-file-input');
@@ -25904,12 +25800,15 @@ App.Pages.Settings = {
     });
     dataGroup.appendChild(importItem);
 
-    // 清除全部数据（对齐画布 7:478：红字+箭头，破坏性操作需确认）
+    // 清除全部数据（对齐画布 7:478：图标底+红字+箭头，破坏性操作需确认）
     const clearItem = document.createElement('div');
-    clearItem.className = 'settings-item';
+    clearItem.className = 'ss-row';
     clearItem.innerHTML = `
-      <span class="settings-item__label" style="color:#FF3B30;">清除全部数据</span>
-      <span class="settings-item__value" style="color:var(--text-tertiary);">›</span>
+      <div class="ss-row__left">
+        <span class="ss-ico ss-ico--red"><svg viewBox="0 0 24 24" fill="none" stroke="#FF3B30" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 7h12l-1 13H7L6 7zM9 7V5h6v2M10 11v5M14 11v5"/></svg></span>
+        <span class="ss-row__label" style="color:#FF3B30;">清除全部数据</span>
+      </div>
+      <span class="ss-row__val" style="color:#FF3B30;"><span class="ss-arrow">›</span></span>
     `;
     clearItem.addEventListener('click', async () => {
       const ok = await App.Components.confirm(
@@ -25932,7 +25831,7 @@ App.Pages.Settings = {
 
     content.appendChild(dataGroup);
 
-    // ===== 笔记组（对齐画布 8:157：含「笔记类型」入口） =====
+    // ===== 笔记组（对齐画布 8:157：组标题「笔记」+ 笔记类型行，图标底+数量+箭头） =====
     const noteGroup = document.createElement('div');
     noteGroup.className = 'settings-group';
     const ntTitle = document.createElement('div');
@@ -25940,240 +25839,37 @@ App.Pages.Settings = {
     ntTitle.textContent = '笔记';
     noteGroup.appendChild(ntTitle);
     const ntRow = document.createElement('div');
-    ntRow.className = 'settings-item';
-    const ntLabel = document.createElement('span');
-    ntLabel.className = 'settings-item__label';
-    ntLabel.textContent = '笔记类型';
-    const ntValue = document.createElement('span');
-    ntValue.className = 'settings-item__value';
-    ntValue.style.cssText = 'display:flex;align-items:center;gap:4px;';
-    ntValue.innerHTML = '管理中 <span style="color:var(--text-tertiary);">›</span>';
-    ntRow.appendChild(ntLabel);
-    ntRow.appendChild(ntValue);
+    ntRow.className = 'ss-row';
+    ntRow.innerHTML = `
+      <div class="ss-row__left">
+        <span class="ss-ico"><svg viewBox="0 0 24 24" fill="none" stroke="#0EA5E9" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12V4h8l8 8-8 8-8-8z"/><path d="M8 8h.01"/></svg></span>
+        <span class="ss-row__label">笔记类型</span>
+      </div>
+      <span class="ss-row__val">${App.NoteTypes.getAll().length} 个类型<span class="ss-arrow">›</span></span>
+    `;
     ntRow.addEventListener('click', () => App.Router.navigate('note-type-manage'));
     noteGroup.appendChild(ntRow);
     content.appendChild(noteGroup);
 
-    // ===== 考点管理（多级折叠列表 + 管理模式） =====
-    // 折叠/管理状态保存在实例 _state 上，避免每次重渲染丢失
-    const state = this._state;
-    const expanded = state.expanded;
-    let managed = state.managed;
 
-    const tagSection = document.createElement('div');
-    tagSection.style.cssText = 'padding:12px var(--spacing-md);';
-    tagSection.innerHTML = `
-      <div style="padding:0 0 4px;font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;">考点管理</div>
-      <div style="padding:0 0 10px;font-size:var(--font-xs);color:var(--text-tertiary);line-height:1.5;">考点按「科目 → 模块」分级管理。错因不再设全局池，全部按模块独立管理（在「考点管理」中展开模块即可增删该模块的专属错因，模块间互不互通）。</div>
-    `;
-
-    // 管理模式开关
-    const mgmtBar = document.createElement('div');
-    mgmtBar.className = 'kp-mgmt-bar';
-    mgmtBar.innerHTML = `
-      <span class="kp-mgmt-bar__label">管理模式（删除 / 修改标签）</span>
-      <label class="switch">
-        <input type="checkbox" id="kp-mgmt-switch">
-        <span class="switch__slider"></span>
-      </label>
-    `;
-    tagSection.appendChild(mgmtBar);
-
-    const tree = document.createElement('div');
-    tree.className = 'kp-tree';
-    tagSection.appendChild(tree);
-
-    // 内联修改标签
-    const startEdit = (chip, module, oldName) => {
-      chip.classList.add('kp-chip--editing');
-      chip.innerHTML = '';
-      const input = document.createElement('input');
-      input.className = 'kp-edit-input';
-      input.value = oldName;
-      const saveBtn = document.createElement('button');
-      saveBtn.className = 'kp-chip__btn kp-save';
-      saveBtn.textContent = '保存';
-      const cancelBtn = document.createElement('button');
-      cancelBtn.className = 'kp-chip__btn kp-cancel';
-      cancelBtn.textContent = '取消';
-      saveBtn.addEventListener('click', async () => {
-        const v = input.value.trim();
-        if (!v) return;
-        await App.Tags.renameKnowledgePoint(module, oldName, v);
-        App.Pages.Settings.render({});
-      });
-      cancelBtn.addEventListener('click', () => App.Pages.Settings.render({}));
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') saveBtn.click();
-        else if (e.key === 'Escape') cancelBtn.click();
-      });
-      chip.appendChild(input);
-      chip.appendChild(saveBtn);
-      chip.appendChild(cancelBtn);
-      input.focus();
-      input.select();
-    };
-
-    // 单个考点 chip
-    const buildKpChip = (module, name) => {
-      const chip = document.createElement('div');
-      chip.className = 'kp-chip';
-      const nameEl = document.createElement('span');
-      nameEl.className = 'kp-chip__name';
-      nameEl.textContent = name;
-      chip.appendChild(nameEl);
-
-      const actions = document.createElement('span');
-      actions.className = 'kp-chip__actions';
-      const editBtn = document.createElement('button');
-      editBtn.className = 'kp-chip__btn kp-chip__edit';
-      editBtn.textContent = '修改';
-      editBtn.addEventListener('click', (e) => { e.stopPropagation(); startEdit(chip, module, name); });
-      const delBtn = document.createElement('button');
-      delBtn.className = 'kp-chip__btn kp-chip__del';
-      delBtn.textContent = '删除';
-      delBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const ok = await App.Components.confirm(
-          '删除考点',
-          `确定删除考点「${name}」？已录入错题 / 笔记中的该标签也会一并移除。`,
-          '删除', '取消', true
-        );
-        if (ok) { await App.Tags.removeKnowledgePoint(module, name); App.Pages.Settings.render({}); }
-      });
-      actions.appendChild(editBtn);
-      actions.appendChild(delBtn);
-      chip.appendChild(actions);
-      return chip;
-    };
-
-    // 模块级：标题 + 考点 chips + 新增行
-    const buildModuleBlock = (mod) => {
-      const modEl = document.createElement('div');
-      modEl.className = 'kp-module';
-      if (expanded['m:' + mod]) modEl.classList.add('is-open');
-
-      const modHead = document.createElement('div');
-      modHead.className = 'kp-module__head';
-      const kps = App.Tags.getKnowledgePoints(mod);
-      modHead.innerHTML = `
-        <span class="kp-arrow">▸</span>
-        <span class="kp-module__title">${mod}</span>
-        <span class="kp-count">${kps.length}</span>
-      `;
-      modHead.addEventListener('click', () => {
-        expanded['m:' + mod] = !expanded['m:' + mod];
-        App.Pages.Settings.render({});
-      });
-      modEl.appendChild(modHead);
-
-      const modBody = document.createElement('div');
-      modBody.className = 'kp-module__body';
-
-      const chipsWrap = document.createElement('div');
-      chipsWrap.className = 'kp-chips';
-      if (kps.length === 0) {
-        const empty = document.createElement('span');
-        empty.className = 'kp-empty';
-        empty.textContent = '暂无考点';
-        chipsWrap.appendChild(empty);
-      } else {
-        kps.forEach(kp => chipsWrap.appendChild(buildKpChip(mod, kp)));
-      }
-      modBody.appendChild(chipsWrap);
-
-      const addRow = document.createElement('div');
-      addRow.className = 'kp-add-row';
-      const addInput = document.createElement('input');
-      addInput.className = 'form-input';
-      addInput.placeholder = '新增考点...';
-      addInput.style.flex = '1';
-      const addBtn = document.createElement('button');
-      addBtn.className = 'btn btn--outline btn--sm';
-      addBtn.textContent = '添加';
-      addBtn.type = 'button';
-      addBtn.addEventListener('click', async () => {
-        const v = addInput.value.trim();
-        if (!v) return;
-        await App.Tags.addKnowledgePoint(mod, v);
-        App.Pages.Settings.render({});
-      });
-      addInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); } });
-      addRow.appendChild(addInput);
-      addRow.appendChild(addBtn);
-      modBody.appendChild(addRow);
-
-      modEl.appendChild(modBody);
-      return modEl;
-    };
-
-    // 科目级：标题 + 模块列表
-    App.Constants.SUBJECTS.forEach(subject => {
-      const subjEl = document.createElement('div');
-      subjEl.className = 'kp-subject';
-      if (expanded['s:' + subject.name]) subjEl.classList.add('is-open');
-
-      const subjHead = document.createElement('div');
-      subjHead.className = 'kp-subject__head';
-      subjHead.innerHTML = `
-        <span class="kp-arrow">▸</span>
-        <span class="kp-subject__icon">${subject.icon}</span>
-        <span class="kp-subject__title">${subject.name}</span>
-      `;
-      subjHead.addEventListener('click', () => {
-        expanded['s:' + subject.name] = !expanded['s:' + subject.name];
-        App.Pages.Settings.render({});
-      });
-      subjEl.appendChild(subjHead);
-
-      const subjBody = document.createElement('div');
-      subjBody.className = 'kp-subject__body';
-      App.Constants.getModules(subject.name).forEach(mod => {
-        subjBody.appendChild(buildModuleBlock(mod));
-      });
-      subjEl.appendChild(subjBody);
-      tree.appendChild(subjEl);
-    });
-
-    if (managed) tree.classList.add('is-managed');
-
-    // 管理模式开关行为：仅切换 class，保留折叠状态
-    const switchEl = mgmtBar.querySelector('#kp-mgmt-switch');
-    switchEl.checked = managed;
-    switchEl.addEventListener('change', () => {
-      state.managed = switchEl.checked;
-      managed = state.managed;
-      tree.classList.toggle('is-managed', managed);
-    });
-
-    // 考点管理已移至独立页面（首页「考点管理」卡片入口）；此处仅保留跳转
-    const kpEntry = document.createElement('div');
-    kpEntry.className = 'settings-item';
-    kpEntry.style.cssText = 'cursor:pointer;';
-    kpEntry.innerHTML = '<span class="settings-item__label">🗂️ 考点管理（科目 / 模块 / 错因）</span><span class="settings-item__value" style="color:var(--color-primary)">进入 ›</span>';
-    kpEntry.addEventListener('click', () => App.Router.navigate('kpmanage'));
-    content.appendChild(kpEntry);
-
-    // ===== 偏好组（对齐画布 7:485：组标题「偏好」+ 界面字号 + 关于版本） =====
+    // ===== 偏好组（对齐画布 7:485：组标题「偏好」+ 界面字号 + 关于版本，图标底） =====
     const aboutGroup = document.createElement('div');
     aboutGroup.className = 'settings-group';
     aboutGroup.innerHTML = `
       <div style="padding:12px var(--spacing-md);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;">偏好</div>
-      <div class="settings-item">
-        <span class="settings-item__label">界面字号</span>
-        <span class="settings-item__value">标准</span>
+      <div class="ss-row">
+        <div class="ss-row__left">
+          <span class="ss-ico"><svg viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19l3.2-8.5M12.4 19l-3.2-8.5m0 0L7.9 15h4.8M16 19l2.5-6.5L21 19M17 16.5h3"/></svg></span>
+          <span class="ss-row__label">界面字号</span>
+        </div>
+        <span class="ss-row__val">标准<span class="ss-arrow">›</span></span>
       </div>
-      <div class="settings-item">
-        <span class="settings-item__label">版本</span>
-        <span class="settings-item__value">${App.VERSION}</span>
-      </div>
-      <div class="settings-item">
-        <span class="settings-item__label">存储方式</span>
-        <span class="settings-item__value">本地 IndexedDB</span>
-      </div>
-      <div style="padding:16px var(--spacing-md);font-size:var(--font-xs);color:var(--text-tertiary);line-height:1.6;text-align:center;">
-        数据存储于浏览器本地，清除浏览器数据可能导致数据丢失。<br>
-        请定期使用「导出备份」功能保存数据。
+      <div class="ss-row">
+        <div class="ss-row__left">
+          <span class="ss-ico"><svg viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/><path d="M12 11v6M12 7.5h.01"/></svg></span>
+          <span class="ss-row__label">关于</span>
+        </div>
+        <span class="ss-row__val">v${App.VERSION}</span>
       </div>
     `;
     content.appendChild(aboutGroup);

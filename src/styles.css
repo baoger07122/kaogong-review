@@ -1522,7 +1522,6 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .study-cal__todo--done {
   background: color-mix(in srgb, var(--todo-color, #4A90E2) 12%, #fff);
   color: color-mix(in srgb, var(--todo-color, #4A90E2) 45%, #000);
-  text-decoration: line-through;
   opacity: 0.85;
 }
 .study-cal__more {
@@ -3902,6 +3901,33 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   color: var(--text-tertiary);
 }
 
+/* ===== 设计稿图标底行（对齐画布 7:451 数据组 / 8:157 笔记组 / 7:485 偏好组）===== */
+.ss-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--divider-color);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.ss-row:last-child { border-bottom: none; }
+.ss-row:active { background: var(--bg-tertiary); }
+.ss-row__left { display: flex; align-items: center; gap: 12px; }
+.ss-ico {
+  width: 32px; height: 32px;
+  border-radius: 10px;
+  background: #F5F5F7;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.ss-ico svg { width: 18px; height: 18px; display: block; }
+.ss-ico--red { background: #FFEBEE; }
+.ss-row__label { font-size: 15px; font-weight: 500; color: var(--text-primary); }
+.ss-row__val { font-size: 13px; color: var(--text-tertiary); }
+.ss-arrow { font-size: 16px; color: var(--text-tertiary); margin-left: 4px; }
+
 /* ===== 云同步卡片 ===== */
 .cloud-card {
   padding: 14px var(--spacing-lg) 16px;
@@ -3933,50 +3959,27 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   margin-top: 2px;
 }
 
-/* ===== 数据备份区（v8.12.10 对齐画布 7:366：深色 Tile，圆角 24 + 双层立体阴影） ===== */
+/* ===== 数据备份区（对齐首页 hero：浅蓝底 #EAF2FE + 细边框，无阴影无底纹） ===== */
 .backup-hero {
   display: flex;
   align-items: center;
   gap: 16px;
-  background: #272729;
+  background: #EAF2FE;
+  border: 1px solid rgba(41, 151, 255, 0.18);
   border-radius: var(--radius-xl);
   padding: 20px;
   margin: 0 0 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.20), 0 2px 6px rgba(0,0,0,0.10);
+  box-shadow: none;
 }
 .backup-hero__info {
   flex: 1;
   min-width: 0;
 }
-.backup-hero__tagrow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-.backup-hero__tag {
-  font-size: 13px;
-  color: #CCCCCC;
-}
-.backup-hero__badge {
-  font-size: 11px;
-  font-weight: 500;
-  color: #FFFFFF;
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  padding: 4px 12px;
-}
 .backup-hero__title {
   font-size: 16px;
   font-weight: 600;
-  color: #FFFFFF;
+  color: #1D1D1F;
   line-height: 1.35;
-}
-.backup-hero__sub {
-  font-size: 12px;
-  color: #A1A1A6;
-  margin-top: 4px;
-  line-height: 1.5;
 }
 .backup-hero__btn {
   flex-shrink: 0;
@@ -9486,7 +9489,6 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   cursor: pointer;
 }
 .week-grid__todo--done {
-  text-decoration: line-through;
   opacity: 0.65;
 }
 .week-grid__more {
