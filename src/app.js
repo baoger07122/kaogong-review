@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.51';
+App.VERSION = '8.15.52';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -16763,10 +16763,10 @@ App.Pages.SpeedCalc = {
     if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
     if (this.state.autoNextTimer) { clearTimeout(this.state.autoNextTimer); this.state.autoNextTimer = null; }
     const view = this.state.view;
-    // v8.15.36 iOS standalone PWA 橡皮筋滚动三层锁：
-    //   1) body.sc-lock(position:fixed) 钉死 body；2) body/html overflow hidden；3) 容器 touchmove 拦截纵向回弹。
-    //   锁应用于「做题页 practice + 首页 home」（两页都要求一屏不滚动）。
-    const lockScroll = (view === 'practice' || view === 'home');
+    // v8.15.52 兼容手机/平板：做题页始终锁滚动；首页仅宽屏(iPad>480px)一屏锁定，
+    //   手机窄屏首页内容多，需允许纵向滚动（避免 3 列卡片溢出/裁切）。
+    const isNarrow = window.innerWidth <= 480;
+    const lockScroll = (view === 'practice' || (view === 'home' && !isNarrow));
     document.body.classList.toggle('sc-lock', lockScroll);
     document.body.style.overflow = lockScroll ? 'hidden' : '';
     document.documentElement.style.overflow = lockScroll ? 'hidden' : '';
@@ -17238,8 +17238,11 @@ renderHome(container) {
     }
     this.state.mode = settings.mode || 'train';
 
-    // v8.15.30 首页也强制一屏锁定：内容不满一屏时不滚动、不出现滚动条（对齐 App 原生手感）
-    container.style.cssText = 'height:100dvh;min-height:0;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;';
+    // v8.15.52 首页：宽屏(iPad)一屏锁定不滚动；手机窄屏允许纵向滚动（内容多，避免裁切）
+    const isNarrowHome = window.innerWidth <= 480;
+    container.style.cssText = isNarrowHome
+      ? 'min-height:100dvh;display:flex;flex-direction:column;box-sizing:border-box;overflow-y:auto;'
+      : 'height:100dvh;min-height:0;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;';
 
     this._topbar(container, '速算练习', () => App.Router.back(), '', true);
 

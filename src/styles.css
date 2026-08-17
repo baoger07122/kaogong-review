@@ -9593,6 +9593,25 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-action-row--home { margin-bottom: 12px; }
 .sc-action-row--home .sc-action-chip { height: 34px; padding: 0 13px; font-size: 12px; }
 
+/* v8.15.52 手机窄屏适配：题型网格改 2 列（避免 3 列卡片文字被裁切/溢出屏幕），卡片更紧凑 */
+@media screen and (max-width: 480px) {
+  .sc-page--home .sc-type-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .sc-page--home .sc-type-card {
+    padding: 8px;
+    min-height: 48px;
+    gap: 6px;
+    border-radius: 12px;
+  }
+  .sc-page--home .sc-type-card__icon {
+    width: 28px; height: 28px; border-radius: 8px; font-size: 14px;
+  }
+  .sc-page--home .sc-type-card__name { font-size: 11.5px; }
+  .sc-page--home .sc-type-card__rate { font-size: 8.5px; }
+}
+
 
 /* ===== 历史页：按时间分组 + 类型胶囊 + 展开明细 ===== */
 .sc-hist-page { padding-bottom: 100px; }
