@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.52';
+App.VERSION = '8.15.53';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9335,6 +9335,8 @@ App.Pages.Home = {
       reviewQueue = [];
       todos = [];
     }
+    // v8.15.47 保存全部待办，供 hero 计时胶囊查找「正在计时的待办」
+    this._allTodos = todos;
 
     // ===== 1. 顶部标题 + 搜索栏 =====
     const header = document.createElement('div');
@@ -9462,11 +9464,14 @@ App.Pages.Home = {
         <div class="home-hero__num">${completedCount}<span class="home-hero__unit"> 项已完成</span></div>
         <div class="home-hero__bar"><i style="width:${pct}%"></i></div>
         <div class="home-hero__foot">还有 ${unmastered} 道错题待掌握 · 本周新增 ${weekNew} 道</div>
+        <!-- v8.15.47 计时胶囊：最近一个计时中的待办（无计时时隐藏） -->
+        <div class="home-hero__timer" id="home-timer" style="display:none;"></div>
       </div>
       <div class="home-hero__countdown" id="home-countdown"></div>
     `;
     container.insertBefore(hero, featureGrid);
     this._renderCountdown(hero.querySelector('#home-countdown'));
+    this._renderHomeTimer(hero);
 
     const todoWrap = document.createElement('div');
     todoWrap.style.cssText = 'padding:var(--spacing-lg) var(--page-padding) 0;';
@@ -10211,6 +10216,10 @@ App.Pages.Home = {
       todoCard.querySelectorAll('.todo-item').forEach((el) => {
         if (el._timerRefresh) el._timerRefresh();
       });
+      // v8.15.47 同步刷新 hero 计时胶囊时长
+      const tEl = document.getElementById('home-timer-time');
+      const rt = this._runningTodo();
+      if (tEl && rt && rt.timerStartedAt) tEl.textContent = this._fmtHeroMs(this._heroCalcMs(rt));
     }, 1000);
 
     // ===== 8. 便签（今日待办下方） =====
@@ -10223,6 +10232,60 @@ App.Pages.Home = {
   },
 
   // ===== v8.11.1 倒数日（首页 Hero 右侧）=====
+  // ===== v8.15.47 首页 hero 计时胶囊：最近一个计时中的待办（名称+时长+暂停/开始） =====
+  _runningTodo() {
+    const todos = this._allTodos || [];
+    return todos
+      .filter(t => t.timerStartedAt && !t.completed)
+      .sort((a, b) => (b.timerStartedAt || 0) - (a.timerStartedAt || 0))[0] || null;
+  },
+  _heroCalcMs(t) {
+    return (t.elapsedMs || 0) + (t.timerStartedAt ? (Date.now() - t.timerStartedAt) : 0);
+  },
+  _fmtHeroMs(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    const p = (n) => String(n).padStart(2, '0');
+    return h > 0 ? h + ':' + p(m) + ':' + p(sec) : p(m) + ':' + p(sec);
+  },
+  _renderHomeTimer(hero) {
+    const el = hero ? hero.querySelector('#home-timer') : document.getElementById('home-timer');
+    if (!el) return;
+    const rt = this._runningTodo();
+    if (!rt) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = 'flex';
+    const esc = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const running = !!rt.timerStartedAt;
+    const ico = running
+      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="#0066CC"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>'
+      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="#0066CC"><path d="M8 5.5v13l11-6.5z"/></svg>';
+    el.innerHTML =
+      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0066CC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 13l3-3M9 2h6"/></svg>' +
+      '<span class="home-hero__timer-name">' + esc(rt.text || '待办') + '</span>' +
+      '<span class="home-hero__timer-time" id="home-timer-time">' + this._fmtHeroMs(this._heroCalcMs(rt)) + '</span>' +
+      '<span class="home-hero__timer-ico">' + ico + '</span>';
+    el.onclick = async () => {
+      // 复用待办列表计时按钮逻辑：暂停结算到 elapsedMs + dailyTimes，开始记录 timerStartedAt
+      if (rt.timerStartedAt) {
+        const ms = Math.max(0, Date.now() - rt.timerStartedAt);
+        rt.elapsedMs = (rt.elapsedMs || 0) + ms;
+        rt.timerStartedAt = null;
+        if (!rt.dailyTimes) rt.dailyTimes = {};
+        const dd = new Date();
+        const dk = dd.getFullYear() + '-' + String(dd.getMonth() + 1).padStart(2, '0') + '-' + String(dd.getDate()).padStart(2, '0');
+        rt.dailyTimes[dk] = (rt.dailyTimes[dk] || 0) + ms;
+        await App.DB.updateTodo(rt);
+        App.Components.toast('已暂停，累计 ' + this._fmtHeroMs(rt.elapsedMs), 'info');
+      } else {
+        rt.timerStartedAt = Date.now();
+        await App.DB.updateTodo(rt);
+        App.Components.toast('开始计时 ⏱', 'success');
+      }
+      // 重建首页刷新胶囊状态 + 待办列表计时按钮
+      await this.render({});
+    };
+  },
+
   _countdownKey: 'kg_countdown',
   _loadCountdown() {
     try { return JSON.parse(localStorage.getItem(this._countdownKey)) || []; } catch (e) { return []; }
@@ -18399,12 +18462,7 @@ renderHome(container) {
     exprRow.appendChild(answerDisplay);
     body.appendChild(exprRow);
 
-    // v8.15.32 误差 ±3% 对所有题型统一显示；v8.15.34 移到最前
-    const standard = document.createElement('div');
-    standard.className = 'sc-standard';
-    const sT = this.state.type === 'custom' ? null : this.TYPES[this.state.type].s;
-    standard.textContent = '误差 ±3%   合格: ' + (sT ? sT.pass : 28) + 's  良好: ' + (sT ? sT.good : 22) + 's  优秀: ' + (sT ? sT.excellent : 18) + 's';
-    body.appendChild(standard);
+    // v8.15.47 评级标准已移到结果页左上角（做题页不再显示灰色提示）
     // v8.6.40 三位数除一位数：本次评分展示（提交后更新）
     const ratingLine = document.createElement('div');
     ratingLine.className = 'sc-rating-line';
@@ -18600,6 +18658,13 @@ renderHome(container) {
     const body = document.createElement('div');
     body.className = 'sc-page';
     body.style.cssText = 'padding-bottom:110px;';
+
+    // v8.15.47 评级标准：从做题页移到结果页左上角（同款灰字）
+    const std = document.createElement('div');
+    std.className = 'sc-standard';
+    const sT2 = this.state.type === 'custom' ? null : this.TYPES[this.state.type].s;
+    std.textContent = '误差 ±3%   合格: ' + (sT2 ? sT2.pass : 28) + 's  良好: ' + (sT2 ? sT2.good : 22) + 's  优秀: ' + (sT2 ? sT2.excellent : 18) + 's';
+    body.appendChild(std);
 
     // ===== 统计摘要区 =====
     const summary = document.createElement('div');

@@ -1617,6 +1617,44 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   color: #6B7380;
 }
 
+/* v8.15.47 计时胶囊（hero 左区内部下方）：最近一个计时中的待办，点击暂停/开始 */
+.home-hero__timer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  height: 40px;
+  padding: 0 12px;
+  background: #F0F7FF;
+  border-radius: 8px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s;
+}
+.home-hero__timer:active { opacity: 0.8; }
+.home-hero__timer-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: #1D1D1F;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-hero__timer-time {
+  font-size: 15px;
+  font-weight: 600;
+  color: #0066CC;
+  font-variant-numeric: tabular-nums;
+}
+.home-hero__timer-ico {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
 /* v8.12.5 倒数日 Hero 右侧：左右对称各占一半，分隔线居中（对齐画布 7:89 x295.5=592/2） */
 .home-hero--split {
   display: flex;
