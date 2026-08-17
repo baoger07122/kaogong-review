@@ -8833,6 +8833,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 /* ===== v8.6.25 速算结果页：摘要 / 5 列表格 / 三按钮 ===== */
 .sc-result-summary { text-align: center; padding: 16px 0 12px; }
 .sc-result-summary__type { font-size: 20px; font-weight: 700; color: #1F2937; }
+.sc-result-summary__type-sub { font-size: 14px; font-weight: 400; color: #6B7280; margin-left: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
 .sc-result-summary__time { font-size: 13px; color: #6B7280; margin-top: 4px; }
 .sc-result-table {
   background: #fff; border-radius: 16px; box-shadow: var(--shadow-sm);
@@ -8871,6 +8872,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 /* ===== v8.6.25 速算结果页：摘要 / 5 列表格 / 三按钮 ===== */
 .sc-result-summary { text-align: center; padding: 16px 0 12px; }
 .sc-result-summary__type { font-size: 20px; font-weight: 700; color: #1F2937; }
+.sc-result-summary__type-sub { font-size: 14px; font-weight: 400; color: #6B7280; margin-left: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
 .sc-result-summary__time { font-size: 13px; color: #6B7280; margin-top: 4px; }
 .sc-result-table {
   background: #fff; border-radius: 16px; box-shadow: var(--shadow-sm);
@@ -9615,6 +9617,8 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 }
 .sc-hcap__info { flex: 1; padding-left: 10px; min-width: 0; }
 .sc-hcap__name { font-size: 14px; font-weight: 600; color: #1D1D1F; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* v8.15.48 自定义练习标题 sub 段：缩小、不加粗 */
+.sc-hcap__name-sub { font-size: 12px; font-weight: 400; color: #8E8E93; margin-left: 4px; }
 .sc-hcap__sub { font-size: 11px; color: #8E8E93; margin-top: 2px; }
 .sc-hcap__stat { text-align: right; flex-shrink: 0; }
 .sc-hcap__rate { font-size: 18px; font-weight: 700; }

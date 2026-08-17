@@ -8851,6 +8851,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 /* ===== v8.6.25 速算结果页：摘要 / 5 列表格 / 三按钮 ===== */
 .sc-result-summary { text-align: center; padding: 16px 0 12px; }
 .sc-result-summary__type { font-size: 20px; font-weight: 700; color: #1F2937; }
+.sc-result-summary__type-sub { font-size: 14px; font-weight: 400; color: #6B7280; margin-left: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
 .sc-result-summary__time { font-size: 13px; color: #6B7280; margin-top: 4px; }
 .sc-result-table {
   background: #fff; border-radius: 16px; box-shadow: var(--shadow-sm);
@@ -8889,6 +8890,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 /* ===== v8.6.25 速算结果页：摘要 / 5 列表格 / 三按钮 ===== */
 .sc-result-summary { text-align: center; padding: 16px 0 12px; }
 .sc-result-summary__type { font-size: 20px; font-weight: 700; color: #1F2937; }
+.sc-result-summary__type-sub { font-size: 14px; font-weight: 400; color: #6B7280; margin-left: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
 .sc-result-summary__time { font-size: 13px; color: #6B7280; margin-top: 4px; }
 .sc-result-table {
   background: #fff; border-radius: 16px; box-shadow: var(--shadow-sm);
@@ -9633,6 +9635,8 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 }
 .sc-hcap__info { flex: 1; padding-left: 10px; min-width: 0; }
 .sc-hcap__name { font-size: 14px; font-weight: 600; color: #1D1D1F; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* v8.15.48 自定义练习标题 sub 段：缩小、不加粗 */
+.sc-hcap__name-sub { font-size: 12px; font-weight: 400; color: #8E8E93; margin-left: 4px; }
 .sc-hcap__sub { font-size: 11px; color: #8E8E93; margin-top: 2px; }
 .sc-hcap__stat { text-align: right; flex-shrink: 0; }
 .sc-hcap__rate { font-size: 18px; font-weight: 700; }
@@ -9904,7 +9908,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.47';
+App.VERSION = '8.15.48';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -28588,6 +28592,16 @@ renderHome(container) {
     return '自定义练习' + (sub ? ' ' + sub : '') + (num ? ' ' + num : '');
   },
 
+  // v8.15.48 分段标题：自定义练习类标题 → { main:'自定义练习', sub:' 五位数除三位数 450-850' }
+  //   历史记录胶囊标题 / 回看页摘要：main 保持原字号加粗，sub 缩小且不加粗；普通题型 sub 为空。
+  _splitCustomTitle(name) {
+    const s = String(name || '');
+    if (s.indexOf('自定义练习') === 0 && s.length > 4) {
+      return { main: '自定义练习', sub: s.slice(4) };
+    }
+    return { main: s, sub: '' };
+  },
+
   // 题型/模式 → 图标符号（历史/统计页用）
   _scIcon(name) {
     const m = {
@@ -28701,10 +28715,14 @@ renderHome(container) {
           // 标题行（固定在卡片顶部）
           const headRow = document.createElement('div');
           headRow.className = 'sc-hcap__row';
+          // v8.15.48 自定义练习标题分段：main 原字号加粗，sub 缩小不加粗
+          const titleParts = self._splitCustomTitle(T.name);
           headRow.innerHTML =
             '<div class="sc-hcap__icon">' + T.icon + '</div>' +
             '<div class="sc-hcap__info">' +
-              '<div class="sc-hcap__name">' + esc(T.name) + '</div>' +
+              '<div class="sc-hcap__name">' + esc(titleParts.main) +
+                (titleParts.sub ? '<span class="sc-hcap__name-sub">' + esc(titleParts.sub) + '</span>' : '') +
+              '</div>' +
               (T.countN > 1 ? '<div class="sc-hcap__sub">共 ' + T.countN + ' 次</div>' : '') +
             '</div>' +
             '<div class="sc-hcap__stat">' +
@@ -28779,19 +28797,32 @@ renderHome(container) {
     const correctCount = record.correctCount !== undefined ? record.correctCount : (record.correct != null ? record.correct : 0);
     const totalCount = record.totalCount !== undefined ? record.totalCount : (record.count != null ? record.count : 0);
 
-    // 返回键回历史记录页（保持展开状态）
-    this._topbar(container, '练习回看', () => this.show('history'), '', true);
+    // 返回键回历史记录页（保持展开状态）；v8.15.48 右上角加 ✍️ 涂鸦（同结果页位置，独立涂鸦不关联做题数据）
+    this._topbar(container, '练习回看', () => this.show('history'),
+      '<button class="sc-topbar__icon" type="button" id="sc-doodle" title="涂鸦">✍️</button>', true);
+    const doodleBtn = container.querySelector('#sc-doodle');
+    if (doodleBtn) {
+      doodleBtn.addEventListener('click', () => {
+        App.Components.doodleOverlay({
+          initial: null,
+          onChange: () => {}
+        });
+      });
+    }
 
     const body = document.createElement('div');
     body.className = 'sc-page';
     body.style.cssText = 'padding-bottom:24px;';
 
-    // ===== 统计摘要区（与结果页一致） =====
+    // ===== 统计摘要区（与结果页一致；v8.15.48 不显示模式） =====
     const summary = document.createElement('div');
     summary.className = 'sc-result-summary';
-    const modeTag = record.mode ? (' · ' + record.mode) : '';
+    // v8.15.48 自定义练习标题分段：main 原字号加粗，sub 缩小不加粗
+    const titleParts = this._splitCustomTitle(typeName);
     summary.innerHTML =
-      '<div class="sc-result-summary__type">' + esc(typeName) + modeTag + '</div>' +
+      '<div class="sc-result-summary__type">' + esc(titleParts.main) +
+        (titleParts.sub ? '<span class="sc-result-summary__type-sub">' + esc(titleParts.sub) + '</span>' : '') +
+      '</div>' +
       '<div class="sc-result-summary__time">本次练习用时:' + fmTotal(totalTime) + (totalCount ? (' · 正确 ' + correctCount + '/' + totalCount) : '') + '</div>';
     body.appendChild(summary);
 
