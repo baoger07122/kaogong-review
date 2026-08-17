@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.48';
+App.VERSION = '8.15.49';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -18691,8 +18691,8 @@ renderHome(container) {
   //   历史记录胶囊标题 / 回看页摘要：main 保持原字号加粗，sub 缩小且不加粗；普通题型 sub 为空。
   _splitCustomTitle(name) {
     const s = String(name || '');
-    if (s.indexOf('自定义练习') === 0 && s.length > 4) {
-      return { main: '自定义练习', sub: s.slice(4) };
+    if (s.indexOf('自定义练习') === 0 && s.length > 5) {
+      return { main: '自定义练习', sub: s.slice(5) };
     }
     return { main: s, sub: '' };
   },
