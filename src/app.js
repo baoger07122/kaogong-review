@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.43';
+App.VERSION = '8.15.44';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -16876,8 +16876,8 @@ App.Pages.SpeedCalc = {
       const gain = ctx.createGain();
       osc.type = 'sine';
       osc.frequency.value = 55;
-      // v8.15.43 按键音量调大 4 倍（0.1 → 0.4）
-      gain.gain.setValueAtTime(0.4, ctx.currentTime);
+      // v8.15.44 按键音量再调大 4 倍（0.4 → 1.6）
+      gain.gain.setValueAtTime(1.6, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.07);
       osc.connect(gain);
       gain.connect(ctx.destination);
