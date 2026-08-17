@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.45';
+App.VERSION = '8.15.46';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -16783,9 +16783,9 @@ App.Pages.SpeedCalc = {
 
   show(view) {
     this.state.view = view;
-    // v8.15.28 做题页（practice）沉浸式隐藏底部导航，键盘贴屏幕最底；其余视图恢复导航
+    // v8.15.46 做题页(practice) + 结果页(result) 沉浸式隐藏底部导航（结果页底栏按钮不被主导航遮挡）
     const nav = document.getElementById('bottom-nav');
-    if (nav) nav.classList.toggle('nav--hidden', view === 'practice');
+    if (nav) nav.classList.toggle('nav--hidden', view === 'practice' || view === 'result');
     if (view !== 'practice') {
       if (this.state.timerId) { clearInterval(this.state.timerId); this.state.timerId = null; }
       if (this.state.raceTimerId) { clearInterval(this.state.raceTimerId); this.state.raceTimerId = null; }
