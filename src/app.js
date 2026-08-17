@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.15.46';
+App.VERSION = '8.15.47';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -16778,6 +16778,7 @@ App.Pages.SpeedCalc = {
     else if (view === 'practice') this.renderPractice(container);
     else if (view === 'result') this.renderResult(container);
     else if (view === 'history') this.renderHistory(container);
+    else if (view === 'historyDetail') this.renderHistoryDetail(container);
     else if (view === 'stats') this.renderStats(container);
   },
 
@@ -18744,13 +18745,13 @@ renderHome(container) {
           if (last && last.name === tname) {
             // 连续同类型：折叠进上一块
             last.countN++; last.correct += cc; last.total += tc; last.timeSum += dur;
-            last.items.push({ date: r.date, correct: cc, total: tc, dur: dur, mode: r.mode });
+            last.items.push({ date: r.date, correct: cc, total: tc, dur: dur, mode: r.mode, record: r });
           } else {
             // 类型切换（或首个）：新建一块
             blocks.push({
               name: tname, icon: this._scIcon(tname),
               countN: 1, correct: cc, total: tc, timeSum: dur,
-              items: [{ date: r.date, correct: cc, total: tc, dur: dur, mode: r.mode }]
+              items: [{ date: r.date, correct: cc, total: tc, dur: dur, mode: r.mode, record: r }]
             });
           }
         });
@@ -18812,17 +18813,24 @@ renderHome(container) {
             '<div class="sc-hcap__arrow"><svg width="9" height="5" viewBox="0 0 9 5" fill="none"><path d="M1.5 1.2L4.5 4l3-2.8" stroke="#A1A1A6" stroke-width="1.6" stroke-linecap="round"/></svg></div>';
           cap.appendChild(headRow);
           // v8.15.40 每次记录明细：嵌入胶囊卡片内部（点击展开/收起），卡片整体统一样式
+          // v8.15.47 每次记录行可点击 → 查看该次练习的完整结果（复用结果页样式，无底部按钮）
           const detail = document.createElement('div');
           detail.className = 'sc-hcap-detail';
           detail.style.display = 'none';
           T.items.forEach((it) => {
             const mini = document.createElement('div');
-            mini.className = 'sc-hcap-detail__row';
+            mini.className = 'sc-hcap-detail__row sc-hcap-detail__row--link';
             const drate = it.total ? Math.round(it.correct / it.total * 100) : 0;
             mini.innerHTML =
               '<span class="sc-hcap-detail__t">' + fmtDate(it.date) + '</span>' +
               '<span class="sc-hcap-detail__c" style="color:' + (drate >= 80 ? '#0066CC' : drate >= 60 ? '#EB8A3A' : '#E03131') + '">正确 ' + (it.correct == null ? '-' : it.correct) + '/' + (it.total || 0) + '</span>' +
-              '<span class="sc-hcap-detail__u">' + fmtClock(it.dur || 0) + '</span>';
+              '<span class="sc-hcap-detail__u">' + fmtClock(it.dur || 0) + '</span>' +
+              '<span class="sc-hcap-detail__go">›</span>';
+            // v8.15.47 点击明细行 → 历史回看该次练习（阻止冒泡，避免触发胶囊展开/收起）
+            mini.addEventListener('click', (e) => {
+              e.stopPropagation();
+              self._viewHistoryRecord(it.record);
+            });
             detail.appendChild(mini);
           });
           cap.appendChild(detail);
@@ -18847,6 +18855,93 @@ renderHome(container) {
     backBtn.addEventListener('click', () => this.show('home'));
     btnRow.appendChild(backBtn);
     body.appendChild(btnRow);
+
+    container.appendChild(body);
+  },
+
+  // v8.15.47 历史回看：点击某次记录 → 记住该 record 并进入回看视图（返回键回历史页）
+  _viewHistoryRecord(record) {
+    if (!record) { App.Components.toast('该记录数据缺失', 'error'); return; }
+    this._historyViewing = record;
+    this.show('historyDetail');
+  },
+
+  // v8.15.47 视图：历史单次练习回看（复用结果页样式：摘要 + 完整表格；无底部三按钮；返回键回历史页）
+  renderHistoryDetail(container) {
+    const self = this;
+    const record = this._historyViewing;
+    if (!record) { this.show('history'); return; }
+    const fmTotal = (sec) => { sec = Math.max(0, Math.round(sec || 0)); const m = Math.floor(sec / 60), s = sec % 60; return m + ':' + (s < 10 ? '0' : '') + s; };
+    const typeName = record.name || record.type || '速算练习';
+    const details = Array.isArray(record.details) ? record.details : [];
+    const totalTime = record.totalTime != null ? record.totalTime : (record.duration != null ? record.duration : 0);
+    const correctCount = record.correctCount !== undefined ? record.correctCount : (record.correct != null ? record.correct : 0);
+    const totalCount = record.totalCount !== undefined ? record.totalCount : (record.count != null ? record.count : 0);
+
+    // 返回键回历史记录页（保持展开状态）
+    this._topbar(container, '练习回看', () => this.show('history'), '', true);
+
+    const body = document.createElement('div');
+    body.className = 'sc-page';
+    body.style.cssText = 'padding-bottom:24px;';
+
+    // ===== 统计摘要区（与结果页一致） =====
+    const summary = document.createElement('div');
+    summary.className = 'sc-result-summary';
+    const modeTag = record.mode ? (' · ' + record.mode) : '';
+    summary.innerHTML =
+      '<div class="sc-result-summary__type">' + esc(typeName) + modeTag + '</div>' +
+      '<div class="sc-result-summary__time">本次练习用时:' + fmTotal(totalTime) + (totalCount ? (' · 正确 ' + correctCount + '/' + totalCount) : '') + '</div>';
+    body.appendChild(summary);
+
+    // ===== 题目明细表格（与结果页一致：题号/题目/正确答案/你的答案/误差/用时） =====
+    if (details.length === 0) {
+      // v8.15.47 旧记录无明细：仅展示统计摘要
+      const empty = document.createElement('div');
+      empty.style.cssText = 'text-align:center;color:var(--text-tertiary);font-size:13px;padding:28px 16px;';
+      empty.textContent = '该条记录较早，未保存每道题明细，仅显示统计摘要';
+      body.appendChild(empty);
+    } else {
+      const table = document.createElement('div');
+      table.className = 'sc-result-table';
+      const head = document.createElement('div');
+      head.className = 'sc-result-table__head';
+      head.innerHTML =
+        '<div class="sc-rt-col">#</div>' +
+        '<div class="sc-rt-col">题目</div>' +
+        '<div class="sc-rt-col">正确答案</div>' +
+        '<div class="sc-rt-col">你的答案</div>' +
+        '<div class="sc-rt-col">误差</div>' +
+        '<div class="sc-rt-col">用时</div>';
+      table.appendChild(head);
+      details.forEach((d, i) => {
+        const isRight = d.isRight === true;
+        const ua = d.user !== undefined && d.user !== '' ? d.user : '—';
+        const answered = d.user !== undefined && d.user !== '';
+        // 误差：优先用存储值，否则由 输入/答案 计算（保留1位小数）
+        let errCell = '—';
+        if (answered && d.correct != null) {
+          const ans = parseFloat(d.correct);
+          const uv = parseFloat(d.user);
+          if (!isNaN(ans) && !isNaN(uv)) {
+            const errAbs = Math.abs(uv - ans);
+            const errPct = Math.abs(ans) < 1e-9 ? (errAbs > 1e-9 ? 999 : 0) : (errAbs / Math.abs(ans)) * 100;
+            errCell = Math.round(errPct * 10) / 10 + '%';
+          }
+        }
+        const row = document.createElement('div');
+        row.className = 'sc-result-table__row' + (isRight ? '' : ' wrong');
+        row.innerHTML =
+          '<div class="sc-rt-col sc-rt-col--no">' + (i + 1) + '</div>' +
+          '<div class="sc-rt-col sc-rt-col--q">' + esc(d.q) + '</div>' +
+          '<div class="sc-rt-col sc-rt-col--ans">= ' + self.fmtAns(d.correct) + '</div>' +
+          '<div class="sc-rt-col sc-rt-col--user ' + (isRight ? 'ok' : 'no') + '">' + esc(ua) + (isRight ? '✓' : '✗') + '</div>' +
+          '<div class="sc-rt-col sc-rt-col--err ' + (isRight ? 'ok' : 'no') + '">' + errCell + '</div>' +
+          '<div class="sc-rt-col sc-rt-col--t">' + (d.time || 0).toFixed(1) + 's</div>';
+        table.appendChild(row);
+      });
+      body.appendChild(table);
+    }
 
     container.appendChild(body);
   },

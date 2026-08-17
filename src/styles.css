@@ -9632,6 +9632,10 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sc-hcap-detail__t { font-size: 12px; color: #A1A1A6; }
 .sc-hcap-detail__c { font-size: 13px; font-weight: 600; }
 .sc-hcap-detail__u { font-size: 13px; font-weight: 600; color: #1D1D1F; }
+/* v8.15.47 明细行可点击查看回看 */
+.sc-hcap-detail__row--link { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.sc-hcap-detail__row--link:active { background: rgba(0, 102, 204, 0.06); }
+.sc-hcap-detail__go { font-size: 16px; color: #C7C7CC; flex-shrink: 0; margin-left: 6px; line-height: 1; }
 
 /* ===== 统计页：热门类型 + 正确率趋势 + 用时分析 ===== */
 .sc-stats-page { padding-bottom: 40px; }
