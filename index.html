@@ -9965,7 +9965,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.17.1';
+App.VERSION = '8.18.1';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -26796,6 +26796,11 @@ App.Pages.SpeedCalc = {
     document.body.style.overflow = lockScroll ? 'hidden' : '';
     document.documentElement.style.overflow = lockScroll ? 'hidden' : '';
     if (lockScroll) this._bindRubberLock(container);
+    // v8.18.2 非锁定视图（历史/回看/统计/估算表等）显式恢复容器可滚动：
+    //   避免从 practice/home 切过来时残留 height:100dvh;overflow:hidden 导致内容被裁剪无法滚动
+    if (!lockScroll) {
+      container.style.cssText = 'min-height:0;display:flex;flex-direction:column;box-sizing:border-box;overflow-y:auto;';
+    }
     if (view === 'home') this.renderHome(container);
     else if (view === 'custom') this.renderCustom(container);
     else if (view === 'estimate') this.renderEstimate(container);
@@ -26830,9 +26835,14 @@ App.Pages.SpeedCalc = {
     const onMove = (e) => {
       const t = e.touches && e.touches[0];
       if (!t || startY == null) return;
+      // v8.18.x 按键丢失修复：touch 起点在可点元素（按钮/卡片等）上 → 放行不拦截，避免误吞点击
+      try {
+        const tg = e.target;
+        if (tg && typeof tg.closest === 'function' && tg.closest('button, .sc-type-card, .sc-hcap, [role="button"], .sc-custom-cell, .sc-numpad__btn')) return;
+      } catch (err) {}
       const dy = t.clientY - startY, dx = t.clientX - startX;
       // 纵向位移明显且以纵向为主 → 判定为意图滚动，阻止（含回弹）
-      if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) {
+      if (Math.abs(dy) > 20 && Math.abs(dy) > Math.abs(dx)) {
         e.preventDefault();
         e.stopPropagation();
       }
@@ -26888,8 +26898,9 @@ App.Pages.SpeedCalc = {
   },
 
   // v8.6.39 iOS 触觉：Safari 不支持 navigator.vibrate，用 Web Audio 低频短脉冲（55Hz/70ms）近似按键触感
-  // v8.15.53 修复「切后台回来按键音消失」：resume() 是异步的，需等恢复完成后再播放（在 suspended 上下文上直接 start 不会出声）；
-  //         并全局监听 visibilitychange/pageshow，回前台时主动 resume 一次
+  // v8.18.2 根治「切后台回来按键音失效」：iOS 的 AudioContext 切后台会被强制 suspend，且 visibilitychange 里的
+  //   resume() 不在用户手势内会被 iOS 拒绝；因此每次按键（本就在用户手势 pointerdown 内）时，若 context 不是
+  //   running 就直接重建新 context（用户手势内 new AudioContext() 一定为 running），保证声音必定恢复。
   _tapHaptic() {
     try { if (navigator.vibrate) { navigator.vibrate(8); return; } } catch (e) {}
     try {
@@ -26897,38 +26908,26 @@ App.Pages.SpeedCalc = {
       if (!isIOS) return;
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
-      if (!this._hapticCtx) {
-        this._hapticCtx = new AC();
-        // 回前台自动恢复（一次性绑定）
-        if (!this._hapticResumeBound) {
-          this._hapticResumeBound = true;
-          const self = this;
-          const tryResume = () => {
-            try { const c = self._hapticCtx; if (c && c.state === 'suspended') c.resume().catch(() => {}); } catch (e) {}
-          };
-          document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') tryResume(); });
-          window.addEventListener('pageshow', tryResume);
-        }
+      // context 不存在或非 running（suspended/interrupted/closed）→ 重建（当前在用户手势内，必为 running）
+      let ctx = this._hapticCtx;
+      if (!ctx || ctx.state !== 'running') {
+        try { if (ctx && typeof ctx.close === 'function') ctx.close(); } catch (e) {}
+        ctx = this._hapticCtx = new AC();
       }
-      const ctx = this._hapticCtx;
       const play = () => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'sine';
         osc.frequency.value = 55;
-        // v8.15.51 按键音量设为 10
-        gain.gain.setValueAtTime(10, ctx.currentTime);
+        // v8.18.2 按键音量设为 14
+        gain.gain.setValueAtTime(14, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.07);
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.start();
         osc.stop(ctx.currentTime + 0.07);
       };
-      if (ctx.state === 'suspended') {
-        ctx.resume().then(play).catch(() => {});
-      } else {
-        play();
-      }
+      play();
     } catch (e) {}
   },
 
