@@ -10077,7 +10077,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.18.1';
+App.VERSION = '8.18.2';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -26914,7 +26914,8 @@ App.Pages.SpeedCalc = {
     // v8.15.52 兼容手机/平板：做题页始终锁滚动；首页仅宽屏(iPad>480px)一屏锁定，
     //   手机窄屏首页内容多，需允许纵向滚动（避免 3 列卡片溢出/裁切）。
     const isNarrow = window.innerWidth <= 480;
-    const lockScroll = (view === 'practice' || (view === 'home' && !isNarrow));
+    // 结果页与做题页同为沉浸式一屏视图；统一锁定页面滚动与 iOS 橡皮筋回弹。
+    const lockScroll = (view === 'practice' || view === 'result' || (view === 'home' && !isNarrow));
     document.body.classList.toggle('sc-lock', lockScroll);
     document.body.style.overflow = lockScroll ? 'hidden' : '';
     document.documentElement.style.overflow = lockScroll ? 'hidden' : '';
@@ -27020,10 +27021,8 @@ App.Pages.SpeedCalc = {
     container.appendChild(header);
   },
 
-  // v8.6.39 iOS 触觉：Safari 不支持 navigator.vibrate，用 Web Audio 低频短脉冲（55Hz/70ms）近似按键触感
-  // v8.18.2 根治「切后台回来按键音失效」：iOS 的 AudioContext 切后台会被强制 suspend，且 visibilitychange 里的
-  //   resume() 不在用户手势内会被 iOS 拒绝；因此每次按键（本就在用户手势 pointerdown 内）时，若 context 不是
-  //   running 就直接重建新 context（用户手势内 new AudioContext() 一定为 running），保证声音必定恢复。
+  // iOS 把 PWA 切到后台后，即使 AudioContext 仍报告 running，音频输出也可能已经失效。
+  // 返回前台后的下一次按键强制在用户手势中重建/恢复 context，避免「第一次有声、切后台后静音」。
   _tapHaptic() {
     try { if (navigator.vibrate) { navigator.vibrate(8); return; } } catch (e) {}
     try {
@@ -27031,11 +27030,18 @@ App.Pages.SpeedCalc = {
       if (!isIOS) return;
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
-      // context 不存在或非 running（suspended/interrupted/closed）→ 重建（当前在用户手势内，必为 running）
+      // 仅绑定一次生命周期标记。hidden/pageshow 时不播放声音（不在用户手势内），只标记为下次按键重置。
+      if (!this._hapticLifecycleBound) {
+        const markReset = () => { this._hapticNeedsReset = true; };
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') markReset(); });
+        window.addEventListener('pageshow', markReset);
+        this._hapticLifecycleBound = true;
+      }
       let ctx = this._hapticCtx;
-      if (!ctx || ctx.state !== 'running') {
+      if (this._hapticNeedsReset || !ctx || ctx.state !== 'running') {
         try { if (ctx && typeof ctx.close === 'function') ctx.close(); } catch (e) {}
         ctx = this._hapticCtx = new AC();
+        this._hapticNeedsReset = false;
       }
       const play = () => {
         const osc = ctx.createOscillator();
@@ -27050,7 +27056,11 @@ App.Pages.SpeedCalc = {
         osc.start();
         osc.stop(ctx.currentTime + 0.07);
       };
-      play();
+      // 先请求 resume；旧版直接调用后立刻 start 会与 iOS 恢复过程竞争，表现为无声。
+      if (ctx.state === 'running') play();
+      else if (typeof ctx.resume === 'function') ctx.resume().then(() => {
+        if (ctx.state === 'running') play();
+      }).catch(() => { this._hapticNeedsReset = true; });
     } catch (e) {}
   },
 
