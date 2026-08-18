@@ -9375,11 +9375,13 @@ App.Pages.Home = {
     ];
 
     features.forEach(f => {
-      const item = document.createElement('div');
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.setAttribute('aria-label', '打开' + f.label);
       item.className = 'feature-grid-item';
       // v8.11.3 多彩 tinted 入口：浅色底 + 同色图标（对齐画布定稿）
       item.innerHTML = `
-        <div class="feature-grid-item__icon" style="background:${f.color}1F;color:${f.color}">${f.icon}</div>
+        <span class="feature-grid-item__icon" style="background:${f.color}1F;color:${f.color}">${f.icon}</span>
         <div class="feature-grid-item__name">${f.label}</div>
       `;
       item.addEventListener('click', f.action);
@@ -12785,10 +12787,10 @@ App.Pages.Notes = {
     notes.forEach((note, idx) => container.appendChild(this.buildNoteCard(note)));
   },
 
-  // 笔记卡片（对齐画布「iPad-笔记」7:964：科目色块首字 + 标题/摘要 + 右侧日期 + 箭头）
+  // 笔记卡片：iPad 分屏优先——分类、日期和摘要集中呈现，减少无效留白。
   buildNoteCard(note) {
     const card = document.createElement('div');
-    card.className = 'note-item note-item--card';
+    card.className = 'note-item note-item--card note-item--compact';
     const subj = note.subject ? App.Constants.SUBJECTS.find(s => s.name === note.subject) : null;
     const color = subj && subj.color ? subj.color : '#4A90E2';
     const firstChar = note.subject ? note.subject.slice(0, 1) : '记';
@@ -12797,13 +12799,13 @@ App.Pages.Notes = {
     if (/^[0-9a-fA-F]{6}$/.test(hex)) {
       bg = 'rgba(' + [0, 2, 4].map(i => parseInt(hex.substr(i, 2), 16)).join(',') + ',0.12)';
     }
-    // 摘要：去 HTML 标签取纯文本前若干字
+    // 摘要：统一转为可读纯文本，避免旧块数据在列表出现 JSON 碎片。
     let summary = '';
     try {
-      let txt = Array.isArray(note.content) ? JSON.stringify(note.content) : String(note.content || '');
-      txt = txt.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      let txt = App.Utils.toNoteHtml(note.content || '');
+      txt = String(txt).replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
       if (!txt || txt === '""' || txt === '[]') txt = '';
-      if (txt) summary = App.Utils.truncate(txt, 34);
+      if (txt) summary = App.Utils.truncate(txt, 70);
     } catch (e) { summary = ''; }
     let dateTxt = '';
     try {
@@ -12820,15 +12822,18 @@ App.Pages.Notes = {
         : 'rgba(0,102,204,0.12)';
       typePill = `<div class="note-type-pill" style="background:${tBg};color:${tc};">${note.type}</div>`;
     }
+    const location = [note.subject, note.module, note.knowledgePoint].filter(Boolean).join(' · ');
     card.innerHTML = `
       <div class="note-avatar" style="background:${bg};color:${color};">${firstChar}</div>
       <div class="note-item__body">
-        ${typePill ? `<div class="note-type-pill-row">${typePill}</div>` : ''}
-        <div class="note-item__title">${App.Utils.truncate(note.title, 26)}</div>
+        <div class="note-item__topline">
+          ${typePill || '<span></span>'}
+          <time class="note-item__date">${dateTxt}</time>
+        </div>
+        <div class="note-item__title">${App.Utils.truncate(note.title, 48)}</div>
         ${summary ? `<div class="note-item__summary">${summary}</div>` : ''}
+        ${location ? `<div class="note-item__location">${location}</div>` : ''}
       </div>
-      <div class="note-item__right"><div class="note-item__date">${dateTxt}</div></div>
-      <div class="note-item__arrow">›</div>
     `;
     card.addEventListener('click', () => App.Router.navigate('note-detail?id=' + note.id));
     return card;
@@ -12915,20 +12920,17 @@ App.Pages.Notes = {
     container.appendChild(header);
 
     const content = document.createElement('div');
-    content.style.cssText = 'padding:var(--spacing-md) var(--page-padding);padding-bottom:var(--spacing-3xl);';
+    content.className = 'note-detail-content';
 
     // 面包屑
     const breadcrumb = document.createElement('div');
     breadcrumb.className = 'breadcrumb';
     breadcrumb.style.marginBottom = 'var(--spacing-md)';
-    breadcrumb.innerHTML = `
-      <span class="breadcrumb__item">${note.subject}</span>
-      <span class="breadcrumb__sep">›</span>
-      <span class="breadcrumb__item">${note.module}</span>
-      <span class="breadcrumb__sep">›</span>
-      <span class="breadcrumb__item">${note.knowledgePoint}</span>
-    `;
-    content.appendChild(breadcrumb);
+    const pathParts = [note.subject, note.module, note.knowledgePoint].filter(Boolean);
+    breadcrumb.innerHTML = pathParts.map((part, index) =>
+      (index ? '<span class="breadcrumb__sep">›</span>' : '') + '<span class="breadcrumb__item">' + part + '</span>'
+    ).join('');
+    if (pathParts.length) content.appendChild(breadcrumb);
 
     // 标题（点击就地编辑，无模式切换）
     const titleEl = document.createElement('div');
@@ -12937,9 +12939,18 @@ App.Pages.Notes = {
     titleEl.addEventListener('click', () => this._editTitleInPlace(titleEl, note, metaEl));
     content.appendChild(titleEl);
 
+    // 紧凑信息条：让正文保留完整阅读宽度，并明确就地编辑方式。
+    const infoEl = document.createElement('div');
+    infoEl.className = 'note-detail-info';
+    const infoBits = [];
+    if (note.type) infoBits.push('<span class="note-detail-info__chip">' + note.type + '</span>');
+    infoBits.push('<span class="note-detail-info__hint">轻点标题或正文即可编辑</span>');
+    infoEl.innerHTML = infoBits.join('');
+    content.appendChild(infoEl);
+
     // 正文（完整 HTML 直通渲染；点击就地编辑为 HTML 编辑器）
     const bodyEl = document.createElement('div');
-    bodyEl.className = 'card note-detail-body';
+    bodyEl.className = 'card note-detail-body note-detail-body--reading';
     bodyEl.setAttribute('data-tap-edit', '');
     // 查看态直接渲染保存的 HTML（v8.5.5 去块后不再逐块翻译，格式 100% 保真）
     bodyEl.innerHTML = note.content
@@ -13141,7 +13152,7 @@ App.Pages.Notes = {
       const existing = note.id ? await App.DB.get('notes', note.id) : null;
       const payload = {
         id: note.id, subject: note.subject || '', module: note.module || '',
-        knowledgePoint: note.knowledgePoint || '', title: note.title || '未命名笔记',
+        knowledgePoint: note.knowledgePoint || '', type: note.type || '', title: note.title || '未命名笔记',
         content: content || '',
         linkedErrors: note.linkedErrors || [],
         linkedReviews: existing ? existing.linkedReviews || [] : [],
