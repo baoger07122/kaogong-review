@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.18.3';
+App.VERSION = '8.18.4';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -11270,6 +11270,41 @@ App.Pages.Errors = {
       content.appendChild(sourceEl);
     }
 
+    // 逻辑填空词语辨析：按空位顺序展示用户记录的多组辨析
+    const compareGroups = (error.subject === '言语理解' && error.module === '逻辑填空' && Array.isArray(error.compareGroups))
+      ? error.compareGroups.filter(g => g && (g.words || g.relation))
+      : [];
+    if (compareGroups.length) {
+      const compareSection = document.createElement('section');
+      compareSection.className = 'error-detail-compare';
+      const compareHeading = document.createElement('div');
+      compareHeading.className = 'error-detail-compare__title';
+      compareHeading.textContent = '词语辨析';
+      compareSection.appendChild(compareHeading);
+      compareGroups.forEach((group, index) => {
+        const groupEl = document.createElement('div');
+        groupEl.className = 'error-detail-compare__group';
+        const groupLabel = document.createElement('div');
+        groupLabel.className = 'error-detail-compare__index';
+        groupLabel.textContent = '第' + (index + 1) + '组';
+        groupEl.appendChild(groupLabel);
+        if (group.words) {
+          const words = document.createElement('div');
+          words.className = 'error-detail-compare__words';
+          words.textContent = group.words;
+          groupEl.appendChild(words);
+        }
+        if (group.relation) {
+          const relation = document.createElement('div');
+          relation.className = 'error-detail-compare__relation';
+          relation.textContent = group.relation;
+          groupEl.appendChild(relation);
+        }
+        compareSection.appendChild(groupEl);
+      });
+      content.appendChild(compareSection);
+    }
+
     // 错题笔记（个人复盘心得）
     const enoteTitle = document.createElement('div');
     enoteTitle.style.cssText = 'font-size:var(--font-sm);font-weight:600;color:var(--text-secondary);margin:0 0 var(--spacing-sm);';
@@ -11463,9 +11498,8 @@ App.Pages.Errors = {
       questionSource: '',
       status: '未掌握',
       sourceExamId: params.examId || null,
-      // v8.18.2 言语-逻辑填空错题：辨析对象 / 辨析关系
-      compareTarget: '',
-      compareRelation: ''
+      // 言语-逻辑填空错题：支持多个空位分别记录词语辨析
+      compareGroups: [{ words: '', relation: '' }]
     };
 
     // 如果是编辑，加载数据；如果是新建，尝试恢复「同一篇正在录入」的草稿
@@ -11494,8 +11528,9 @@ App.Pages.Errors = {
             questionSource: error.questionSource || '',
             status: error.status || '未掌握',
             sourceExamId: error.sourceExamId || null,
-            compareTarget: error.compareTarget || '',
-            compareRelation: error.compareRelation || '',
+            compareGroups: Array.isArray(error.compareGroups) && error.compareGroups.length
+              ? error.compareGroups.map(g => ({ words: g.words || '', relation: g.relation || '' }))
+              : [{ words: '', relation: '' }],
             id: error.id
           };
         }
@@ -11528,8 +11563,9 @@ App.Pages.Errors = {
                 questionSource: error.questionSource || '',
                 status: error.status || '未掌握',
                 sourceExamId: error.sourceExamId || null,
-                compareTarget: error.compareTarget || '',
-                compareRelation: error.compareRelation || '',
+                compareGroups: Array.isArray(error.compareGroups) && error.compareGroups.length
+                  ? error.compareGroups.map(g => ({ words: g.words || '', relation: g.relation || '' }))
+                  : [{ words: '', relation: '' }],
                 id: error.id
               };
               formData._formId = fid;
@@ -11709,29 +11745,59 @@ App.Pages.Errors = {
       ));
       form.appendChild(efCard(kpEcChildren));
 
-      // v8.18.2 言语理解-逻辑填空专属：辨析对象 + 辨析关系（仅该科目+模块显示）
+      // 言语理解-逻辑填空专属：多个空位分别记录词语辨析
       if (formData.subject === '言语理解' && formData.module === '逻辑填空') {
-        const cmpChildren = [];
-        cmpChildren.push(App.Components.formInput(
-          '辨析对象',
-          formData.compareTarget,
-          '如：浮光掠影 / 走马观花',
-          (val) => { formData.compareTarget = val; },
-          'input'
-        ));
-        cmpChildren.push(efSelectBar('辨析关系', formData.compareRelation, '选择或输入辨析关系', () => {
-          App.Components.pickerModal({
-            title: '选择辨析关系',
-            mode: 'chips',
-            options: ['近义辨析', '反义辨析', '语义轻重', '搭配对象', '感情色彩', '词义侧重', '语体色彩', '适用范围'],
-            selected: formData.compareRelation ? [formData.compareRelation] : [],
-            max: 1,
-            allowCustom: true,
-            placeholder: '选择或输入辨析关系',
-            onDone: (sel) => { formData.compareRelation = (sel && sel.length) ? sel[0] : ''; buildForm(); }
-          });
-        }));
-        form.appendChild(efCard(cmpChildren));
+        if (!Array.isArray(formData.compareGroups) || !formData.compareGroups.length) {
+          formData.compareGroups = [{ words: '', relation: '' }];
+        }
+        const compareCard = document.createElement('div');
+        compareCard.className = 'ef-card error-compare-card';
+        const compareTitle = document.createElement('div');
+        compareTitle.className = 'error-compare-card__title';
+        compareTitle.textContent = '词语辨析';
+        compareCard.appendChild(compareTitle);
+
+        formData.compareGroups.forEach((group, index) => {
+          const groupEl = document.createElement('div');
+          groupEl.className = 'error-compare-group';
+          const groupHead = document.createElement('div');
+          groupHead.className = 'error-compare-group__head';
+          const groupLabel = document.createElement('span');
+          groupLabel.textContent = '第' + (index + 1) + '组';
+          groupHead.appendChild(groupLabel);
+          if (formData.compareGroups.length > 1) {
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'error-compare-group__remove';
+            removeBtn.textContent = '删除本组';
+            removeBtn.addEventListener('click', () => {
+              formData.compareGroups.splice(index, 1);
+              buildForm();
+            });
+            groupHead.appendChild(removeBtn);
+          }
+          groupEl.appendChild(groupHead);
+          groupEl.appendChild(App.Components.formInput(
+            '辨析词语', group.words || '', '如：不足 vs 疏漏',
+            (val) => { group.words = val; }, 'input'
+          ));
+          groupEl.appendChild(App.Components.formInput(
+            '辨析关系', group.relation || '', '记录两个词语在语义、搭配或使用场景上的区别',
+            (val) => { group.relation = val; }, 'textarea'
+          ));
+          compareCard.appendChild(groupEl);
+        });
+
+        const addGroupBtn = document.createElement('button');
+        addGroupBtn.type = 'button';
+        addGroupBtn.className = 'error-compare-card__add';
+        addGroupBtn.textContent = '+ 添加辨析组';
+        addGroupBtn.addEventListener('click', () => {
+          formData.compareGroups.push({ words: '', relation: '' });
+          buildForm();
+        });
+        compareCard.appendChild(addGroupBtn);
+        form.appendChild(compareCard);
       }
 
       // 图片（可选）：支持多张；点击插入，逐张删除
@@ -11988,9 +12054,11 @@ App.Pages.Errors = {
         note: formData.note || '',
         questionSource: formData.questionSource || '',
         status: formData.status || '未掌握', sourceExamId: formData.sourceExamId || null,
-        // v8.18.2 言语-逻辑填空：辨析对象 / 辨析关系
-        compareTarget: formData.compareTarget || '',
-        compareRelation: formData.compareRelation || ''
+        compareGroups: (formData.subject === '言语理解' && formData.module === '逻辑填空' && Array.isArray(formData.compareGroups))
+          ? formData.compareGroups
+            .map(g => ({ words: (g.words || '').trim(), relation: (g.relation || '').trim() }))
+            .filter(g => g.words || g.relation)
+          : []
       };
       if (isEdit && formData.id) {
         data.id = formData.id;

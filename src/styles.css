@@ -6853,6 +6853,85 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   padding: 9px 12px;
   line-height: 1.5;
 }
+.error-compare-card { padding-bottom: 12px; }
+.error-compare-card__title {
+  margin-bottom: 10px;
+  color: var(--text-primary);
+  font-size: var(--font-md);
+  font-weight: 700;
+}
+.error-compare-group {
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid var(--divider-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+}
+.error-compare-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 700;
+}
+.error-compare-group .form-group { margin-bottom: 8px !important; }
+.error-compare-group .form-group:last-child { margin-bottom: 0 !important; }
+.error-compare-group__remove, .error-compare-card__add {
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--font-sm);
+  -webkit-tap-highlight-color: transparent;
+}
+.error-compare-group__remove { color: var(--color-danger); padding: 3px 4px; }
+.error-compare-card__add {
+  width: 100%;
+  min-height: 34px;
+  border: 1px dashed var(--color-primary);
+  background: var(--color-primary-bg);
+  color: var(--color-primary-dark);
+  font-weight: 600;
+}
+.error-detail-compare {
+  margin: 0 0 var(--spacing-md);
+  padding: var(--spacing-md);
+  border: 1px solid var(--divider-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+}
+.error-detail-compare__title {
+  margin-bottom: 10px;
+  color: var(--text-primary);
+  font-size: var(--font-md);
+  font-weight: 700;
+}
+.error-detail-compare__group {
+  padding: 10px 0;
+  border-top: 1px solid var(--divider-color);
+}
+.error-detail-compare__group:first-of-type { padding-top: 0; border-top: none; }
+.error-detail-compare__group:last-child { padding-bottom: 0; }
+.error-detail-compare__index {
+  margin-bottom: 5px;
+  color: var(--text-tertiary);
+  font-size: var(--font-xs);
+  font-weight: 600;
+}
+.error-detail-compare__words {
+  margin-bottom: 5px;
+  color: var(--color-primary-dark);
+  font-size: var(--font-md);
+  font-weight: 700;
+}
+.error-detail-compare__relation {
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  line-height: 1.7;
+  white-space: pre-line;
+}
 /* 按钮：44 → 38px（含 AI 智能拆分按钮） */
 #page-error-form .btn {
   height: 38px;
