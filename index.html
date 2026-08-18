@@ -10077,7 +10077,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.18.2';
+App.VERSION = '8.18.3';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -10965,7 +10965,15 @@ App.DB = (function() {
 
       request.onsuccess = function(e) {
         db = e.target.result;
+        // iPad 同时保留旧页面/从后台恢复时，版本切换可能阻塞新连接；收到通知后主动释放旧连接。
+        db.onversionchange = function() { try { db.close(); } catch (err) {} };
         resolve(db);
+      };
+
+      // 原先未处理 blocked，iPad PWA 的旧 WebView 未释放数据库时 Promise 会一直悬挂，
+      // 初始化流程随之永远停在空白页。
+      request.onblocked = function() {
+        reject(new Error('数据库正在被旧页面占用，请关闭旧页面后重试'));
       };
 
       request.onerror = function(e) {
@@ -19349,13 +19357,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   }, { passive: true });
   window.addEventListener('orientationchange', () => setTimeout(_detectIpadSplitGlobal, 300), { passive: true });
 
-  // 初始化数据库
+  // 初始化数据库。iPad PWA 从后台返回时 IndexedDB 偶尔会无限等待；超时后继续渲染首页，
+  // 避免整个应用只剩静态导航。数据库稍后恢复时会自动刷新当前路由。
+  let dbInitTask = null;
+  let dbInitDelayed = false;
   try {
-    await App.DB.init();
+    dbInitTask = App.DB.init();
+    await Promise.race([
+      dbInitTask,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('数据库初始化超时')), 6000))
+    ]);
   } catch (e) {
+    dbInitDelayed = true;
     console.error('数据库初始化失败:', e);
     if (App.Components && App.Components.toast) {
-      App.Components.toast('数据库不可用，部分功能受限', 'error');
+      App.Components.toast('数据加载较慢，页面已恢复；请稍候或重新打开', 'error');
     }
   }
 
@@ -19383,6 +19399,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 初始化路由
   App.Router.init();
+
+  // 超时不代表数据库一定失败：若 iPad 随后释放了旧连接，重新渲染即可恢复完整数据。
+  if (dbInitDelayed && dbInitTask) {
+    dbInitTask.then(() => {
+      try { if (App.Router && App.Router.handleRoute) App.Router.handleRoute(); } catch (e) {}
+    }).catch(() => {});
+  }
 });
 // ===== 考公笔试复盘系统 - 复盘首页 =====
 window.App = window.App || {};
