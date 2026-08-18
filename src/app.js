@@ -11462,7 +11462,10 @@ App.Pages.Errors = {
       note: '',
       questionSource: '',
       status: '未掌握',
-      sourceExamId: params.examId || null
+      sourceExamId: params.examId || null,
+      // v8.18.2 言语-逻辑填空错题：辨析对象 / 辨析关系
+      compareTarget: '',
+      compareRelation: ''
     };
 
     // 如果是编辑，加载数据；如果是新建，尝试恢复「同一篇正在录入」的草稿
@@ -11491,6 +11494,8 @@ App.Pages.Errors = {
             questionSource: error.questionSource || '',
             status: error.status || '未掌握',
             sourceExamId: error.sourceExamId || null,
+            compareTarget: error.compareTarget || '',
+            compareRelation: error.compareRelation || '',
             id: error.id
           };
         }
@@ -11523,6 +11528,8 @@ App.Pages.Errors = {
                 questionSource: error.questionSource || '',
                 status: error.status || '未掌握',
                 sourceExamId: error.sourceExamId || null,
+                compareTarget: error.compareTarget || '',
+                compareRelation: error.compareRelation || '',
                 id: error.id
               };
               formData._formId = fid;
@@ -11701,6 +11708,31 @@ App.Pages.Errors = {
         'input'
       ));
       form.appendChild(efCard(kpEcChildren));
+
+      // v8.18.2 言语理解-逻辑填空专属：辨析对象 + 辨析关系（仅该科目+模块显示）
+      if (formData.subject === '言语理解' && formData.module === '逻辑填空') {
+        const cmpChildren = [];
+        cmpChildren.push(App.Components.formInput(
+          '辨析对象',
+          formData.compareTarget,
+          '如：浮光掠影 / 走马观花',
+          (val) => { formData.compareTarget = val; },
+          'input'
+        ));
+        cmpChildren.push(efSelectBar('辨析关系', formData.compareRelation, '选择或输入辨析关系', () => {
+          App.Components.pickerModal({
+            title: '选择辨析关系',
+            mode: 'chips',
+            options: ['近义辨析', '反义辨析', '语义轻重', '搭配对象', '感情色彩', '词义侧重', '语体色彩', '适用范围'],
+            selected: formData.compareRelation ? [formData.compareRelation] : [],
+            max: 1,
+            allowCustom: true,
+            placeholder: '选择或输入辨析关系',
+            onDone: (sel) => { formData.compareRelation = (sel && sel.length) ? sel[0] : ''; buildForm(); }
+          });
+        }));
+        form.appendChild(efCard(cmpChildren));
+      }
 
       // 图片（可选）：支持多张；点击插入，逐张删除
       const imgGroup = document.createElement('div');
@@ -11956,6 +11988,9 @@ App.Pages.Errors = {
         note: formData.note || '',
         questionSource: formData.questionSource || '',
         status: formData.status || '未掌握', sourceExamId: formData.sourceExamId || null,
+        // v8.18.2 言语-逻辑填空：辨析对象 / 辨析关系
+        compareTarget: formData.compareTarget || '',
+        compareRelation: formData.compareRelation || ''
       };
       if (isEdit && formData.id) {
         data.id = formData.id;
@@ -16254,6 +16289,7 @@ App.Pages.WordDB = {
 
   _renderTable(tableArea) {
     tableArea.innerHTML = '';
+    tableArea.classList.toggle('worddb-table-area--compare', this.state.category === 'word-compare');
 
     if (this.state.words.length === 0) {
       this._renderEmpty(tableArea);
@@ -16283,7 +16319,16 @@ App.Pages.WordDB = {
   },
 
   _getColumns() {
+    if (this.state.category === 'word-compare') {
+      return ['名称', '词语A', '词语B', '辨析摘要', '更新时间', '操作'];
+    }
     return ['名称', '属性', '更新时间', '操作'];
+  },
+
+  _getLinkedWordName(wordId) {
+    if (!wordId) return '待关联';
+    const linked = (this.state.definitionWords || []).find(w => w.id === wordId);
+    return linked ? linked.name : '词语已删除';
   },
 
   _renderRow(word, idx) {
@@ -16296,7 +16341,8 @@ App.Pages.WordDB = {
 
     // 行主区域（始终可见）
     const main = document.createElement('div');
-    main.className = 'worddb-row__main';
+    const isWordCompare = this.state.category === 'word-compare';
+    main.className = 'worddb-row__main' + (isWordCompare ? ' worddb-row__main--compare' : '');
 
     // 名称列
     const nameCell = document.createElement('div');
@@ -16304,30 +16350,43 @@ App.Pages.WordDB = {
     nameCell.textContent = word.name;
     main.appendChild(nameCell);
 
+    if (isWordCompare) {
+      const createLinkedWordCell = (wordId, side) => {
+        const cell = document.createElement('div');
+        cell.className = 'worddb-cell worddb-cell--linked worddb-cell--linked-' + side;
+        const label = this._getLinkedWordName(wordId);
+        cell.textContent = label;
+        if (!wordId) cell.classList.add('is-pending');
+        if (wordId && label === '词语已删除') cell.classList.add('is-missing');
+        return cell;
+      };
+      main.appendChild(createLinkedWordCell(word.wordAId, 'a'));
+      main.appendChild(createLinkedWordCell(word.wordBId, 'b'));
+
+      const summaryCell = document.createElement('div');
+      summaryCell.className = 'worddb-cell worddb-cell--summary';
+      summaryCell.textContent = word.compareNote || word.meaning || '—';
+      main.appendChild(summaryCell);
+    }
+
     // 属性列（感情色彩 / 词性 / 成员数）
-    const propCell = document.createElement('div');
-    propCell.className = 'worddb-cell worddb-cell--prop';
-    if (word.sentiment) {
-      const tag = document.createElement('span');
-      tag.className = 'worddb-sentiment worddb-sentiment--' + (word.sentiment === '褒义' ? 'pos' : word.sentiment === '贬义' ? 'neg' : 'neu');
-      tag.textContent = word.sentiment;
-      propCell.appendChild(tag);
+    if (!isWordCompare) {
+      const propCell = document.createElement('div');
+      propCell.className = 'worddb-cell worddb-cell--prop';
+      if (word.sentiment) {
+        const tag = document.createElement('span');
+        tag.className = 'worddb-sentiment worddb-sentiment--' + (word.sentiment === '褒义' ? 'pos' : word.sentiment === '贬义' ? 'neg' : 'neu');
+        tag.textContent = word.sentiment;
+        propCell.appendChild(tag);
+      }
+      if (word.pos) {
+        const posTag = document.createElement('span');
+        posTag.className = 'worddb-pos-tag';
+        posTag.textContent = word.pos;
+        propCell.appendChild(posTag);
+      }
+      main.appendChild(propCell);
     }
-    if (word.pos) {
-      const posTag = document.createElement('span');
-      posTag.className = 'worddb-pos-tag';
-      posTag.textContent = word.pos;
-      propCell.appendChild(posTag);
-    }
-    if (this.state.category.includes('compare')) {
-      const count = (word.members && word.members.length) ||
-        (word.name ? word.name.split(/\s*(?:vs|对比|、)\s*/).length : 1);
-      const mTag = document.createElement('span');
-      mTag.className = 'worddb-mcount-tag';
-      mTag.textContent = count + ' 个成员';
-      propCell.appendChild(mTag);
-    }
-    main.appendChild(propCell);
 
     // 时间列
     const timeCell = document.createElement('div');
@@ -16388,6 +16447,49 @@ App.Pages.WordDB = {
       detail.appendChild(meaning);
     }
 
+    if (word.category === 'word-def' && word.myUnderstanding) {
+      const understanding = document.createElement('div');
+      understanding.className = 'worddb-detail-section';
+      understanding.innerHTML = '<strong>我的理解</strong><div class="worddb-detail-text">' + this._escapeHtml(word.myUnderstanding).replace(/\n/g, '<br>') + '</div>';
+      detail.appendChild(understanding);
+    }
+
+    if (word.category === 'word-def' && word.collocations) {
+      const collocations = document.createElement('div');
+      collocations.className = 'worddb-detail-section';
+      collocations.innerHTML = '<strong>常见搭配</strong><div class="worddb-detail-text">' + this._escapeHtml(word.collocations).replace(/\n/g, '<br>') + '</div>';
+      detail.appendChild(collocations);
+    }
+
+    if (word.category === 'word-def' && word.source) {
+      const source = document.createElement('div');
+      source.className = 'worddb-detail-section';
+      source.innerHTML = '<strong>来源</strong><div class="worddb-detail-text">' + this._escapeHtml(word.source).replace(/\n/g, '<br>') + '</div>';
+      detail.appendChild(source);
+    }
+
+    if (word.category === 'word-compare') {
+      const linkedWords = document.createElement('div');
+      linkedWords.className = 'worddb-detail-section';
+      linkedWords.innerHTML = '<strong>基础信息</strong>';
+      const pair = document.createElement('div');
+      pair.className = 'worddb-linked-pair';
+      const addWordChip = (label, type) => {
+        const chip = document.createElement('span');
+        chip.className = 'worddb-linked-chip worddb-linked-chip--' + type + (label === '待关联' ? ' is-pending' : '');
+        chip.textContent = label;
+        pair.appendChild(chip);
+      };
+      addWordChip(this._getLinkedWordName(word.wordAId), 'a');
+      const vs = document.createElement('span');
+      vs.className = 'worddb-linked-vs';
+      vs.textContent = 'vs';
+      pair.appendChild(vs);
+      addWordChip(this._getLinkedWordName(word.wordBId), 'b');
+      linkedWords.appendChild(pair);
+      detail.appendChild(linkedWords);
+    }
+
     // 例句
     if (word.example) {
       const ex = document.createElement('div');
@@ -16400,7 +16502,7 @@ App.Pages.WordDB = {
     if (word.compareNote) {
       const cmp = document.createElement('div');
       cmp.className = 'worddb-detail-section';
-      cmp.innerHTML = '<strong>辨析要点</strong><div class="worddb-detail-text">' + this._escapeHtml(word.compareNote).replace(/\n/g, '<br>') + '</div>';
+      cmp.innerHTML = '<strong>' + (word.category === 'word-compare' ? '我的辨析' : '辨析要点') + '</strong><div class="worddb-detail-text">' + this._escapeHtml(word.compareNote).replace(/\n/g, '<br>') + '</div>';
       detail.appendChild(cmp);
     }
 
@@ -16497,6 +16599,11 @@ App.Pages.WordDB = {
       tags: [],
       groupId: null,
       compareNote: '',
+      myUnderstanding: '',
+      collocations: '',
+      source: '',
+      wordAId: null,
+      wordBId: null,
       antonyms: [],
       synonyms: [],
       relatedErrorIds: []
@@ -16524,11 +16631,30 @@ App.Pages.WordDB = {
     const form = document.createElement('div');
     form.className = 'worddb-form';
 
+    const isWordDefinition = this.state.category === 'word-def';
+    const isWordCompare = this.state.category === 'word-compare';
+    let linkedFields = null;
+
+    if (isWordCompare) {
+      linkedFields = document.createElement('div');
+      linkedFields.className = 'worddb-linked-form-fields';
+      linkedFields.innerHTML = `
+        <div class="worddb-form-group">
+          <label class="worddb-form-label">词语A *</label>
+          <button type="button" class="worddb-form-picker worddb-word-picker" id="wf-word-a">${this._escapeHtml(this._getLinkedWordName(word.wordAId))}</button>
+        </div>
+        <div class="worddb-form-group">
+          <label class="worddb-form-label">词语B *</label>
+          <button type="button" class="worddb-form-picker worddb-word-picker" id="wf-word-b">${this._escapeHtml(this._getLinkedWordName(word.wordBId))}</button>
+        </div>
+      `;
+    }
+
     // 词语名称
     form.innerHTML = `
       <div class="worddb-form-group">
         <label class="worddb-form-label">名称 *</label>
-        <input type="text" class="worddb-form-input" id="wf-name" value="${this._escapeHtml(word.name)}" placeholder="输入${this.CATEGORY_TITLES[this.state.category] || '词语'}名称">
+        <input type="text" class="worddb-form-input" id="wf-name" value="${this._escapeHtml(word.name)}" placeholder="输入${this.CATEGORY_TITLES[this.state.category] || '词语'}名称"${isWordCompare ? ' readonly' : ''}>
       </div>
       <div class="worddb-form-group">
         <label class="worddb-form-label">拼音</label>
@@ -16547,6 +16673,49 @@ App.Pages.WordDB = {
         <div id="wf-sentiment-btn" class="worddb-form-picker">${word.sentiment || '+ 选择感情色彩'}</div>
       </div>
     `;
+
+    if (isWordCompare) {
+      const nameGroup = form.firstElementChild;
+      form.insertBefore(linkedFields, nameGroup);
+      const syncLinkedWords = () => {
+        const aName = this._getLinkedWordName(word.wordAId);
+        const bName = this._getLinkedWordName(word.wordBId);
+        form.querySelector('#wf-word-a').textContent = aName;
+        form.querySelector('#wf-word-b').textContent = bName;
+        form.querySelector('#wf-name').value = (word.wordAId && word.wordBId) ? aName + ' vs ' + bName : (word.name || '');
+      };
+      form.querySelector('#wf-word-a').addEventListener('click', async () => {
+        const selected = await this._pickWordEntity('选择词语A', word.wordBId);
+        if (!selected) return;
+        word.wordAId = selected.id;
+        syncLinkedWords();
+      });
+      form.querySelector('#wf-word-b').addEventListener('click', async () => {
+        const selected = await this._pickWordEntity('选择词语B', word.wordAId);
+        if (!selected) return;
+        word.wordBId = selected.id;
+        syncLinkedWords();
+      });
+    }
+
+    if (isWordDefinition) {
+      const personalFields = document.createElement('div');
+      personalFields.innerHTML = `
+        <div class="worddb-form-group">
+          <label class="worddb-form-label">我的理解</label>
+          <textarea class="worddb-form-textarea" id="wf-understanding" placeholder="记录自己的理解...">${this._escapeHtml(word.myUnderstanding || '')}</textarea>
+        </div>
+        <div class="worddb-form-group">
+          <label class="worddb-form-label">常见搭配</label>
+          <textarea class="worddb-form-textarea" id="wf-collocations" placeholder="如：经验不足、准备不足...">${this._escapeHtml(word.collocations || '')}</textarea>
+        </div>
+        <div class="worddb-form-group">
+          <label class="worddb-form-label">来源</label>
+          <input type="text" class="worddb-form-input" id="wf-source" value="${this._escapeHtml(word.source || '')}" placeholder="如：手动整理">
+        </div>
+      `;
+      form.appendChild(personalFields);
+    }
 
     // 辨析类额外字段
     if (this.state.category.includes('compare')) {
@@ -16603,6 +16772,22 @@ App.Pages.WordDB = {
       word.meaning = form.querySelector('#wf-meaning').value.trim();
       word.example = form.querySelector('#wf-example').value.trim();
       word.sentiment = selectedSentiment;
+      if (isWordDefinition) {
+        word.myUnderstanding = form.querySelector('#wf-understanding').value.trim();
+        word.collocations = form.querySelector('#wf-collocations').value.trim();
+        word.source = form.querySelector('#wf-source').value.trim();
+      }
+      if (isWordCompare) {
+        word.name = form.querySelector('#wf-name').value.trim();
+        if ((!word.wordAId || !word.wordBId) && !isEdit) {
+          App.Components.toast('请选择词语A和词语B', 'error');
+          return;
+        }
+        if ((word.wordAId && !word.wordBId) || (!word.wordAId && word.wordBId)) {
+          App.Components.toast('请完整选择词语A和词语B', 'error');
+          return;
+        }
+      }
 
       const cmpEl = form.querySelector('#wf-compare');
       if (cmpEl) word.compareNote = cmpEl.value.trim();
@@ -16640,6 +16825,65 @@ App.Pages.WordDB = {
     });
 
     document.getElementById('modal-container').appendChild(overlay);
+  },
+
+  async _pickWordEntity(title, excludedId) {
+    const candidates = await App.DB.getWords({
+      category: 'word-def',
+      subject: this.state.subject,
+      module: this.state.module
+    });
+    const available = candidates.filter(w => w.id !== excludedId);
+    if (!available.length) {
+      App.Components.toast('请先在「实词释义」中新增可选词语', 'info');
+      return null;
+    }
+
+    return new Promise(resolve => {
+      const overlay = document.createElement('div');
+      overlay.className = 'cp-overlay';
+      const card = document.createElement('div');
+      card.className = 'cp-card worddb-word-selector';
+      card.innerHTML = '<div class="cp-header"><span class="cp-title">' + this._escapeHtml(title) + '</span></div>';
+      const close = document.createElement('button');
+      close.className = 'cp-close';
+      close.textContent = '✕';
+      const finish = (value) => { overlay.remove(); resolve(value || null); };
+      close.addEventListener('click', () => finish(null));
+      card.querySelector('.cp-header').appendChild(close);
+
+      const search = document.createElement('input');
+      search.type = 'search';
+      search.className = 'worddb-form-input worddb-word-selector__search';
+      search.placeholder = '搜索已有实词…';
+      card.appendChild(search);
+      const list = document.createElement('div');
+      list.className = 'worddb-word-selector__list';
+      const renderList = () => {
+        const query = search.value.trim().toLowerCase();
+        const filtered = available.filter(w => !query || (w.name || '').toLowerCase().includes(query) || (w.pinyin || '').toLowerCase().includes(query) || (w.meaning || '').toLowerCase().includes(query));
+        list.innerHTML = '';
+        if (!filtered.length) {
+          list.innerHTML = '<div class="worddb-word-selector__empty">未找到匹配的实词</div>';
+          return;
+        }
+        filtered.forEach(item => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'worddb-word-selector__item';
+          button.innerHTML = '<strong>' + this._escapeHtml(item.name) + '</strong>' + (item.pinyin ? '<span>' + this._escapeHtml(item.pinyin) + '</span>' : '') + (item.meaning ? '<small>' + this._escapeHtml(item.meaning) + '</small>' : '');
+          button.addEventListener('click', () => finish(item));
+          list.appendChild(button);
+        });
+      };
+      search.addEventListener('input', renderList);
+      renderList();
+      card.appendChild(list);
+      overlay.appendChild(card);
+      overlay.addEventListener('click', e => { if (e.target === overlay) finish(null); });
+      document.getElementById('modal-container').appendChild(overlay);
+      setTimeout(() => search.focus(), 0);
+    });
   },
 
   // ===== 关联错题 =====
@@ -16755,6 +16999,13 @@ App.Pages.WordDB = {
       search: this.state.searchQuery,
       sentiment: this.state.sentiment || null
     });
+    if (this.state.category === 'word-compare') {
+      this.state.definitionWords = await App.DB.getWords({
+        category: 'word-def', subject: this.state.subject, module: this.state.module
+      });
+    } else {
+      this.state.definitionWords = [];
+    }
   },
 
   async _refreshTable() {
