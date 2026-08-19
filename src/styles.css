@@ -6141,6 +6141,47 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   transition: background 0.12s;
 }
 .worddb-add-btn:active { background: var(--color-primary-dark); }
+.worddb-toolbar--compare { position: relative; }
+.worddb-compare-search-toggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+}
+.worddb-compare-search-toggle:active { background: var(--bg-tertiary); }
+.worddb-compare-search-panel {
+  position: absolute;
+  z-index: 5;
+  left: var(--page-padding);
+  right: calc(var(--page-padding) + 48px);
+  top: calc(100% + 6px);
+  display: none;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-md);
+}
+.worddb-compare-search-panel.is-open { display: flex; }
+.worddb-compare-search-panel .worddb-search-input { width: 100%; }
+.worddb-add-btn--icon {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  font-size: 22px;
+  line-height: 1;
+}
 
 /* ===== 表格区域 ===== */
 .worddb-table-area {
@@ -6157,7 +6198,11 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   z-index: 2;
 }
 .worddb-table-area--compare .worddb-thead {
-  grid-template-columns: minmax(110px, 1.1fr) minmax(76px, .75fr) minmax(76px, .75fr) minmax(160px, 2fr) 88px 56px;
+  grid-template-columns: minmax(0, 25fr) minmax(0, 55fr) minmax(72px, 20fr);
+  column-gap: 16px;
+  min-height: 32px;
+  padding-left: 16px;
+  padding-right: 16px;
 }
 .worddb-th {
   font-size: var(--font-xs);
@@ -6182,7 +6227,11 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   transition: background 0.12s;
 }
 .worddb-row__main--compare {
-  grid-template-columns: minmax(110px, 1.1fr) minmax(76px, .75fr) minmax(76px, .75fr) minmax(160px, 2fr) 88px 56px;
+  grid-template-columns: minmax(0, 25fr) minmax(0, 55fr) minmax(72px, 20fr);
+  column-gap: 16px;
+  min-height: 48px;
+  height: 48px;
+  padding: 0 16px;
 }
 .worddb-row__main:active { background: var(--bg-tertiary); }
 
@@ -6352,6 +6401,64 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   gap: var(--spacing-sm);
   margin-top: var(--spacing-sm);
 }
+.worddb-compare-detail__head {
+  min-height: 24px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+.worddb-compare-menu {
+  width: 32px;
+  height: 28px;
+  color: var(--text-secondary);
+  font-size: 18px;
+  letter-spacing: 2px;
+  line-height: 1;
+}
+.worddb-compare-menu:active { color: var(--color-primary); }
+.worddb-compare-terms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 24px;
+  row-gap: 12px;
+}
+.worddb-compare-term {
+  min-width: 0;
+  padding: 4px 0 12px;
+  border-bottom: 1px solid var(--divider-color);
+}
+.worddb-compare-term__name {
+  margin-bottom: 6px;
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.worddb-compare-term__meaning {
+  min-height: 1.6em;
+  font-size: var(--font-md);
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+.worddb-compare-core { margin-top: var(--spacing-md); }
+.worddb-inline-editable { cursor: text; border-radius: var(--radius-sm); }
+.worddb-inline-editable:active,
+.worddb-inline-editable:hover { background: var(--bg-primary); }
+.worddb-inline-editable.is-editing { background: var(--bg-primary); }
+.worddb-inline-editor {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+}
+.worddb-inline-editor:focus { box-shadow: 0 0 0 2px var(--color-primary-bg); }
 .worddb-edit-btn, .worddb-del-btn {
   flex: 1;
   border: 1px solid var(--border-color);
@@ -6448,10 +6555,42 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .worddb-word-selector__item small { font-size: var(--font-xs); line-height: 1.45; }
 .worddb-word-selector__item:active { background: var(--color-primary-bg); }
 .worddb-word-selector__empty { padding: 28px 0; text-align: center; color: var(--text-tertiary); font-size: var(--font-sm); }
+.worddb-compare-form { max-width: 560px; }
+.worddb-compare-terms-editor { display: flex; flex-direction: column; gap: var(--spacing-md); }
+.worddb-compare-term-editor {
+  padding-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--divider-color);
+}
+.worddb-compare-term-editor__head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-height: 26px;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.worddb-compare-term-editor .worddb-form-textarea { margin-top: var(--spacing-sm); }
+.worddb-term-link-btn,
+.worddb-term-remove-action,
+.worddb-add-term-btn {
+  color: var(--color-primary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+}
+.worddb-term-link-btn { margin-left: auto; }
+.worddb-term-link-btn:active,
+.worddb-term-remove-action:active,
+.worddb-add-term-btn:active { color: var(--color-primary-dark); }
+.worddb-term-remove-action { color: var(--color-danger); margin-left: auto; }
+.worddb-add-term-btn { display: block; margin: var(--spacing-md) 0; }
 @media (max-width: 700px) {
   .worddb-linked-form-fields { grid-template-columns: 1fr; gap: 0; }
   .worddb-table-area--compare { overflow-x: auto; }
   .worddb-table-area--compare .worddb-thead, .worddb-row__main--compare { min-width: 680px; }
+  .worddb-compare-terms { grid-template-columns: 1fr; }
 }
 .cp-card--form .cp-cancel-row { gap: var(--spacing-sm); }
 .cp-card--form .cp-cancel-btn {

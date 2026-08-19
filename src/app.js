@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.18.5';
+App.VERSION = '8.19.0';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -16238,6 +16238,7 @@ App.Pages.WordDB = {
     sentiment: '',
     sortBy: 'name',
     expandedRowId: null,
+    compareSearchOpen: false,
     subject: '言语理解',
     module: '逻辑填空'
   },
@@ -16269,13 +16270,19 @@ App.Pages.WordDB = {
     this.state.module = params.module || '逻辑填空';
     this.state.expandedRowId = null;
     this.state.searchQuery = '';
+    this.state.compareSearchOpen = false;
 
-    // 返回栏 + 标题
-    container.appendChild(App.Components.pageHeader(
+    // 返回栏 + 标题；实词组辨析的新增入口放在工具栏右侧，顶栏不再重复显示导入。
+    const pageHeader = App.Components.pageHeader(
       this._getCategoryTitle(),
-      '导入',
+      this.state.category === 'word-compare' ? '' : '导入',
       () => { this._importSampleData(); }
-    ));
+    );
+    if (this.state.category === 'word-compare') {
+      const titleEl = pageHeader.querySelector('.page-header__title');
+      if (titleEl) titleEl.style.fontSize = 'var(--font-xxl)';
+    }
+    container.appendChild(pageHeader);
 
     // 分类子 Tab（4 个分类切换）
     const catBar = document.createElement('div');
@@ -16318,6 +16325,50 @@ App.Pages.WordDB = {
   // ===== 工具栏 =====
   _renderToolbar(container) {
     container.innerHTML = '';
+
+    // 实词组辨析使用可展开搜索，避免搜索框长期占据列表顶部空间。
+    if (this.state.category === 'word-compare') {
+      container.classList.add('worddb-toolbar--compare');
+
+      const searchToggle = document.createElement('button');
+      searchToggle.type = 'button';
+      searchToggle.className = 'worddb-compare-search-toggle';
+      searchToggle.setAttribute('aria-expanded', String(this.state.compareSearchOpen));
+      searchToggle.innerHTML = '<span aria-hidden="true">⌕</span><span>搜索</span>';
+
+      const searchPanel = document.createElement('div');
+      searchPanel.className = 'worddb-compare-search-panel' + (this.state.compareSearchOpen ? ' is-open' : '');
+      searchPanel.innerHTML = '<span class="worddb-search-icon" aria-hidden="true">⌕</span><input type="search" class="worddb-search-input" placeholder="搜索词语、解释或核心区别...">';
+      const searchInput = searchPanel.querySelector('.worddb-search-input');
+      searchInput.value = this.state.searchQuery;
+      let searchTimer = null;
+      searchInput.addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+          this.state.searchQuery = searchInput.value;
+          this._refreshTable();
+        }, 180);
+      });
+      searchToggle.addEventListener('click', () => {
+        this.state.compareSearchOpen = !this.state.compareSearchOpen;
+        searchPanel.classList.toggle('is-open', this.state.compareSearchOpen);
+        searchToggle.setAttribute('aria-expanded', String(this.state.compareSearchOpen));
+        if (this.state.compareSearchOpen) setTimeout(() => searchInput.focus(), 0);
+      });
+
+      const addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'worddb-add-btn worddb-add-btn--icon';
+      addBtn.textContent = '+';
+      addBtn.title = '新增实词辨析';
+      addBtn.setAttribute('aria-label', '新增实词辨析');
+      addBtn.addEventListener('click', () => { this._showWordForm(null); });
+
+      container.appendChild(searchToggle);
+      container.appendChild(searchPanel);
+      container.appendChild(addBtn);
+      return;
+    }
 
     // 左侧：筛选下拉（感情色彩）
     const filterBtn = document.createElement('button');
@@ -16404,7 +16455,7 @@ App.Pages.WordDB = {
 
   _getColumns() {
     if (this.state.category === 'word-compare') {
-      return ['名称', '词语A', '词语B', '辨析摘要', '更新时间', '操作'];
+      return ['词语组', '核心区别', '更新时间'];
     }
     return ['名称', '属性', '更新时间', '操作'];
   },
@@ -16431,22 +16482,10 @@ App.Pages.WordDB = {
     // 名称列
     const nameCell = document.createElement('div');
     nameCell.className = 'worddb-cell worddb-cell--name';
-    nameCell.textContent = word.name;
+    nameCell.textContent = isWordCompare ? this._getCompareGroupName(word) : word.name;
     main.appendChild(nameCell);
 
     if (isWordCompare) {
-      const createLinkedWordCell = (wordId, side) => {
-        const cell = document.createElement('div');
-        cell.className = 'worddb-cell worddb-cell--linked worddb-cell--linked-' + side;
-        const label = this._getLinkedWordName(wordId);
-        cell.textContent = label;
-        if (!wordId) cell.classList.add('is-pending');
-        if (wordId && label === '词语已删除') cell.classList.add('is-missing');
-        return cell;
-      };
-      main.appendChild(createLinkedWordCell(word.wordAId, 'a'));
-      main.appendChild(createLinkedWordCell(word.wordBId, 'b'));
-
       const summaryCell = document.createElement('div');
       summaryCell.className = 'worddb-cell worddb-cell--summary';
       summaryCell.textContent = word.compareNote || word.meaning || '—';
@@ -16478,19 +16517,21 @@ App.Pages.WordDB = {
     timeCell.textContent = (word.updatedAt || word.createdAt || '').slice(0, 10);
     main.appendChild(timeCell);
 
-    // 操作列
-    const actionCell = document.createElement('div');
-    actionCell.className = 'worddb-cell worddb-cell--action';
-    const openBtn = document.createElement('button');
-    openBtn.className = 'worddb-open-btn';
-    openBtn.textContent = isExpanded ? '收起' : '展开';
-    openBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.state.expandedRowId = isExpanded ? null : word.id;
-      this._refreshTable();
-    });
-    actionCell.appendChild(openBtn);
-    main.appendChild(actionCell);
+    // 其他分类保留原有“展开”操作列；实词组辨析整行点击展开。
+    if (!isWordCompare) {
+      const actionCell = document.createElement('div');
+      actionCell.className = 'worddb-cell worddb-cell--action';
+      const openBtn = document.createElement('button');
+      openBtn.className = 'worddb-open-btn';
+      openBtn.textContent = isExpanded ? '收起' : '展开';
+      openBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.state.expandedRowId = isExpanded ? null : word.id;
+        this._refreshTable();
+      });
+      actionCell.appendChild(openBtn);
+      main.appendChild(actionCell);
+    }
 
     row.appendChild(main);
 
@@ -16510,8 +16551,192 @@ App.Pages.WordDB = {
     return row;
   },
 
+  // ===== 实词组辨析专用数据与详情 =====
+  _getCompareTerms(word) {
+    if (word && Array.isArray(word.compareWords) && word.compareWords.length) {
+      return word.compareWords.map(term => ({
+        name: String(term && term.name || ''),
+        meaning: String(term && term.meaning || ''),
+        wordId: term && (term.wordId || term.id) || null
+      }));
+    }
+
+    const terms = [];
+    ['wordAId', 'wordBId'].forEach(key => {
+      const id = word && word[key];
+      const linked = (this.state.definitionWords || []).find(item => item.id === id);
+      if (linked) terms.push({ name: linked.name || '', meaning: linked.meaning || '', wordId: id });
+    });
+    if (!terms.length) {
+      terms.push({ name: String(word && word.name || ''), meaning: String(word && word.meaning || ''), wordId: null });
+    }
+    return terms;
+  },
+
+  _getCompareGroupName(word) {
+    const names = this._getCompareTerms(word).map(term => term.name.trim()).filter(Boolean);
+    return names.length > 1 ? names.join(' vs ') : (word && word.name) || names[0] || '未命名实词辨析';
+  },
+
+  _syncCompareWordFields(word) {
+    const terms = this._getCompareTerms(word);
+    word.compareWords = terms;
+    const names = terms.map(term => term.name.trim()).filter(Boolean);
+    if (names.length) word.name = names.join(' vs ');
+    const detailText = terms
+      .filter(term => term.name.trim() || term.meaning.trim())
+      .map(term => term.name.trim() ? term.name.trim() + '：' + term.meaning.trim() : term.meaning.trim())
+      .join('\n');
+    // 旧记录只有一个未拆分的名称时，保留原 meaning，避免无意改写历史内容。
+    if (detailText && !(terms.length === 1 && word.name === terms[0].name && word.meaning)) {
+      word.meaning = detailText;
+    }
+    word.wordAId = terms[0] && terms[0].wordId || null;
+    word.wordBId = terms[1] && terms[1].wordId || null;
+    return word;
+  },
+
+  _renderCompareDetail(word) {
+    const detail = document.createElement('div');
+    detail.className = 'worddb-detail worddb-compare-detail';
+
+    const head = document.createElement('div');
+    head.className = 'worddb-compare-detail__head';
+    const menuBtn = document.createElement('button');
+    menuBtn.type = 'button';
+    menuBtn.className = 'worddb-compare-menu';
+    menuBtn.textContent = '···';
+    menuBtn.title = '更多操作';
+    menuBtn.setAttribute('aria-label', '更多操作');
+    menuBtn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const action = await App.Components.actionSheet([
+        { label: '🗑 删除辨析', value: 'delete' }
+      ], this._getCompareGroupName(word));
+      if (action !== 'delete') return;
+      if (!confirm('确定删除「' + this._getCompareGroupName(word) + '」吗？')) return;
+      await App.DB.deleteWord(word.id);
+      this.state.expandedRowId = null;
+      await this._loadAndRender(document.getElementById('worddb-table-area'));
+      App.Components.toast('已删除', 'success');
+    });
+    head.appendChild(menuBtn);
+    detail.appendChild(head);
+
+    const termsSection = document.createElement('div');
+    termsSection.className = 'worddb-detail-section';
+    termsSection.innerHTML = '<strong>词语解释</strong>';
+    const termsWrap = document.createElement('div');
+    termsWrap.className = 'worddb-compare-terms';
+    this._getCompareTerms(word).forEach((term, index) => {
+      const termBlock = document.createElement('div');
+      termBlock.className = 'worddb-compare-term';
+
+      const name = document.createElement('div');
+      name.className = 'worddb-compare-term__name worddb-inline-editable';
+      name.textContent = term.name || '点击添加词语';
+      name.title = '点击编辑词语';
+      name.addEventListener('click', event => {
+        event.stopPropagation();
+        this._startCompareInlineEdit(name, word, index, 'name');
+      });
+
+      const meaning = document.createElement('div');
+      meaning.className = 'worddb-compare-term__meaning worddb-inline-editable';
+      meaning.textContent = term.meaning || '点击添加解释';
+      meaning.title = '点击编辑解释';
+      meaning.addEventListener('click', event => {
+        event.stopPropagation();
+        this._startCompareInlineEdit(meaning, word, index, 'meaning', true);
+      });
+
+      termBlock.appendChild(name);
+      termBlock.appendChild(meaning);
+      termsWrap.appendChild(termBlock);
+    });
+    termsSection.appendChild(termsWrap);
+    detail.appendChild(termsSection);
+
+    const coreSection = document.createElement('div');
+    coreSection.className = 'worddb-detail-section worddb-compare-core';
+    coreSection.innerHTML = '<strong>核心区别</strong>';
+    const core = document.createElement('div');
+    core.className = 'worddb-detail-text worddb-inline-editable';
+    core.textContent = word.compareNote || '点击添加核心区别';
+    core.title = '点击编辑核心区别';
+    core.addEventListener('click', event => {
+      event.stopPropagation();
+      this._startCompareInlineEdit(core, word, null, 'compareNote', true);
+    });
+    coreSection.appendChild(core);
+    detail.appendChild(coreSection);
+
+    if (word.example) {
+      const example = document.createElement('div');
+      example.className = 'worddb-detail-section';
+      example.innerHTML = '<strong>例句</strong><div class="worddb-detail-example">' + this._escapeHtml(word.example) + '</div>';
+      detail.appendChild(example);
+    }
+    return detail;
+  },
+
+  _startCompareInlineEdit(target, word, termIndex, field, multiline) {
+    if (target.dataset.editing === 'true') return;
+    target.dataset.editing = 'true';
+    target.classList.add('is-editing');
+    const terms = this._getCompareTerms(word);
+    const initial = field === 'compareNote'
+      ? String(word.compareNote || '')
+      : String(terms[termIndex] && terms[termIndex][field] || '');
+    const editor = document.createElement(multiline ? 'textarea' : 'input');
+    editor.className = 'worddb-inline-editor';
+    editor.value = initial;
+    editor.placeholder = field === 'name' ? '输入词语名称' : field === 'meaning' ? '输入该词的独立解释' : '输入核心区别';
+    if (multiline) editor.rows = field === 'compareNote' ? 3 : 2;
+    target.textContent = '';
+    target.appendChild(editor);
+    editor.addEventListener('click', event => event.stopPropagation());
+    let saved = false;
+    const save = async () => {
+      if (saved) return;
+      saved = true;
+      const value = editor.value.trim();
+      if (field === 'compareNote') {
+        word.compareNote = value;
+      } else {
+        if (!terms[termIndex]) terms[termIndex] = { name: '', meaning: '', wordId: null };
+        terms[termIndex][field] = value;
+        word.compareWords = terms;
+        this._syncCompareWordFields(word);
+      }
+      try {
+        await App.DB.updateWord(word);
+        App.Components.toast('已保存', 'success');
+        this._refreshTable();
+      } catch (error) {
+        console.error(error);
+        App.Components.toast('保存失败，请重试', 'error');
+        target.dataset.editing = 'false';
+      }
+    };
+    editor.addEventListener('blur', save);
+    editor.addEventListener('keydown', event => {
+      if (!multiline && event.key === 'Enter') {
+        event.preventDefault();
+        editor.blur();
+      }
+      if (multiline && event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        editor.blur();
+      }
+    });
+    editor.focus();
+    editor.select();
+  },
+
   // ===== 展开详情 =====
   _renderDetail(word) {
+    if (word.category === 'word-compare') return this._renderCompareDetail(word);
     const detail = document.createElement('div');
     detail.className = 'worddb-detail';
 
@@ -16668,8 +16893,225 @@ App.Pages.WordDB = {
     });
   },
 
+  // ===== 实词组辨析新增/编辑 =====
+  async _showCompareForm(existingWord) {
+    const isEdit = !!existingWord;
+    const word = existingWord ? Object.assign({}, existingWord) : {
+      category: 'word-compare',
+      module: this.state.module,
+      subject: this.state.subject,
+      name: '',
+      meaning: '',
+      example: '',
+      compareNote: '',
+      compareWords: [
+        { name: '', meaning: '', wordId: null },
+        { name: '', meaning: '', wordId: null }
+      ],
+      relatedErrorIds: []
+    };
+    const legacyCompare = isEdit && !Array.isArray(existingWord.compareWords);
+    word.compareWords = this._getCompareTerms(word).map(term => ({
+      name: term.name,
+      meaning: term.meaning,
+      wordId: term.wordId || null
+    }));
+
+    const overlay = document.createElement('div');
+    overlay.className = 'cp-overlay';
+    const card = document.createElement('div');
+    card.className = 'cp-card cp-card--form worddb-compare-form';
+
+    const header = document.createElement('div');
+    header.className = 'cp-header';
+    header.innerHTML = '<span class="cp-title">' + (isEdit ? '编辑' : '新增') + '实词辨析</span>';
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'cp-close';
+    closeBtn.textContent = '✕';
+    closeBtn.addEventListener('click', () => overlay.remove());
+    header.appendChild(closeBtn);
+    card.appendChild(header);
+
+    const form = document.createElement('div');
+    form.className = 'worddb-form';
+    const termsList = document.createElement('div');
+    termsList.className = 'worddb-compare-terms-editor';
+    form.appendChild(termsList);
+
+    const renderTerms = () => {
+      termsList.innerHTML = '';
+      word.compareWords.forEach((term, index) => {
+        const block = document.createElement('div');
+        block.className = 'worddb-compare-term-editor';
+        const head = document.createElement('div');
+        head.className = 'worddb-compare-term-editor__head';
+        const label = document.createElement('span');
+        label.textContent = '词语 ' + (index + 1);
+        const linkBtn = document.createElement('button');
+        linkBtn.type = 'button';
+        linkBtn.className = 'worddb-term-link-btn';
+        linkBtn.hidden = true;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'worddb-form-input';
+        input.placeholder = '输入词语名称';
+        input.value = term.name || '';
+        const meaning = document.createElement('textarea');
+        meaning.className = 'worddb-form-textarea';
+        meaning.placeholder = '输入该词的独立解释（可选）';
+        meaning.value = term.meaning || '';
+
+        const updateLinkHint = () => {
+          const query = input.value.trim().toLowerCase();
+          const match = (this.state.definitionWords || []).find(item => (item.name || '').trim().toLowerCase() === query);
+          const linked = term.wordId && (this.state.definitionWords || []).find(item => item.id === term.wordId);
+          if (match && match.id !== term.wordId) {
+            linkBtn.hidden = false;
+            linkBtn.textContent = '关联已有实词：' + match.name;
+            linkBtn.onclick = () => {
+              term.wordId = match.id;
+              if (!term.meaning.trim()) {
+                term.meaning = match.meaning || '';
+                meaning.value = term.meaning;
+              }
+              updateLinkHint();
+            };
+          } else if (linked) {
+            linkBtn.hidden = false;
+            linkBtn.textContent = '已关联：' + linked.name;
+            linkBtn.onclick = () => { term.wordId = null; updateLinkHint(); };
+          } else {
+            linkBtn.hidden = true;
+            linkBtn.textContent = '';
+            linkBtn.onclick = null;
+          }
+        };
+        input.addEventListener('input', () => {
+          term.name = input.value;
+          updateLinkHint();
+        });
+        meaning.addEventListener('input', () => { term.meaning = meaning.value; });
+        updateLinkHint();
+
+        head.appendChild(label);
+        head.appendChild(linkBtn);
+        block.appendChild(head);
+        block.appendChild(input);
+        block.appendChild(meaning);
+
+        // 长按词语项后才显示移除操作，避免常驻删除按钮干扰录入。
+        let pressTimer = null;
+        const clearPress = () => { if (pressTimer) clearTimeout(pressTimer); pressTimer = null; };
+        head.addEventListener('pointerdown', event => {
+          if (event.target.closest('button') || word.compareWords.length <= 2) return;
+          pressTimer = setTimeout(() => {
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'worddb-term-remove-action';
+            removeBtn.textContent = '移除';
+            removeBtn.addEventListener('click', () => {
+              if (!confirm('移除“' + (term.name || '词语 ' + (index + 1)) + '”？')) return;
+              word.compareWords.splice(index, 1);
+              renderTerms();
+            });
+            head.appendChild(removeBtn);
+          }, 650);
+        });
+        head.addEventListener('pointerup', clearPress);
+        head.addEventListener('pointerleave', clearPress);
+        termsList.appendChild(block);
+      });
+    };
+    renderTerms();
+
+    const addTermBtn = document.createElement('button');
+    addTermBtn.type = 'button';
+    addTermBtn.className = 'worddb-add-term-btn';
+    addTermBtn.textContent = '+ 添加词语';
+    addTermBtn.addEventListener('click', () => {
+      word.compareWords.push({ name: '', meaning: '', wordId: null });
+      renderTerms();
+      const inputs = termsList.querySelectorAll('input');
+      const last = inputs[inputs.length - 1];
+      if (last) last.focus();
+    });
+    form.appendChild(addTermBtn);
+
+    const coreGroup = document.createElement('div');
+    coreGroup.className = 'worddb-form-group';
+    coreGroup.innerHTML = '<label class="worddb-form-label">核心区别</label>';
+    const coreInput = document.createElement('textarea');
+    coreInput.className = 'worddb-form-textarea';
+    coreInput.placeholder = '输入这组词语的核心区别';
+    coreInput.value = word.compareNote || '';
+    coreGroup.appendChild(coreInput);
+    form.appendChild(coreGroup);
+
+    const exampleGroup = document.createElement('div');
+    exampleGroup.className = 'worddb-form-group';
+    exampleGroup.innerHTML = '<label class="worddb-form-label">例句（可选）</label>';
+    const exampleInput = document.createElement('textarea');
+    exampleInput.className = 'worddb-form-textarea';
+    exampleInput.placeholder = '输入例句';
+    exampleInput.value = word.example || '';
+    exampleGroup.appendChild(exampleInput);
+    form.appendChild(exampleGroup);
+    card.appendChild(form);
+
+    const footer = document.createElement('div');
+    footer.className = 'cp-cancel-row';
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'cp-cancel-btn';
+    saveBtn.style.cssText = 'background:var(--color-primary);color:#fff;font-weight:600;';
+    saveBtn.textContent = '保存';
+    saveBtn.addEventListener('click', async () => {
+      const validTerms = word.compareWords.filter(term => term.name.trim());
+      if (validTerms.length < 2 && !legacyCompare) {
+        App.Components.toast('至少需要填写两个词语', 'error');
+        return;
+      }
+      if (!validTerms.length) {
+        App.Components.toast('请输入词语名称', 'error');
+        return;
+      }
+      word.compareWords = word.compareWords.map(term => ({
+        name: term.name.trim(),
+        meaning: term.meaning.trim(),
+        wordId: term.wordId || null
+      })).filter(term => term.name || term.meaning);
+      word.compareNote = coreInput.value.trim();
+      word.example = exampleInput.value.trim();
+      this._syncCompareWordFields(word);
+      try {
+        if (isEdit) await App.DB.updateWord(word);
+        else await App.DB.addWord(word);
+        overlay.remove();
+        this._refreshTable();
+        App.Components.toast('已保存', 'success');
+      } catch (error) {
+        console.error(error);
+        App.Components.toast('保存失败，请重试', 'error');
+      }
+    });
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'cp-cancel-btn';
+    cancelBtn.textContent = '取消';
+    cancelBtn.addEventListener('click', () => overlay.remove());
+    footer.appendChild(saveBtn);
+    footer.appendChild(cancelBtn);
+    card.appendChild(footer);
+
+    overlay.appendChild(card);
+    overlay.addEventListener('click', event => { if (event.target === overlay) overlay.remove(); });
+    document.getElementById('modal-container').appendChild(overlay);
+  },
+
   // ===== 新增/编辑弹窗表单 =====
   async _showWordForm(existingWord) {
+    if (this.state.category === 'word-compare') return this._showCompareForm(existingWord);
     const isEdit = !!existingWord;
     const word = existingWord || {
       category: this.state.category,
@@ -17076,13 +17518,31 @@ App.Pages.WordDB = {
 
   // ===== 数据加载 =====
   async _loadWords() {
-    this.state.words = await App.DB.getWords({
+    const filters = {
       category: this.state.category,
       subject: this.state.subject,
       module: this.state.module,
-      search: this.state.searchQuery,
       sentiment: this.state.sentiment || null
-    });
+    };
+    // 实词组辨析的搜索还要覆盖每个词的独立解释与核心区别，故在本地补充筛选。
+    if (this.state.category !== 'word-compare') filters.search = this.state.searchQuery;
+    this.state.words = await App.DB.getWords(filters);
+    if (this.state.category === 'word-compare' && this.state.searchQuery.trim()) {
+      const query = this.state.searchQuery.trim().toLowerCase();
+      this.state.words = this.state.words.filter(word => {
+        const terms = Array.isArray(word.compareWords) ? word.compareWords : [];
+        const haystack = [
+          word.name,
+          word.meaning,
+          word.compareNote,
+          ...terms.flatMap(term => [term && term.name, term && term.meaning])
+        ].filter(Boolean).join('\n').toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+    if (this.state.category === 'word-compare') {
+      this.state.words.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+    }
     if (this.state.category === 'word-compare') {
       this.state.definitionWords = await App.DB.getWords({
         category: 'word-def', subject: this.state.subject, module: this.state.module
