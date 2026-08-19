@@ -11418,7 +11418,7 @@ App.Pages.Errors = {
 
     switch (action) {
       case 'edit': {
-        App.Router.navigate('error-form?id=' + error.id);
+        App.Router.navigate('error-form?id=' + encodeURIComponent(error.id) + '&returnTo=' + encodeURIComponent('error-detail?id=' + error.id));
         break;
       }
       case 'master': {
@@ -11496,6 +11496,9 @@ App.Pages.Errors = {
     container.innerHTML = '';
 
     let isEdit = !!params.id;
+    const returnRoute = params && typeof params.returnTo === 'string' && /^error-detail(?:\?|$)/.test(params.returnTo)
+      ? params.returnTo
+      : 'errors';
 
     // 默认空白表单
     let formData = {
@@ -11525,7 +11528,7 @@ App.Pages.Errors = {
         if (error) {
           // v8.14.11 编辑申论错题 → 切到申论专属表单
           if (error.subject === '申论') {
-            App.Pages.Errors.renderShenlunForm({ id: params.id });
+            App.Pages.Errors.renderShenlunForm({ id: params.id, returnTo: params.returnTo });
             return;
           }
           formData = {
@@ -12102,7 +12105,7 @@ App.Pages.Errors = {
         await submitFormInternal();
         App.Components.toast('已自动保存 ✓', 'success');
         App.Draft.clearForm('error');
-        App.Router.navigate('errors');
+        App.Router.navigate(returnRoute);
       } catch (e) { App.Components.toast('保存失败', 'error'); }
     };
 
@@ -12118,6 +12121,9 @@ App.Pages.Errors.renderShenlunForm = function (params) {
   const self = App.Pages.Errors;
 
   let isEdit = !!params.id;
+  const returnRoute = params && typeof params.returnTo === 'string' && /^error-detail(?:\?|$)/.test(params.returnTo)
+    ? params.returnTo
+    : 'errors';
   // 申论错题数据（扁平存于 errors 记录上，与通用错题共存）
   let d = {
     subject: '申论', module: '', question: '',
@@ -12531,7 +12537,7 @@ App.Pages.Errors.renderShenlunForm = function (params) {
       }
       App.Components.toast('已保存 ✓', 'success');
       App.Draft.clearForm('shenlun');
-      App.Router.navigate('errors');
+      App.Router.navigate(returnRoute);
     } catch (e) { App.Components.toast('保存失败', 'error'); }
   };
 
@@ -16542,10 +16548,20 @@ App.Pages.WordDB = {
     }
 
     // 点击行主区域展开/收起
-    main.addEventListener('click', (e) => {
+    main.addEventListener('click', async (e) => {
       if (e.target.closest('.worddb-open-btn')) return;
+      const preservePosition = isWordCompare;
+      const anchorTop = preservePosition ? main.getBoundingClientRect().top : 0;
+      const beforeScrollY = preservePosition ? window.scrollY : 0;
       this.state.expandedRowId = isExpanded ? null : word.id;
-      this._refreshTable();
+      await this._refreshTable();
+      if (preservePosition) {
+        const anchor = Array.from(document.querySelectorAll('.worddb-row__main'))
+          .find(el => el.closest('.worddb-row') && el.closest('.worddb-row').dataset.id === word.id);
+        if (anchor) {
+          window.scrollTo(0, beforeScrollY + anchor.getBoundingClientRect().top - anchorTop);
+        }
+      }
     });
 
     return row;
@@ -16632,23 +16648,30 @@ App.Pages.WordDB = {
       const termBlock = document.createElement('div');
       termBlock.className = 'worddb-compare-term';
 
+      const canEditTerm = index < 2;
+      if (!canEditTerm) termBlock.classList.add('worddb-compare-term--readonly');
+
       const name = document.createElement('div');
-      name.className = 'worddb-compare-term__name worddb-inline-editable';
+      name.className = 'worddb-compare-term__name' + (canEditTerm ? ' worddb-inline-editable' : '');
       name.textContent = term.name || '点击添加词语';
-      name.title = '点击编辑词语';
-      name.addEventListener('click', event => {
-        event.stopPropagation();
-        this._startCompareInlineEdit(name, word, index, 'name');
-      });
+      name.title = canEditTerm ? '点击编辑词语' : 'V1 暂支持查看，后续开放编辑';
+      if (canEditTerm) {
+        name.addEventListener('click', event => {
+          event.stopPropagation();
+          this._startCompareInlineEdit(name, word, index, 'name');
+        });
+      }
 
       const meaning = document.createElement('div');
-      meaning.className = 'worddb-compare-term__meaning worddb-inline-editable';
+      meaning.className = 'worddb-compare-term__meaning' + (canEditTerm ? ' worddb-inline-editable' : '');
       meaning.textContent = term.meaning || '点击添加解释';
-      meaning.title = '点击编辑解释';
-      meaning.addEventListener('click', event => {
-        event.stopPropagation();
-        this._startCompareInlineEdit(meaning, word, index, 'meaning', true);
-      });
+      meaning.title = canEditTerm ? '点击编辑解释' : 'V1 暂支持查看，后续开放编辑';
+      if (canEditTerm) {
+        meaning.addEventListener('click', event => {
+          event.stopPropagation();
+          this._startCompareInlineEdit(meaning, word, index, 'meaning', true);
+        });
+      }
 
       termBlock.appendChild(name);
       termBlock.appendChild(meaning);
@@ -16881,6 +16904,14 @@ App.Pages.WordDB = {
   _renderEmpty(container) {
     const empty = document.createElement('div');
     empty.className = 'worddb-empty';
+    if (this.state.category === 'word-compare' && this.state.searchQuery.trim()) {
+      empty.innerHTML = `
+        <div class="worddb-empty-title">没有找到匹配的辨析内容</div>
+        <div class="worddb-empty-desc">可尝试搜索词语名称、独立解释或核心区别。</div>
+      `;
+      container.appendChild(empty);
+      return;
+    }
     empty.innerHTML = `
       <div class="worddb-empty-icon">📚</div>
       <div class="worddb-empty-title">暂无${this._getCategoryTitle().split('\n')[0]}记录</div>
@@ -16916,6 +16947,9 @@ App.Pages.WordDB = {
       meaning: term.meaning,
       wordId: term.wordId || null
     }));
+    while (word.compareWords.length < 2) {
+      word.compareWords.push({ name: '', meaning: '', wordId: null });
+    }
 
     const overlay = document.createElement('div');
     overlay.className = 'cp-overlay';
@@ -16946,8 +16980,9 @@ App.Pages.WordDB = {
         block.className = 'worddb-compare-term-editor';
         const head = document.createElement('div');
         head.className = 'worddb-compare-term-editor__head';
+        const isReadonlyExtra = index >= 2;
         const label = document.createElement('span');
-        label.textContent = '词语 ' + (index + 1);
+        label.textContent = isReadonlyExtra ? '词语 ' + (index + 1) + '（当前只读）' : '词语 ' + (index + 1);
         const linkBtn = document.createElement('button');
         linkBtn.type = 'button';
         linkBtn.className = 'worddb-term-link-btn';
@@ -16987,12 +17022,18 @@ App.Pages.WordDB = {
             linkBtn.onclick = null;
           }
         };
-        input.addEventListener('input', () => {
-          term.name = input.value;
-          updateLinkHint();
-        });
-        meaning.addEventListener('input', () => { term.meaning = meaning.value; });
-        updateLinkHint();
+        if (isReadonlyExtra) {
+          input.readOnly = true;
+          meaning.readOnly = true;
+          linkBtn.hidden = true;
+        } else {
+          input.addEventListener('input', () => {
+            term.name = input.value;
+            updateLinkHint();
+          });
+          meaning.addEventListener('input', () => { term.meaning = meaning.value; });
+        }
+        if (!isReadonlyExtra) updateLinkHint();
 
         head.appendChild(label);
         head.appendChild(linkBtn);
@@ -17000,43 +17041,11 @@ App.Pages.WordDB = {
         block.appendChild(input);
         block.appendChild(meaning);
 
-        // 长按词语项后才显示移除操作，避免常驻删除按钮干扰录入。
-        let pressTimer = null;
-        const clearPress = () => { if (pressTimer) clearTimeout(pressTimer); pressTimer = null; };
-        head.addEventListener('pointerdown', event => {
-          if (event.target.closest('button') || word.compareWords.length <= 2) return;
-          pressTimer = setTimeout(() => {
-            const removeBtn = document.createElement('button');
-            removeBtn.type = 'button';
-            removeBtn.className = 'worddb-term-remove-action';
-            removeBtn.textContent = '移除';
-            removeBtn.addEventListener('click', () => {
-              if (!confirm('移除“' + (term.name || '词语 ' + (index + 1)) + '”？')) return;
-              word.compareWords.splice(index, 1);
-              renderTerms();
-            });
-            head.appendChild(removeBtn);
-          }, 650);
-        });
-        head.addEventListener('pointerup', clearPress);
-        head.addEventListener('pointerleave', clearPress);
+        if (isReadonlyExtra) block.classList.add('worddb-compare-term-editor--readonly');
         termsList.appendChild(block);
       });
     };
     renderTerms();
-
-    const addTermBtn = document.createElement('button');
-    addTermBtn.type = 'button';
-    addTermBtn.className = 'worddb-add-term-btn';
-    addTermBtn.textContent = '+ 添加词语';
-    addTermBtn.addEventListener('click', () => {
-      word.compareWords.push({ name: '', meaning: '', wordId: null });
-      renderTerms();
-      const inputs = termsList.querySelectorAll('input');
-      const last = inputs[inputs.length - 1];
-      if (last) last.focus();
-    });
-    form.appendChild(addTermBtn);
 
     const coreGroup = document.createElement('div');
     coreGroup.className = 'worddb-form-group';
