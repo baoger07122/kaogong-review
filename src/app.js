@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.18.4';
+App.VERSION = '8.18.5';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -3653,6 +3653,22 @@ App.Components = {
     question.className = 'error-gallery-card__question';
     question.textContent = error.question || '';
     card.appendChild(question);
+
+    // 逻辑填空卡片仅展示已填写的辨析词语；多组横向排列，空间不足自动换行。
+    const compareWords = (error.subject === '言语理解' && error.module === '逻辑填空' && Array.isArray(error.compareGroups))
+      ? error.compareGroups.map(group => (group && group.words ? group.words.trim() : '')).filter(Boolean)
+      : [];
+    if (compareWords.length) {
+      const compareRow = document.createElement('div');
+      compareRow.className = 'error-gallery-card__compare-words';
+      compareWords.forEach(words => {
+        const tag = document.createElement('span');
+        tag.className = 'error-gallery-card__compare-word';
+        tag.textContent = words;
+        compareRow.appendChild(tag);
+      });
+      card.appendChild(compareRow);
+    }
 
     // 考点 + 错因 同一行（考点在前，错因在后，flex-wrap 自动换行）
     const tagRow = document.createElement('div');
