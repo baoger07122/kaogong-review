@@ -1,0 +1,633 @@
+/* =======================================================================
+   词语库页面（Notion 数据库风格）
+   ======================================================================= */
+.worddb-cat-bar {
+  padding: 0 var(--page-padding);
+  background: var(--bg-primary);
+}
+
+/* ===== 工具栏：筛选 / 搜索 / 新增 ===== */
+.worddb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--page-padding);
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--divider-color);
+}
+.worddb-filter-btn {
+  flex-shrink: 0;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  padding: 7px 12px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.12s, background 0.12s;
+}
+.worddb-filter-btn:active { background: var(--bg-tertiary); }
+.worddb-filter-caret { font-size: 10px; opacity: 0.6; margin-left: 2px; }
+
+.worddb-search-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+  padding: 0 12px;
+  height: 34px;
+}
+.worddb-search-icon { font-size: 13px; opacity: 0.6; }
+.worddb-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+}
+.worddb-search-input::placeholder { color: var(--text-tertiary); }
+
+.worddb-add-btn {
+  flex-shrink: 0;
+  border: none;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s;
+}
+.worddb-add-btn:active { background: var(--color-primary-dark); }
+.worddb-toolbar--compare { position: relative; }
+.worddb-page-menu {
+  min-width: 40px;
+  text-align: center;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: 2px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.worddb-compare-search-toggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+}
+.worddb-compare-search-toggle:active { background: var(--bg-tertiary); }
+.worddb-compare-search-panel {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  box-shadow: none;
+}
+.worddb-compare-search-panel .worddb-search-input { width: 100%; }
+.worddb-compare-search-close {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 20px;
+  line-height: 1;
+  padding: 2px 0 2px 6px;
+  cursor: pointer;
+}
+.worddb-compare-search-close:active { color: var(--text-primary); }
+.worddb-add-btn--icon {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  font-size: 22px;
+  line-height: 1;
+}
+
+/* ===== 表格区域 ===== */
+.worddb-table-area {
+  padding: 0 var(--page-padding) calc(var(--nav-height) + var(--safe-bottom) + 16px);
+}
+.worddb-thead {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) 132px 88px 56px;
+  align-items: center;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  position: sticky;
+  top: calc(var(--safe-top) + 44px + 44px);
+  background: var(--bg-primary);
+  z-index: 2;
+}
+.worddb-table-area--compare .worddb-thead {
+  position: relative;
+  top: auto;
+  z-index: auto;
+  grid-template-columns: minmax(0, 26fr) minmax(0, 54fr) minmax(76px, 20fr);
+  column-gap: 8px;
+  min-height: 32px;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.worddb-th {
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+.worddb-th:last-child { text-align: right; }
+
+.worddb-tbody { display: flex; flex-direction: column; }
+
+.worddb-row {
+  border-bottom: 1px solid var(--divider-color);
+}
+.worddb-row__main {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) 132px 88px 56px;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s;
+}
+.worddb-row__main--compare {
+  grid-template-columns: minmax(0, 26fr) minmax(0, 54fr) minmax(76px, 20fr);
+  column-gap: 8px;
+  min-height: 48px;
+  height: 48px;
+  padding: 0 12px;
+}
+.worddb-row__main:active { background: var(--bg-tertiary); }
+
+.worddb-cell--name {
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.worddb-cell--prop {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.worddb-cell--linked, .worddb-cell--summary {
+  min-width: 0;
+  font-size: var(--font-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.worddb-cell--linked { font-weight: 600; color: var(--color-primary-dark); }
+.worddb-cell--linked-a { color: #287A45; }
+.worddb-cell--linked-b { color: var(--color-primary); }
+.worddb-cell--linked.is-pending { color: var(--text-tertiary); font-weight: 400; }
+.worddb-cell--linked.is-missing { color: var(--color-danger); font-weight: 400; }
+.worddb-cell--summary { color: var(--text-secondary); }
+.worddb-cell--time {
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+}
+.worddb-cell--action {
+  display: flex;
+  justify-content: flex-end;
+}
+.worddb-open-btn {
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--color-primary);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.worddb-open-btn:active { background: var(--bg-tertiary); }
+
+/* ===== 标签 ===== */
+.worddb-sentiment {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  line-height: 1.6;
+}
+.worddb-sentiment--pos { background: var(--color-success-light); color: #1B7A33; }
+.worddb-sentiment--neg { background: var(--color-danger-light); color: #C62828; }
+.worddb-sentiment--neu { background: var(--bg-tertiary); color: var(--text-secondary); }
+
+.worddb-pos-tag {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  line-height: 1.6;
+}
+.worddb-mcount-tag {
+  font-size: var(--font-xs);
+  color: var(--color-primary-dark);
+  background: var(--color-primary-bg);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  line-height: 1.6;
+}
+
+/* ===== 展开详情 ===== */
+.worddb-detail {
+  padding: 4px var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  margin: 0 var(--spacing-sm) var(--spacing-sm);
+  animation: detailEnter 0.22s ease;
+  transform-origin: top center;
+}
+@keyframes detailEnter {
+  from { opacity: 0; transform: translateY(-6px) scale(0.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.worddb-detail-py {
+  font-size: var(--font-sm);
+  color: var(--text-tertiary);
+  font-style: italic;
+  margin-bottom: var(--spacing-sm);
+}
+.worddb-detail-section { margin-bottom: var(--spacing-md); }
+.worddb-detail-section > strong {
+  display: block;
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.worddb-detail-text {
+  font-size: var(--font-md);
+  color: var(--text-primary);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.worddb-detail-example {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border-left: 3px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+}
+.worddb-linked-pair { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.worddb-linked-chip {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: var(--font-sm);
+  font-weight: 600;
+}
+.worddb-linked-chip--a { background: var(--color-success-light); color: #287A45; }
+.worddb-linked-chip--b { background: var(--color-primary-bg); color: var(--color-primary-dark); }
+.worddb-linked-chip.is-pending { background: var(--bg-secondary); color: var(--text-tertiary); font-weight: 400; }
+.worddb-linked-vs { color: var(--text-tertiary); font-size: var(--font-xs); }
+
+.worddb-related-errors { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.worddb-err-chip {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.worddb-err-chip:active { background: var(--bg-tertiary); }
+.worddb-link-btn {
+  border: 1px dashed var(--color-primary);
+  background: transparent;
+  color: var(--color-primary);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.worddb-link-btn:active { background: var(--color-primary-bg); }
+
+.worddb-detail-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+}
+.worddb-compare-detail__head {
+  min-height: 24px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+.worddb-compare-menu {
+  width: 32px;
+  height: 28px;
+  color: var(--text-secondary);
+  font-size: 18px;
+  letter-spacing: 2px;
+  line-height: 1;
+}
+.worddb-compare-menu:active { color: var(--color-primary); }
+.worddb-compare-terms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 24px;
+  row-gap: 12px;
+}
+.worddb-compare-term {
+  min-width: 0;
+  padding: 4px 0 12px;
+  border-bottom: 1px solid var(--divider-color);
+}
+.worddb-compare-term--readonly,
+.worddb-compare-term-editor--readonly {
+  opacity: 0.78;
+}
+.worddb-compare-term-editor--readonly .worddb-form-input,
+.worddb-compare-term-editor--readonly .worddb-form-textarea {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+.worddb-compare-term__name {
+  margin-bottom: 6px;
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.worddb-compare-term__meaning {
+  min-height: 1.6em;
+  font-size: var(--font-md);
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+.worddb-compare-core { margin-top: var(--spacing-md); }
+.worddb-inline-editable { cursor: text; border-radius: var(--radius-sm); }
+.worddb-inline-editable:active,
+.worddb-inline-editable:hover { background: var(--bg-primary); }
+.worddb-inline-editable.is-editing { background: var(--bg-primary); }
+.worddb-inline-editor {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+}
+.worddb-inline-editor:focus { box-shadow: 0 0 0 2px var(--color-primary-bg); }
+.worddb-edit-btn, .worddb-del-btn {
+  flex: 1;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.worddb-edit-btn { color: var(--color-primary); }
+.worddb-del-btn { color: var(--color-danger); }
+.worddb-edit-btn:active, .worddb-del-btn:active { background: var(--bg-tertiary); }
+
+/* ===== 空状态 ===== */
+.worddb-empty {
+  text-align: center;
+  padding: var(--spacing-2xl) var(--spacing-lg);
+  margin-top: var(--spacing-xl);
+}
+.worddb-empty-icon { font-size: 44px; margin-bottom: var(--spacing-sm); }
+.worddb-empty-title { font-size: var(--font-lg); font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
+.worddb-empty-desc { font-size: var(--font-sm); color: var(--text-tertiary); line-height: 1.5; margin-bottom: var(--spacing-lg); }
+.worddb-import-btn {
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary-bg);
+  color: var(--color-primary-dark);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  padding: 10px 20px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.worddb-import-btn:active { background: var(--color-primary-light); }
+
+/* ===== 新增/编辑表单 ===== */
+.cp-card--form {
+  max-width: 420px;
+  max-height: 86vh;
+}
+.cp-card--form .worddb-form {
+  overflow-y: auto;
+  padding: var(--spacing-md) var(--spacing-lg);
+  flex: 1;
+}
+.worddb-form-group { margin-bottom: var(--spacing-md); }
+.worddb-form-label {
+  display: block;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.worddb-form-input, .worddb-form-textarea {
+  width: 100%;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: var(--font-md);
+  color: var(--text-primary);
+  outline: none;
+  box-sizing: border-box;
+  font-family: inherit;
+  transition: border-color 0.12s;
+}
+.worddb-form-input:focus, .worddb-form-textarea:focus { border-color: var(--color-primary); }
+.worddb-form-textarea { resize: vertical; min-height: 84px; line-height: 1.5; }
+.worddb-form-picker {
+  border: 1px dashed var(--border-color);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: var(--font-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.worddb-form-picker:active { background: var(--color-primary-bg); }
+.worddb-word-picker { width: 100%; text-align: left; color: var(--text-primary); }
+.worddb-linked-form-fields { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-md); }
+.worddb-linked-form-fields .worddb-form-group { min-width: 0; }
+.worddb-word-selector { width: min(520px, calc(100vw - 40px)); max-height: min(620px, 82vh); display: flex; flex-direction: column; }
+.worddb-word-selector__search { margin: var(--spacing-md) var(--spacing-lg) 8px; width: auto; }
+.worddb-word-selector__list { overflow-y: auto; padding: 0 var(--spacing-lg) var(--spacing-lg); }
+.worddb-word-selector__item {
+  display: flex; flex-direction: column; align-items: flex-start; width: 100%; padding: 11px 12px;
+  border: none; border-bottom: 1px solid var(--divider-color); background: transparent; text-align: left; cursor: pointer;
+}
+.worddb-word-selector__item strong { color: var(--text-primary); font-size: var(--font-md); }
+.worddb-word-selector__item span, .worddb-word-selector__item small { color: var(--text-tertiary); margin-top: 2px; }
+.worddb-word-selector__item small { font-size: var(--font-xs); line-height: 1.45; }
+.worddb-word-selector__item:active { background: var(--color-primary-bg); }
+.worddb-word-selector__empty { padding: 28px 0; text-align: center; color: var(--text-tertiary); font-size: var(--font-sm); }
+.worddb-compare-form { max-width: 560px; }
+.worddb-compare-terms-editor { display: flex; flex-direction: column; gap: var(--spacing-md); }
+.worddb-compare-term-editor {
+  padding-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--divider-color);
+}
+.worddb-compare-term-editor__head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-height: 26px;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.worddb-compare-term-editor .worddb-form-textarea { margin-top: var(--spacing-sm); }
+.worddb-term-link-btn,
+.worddb-term-remove-action,
+.worddb-add-term-btn {
+  color: var(--color-primary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+}
+.worddb-term-link-btn { margin-left: auto; }
+.worddb-term-link-btn:active,
+.worddb-term-remove-action:active,
+.worddb-add-term-btn:active { color: var(--color-primary-dark); }
+.worddb-term-remove-action { color: var(--color-danger); margin-left: auto; }
+.worddb-add-term-btn { display: block; margin: var(--spacing-md) 0; }
+@media (max-width: 700px) {
+  .worddb-linked-form-fields { grid-template-columns: 1fr; gap: 0; }
+  .worddb-table-area--compare { overflow-x: hidden; }
+  .worddb-table-area--compare .worddb-thead,
+  .worddb-row__main--compare {
+    min-width: 0;
+    grid-template-columns: minmax(108px, 28fr) minmax(0, 52fr) minmax(76px, 20fr);
+    column-gap: 8px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .worddb-compare-terms { grid-template-columns: 1fr; }
+}
+.cp-card--form .cp-cancel-row { gap: var(--spacing-sm); }
+.cp-card--form .cp-cancel-btn {
+  flex: 1;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-md);
+  padding: 11px;
+}
+.cp-card--form .cp-cancel-btn:last-child {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+/* ===== 笔记页 - 词语库入口（言语理解 / 逻辑填空） ===== */
+.notes-worddb-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin: 0 var(--page-padding) var(--spacing-md);
+  padding: 12px 14px;
+  background: linear-gradient(135deg, var(--color-primary-bg), #FFFFFF);
+  border: 1px solid var(--color-primary-light);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.1s ease, box-shadow 0.12s ease;
+}
+.notes-worddb-entry:active {
+  transform: scale(0.99);
+  box-shadow: var(--shadow-sm);
+}
+.notes-worddb-entry__icon {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary);
+  border-radius: var(--radius-sm);
+  font-size: 20px;
+}
+.notes-worddb-entry__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.notes-worddb-entry__title {
+  font-size: var(--font-md);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.notes-worddb-entry__desc {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.notes-worddb-entry__arrow {
+  flex-shrink: 0;
+  font-size: 20px;
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+/* ===== 尊重「减少动态效果」系统设置 ===== */
+@media (prefers-reduced-motion: reduce) {
+  .page.active { animation: none; }
+  .tab-item::after { transition: none; }
+  .worddb-detail,
+  .note-tree-node__children.expanded,
+  .cp-overlay,
+  .cp-card,
+  .nav-icon,
+  .nav-label,
+  .notes-worddb-entry { animation: none !important; transition: none !important; }
+}
+

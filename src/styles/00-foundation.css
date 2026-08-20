@@ -1,0 +1,526 @@
+
+/* ===== 考公笔试复盘系统 - 全局样式 ===== */
+
+/* ===== CSS 自定义属性（浅色模式 / 默认） ===== */
+:root {
+  /* --- Apple 风格：Action Blue 单色强调 --- */
+  --color-primary: #0066CC;
+  --color-primary-light: #0071E3;
+  --color-primary-dark: #005BB5;
+  --color-primary-bg: #EAF2FE;
+  /* v8.12.10 对齐画布视觉升级：品牌渐变（#0066CC → #1E8FFF） */
+  --gradient-primary: linear-gradient(135deg, #0066CC 0%, #1E8FFF 100%);
+
+  /* --- 辅助色（iOS 系统语义色） --- */
+  --color-success: #34C759;
+  --color-success-light: #E8F5E9;
+  --color-warning: #FF9500;
+  --color-warning-light: #FFF3E0;
+  --color-danger: #FF3B30;
+  --color-danger-light: #FFEBEE;
+  --color-purple: #9B59B6;
+  --color-teal: #1ABC9C;
+  --color-gold: #F5A623;
+
+  /* --- 背景色（纯白 + Parchment 灰） --- */
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #F5F5F7;
+  --bg-card: #FFFFFF;
+  --bg-overlay: rgba(0,0,0,0.3);
+
+  /* --- 文字色（Apple Ink 墨色系） --- */
+  --text-primary: #1D1D1F;
+  --text-secondary: #7A7A7A;
+  --text-tertiary: #A1A1A6;
+  --text-light: #B0B0B0;
+
+  /* --- 边框/分割线（v8.12.10 柔化：E0E0E0 → F0F0F2 融入背景） --- */
+  --border-color: #F0F0F2;
+  --divider-color: #F0F0F0;
+
+  /* --- 阴影（v8.12.10 对齐画布：多层柔和阴影） --- */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.04), 0 2px 6px rgba(0,0,0,0.03);
+  --shadow-lg: 0 12px 28px rgba(0.13, 0.19, 0.35, 0.10), 0 6px 16px rgba(0,0,0,0.06);
+  --shadow-hero: 0 12px 28px rgba(0.31, 0.45, 0.86, 0.12), 0 4px 10px rgba(0.31, 0.45, 0.86, 0.06);
+  --shadow-btn: 0 4px 12px rgba(0, 102, 204, 0.25);
+  --shadow-fab: 0 4px 16px rgba(0,102,204,0.35);
+
+  /* --- 圆角（v8.12.10 对齐画布：18→20 / 20→24 / 新增 28 弹窗） --- */
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
+  --radius-2xl: 28px;
+  --radius-full: 9999px;
+
+  /* --- 间距 --- */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 20px;
+  --spacing-2xl: 24px;
+
+  /* --- 字体 --- */
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-md: 14px;
+  --font-lg: 16px;
+  --font-xl: 18px;
+  --font-xxl: 20px;
+  --font-3xl: 24px;
+
+  /* --- 安全区 --- */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  /* 顶部缓冲：直接用系统真实安全区 env(safe-area-inset-top)。
+     不再为 iPad 分屏「三个点」多任务条预留 24px 地板——按用户要求忽略该冲突，直接置顶。
+     手机端 env() 返回真实状态栏高度（需 viewport-fit=cover，模板中已设置），
+     背景从屏幕物理顶端铺，标题仅保留极小顶部间距。 */
+  --top-buffer: var(--safe-top);
+
+  /* --- 导航栏高度 --- */
+  /* v8.12.3 对齐画布 NavBar-iPad(7:7)：64 高（胶囊44 + 上下10留白） */
+  --nav-height: 64px;
+  --page-padding: 16px;
+}
+
+/* ===== 深色模式 ===== */
+[data-theme="dark"] {
+  --color-primary: #2997FF;
+  --color-primary-light: #3FA0FF;
+  --color-primary-dark: #1F86F2;
+  --color-primary-bg: #14263C;
+
+  --color-success: #34C759;
+  --color-warning: #FF9500;
+  --color-danger: #FF453A;
+
+  --bg-primary: #0F1115;
+  --bg-secondary: #1A1D24;
+  --bg-tertiary: #252830;
+  --bg-card: #1C1F26;
+  --bg-overlay: rgba(0,0,0,0.6);
+
+  --text-primary: #E8E8E8;
+  --text-secondary: #A0A0A0;
+  --text-tertiary: #666666;
+  --text-light: #555555;
+
+  --border-color: #2A2D35;
+  --divider-color: #22252D;
+
+  --shadow-sm: 0 1px 4px rgba(0,0,0,0.2);
+  --shadow-md: 0 2px 12px rgba(0,0,0,0.25);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,0.3);
+  --shadow-fab: 0 4px 16px rgba(41,151,255,0.35);
+}
+
+/* 跟随系统深色模式 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-primary: #2997FF;
+    --color-primary-light: #3FA0FF;
+    --color-primary-dark: #1F86F2;
+    --color-primary-bg: #14263C;
+
+    --color-success: #34C759;
+    --color-warning: #FF9500;
+    --color-danger: #FF453A;
+
+    --bg-primary: #0F1115;
+    --bg-secondary: #1A1D24;
+    --bg-tertiary: #252830;
+    --bg-card: #1C1F26;
+    --bg-overlay: rgba(0,0,0,0.6);
+
+    --text-primary: #E8E8E8;
+    --text-secondary: #A0A0A0;
+    --text-tertiary: #666666;
+    --text-light: #555555;
+
+    --border-color: #2A2D35;
+    --divider-color: #22252D;
+
+    --shadow-sm: 0 1px 4px rgba(0,0,0,0.2);
+    --shadow-md: 0 2px 12px rgba(0,0,0,0.25);
+    --shadow-lg: 0 4px 16px rgba(0,0,0,0.3);
+    --shadow-fab: 0 4px 16px rgba(41,151,255,0.35);
+  }
+}
+
+/* ===== 全局重置 ===== */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif;
+  font-size: var(--font-md);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+body {
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  min-height: 100dvh;
+  /* 注意：不要给 body 加 overflow-x: hidden——iOS Safari 上会破坏 position: sticky；
+     水平溢出已由 #app 的 overflow-x: clip 兜底。也不要加 padding-bottom——
+     所有 .page 已有预留导航栏空间的 padding，叠加会产生底部大片空白。 */
+}
+
+/* v8.15.35 iOS standalone PWA 橡皮筋滚动锁：仅 overflow:hidden 拦不住 iOS Safari 的 body 回弹，
+   position: fixed 是唯一能彻底钉死视口、杜绝滚动/回弹的方案（用到全屏沉浸做题页）。 */
+body.sc-lock {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  margin: 0;
+  overscroll-behavior: none;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input, textarea, select {
+  font-family: inherit;
+  font-size: var(--font-md);
+  color: var(--text-primary);
+  outline: none;
+}
+
+/* ===== 应用容器 ===== */
+#app {
+  min-height: 100vh;
+  min-height: 100dvh;
+  position: relative;
+  /* iOS Safari 中 overflow-x: hidden 会破坏 position: sticky（侧边栏固定），用 clip 不创建滚动上下文 */
+  overflow-x: clip;
+}
+
+.page {
+  display: none;
+  /* 页面最小高度 = 整屏：内容区底沿正好落到固定底栏顶端，
+     不再凭空多出底部空白；内容不足一屏时整页恰好等于视口高度 → 不可滚动。
+     用 100dvh（动态视口高度）对齐移动端「可视区」，避免 100vh 大于可视区导致的底部多余可滚动空白。 */
+  min-height: 100vh;
+  min-height: 100dvh;
+  /* 顶部不再统一预留：吸顶元素（.page-sticky/.page-header/.sidebar）已贴 top:0，
+     安全区留白转移到吸顶元素内部 padding-top，背景从屏幕物理顶端开始铺，
+     滚动时顶带被吸顶元素背景覆盖，内容不再从状态栏下方穿出。
+     无吸顶标题栏的页面（首页/学习统计/考点管理）单独补顶部留白（见下）。 */
+  /* 底部仅预留固定底栏（nav 高度 + 底部安全区 + 浮动胶囊离地间距 20px），
+     滚动范围严格等于页面内容，到底即止、无额外空白。 */
+  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 20px);
+}
+
+/* 无吸顶标题栏的页面：首元素是普通内容，需自行避开状态栏/iPad 三点 */
+#page-home,
+#page-study-stats,
+#page-kpmanage {
+  padding-top: var(--top-buffer);
+}
+
+/* 首页：正常文档流、内容可上下滑动（用户 v8.3.1 指定修复无法滑动问题）；
+   背景纯白从顶部铺起，底部预留固定底栏空间 */
+#page-home {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 20px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.page.active {
+  display: block;
+  animation: pageEnter 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes pageEnter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ===== 底部导航栏 ===== */
+#bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  /* v8.11.5 通栏贴底（对齐画布定稿：无安全区间距、无左右留白、无圆角） */
+  min-height: calc(var(--nav-height) - 2px);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.92);
+  border-top: 0.5px solid rgba(0, 0, 0, 0.06);
+  border-bottom: none;
+  border-left: none;
+  border-right: none;
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.05);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  display: flex;
+  /* v8.12.3 对齐画布 NavBar-iPad(7:7)：Tab 项胶囊选中，均分+等间距 */
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 10px;
+  box-sizing: border-box;
+  z-index: 9999;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+}
+
+/* 深色模式下的浮动胶囊 */
+[data-theme="dark"] #bottom-nav {
+  background: rgba(28, 31, 38, 0.92);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) #bottom-nav {
+    background: rgba(28, 31, 38, 0.92);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+}
+
+/* ===== 无底部导航页面：隐藏固定底栏，内容底部不再预留 nav 空间 ===== */
+#bottom-nav.nav--hidden { display: none; }
+#page-note-detail.nav-hidden,
+#page-note-form.nav-hidden,
+#page-error-detail.nav-hidden,
+#page-error-form.nav-hidden {
+  padding-bottom: var(--safe-bottom);
+}
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* v8.12.3 对齐画布 NavBar-iPad(7:7)：Tab 项高 44、胶囊圆角 22、项内间距 3 */
+  gap: 3px;
+  flex: 1;
+  height: 44px;
+  padding: 0;
+  border-radius: 22px;
+  position: relative;
+  transition: color 0.15s ease, background-color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nav-item:active {
+  opacity: 0.6;
+}
+
+.nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+.nav-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.nav-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.nav-item:not(.active) {
+  color: var(--text-tertiary);
+}
+
+.nav-item.active {
+  /* v8.12.10 对齐画布 7:8：选中态整块胶囊 纯蓝 → 渐变蓝 + 蓝色光晕阴影 */
+  background: var(--gradient-primary);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(0, 102, 204, 0.30), 0 1px 3px rgba(0, 102, 204, 0.18);
+}
+
+.nav-item.active .nav-icon {
+  background: none;
+  color: #fff;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.nav-item.active .nav-label {
+  color: #fff;
+  font-weight: 600;
+}
+
+.nav-badge {
+  position: absolute;
+  top: 4px;
+  right: calc(50% - 22px);
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--color-danger);
+  color: white;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+/* ===== 页面标题栏 ===== */
+/* 固定区：标题 + 搜索 + 统计 打包吸顶（错题本等列表页滚动时保持可见） */
+.page-sticky {
+  position: sticky;
+  /* 贴屏幕物理顶端：背景从 y=0 开始铺，盖住状态栏后方，滚动时内容被背景遮挡不穿出；
+     安全区留白仅用真实 env(safe-area-inset-top)，不再额外加 12px，iPad 上直接为 0 置顶。 */
+  top: 0;
+  padding-top: var(--top-buffer);
+  z-index: 200;
+  background: var(--bg-primary);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 0.5px solid var(--divider-color);
+}
+/* 包进固定区后，内部标题不再需要自身 sticky；外层 .page-sticky 已用真实安全区垫顶，
+   这里不再额外加顶部留白（iPad 上即 0） */
+.page-sticky .page-header {
+  position: static;
+  padding-top: 0;
+}
+
+/* 错题本：标题+统计+搜索整块不吸顶，随内容一起上滑（用户 v8.1.31 指定；模糊动画已按用户要求移除） */
+#page-errors .page-sticky {
+  position: static;
+  top: auto;
+}
+
+.page-header {
+  position: sticky;
+  /* 同 .page-sticky：贴 top:0，背景从屏幕顶端铺；padding-top 仅用真实安全区，
+     不再额外加 12px/spacing-sm（iPad 直接为 0 置顶；手机端仅留状态栏高度） */
+  top: 0;
+  z-index: 100;
+  background: var(--bg-primary);
+  padding: var(--spacing-md) var(--page-padding);
+  flex-shrink: 0;   /* v8.6.31 一屏 flex 布局（速算做题页）防压缩 */
+  padding-top: var(--top-buffer);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px; /* iOS 触控最小高度 */
+}
+/* 【iPad 横屏对齐】inner 容器：背景全宽（header 全宽），内容限宽居中，与编辑器/工具栏同宽 */
+.page-header__inner {
+  width: 100%;
+  max-width: min(var(--content-max-width, 720px), calc(100% - var(--content-padding, 16px) * 2));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 auto;
+}
+/* iPad 分屏模式：内容全宽但保持 padding */
+body.ipad-split .page-header__inner {
+  max-width: 100%;
+  padding: 0 24px;
+}
+/* v8.15.41 iPad 横屏全屏：header 内容全宽，返回键贴左（不再限宽 720 居中导致返回键远离左边缘） */
+@media (orientation: landscape) and (min-width: 1024px) {
+  .page-header__inner {
+    max-width: 100%;
+  }
+}
+/* v8.15.36 返回按钮 iPad 分屏右移改为【全局默认】：
+   所有 .page-header__back（统一页头返回键）与 .sc-back-btn（自定义返回键）在分屏模式下自动右移，
+   避开系统侧边指示条，无需再给每个新页面手动加 .ipad-back-shift class。
+   （保留 .ipad-back-shift 选择器仅作兼容，行为已统一；后续新增页面不用再配置。） */
+body.ipad-split .page-header__back,
+body.ipad-split .sc-back-btn,
+body.ipad-split .ipad-back-shift .page-header__back,
+body.ipad-split .ipad-back-shift .sc-back-btn {
+  margin-left: 24px;
+  transition: margin-left 0.2s ease;
+}
+/* Slide Over / 窄窗口分屏（<=400px）：指示条更占空间，再让一点 */
+@media screen and (max-width: 400px) {
+  body.ipad-split .page-header__back,
+  body.ipad-split .sc-back-btn,
+  body.ipad-split .ipad-back-shift .page-header__back,
+  body.ipad-split .ipad-back-shift .sc-back-btn {
+    margin-left: 32px;
+  }
+}
+/* 返回按钮点击热区扩大（分屏时更易误触，扩大可点区但视觉不变） */
+.page-header__back {
+  position: relative;
+  flex-shrink: 0;   /* v8.6.31 一屏 flex 布局（速算做题页）防压缩 */
+}
+.page-header__back::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  right: -8px;
+  bottom: -8px;
+  pointer-events: none;   /* 不拦截自身 SVG 点击，仅扩展热区 */
+}
+
+.page-header__title {
+  font-size: var(--font-xxl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.page-header__right {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+/* v8.12.27 错题本顶栏「更多」按钮：对齐画布 7:680（40×40 灰底圆角20 三点图标） */
+.page-header__more {
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
+  background: var(--bg-tertiary);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease;
+}
+.page-header__more:active { background: #E9E9ED; }
+

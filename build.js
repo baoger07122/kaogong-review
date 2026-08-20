@@ -16,7 +16,27 @@ const fs = require('fs');
 const path = require('path');
 const root = process.cwd();
 
-const css = fs.readFileSync(path.join(root, 'src', 'styles.css'), 'utf8');
+// CSS 也显式维护加载顺序。顺序必须与拆分前一致，避免后写入的规则覆盖关系发生变化。
+// 71-sketch-preserved、90-speed-preserved、92-speed-preserved 是受保护样式片段：
+// 涂鸦和速算样式只按原顺序拼接，不在本次重构中改写。
+const CSS_MODULES = [
+  'src/styles/00-foundation.css',
+  'src/styles/10-notes-navigation.css',
+  'src/styles/20-tags.css',
+  'src/styles/30-home-todos.css',
+  'src/styles/40-notes-workspace.css',
+  'src/styles/50-settings-kp.css',
+  'src/styles/60-errors-editor.css',
+  'src/styles/70-worddb.css',
+  'src/styles/71-sketch-preserved.css',
+  'src/styles/80-error-forms-components.css',
+  'src/styles/90-speed-preserved.css',
+  'src/styles/91-stickies-stats.css',
+  'src/styles/92-speed-preserved.css'
+];
+const css = CSS_MODULES
+  .map(file => fs.readFileSync(path.join(root, file), 'utf8'))
+  .join('');
 // 显式声明依赖顺序，避免文件名排序或新增模块导致初始化顺序变化。
 // src/core/ 是基础层；src/components/ 是 UI 组件层；src/pages/ 是页面层；
 // src/bootstrap/ 是全局启动入口。
