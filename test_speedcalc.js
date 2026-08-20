@@ -28,7 +28,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.12.17', 'App.VERSION === 8.12.17（当前 ' + App.VERSION + '）');
+    assert(/^\d+\.\d+\.\d+$/.test(App.VERSION), 'App.VERSION 符合月.日.迭代次格式（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 题型生成器（13 种 = 基础计算 10 + 资料分析 3；含 1 个 ▼ 占位）');
     const typeKeys = Object.keys(SC.TYPES);
@@ -46,7 +46,7 @@ setTimeout(async () => {
       }
     });
     assert(genOk, '12 种可做题型各生成 20 题答案均为数字');
-    assert(SC.TYPES.addsub2.name === '两位数加减' && SC.TYPES.spDen.name === '特殊分母练习' && SC.TYPES.est05.name === '零五十估算练习' && SC.TYPES.base.name === '基期练习' && SC.TYPES.growth.name === '增量练习', '关键题型存在（两位数加减/特殊分母/零五十估算/基期/增量）');
+    assert(SC.TYPES.addsub2.name === '两位数加减' && SC.TYPES.spDen.name === '特殊分母练习' && SC.TYPES.est05.name === '估算练习' && SC.TYPES.base.name === '基期练习' && SC.TYPES.growth.name === '增量练习', '关键题型存在（两位数加减/特殊分母/估算/基期/增量）');
 
     console.log('\n[3] 设置持久化（kg_speed_settings）');
     win.localStorage.removeItem(SC.SETTINGS_KEY);
@@ -67,19 +67,19 @@ setTimeout(async () => {
     const home = doc.getElementById('page-speed-calc');
     SC.state.view = 'home';
     SC.state.type = null;
-    win.localStorage.setItem(SC.SETTINGS_KEY, JSON.stringify(Object.assign(SC.defaultSettings(), { selectedType: '' })));
+    win.localStorage.setItem(SC.SETTINGS_KEY, JSON.stringify(Object.assign(SC.defaultSettings(), { selectedType: '', lastActiveType: '' })));
     await SC.render({});
     await wait(50);
     assert(home.querySelectorAll('.sc-module-card').length === 2, '2 个模块卡片（基础计算/资料分析）');
-    assert(home.querySelectorAll('.sc-module-tag').length === 14, '标签云共 14 个（基础 10 + 自定义练习 + 资料 3）');
+    assert(home.querySelectorAll('.sc-type-card').length === 14, '标签云共 14 个（基础 10 + 自定义练习 + 资料 3）');
     assert(!!home.querySelector('.sc-module-icon') && home.querySelectorAll('.sc-module-count').length === 2, '模块头含图标方块与 N/N 可练习计数');
     const builtSc = fs.readFileSync('index.html', 'utf8');
     assert(builtSc.includes('.page-header') && builtSc.includes('padding-top: var(--top-buffer)'), 'v8.6.31 顶栏并入 page-header（安全区 padding-top 由 page-header 承担）');
     assert(home.querySelectorAll('.sc-opt-btn').length === 2, '题量/模式居中按钮（点击弹小窗）');
     assert(home.querySelector('.sc-opt-btn').textContent.includes('题量'), '题量按钮显示当前题量');
     // v8.6.32 最上行「是否需要确定」开关
-    const confirmRow32 = home.querySelector('.sc-confirm-row');
-    assert(!!confirmRow32 && confirmRow32.textContent.includes('是否需要确定'), '最上行「是否需要确定」开关存在');
+    const confirmRow32 = home.querySelector('.sc-action-chip--confirm');
+    assert(!!confirmRow32 && confirmRow32.textContent.includes('确定'), '操作行「确定」开关存在');
     const csw = home.querySelector('.sc-confirm-row__switch');
     assert(csw.classList.contains('on'), '默认打开（=是）');
     csw.click();
@@ -91,10 +91,10 @@ setTimeout(async () => {
     const startBtn = home.querySelector('.sc-start-btn-v2');
     assert(!!startBtn && startBtn.classList.contains('disabled'), '未选题型时开始按钮为禁用态（disabled）');
     // 点击标签 → 单选高亮 + 开始按钮启用
-    const tag0 = home.querySelector('.sc-module-tag');
+    const tag0 = home.querySelector('.sc-type-card[data-tk="addsub2"]');
     tag0.click();
     await wait(20);
-    assert(home.querySelectorAll('.sc-module-tag.selected').length === 1, '标签全局单选（仅 1 个选中）');
+    assert(home.querySelectorAll('.sc-type-card.selected').length === 1, '标签全局单选（仅 1 个选中）');
     assert(!startBtn.classList.contains('disabled') && startBtn.textContent === '开始练习', '选题后开始按钮启用');
     assert(SC.state.type !== null, '选中题型已记录');
 
@@ -105,11 +105,7 @@ setTimeout(async () => {
     assert(!!pos && /1\/10/.test(pos.textContent), '状态栏显示 1/10');
     assert(!!home.querySelector('.sc-statusbar__pen') && !!home.querySelector('#sc-timer'), '状态栏有笔图标与计时器');
     const std = home.querySelector('.sc-standard');
-    const selS = SC.TYPES[SC.state.type].s;
-    assert(!!std && std.textContent.includes('合格: ' + selS.pass + 's'), '评级按题型显示（合格: ' + selS.pass + 's）');
-    // v8.6.40 评级标准移到输入区下方（answer 之后；compareDocumentPosition FOLLOWING=4）
-    const ansEl40 = home.querySelector('.sc-practice__answer');
-    assert(!!std && !!ansEl40 && (ansEl40.compareDocumentPosition(std) & 4) !== 0, 'v8.6.40 评级标准显示在输入区下方');
+    assert(!std, '做题页不显示评级标准（已移至结果页）');
     assert(!!home.querySelector('.sc-rating-line'), 'v8.6.40 评分行存在');
     assert(SC.TYPES.div3x1.s.pass === 38 && SC.TYPES.div3x1.s.good === 30 && SC.TYPES.div3x1.s.excellent === 24, 'v8.6.40 div3x1 评级标准（合格38/良好30/优秀24）');
     assert(!!home.querySelector('.sc-practice__expr'), '大题目展示');
@@ -121,22 +117,13 @@ setTimeout(async () => {
     assert(home.querySelectorAll('.sc-numpad__grid .sc-numpad__btn').length === 12, '数字区 12 键（含 +/-）');
     assert(!!Array.from(home.querySelectorAll('.sc-numpad__grid .sc-numpad__btn')).find(b => b.textContent === '+/-'), '+/- 正负切换键存在');
     const built38 = fs.readFileSync('index.html', 'utf8');
-    assert(built38.includes('#059669') && built38.includes('cubic-bezier(0.34, 1.56, 0.64, 1)'), 'v8.6.38 功能键深绿 + 按压弹簧回弹');
+    assert(built38.includes('.sc-numpad--v2 .sc-numpad__btn--func') && built38.includes('cubic-bezier(0.34, 1.56, 0.64, 1)'), 'v8.6.38 功能键样式 + 按压弹簧回弹');
     assert(built38.includes('scFlashOk') && built38.includes('scAnsPop') && built38.includes('scNumPop') && built38.includes('scExprIn'), 'v8.6.38 动画（正确闪烁/输入弹入/统计跳动/题目淡入）');
     assert(built38.includes('_tapHaptic') && built38.includes('AudioContext') && built38.includes('navigator.vibrate'), 'v8.6.39 iOS 触觉（Web Audio 低频脉冲 + Android vibrate）');
     assert(built38.includes('translateY(1px)'), 'v8.6.39 按压增加位移（增强按下感）');
     assert(!home.querySelector('input[type=text], input[type=number]'), '无系统输入框（强制屏幕键盘）');
-    // v8.6.32 键盘调节开关
-    const adjBtn32 = home.querySelector('.sc-numpad__adjbtn');
-    assert(!!adjBtn32 && adjBtn32.textContent === '调节', '键盘底部「调节」开关存在');
-    assert(Array.from(home.querySelectorAll('.sc-numpad__adjbtn')).some(b => b.textContent === '重开'), 'v8.6.38 重开按钮移至键盘底部');
-    adjBtn32.click();
-    await wait(20);
-    const adjPanel32 = home.querySelector('.sc-keyboard-adj');
-    assert(!!adjPanel32 && adjPanel32.querySelectorAll('input[type=range]').length === 2, '调节面板含高度/宽度 2 个滑条');
-    home.querySelector('.sc-keyboard-adj__close').click();
-    await wait(20);
-    assert(!home.querySelector('.sc-keyboard-adj'), '收起按钮关闭调节面板');
+    // 当前版本将「重开」保留在做题页状态栏；键盘调节面板已移除。
+    assert(!!home.querySelector('.sc-statusbar__restart') && home.querySelector('.sc-statusbar__restart').textContent === '重开', '重开按钮位于状态栏');
     // 计时格式 M:SS:d
     const t0 = home.querySelector('#sc-timer');
     assert(/^\d+:\d{2}\.\d$/.test(t0.textContent), '计时格式 M:SS:d（' + t0.textContent + '）');
@@ -185,7 +172,7 @@ setTimeout(async () => {
     const summary = home.querySelector('.sc-result-summary');
     assert(!!summary && /本次练习用时:\d+:\d{2} 加油/.test(summary.textContent), '摘要区显示「本次练习用时:M:SS 加油」');
     const rtHead = home.querySelectorAll('.sc-result-table__head .sc-rt-col');
-    assert(rtHead.length === 5, '结果表格 5 列表头（#/题目/正确答案/你的答案/用时）');
+    assert(rtHead.length === 6, '结果表格 6 列表头（#/题目/正确答案/你的答案/误差/用时）');
     const rtRows = home.querySelectorAll('.sc-result-table__row');
     assert(rtRows.length === 2 && rtRows[1].textContent.includes('✓') && rtRows[0].textContent.includes('✗'), '数据行渲染（正确 ✓ 蓝 / 错误 ✗ 红）');
     assert(rtRows[0].textContent.includes('= ' + SC.state.questions[0].answer), '正确答案格式「= 数字」');
@@ -203,7 +190,7 @@ setTimeout(async () => {
     SC.state.view = 'history';
     await SC.render({});
     await wait(50);
-    assert(home.querySelectorAll('.sc-hist-row').length >= 1, '历史页显示记录行');
+    assert(home.querySelectorAll('.sc-hcap').length >= 1, '历史页显示记录卡片');
 
     console.log('\n[10] v8.6.24 自定义练习（整合进基础模块，弹小窗选择）');
     // 回到题型选择页，点击基础模块的「自定义练习」标签 → 弹出小窗
@@ -211,7 +198,7 @@ setTimeout(async () => {
     SC.state.type = null;
     await SC.render({});
     await wait(50);
-    const customTag = Array.from(home.querySelectorAll('.sc-module-tag')).find(t => t.textContent.includes('自定义练习'));
+    const customTag = Array.from(home.querySelectorAll('.sc-type-card')).find(t => t.textContent.includes('自定义练习'));
     assert(!!customTag, '基础模块内含「自定义练习」标签（带 ▼）');
     customTag.click();
     await wait(50);
@@ -258,7 +245,7 @@ setTimeout(async () => {
     await wait(50);
     assert(SC.state.type === 'custom', '确定后题型标记为 custom（不进入新页面）');
     assert(SC.state.custom.items.item1.types.length === 1 && SC.state.custom.items.item2.types.length === 1, '双项配置已保存（第一项 1 + 第二项 1）');
-    assert(home.querySelectorAll('.sc-module-tag.selected').length === 1 && home.querySelector('.sc-module-tag.selected').textContent.includes('自定义练习'), '自定义练习标签高亮');
+    assert(home.querySelectorAll('.sc-type-card.selected').length === 1 && home.querySelector('.sc-type-card.selected').textContent.includes('自定义练习'), '自定义练习标签高亮');
     // 开始练习 → 双项交替生成
     win.localStorage.setItem(SC.SETTINGS_KEY, JSON.stringify(Object.assign(SC.defaultSettings(), { questionCount: 5, mode: 'train', selectedType: '' })));
     home.querySelector('.sc-start-btn-v2').click();

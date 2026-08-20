@@ -2,7 +2,8 @@
  * 考公笔试复盘系统 - 前端打包脚本（零依赖，仅用 Node 内置模块）
  * 从 src/ 源码生成 index.html：
  *   src/index.template.html  —— 页面骨架（含 <!--BUILD_CSS--> / <!--BUILD_JS--> 占位符）
- *   src/styles.css            —— 全部 CSS（唯一真源）
+ *   src/styles/               —— 按级联顺序拆分的 CSS 真源
+ *   src/styles.css            —— CSS 构建说明清单
  *   src/app.js + src/core/ + src/components/ + src/pages/ + src/bootstrap/ + src/modules/
  *   —— 按依赖顺序组织的 JS 源码
  * 用法：node build.js   （生成与当前功能完全一致的 index.html）

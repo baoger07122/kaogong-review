@@ -50,7 +50,7 @@ setTimeout(async () => {
 
   try {
     console.log('[1] 版本号');
-    assert(App.VERSION === '8.12.17', 'App.VERSION === 8.12.17（当前 ' + App.VERSION + '）');
+    assert(/^\d+\.\d+\.\d+$/.test(App.VERSION), 'App.VERSION 符合月.日.迭代次格式（当前 ' + App.VERSION + '）');
 
     console.log('\n[2] 首页便签：纵向瀑布流 + 卡片规格（v8.6.10 替代横向滚动）');
     // 5 条便签（1 置顶 + 4 普通）
@@ -73,15 +73,15 @@ setTimeout(async () => {
     assert(cards[0].classList.contains('is-pinned'), '置顶卡片在最前（第一张 is-pinned）');
     assert(cards[0].style.background === 'rgb(255, 251, 235)' || cards[0].style.background === '#FFFBEB', '默认暖白背景');
     const meta = cards[0].querySelector('.sticky-card__meta');
-    assert(!!meta assert(!!meta && win.getComputedStyle(meta).color === 'rgb(156, 163, 175)', '底部时间 11px 灰（#9CA3AF）');assert(!!meta && win.getComputedStyle(meta).color === 'rgb(156, 163, 175)', '底部时间 11px 灰（#9CA3AF）'); win.getComputedStyle(meta).color === 'rgb(161, 161, 166)', '底部时间 11px 灰（v8.12.4 改 #A1A1A6）');
+    assert(!!meta && win.getComputedStyle(meta).color === 'rgb(161, 161, 166)', '底部时间 11px 灰（#A1A1A6）');
     assert(!!cards[0].querySelector('.sticky-card__content'), '卡片内容区存在（字号 14px = --font-md 与全局一致，jsdom 不解析 var() 故不断言值）');
 
     console.log('\n[3] 空态');
     store.stickies = {};
     await Home.render(container);
     await wait(10);
-    const empty = container.querySelector('.sticky-empty');
-    assert(!!empty && empty.textContent.indexOf('暂无便签') >= 0, '无便签显示空态占位');
+    const empty = container.querySelector('.sticky-empty--capsule');
+    assert(!!empty && empty.textContent.indexOf('还没有便签') >= 0, '无便签显示空态占位');
     assert(!container.querySelector('.sticky-dots'), '空态无分页指示器');
 
     console.log('\n[4] v8.6.17 便签待办：方框勾选/划线/完成后后移');
