@@ -310,10 +310,12 @@ input, textarea, select {
   }
 }
 
-/* ===== 无底部导航页面（笔记详情/笔记编辑）：隐藏固定底栏，内容底部不再预留 nav 空间 ===== */
+/* ===== 无底部导航页面：隐藏固定底栏，内容底部不再预留 nav 空间 ===== */
 #bottom-nav.nav--hidden { display: none; }
 #page-note-detail.nav-hidden,
-#page-note-form.nav-hidden {
+#page-note-form.nav-hidden,
+#page-error-detail.nav-hidden,
+#page-error-form.nav-hidden {
   padding-bottom: var(--safe-bottom);
 }
 
@@ -7024,6 +7026,9 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   padding: 10px 12px;
   padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 90px);
 }
+#page-error-form.nav-hidden .form-page {
+  padding-bottom: calc(var(--safe-bottom) + 30px);
+}
 /* 表单项间距 16→12px */
 #page-error-form .form-group {
   margin-bottom: 12px;
@@ -7162,6 +7167,9 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 /* ===== 【v8.14.11 错题添加表单卡片化】对齐画布 10:758 =====
    扁平 form-group 分组为卡片：白底 + 1px #E0E0E0 边框 + 圆角16 */
 #page-error-form .manual-card-form .form-page { padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 30px); }
+#page-error-form.nav-hidden .manual-card-form .form-page {
+  padding-bottom: calc(var(--safe-bottom) + 30px);
+}
 #page-error-form .ef-card {
   display: flex;
   flex-direction: column;

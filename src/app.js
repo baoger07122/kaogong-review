@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.20.2';
+App.VERSION = '8.20.3';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -9101,7 +9101,7 @@ App.Router = {
 
     // 无底部导航页面（笔记详情/笔记编辑）：隐藏固定底栏 + 内容底部不预留 nav 空间 + 通知移动端工具栏贴底
     // 先清除所有页面的 nav-hidden，再只给当前页设置（避免残留 class 影响后续切换）
-    const navHiddenPages = ['note-detail', 'note-form'];
+    const navHiddenPages = ['note-detail', 'note-form', 'error-detail', 'error-form'];
     const navHidden = navHiddenPages.indexOf(base) >= 0;
     document.querySelectorAll('.page.nav-hidden').forEach(function (p) { p.classList.remove('nav-hidden'); });
     if (pageEl) pageEl.classList.toggle('nav-hidden', navHidden);
@@ -9152,7 +9152,7 @@ App.Router = {
   updateNavVisibility(currentPage) {
     const nav = document.getElementById('bottom-nav');
     if (!nav) return;
-    const hidePages = ['note-detail', 'note-form'];
+    const hidePages = ['note-detail', 'note-form', 'error-detail', 'error-form'];
     nav.classList.toggle('nav--hidden', hidePages.indexOf(currentPage) >= 0);
   },
 
@@ -11216,7 +11216,7 @@ App.Pages.Errors = {
     container.appendChild(header);
 
     const content = document.createElement('div');
-    content.style.cssText = 'padding:var(--spacing-md) var(--page-padding);padding-bottom:calc(var(--nav-height) + var(--safe-bottom) + var(--spacing-lg));';
+    content.style.cssText = 'padding:var(--spacing-md) var(--page-padding);padding-bottom:calc(var(--safe-bottom) + var(--spacing-lg));';
 
     // 题号 + 标签
     const headerInfo = document.createElement('div');
