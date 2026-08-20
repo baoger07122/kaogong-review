@@ -4966,8 +4966,10 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   line-height: 1.8;
   outline: none;
   word-break: break-word;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
   color: var(--text-primary);
-  touch-action: pan-y;   /* 移动端编辑时可滚动页面 */
+  touch-action: pan-x pan-y;   /* 移动端编辑时可滚动页面，表格也可横向查看 */
   padding: 2px 0;
   /* v8.6.15 底部留白 = 移动端工具栏高度 + 安全区，编辑到最后一行不被工具栏遮挡，页面自动滚动可见 */
   padding-bottom: calc(84px + var(--safe-bottom, 0px));
@@ -4994,8 +4996,27 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   margin: 0.5em 0;
   color: var(--text-primary);
 }
-.html-editor__area table { border-collapse: collapse; margin: 0.5em 0; }
-.html-editor__area td, .html-editor__area th { border: 1px solid var(--divider-color); padding: 4px 8px; }
+.html-editor__area table {
+  width: 100%;
+  min-width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+  margin: 0.75em 0;
+}
+.html-editor__area td, .html-editor__area th {
+  min-width: 96px;
+  min-height: 36px;
+  border: 1px solid var(--divider-color);
+  padding: 8px 10px;
+  vertical-align: top;
+  word-break: break-word;
+}
+.html-editor__area td[data-table-active], .html-editor__area th[data-table-active] {
+  outline: 2px solid var(--color-primary, #1971C2);
+  outline-offset: -2px;
+  background: rgba(25, 113, 194, 0.06);
+}
+.html-editor__area table.md-preview-table th { background: var(--bg-tertiary); font-weight: 600; }
 .html-editor__area code { font-family: var(--font-mono); font-size: 0.92em; }
 .html-editor__area .mformula { cursor: default; }
 /* 移动端隐藏桌面工具栏（移动端用底部格式面板） */
@@ -5084,7 +5105,7 @@ body.ipad-split .notion-editor {
     0 1px 3px rgba(0, 0, 0, 0.04),
     inset 0 1px 0 rgba(255, 255, 255, 0.6);
   border: 1px solid rgba(0, 0, 0, 0.04); /* 极淡边框 → 精致感 */
-  z-index: 1000;
+  z-index: 8000;
   display: none;                 /* 桌面端默认隐藏，移动端显示 */
   /* 居中 transform + iOS 防闪烁（合并，避免覆盖） */
   -webkit-transform: translateX(-50%) translateZ(0);
@@ -5094,6 +5115,7 @@ body.ipad-split .notion-editor {
   /* 键盘弹出/收起时的平滑过渡 */
   transition: bottom 0.3s cubic-bezier(0.32, 0.72, 0, 1);
 }
+.notion-mobile-toolbar[data-mode="table"] { border-color: rgba(25, 113, 194, 0.25); }
 /* iPad 分屏模式（宽度 < 1024）：工具栏接近全宽，圆角略小 */
 body.ipad-split .notion-mobile-toolbar {
   width: calc(100% - 32px);
@@ -5331,6 +5353,33 @@ body.ipad-split .notion-mobile-toolbar {
 .notion-mobile-fmt-grid .notion-mobile-fmt-item:active { background: var(--bg-tertiary, #F7F7F7); }
 .notion-mobile-fmt-grid .notion-mobile-fmt-item__icon { width: auto; height: auto; font-size: 20px; }
 .notion-mobile-fmt-grid .notion-mobile-fmt-item__label { font-size: 12px; }
+.html-table-picker {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(42px, 1fr));
+  gap: 8px;
+  padding: 8px 4px 12px;
+}
+.html-table-picker__cell {
+  min-height: 42px;
+  border: 1px solid var(--divider-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  -webkit-tap-highlight-color: transparent;
+}
+.html-table-picker__cell:active,
+.html-table-picker__cell:focus-visible {
+  border-color: var(--color-primary, #1971C2);
+  background: var(--color-primary-bg, #EFF6FF);
+  color: var(--color-primary, #1971C2);
+}
+.html-table-picker__hint {
+  padding: 0 4px 8px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
 /* 调色板（柔和色多选） */
 .html-color-row {
   display: flex;
@@ -6088,7 +6137,6 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   padding: 0 8px;
   font-size: 14px;
 }
-
 /* =======================================================================
    词语库页面（Notion 数据库风格）
    ======================================================================= */
@@ -10425,7 +10473,7 @@ window.App = window.App || {};
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.20.12';
+App.VERSION = '8.20.13';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -10694,8 +10742,13 @@ App.Utils = {
     if (typeof content !== 'string') return '';
     const s = content.trim();
     if (!s) return '';
-    // 已是 HTML（以标签开头）→ 原样返回，不二次转换（幂等，保证编辑产物原样直存）
-    if (/^<(p|h[1-6]|ul|ol|blockquote|pre|table|details|div|section|figure|hr|br)\b/i.test(s)) return s;
+    // 已是编辑器 HTML → 原样返回，不二次转换（幂等，保证编辑产物原样直存）。
+    // 不能只判断「第一个标签」：富文本可能以 <strong>/<span>/<mark>/<code> 等行内标签开头，
+    // 关联错题等局部表单操作触发重渲染时，旧判断会把它误当成 Markdown，再把标签转义成源码文字。
+    // 这里仅识别编辑器允许产生的标签，避免把任意外部 HTML 都当成可渲染内容。
+    const editorTags = 'p|h[1-6]|ul|ol|li|blockquote|pre|table|thead|tbody|tr|th|td|details|summary|div|section|figure|hr|br|strong|b|em|i|u|s|del|mark|span|a|img|code|sub|sup|small';
+    const hasEditorHtml = new RegExp('<\\/?(?:' + editorTags + ')(?:\\s|/?>)', 'i').test(s);
+    if (hasEditorHtml) return s;
     // 旧 Markdown / 纯文本 → 复用 mdToBlocks 解析为块 → renderBlocks 渲染成 HTML
     try {
       const blocks = this.mdToBlocks(s);
@@ -11227,7 +11280,6 @@ App.Utils = {
     });
   }
 };
-
 
 
 // ===== 考公笔试复盘系统 - IndexedDB 数据库层 =====
@@ -12330,7 +12382,10 @@ App.Components = {
   },
 
   // 注册当前活动编辑器（notionEditor 创建时调用）
-  _registerMobileEditor(inst) { this._activeMobileEditor = inst; },
+  _registerMobileEditor(inst) {
+    this._activeMobileEditor = inst;
+    if (this._setMobileToolbarMode) this._setMobileToolbarMode('default');
+  },
 
   // 移动端单例工具栏显隐：默认隐藏，仅块编辑器聚焦时显示（由 notionEditor focusin/focusout 联动）
   _showMobileToolbar() {
@@ -12385,57 +12440,68 @@ App.Components = {
       moveDown: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>',
       more: '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
       dismiss: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="16" height="11" rx="2"/><path d="M9 21h6M12 15v6M8 10l3 3 3-3"/></svg>',
+      addRow: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 5h16M4 11h16M4 17h16"/><path d="M18 14v7M14.5 17.5h7"/></svg>',
+      addCol: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 4v16M11 4v16M17 4v16"/><path d="M14 18h7M17.5 14.5v7"/></svg>',
+      deleteRow: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 5h16M4 11h16M4 17h16"/><path d="M16 14l5 6M21 14l-5 6"/></svg>',
+      deleteCol: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 4v16M11 4v16M17 4v16"/><path d="M14 16l6 5M20 16l-6 5"/></svg>',
+      header: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16M8 4v5M12 4v5M16 4v5"/></svg>',
+      align: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M7 10h10M4 14h16M7 18h10"/></svg>',
+      done: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4L19 6"/></svg>',
       // v8.6.4 段落格式按钮（¶）：与文字格式（A）拆分为两个独立入口
       paragraph: '<span style="font-size:20px;font-weight:700;line-height:1">¶</span>',
     };
-    const btns = [
-      { key: 'insert', icon: 'plus', title: '插入块', label: '插入' },
-      { key: 'format', icon: 'textAa', title: '文本格式', label: 'Aa' },
-      { key: 'blockfmt', icon: 'paragraph', title: '段落格式', label: '¶' },   // v8.6.4 段落格式独立按钮
-      { key: 'voice', icon: 'voice', title: '语音输入', label: '语音' },
-      { key: 'image', icon: 'image', title: '图片', label: '图片' },
-      { key: 'redo', icon: 'redo', title: '重做', label: '重做' },
+    const defaultBtns = [
       { key: 'undo', icon: 'undo', title: '撤销', label: '撤销' },
-      { key: 'comment', icon: 'comment', title: '评论', label: '评论' },
-      { key: 'mention', icon: 'mention', title: '提及', label: '提及' },
-      { key: 'delete', icon: 'trash', title: '删除块', label: '删除' },
-      { key: 'indent', icon: 'indent', title: '增加缩进', label: '缩进' },
-      { key: 'outdent', icon: 'outdent', title: '减少缩进', label: '缩出' },
-      { key: 'moveUp', icon: 'moveUp', title: '块上移', label: '上移' },
-      { key: 'moveDown', icon: 'moveDown', title: '块下移', label: '下移' },
-      { key: 'more', icon: 'more', title: '更多', label: '更多' },
+      { key: 'redo', icon: 'redo', title: '重做', label: '重做' },
+      { key: 'format', icon: 'textAa', title: '文字格式', label: '文字' },
+      { key: 'blockfmt', icon: 'paragraph', title: '段落格式', label: '段落' },
+      { key: 'insert', icon: 'plus', title: '插入', label: '插入' },
       { key: 'dismiss', icon: 'dismiss', title: '收起键盘', label: '收起' },
+    ];
+    const tableBtns = [
+      { key: 'table-add-row', icon: 'addRow', title: '增加行', label: '加行' },
+      { key: 'table-add-col', icon: 'addCol', title: '增加列', label: '加列' },
+      { key: 'table-delete-row', icon: 'deleteRow', title: '删除行', label: '删行' },
+      { key: 'table-delete-col', icon: 'deleteCol', title: '删除列', label: '删列' },
+      { key: 'table-header', icon: 'header', title: '切换表头', label: '表头' },
+      { key: 'table-align', icon: 'align', title: '切换对齐', label: '对齐' },
+      { key: 'table-delete', icon: 'trash', title: '删除表格', label: '删除' },
+      { key: 'table-done', icon: 'done', title: '完成表格编辑', label: '完成' },
     ];
     const el = document.createElement('div');
     el.className = 'notion-mobile-toolbar';
     el.setAttribute('data-mobile-toolbar', '1');
     const scroll = document.createElement('div');
     scroll.className = 'notion-mobile-toolbar__scroll';
-    btns.forEach(x => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'notion-mobile-tool-btn';
-      btn.dataset.key = x.key;
-      btn.title = x.title;
-      btn.innerHTML = NM_ICONS[x.icon];   // 纯图标，无文字标签
-      btn.addEventListener('mousedown', (e) => e.preventDefault());
-      btn.addEventListener('click', (e) => {
-        e.preventDefault(); e.stopPropagation();
-        const inst = App.Components._activeMobileEditor;
-        if (inst && typeof inst._onMobileToolbar === 'function') inst._onMobileToolbar(x.key);
+    const renderToolbarButtons = (items) => {
+      scroll.innerHTML = '';
+      items.forEach(x => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'notion-mobile-tool-btn';
+        btn.dataset.key = x.key;
+        btn.title = x.title;
+        btn.innerHTML = NM_ICONS[x.icon];   // 纯图标，无文字标签
+        btn.addEventListener('mousedown', (e) => e.preventDefault());
+        btn.addEventListener('click', (e) => {
+          e.preventDefault(); e.stopPropagation();
+          const inst = App.Components._activeMobileEditor;
+          if (inst && typeof inst._onMobileToolbar === 'function') inst._onMobileToolbar(x.key);
+        });
+        // 长按显示功能提示（500ms），提升纯图标工具栏的可发现性
+        let pressTimer = null;
+        btn.addEventListener('touchstart', () => {
+          pressTimer = setTimeout(() => {
+            if (App.Components.toast && x.title) App.Components.toast(x.title, 'info');
+          }, 500);
+        }, { passive: true });
+        btn.addEventListener('touchend', () => clearTimeout(pressTimer), { passive: true });
+        btn.addEventListener('touchmove', () => clearTimeout(pressTimer), { passive: true });
+        btn.addEventListener('touchcancel', () => clearTimeout(pressTimer), { passive: true });
+        scroll.appendChild(btn);
       });
-      // 长按显示功能提示（500ms），提升纯图标工具栏的可发现性
-      let pressTimer = null;
-      btn.addEventListener('touchstart', () => {
-        pressTimer = setTimeout(() => {
-          if (App.Components.toast && x.title) App.Components.toast(x.title, 'info');
-        }, 500);
-      }, { passive: true });
-      btn.addEventListener('touchend', () => clearTimeout(pressTimer), { passive: true });
-      btn.addEventListener('touchmove', () => clearTimeout(pressTimer), { passive: true });
-      btn.addEventListener('touchcancel', () => clearTimeout(pressTimer), { passive: true });
-      scroll.appendChild(btn);
-    });
+    };
+    renderToolbarButtons(defaultBtns);
     const mL = document.createElement('div');
     mL.className = 'notion-mobile-toolbar__mask left';
     const mR = document.createElement('div');
@@ -12443,6 +12509,14 @@ App.Components = {
     el.appendChild(mL); el.appendChild(scroll); el.appendChild(mR);
     document.body.appendChild(el);
     this._mobileToolbarEl = el;
+    this._mobileToolbarMode = 'default';
+    this._setMobileToolbarMode = (mode) => {
+      const nextMode = mode === 'table' ? 'table' : 'default';
+      if (this._mobileToolbarMode === nextMode) return;
+      this._mobileToolbarMode = nextMode;
+      el.dataset.mode = nextMode;
+      renderToolbarButtons(nextMode === 'table' ? tableBtns : defaultBtns);
+    };
 
     // ===== 软键盘适配（单例级，只注册一次） =====
     // iOS Safari 键盘弹出时 visualViewport 高度缩小，同时键盘上方还有系统「上一条/下一条/完成」透明条
@@ -15339,18 +15413,23 @@ Object.assign(App.Components, {
 
     // ===== 选区保持（v8.4.17 机制）：工具栏点击不丢选区 =====
     let savedRange = null;
+    let activeTable = null;
+    let activeCell = null;
     const captureSel = () => {
       try {
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0) return;
         const r = sel.getRangeAt(0);
-        if (r && r.toString() && area.contains(r.commonAncestorContainer)) savedRange = r.cloneRange();
+        if (r && area.contains(r.commonAncestorContainer)) savedRange = r.cloneRange();
       } catch (e) { /* 忽略 */ }
     };
     area.addEventListener('mouseup', captureSel);
     area.addEventListener('keyup', captureSel);
     area.addEventListener('focusin', captureSel);
-    area.addEventListener('input', () => { if (opts.onChange) opts.onChange(area.innerHTML); });
+    area.addEventListener('input', () => {
+      if (opts.onChange) opts.onChange(area.innerHTML);
+      keepCaretVisible();
+    });
 
     // ===== v8.15.20 Markdown 粘贴自动转换：粘贴 md 语法 → 自动渲染成富文本格式 =====
     // 背景：笔记/错题笔记此前为 HTML 所见即所得直存，导致粘贴 Markdown 语法（#/**/- 等）不生效、原样显示。
@@ -15410,17 +15489,28 @@ Object.assign(App.Components, {
     area.addEventListener('keydown', (e) => {
       if (e.key === 'Tab') {
         e.preventDefault();
-        indentParagraph(e.shiftKey ? -1 : 1);
+        const cell = getCellFromNode(e.target) || getCellFromSelection();
+        if (cell) moveTableCell(cell, e.shiftKey ? -1 : 1);
+        else indentParagraph(e.shiftKey ? -1 : 1);
       }
     });
     // v8.5.6 移动端格式栏显示：旧显示逻辑只认 .notion-editable，htmlEditor 需自触发
     area.addEventListener('focusin', () => {
       if (App.Components._showMobileToolbar) App.Components._showMobileToolbar();
+      keepCaretVisible();
     });
     area.addEventListener('focusout', (e) => {
       const next = e.relatedTarget;
       if (next && wrapper.contains(next)) return;
-      setTimeout(() => { if (App.Components._hideMobileToolbar) App.Components._hideMobileToolbar(); }, 220);
+      setTimeout(() => {
+        if (App.Components._hideMobileToolbar) App.Components._hideMobileToolbar();
+        if (App.Components._setMobileToolbarMode) App.Components._setMobileToolbarMode('default');
+      }, 220);
+    });
+    area.addEventListener('click', (e) => {
+      const cell = getCellFromNode(e.target);
+      if (cell) setActiveCell(cell);
+      else setActiveCell(null);
     });
     wrapper.addEventListener('mousedown', (e) => {
       const t = e.target;
@@ -15431,10 +15521,10 @@ Object.assign(App.Components, {
       let sel = null;
       try { sel = window.getSelection(); } catch (e) { /* 忽略 */ }
       let r = (sel && sel.rangeCount > 0) ? sel.getRangeAt(0) : null;
-      if (!r || !r.toString() || !area.contains(r.commonAncestorContainer)) {
+      if (!r || !area.contains(r.commonAncestorContainer)) {
         if (savedRange && area.contains(savedRange.commonAncestorContainer)) r = savedRange;
       }
-      if (r && r.toString()) {
+      if (r && area.contains(r.commonAncestorContainer)) {
         try {
           const startNode = r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentNode;
           const editable = startNode && startNode.closest ? startNode.closest('[contenteditable]') : null;
@@ -15445,6 +15535,29 @@ Object.assign(App.Components, {
         } catch (e3) { /* 忽略 */ }
       }
       return r;
+    }
+    function keepCaretVisible() {
+      if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') return;
+      window.requestAnimationFrame(() => {
+        try {
+          const r = ensureSelection();
+          if (!r) return;
+          const node = r.startContainer && r.startContainer.nodeType === 1
+            ? r.startContainer : (r.startContainer && r.startContainer.parentElement);
+          const target = node && area.contains(node) ? (node.closest && node.closest('td,th,p,h1,h2,h3,li,blockquote,pre,div') || node) : area;
+          if (!target || typeof target.getBoundingClientRect !== 'function') return;
+          let rect = r.getBoundingClientRect ? r.getBoundingClientRect() : null;
+          if (!rect || (!rect.height && !rect.width)) rect = target.getBoundingClientRect();
+          const vv = window.visualViewport;
+          const viewTop = vv ? vv.offsetTop : 0;
+          const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+          const bar = document.querySelector('.notion-mobile-toolbar.is-visible');
+          const barTop = bar ? bar.getBoundingClientRect().top : viewBottom - 24;
+          const safeBottom = Math.min(viewBottom - 12, barTop - 12);
+          if (rect.bottom > safeBottom) window.scrollBy(0, rect.bottom - safeBottom);
+          else if (rect.top < viewTop + 12) window.scrollBy(0, rect.top - (viewTop + 12));
+        } catch (e) { /* 某些浏览器在选区变化瞬间没有可测量矩形，忽略即可 */ }
+      });
     }
     function placeCaretAtEnd(el) {
       try {
@@ -15639,6 +15752,7 @@ Object.assign(App.Components, {
     ]));
     row.appendChild(grp([
       { b: 'ƒx', title: '插入公式', fn: insertFormula },
+      { b: '⊞', title: '插入表格', fn: () => insertTable(3, 3) },
       { b: '↶', title: '撤销', fn: () => history('undo') },
       { b: '↷', title: '重做', fn: () => history('redo') }
     ]));
@@ -15775,21 +15889,213 @@ Object.assign(App.Components, {
       });
     }
     // ➕：插入面板（表格/分割线/标注/引用）
-    function insertNodeAt(html) {
+    function insertNodeAt(html, options) {
+      const opts2 = options || {};
       const tmp = document.createElement('div');
       tmp.innerHTML = html;
       const n = tmp.firstChild;
       const r = ensureSelection();
       if (r && r.startContainer && area.contains(r.startContainer)) {
-        try { r.deleteContents(); r.insertNode(n); } catch (e) { area.appendChild(n); }
+        try {
+          if (opts2.replaceSelection !== false && !r.collapsed) r.deleteContents();
+          r.insertNode(n);
+        } catch (e) { area.appendChild(n); }
       } else area.appendChild(n);
       if (opts.onChange) opts.onChange(area.innerHTML);
       return n;
     }
-    function insertTable() {
-      const n = insertNodeAt('<table><tbody><tr><td><br></td><td><br></td></tr><tr><td><br></td><td><br></td></tr></tbody></table>');
+    function tableMarkup(rows, cols) {
+      const r = Math.max(1, Math.min(6, parseInt(rows, 10) || 3));
+      const c = Math.max(1, Math.min(6, parseInt(cols, 10) || 3));
+      let html = '<table><tbody>';
+      for (let y = 0; y < r; y++) {
+        html += '<tr>';
+        for (let x = 0; x < c; x++) html += '<td><br></td>';
+        html += '</tr>';
+      }
+      return html + '</tbody></table>';
+    }
+    function insertTable(rows, cols) {
+      const n = insertNodeAt(tableMarkup(rows, cols), { replaceSelection: false });
       const td = n && n.querySelector('td');
-      if (td) placeCaretAtEnd(td);
+      if (td) {
+        setActiveCell(td);
+        placeCaretAtEnd(td);
+        keepCaretVisible();
+      }
+    }
+    function getCellFromNode(node) {
+      if (!node) return null;
+      const el = node.nodeType === 1 ? node : node.parentElement;
+      return el && el.closest ? el.closest('td,th') : null;
+    }
+    function getCellFromSelection() {
+      try {
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount) return null;
+        return getCellFromNode(sel.getRangeAt(0).startContainer);
+      } catch (e) { return null; }
+    }
+    function setActiveCell(cell) {
+      area.querySelectorAll('td[data-table-active], th[data-table-active]').forEach(el => el.removeAttribute('data-table-active'));
+      activeCell = cell && area.contains(cell) ? cell : null;
+      activeTable = activeCell ? activeCell.closest('table') : null;
+      if (activeCell) activeCell.setAttribute('data-table-active', 'true');
+      if (App.Components._setMobileToolbarMode) App.Components._setMobileToolbarMode(activeCell ? 'table' : 'default');
+    }
+    function getCurrentTable() {
+      const cell = activeCell || getCellFromSelection();
+      return cell && area.contains(cell) ? cell.closest('table') : activeTable;
+    }
+    function focusTableCell(cell) {
+      if (!cell) return;
+      setActiveCell(cell);
+      placeCaretAtEnd(cell);
+      keepCaretVisible();
+    }
+    function moveTableCell(cell, direction) {
+      const table = cell && cell.closest('table');
+      if (!table) return;
+      const cells = Array.from(table.rows).flatMap(row => Array.from(row.cells));
+      const currentIndex = cells.indexOf(cell);
+      if (currentIndex < 0) return;
+      let nextIndex = currentIndex + direction;
+      if (nextIndex < 0) nextIndex = 0;
+      if (nextIndex >= cells.length) {
+        if (direction > 0) {
+          addTableRow(table, cell);
+          return;
+        }
+        nextIndex = cells.length - 1;
+      }
+      focusTableCell(cells[nextIndex]);
+    }
+    function newTableCell() {
+      const cell = document.createElement('td');
+      cell.innerHTML = '<br>';
+      return cell;
+    }
+    function addTableRow(table, referenceCell) {
+      if (!table) return;
+      const refRow = referenceCell && referenceCell.closest('tr');
+      const count = refRow ? Math.max(1, refRow.cells.length) : Math.max(1, table.rows[0] ? table.rows[0].cells.length : 1);
+      const row = document.createElement('tr');
+      for (let i = 0; i < count; i++) row.appendChild(newTableCell());
+      const refSection = refRow && refRow.parentNode;
+      if (refSection && refSection.tagName === 'THEAD') {
+        const body = table.tBodies[0] || table.appendChild(document.createElement('tbody'));
+        body.insertBefore(row, body.firstChild || null);
+      } else if (refRow && refRow.parentNode) {
+        refRow.parentNode.insertBefore(row, refRow.nextSibling);
+      } else {
+        const body = table.tBodies[0] || table.appendChild(document.createElement('tbody'));
+        body.appendChild(row);
+      }
+      if (opts.onChange) opts.onChange(area.innerHTML);
+      focusTableCell(row.cells[0]);
+    }
+    function addTableColumn(table, referenceCell) {
+      if (!table) return;
+      const refRow = referenceCell && referenceCell.closest('tr');
+      const index = refRow ? Math.max(0, referenceCell.cellIndex) : 0;
+      Array.from(table.rows).forEach(row => {
+        const cell = newTableCell();
+        if (index >= row.cells.length) row.appendChild(cell);
+        else row.insertBefore(cell, row.cells[index + 1] || null);
+      });
+      if (opts.onChange) opts.onChange(area.innerHTML);
+      const targetRow = refRow || table.rows[0];
+      if (targetRow) focusTableCell(targetRow.cells[Math.min(index + 1, targetRow.cells.length - 1)]);
+    }
+    function deleteTableRow(table, referenceCell) {
+      if (!table || table.rows.length <= 1) {
+        if (App.Components.toast) App.Components.toast('表格至少保留一行', 'info');
+        return;
+      }
+      const row = (referenceCell && referenceCell.closest('tr')) || table.rows[table.rows.length - 1];
+      const next = row.nextElementSibling || row.previousElementSibling;
+      row.remove();
+      if (opts.onChange) opts.onChange(area.innerHTML);
+      focusTableCell(next && next.cells[0] ? next.cells[0] : table.rows[0].cells[0]);
+    }
+    function deleteTableColumn(table, referenceCell) {
+      if (!table || !table.rows.length || table.rows[0].cells.length <= 1) {
+        if (App.Components.toast) App.Components.toast('表格至少保留一列', 'info');
+        return;
+      }
+      const index = referenceCell ? Math.max(0, referenceCell.cellIndex) : 0;
+      Array.from(table.rows).forEach(row => { if (row.cells[index]) row.deleteCell(index); });
+      if (opts.onChange) opts.onChange(area.innerHTML);
+      const firstRow = table.rows[0];
+      if (firstRow) focusTableCell(firstRow.cells[Math.min(index, firstRow.cells.length - 1)]);
+    }
+    function toggleTableHeader(table) {
+      if (!table || !table.rows.length) return;
+      if (table.tHead) {
+        const headRow = table.tHead.rows[0];
+        const body = table.tBodies[0] || table.appendChild(document.createElement('tbody'));
+        Array.from(headRow.cells).forEach(cell => {
+          if (cell.tagName === 'TH') {
+            const td = document.createElement('td');
+            td.innerHTML = cell.innerHTML;
+            cell.replaceWith(td);
+          }
+        });
+        body.insertBefore(headRow, body.firstChild || null);
+        table.tHead.remove();
+      } else {
+        const firstRow = table.rows[0];
+        const head = document.createElement('thead');
+        Array.from(firstRow.cells).forEach(cell => {
+          if (cell.tagName !== 'TH') {
+            const th = document.createElement('th');
+            th.innerHTML = cell.innerHTML;
+            cell.replaceWith(th);
+          }
+        });
+        head.appendChild(firstRow);
+        table.insertBefore(head, table.firstChild);
+      }
+      if (opts.onChange) opts.onChange(area.innerHTML);
+      const first = table.rows[0] && table.rows[0].cells[0];
+      if (first) focusTableCell(first);
+    }
+    function cycleTableAlignment(cell) {
+      if (!cell) return;
+      const values = ['left', 'center', 'right'];
+      const current = cell.style.textAlign || 'left';
+      cell.style.textAlign = values[(values.indexOf(current) + 1) % values.length];
+      if (opts.onChange) opts.onChange(area.innerHTML);
+      focusTableCell(cell);
+    }
+    function deleteCurrentTable(table) {
+      if (!table || !table.parentNode) return;
+      const p = document.createElement('p');
+      p.innerHTML = '<br>';
+      table.parentNode.insertBefore(p, table.nextSibling);
+      table.remove();
+      setActiveCell(null);
+      if (opts.onChange) opts.onChange(area.innerHTML);
+      placeCaretAtEnd(p);
+    }
+    function openTableChooser() {
+      let grid = '<div class="notion-mobile-fmt-title">选择表格大小</div><div class="html-table-picker">';
+      for (let rows = 1; rows <= 6; rows++) {
+        for (let cols = 1; cols <= 6; cols++) {
+          grid += '<button type="button" class="html-table-picker__cell" data-rows="' + rows + '" data-cols="' + cols + '">' + rows + '×' + cols + '</button>';
+        }
+      }
+      grid += '</div><div class="html-table-picker__hint">选择后可在表格模式中继续增加或删除行列</div>';
+      const { sheet } = openSheet({ height: 'is-format', bodyHtml: grid });
+      sheet.querySelectorAll('.html-table-picker__cell').forEach(btn => {
+        btn.addEventListener('mousedown', (e) => e.preventDefault());
+        btn.addEventListener('click', () => {
+          const rows = parseInt(btn.dataset.rows, 10);
+          const cols = parseInt(btn.dataset.cols, 10);
+          closeSheet();
+          insertTable(rows, cols);
+        });
+      });
     }
     function insertDivider() { insertNodeAt('<hr>'); }
     function insertCallout() {
@@ -15813,7 +16119,7 @@ Object.assign(App.Components, {
       bindItems(sheet, (item) => {
         const cmd = item.dataset.cmd;
         closeSheet();
-        if (cmd === 'table') insertTable();
+        if (cmd === 'table') openTableChooser();
         else if (cmd === 'divider') insertDivider();
         else if (cmd === 'callout') insertCallout();
         else if (cmd === 'quote-insert') insertQuoteBlock();
@@ -15824,6 +16130,14 @@ Object.assign(App.Components, {
         case 'insert': openMobileInsertSheet(); break;
         case 'format': openMobileTextSheet(); break;
         case 'blockfmt': openMobileBlockSheet(); break;
+        case 'table-add-row': addTableRow(getCurrentTable(), activeCell); break;
+        case 'table-add-col': addTableColumn(getCurrentTable(), activeCell); break;
+        case 'table-delete-row': deleteTableRow(getCurrentTable(), activeCell); break;
+        case 'table-delete-col': deleteTableColumn(getCurrentTable(), activeCell); break;
+        case 'table-header': toggleTableHeader(getCurrentTable()); break;
+        case 'table-align': cycleTableAlignment(activeCell); break;
+        case 'table-delete': deleteCurrentTable(getCurrentTable()); break;
+        case 'table-done': setActiveCell(null); break;
         case 'undo': history('undo'); break;
         case 'redo': history('redo'); break;
         default:
@@ -23326,6 +23640,22 @@ App.Pages.Notes = {
     layout.appendChild(main);
     container.appendChild(layout);
 
+    // 与错题本保持一致：笔记页常驻右下角新建入口，空状态按钮只作为无数据时的辅助入口。
+    // 复用现有 FAB 样式，不改变笔记页整体布局；当前筛选的科目/模块会带入新建表单。
+    const fab = document.createElement('button');
+    fab.type = 'button';
+    fab.className = 'sc-fab fab--solid-blue';
+    fab.setAttribute('aria-label', '新建笔记');
+    fab.title = '新建笔记';
+    fab.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+    fab.addEventListener('click', () => {
+      const query = [];
+      if (this.state.subject) query.push('subject=' + encodeURIComponent(this.state.subject));
+      if (this.state.module) query.push('module=' + encodeURIComponent(this.state.module));
+      App.Router.navigate('note-form' + (query.length ? '?' + query.join('&') : ''));
+    });
+    container.appendChild(fab);
+
     // 加载数据
     await this.loadData();
     this.renderSubjectGrid(sidebar);
@@ -24156,6 +24486,13 @@ App.Pages.Notes = {
       content: '',
       linkedErrors: []
     };
+    let removeDraftAutosave = null;
+    const saveFormDraftNow = () => {
+      try {
+        if (formData._getContent) formData.content = formData._getContent();
+        App.Draft.saveForm('note', formData._formId, JSON.parse(JSON.stringify(formData)));
+      } catch (e) {}
+    };
 
     const loadAndRender = async () => {
       if (isEdit) {
@@ -24224,6 +24561,10 @@ App.Pages.Notes = {
       // 重建前先把编辑器内容同步回 formData，避免重渲染丢失草稿
       if (formData._getContent) {
         try { formData.content = formData._getContent(); } catch (e) {}
+      }
+      if (removeDraftAutosave) {
+        try { removeDraftAutosave(); } catch (e) {}
+        removeDraftAutosave = null;
       }
       container.innerHTML = '';
 
@@ -24414,38 +24755,53 @@ App.Pages.Notes = {
         const selected = await App.Components.actionSheet(options, '选择关联错题');
         if (selected && !formData.linkedErrors.includes(selected)) {
           formData.linkedErrors.push(selected);
-          buildForm();
+          renderLinkedErrors();
+          saveFormDraftNow();
+          debouncedSaveToDB();
         }
       });
       linkGroup.appendChild(linkBtn);
 
-      // 显示已关联的错题
-      if (formData.linkedErrors.length > 0) {
-        const linkedList = document.createElement('div');
-        linkedList.style.cssText = 'margin-top:8px;';
-        for (const errId of formData.linkedErrors) {
+      // 只更新关联错题列表，不销毁编辑器 DOM，避免格式、光标和滚动位置丢失。
+      const linkedList = document.createElement('div');
+      linkedList.style.cssText = 'margin-top:8px;';
+      const renderLinkedErrors = () => {
+        linkedList.innerHTML = '';
+        if (!formData.linkedErrors.length) {
+          linkedList.style.display = 'none';
+          return;
+        }
+        linkedList.style.display = '';
+        formData.linkedErrors.forEach((errId) => {
           const row = document.createElement('div');
           row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:4px 0;font-size:var(--font-sm);';
-          row.innerHTML = `<span style="color:var(--text-secondary);">关联错题 ${errId.slice(-6)}</span>`;
+          const text = document.createElement('span');
+          text.style.color = 'var(--text-secondary)';
+          text.textContent = '关联错题 ' + String(errId).slice(-6);
+          row.appendChild(text);
           const removeBtn = document.createElement('button');
           removeBtn.className = 'btn--text';
+          removeBtn.type = 'button';
           removeBtn.textContent = '移除';
           removeBtn.addEventListener('click', () => {
             formData.linkedErrors = formData.linkedErrors.filter(id => id !== errId);
-            buildForm();
+            renderLinkedErrors();
+            saveFormDraftNow();
+            debouncedSaveToDB();
           });
           row.appendChild(removeBtn);
           linkedList.appendChild(row);
-        }
-        linkGroup.appendChild(linkedList);
-      }
+        });
+      };
+      linkGroup.appendChild(linkedList);
+      renderLinkedErrors();
 
       form.appendChild(linkGroup);
 
       container.appendChild(form);
 
       // 草稿自动暂存（localStorage 兜底，按表单 id 隔离，避免旧草稿串入新笔记）
-      App.Draft.autoSaveForm('note', formData._formId, container, function () {
+      removeDraftAutosave = App.Draft.autoSaveForm('note', formData._formId, container, function () {
         if (formData._getContent) { try { formData.content = formData._getContent(); } catch (e) {} }
         return JSON.parse(JSON.stringify(formData));
       });
@@ -24747,7 +25103,6 @@ App.Pages.Notes = {
     container.appendChild(body);
   }
 };
-
 
 
 // ===== 考公笔试复盘系统 - 便签管理页（查看全部） =====

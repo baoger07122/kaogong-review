@@ -86,6 +86,22 @@ App.Pages.Notes = {
     layout.appendChild(main);
     container.appendChild(layout);
 
+    // 与错题本保持一致：笔记页常驻右下角新建入口，空状态按钮只作为无数据时的辅助入口。
+    // 复用现有 FAB 样式，不改变笔记页整体布局；当前筛选的科目/模块会带入新建表单。
+    const fab = document.createElement('button');
+    fab.type = 'button';
+    fab.className = 'sc-fab fab--solid-blue';
+    fab.setAttribute('aria-label', '新建笔记');
+    fab.title = '新建笔记';
+    fab.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+    fab.addEventListener('click', () => {
+      const query = [];
+      if (this.state.subject) query.push('subject=' + encodeURIComponent(this.state.subject));
+      if (this.state.module) query.push('module=' + encodeURIComponent(this.state.module));
+      App.Router.navigate('note-form' + (query.length ? '?' + query.join('&') : ''));
+    });
+    container.appendChild(fab);
+
     // 加载数据
     await this.loadData();
     this.renderSubjectGrid(sidebar);
@@ -916,6 +932,13 @@ App.Pages.Notes = {
       content: '',
       linkedErrors: []
     };
+    let removeDraftAutosave = null;
+    const saveFormDraftNow = () => {
+      try {
+        if (formData._getContent) formData.content = formData._getContent();
+        App.Draft.saveForm('note', formData._formId, JSON.parse(JSON.stringify(formData)));
+      } catch (e) {}
+    };
 
     const loadAndRender = async () => {
       if (isEdit) {
@@ -984,6 +1007,10 @@ App.Pages.Notes = {
       // 重建前先把编辑器内容同步回 formData，避免重渲染丢失草稿
       if (formData._getContent) {
         try { formData.content = formData._getContent(); } catch (e) {}
+      }
+      if (removeDraftAutosave) {
+        try { removeDraftAutosave(); } catch (e) {}
+        removeDraftAutosave = null;
       }
       container.innerHTML = '';
 
@@ -1174,38 +1201,53 @@ App.Pages.Notes = {
         const selected = await App.Components.actionSheet(options, '选择关联错题');
         if (selected && !formData.linkedErrors.includes(selected)) {
           formData.linkedErrors.push(selected);
-          buildForm();
+          renderLinkedErrors();
+          saveFormDraftNow();
+          debouncedSaveToDB();
         }
       });
       linkGroup.appendChild(linkBtn);
 
-      // 显示已关联的错题
-      if (formData.linkedErrors.length > 0) {
-        const linkedList = document.createElement('div');
-        linkedList.style.cssText = 'margin-top:8px;';
-        for (const errId of formData.linkedErrors) {
+      // 只更新关联错题列表，不销毁编辑器 DOM，避免格式、光标和滚动位置丢失。
+      const linkedList = document.createElement('div');
+      linkedList.style.cssText = 'margin-top:8px;';
+      const renderLinkedErrors = () => {
+        linkedList.innerHTML = '';
+        if (!formData.linkedErrors.length) {
+          linkedList.style.display = 'none';
+          return;
+        }
+        linkedList.style.display = '';
+        formData.linkedErrors.forEach((errId) => {
           const row = document.createElement('div');
           row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:4px 0;font-size:var(--font-sm);';
-          row.innerHTML = `<span style="color:var(--text-secondary);">关联错题 ${errId.slice(-6)}</span>`;
+          const text = document.createElement('span');
+          text.style.color = 'var(--text-secondary)';
+          text.textContent = '关联错题 ' + String(errId).slice(-6);
+          row.appendChild(text);
           const removeBtn = document.createElement('button');
           removeBtn.className = 'btn--text';
+          removeBtn.type = 'button';
           removeBtn.textContent = '移除';
           removeBtn.addEventListener('click', () => {
             formData.linkedErrors = formData.linkedErrors.filter(id => id !== errId);
-            buildForm();
+            renderLinkedErrors();
+            saveFormDraftNow();
+            debouncedSaveToDB();
           });
           row.appendChild(removeBtn);
           linkedList.appendChild(row);
-        }
-        linkGroup.appendChild(linkedList);
-      }
+        });
+      };
+      linkGroup.appendChild(linkedList);
+      renderLinkedErrors();
 
       form.appendChild(linkGroup);
 
       container.appendChild(form);
 
       // 草稿自动暂存（localStorage 兜底，按表单 id 隔离，避免旧草稿串入新笔记）
-      App.Draft.autoSaveForm('note', formData._formId, container, function () {
+      removeDraftAutosave = App.Draft.autoSaveForm('note', formData._formId, container, function () {
         if (formData._getContent) { try { formData.content = formData._getContent(); } catch (e) {} }
         return JSON.parse(JSON.stringify(formData));
       });
@@ -1507,4 +1549,3 @@ App.Pages.Notes = {
     container.appendChild(body);
   }
 };
-

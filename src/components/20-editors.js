@@ -107,18 +107,23 @@ Object.assign(App.Components, {
 
     // ===== 选区保持（v8.4.17 机制）：工具栏点击不丢选区 =====
     let savedRange = null;
+    let activeTable = null;
+    let activeCell = null;
     const captureSel = () => {
       try {
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0) return;
         const r = sel.getRangeAt(0);
-        if (r && r.toString() && area.contains(r.commonAncestorContainer)) savedRange = r.cloneRange();
+        if (r && area.contains(r.commonAncestorContainer)) savedRange = r.cloneRange();
       } catch (e) { /* 忽略 */ }
     };
     area.addEventListener('mouseup', captureSel);
     area.addEventListener('keyup', captureSel);
     area.addEventListener('focusin', captureSel);
-    area.addEventListener('input', () => { if (opts.onChange) opts.onChange(area.innerHTML); });
+    area.addEventListener('input', () => {
+      if (opts.onChange) opts.onChange(area.innerHTML);
+      keepCaretVisible();
+    });
 
     // ===== v8.15.20 Markdown 粘贴自动转换：粘贴 md 语法 → 自动渲染成富文本格式 =====
     // 背景：笔记/错题笔记此前为 HTML 所见即所得直存，导致粘贴 Markdown 语法（#/**/- 等）不生效、原样显示。
@@ -178,17 +183,28 @@ Object.assign(App.Components, {
     area.addEventListener('keydown', (e) => {
       if (e.key === 'Tab') {
         e.preventDefault();
-        indentParagraph(e.shiftKey ? -1 : 1);
+        const cell = getCellFromNode(e.target) || getCellFromSelection();
+        if (cell) moveTableCell(cell, e.shiftKey ? -1 : 1);
+        else indentParagraph(e.shiftKey ? -1 : 1);
       }
     });
     // v8.5.6 移动端格式栏显示：旧显示逻辑只认 .notion-editable，htmlEditor 需自触发
     area.addEventListener('focusin', () => {
       if (App.Components._showMobileToolbar) App.Components._showMobileToolbar();
+      keepCaretVisible();
     });
     area.addEventListener('focusout', (e) => {
       const next = e.relatedTarget;
       if (next && wrapper.contains(next)) return;
-      setTimeout(() => { if (App.Components._hideMobileToolbar) App.Components._hideMobileToolbar(); }, 220);
+      setTimeout(() => {
+        if (App.Components._hideMobileToolbar) App.Components._hideMobileToolbar();
+        if (App.Components._setMobileToolbarMode) App.Components._setMobileToolbarMode('default');
+      }, 220);
+    });
+    area.addEventListener('click', (e) => {
+      const cell = getCellFromNode(e.target);
+      if (cell) setActiveCell(cell);
+      else setActiveCell(null);
     });
     wrapper.addEventListener('mousedown', (e) => {
       const t = e.target;
@@ -199,10 +215,10 @@ Object.assign(App.Components, {
       let sel = null;
       try { sel = window.getSelection(); } catch (e) { /* 忽略 */ }
       let r = (sel && sel.rangeCount > 0) ? sel.getRangeAt(0) : null;
-      if (!r || !r.toString() || !area.contains(r.commonAncestorContainer)) {
+      if (!r || !area.contains(r.commonAncestorContainer)) {
         if (savedRange && area.contains(savedRange.commonAncestorContainer)) r = savedRange;
       }
-      if (r && r.toString()) {
+      if (r && area.contains(r.commonAncestorContainer)) {
         try {
           const startNode = r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentNode;
           const editable = startNode && startNode.closest ? startNode.closest('[contenteditable]') : null;
@@ -213,6 +229,29 @@ Object.assign(App.Components, {
         } catch (e3) { /* 忽略 */ }
       }
       return r;
+    }
+    function keepCaretVisible() {
+      if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') return;
+      window.requestAnimationFrame(() => {
+        try {
+          const r = ensureSelection();
+          if (!r) return;
+          const node = r.startContainer && r.startContainer.nodeType === 1
+            ? r.startContainer : (r.startContainer && r.startContainer.parentElement);
+          const target = node && area.contains(node) ? (node.closest && node.closest('td,th,p,h1,h2,h3,li,blockquote,pre,div') || node) : area;
+          if (!target || typeof target.getBoundingClientRect !== 'function') return;
+          let rect = r.getBoundingClientRect ? r.getBoundingClientRect() : null;
+          if (!rect || (!rect.height && !rect.width)) rect = target.getBoundingClientRect();
+          const vv = window.visualViewport;
+          const viewTop = vv ? vv.offsetTop : 0;
+          const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+          const bar = document.querySelector('.notion-mobile-toolbar.is-visible');
+          const barTop = bar ? bar.getBoundingClientRect().top : viewBottom - 24;
+          const safeBottom = Math.min(viewBottom - 12, barTop - 12);
+          if (rect.bottom > safeBottom) window.scrollBy(0, rect.bottom - safeBottom);
+          else if (rect.top < viewTop + 12) window.scrollBy(0, rect.top - (viewTop + 12));
+        } catch (e) { /* 某些浏览器在选区变化瞬间没有可测量矩形，忽略即可 */ }
+      });
     }
     function placeCaretAtEnd(el) {
       try {
@@ -407,6 +446,7 @@ Object.assign(App.Components, {
     ]));
     row.appendChild(grp([
       { b: 'ƒx', title: '插入公式', fn: insertFormula },
+      { b: '⊞', title: '插入表格', fn: () => insertTable(3, 3) },
       { b: '↶', title: '撤销', fn: () => history('undo') },
       { b: '↷', title: '重做', fn: () => history('redo') }
     ]));
@@ -543,21 +583,213 @@ Object.assign(App.Components, {
       });
     }
     // ➕：插入面板（表格/分割线/标注/引用）
-    function insertNodeAt(html) {
+    function insertNodeAt(html, options) {
+      const opts2 = options || {};
       const tmp = document.createElement('div');
       tmp.innerHTML = html;
       const n = tmp.firstChild;
       const r = ensureSelection();
       if (r && r.startContainer && area.contains(r.startContainer)) {
-        try { r.deleteContents(); r.insertNode(n); } catch (e) { area.appendChild(n); }
+        try {
+          if (opts2.replaceSelection !== false && !r.collapsed) r.deleteContents();
+          r.insertNode(n);
+        } catch (e) { area.appendChild(n); }
       } else area.appendChild(n);
       if (opts.onChange) opts.onChange(area.innerHTML);
       return n;
     }
-    function insertTable() {
-      const n = insertNodeAt('<table><tbody><tr><td><br></td><td><br></td></tr><tr><td><br></td><td><br></td></tr></tbody></table>');
+    function tableMarkup(rows, cols) {
+      const r = Math.max(1, Math.min(6, parseInt(rows, 10) || 3));
+      const c = Math.max(1, Math.min(6, parseInt(cols, 10) || 3));
+      let html = '<table><tbody>';
+      for (let y = 0; y < r; y++) {
+        html += '<tr>';
+        for (let x = 0; x < c; x++) html += '<td><br></td>';
+        html += '</tr>';
+      }
+      return html + '</tbody></table>';
+    }
+    function insertTable(rows, cols) {
+      const n = insertNodeAt(tableMarkup(rows, cols), { replaceSelection: false });
       const td = n && n.querySelector('td');
-      if (td) placeCaretAtEnd(td);
+      if (td) {
+        setActiveCell(td);
+        placeCaretAtEnd(td);
+        keepCaretVisible();
+      }
+    }
+    function getCellFromNode(node) {
+      if (!node) return null;
+      const el = node.nodeType === 1 ? node : node.parentElement;
+      return el && el.closest ? el.closest('td,th') : null;
+    }
+    function getCellFromSelection() {
+      try {
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount) return null;
+        return getCellFromNode(sel.getRangeAt(0).startContainer);
+      } catch (e) { return null; }
+    }
+    function setActiveCell(cell) {
+      area.querySelectorAll('td[data-table-active], th[data-table-active]').forEach(el => el.removeAttribute('data-table-active'));
+      activeCell = cell && area.contains(cell) ? cell : null;
+      activeTable = activeCell ? activeCell.closest('table') : null;
+      if (activeCell) activeCell.setAttribute('data-table-active', 'true');
+      if (App.Components._setMobileToolbarMode) App.Components._setMobileToolbarMode(activeCell ? 'table' : 'default');
+    }
+    function getCurrentTable() {
+      const cell = activeCell || getCellFromSelection();
+      return cell && area.contains(cell) ? cell.closest('table') : activeTable;
+    }
+    function focusTableCell(cell) {
+      if (!cell) return;
+      setActiveCell(cell);
+      placeCaretAtEnd(cell);
+      keepCaretVisible();
+    }
+    function moveTableCell(cell, direction) {
+      const table = cell && cell.closest('table');
+      if (!table) return;
+      const cells = Array.from(table.rows).flatMap(row => Array.from(row.cells));
+      const currentIndex = cells.indexOf(cell);
+      if (currentIndex < 0) return;
+      let nextIndex = currentIndex + direction;
+      if (nextIndex < 0) nextIndex = 0;
+      if (nextIndex >= cells.length) {
+        if (direction > 0) {
+          addTableRow(table, cell);
+          return;
+        }
+        nextIndex = cells.length - 1;
+      }
+      focusTableCell(cells[nextIndex]);
+    }
+    function newTableCell() {
+      const cell = document.createElement('td');
+      cell.innerHTML = '<br>';
+      return cell;
+    }
+    function addTableRow(table, referenceCell) {
+      if (!table) return;
+      const refRow = referenceCell && referenceCell.closest('tr');
+      const count = refRow ? Math.max(1, refRow.cells.length) : Math.max(1, table.rows[0] ? table.rows[0].cells.length : 1);
+      const row = document.createElement('tr');
+      for (let i = 0; i < count; i++) row.appendChild(newTableCell());
+      const refSection = refRow && refRow.parentNode;
+      if (refSection && refSection.tagName === 'THEAD') {
+        const body = table.tBodies[0] || table.appendChild(document.createElement('tbody'));
+        body.insertBefore(row, body.firstChild || null);
+      } else if (refRow && refRow.parentNode) {
+        refRow.parentNode.insertBefore(row, refRow.nextSibling);
+      } else {
+        const body = table.tBodies[0] || table.appendChild(document.createElement('tbody'));
+        body.appendChild(row);
+      }
+      if (opts.onChange) opts.onChange(area.innerHTML);
+      focusTableCell(row.cells[0]);
+    }
+    function addTableColumn(table, referenceCell) {
+      if (!table) return;
+      const refRow = referenceCell && referenceCell.closest('tr');
+      const index = refRow ? Math.max(0, referenceCell.cellIndex) : 0;
+      Array.from(table.rows).forEach(row => {
+        const cell = newTableCell();
+        if (index >= row.cells.length) row.appendChild(cell);
+        else row.insertBefore(cell, row.cells[index + 1] || null);
+      });
+      if (opts.onChange) opts.onChange(area.innerHTML);
+      const targetRow = refRow || table.rows[0];
+      if (targetRow) focusTableCell(targetRow.cells[Math.min(index + 1, targetRow.cells.length - 1)]);
+    }
+    function deleteTableRow(table, referenceCell) {
+      if (!table || table.rows.length <= 1) {
+        if (App.Components.toast) App.Components.toast('表格至少保留一行', 'info');
+        return;
+      }
+      const row = (referenceCell && referenceCell.closest('tr')) || table.rows[table.rows.length - 1];
+      const next = row.nextElementSibling || row.previousElementSibling;
+      row.remove();
+      if (opts.onChange) opts.onChange(area.innerHTML);
+      focusTableCell(next && next.cells[0] ? next.cells[0] : table.rows[0].cells[0]);
+    }
+    function deleteTableColumn(table, referenceCell) {
+      if (!table || !table.rows.length || table.rows[0].cells.length <= 1) {
+        if (App.Components.toast) App.Components.toast('表格至少保留一列', 'info');
+        return;
+      }
+      const index = referenceCell ? Math.max(0, referenceCell.cellIndex) : 0;
+      Array.from(table.rows).forEach(row => { if (row.cells[index]) row.deleteCell(index); });
+      if (opts.onChange) opts.onChange(area.innerHTML);
+      const firstRow = table.rows[0];
+      if (firstRow) focusTableCell(firstRow.cells[Math.min(index, firstRow.cells.length - 1)]);
+    }
+    function toggleTableHeader(table) {
+      if (!table || !table.rows.length) return;
+      if (table.tHead) {
+        const headRow = table.tHead.rows[0];
+        const body = table.tBodies[0] || table.appendChild(document.createElement('tbody'));
+        Array.from(headRow.cells).forEach(cell => {
+          if (cell.tagName === 'TH') {
+            const td = document.createElement('td');
+            td.innerHTML = cell.innerHTML;
+            cell.replaceWith(td);
+          }
+        });
+        body.insertBefore(headRow, body.firstChild || null);
+        table.tHead.remove();
+      } else {
+        const firstRow = table.rows[0];
+        const head = document.createElement('thead');
+        Array.from(firstRow.cells).forEach(cell => {
+          if (cell.tagName !== 'TH') {
+            const th = document.createElement('th');
+            th.innerHTML = cell.innerHTML;
+            cell.replaceWith(th);
+          }
+        });
+        head.appendChild(firstRow);
+        table.insertBefore(head, table.firstChild);
+      }
+      if (opts.onChange) opts.onChange(area.innerHTML);
+      const first = table.rows[0] && table.rows[0].cells[0];
+      if (first) focusTableCell(first);
+    }
+    function cycleTableAlignment(cell) {
+      if (!cell) return;
+      const values = ['left', 'center', 'right'];
+      const current = cell.style.textAlign || 'left';
+      cell.style.textAlign = values[(values.indexOf(current) + 1) % values.length];
+      if (opts.onChange) opts.onChange(area.innerHTML);
+      focusTableCell(cell);
+    }
+    function deleteCurrentTable(table) {
+      if (!table || !table.parentNode) return;
+      const p = document.createElement('p');
+      p.innerHTML = '<br>';
+      table.parentNode.insertBefore(p, table.nextSibling);
+      table.remove();
+      setActiveCell(null);
+      if (opts.onChange) opts.onChange(area.innerHTML);
+      placeCaretAtEnd(p);
+    }
+    function openTableChooser() {
+      let grid = '<div class="notion-mobile-fmt-title">选择表格大小</div><div class="html-table-picker">';
+      for (let rows = 1; rows <= 6; rows++) {
+        for (let cols = 1; cols <= 6; cols++) {
+          grid += '<button type="button" class="html-table-picker__cell" data-rows="' + rows + '" data-cols="' + cols + '">' + rows + '×' + cols + '</button>';
+        }
+      }
+      grid += '</div><div class="html-table-picker__hint">选择后可在表格模式中继续增加或删除行列</div>';
+      const { sheet } = openSheet({ height: 'is-format', bodyHtml: grid });
+      sheet.querySelectorAll('.html-table-picker__cell').forEach(btn => {
+        btn.addEventListener('mousedown', (e) => e.preventDefault());
+        btn.addEventListener('click', () => {
+          const rows = parseInt(btn.dataset.rows, 10);
+          const cols = parseInt(btn.dataset.cols, 10);
+          closeSheet();
+          insertTable(rows, cols);
+        });
+      });
     }
     function insertDivider() { insertNodeAt('<hr>'); }
     function insertCallout() {
@@ -581,7 +813,7 @@ Object.assign(App.Components, {
       bindItems(sheet, (item) => {
         const cmd = item.dataset.cmd;
         closeSheet();
-        if (cmd === 'table') insertTable();
+        if (cmd === 'table') openTableChooser();
         else if (cmd === 'divider') insertDivider();
         else if (cmd === 'callout') insertCallout();
         else if (cmd === 'quote-insert') insertQuoteBlock();
@@ -592,6 +824,14 @@ Object.assign(App.Components, {
         case 'insert': openMobileInsertSheet(); break;
         case 'format': openMobileTextSheet(); break;
         case 'blockfmt': openMobileBlockSheet(); break;
+        case 'table-add-row': addTableRow(getCurrentTable(), activeCell); break;
+        case 'table-add-col': addTableColumn(getCurrentTable(), activeCell); break;
+        case 'table-delete-row': deleteTableRow(getCurrentTable(), activeCell); break;
+        case 'table-delete-col': deleteTableColumn(getCurrentTable(), activeCell); break;
+        case 'table-header': toggleTableHeader(getCurrentTable()); break;
+        case 'table-align': cycleTableAlignment(activeCell); break;
+        case 'table-delete': deleteCurrentTable(getCurrentTable()); break;
+        case 'table-done': setActiveCell(null); break;
         case 'undo': history('undo'); break;
         case 'redo': history('redo'); break;
         default:

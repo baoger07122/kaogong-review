@@ -43,7 +43,10 @@ App.Components = {
   },
 
   // 注册当前活动编辑器（notionEditor 创建时调用）
-  _registerMobileEditor(inst) { this._activeMobileEditor = inst; },
+  _registerMobileEditor(inst) {
+    this._activeMobileEditor = inst;
+    if (this._setMobileToolbarMode) this._setMobileToolbarMode('default');
+  },
 
   // 移动端单例工具栏显隐：默认隐藏，仅块编辑器聚焦时显示（由 notionEditor focusin/focusout 联动）
   _showMobileToolbar() {
@@ -98,57 +101,68 @@ App.Components = {
       moveDown: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>',
       more: '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
       dismiss: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="16" height="11" rx="2"/><path d="M9 21h6M12 15v6M8 10l3 3 3-3"/></svg>',
+      addRow: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 5h16M4 11h16M4 17h16"/><path d="M18 14v7M14.5 17.5h7"/></svg>',
+      addCol: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 4v16M11 4v16M17 4v16"/><path d="M14 18h7M17.5 14.5v7"/></svg>',
+      deleteRow: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 5h16M4 11h16M4 17h16"/><path d="M16 14l5 6M21 14l-5 6"/></svg>',
+      deleteCol: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 4v16M11 4v16M17 4v16"/><path d="M14 16l6 5M20 16l-6 5"/></svg>',
+      header: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16M8 4v5M12 4v5M16 4v5"/></svg>',
+      align: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M7 10h10M4 14h16M7 18h10"/></svg>',
+      done: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4L19 6"/></svg>',
       // v8.6.4 段落格式按钮（¶）：与文字格式（A）拆分为两个独立入口
       paragraph: '<span style="font-size:20px;font-weight:700;line-height:1">¶</span>',
     };
-    const btns = [
-      { key: 'insert', icon: 'plus', title: '插入块', label: '插入' },
-      { key: 'format', icon: 'textAa', title: '文本格式', label: 'Aa' },
-      { key: 'blockfmt', icon: 'paragraph', title: '段落格式', label: '¶' },   // v8.6.4 段落格式独立按钮
-      { key: 'voice', icon: 'voice', title: '语音输入', label: '语音' },
-      { key: 'image', icon: 'image', title: '图片', label: '图片' },
-      { key: 'redo', icon: 'redo', title: '重做', label: '重做' },
+    const defaultBtns = [
       { key: 'undo', icon: 'undo', title: '撤销', label: '撤销' },
-      { key: 'comment', icon: 'comment', title: '评论', label: '评论' },
-      { key: 'mention', icon: 'mention', title: '提及', label: '提及' },
-      { key: 'delete', icon: 'trash', title: '删除块', label: '删除' },
-      { key: 'indent', icon: 'indent', title: '增加缩进', label: '缩进' },
-      { key: 'outdent', icon: 'outdent', title: '减少缩进', label: '缩出' },
-      { key: 'moveUp', icon: 'moveUp', title: '块上移', label: '上移' },
-      { key: 'moveDown', icon: 'moveDown', title: '块下移', label: '下移' },
-      { key: 'more', icon: 'more', title: '更多', label: '更多' },
+      { key: 'redo', icon: 'redo', title: '重做', label: '重做' },
+      { key: 'format', icon: 'textAa', title: '文字格式', label: '文字' },
+      { key: 'blockfmt', icon: 'paragraph', title: '段落格式', label: '段落' },
+      { key: 'insert', icon: 'plus', title: '插入', label: '插入' },
       { key: 'dismiss', icon: 'dismiss', title: '收起键盘', label: '收起' },
+    ];
+    const tableBtns = [
+      { key: 'table-add-row', icon: 'addRow', title: '增加行', label: '加行' },
+      { key: 'table-add-col', icon: 'addCol', title: '增加列', label: '加列' },
+      { key: 'table-delete-row', icon: 'deleteRow', title: '删除行', label: '删行' },
+      { key: 'table-delete-col', icon: 'deleteCol', title: '删除列', label: '删列' },
+      { key: 'table-header', icon: 'header', title: '切换表头', label: '表头' },
+      { key: 'table-align', icon: 'align', title: '切换对齐', label: '对齐' },
+      { key: 'table-delete', icon: 'trash', title: '删除表格', label: '删除' },
+      { key: 'table-done', icon: 'done', title: '完成表格编辑', label: '完成' },
     ];
     const el = document.createElement('div');
     el.className = 'notion-mobile-toolbar';
     el.setAttribute('data-mobile-toolbar', '1');
     const scroll = document.createElement('div');
     scroll.className = 'notion-mobile-toolbar__scroll';
-    btns.forEach(x => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'notion-mobile-tool-btn';
-      btn.dataset.key = x.key;
-      btn.title = x.title;
-      btn.innerHTML = NM_ICONS[x.icon];   // 纯图标，无文字标签
-      btn.addEventListener('mousedown', (e) => e.preventDefault());
-      btn.addEventListener('click', (e) => {
-        e.preventDefault(); e.stopPropagation();
-        const inst = App.Components._activeMobileEditor;
-        if (inst && typeof inst._onMobileToolbar === 'function') inst._onMobileToolbar(x.key);
+    const renderToolbarButtons = (items) => {
+      scroll.innerHTML = '';
+      items.forEach(x => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'notion-mobile-tool-btn';
+        btn.dataset.key = x.key;
+        btn.title = x.title;
+        btn.innerHTML = NM_ICONS[x.icon];   // 纯图标，无文字标签
+        btn.addEventListener('mousedown', (e) => e.preventDefault());
+        btn.addEventListener('click', (e) => {
+          e.preventDefault(); e.stopPropagation();
+          const inst = App.Components._activeMobileEditor;
+          if (inst && typeof inst._onMobileToolbar === 'function') inst._onMobileToolbar(x.key);
+        });
+        // 长按显示功能提示（500ms），提升纯图标工具栏的可发现性
+        let pressTimer = null;
+        btn.addEventListener('touchstart', () => {
+          pressTimer = setTimeout(() => {
+            if (App.Components.toast && x.title) App.Components.toast(x.title, 'info');
+          }, 500);
+        }, { passive: true });
+        btn.addEventListener('touchend', () => clearTimeout(pressTimer), { passive: true });
+        btn.addEventListener('touchmove', () => clearTimeout(pressTimer), { passive: true });
+        btn.addEventListener('touchcancel', () => clearTimeout(pressTimer), { passive: true });
+        scroll.appendChild(btn);
       });
-      // 长按显示功能提示（500ms），提升纯图标工具栏的可发现性
-      let pressTimer = null;
-      btn.addEventListener('touchstart', () => {
-        pressTimer = setTimeout(() => {
-          if (App.Components.toast && x.title) App.Components.toast(x.title, 'info');
-        }, 500);
-      }, { passive: true });
-      btn.addEventListener('touchend', () => clearTimeout(pressTimer), { passive: true });
-      btn.addEventListener('touchmove', () => clearTimeout(pressTimer), { passive: true });
-      btn.addEventListener('touchcancel', () => clearTimeout(pressTimer), { passive: true });
-      scroll.appendChild(btn);
-    });
+    };
+    renderToolbarButtons(defaultBtns);
     const mL = document.createElement('div');
     mL.className = 'notion-mobile-toolbar__mask left';
     const mR = document.createElement('div');
@@ -156,6 +170,14 @@ App.Components = {
     el.appendChild(mL); el.appendChild(scroll); el.appendChild(mR);
     document.body.appendChild(el);
     this._mobileToolbarEl = el;
+    this._mobileToolbarMode = 'default';
+    this._setMobileToolbarMode = (mode) => {
+      const nextMode = mode === 'table' ? 'table' : 'default';
+      if (this._mobileToolbarMode === nextMode) return;
+      this._mobileToolbarMode = nextMode;
+      el.dataset.mode = nextMode;
+      renderToolbarButtons(nextMode === 'table' ? tableBtns : defaultBtns);
+    };
 
     // ===== 软键盘适配（单例级，只注册一次） =====
     // iOS Safari 键盘弹出时 visualViewport 高度缩小，同时键盘上方还有系统「上一条/下一条/完成」透明条

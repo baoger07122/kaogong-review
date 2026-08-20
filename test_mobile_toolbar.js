@@ -45,15 +45,15 @@ setTimeout(() => {
     doc.body.appendChild(wrap);
     wrap.appendChild(ed.element);
 
-    // 1. 底部工具栏挂载 + 15 按钮 + 顺序
+    // 1. 底部工具栏挂载 + 常用功能按钮 + 顺序
     console.log('\n[1] 底部工具栏');
     const tb = doc.querySelector('.notion-mobile-toolbar');
     assert(!!tb, '底部工具栏已挂载到 body');
     if (tb) {
       const btns = tb.querySelectorAll('.notion-mobile-tool-btn');
-      assert(btns.length === 15, '按钮数量 15 (' + btns.length + ')');
+      assert(btns.length === 6, '普通模式按钮数量 6 (' + btns.length + ')');
       const keys = Array.from(btns).map(b => b.dataset.key);
-      const expected = ['insert','format','voice','image','redo','undo','comment','mention','delete','indent','outdent','moveUp','moveDown','more','dismiss'];
+      const expected = ['undo','redo','format','blockfmt','insert','dismiss'];
       assert(JSON.stringify(keys) === JSON.stringify(expected), '按钮顺序正确: ' + keys.join(','));
       const masks = tb.querySelectorAll('.notion-mobile-toolbar__mask');
       assert(masks.length === 2, '左右渐变遮罩存在');
@@ -112,7 +112,7 @@ setTimeout(() => {
               setTimeout(() => {
                 assert(!doc.querySelector('.notion-mobile-sheet-overlay'), '遮罩点击后关闭');
 
-                // 5. 工具栏动作：撤销/重做/删除（初始2块→插入1块=3→撤销2→重做3→删除2）
+                // 5. 工具栏动作：撤销/重做（初始2块→插入1块=3→撤销2→重做3）
                 console.log('\n[4] 工具栏动作');
                 const undoBtn = doc.querySelector('.notion-mobile-toolbar [data-key="undo"]');
                 undoBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
@@ -121,12 +121,26 @@ setTimeout(() => {
                 const redoBtn = doc.querySelector('.notion-mobile-toolbar [data-key="redo"]');
                 redoBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
                 assert(ed.getEditorData().length === 3, '重做后回到 3 块');
-                // 聚焦第一块后删除
-                const firstEd = wrap.querySelector('.notion-block[data-index="0"] .notion-editable');
-                firstEd.focus();
-                const delBtn = doc.querySelector('.notion-mobile-toolbar [data-key="delete"]');
-                delBtn.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
-                assert(ed.getEditorData().length === 2, '删除聚焦块后剩 2 块');
+
+                // 6. HTML 富文本进入表格后，仍复用同一条底部胶囊栏切换为表格模式
+                const htmlEd = App.Components.htmlEditor('<table><tbody><tr><td>甲</td><td>乙</td></tr></tbody></table>', { placeholder: false });
+                wrap.appendChild(htmlEd.element);
+                const firstCell = htmlEd.area.querySelector('td');
+                firstCell.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+                const tableKeys = Array.from(tb.querySelectorAll('.notion-mobile-tool-btn')).map(b => b.dataset.key);
+                assert(tb.dataset.mode === 'table', '进入表格单元格后工具栏切换为表格模式');
+                assert(tableKeys.join(',') === 'table-add-row,table-add-col,table-delete-row,table-delete-col,table-header,table-align,table-delete,table-done', '表格模式按钮顺序正确');
+                tb.querySelector('[data-key="table-add-row"]').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+                assert(htmlEd.area.querySelectorAll('tr').length === 2, '表格模式可以增加一行');
+                tb.querySelector('[data-key="table-add-col"]').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+                assert(htmlEd.area.querySelector('tr').cells.length === 3, '表格模式可以增加一列');
+                tb.querySelector('[data-key="table-header"]').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+                assert(!!htmlEd.area.querySelector('thead th'), '表格模式可以切换表头');
+                tb.querySelector('[data-key="table-delete-col"]').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+                tb.querySelector('[data-key="table-delete-row"]').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+                assert(htmlEd.area.querySelectorAll('tr').length === 1 && htmlEd.area.querySelector('tr').cells.length === 2, '表格模式可以删除一行和一列');
+                tb.querySelector('[data-key="table-done"]').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+                assert(tb.dataset.mode === 'default', '点击完成后恢复普通工具栏');
                 console.log('\n===== 移动端专项: ' + pass + ' 通过, ' + fail + ' 失败 =====');
                 process.exit(fail > 0 ? 1 : 0);
               }, 300);

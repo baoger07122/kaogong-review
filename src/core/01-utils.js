@@ -151,8 +151,13 @@ App.Utils = {
     if (typeof content !== 'string') return '';
     const s = content.trim();
     if (!s) return '';
-    // 已是 HTML（以标签开头）→ 原样返回，不二次转换（幂等，保证编辑产物原样直存）
-    if (/^<(p|h[1-6]|ul|ol|blockquote|pre|table|details|div|section|figure|hr|br)\b/i.test(s)) return s;
+    // 已是编辑器 HTML → 原样返回，不二次转换（幂等，保证编辑产物原样直存）。
+    // 不能只判断「第一个标签」：富文本可能以 <strong>/<span>/<mark>/<code> 等行内标签开头，
+    // 关联错题等局部表单操作触发重渲染时，旧判断会把它误当成 Markdown，再把标签转义成源码文字。
+    // 这里仅识别编辑器允许产生的标签，避免把任意外部 HTML 都当成可渲染内容。
+    const editorTags = 'p|h[1-6]|ul|ol|li|blockquote|pre|table|thead|tbody|tr|th|td|details|summary|div|section|figure|hr|br|strong|b|em|i|u|s|del|mark|span|a|img|code|sub|sup|small';
+    const hasEditorHtml = new RegExp('<\\/?(?:' + editorTags + ')(?:\\s|/?>)', 'i').test(s);
+    if (hasEditorHtml) return s;
     // 旧 Markdown / 纯文本 → 复用 mdToBlocks 解析为块 → renderBlocks 渲染成 HTML
     try {
       const blocks = this.mdToBlocks(s);
@@ -684,4 +689,3 @@ App.Utils = {
     });
   }
 };
-

@@ -38,6 +38,8 @@ setTimeout(async () => {
     // 1.2 已是 HTML → 幂等原样
     const srcHtml = '<p>已有<b>格式</b></p><h2>标题</h2>';
     assert(App.Utils.toNoteHtml(srcHtml) === srcHtml, 'HTML 字符串幂等（原样返回不二次转换）');
+    const inlineHtml = '<strong>开头加粗</strong><span style="color:red">颜色</span><mark>高亮</mark>';
+    assert(App.Utils.toNoteHtml(inlineHtml) === inlineHtml, '以行内格式标签开头的 HTML 不被误转成源码文字');
     // 1.3 纯文本 → <p>（renderBlocks 输出带 md-preview-p class）
     const h3 = App.Utils.toNoteHtml('纯文本内容');
     assert(!!h3 && h3.indexOf('<p') === 0 && h3.indexOf('纯文本内容') >= 0, '纯文本 → <p>纯文本内容</p>（' + h3 + '）');
@@ -113,6 +115,7 @@ setTimeout(async () => {
     assert(built.includes("key: 'blockfmt'"), '移动工具栏含 ¶ 段落格式按钮');
     assert(built.includes('html-color-dot') && built.includes('html-callout'), '产物含调色板与标注样式类');
     assert(built.includes('insertTable') && built.includes('insertDivider') && built.includes('insertCallout'), '产物含表格/分割线/标注插入函数');
+    assert(built.includes('html-table-picker') && built.includes('table-add-row') && built.includes('table-delete-col'), '产物含表格尺寸选择器与行列操作');
     // 段落格式面板正文置顶检查（文字面板函数体精确截取，排除旧 notionEditor 面板）
     const textSheetSeg = built.slice(built.indexOf('function openMobileTextSheet'), built.indexOf('function openColorSheet'));
     assert(!textSheetSeg.includes('行内代码'), '文字格式面板已去掉行内代码');
@@ -155,6 +158,16 @@ setTimeout(async () => {
     assert(built.includes("rowItem('⇥', '缩进', 'indent')") && built.includes("rowItem('⇤', '取消缩进', 'outdent')"), '移动端段落面板含缩进/取消缩进（新图标 ⇥/⇤）');
     assert(built.includes("rowItem('文', '正文', 'text')") && built.includes("rowItem('❝', '引用', 'quote')"), '段落格式图标已更新（正文「文」/引用「❝」）');
     assert(built.includes('padding-bottom: calc(84px'), '编辑区底部留白 84px（防工具栏遮挡）');
+
+    console.log('\n[5] 表格单元格快捷键与格式保护');
+    const tableEditor = App.Components.htmlEditor('<table><tbody><tr><td>甲</td><td>乙</td></tr></tbody></table>', { placeholder: false });
+    const tableArea = tableEditor.area;
+    const tableCells = tableArea.querySelectorAll('td');
+    const tabEvent = new win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    tableCells[0].dispatchEvent(tabEvent);
+    assert(tabEvent.defaultPrevented, '表格内 Tab 被编辑器接管');
+    assert(tableCells[1].getAttribute('data-table-active') === 'true', 'Tab 移动到下一个单元格');
+    assert(tableArea.textContent === '甲乙', '表格单元格内容保持不变');
 
     console.log('\n总计: ' + pass + ' 通过, ' + fail + ' 失败');
     if (fail > 0) { console.error('✗✗ 存在失败用例'); process.exit(1); }
