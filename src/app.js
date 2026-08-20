@@ -6,7 +6,7 @@
  *   - src/components/01-sketch-preserved.js 中的涂鸦实现
  *   - src/modules/150-speed-preserved.js 中的速算练习实现
  *
- * 基础层位于 src/core/，页面和受保护功能位于 src/modules/；
+ * 基础层位于 src/core/，组件位于 src/components/，页面和受保护功能位于 src/pages/ 与 src/modules/；
  * 请按 build.js 中的顺序修改对应模块。
  */
 window.App = window.App || {};

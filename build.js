@@ -3,7 +3,8 @@
  * 从 src/ 源码生成 index.html：
  *   src/index.template.html  —— 页面骨架（含 <!--BUILD_CSS--> / <!--BUILD_JS--> 占位符）
  *   src/styles.css            —— 全部 CSS（唯一真源）
- *   src/app.js + src/core/ + src/modules/ —— 按依赖顺序组织的 JS 源码
+ *   src/app.js + src/core/ + src/components/ + src/pages/ + src/modules/
+ *   —— 按依赖顺序组织的 JS 源码
  * 用法：node build.js   （生成与当前功能完全一致的 index.html）
  *
  * 重要说明：本项目用 window.App 在全局挂载方法，供页面按钮调用。
@@ -36,12 +37,13 @@ const JS_MODULES = [
   'src/core/30-cloud.js',
   'src/core/40-draft.js',
   'src/core/50-router.js',
-  'src/modules/70-home.js',
-  'src/modules/80-errors.js',
-  'src/modules/90-notes.js',
-  'src/modules/100-stickies-stats.js',
-  'src/modules/110-exams.js',
-  'src/modules/120-workspace.js',
+  'src/pages/00-home.js',
+  'src/pages/10-errors.js',
+  'src/pages/20-notes.js',
+  'src/pages/30-stickies.js',
+  'src/pages/31-study-stats.js',
+  'src/pages/40-exams.js',
+  'src/pages/50-workspace.js',
   'src/modules/130-settings-words-kp.js',
   'src/modules/140-editor-entry.js',
   'src/modules/150-speed-preserved.js'
