@@ -493,8 +493,8 @@
   color: var(--text-primary);
   touch-action: pan-x pan-y;   /* 移动端编辑时可滚动页面，表格也可横向查看 */
   padding: 2px 0;
-  /* v8.6.15 底部留白 = 移动端工具栏高度 + 安全区，编辑到最后一行不被工具栏遮挡，页面自动滚动可见 */
-  padding-bottom: calc(84px + var(--safe-bottom, 0px));
+  /* 底部留白 = 紧凑移动端工具栏 + 间距 + 安全区，最后一行不被遮挡 */
+  padding-bottom: calc(70px + var(--safe-bottom, 0px));
 }
 .html-editor__area:empty::before {
   content: attr(data-placeholder);
@@ -615,10 +615,14 @@ body.ipad-split .notion-editor {
 .notion-mobile-toolbar {
   position: fixed;
   left: 50%;                     /* 关键：fixed 居中定位 */
-  bottom: calc(var(--nav-height, 56px) + var(--safe-bottom, 0px) + 10px);  /* 悬浮在底部导航上方，不与导航重叠露半截 */
-  width: min(680px, calc(100% - 32px));  /* 响应式宽度：大屏限宽，小屏自适应 */
-  height: 56px;
-  border-radius: 20px;           /* 大圆角 → App 卡片感 */
+  bottom: calc(var(--nav-height, 56px) + var(--safe-bottom, 0px) + 8px);  /* JS 在键盘变化时更新，普通滚动保持不变 */
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  min-width: 0;
+  height: 46px;
+  padding: 3px 5px;
+  box-sizing: border-box;
+  border-radius: 24px;           /* 与 Safari 原生输入栏保持胶囊形态 */
   background: rgba(255, 255, 255, 0.95);
   -webkit-backdrop-filter: blur(20px);   /* 毛玻璃 → iOS 原生质感 */
   backdrop-filter: blur(20px);
@@ -634,14 +638,13 @@ body.ipad-split .notion-editor {
   transform: translateX(-50%) translateZ(0);
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
-  /* 键盘弹出/收起时的平滑过渡 */
-  transition: bottom 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  /* 键盘高度变化由 JS 直接定位，避免页面滚动时出现上下动画 */
+  transition: none;
 }
 .notion-mobile-toolbar[data-mode="table"] { border-color: rgba(25, 113, 194, 0.25); }
-/* iPad 分屏模式（宽度 < 1024）：工具栏接近全宽，圆角略小 */
+/* iPad 分屏只调整圆角，不再把格式栏强制拉成全宽 */
 body.ipad-split .notion-mobile-toolbar {
-  width: calc(100% - 32px);
-  border-radius: 16px;
+  border-radius: 24px;
 }
 [data-theme="dark"] .notion-mobile-toolbar {
   background: rgba(30, 30, 30, 0.95);
@@ -655,20 +658,23 @@ body.ipad-split .notion-mobile-toolbar {
   display: flex;
   align-items: center;
   height: 100%;
+  width: max-content;
+  max-width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  padding: 0 8px;
-  gap: 0;
-  border-radius: 20px;           /* 内部滚动区与卡片同圆角 */
+  padding: 0;
+  gap: 2px;
+  border-radius: 24px;           /* 内部滚动区与卡片同圆角 */
 }
 .notion-mobile-toolbar__scroll::-webkit-scrollbar { display: none; }
-/* 纯图标按钮：flex 均分，视觉上只占图标大小，点击区 44x44 */
+/* 纯图标按钮：固定紧凑尺寸，保留足够的触控区域 */
 .notion-mobile-tool-btn {
-  flex: 1;
-  min-width: 44px;
-  max-width: 56px;
-  height: 100%;
+  flex: 0 0 38px;
+  width: 38px;
+  min-width: 38px;
+  max-width: 38px;
+  height: 38px;
   border: none;
   border-radius: 16px;
   background: none;
@@ -681,8 +687,8 @@ body.ipad-split .notion-mobile-toolbar {
   -webkit-tap-highlight-color: transparent;
 }
 .notion-mobile-tool-btn svg {
-  width: 24px;
-  height: 24px;
+  width: 21px;
+  height: 21px;
   color: var(--text-secondary, #6B6B6B);
   fill: none;
   stroke: currentColor;
@@ -702,13 +708,13 @@ body.ipad-split .notion-mobile-toolbar {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 20px;
+  width: 12px;
   pointer-events: none;
   z-index: 2;
-  border-radius: 20px;
+  border-radius: 24px;
 }
-.notion-mobile-toolbar__mask.left { left: 8px; background: linear-gradient(to right, rgba(255, 255, 255, 0.95) 0%, transparent 100%); }
-.notion-mobile-toolbar__mask.right { right: 8px; background: linear-gradient(to left, rgba(255, 255, 255, 0.95) 0%, transparent 100%); }
+.notion-mobile-toolbar__mask.left { left: 5px; background: linear-gradient(to right, rgba(255, 255, 255, 0.95) 0%, transparent 100%); }
+.notion-mobile-toolbar__mask.right { right: 5px; background: linear-gradient(to left, rgba(255, 255, 255, 0.95) 0%, transparent 100%); }
 [data-theme="dark"] .notion-mobile-toolbar__mask.left { background: linear-gradient(to right, rgba(30, 30, 30, 0.95) 0%, transparent 100%); }
 [data-theme="dark"] .notion-mobile-toolbar__mask.right { background: linear-gradient(to left, rgba(30, 30, 30, 0.95) 0%, transparent 100%); }
 

@@ -1265,26 +1265,24 @@ Object.assign(App.Components, {
     let _keyboardH = 0;
     _mobileInst._onKeyboardChange = (kb) => {
       _keyboardH = kb;
-      // 编辑器容器底部留白：悬浮卡片高度(56) + 底部间距(16) + 键盘高度，避免内容被遮
+      // 编辑器容器底部留白：紧凑悬浮卡片高度(46) + 底部间距(8) + 键盘高度，避免内容被遮
       // 就地编辑模式（inlinePadding）只保留最小留白，避免切换瞬间高度突变导致页面重排
       try {
-        const basePad = ext.inlinePadding ? 8 : (56 + 16 + 20);
+        const basePad = ext.inlinePadding ? 8 : (46 + 8 + 20);
         wrapper.style.paddingBottom = (basePad + kb) + 'px';
       } catch (e) {}
+      if (kb > 0) _scrollFocusedBlockIntoView();
       // 格式栏打开时重新定位（避开 Safari「上/下/对号」透明条）
       if (formatBar && formatBar.parentElement) repositionFormatBar();
     };
-    // 初始留白（无键盘时：56 + 16 + 20；就地编辑仅 8px，页面高度不突变）
-    try { wrapper.style.paddingBottom = ext.inlinePadding ? '8px' : '92px'; } catch (e) {}
-    // 键盘弹出时把聚焦块滚动到可视区
-    const _vvScrollHandler = () => {
+    // 初始留白（无键盘时：46 + 8 + 20；就地编辑仅 8px，页面高度不突变）
+    try { wrapper.style.paddingBottom = ext.inlinePadding ? '8px' : '74px'; } catch (e) {}
+    // 键盘高度变化后把聚焦块滚动到可视区；页面普通滚动不再重复触发，避免与格式栏定位形成反馈。
+    const _scrollFocusedBlockIntoView = () => {
       if (_keyboardH > 0 && focusedBlockEl && focusedBlockEl.scrollIntoView) {
         focusedBlockEl.scrollIntoView({ block: 'center', behavior: 'auto' });
       }
     };
-    if (isMobile && window.visualViewport) {
-      window.visualViewport.addEventListener('scroll', _vvScrollHandler, { passive: true });
-    }
 
     // ===== Bottom Sheet 通用：打开/关闭/下滑关闭 =====
     let sheetEl = null, sheetOverlay = null;

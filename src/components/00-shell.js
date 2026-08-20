@@ -62,22 +62,9 @@ App.Components = {
   _navVisible: true,
   _setNavVisible(visible) {
     this._navVisible = visible;
-    const bar = this._mobileToolbarEl;
-    if (!bar) return;
-    let kb = 0;
-    try {
-      if (window.visualViewport && window.innerHeight > window.visualViewport.height) {
-        kb = window.innerHeight - window.visualViewport.height;
-      }
-    } catch (e) {}
-    if (kb > 0) return;   // 键盘弹出中，位置由 updateToolbarBottom 按 kb+16 处理
-    if (visible) {
-      try {
-        const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--nav-height'));
-        bar.style.bottom = ((isNaN(v) ? 56 : v) + 10) + 'px';
-      } catch (e) { bar.style.bottom = '66px'; }
-    } else {
-      bar.style.bottom = '16px';   // 无底部导航：工具栏贴底悬浮
+    // 统一交给单例定位器处理，避免路由切换和 visualViewport 各自改写 bottom。
+    if (typeof this._refreshMobileToolbarPosition === 'function') {
+      this._refreshMobileToolbarPosition();
     }
   },
 
@@ -180,11 +167,18 @@ App.Components = {
     };
 
     // ===== 软键盘适配（单例级，只注册一次） =====
-    // iOS Safari 键盘弹出时 visualViewport 高度缩小，同时键盘上方还有系统「上一条/下一条/完成」透明条
-    // 悬浮卡片：键盘弹出时 bottom = 键盘高度 + 16px（悬浮在键盘上方），收起时 bottom = safe-bottom + 16px
+    // iOS Safari 键盘弹出时 visualViewport 高度缩小。只在高度变化时重算位置；
+    // 页面滚动会改变 offsetTop，但不应改变底部悬浮格式栏的位置。
     const isMob = window.innerWidth <= 768 || ('ontouchstart' in window);
-    let baseInnerH = window.innerHeight;   // 缓存基准视口高度（键盘弹出后 innerHeight 也可能变化）
+    let baseInnerH = Math.max(window.innerHeight, window.visualViewport ? window.visualViewport.height : 0);
+    let keyboardInset = 0;
     let kbRaf = null;
+    let focusTimer = null;
+    const KEYBOARD_THRESHOLD = 120;
+    const isEditorFocused = () => {
+      const active = document.activeElement;
+      return !!(active && (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)));
+    };
     const SAFE_BOTTOM = (() => {
       // 读取 CSS 变量 --safe-bottom（若有），否则默认 0
       try {
@@ -199,48 +193,57 @@ App.Components = {
         return isNaN(v) ? 56 : v;
       } catch (e) { return 56; }
     })();
+    const getKeyboardInset = () => {
+      const vv = window.visualViewport;
+      if (!vv) return 0;
+
+      // 键盘收起或仅发生 Safari 地址栏变化时，更新基准高度，避免把浏览器界面变化误判成键盘。
+      const delta = baseInnerH - vv.height;
+      if (delta < KEYBOARD_THRESHOLD) {
+        // 编辑器仍聚焦时保留原始基准，防止 iOS 键盘动画同步改变 innerHeight 后丢失键盘高度。
+        if (!isEditorFocused()) baseInnerH = Math.max(window.innerHeight, vv.height);
+        return 0;
+      }
+      // 不再使用 vv.offsetTop：它会随页面滚动/浏览器界面变化，正是格式栏跳动的来源。
+      return Math.round(delta);
+    };
     const updateToolbarBottom = () => {
       const bar = App.Components._mobileToolbarEl;
       if (!bar || !isMob) return;
-      let kb = 0;
-      if (window.visualViewport) {
-        const vv = window.visualViewport;
-        // 键盘+系统工具条高度 = 基准视口高 - 当前可视高（含 Safari 透明条占位）
-        kb = Math.max(0, baseInnerH - vv.height);
-        // 兼容旧版 iOS：offsetTop 表示可视区相对页面的下移量，也计入
-        if (vv.offsetTop > kb) kb = vv.offsetTop;
-      }
-      // 悬浮卡片：键盘弹出 bottom = kb+16（键盘上方）；收起时——若当前页面隐藏了底部导航则贴底 16px，否则悬浮导航上方
+      const kb = getKeyboardInset();
+      keyboardInset = kb;
+      // 键盘/系统输入栏占用的可视区高度只在 resize 时更新；普通页面滚动保持此值不变。
       const hideNav = App.Components._navVisible === false;
-      bar.style.bottom = (kb > 0 ? kb + 16 : (hideNav ? SAFE_BOTTOM + 16 : NAV_H + SAFE_BOTTOM + 10)) + 'px';
+      const bottom = kb > 0
+        ? kb + 8
+        : (hideNav ? SAFE_BOTTOM + 8 : NAV_H + SAFE_BOTTOM + 8);
+      bar.style.bottom = bottom + 'px';
       // 同时告知当前活动编辑器，让浮动格式栏也能适配
       const inst = App.Components._activeMobileEditor;
       if (inst && typeof inst._onKeyboardChange === 'function') inst._onKeyboardChange(kb);
     };
+    this._refreshMobileToolbarPosition = updateToolbarBottom;
     const scheduleKb = () => {
       if (kbRaf) return;
       kbRaf = requestAnimationFrame(() => { kbRaf = null; updateToolbarBottom(); });
     };
     if (isMob && window.visualViewport) {
       window.visualViewport.addEventListener('resize', scheduleKb, { passive: true });
-      window.visualViewport.addEventListener('scroll', scheduleKb, { passive: true });
     } else if (isMob) {
       let _lastH = window.innerHeight;
       window.addEventListener('resize', () => {
         const dh = Math.abs(window.innerHeight - _lastH);
         _lastH = window.innerHeight;
-        if (dh > 150) { baseInnerH = window.innerHeight + dh; scheduleKb(); }
-        else { baseInnerH = window.innerHeight; scheduleKb(); }
+        if (dh > KEYBOARD_THRESHOLD && keyboardInset === 0) baseInnerH = window.innerHeight;
+        scheduleKb();
       }, { passive: true });
     }
     // 聚焦时也刷新一次（键盘弹出可能不触发 resize）
     window.addEventListener('focusin', scheduleKb, { passive: true });
     window.addEventListener('focusout', () => {
-      // 键盘收起：恢复到底部
-      if (kbRaf) cancelAnimationFrame(kbRaf);
-      kbRaf = null;
-      baseInnerH = window.innerHeight;
-      updateToolbarBottom();
+      // 失焦后等待 Safari 完成键盘收起，再读取一次稳定视口；不在过渡中重置基准高度。
+      clearTimeout(focusTimer);
+      focusTimer = setTimeout(scheduleKb, 160);
     }, { passive: true });
 
     this._mobileToolbarEl = el;

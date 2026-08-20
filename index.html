@@ -4971,8 +4971,8 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   color: var(--text-primary);
   touch-action: pan-x pan-y;   /* 移动端编辑时可滚动页面，表格也可横向查看 */
   padding: 2px 0;
-  /* v8.6.15 底部留白 = 移动端工具栏高度 + 安全区，编辑到最后一行不被工具栏遮挡，页面自动滚动可见 */
-  padding-bottom: calc(84px + var(--safe-bottom, 0px));
+  /* 底部留白 = 紧凑移动端工具栏 + 间距 + 安全区，最后一行不被遮挡 */
+  padding-bottom: calc(70px + var(--safe-bottom, 0px));
 }
 .html-editor__area:empty::before {
   content: attr(data-placeholder);
@@ -5093,10 +5093,14 @@ body.ipad-split .notion-editor {
 .notion-mobile-toolbar {
   position: fixed;
   left: 50%;                     /* 关键：fixed 居中定位 */
-  bottom: calc(var(--nav-height, 56px) + var(--safe-bottom, 0px) + 10px);  /* 悬浮在底部导航上方，不与导航重叠露半截 */
-  width: min(680px, calc(100% - 32px));  /* 响应式宽度：大屏限宽，小屏自适应 */
-  height: 56px;
-  border-radius: 20px;           /* 大圆角 → App 卡片感 */
+  bottom: calc(var(--nav-height, 56px) + var(--safe-bottom, 0px) + 8px);  /* JS 在键盘变化时更新，普通滚动保持不变 */
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  min-width: 0;
+  height: 46px;
+  padding: 3px 5px;
+  box-sizing: border-box;
+  border-radius: 24px;           /* 与 Safari 原生输入栏保持胶囊形态 */
   background: rgba(255, 255, 255, 0.95);
   -webkit-backdrop-filter: blur(20px);   /* 毛玻璃 → iOS 原生质感 */
   backdrop-filter: blur(20px);
@@ -5112,14 +5116,13 @@ body.ipad-split .notion-editor {
   transform: translateX(-50%) translateZ(0);
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
-  /* 键盘弹出/收起时的平滑过渡 */
-  transition: bottom 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  /* 键盘高度变化由 JS 直接定位，避免页面滚动时出现上下动画 */
+  transition: none;
 }
 .notion-mobile-toolbar[data-mode="table"] { border-color: rgba(25, 113, 194, 0.25); }
-/* iPad 分屏模式（宽度 < 1024）：工具栏接近全宽，圆角略小 */
+/* iPad 分屏只调整圆角，不再把格式栏强制拉成全宽 */
 body.ipad-split .notion-mobile-toolbar {
-  width: calc(100% - 32px);
-  border-radius: 16px;
+  border-radius: 24px;
 }
 [data-theme="dark"] .notion-mobile-toolbar {
   background: rgba(30, 30, 30, 0.95);
@@ -5133,20 +5136,23 @@ body.ipad-split .notion-mobile-toolbar {
   display: flex;
   align-items: center;
   height: 100%;
+  width: max-content;
+  max-width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  padding: 0 8px;
-  gap: 0;
-  border-radius: 20px;           /* 内部滚动区与卡片同圆角 */
+  padding: 0;
+  gap: 2px;
+  border-radius: 24px;           /* 内部滚动区与卡片同圆角 */
 }
 .notion-mobile-toolbar__scroll::-webkit-scrollbar { display: none; }
-/* 纯图标按钮：flex 均分，视觉上只占图标大小，点击区 44x44 */
+/* 纯图标按钮：固定紧凑尺寸，保留足够的触控区域 */
 .notion-mobile-tool-btn {
-  flex: 1;
-  min-width: 44px;
-  max-width: 56px;
-  height: 100%;
+  flex: 0 0 38px;
+  width: 38px;
+  min-width: 38px;
+  max-width: 38px;
+  height: 38px;
   border: none;
   border-radius: 16px;
   background: none;
@@ -5159,8 +5165,8 @@ body.ipad-split .notion-mobile-toolbar {
   -webkit-tap-highlight-color: transparent;
 }
 .notion-mobile-tool-btn svg {
-  width: 24px;
-  height: 24px;
+  width: 21px;
+  height: 21px;
   color: var(--text-secondary, #6B6B6B);
   fill: none;
   stroke: currentColor;
@@ -5180,13 +5186,13 @@ body.ipad-split .notion-mobile-toolbar {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 20px;
+  width: 12px;
   pointer-events: none;
   z-index: 2;
-  border-radius: 20px;
+  border-radius: 24px;
 }
-.notion-mobile-toolbar__mask.left { left: 8px; background: linear-gradient(to right, rgba(255, 255, 255, 0.95) 0%, transparent 100%); }
-.notion-mobile-toolbar__mask.right { right: 8px; background: linear-gradient(to left, rgba(255, 255, 255, 0.95) 0%, transparent 100%); }
+.notion-mobile-toolbar__mask.left { left: 5px; background: linear-gradient(to right, rgba(255, 255, 255, 0.95) 0%, transparent 100%); }
+.notion-mobile-toolbar__mask.right { right: 5px; background: linear-gradient(to left, rgba(255, 255, 255, 0.95) 0%, transparent 100%); }
 [data-theme="dark"] .notion-mobile-toolbar__mask.left { background: linear-gradient(to right, rgba(30, 30, 30, 0.95) 0%, transparent 100%); }
 [data-theme="dark"] .notion-mobile-toolbar__mask.right { background: linear-gradient(to left, rgba(30, 30, 30, 0.95) 0%, transparent 100%); }
 
@@ -10473,7 +10479,7 @@ window.App = window.App || {};
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.20.13';
+App.VERSION = '8.20.14';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -12401,22 +12407,9 @@ App.Components = {
   _navVisible: true,
   _setNavVisible(visible) {
     this._navVisible = visible;
-    const bar = this._mobileToolbarEl;
-    if (!bar) return;
-    let kb = 0;
-    try {
-      if (window.visualViewport && window.innerHeight > window.visualViewport.height) {
-        kb = window.innerHeight - window.visualViewport.height;
-      }
-    } catch (e) {}
-    if (kb > 0) return;   // 键盘弹出中，位置由 updateToolbarBottom 按 kb+16 处理
-    if (visible) {
-      try {
-        const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--nav-height'));
-        bar.style.bottom = ((isNaN(v) ? 56 : v) + 10) + 'px';
-      } catch (e) { bar.style.bottom = '66px'; }
-    } else {
-      bar.style.bottom = '16px';   // 无底部导航：工具栏贴底悬浮
+    // 统一交给单例定位器处理，避免路由切换和 visualViewport 各自改写 bottom。
+    if (typeof this._refreshMobileToolbarPosition === 'function') {
+      this._refreshMobileToolbarPosition();
     }
   },
 
@@ -12519,11 +12512,18 @@ App.Components = {
     };
 
     // ===== 软键盘适配（单例级，只注册一次） =====
-    // iOS Safari 键盘弹出时 visualViewport 高度缩小，同时键盘上方还有系统「上一条/下一条/完成」透明条
-    // 悬浮卡片：键盘弹出时 bottom = 键盘高度 + 16px（悬浮在键盘上方），收起时 bottom = safe-bottom + 16px
+    // iOS Safari 键盘弹出时 visualViewport 高度缩小。只在高度变化时重算位置；
+    // 页面滚动会改变 offsetTop，但不应改变底部悬浮格式栏的位置。
     const isMob = window.innerWidth <= 768 || ('ontouchstart' in window);
-    let baseInnerH = window.innerHeight;   // 缓存基准视口高度（键盘弹出后 innerHeight 也可能变化）
+    let baseInnerH = Math.max(window.innerHeight, window.visualViewport ? window.visualViewport.height : 0);
+    let keyboardInset = 0;
     let kbRaf = null;
+    let focusTimer = null;
+    const KEYBOARD_THRESHOLD = 120;
+    const isEditorFocused = () => {
+      const active = document.activeElement;
+      return !!(active && (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)));
+    };
     const SAFE_BOTTOM = (() => {
       // 读取 CSS 变量 --safe-bottom（若有），否则默认 0
       try {
@@ -12538,48 +12538,57 @@ App.Components = {
         return isNaN(v) ? 56 : v;
       } catch (e) { return 56; }
     })();
+    const getKeyboardInset = () => {
+      const vv = window.visualViewport;
+      if (!vv) return 0;
+
+      // 键盘收起或仅发生 Safari 地址栏变化时，更新基准高度，避免把浏览器界面变化误判成键盘。
+      const delta = baseInnerH - vv.height;
+      if (delta < KEYBOARD_THRESHOLD) {
+        // 编辑器仍聚焦时保留原始基准，防止 iOS 键盘动画同步改变 innerHeight 后丢失键盘高度。
+        if (!isEditorFocused()) baseInnerH = Math.max(window.innerHeight, vv.height);
+        return 0;
+      }
+      // 不再使用 vv.offsetTop：它会随页面滚动/浏览器界面变化，正是格式栏跳动的来源。
+      return Math.round(delta);
+    };
     const updateToolbarBottom = () => {
       const bar = App.Components._mobileToolbarEl;
       if (!bar || !isMob) return;
-      let kb = 0;
-      if (window.visualViewport) {
-        const vv = window.visualViewport;
-        // 键盘+系统工具条高度 = 基准视口高 - 当前可视高（含 Safari 透明条占位）
-        kb = Math.max(0, baseInnerH - vv.height);
-        // 兼容旧版 iOS：offsetTop 表示可视区相对页面的下移量，也计入
-        if (vv.offsetTop > kb) kb = vv.offsetTop;
-      }
-      // 悬浮卡片：键盘弹出 bottom = kb+16（键盘上方）；收起时——若当前页面隐藏了底部导航则贴底 16px，否则悬浮导航上方
+      const kb = getKeyboardInset();
+      keyboardInset = kb;
+      // 键盘/系统输入栏占用的可视区高度只在 resize 时更新；普通页面滚动保持此值不变。
       const hideNav = App.Components._navVisible === false;
-      bar.style.bottom = (kb > 0 ? kb + 16 : (hideNav ? SAFE_BOTTOM + 16 : NAV_H + SAFE_BOTTOM + 10)) + 'px';
+      const bottom = kb > 0
+        ? kb + 8
+        : (hideNav ? SAFE_BOTTOM + 8 : NAV_H + SAFE_BOTTOM + 8);
+      bar.style.bottom = bottom + 'px';
       // 同时告知当前活动编辑器，让浮动格式栏也能适配
       const inst = App.Components._activeMobileEditor;
       if (inst && typeof inst._onKeyboardChange === 'function') inst._onKeyboardChange(kb);
     };
+    this._refreshMobileToolbarPosition = updateToolbarBottom;
     const scheduleKb = () => {
       if (kbRaf) return;
       kbRaf = requestAnimationFrame(() => { kbRaf = null; updateToolbarBottom(); });
     };
     if (isMob && window.visualViewport) {
       window.visualViewport.addEventListener('resize', scheduleKb, { passive: true });
-      window.visualViewport.addEventListener('scroll', scheduleKb, { passive: true });
     } else if (isMob) {
       let _lastH = window.innerHeight;
       window.addEventListener('resize', () => {
         const dh = Math.abs(window.innerHeight - _lastH);
         _lastH = window.innerHeight;
-        if (dh > 150) { baseInnerH = window.innerHeight + dh; scheduleKb(); }
-        else { baseInnerH = window.innerHeight; scheduleKb(); }
+        if (dh > KEYBOARD_THRESHOLD && keyboardInset === 0) baseInnerH = window.innerHeight;
+        scheduleKb();
       }, { passive: true });
     }
     // 聚焦时也刷新一次（键盘弹出可能不触发 resize）
     window.addEventListener('focusin', scheduleKb, { passive: true });
     window.addEventListener('focusout', () => {
-      // 键盘收起：恢复到底部
-      if (kbRaf) cancelAnimationFrame(kbRaf);
-      kbRaf = null;
-      baseInnerH = window.innerHeight;
-      updateToolbarBottom();
+      // 失焦后等待 Safari 完成键盘收起，再读取一次稳定视口；不在过渡中重置基准高度。
+      clearTimeout(focusTimer);
+      focusTimer = setTimeout(scheduleKb, 160);
     }, { passive: true });
 
     this._mobileToolbarEl = el;
@@ -16571,26 +16580,24 @@ Object.assign(App.Components, {
     let _keyboardH = 0;
     _mobileInst._onKeyboardChange = (kb) => {
       _keyboardH = kb;
-      // 编辑器容器底部留白：悬浮卡片高度(56) + 底部间距(16) + 键盘高度，避免内容被遮
+      // 编辑器容器底部留白：紧凑悬浮卡片高度(46) + 底部间距(8) + 键盘高度，避免内容被遮
       // 就地编辑模式（inlinePadding）只保留最小留白，避免切换瞬间高度突变导致页面重排
       try {
-        const basePad = ext.inlinePadding ? 8 : (56 + 16 + 20);
+        const basePad = ext.inlinePadding ? 8 : (46 + 8 + 20);
         wrapper.style.paddingBottom = (basePad + kb) + 'px';
       } catch (e) {}
+      if (kb > 0) _scrollFocusedBlockIntoView();
       // 格式栏打开时重新定位（避开 Safari「上/下/对号」透明条）
       if (formatBar && formatBar.parentElement) repositionFormatBar();
     };
-    // 初始留白（无键盘时：56 + 16 + 20；就地编辑仅 8px，页面高度不突变）
-    try { wrapper.style.paddingBottom = ext.inlinePadding ? '8px' : '92px'; } catch (e) {}
-    // 键盘弹出时把聚焦块滚动到可视区
-    const _vvScrollHandler = () => {
+    // 初始留白（无键盘时：46 + 8 + 20；就地编辑仅 8px，页面高度不突变）
+    try { wrapper.style.paddingBottom = ext.inlinePadding ? '8px' : '74px'; } catch (e) {}
+    // 键盘高度变化后把聚焦块滚动到可视区；页面普通滚动不再重复触发，避免与格式栏定位形成反馈。
+    const _scrollFocusedBlockIntoView = () => {
       if (_keyboardH > 0 && focusedBlockEl && focusedBlockEl.scrollIntoView) {
         focusedBlockEl.scrollIntoView({ block: 'center', behavior: 'auto' });
       }
     };
-    if (isMobile && window.visualViewport) {
-      window.visualViewport.addEventListener('scroll', _vvScrollHandler, { passive: true });
-    }
 
     // ===== Bottom Sheet 通用：打开/关闭/下滑关闭 =====
     let sheetEl = null, sheetOverlay = null;
