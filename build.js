@@ -3,7 +3,7 @@
  * 从 src/ 源码生成 index.html：
  *   src/index.template.html  —— 页面骨架（含 <!--BUILD_CSS--> / <!--BUILD_JS--> 占位符）
  *   src/styles.css            —— 全部 CSS（唯一真源）
- *   src/app.js + src/core/ + src/components/ + src/pages/ + src/modules/
+ *   src/app.js + src/core/ + src/components/ + src/pages/ + src/bootstrap/ + src/modules/
  *   —— 按依赖顺序组织的 JS 源码
  * 用法：node build.js   （生成与当前功能完全一致的 index.html）
  *
@@ -18,7 +18,8 @@ const root = process.cwd();
 
 const css = fs.readFileSync(path.join(root, 'src', 'styles.css'), 'utf8');
 // 显式声明依赖顺序，避免文件名排序或新增模块导致初始化顺序变化。
-// src/core/ 是基础层；src/components/ 是 UI 组件层。
+// src/core/ 是基础层；src/components/ 是 UI 组件层；src/pages/ 是页面层；
+// src/bootstrap/ 是全局启动入口。
 // 01-sketch-preserved 与 150-speed-preserved 是受保护模块：
 // 涂鸦和速算逻辑保持原样，只参与拼接，不在本次重构中改写。
 const JS_MODULES = [
@@ -33,10 +34,10 @@ const JS_MODULES = [
   'src/components/20-editors.js',
   'src/components/30-sheets-cards.js',
   'src/components/40-picker-modal.js',
-  'src/modules/40-note-types.js',
   'src/core/30-cloud.js',
   'src/core/40-draft.js',
   'src/core/50-router.js',
+  'src/core/60-note-types.js',
   'src/pages/00-home.js',
   'src/pages/10-errors.js',
   'src/pages/20-notes.js',
@@ -44,8 +45,10 @@ const JS_MODULES = [
   'src/pages/31-study-stats.js',
   'src/pages/40-exams.js',
   'src/pages/50-workspace.js',
-  'src/modules/130-settings-words-kp.js',
-  'src/modules/140-editor-entry.js',
+  'src/pages/60-settings.js',
+  'src/pages/61-kp-manage.js',
+  'src/pages/62-worddb.js',
+  'src/bootstrap/00-editor-entry.js',
   'src/modules/150-speed-preserved.js'
 ];
 const js = JS_MODULES

@@ -1,4 +1,4 @@
-// ===== 笔记类型（对齐画布「iPad-笔记类型管理」8:170 /「新增类型」10:1 / 弹窗 10:114） =====
+// ===== 笔记类型数据服务（对齐画布「iPad-笔记类型管理」8:170 /「新增类型」10:1 / 弹窗 10:114） =====
 window.App = window.App || {};
 App.NoteTypes = (function () {
   const KEY = 'kg_note_types';
@@ -44,5 +44,4 @@ App.NoteTypes = (function () {
   }
   return { getAll, ensureDefault, add, remove, getColor, DEFAULT_COLORS: DEFAULT_TYPES.map(t => t.color) };
 })();
-
 

@@ -10412,7 +10412,8 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
  *   - src/components/01-sketch-preserved.js 中的涂鸦实现
  *   - src/modules/150-speed-preserved.js 中的速算练习实现
  *
- * 基础层位于 src/core/，组件位于 src/components/，页面和受保护功能位于 src/pages/ 与 src/modules/；
+ * 基础层位于 src/core/，组件位于 src/components/，页面位于 src/pages/，启动入口位于 src/bootstrap/；
+ * 受保护的速算功能仍位于 src/modules/；
  * 请按 build.js 中的顺序修改对应模块。
  */
 window.App = window.App || {};
@@ -10423,7 +10424,7 @@ window.App = window.App || {};
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.20.9';
+App.VERSION = '8.20.10';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -19115,56 +19116,6 @@ App.Components.pickerModal = function (opts) {
 
 
 
-// ===== 笔记类型（对齐画布「iPad-笔记类型管理」8:170 /「新增类型」10:1 / 弹窗 10:114） =====
-window.App = window.App || {};
-App.NoteTypes = (function () {
-  const KEY = 'kg_note_types';
-  const DEFAULT_TYPES = [
-    { name: '技巧总结', color: '#0066CC' },
-    { name: '解题方法', color: '#FF9500' },
-    { name: '知识积累', color: '#34C759' },
-    { name: '错题复盘', color: '#9B7BFF' }
-  ];
-
-  function getAll() {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (!raw) return [];
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) return arr;
-    } catch (e) { /* ignore */ }
-    return [];
-  }
-  function ensureDefault() {
-    if (getAll().length === 0) {
-      try { localStorage.setItem(KEY, JSON.stringify(DEFAULT_TYPES)); } catch (e) { /* ignore */ }
-    }
-  }
-  function saveAll(list) {
-    try { localStorage.setItem(KEY, JSON.stringify(list)); } catch (e) { /* ignore */ }
-  }
-  function add(name, color) {
-    ensureDefault();
-    const list = getAll();
-    if (list.some(t => t.name === name)) return false;
-    list.push({ name, color: color || '#0066CC' });
-    saveAll(list);
-    return true;
-  }
-  function remove(name) {
-    const list = getAll().filter(t => t.name !== name);
-    saveAll(list);
-  }
-  function getColor(name) {
-    const t = getAll().find(x => x.name === name);
-    return t ? t.color : '#0066CC';
-  }
-  return { getAll, ensureDefault, add, remove, getColor, DEFAULT_COLORS: DEFAULT_TYPES.map(t => t.color) };
-})();
-
-
-
-
 // ===== 考公笔试复盘系统 - 云端同步层 =====
 // 与同源 /api 接口对接；登录后本地数据实时镜像到云端，可跨设备 / 跨版本访问。
 // 同步集合：errors / notes / exams / todos / subject_reviews / words
@@ -19979,6 +19930,55 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
+
+
+
+// ===== 笔记类型数据服务（对齐画布「iPad-笔记类型管理」8:170 /「新增类型」10:1 / 弹窗 10:114） =====
+window.App = window.App || {};
+App.NoteTypes = (function () {
+  const KEY = 'kg_note_types';
+  const DEFAULT_TYPES = [
+    { name: '技巧总结', color: '#0066CC' },
+    { name: '解题方法', color: '#FF9500' },
+    { name: '知识积累', color: '#34C759' },
+    { name: '错题复盘', color: '#9B7BFF' }
+  ];
+
+  function getAll() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return arr;
+    } catch (e) { /* ignore */ }
+    return [];
+  }
+  function ensureDefault() {
+    if (getAll().length === 0) {
+      try { localStorage.setItem(KEY, JSON.stringify(DEFAULT_TYPES)); } catch (e) { /* ignore */ }
+    }
+  }
+  function saveAll(list) {
+    try { localStorage.setItem(KEY, JSON.stringify(list)); } catch (e) { /* ignore */ }
+  }
+  function add(name, color) {
+    ensureDefault();
+    const list = getAll();
+    if (list.some(t => t.name === name)) return false;
+    list.push({ name, color: color || '#0066CC' });
+    saveAll(list);
+    return true;
+  }
+  function remove(name) {
+    const list = getAll().filter(t => t.name !== name);
+    saveAll(list);
+  }
+  function getColor(name) {
+    const t = getAll().find(x => x.name === name);
+    return t ? t.color : '#0066CC';
+  }
+  return { getAll, ensureDefault, add, remove, getColor, DEFAULT_COLORS: DEFAULT_TYPES.map(t => t.color) };
+})();
 
 
 
@@ -26890,11 +26890,12 @@ App.Pages.Settings = {
     container.appendChild(content);
   }
 };
-// ===== 考公笔试复盘系统 - 词语库页面（Notion 数据库风格） =====
+
+
+// ===== 考公笔试复盘系统 - 考点 / 错因管理页面 =====
 window.App = window.App || {};
 App.Pages = App.Pages || {};
 
-// ===== 考公笔试复盘系统 - 考点管理（独立页面）=====
 App.Pages.KpManage = {
   render(params) {
     const container = document.getElementById('page-kpmanage');
@@ -26923,6 +26924,7 @@ App.Pages.KpManage = {
     });
   }
 };
+
 
 App.Pages.WordDB = {
   state: {
@@ -28286,9 +28288,7 @@ App.Pages.WordDB = {
 };
 
 
-
-
-// ===== 全局入口：Notion 移动端编辑器 =====
+// ===== 启动入口：Notion 移动端编辑器与 Service Worker =====
 window.initNotionMobileEditor = function (containerSelector, options) {
   return App.Components.initNotionMobileEditor(containerSelector, options);
 };
@@ -28306,7 +28306,6 @@ window.initNotionMobileEditor = function (containerSelector, options) {
       });
     }
   
-
 
 
 // ===== 【速算练习】速算练习模块 v8.6.14 重设计（13题型 / 6设置开关 / 强制屏幕键盘 / 蓝白风格） =====

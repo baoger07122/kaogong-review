@@ -1,4 +1,4 @@
-// ===== 全局入口：Notion 移动端编辑器 =====
+// ===== 启动入口：Notion 移动端编辑器与 Service Worker =====
 window.initNotionMobileEditor = function (containerSelector, options) {
   return App.Components.initNotionMobileEditor(containerSelector, options);
 };
@@ -16,4 +16,3 @@ window.initNotionMobileEditor = function (containerSelector, options) {
       });
     }
   
-

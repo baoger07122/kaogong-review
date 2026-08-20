@@ -9,6 +9,7 @@
 5. 30-cloud.js：登录、云端同步队列和数据库写入监听。
 6. 40-draft.js：页面草稿和表单草稿。
 7. 50-router.js：路由、启动初始化和全局事件。
+8. 60-note-types.js：笔记类型的本地存储与增删查询服务。
 
 页面代码依赖这些模块公开的 App.Constants、App.Utils、App.DB、
 App.Tags、App.Cloud、App.Draft 和 App.Router 接口。重构基础层时优先
