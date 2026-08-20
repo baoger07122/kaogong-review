@@ -3,7 +3,7 @@
  * 从 src/ 源码生成 index.html：
  *   src/index.template.html  —— 页面骨架（含 <!--BUILD_CSS--> / <!--BUILD_JS--> 占位符）
  *   src/styles.css            —— 全部 CSS（唯一真源）
- *   src/app.js + src/modules/ —— 按依赖顺序组织的 JS 源码
+ *   src/app.js + src/core/ + src/modules/ —— 按依赖顺序组织的 JS 源码
  * 用法：node build.js   （生成与当前功能完全一致的 index.html）
  *
  * 重要说明：本项目用 window.App 在全局挂载方法，供页面按钮调用。
@@ -17,17 +17,19 @@ const root = process.cwd();
 
 const css = fs.readFileSync(path.join(root, 'src', 'styles.css'), 'utf8');
 // 显式声明依赖顺序，避免文件名排序或新增模块导致初始化顺序变化。
-// 30-components-preserved 与 150-speed-preserved 是受保护模块：
+// src/core/ 是基础层；30-components-preserved 与 150-speed-preserved 是受保护模块：
 // 涂鸦和速算逻辑保持原样，只参与拼接，不在本次重构中改写。
 const JS_MODULES = [
   'src/app.js',
-  'src/modules/00-foundation.js',
-  'src/modules/10-database.js',
-  'src/modules/20-tags.js',
+  'src/core/00-constants.js',
+  'src/core/01-utils.js',
+  'src/core/10-database.js',
+  'src/core/20-tags.js',
   'src/modules/30-components-preserved.js',
   'src/modules/40-note-types.js',
-  'src/modules/50-cloud.js',
-  'src/modules/60-draft-router.js',
+  'src/core/30-cloud.js',
+  'src/core/40-draft.js',
+  'src/core/50-router.js',
   'src/modules/70-home.js',
   'src/modules/80-errors.js',
   'src/modules/90-notes.js',
