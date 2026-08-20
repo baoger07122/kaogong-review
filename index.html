@@ -10404,12 +10404,25 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   <!-- 常驻版本角标（方便核对是否最新版） -->
   <div class="version-badge" id="version-badge"></div>
 
-  <script>
+  <script>/*
+ * 考公复盘系统前端入口
+ *
+ * 运行时仍由 build.js 拼接为一个 index.html，模块按依赖顺序加载。
+ * 需要保留未改写的功能：
+ *   - src/modules/30-components-preserved.js 中的涂鸦实现
+ *   - src/modules/150-speed-preserved.js 中的速算练习实现
+ *
+ * 业务代码位于 src/modules/，请按 build.js 中的顺序修改对应模块。
+ */
+window.App = window.App || {};
+
+
+
 // ===== 考公笔试复盘系统 - 预设枚举数据 =====
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.20.4';
+App.VERSION = '8.20.6';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -11210,6 +11223,8 @@ App.Utils = {
     });
   }
 };
+
+
 // ===== 考公笔试复盘系统 - IndexedDB 数据库层 =====
 window.App = window.App || {};
 
@@ -11217,6 +11232,46 @@ App.DB = (function() {
   const DB_NAME = 'CivilExamReview';
   const DB_VERSION = 4;
   let db = null;
+
+  function ensureDb() {
+    if (!db) throw new Error('数据库尚未初始化');
+    return db;
+  }
+
+  // 写入操作统一等事务真正提交后再 resolve。
+  // 仅监听 request.onsuccess 会在配额不足/事务提交失败时误报“保存成功”。
+  function writeTransaction(storeName, action) {
+    return new Promise((resolve, reject) => {
+      let tx;
+      try {
+        tx = ensureDb().transaction(storeName, 'readwrite');
+      } catch (e) {
+        reject(e);
+        return;
+      }
+
+      let result;
+      let failed = false;
+      const fail = (error) => {
+        if (failed) return;
+        failed = true;
+        reject(error || new Error('数据库事务失败'));
+      };
+
+      tx.oncomplete = () => {
+        if (!failed) resolve(result);
+      };
+      tx.onerror = () => fail(tx.error || new Error('数据库事务失败'));
+      tx.onabort = () => fail(tx.error || new Error('数据库事务已回滚'));
+
+      try {
+        result = action(tx.objectStore(storeName));
+      } catch (e) {
+        fail(e);
+        try { tx.abort(); } catch (abortError) { /* ignore */ }
+      }
+    });
+  }
 
   // ===== 初始化数据库 =====
   async function init() {
@@ -11319,38 +11374,41 @@ App.DB = (function() {
 
   // ===== 通用 CRUD 方法 =====
   async function add(storeName, item) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      const request = store.add(item);
-      request.onsuccess = () => resolve(item);
-      request.onerror = () => reject(request.error);
+    return writeTransaction(storeName, (store) => {
+      store.add(item);
+      return item;
     });
   }
 
   async function put(storeName, item) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      const request = store.put(item);
-      request.onsuccess = () => resolve(item);
-      request.onerror = () => reject(request.error);
+    return writeTransaction(storeName, (store) => {
+      store.put(item);
+      return item;
+    });
+  }
+
+  // 云同步/导入使用单事务批量写入，避免每条记录都创建一个 IndexedDB 事务。
+  async function putMany(storeName, items) {
+    const list = Array.isArray(items) ? items : [];
+    if (!list.length) return list;
+    return writeTransaction(storeName, (store) => {
+      list.forEach(item => store.put(item));
+      return list;
     });
   }
 
   async function remove(storeName, id) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      const request = store.delete(id);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
+    return writeTransaction(storeName, (store) => {
+      store.delete(id);
+      return undefined;
     });
   }
 
   async function get(storeName, id) {
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readonly');
+      let tx;
+      try { tx = ensureDb().transaction(storeName, 'readonly'); }
+      catch (e) { reject(e); return; }
       const store = tx.objectStore(storeName);
       const request = store.get(id);
       request.onsuccess = () => resolve(request.result || null);
@@ -11360,7 +11418,9 @@ App.DB = (function() {
 
   async function getAll(storeName) {
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readonly');
+      let tx;
+      try { tx = ensureDb().transaction(storeName, 'readonly'); }
+      catch (e) { reject(e); return; }
       const store = tx.objectStore(storeName);
       const request = store.getAll();
       request.onsuccess = () => resolve(request.result || []);
@@ -11369,12 +11429,44 @@ App.DB = (function() {
   }
 
   async function clearStore(storeName) {
+    return writeTransaction(storeName, (store) => {
+      store.clear();
+      return undefined;
+    });
+  }
+
+  // 备份导入需要跨多个 object store 一起替换，保证任一 store 写入失败时整次导入回滚。
+  function replaceStores(replacements) {
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      const request = store.clear();
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
+      const entries = Object.entries(replacements);
+      let tx;
+      try {
+        tx = ensureDb().transaction(entries.map(([storeName]) => storeName), 'readwrite');
+      } catch (e) {
+        reject(e);
+        return;
+      }
+
+      let failed = false;
+      const fail = (error) => {
+        if (failed) return;
+        failed = true;
+        reject(error || new Error('备份导入事务失败'));
+      };
+      tx.oncomplete = () => { if (!failed) resolve(); };
+      tx.onerror = () => fail(tx.error || new Error('备份导入事务失败'));
+      tx.onabort = () => fail(tx.error || new Error('备份导入事务已回滚'));
+
+      try {
+        entries.forEach(([storeName, items]) => {
+          const store = tx.objectStore(storeName);
+          store.clear();
+          items.forEach(item => store.put(item));
+        });
+      } catch (e) {
+        fail(e);
+        try { tx.abort(); } catch (abortError) { /* ignore */ }
+      }
     });
   }
 
@@ -11462,8 +11554,10 @@ App.DB = (function() {
     if (filters.search) {
       const kw = filters.search.toLowerCase();
       results = results.filter(r =>
-        r.title.toLowerCase().includes(kw) ||
-        (r.content && r.content.toLowerCase().includes(kw))
+        String(r.title || '').toLowerCase().includes(kw) ||
+        (r.content != null && (Array.isArray(r.content)
+          ? JSON.stringify(r.content)
+          : String(r.content)).toLowerCase().includes(kw))
       );
     }
 
@@ -11639,28 +11733,26 @@ App.DB = (function() {
 
   // ===== 统计方法 =====
   async function getStats() {
-    const errors = await getAll('errors');
-    const notes = await getAll('notes');
-    const exams = await getAll('exams');
-    const subjectReviews = await getAll('subject_reviews');
+    const [errors, notes, exams, subjectReviews] = await Promise.all([
+      getAll('errors'), getAll('notes'), getAll('exams'), getAll('subject_reviews')
+    ]);
+    const todayStr = new Date().toISOString().slice(0, 10);
 
     const subjectStats = {};
     App.Constants.SUBJECTS.forEach(s => {
       const subErrors = errors.filter(e => e.subject === s.name);
       const subNotes = notes.filter(n => n.subject === s.name);
       const subReviews = subjectReviews.filter(r => r.subject === s.name);
-      const todayStr = new Date().toISOString().slice(0, 10);
       subjectStats[s.name] = {
         totalErrors: subErrors.length,
         unmastered: subErrors.filter(e => e.status === '未掌握').length,
         mastered: subErrors.filter(e => e.status === '已掌握').length,
-        todayReviews: subReviews.filter(r => r.createdAt.slice(0, 10) === todayStr).length,
+        todayReviews: subReviews.filter(r => String(r.createdAt || '').slice(0, 10) === todayStr).length,
         totalNotes: subNotes.length,
-        todayNewErrors: subErrors.filter(e => e.createdAt.slice(0, 10) === todayStr).length
+        todayNewErrors: subErrors.filter(e => String(e.createdAt || '').slice(0, 10) === todayStr).length
       };
     });
 
-    const todayStr = new Date().toISOString().slice(0, 10);
     const thisWeekStart = new Date();
     thisWeekStart.setDate(thisWeekStart.getDate() - thisWeekStart.getDay());
     const weekStartStr = thisWeekStart.toISOString().slice(0, 10);
@@ -11669,8 +11761,8 @@ App.DB = (function() {
       totalErrors: errors.length,
       unmasteredErrors: errors.filter(e => e.status === '未掌握').length,
       masteredErrors: errors.filter(e => e.status === '已掌握').length,
-      todayNewErrors: errors.filter(e => e.createdAt.slice(0, 10) === todayStr).length,
-      weekNewErrors: errors.filter(e => e.createdAt.slice(0, 10) >= weekStartStr).length,
+      todayNewErrors: errors.filter(e => String(e.createdAt || '').slice(0, 10) === todayStr).length,
+      weekNewErrors: errors.filter(e => String(e.createdAt || '').slice(0, 10) >= weekStartStr).length,
       totalNotes: notes.length,
       totalExams: exams.length,
       thisWeekExams: exams.filter(e => e.examDate >= weekStartStr).length,
@@ -11684,18 +11776,21 @@ App.DB = (function() {
 
   // ===== 导出数据 =====
   async function exportAll() {
-    const kv = await getAll('keyvalue');
+    const [kv, errors, notes, exams, todos, subjectReviews, words, stickies] = await Promise.all([
+      getAll('keyvalue'), getAll('errors'), getAll('notes'), getAll('exams'),
+      getAll('todos'), getAll('subject_reviews'), getAll('words'), getAll('stickies')
+    ]);
     const data = {
       version: 1,
       exportedAt: new Date().toISOString(),
-      errors: await getAll('errors'),
-      notes: await getAll('notes'),
-      exams: await getAll('exams'),
-      todos: await getAll('todos'),
-      subjectReviews: await getAll('subject_reviews'),
+      errors,
+      notes,
+      exams,
+      todos,
+      subjectReviews,
       keyvalue: kv.filter(r => !(r.key && r.key.indexOf('auto_backup_') === 0)),   // v8.6.6 排除自动备份包，防递归膨胀
-      words: await getAll('words'),
-      stickies: await getAll('stickies')
+      words,
+      stickies
     };
 
     const json = JSON.stringify(data, null, 2);
@@ -11730,32 +11825,35 @@ App.DB = (function() {
       'stickies': 'stickies'
     };
 
+    const replacements = {};
     for (const [jsonKey, storeName] of Object.entries(mappings)) {
-      await clearStore(storeName);
       const items = jsonData[jsonKey] || [];
-      for (const item of items) {
-        await add(storeName, item);
-      }
+      if (!Array.isArray(items)) throw new Error('备份字段「' + jsonKey + '」格式错误');
+      replacements[storeName] = items;
     }
+    await replaceStores(replacements);
   }
 
   // ===== 构建备份数据包（供导出 / 云分享 / 自动备份复用）=====
   // v8.6.6 修复备份膨胀：keyvalue 排除 auto_backup_* 自动备份包——
   // 此前自动备份把完整包存进 keyvalue，导出时又被打包，指数级递归膨胀（实测 100 条笔记即达 17MB，导致 iOS 分享/下载失败「无法备份」）
   async function buildBackupData() {
-    const kv = await getAll('keyvalue');
+    const [kv, errors, notes, exams, todos, subjectReviews, words, stickies] = await Promise.all([
+      getAll('keyvalue'), getAll('errors'), getAll('notes'), getAll('exams'),
+      getAll('todos'), getAll('subject_reviews'), getAll('words'), getAll('stickies')
+    ]);
     return {
       version: 1,
       app: 'kaogong-review',
       exportedAt: new Date().toISOString(),
-      errors: await getAll('errors'),
-      notes: await getAll('notes'),
-      exams: await getAll('exams'),
-      todos: await getAll('todos'),
-      subjectReviews: await getAll('subject_reviews'),
+      errors,
+      notes,
+      exams,
+      todos,
+      subjectReviews,
       keyvalue: kv.filter(r => !(r.key && r.key.indexOf('auto_backup_') === 0)),
-      words: await getAll('words'),
-      stickies: await getAll('stickies')
+      words,
+      stickies
     };
   }
 
@@ -11808,7 +11906,7 @@ App.DB = (function() {
 
   return {
     init,
-    add, put, remove, get, getAll, clearStore,
+    add, put, putMany, remove, get, getAll, clearStore, replaceStores,
     addError, updateError, getErrors, getReviewQueue,
     addNote, updateNote, getNotes,
     addSticky, updateSticky, removeSticky, getStickies,
@@ -11823,6 +11921,9 @@ App.DB = (function() {
     isAvailable
   };
 })();
+
+
+
 // ===== 考公笔试复盘系统 - 标签库（考点按模块 / 错因全局，均可增删、持久化） =====
 // 知识点以「模块」为维度分别管理，确保行测每个模块的考点互不相同；
 // 错因为全局维度。预设值仅作为首次种子，之后用户对标签的增删都会持久化保存。
@@ -12174,6 +12275,9 @@ App.Tags = (function() {
     isLoaded: () => loaded
   };
 })();
+
+
+
 // ===== 考公笔试复盘系统 - 可复用 UI 组件 =====
 window.App = window.App || {};
 
@@ -14474,6 +14578,7 @@ App.Components = {
     chipsWrap.className = 'tag-input__chips';
 
     // 预设建议标签
+
     const suggestWrap = document.createElement('div');
     suggestWrap.className = 'tag-input__suggestions';
 
@@ -16774,6 +16879,7 @@ App.Components = {
       // 循环形式图标（环形箭头）
       handle.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><polyline points="21 3 21 8 16 8"/></svg>`;
       handle.addEventListener('click', (e) => {
+
         e.stopPropagation();
         // 刚拖拽过（本次按下发生过移动）：不弹菜单，由拖拽逻辑处理
         if (dragJustMoved) { dragJustMoved = false; return; }
@@ -18975,6 +19081,9 @@ App.Components.pickerModal = function (opts) {
   return overlay;
 };
 
+
+
+
 // ===== 笔记类型（对齐画布「iPad-笔记类型管理」8:170 /「新增类型」10:1 / 弹窗 10:114） =====
 window.App = window.App || {};
 App.NoteTypes = (function () {
@@ -19022,6 +19131,9 @@ App.NoteTypes = (function () {
   return { getAll, ensureDefault, add, remove, getColor, DEFAULT_COLORS: DEFAULT_TYPES.map(t => t.color) };
 })();
 
+
+
+
 // ===== 考公笔试复盘系统 - 云端同步层 =====
 // 与同源 /api 接口对接；登录后本地数据实时镜像到云端，可跨设备 / 跨版本访问。
 // 同步集合：errors / notes / exams / todos / subject_reviews / words
@@ -19038,8 +19150,9 @@ App.Cloud = (function () {
   let _email = '';
   let _last = 0;          // 上次成功同步时间戳
   let _suppress = false;  // 内部批量写入时抑制自动推送，避免回环
-  let _queue = [];        // 待推送任务 {op, coll, item?, id?}
+  let _queue = new Map(); // 待推送任务；同一记录只保留最后一次操作
   let _flushing = false;
+  let _flushTimer = null;
 
   // ---------- 基础 ----------
   function init() {
@@ -19107,28 +19220,48 @@ App.Cloud = (function () {
   }
 
   // ---------- 队列（防抖批量推送）----------
-  function queuePush(coll, item) { _queue.push({ op: 'put', coll, item }); scheduleFlush(); }
-  function queueDelete(coll, id) { _queue.push({ op: 'del', coll, id }); scheduleFlush(); }
+  function jobKey(job) {
+    const id = job.op === 'put' ? job.item && job.item.id : job.id;
+    return job.coll + '\u0000' + id;
+  }
 
-  function scheduleFlush() {
-    if (_flushing) return;
-    setTimeout(flush, 500);
+  function queuePush(coll, item) {
+    if (!item || !item.id) return;
+    const job = { op: 'put', coll, item };
+    _queue.set(jobKey(job), job);
+    scheduleFlush();
+  }
+
+  function queueDelete(coll, id) {
+    if (!id) return;
+    const job = { op: 'del', coll, id };
+    _queue.set(jobKey(job), job);
+    scheduleFlush();
+  }
+
+  function scheduleFlush(delay = 500) {
+    if (_flushing || _flushTimer) return;
+    _flushTimer = setTimeout(() => {
+      _flushTimer = null;
+      flush();
+    }, delay);
   }
 
   async function flush() {
     if (_flushing) return;
     _flushing = true;
-    const batch = _queue; _queue = [];
+    const batch = Array.from(_queue.values());
+    _queue.clear();
     for (const job of batch) {
       try {
         if (job.op === 'put') await pushRecord(job.coll, job.item);
         else await deleteRecord(job.coll, job.id);
       } catch (e) {
-        _queue.push(job); // 失败重试
+        _queue.set(jobKey(job), job); // 失败重试
       }
     }
-    if (_queue.length) setTimeout(flush, 2000);
     _flushing = false;
+    if (_queue.size) scheduleFlush(2000);
   }
 
   // ---------- 整库同步 ----------
@@ -19156,17 +19289,20 @@ App.Cloud = (function () {
       const localMap = new Map();
       local.forEach(x => localMap.set(x.id, x));
       const t = (o) => new Date((o && (o.updatedAt || o.createdAt)) || 0).getTime();
+      const toPut = [];
       _suppress = true;
-      for (const r of remote) {
-        const l = localMap.get(r.id);
-        if (!l) {
-          await App.DB.add(coll, r);            // 云端新增 → 插入本地
-        } else if (t(r) > t(l)) {
-          await App.DB.put(coll, r);            // 云端更新 → 覆盖本地
+      try {
+        for (const r of remote) {
+          const l = localMap.get(r.id);
+          if (!l || t(r) > t(l)) {
+            toPut.push(r);                       // 云端新增/更新 → 批量写入本地
+          }
+          // 本地更新/更早 → 保留本地（已在上一步推上云）
         }
-        // 本地更新/更早 → 保留本地（已在上一步推上云）
+        await App.DB.putMany(coll, toPut);
+      } finally {
+        _suppress = false;
       }
-      _suppress = false;
     }
     _touch();
     _refreshUI();
@@ -19255,7 +19391,13 @@ App.Cloud = (function () {
 
   // ---------- 挂载到 DB 写入钩子 ----------
   function wrapDB() {
-    const orig = { add: App.DB.add, put: App.DB.put, remove: App.DB.remove };
+    const orig = {
+      add: App.DB.add,
+      put: App.DB.put,
+      putMany: App.DB.putMany,
+      replaceStores: App.DB.replaceStores,
+      remove: App.DB.remove
+    };
     App.DB.add = async function (store, item) {
       const r = await orig.add(store, item);
       _onMutate(store, 'put', item);
@@ -19264,6 +19406,18 @@ App.Cloud = (function () {
     App.DB.put = async function (store, item) {
       const r = await orig.put(store, item);
       _onMutate(store, 'put', item);
+      return r;
+    };
+    App.DB.putMany = async function (store, items) {
+      const r = await orig.putMany(store, items);
+      (items || []).forEach(item => _onMutate(store, 'put', item));
+      return r;
+    };
+    App.DB.replaceStores = async function (replacements) {
+      const r = await orig.replaceStores(replacements);
+      Object.entries(replacements || {}).forEach(([store, items]) => {
+        (items || []).forEach(item => _onMutate(store, 'put', item));
+      });
       return r;
     };
     App.DB.remove = async function (store, id) {
@@ -19298,6 +19452,9 @@ App.Cloud = (function () {
     COLLS
   };
 })();
+
+
+
 // ===== 考公笔试复盘系统 - 表单草稿自动暂存 =====
 // 解决 iPad 分屏切换 / app 被系统回收 / 任何原因导致页面重建时，未保存的输入丢失问题。
 // 原则：边填边存 localStorage（纯本地，不上云）；提交成功后清除；重新打开表单时静默恢复。
@@ -19786,6 +19943,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }).catch(() => {});
   }
 });
+
+
+
 // ===== 考公笔试复盘系统 - 复盘首页 =====
 window.App = window.App || {};
 App.Pages = App.Pages || {};
@@ -20970,6 +21130,9 @@ App.Pages.Home = {
     await this._fillStickySection(wrap);
   }
 };
+
+
+
 // ===== 考公笔试复盘系统 - 错题本页面 =====
 // ===== 考公笔试复盘系统 - 错题本页面 =====
 // ===== 考公笔试复盘系统 - 错题本页面 =====
@@ -23035,6 +23198,9 @@ App.Pages.Errors.renderShenlunForm = function (params) {
   });
 })();
 
+
+
+
 // ===== 考公笔试复盘系统 - 笔记页面 =====
 window.App = window.App || {};
 App.Pages = App.Pages || {};
@@ -24544,6 +24710,9 @@ App.Pages.Notes = {
     container.appendChild(body);
   }
 };
+
+
+
 // ===== 考公笔试复盘系统 - 便签管理页（查看全部） =====
 window.App = window.App || {};
 App.Pages = App.Pages || {};
@@ -24927,6 +25096,9 @@ App.Pages.StudyStats = {
     container.appendChild(spacer);
   }
 };
+
+
+
 
 
 // ===== 考公笔试复盘系统 - 套卷记录页面 =====
@@ -25653,6 +25825,9 @@ App.Pages.Exams = {
     loadAndRender();
   }
 };
+
+
+
 // ===== 考公笔试复盘系统 - 科目专属复盘工作台 =====
 window.App = window.App || {};
 App.Pages = App.Pages || {};
@@ -26444,6 +26619,9 @@ App.Pages.Workspace = {
     container.appendChild(wrapper);
   }
 };
+
+
+
 // ===== 考公笔试复盘系统 - 设置页面 =====
 window.App = window.App || {};
 App.Pages = App.Pages || {};
@@ -28067,6 +28245,9 @@ App.Pages.WordDB = {
   }
 };
 
+
+
+
 // ===== 全局入口：Notion 移动端编辑器 =====
 window.initNotionMobileEditor = function (containerSelector, options) {
   return App.Components.initNotionMobileEditor(containerSelector, options);
@@ -28085,6 +28266,9 @@ window.initNotionMobileEditor = function (containerSelector, options) {
       });
     }
   
+
+
+
 // ===== 【速算练习】速算练习模块 v8.6.14 重设计（13题型 / 6设置开关 / 强制屏幕键盘 / 蓝白风格） =====
 // 设置存 localStorage kg_speed_settings；历史记录 kg_speed_records（兼容旧 speedCalcHistory 展示）
 App.Pages.SpeedCalc = {
@@ -30582,6 +30766,7 @@ function bindSwipeDelete(row, listEl, onDelete) {
     });
   }
 }
+
 </script>
 </body>
 </html>
