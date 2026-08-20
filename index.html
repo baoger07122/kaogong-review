@@ -10401,7 +10401,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.19.0';
+App.VERSION = '8.20.1';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -21041,8 +21041,10 @@ App.Pages.Errors = {
     fab.title = '新增错题';
     fab.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
     fab.addEventListener('click', () => {
-      const subject = this.state.subject ? ('?subject=' + encodeURIComponent(this.state.subject)) : '';
-      App.Router.navigate('error-form' + subject);
+      const query = [];
+      if (this.state.subject) query.push('subject=' + encodeURIComponent(this.state.subject));
+      if (this.state.module) query.push('module=' + encodeURIComponent(this.state.module));
+      App.Router.navigate('error-form' + (query.length ? '?' + query.join('&') : ''));
     });
     container.appendChild(fab);
 
