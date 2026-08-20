@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.20.3';
+App.VERSION = '8.20.4';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -10584,6 +10584,14 @@ App.Pages.Errors = {
     gallerySizeAuto: true // 是否自动根据窗口宽度选择密度（用户手动切换后变为 false）
   },
 
+  // 根据错题自身的科目/模块生成列表路由，避免详情页依赖浏览器历史返回。
+  _buildErrorListRoute(error) {
+    const query = [];
+    if (error && error.subject) query.push('subject=' + encodeURIComponent(error.subject));
+    if (error && error.module) query.push('module=' + encodeURIComponent(error.module));
+    return 'errors' + (query.length ? '?' + query.join('&') : '');
+  },
+
   // v8.12.30 错题本侧边栏 SVG 图标（像素级还原设计稿：直接引用设计稿导出路径，fill/stroke 用 currentColor）
   // 每科目图标形状与设计稿 7:688/700/729/738/749/757 完全一致；颜色由外层 style(color) 控制（未选中主题色/选中蓝）
   _subjectIconSvg(subjectName) {
@@ -10602,6 +10610,27 @@ App.Pages.Errors = {
   async render(params) {
     const container = document.getElementById('page-errors');
     container.innerHTML = '';
+
+    // 详情页返回会携带错题所属科目/模块；从 URL 恢复筛选上下文，
+    // 这样直接刷新或复制链接打开列表时也不会退回到全部错题。
+    const hasSubjectParam = params && Object.prototype.hasOwnProperty.call(params, 'subject');
+    if (hasSubjectParam) {
+      const requestedSubject = params.subject || null;
+      const isKnownSubject = !!requestedSubject && App.Constants.SUBJECTS.some(s => s.name === requestedSubject);
+      this.state.subject = isKnownSubject ? requestedSubject : null;
+      const modules = this.state.subject ? App.Constants.getModules(this.state.subject) : [];
+      this.state.module = (this.state.subject && params.module && modules.indexOf(params.module) !== -1)
+        ? params.module : null;
+      this.state.knowledgePoint = null;
+      this.state.errorCause = null;
+      this.state.status = null;
+      this.state.search = '';
+      this.state.searchVisible = false;
+      this._expanded = this._expanded || {};
+      if (this.state.subject && !App.Constants.isFlatSubject(this.state.subject)) {
+        this._expanded[this.state.subject] = true;
+      }
+    }
 
     // 自动模式下根据窗口宽度选择画廊密度
     if (this.state.gallerySizeAuto) {
@@ -11185,7 +11214,9 @@ App.Pages.Errors = {
     }
 
     // 返回栏 + 右上角：屏幕勾画铅笔 + 三点菜单（编辑已整合进三点菜单）
-    const header = App.Components.pageHeader('错题详情');
+    const header = App.Components.pageHeader('错题详情', null, null, {
+      onBack: () => App.Router.navigate(this._buildErrorListRoute(error))
+    });
     const detailRight = header.querySelector('.page-header__right');
     if (detailRight) {
       detailRight.style.display = 'flex';
