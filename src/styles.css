@@ -6142,6 +6142,17 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 }
 .worddb-add-btn:active { background: var(--color-primary-dark); }
 .worddb-toolbar--compare { position: relative; }
+.worddb-page-menu {
+  min-width: 40px;
+  text-align: center;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: 2px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
 .worddb-compare-search-toggle {
   flex-shrink: 0;
   display: inline-flex;
@@ -6158,12 +6169,10 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 }
 .worddb-compare-search-toggle:active { background: var(--bg-tertiary); }
 .worddb-compare-search-panel {
-  position: absolute;
-  z-index: 5;
-  left: var(--page-padding);
-  right: calc(var(--page-padding) + 48px);
-  top: calc(100% + 6px);
-  display: none;
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
   align-items: center;
   gap: 6px;
   height: 38px;
@@ -6171,10 +6180,20 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background: var(--bg-primary);
-  box-shadow: var(--shadow-md);
+  box-shadow: none;
 }
-.worddb-compare-search-panel.is-open { display: flex; }
 .worddb-compare-search-panel .worddb-search-input { width: 100%; }
+.worddb-compare-search-close {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 20px;
+  line-height: 1;
+  padding: 2px 0 2px 6px;
+  cursor: pointer;
+}
+.worddb-compare-search-close:active { color: var(--text-primary); }
 .worddb-add-btn--icon {
   width: 34px;
   height: 34px;
@@ -6198,11 +6217,14 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   z-index: 2;
 }
 .worddb-table-area--compare .worddb-thead {
-  grid-template-columns: minmax(0, 25fr) minmax(0, 55fr) minmax(72px, 20fr);
-  column-gap: 16px;
+  position: relative;
+  top: auto;
+  z-index: auto;
+  grid-template-columns: minmax(0, 26fr) minmax(0, 54fr) minmax(76px, 20fr);
+  column-gap: 8px;
   min-height: 32px;
-  padding-left: 16px;
-  padding-right: 16px;
+  padding-left: 12px;
+  padding-right: 12px;
 }
 .worddb-th {
   font-size: var(--font-xs);
@@ -6227,11 +6249,11 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   transition: background 0.12s;
 }
 .worddb-row__main--compare {
-  grid-template-columns: minmax(0, 25fr) minmax(0, 55fr) minmax(72px, 20fr);
-  column-gap: 16px;
+  grid-template-columns: minmax(0, 26fr) minmax(0, 54fr) minmax(76px, 20fr);
+  column-gap: 8px;
   min-height: 48px;
   height: 48px;
-  padding: 0 16px;
+  padding: 0 12px;
 }
 .worddb-row__main:active { background: var(--bg-tertiary); }
 
@@ -6597,8 +6619,15 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .worddb-add-term-btn { display: block; margin: var(--spacing-md) 0; }
 @media (max-width: 700px) {
   .worddb-linked-form-fields { grid-template-columns: 1fr; gap: 0; }
-  .worddb-table-area--compare { overflow-x: auto; }
-  .worddb-table-area--compare .worddb-thead, .worddb-row__main--compare { min-width: 680px; }
+  .worddb-table-area--compare { overflow-x: hidden; }
+  .worddb-table-area--compare .worddb-thead,
+  .worddb-row__main--compare {
+    min-width: 0;
+    grid-template-columns: minmax(108px, 28fr) minmax(0, 52fr) minmax(76px, 20fr);
+    column-gap: 8px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
   .worddb-compare-terms { grid-template-columns: 1fr; }
 }
 .cp-card--form .cp-cancel-row { gap: var(--spacing-sm); }

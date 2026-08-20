@@ -16278,15 +16278,19 @@ App.Pages.WordDB = {
     this.state.searchQuery = '';
     this.state.compareSearchOpen = false;
 
-    // 返回栏 + 标题；实词组辨析的新增入口放在工具栏右侧，顶栏不再重复显示导入。
+    // 返回栏 + 标题；实词组辨析将搜索收进右上角更多菜单，新增使用右下角悬浮按钮。
     const pageHeader = App.Components.pageHeader(
       this._getCategoryTitle(),
-      this.state.category === 'word-compare' ? '' : '导入',
-      () => { this._importSampleData(); }
+      this.state.category === 'word-compare' ? '⋮' : '导入',
+      this.state.category === 'word-compare'
+        ? () => { this._showComparePageMenu(); }
+        : () => { this._importSampleData(); }
     );
     if (this.state.category === 'word-compare') {
       const titleEl = pageHeader.querySelector('.page-header__title');
       if (titleEl) titleEl.style.fontSize = 'var(--font-xxl)';
+      const pageMenu = pageHeader.querySelector('.page-header__right');
+      if (pageMenu) pageMenu.classList.add('worddb-page-menu');
     }
     container.appendChild(pageHeader);
 
@@ -16319,6 +16323,18 @@ App.Pages.WordDB = {
     tableArea.id = 'worddb-table-area';
     container.appendChild(tableArea);
 
+    if (this.state.category === 'word-compare') {
+      // 与错题本保持一致：新增入口固定在右下角，不占用列表横向空间。
+      const fab = document.createElement('button');
+      fab.type = 'button';
+      fab.className = 'sc-fab fab--solid-blue worddb-compare-fab';
+      fab.setAttribute('aria-label', '新增实词辨析');
+      fab.title = '新增实词辨析';
+      fab.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+      fab.addEventListener('click', () => { this._showWordForm(null); });
+      container.appendChild(fab);
+    }
+
     // 加载数据并渲染表格
     await this._loadAndRender(tableArea);
   },
@@ -16332,19 +16348,15 @@ App.Pages.WordDB = {
   _renderToolbar(container) {
     container.innerHTML = '';
 
-    // 实词组辨析使用可展开搜索，避免搜索框长期占据列表顶部空间。
+    // 实词组辨析默认隐藏搜索框，由页面右上角“…”菜单唤出。
     if (this.state.category === 'word-compare') {
       container.classList.add('worddb-toolbar--compare');
 
-      const searchToggle = document.createElement('button');
-      searchToggle.type = 'button';
-      searchToggle.className = 'worddb-compare-search-toggle';
-      searchToggle.setAttribute('aria-expanded', String(this.state.compareSearchOpen));
-      searchToggle.innerHTML = '<span aria-hidden="true">⌕</span><span>搜索</span>';
+      if (!this.state.compareSearchOpen) return;
 
       const searchPanel = document.createElement('div');
       searchPanel.className = 'worddb-compare-search-panel' + (this.state.compareSearchOpen ? ' is-open' : '');
-      searchPanel.innerHTML = '<span class="worddb-search-icon" aria-hidden="true">⌕</span><input type="search" class="worddb-search-input" placeholder="搜索词语、解释或核心区别...">';
+      searchPanel.innerHTML = '<span class="worddb-search-icon" aria-hidden="true">⌕</span><input type="search" class="worddb-search-input" placeholder="搜索词语、解释或核心区别..."><button type="button" class="worddb-compare-search-close" aria-label="关闭搜索">×</button>';
       const searchInput = searchPanel.querySelector('.worddb-search-input');
       searchInput.value = this.state.searchQuery;
       let searchTimer = null;
@@ -16355,24 +16367,12 @@ App.Pages.WordDB = {
           this._refreshTable();
         }, 180);
       });
-      searchToggle.addEventListener('click', () => {
-        this.state.compareSearchOpen = !this.state.compareSearchOpen;
-        searchPanel.classList.toggle('is-open', this.state.compareSearchOpen);
-        searchToggle.setAttribute('aria-expanded', String(this.state.compareSearchOpen));
-        if (this.state.compareSearchOpen) setTimeout(() => searchInput.focus(), 0);
+      searchPanel.querySelector('.worddb-compare-search-close').addEventListener('click', () => {
+        this.state.compareSearchOpen = false;
+        this._renderToolbar(container);
       });
-
-      const addBtn = document.createElement('button');
-      addBtn.type = 'button';
-      addBtn.className = 'worddb-add-btn worddb-add-btn--icon';
-      addBtn.textContent = '+';
-      addBtn.title = '新增实词辨析';
-      addBtn.setAttribute('aria-label', '新增实词辨析');
-      addBtn.addEventListener('click', () => { this._showWordForm(null); });
-
-      container.appendChild(searchToggle);
       container.appendChild(searchPanel);
-      container.appendChild(addBtn);
+      setTimeout(() => searchInput.focus(), 0);
       return;
     }
 
@@ -16422,9 +16422,30 @@ App.Pages.WordDB = {
     container.appendChild(addBtn);
   },
 
+  async _showComparePageMenu() {
+    const action = await App.Components.actionSheet([
+      {
+        label: this.state.compareSearchOpen ? '隐藏搜索' : '搜索辨析',
+        value: 'toggle-search'
+      }
+    ], '实词组辨析');
+    if (action !== 'toggle-search') return;
+
+    this.state.compareSearchOpen = !this.state.compareSearchOpen;
+    const toolbar = document.querySelector('#page-worddb .worddb-toolbar');
+    if (toolbar) this._renderToolbar(toolbar);
+  },
+
   // ===== 表格渲染 =====
   async _loadAndRender(tableArea) {
     await this._loadWords();
+    // 首次进入页面直接展开最新一条，避免新建内容被折叠在首行之后。
+    if (this.state.category === 'word-compare'
+      && !this.state.searchQuery.trim()
+      && this.state.expandedRowId === null
+      && this.state.words.length) {
+      this.state.expandedRowId = this.state.words[0].id;
+    }
     this._renderTable(tableArea);
   },
 
@@ -17097,6 +17118,7 @@ App.Pages.WordDB = {
         if (isEdit) await App.DB.updateWord(word);
         else await App.DB.addWord(word);
         overlay.remove();
+        if (!isEdit) this.state.expandedRowId = word.id;
         this._refreshTable();
         App.Components.toast('已保存', 'success');
       } catch (error) {
