@@ -10401,7 +10401,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.20.1';
+App.VERSION = '8.20.2';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -10468,6 +10468,9 @@ App.Constants = {
     { name: '方法不当', icon: '🔧' },
     { name: '时间不足', icon: '⏰' }
   ],
+
+  // 新建错题的默认考点 / 错因标签
+  DEFAULT_REVIEW_TAG: '待复盘',
 
   // ===== 掌握状态 =====
   MASTERY_STATUS: ['未掌握', '已掌握'],
@@ -11832,10 +11835,33 @@ App.Tags = (function() {
   // 从预设深拷贝知识点库
   function seedKnowledgePoints() {
     const out = {};
+    const defaultTag = App.Constants.DEFAULT_REVIEW_TAG || '待复盘';
     Object.keys(App.Constants.KNOWLEDGE_POINTS).forEach(m => {
-      out[m] = App.Constants.KNOWLEDGE_POINTS[m].slice();
+      out[m] = [defaultTag].concat(App.Constants.KNOWLEDGE_POINTS[m].filter(k => k !== defaultTag));
     });
     return out;
+  }
+
+  // 系统默认标签：确保已有用户标签库也能在选择器中使用「待复盘」。
+  async function ensureDefaultReviewTags() {
+    const defaultTag = App.Constants.DEFAULT_REVIEW_TAG || '待复盘';
+    const modules = Object.keys(App.Constants.MODULES || {});
+    let kpChanged = false;
+    let ecChanged = false;
+    modules.forEach(module => {
+      if (!cache.knowledgePoints[module]) cache.knowledgePoints[module] = [];
+      if (!cache.knowledgePoints[module].includes(defaultTag)) {
+        cache.knowledgePoints[module].unshift(defaultTag);
+        kpChanged = true;
+      }
+      if (!cache.kpErrorCauses[module]) cache.kpErrorCauses[module] = [];
+      if (!cache.kpErrorCauses[module].includes(defaultTag)) {
+        cache.kpErrorCauses[module].unshift(defaultTag);
+        ecChanged = true;
+      }
+    });
+    if (kpChanged) await App.DB.kvSet(KEY_KP, cache.knowledgePoints);
+    if (ecChanged) await App.DB.kvSet(KEY_KPEC, cache.kpErrorCauses);
   }
 
   // 启动时加载 / 初始化标签库（含旧数据迁移）
@@ -11890,9 +11916,14 @@ App.Tags = (function() {
         cache.kpErrorCauses = migrated;
         await App.DB.kvSet(KEY_KPEC, migrated);
       }
+
+      await ensureDefaultReviewTags();
     } catch (e) {
       cache.knowledgePoints = seedKnowledgePoints();
       cache.kpErrorCauses = {};
+      Object.keys(App.Constants.MODULES || {}).forEach(module => {
+        cache.kpErrorCauses[module] = [App.Constants.DEFAULT_REVIEW_TAG || '待复盘'];
+      });
     }
     loaded = true;
   }
@@ -21904,8 +21935,8 @@ App.Pages.Errors = {
     let formData = {
       subject: '',
       module: '',
-      knowledgePoints: [],
-      errorCause: '',
+      knowledgePoints: [App.Constants.DEFAULT_REVIEW_TAG || '待复盘'],
+      errorCause: App.Constants.DEFAULT_REVIEW_TAG || '待复盘',
       pitfall: '',
       images: [],
       question: '',
