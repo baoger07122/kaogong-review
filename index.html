@@ -10409,7 +10409,7 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
  *
  * 运行时仍由 build.js 拼接为一个 index.html，模块按依赖顺序加载。
  * 需要保留未改写的功能：
- *   - src/modules/30-components-preserved.js 中的涂鸦实现
+ *   - src/components/01-sketch-preserved.js 中的涂鸦实现
  *   - src/modules/150-speed-preserved.js 中的速算练习实现
  *
  * 基础层位于 src/core/，页面和受保护功能位于 src/modules/；
@@ -10423,7 +10423,7 @@ window.App = window.App || {};
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.20.7';
+App.VERSION = '8.20.8';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -10537,7 +10537,6 @@ App.Constants.getSubjectIcon = function(subject) {
 };
 // ===== 考公笔试复盘系统 - 工具函数 =====
 window.App = window.App || {};
-
 
 
 App.Utils = {
@@ -12284,6 +12283,7 @@ App.Tags = (function() {
 
 
 
+/* App.Components 基础壳：滚动锁、移动工具栏和 iPad 布局 */
 // ===== 考公笔试复盘系统 - 可复用 UI 组件 =====
 window.App = window.App || {};
 
@@ -12551,6 +12551,12 @@ App.Components = {
     return el;
   },
 
+
+};
+
+
+/* 涂鸦保护模块：以下实现只做模块封装，不改写功能逻辑。 */
+Object.assign(App.Components, {
   // ===== 涂鸦板（支持 Apple Pencil / 触摸 / 鼠标） =====
   sketchPad(opts) {
     opts = opts || {};
@@ -13147,6 +13153,12 @@ App.Components = {
       requestAnimationFrame(() => { if (pad._relayout) pad._relayout(); });
     });
   },
+
+});
+
+
+/* 弹窗、标签、卡片和表单组件 */
+Object.assign(App.Components, {
   // ===== 待办备注底部面板（平滑滑入，不重新渲染页面） =====
   todoNoteSheet(todo, opts) {
     opts = opts || {};
@@ -15212,6 +15224,12 @@ App.Components = {
   },
 
   // ===== 表单输入框 =====
+
+});
+
+
+/* Markdown、HTML 和 Notion 编辑器组件 */
+Object.assign(App.Components, {
   formInput(label, value, placeholder, onChange, type, required) {
     const group = document.createElement('div');
     group.className = 'form-group';
@@ -18422,6 +18440,12 @@ App.Components = {
     return editor;
   },
 
+
+});
+
+
+/* 底部面板、通用卡片和页面辅助组件 */
+Object.assign(App.Components, {
   // ===== 底部弹出选择器 =====
   actionSheet(options, title) {
     return new Promise((resolve) => {
@@ -18858,7 +18882,9 @@ App.Components = {
     }
     return el;
   }
-};
+
+});
+
 
 // v8.14.11 通用选择弹窗（对齐画布：选科目/选模块/选择考点/选择错因弹窗）
 // opts:
@@ -19086,7 +19112,6 @@ App.Components.pickerModal = function (opts) {
 
   return overlay;
 };
-
 
 
 

@@ -17,7 +17,8 @@ const root = process.cwd();
 
 const css = fs.readFileSync(path.join(root, 'src', 'styles.css'), 'utf8');
 // 显式声明依赖顺序，避免文件名排序或新增模块导致初始化顺序变化。
-// src/core/ 是基础层；30-components-preserved 与 150-speed-preserved 是受保护模块：
+// src/core/ 是基础层；src/components/ 是 UI 组件层。
+// 01-sketch-preserved 与 150-speed-preserved 是受保护模块：
 // 涂鸦和速算逻辑保持原样，只参与拼接，不在本次重构中改写。
 const JS_MODULES = [
   'src/app.js',
@@ -25,7 +26,12 @@ const JS_MODULES = [
   'src/core/01-utils.js',
   'src/core/10-database.js',
   'src/core/20-tags.js',
-  'src/modules/30-components-preserved.js',
+  'src/components/00-shell.js',
+  'src/components/01-sketch-preserved.js',
+  'src/components/10-feedback-tags.js',
+  'src/components/20-editors.js',
+  'src/components/30-sheets-cards.js',
+  'src/components/40-picker-modal.js',
   'src/modules/40-note-types.js',
   'src/core/30-cloud.js',
   'src/core/40-draft.js',
