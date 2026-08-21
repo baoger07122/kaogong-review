@@ -927,7 +927,8 @@ App.Pages.Notes = {
       subject: params.subject || '',
       module: '',
       knowledgePoint: '',
-      type: '',
+      // 学习库新增入口可预设为「解题方法」，仍复用原笔记表存储和编辑器。
+      type: params.type || '',
       title: '',
       content: '',
       linkedErrors: []

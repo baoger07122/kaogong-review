@@ -99,6 +99,8 @@ App.Pages.WordDB = {
 
     // 加载数据并渲染表格
     await this._loadAndRender(tableArea);
+    // 学习库「新增词语辨析」入口：先进入现有词语库，再自动打开原有表单。
+    if (params.create === '1') setTimeout(() => this._showWordForm(null), 0);
   },
 
   _getCategoryTitle() {

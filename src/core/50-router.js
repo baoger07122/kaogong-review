@@ -21,6 +21,9 @@ App.Router = {
   async handleRoute() {
     const hash = location.hash.slice(1) || 'home';
     const [base, queryString] = hash.split('?');
+    // 新信息架构使用 library；保留旧链接别名，避免收藏的旧错题/笔记入口失效。
+    const routeAliases = { 'wrong-question': 'library', 'note': 'library' };
+    const pageBase = routeAliases[base] || base;
     const params = {};
     if (queryString) {
       queryString.split('&').forEach(pair => {
@@ -48,13 +51,13 @@ App.Router = {
     document.documentElement.style.overflow = '';
 
     // 离开错题本时销毁瀑布流实例（解绑 resize 监听，防内存泄漏）
-    if (base !== 'errors' && App.Pages.Errors && App.Pages.Errors._masonryInst) {
+    if (pageBase !== 'errors' && App.Pages.Errors && App.Pages.Errors._masonryInst) {
       try { App.Pages.Errors._masonryInst.destroy(); } catch (e) {}
       App.Pages.Errors._masonryInst = null;
     }
 
     // 显示目标页面
-    const pageEl = document.getElementById('page-' + base);
+    const pageEl = document.getElementById('page-' + pageBase);
     if (pageEl) {
       pageEl.style.display = 'block';
       pageEl.classList.add('active');
@@ -63,7 +66,7 @@ App.Router = {
     // 无底部导航页面（笔记详情/笔记编辑）：隐藏固定底栏 + 内容底部不预留 nav 空间 + 通知移动端工具栏贴底
     // 先清除所有页面的 nav-hidden，再只给当前页设置（避免残留 class 影响后续切换）
     const navHiddenPages = ['note-detail', 'note-form', 'error-detail', 'error-form'];
-    const navHidden = navHiddenPages.indexOf(base) >= 0;
+    const navHidden = navHiddenPages.indexOf(pageBase) >= 0;
     document.querySelectorAll('.page.nav-hidden').forEach(function (p) { p.classList.remove('nav-hidden'); });
     if (pageEl) pageEl.classList.toggle('nav-hidden', navHidden);
     if (App.Components && App.Components._setNavVisible) App.Components._setNavVisible(!navHidden);
@@ -73,19 +76,19 @@ App.Router = {
     try {
       if (App.Draft && App.Draft.clearForm) {
         ['note', 'error', 'exam'].forEach(function (p) {
-          if (base !== p + '-form') App.Draft.clearForm(p);
+      if (pageBase !== p + '-form') App.Draft.clearForm(p);
         });
       }
     } catch (e) {}
 
     // 更新底部导航高亮
-    this.updateNavHighlight(base);
+    this.updateNavHighlight(pageBase);
 
-    this.updateNavVisibility(base);
+    this.updateNavVisibility(pageBase);
 
     // 调用页面渲染
     try {
-      await this.renderPage(base, params);
+      await this.renderPage(pageBase, params);
     } catch (err) {
       console.error('页面渲染错误:', err);
       App.Components.toast('页面加载失败，请重试', 'error');
@@ -94,7 +97,7 @@ App.Router = {
     // 滚动到顶部
     window.scrollTo(0, 0);
 
-    this.currentPage = base;
+    this.currentPage = pageBase;
     this.currentParams = params;
 
     // 更新导航角标
@@ -148,6 +151,12 @@ App.Router = {
         break;
       case 'notes':
         if (App.Pages.Notes && App.Pages.Notes.render) await App.Pages.Notes.render(params);
+        break;
+      case 'library':
+        if (App.Pages.Library && App.Pages.Library.render) await App.Pages.Library.render(params);
+        break;
+      case 'review':
+        if (App.Pages.Review && App.Pages.Review.render) await App.Pages.Review.render(params);
         break;
       case 'exams':
         if (App.Pages.Exams && App.Pages.Exams.render) await App.Pages.Exams.render(params);
@@ -341,5 +350,4 @@ document.addEventListener('DOMContentLoaded', async () => {
     }).catch(() => {});
   }
 });
-
 
