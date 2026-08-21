@@ -423,6 +423,7 @@ App.Pages.Errors = {
       this.state.subject = null;
       this.state.module = null;
       this.state.knowledgePoint = null;
+      this.state.noteType = null;
       this._expanded = {};
       this.refreshAll();
     });
@@ -455,6 +456,7 @@ App.Pages.Errors = {
         this.state.subject = selecting ? s.name : null;
         this.state.module = null;
         this.state.knowledgePoint = null;
+        this.state.noteType = null;
         // 点击科目本身默认展开模块；箭头仍可单独收起。
         if (selecting && !App.Constants.isFlatSubject(s.name)) this._expanded[s.name] = true;
         if (!selecting) this._expanded[s.name] = false;
@@ -477,6 +479,7 @@ App.Pages.Errors = {
             this.state.subject = s.name;
             this.state.module = (this.state.module === mod) ? null : mod;
             this.state.knowledgePoint = null;
+            this.state.noteType = null;
             this.refreshAll();
           });
           container.appendChild(sub);
@@ -654,9 +657,17 @@ App.Pages.Errors = {
 
   renderNoteFilters(container) {
     container.innerHTML = '';
-    App.NoteTypes.ensureDefault();
-    const types = App.NoteTypes.getAll();
-    if (!types.length) return;
+    const hasContext = !!(this.state.subject && (
+      this.state.module || App.Constants.isFlatSubject(this.state.subject)
+    ));
+    if (!hasContext) {
+      const hint = document.createElement('div');
+      hint.className = 'note-type-scope-hint';
+      hint.textContent = '选择具体模块后显示该模块的笔记标签';
+      container.appendChild(hint);
+      return;
+    }
+    const types = App.NoteTypes.getForContext(this.state.subject, this.state.module);
     const wrap = document.createElement('div');
     wrap.className = 'note-modchips errors-note-types';
     const addChip = (label, active, onClick, color) => {

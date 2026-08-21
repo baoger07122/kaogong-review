@@ -563,7 +563,8 @@ App.DB = (function() {
       subjectReviews,
       keyvalue: kv.filter(r => !(r.key && r.key.indexOf('auto_backup_') === 0)),   // v8.6.6 排除自动备份包，防递归膨胀
       words,
-      stickies
+      stickies,
+      noteTypes: App.NoteTypes && App.NoteTypes.exportData ? App.NoteTypes.exportData() : null
     };
 
     const json = JSON.stringify(data, null, 2);
@@ -605,6 +606,9 @@ App.DB = (function() {
       replacements[storeName] = items;
     }
     await replaceStores(replacements);
+    if (Object.prototype.hasOwnProperty.call(jsonData, 'noteTypes') && App.NoteTypes && App.NoteTypes.importData) {
+      App.NoteTypes.importData(jsonData.noteTypes);
+    }
   }
 
   // ===== 构建备份数据包（供导出 / 云分享 / 自动备份复用）=====
@@ -626,7 +630,8 @@ App.DB = (function() {
       subjectReviews,
       keyvalue: kv.filter(r => !(r.key && r.key.indexOf('auto_backup_') === 0)),
       words,
-      stickies
+      stickies,
+      noteTypes: App.NoteTypes && App.NoteTypes.exportData ? App.NoteTypes.exportData() : null
     };
   }
 
@@ -694,5 +699,4 @@ App.DB = (function() {
     isAvailable
   };
 })();
-
 

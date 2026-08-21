@@ -138,6 +138,7 @@ App.Pages.Notes = {
       this.state.subject = null;
       this.state.module = null;
       this.state.knowledgePoint = null;
+      this.state.type = null;
       this._expanded = {};
       this.refreshAll();
     });
@@ -169,6 +170,7 @@ App.Pages.Notes = {
         this.state.subject = (this.state.subject === s.name) ? null : s.name;
         this.state.module = null;
         this.state.knowledgePoint = null;
+        this.state.type = null;
         this.refreshAll();
       });
       container.appendChild(row);
@@ -188,6 +190,7 @@ App.Pages.Notes = {
             this.state.subject = s.name;
             this.state.module = (this.state.module === mod) ? null : mod;
             this.state.knowledgePoint = null;
+            this.state.type = null;
             this.refreshAll();
           });
           container.appendChild(sub);
@@ -231,9 +234,17 @@ App.Pages.Notes = {
   // 类型chips（对齐画布 A3：按笔记类型筛选，含「全部」）
   renderTypeFilter(container) {
     container.innerHTML = '';
-    App.NoteTypes.ensureDefault();
-    const types = App.NoteTypes.getAll();
-    if (!types.length) return;
+    const hasContext = !!(this.state.subject && (
+      this.state.module || App.Constants.isFlatSubject(this.state.subject)
+    ));
+    if (!hasContext) {
+      const hint = document.createElement('div');
+      hint.className = 'note-type-scope-hint';
+      hint.textContent = '选择具体模块后显示该模块的笔记标签';
+      container.appendChild(hint);
+      return;
+    }
+    const types = App.NoteTypes.getForContext(this.state.subject, this.state.module);
     const wrap = document.createElement('div');
     wrap.classList.add('note-modchips');
     const mk = (label, active, onClick) => {
@@ -411,8 +422,8 @@ App.Pages.Notes = {
     } catch (e) { dateTxt = ''; }
     // 类型 pill（对齐画布：类型在笔记卡上显示效果）
     let typePill = '';
-    if (note.type && App.NoteTypes.getAll().some(t => t.name === note.type)) {
-      const tc = App.NoteTypes.getColor(note.type);
+    if (note.type) {
+      const tc = App.NoteTypes.getColor(note.type, note.subject, note.module);
       const tHex = String(tc).replace('#', '');
       const tBg = /^[0-9a-fA-F]{6}$/.test(tHex)
         ? 'rgba(' + [0, 2, 4].map(i => parseInt(tHex.substr(i, 2), 16)).join(',') + ',0.12)'
@@ -1051,19 +1062,25 @@ App.Pages.Notes = {
       // ===== 笔记类型选择（对齐画布：类型chips，可多选? 单选一个类型） =====
       const typeWrap = document.createElement('div');
       typeWrap.className = 'note-type-field';
-      App.NoteTypes.ensureDefault();
-      const typeChips = App.NoteTypes.getAll();
-      typeWrap.innerHTML = '<div class="note-type-kw">类型（可选）</div>';
+      typeWrap.innerHTML = '<div class="note-type-kw">类型（当前模块）</div>';
       const chipsBox = document.createElement('div');
       chipsBox.className = 'note-modchips';
-      const typeNone = document.createElement('button');
-      typeNone.type = 'button';
-      typeNone.className = 'note-modchip note-modchip--type' + (!formData.type ? ' active' : '');
-      typeNone.textContent = '无';
-      typeNone.addEventListener('click', () => { formData.type = ''; renderTypeChips(); });
-      chipsBox.appendChild(typeNone);
       const renderTypeChips = () => {
         chipsBox.innerHTML = '';
+        const hasContext = !!(formData.subject && (
+          formData.module || App.Constants.isFlatSubject(formData.subject)
+        ));
+        const types = hasContext
+          ? App.NoteTypes.getForContext(formData.subject, formData.module)
+          : [];
+        if (formData.type && !types.some(t => t.name === formData.type)) {
+          // 旧笔记可能引用已停用/历史标签，保留其当前值，避免编辑时无声丢失。
+          types.push({
+            name: formData.type,
+            color: App.NoteTypes.getColor(formData.type, formData.subject, formData.module),
+            enabled: false
+          });
+        }
         const mk = (label, active, onClick) => {
           const b = document.createElement('button');
           b.type = 'button';
@@ -1073,17 +1090,24 @@ App.Pages.Notes = {
           return b;
         };
         chipsBox.appendChild(mk('无', !formData.type, () => { formData.type = ''; renderTypeChips(); }));
-        App.NoteTypes.getAll().forEach(t => {
+        types.forEach(t => {
           const c = t.color;
           const isActive = formData.type === t.name;
           const b = document.createElement('button');
           b.type = 'button';
           b.className = 'note-modchip note-modchip--type' + (isActive ? ' active' : '');
           b.style.cssText = isActive ? ('background:' + hexToRgba3(c, 0.14) + ';color:' + c + ';') : '';
-          b.textContent = t.name;
+          b.textContent = t.enabled === false ? (t.name + '（历史）') : t.name;
+          b.disabled = t.enabled === false && !isActive;
           b.addEventListener('click', () => { formData.type = t.name; renderTypeChips(); });
           chipsBox.appendChild(b);
         });
+        if (!hasContext) {
+          const hint = document.createElement('span');
+          hint.className = 'note-type-scope-hint';
+          hint.textContent = '选择科目和模块后显示可用标签';
+          chipsBox.appendChild(hint);
+        }
       };
       renderTypeChips();
       typeWrap.appendChild(chipsBox);
@@ -1108,7 +1132,9 @@ App.Pages.Notes = {
       catSelector.addEventListener('click', async (e) => {
         if (e.target.classList.contains('note-cat-clear')) {
           formData.subject = ''; formData.module = ''; formData.knowledgePoint = '';
+          formData.type = '';
           updateCatLabel();
+          renderTypeChips();
           return;
         }
         // 科目选择（居中弹窗）
@@ -1138,6 +1164,7 @@ App.Pages.Notes = {
             if (name && name.trim()) { formData.knowledgePoint = name.trim(); App.Tags.addSubjectKnowledgePoint(s, name.trim()); }
           } else if (k) { formData.knowledgePoint = k; }
           updateCatLabel();
+          renderTypeChips();
           return;
         }
 
@@ -1150,7 +1177,7 @@ App.Pages.Notes = {
           value: m
         }));
         const m = await App.Components.centeredPicker(mOpt, '选择模块', '选择「' + s + '」下的知识模块');
-        if (!m) { updateCatLabel(); return; }
+        if (!m) { updateCatLabel(); renderTypeChips(); return; }
         formData.module = m; formData.knowledgePoint = '';
 
         // 考点选择
@@ -1168,6 +1195,7 @@ App.Pages.Notes = {
           if (name && name.trim()) { formData.knowledgePoint = name.trim(); App.Tags.addKnowledgePoint(m, name.trim()); }
         } else if (k) { formData.knowledgePoint = k; }
         updateCatLabel();
+        renderTypeChips();
       });
       updateCatLabel();
       form.appendChild(catSelector);
@@ -1330,11 +1358,39 @@ App.Pages.Notes = {
     loadAndRender();
   },
 
+  _getNoteTypeContext(params) {
+    const p = params || {};
+    const errorState = App.Pages.Errors && App.Pages.Errors.state ? App.Pages.Errors.state : {};
+    const firstSubject = App.Constants.SUBJECTS[0] ? App.Constants.SUBJECTS[0].name : '';
+    let subject = p.subject || errorState.subject || firstSubject;
+    if (!App.Constants.SUBJECTS.some(s => s.name === subject)) subject = firstSubject;
+    const modules = App.Constants.getModules(subject);
+    const flat = App.Constants.isFlatSubject(subject);
+    let module = flat ? '' : (p.module || errorState.module || modules[0] || '');
+    if (!flat && modules.indexOf(module) === -1) module = modules[0] || '';
+    return { subject, module, modules, flat };
+  },
+
+  _noteTypeManageRoute(context) {
+    const query = [];
+    if (context && context.subject) query.push('subject=' + encodeURIComponent(context.subject));
+    if (context && context.module) query.push('module=' + encodeURIComponent(context.module));
+    return 'note-type-manage' + (query.length ? '?' + query.join('&') : '');
+  },
+
+  _noteTypeFormRoute(context, name) {
+    const query = [];
+    if (context && context.subject) query.push('subject=' + encodeURIComponent(context.subject));
+    if (context && context.module) query.push('module=' + encodeURIComponent(context.module));
+    if (name) query.push('name=' + encodeURIComponent(name));
+    return 'note-type-form' + (query.length ? '?' + query.join('&') : '');
+  },
+
   // ===== 笔记类型管理页（A4，对齐画布 8:170：返回+标题+说明+类型列表+新增按钮） =====
   async renderTypeManage(params) {
     const container = document.getElementById('page-note-type-manage');
     container.innerHTML = '';
-    App.NoteTypes.ensureDefault();
+    const context = this._getNoteTypeContext(params);
     await this.loadData();
 
     container.appendChild(App.Components.pageHeader(
@@ -1343,73 +1399,143 @@ App.Pages.Notes = {
     ));
 
     const body = document.createElement('div');
-    body.style.cssText = 'padding:var(--spacing-md) var(--page-padding) 40px;';
+    body.className = 'ntype-manage-body';
 
-    // 说明
     const hint = document.createElement('div');
-    hint.style.cssText = 'font-size:13px;color:var(--text-tertiary);margin-bottom:14px;';
-    hint.textContent = '自定义类型可自由新增、修改、删除，笔记页顶部按类型筛选';
+    hint.className = 'ntype-manage-hint';
+    hint.textContent = '先选择科目和模块，下面的标签只对当前范围生效';
     body.appendChild(hint);
 
-    // 类型列表
+    const selectors = document.createElement('div');
+    selectors.className = 'ntype-context-selectors';
+    const subjectField = document.createElement('label');
+    subjectField.className = 'ntype-context-field';
+    subjectField.innerHTML = '<span>选择科目</span>';
+    const subjectSelect = document.createElement('select');
+    App.Constants.SUBJECTS.forEach(s => {
+      const option = document.createElement('option');
+      option.value = s.name;
+      option.textContent = s.name;
+      option.selected = s.name === context.subject;
+      subjectSelect.appendChild(option);
+    });
+    subjectField.appendChild(subjectSelect);
+    selectors.appendChild(subjectField);
+
+    const moduleField = document.createElement('label');
+    moduleField.className = 'ntype-context-field';
+    moduleField.innerHTML = '<span>选择模块</span>';
+    const moduleSelect = document.createElement('select');
+    const buildModuleOptions = () => {
+      moduleSelect.innerHTML = '';
+      const isFlat = App.Constants.isFlatSubject(subjectSelect.value);
+      if (isFlat) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = '科目级标签';
+        moduleSelect.appendChild(option);
+        moduleSelect.disabled = true;
+        return;
+      }
+      moduleSelect.disabled = false;
+      App.Constants.getModules(subjectSelect.value).forEach(mod => {
+        const option = document.createElement('option');
+        option.value = mod;
+        option.textContent = mod;
+        option.selected = mod === context.module;
+        moduleSelect.appendChild(option);
+      });
+    };
+    buildModuleOptions();
+    moduleField.appendChild(moduleSelect);
+    selectors.appendChild(moduleField);
+    body.appendChild(selectors);
+
+    const goToContext = () => {
+      const next = {
+        subject: subjectSelect.value,
+        module: App.Constants.isFlatSubject(subjectSelect.value) ? '' : moduleSelect.value
+      };
+      App.Router.navigate(this._noteTypeManageRoute(next));
+    };
+    subjectSelect.addEventListener('change', () => {
+      const nextModules = App.Constants.getModules(subjectSelect.value);
+      if (!App.Constants.isFlatSubject(subjectSelect.value) && nextModules.length) {
+        context.module = nextModules[0];
+      } else {
+        context.module = '';
+      }
+      buildModuleOptions();
+      goToContext();
+    });
+    moduleSelect.addEventListener('change', goToContext);
+
+    const scopeTitle = document.createElement('div');
+    scopeTitle.className = 'ntype-scope-title';
+    scopeTitle.textContent = context.subject + (context.module ? ' / ' + context.module : '');
+    body.appendChild(scopeTitle);
+
     const listBox = document.createElement('div');
     listBox.className = 'ntype-list';
     const renderRows = () => {
       listBox.innerHTML = '';
-      const types = App.NoteTypes.getAll();
+      const types = App.NoteTypes.getForContextAll(context.subject, context.module);
+      const noteMatches = (n) => n.subject === context.subject && (
+        context.module ? n.module === context.module : !n.module
+      );
       if (!types.length) {
         const empty = document.createElement('div');
-        empty.style.cssText = 'padding:30px;text-align:center;color:var(--text-tertiary);font-size:13px;';
-        empty.textContent = '暂无类型，点击下方新增';
+        empty.className = 'ntype-empty';
+        empty.textContent = '暂无标签，点击下方新增';
         listBox.appendChild(empty);
         return;
       }
       types.forEach((t, idx) => {
-        const count = (this.state.allNotes || []).filter(n => n.type === t.name).length;
+        const count = (this.state.allNotes || []).filter(n => noteMatches(n) && n.type === t.name).length;
         const row = document.createElement('div');
-        row.className = 'ntype-row';
+        row.className = 'ntype-row' + (t.enabled === false ? ' is-disabled' : '');
         const left = document.createElement('div');
         left.className = 'ntype-row__left';
+        const handle = document.createElement('span');
+        handle.className = 'ntype-drag-handle';
+        handle.textContent = '☷';
         const dot = document.createElement('span');
         dot.className = 'ntype-dot';
         dot.style.background = t.color;
         const name = document.createElement('span');
         name.className = 'ntype-name';
         name.textContent = t.name;
-        left.appendChild(dot); left.appendChild(name);
+        left.appendChild(handle); left.appendChild(dot); left.appendChild(name);
         row.appendChild(left);
+
         const right = document.createElement('div');
         right.className = 'ntype-row__right';
         const num = document.createElement('span');
         num.className = 'ntype-count';
         num.textContent = count + ' 篇';
         right.appendChild(num);
-        // 编辑（点击名称改色/改名）
-        const editBtn = document.createElement('button');
-        editBtn.type = 'button';
-        editBtn.className = 'ntype-op';
-        editBtn.title = '编辑';
-        editBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.85 0 114 4L7.5 20.5 2 22l1.5-5.5z"/></svg>';
-        editBtn.addEventListener('click', (e) => { e.stopPropagation(); App.Router.navigate('note-type-form?name=' + encodeURIComponent(t.name)); });
-        right.appendChild(editBtn);
-        // 删除
-        const delBtn = document.createElement('button');
-        delBtn.type = 'button';
-        delBtn.className = 'ntype-op ntype-op--danger';
-        delBtn.title = '删除';
-        delBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>';
-        delBtn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          const ok = await App.Components.confirm('删除类型', '确定删除类型「' + t.name + '」？该类型下的笔记不受影响（无类型）。', '删除', '取消', true);
-          if (!ok) return;
-          App.NoteTypes.remove(t.name);
-          App.Components.toast('已删除', 'success');
+        const op = (label, title, className, onClick) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'ntype-op' + (className ? ' ' + className : '');
+          btn.title = title;
+          btn.textContent = label;
+          btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+          right.appendChild(btn);
+        };
+        op('↑', '上移', '', () => { if (App.NoteTypes.moveForContext(context.subject, context.module, t.name, 'up')) renderRows(); });
+        op('↓', '下移', '', () => { if (App.NoteTypes.moveForContext(context.subject, context.module, t.name, 'down')) renderRows(); });
+        op('编辑', '编辑标签', '', () => App.Router.navigate(this._noteTypeFormRoute(context, t.name)));
+        op(t.enabled === false ? '启用' : '停用', t.enabled === false ? '启用标签' : '停用标签', t.enabled === false ? '' : 'ntype-op--danger', async () => {
+          if (t.enabled !== false) {
+            const ok = await App.Components.confirm('停用标签', '停用后，新建笔记时不会再显示「' + t.name + '」，已有笔记仍会保留。确定继续吗？', '停用', '取消', true);
+            if (!ok) return;
+          }
+          App.NoteTypes.setEnabledForContext(context.subject, context.module, t.name, t.enabled === false);
           renderRows();
         });
-        right.appendChild(delBtn);
         row.appendChild(right);
-        // 点击整行编辑
-        row.addEventListener('click', () => App.Router.navigate('note-type-form?name=' + encodeURIComponent(t.name)));
+        row.addEventListener('click', () => App.Router.navigate(this._noteTypeFormRoute(context, t.name)));
         listBox.appendChild(row);
         if (idx < types.length - 1) {
           const sep = document.createElement('div');
@@ -1421,13 +1547,17 @@ App.Pages.Notes = {
     renderRows();
     body.appendChild(listBox);
 
-    // 底部新增按钮（对齐画布 8:215：主色圆角25全宽）
     const addBtn = document.createElement('button');
     addBtn.type = 'button';
     addBtn.className = 'ntype-add';
-    addBtn.textContent = '+ 新增类型';
-    addBtn.addEventListener('click', () => App.Router.navigate('note-type-form'));
+    addBtn.textContent = '+ 新增标签';
+    addBtn.addEventListener('click', () => App.Router.navigate(this._noteTypeFormRoute(context)));
     body.appendChild(addBtn);
+
+    const footerHint = document.createElement('div');
+    footerHint.className = 'ntype-manage-hint ntype-manage-hint--footer';
+    footerHint.textContent = '停用不会删除已有笔记中的标签；标签只在当前科目和模块内生效。';
+    body.appendChild(footerHint);
 
     container.appendChild(body);
   },
@@ -1436,10 +1566,9 @@ App.Pages.Notes = {
   async renderTypeForm(params) {
     const container = document.getElementById('page-note-type-form');
     container.innerHTML = '';
-    App.NoteTypes.ensureDefault();
-
+    const context = this._getNoteTypeContext(params);
     const editing = !!(params && params.name);
-    const list = App.NoteTypes.getAll();
+    const list = App.NoteTypes.getForContextAll(context.subject, context.module);
     let d = editing
       ? (list.find(t => t.name === params.name) || { name: '', color: '#0066CC' })
       : { name: '', color: '#0066CC' };
@@ -1450,28 +1579,40 @@ App.Pages.Notes = {
       async () => {
         const nm = d.name.trim();
         if (!nm) { App.Components.toast('请输入类型名称', 'error'); return; }
-        if (!editing && App.NoteTypes.getAll().some(t => t.name === nm)) {
+        if (!editing && list.some(t => t.name === nm)) {
           App.Components.toast('已存在同名类型', 'error'); return;
         }
         if (editing) {
-          // 改名：更新存储 + 同步笔记里的 type
-          App.NoteTypes.remove(params.name);
-          App.NoteTypes.add(nm, d.color);
+          // 改名：只更新当前科目/模块，并同步该范围内的笔记
+          const updated = App.NoteTypes.renameForContext(context.subject, context.module, params.name, nm, d.color);
+          if (!updated) { App.Components.toast('标签保存失败', 'error'); return; }
           try {
             const notes = await App.DB.getNotes();
-            for (const n of notes) { if (n.type === params.name) { n.type = nm; await App.DB.updateNote(n); } }
+            for (const n of notes) {
+              const sameScope = n.subject === context.subject && (
+                context.module ? n.module === context.module : !n.module
+              );
+              if (sameScope && n.type === params.name) { n.type = nm; await App.DB.updateNote(n); }
+            }
           } catch (e) { /* ignore */ }
         } else {
-          App.NoteTypes.add(nm, d.color);
+          if (!App.NoteTypes.addForContext(context.subject, context.module, nm, d.color)) {
+            App.Components.toast('标签保存失败', 'error'); return;
+          }
         }
         App.Components.toast('已保存', 'success');
-        App.Router.navigate('note-type-manage');
+        App.Router.navigate(this._noteTypeManageRoute(context));
       }
     );
     container.appendChild(header);
 
     const body = document.createElement('div');
     body.className = 'ntype-form';
+
+    const scopeHint = document.createElement('div');
+    scopeHint.className = 'ntype-form-scope';
+    scopeHint.textContent = '当前范围：' + context.subject + (context.module ? ' / ' + context.module : '（科目级）');
+    body.appendChild(scopeHint);
 
     // 名称区
     const nameLabel = document.createElement('div');

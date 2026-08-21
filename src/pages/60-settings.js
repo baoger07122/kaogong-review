@@ -194,7 +194,7 @@ App.Pages.Settings = {
         <span class="ss-ico"><svg viewBox="0 0 24 24" fill="none" stroke="#0EA5E9" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12V4h8l8 8-8 8-8-8z"/><path d="M8 8h.01"/></svg></span>
         <span class="ss-row__label">笔记类型</span>
       </div>
-      <span class="ss-row__val">${App.NoteTypes.getAll().length} 个类型<span class="ss-arrow">›</span></span>
+      <span class="ss-row__val">按科目 / 模块管理<span class="ss-arrow">›</span></span>
     `;
     ntRow.addEventListener('click', () => App.Router.navigate('note-type-manage'));
     noteGroup.appendChild(ntRow);
