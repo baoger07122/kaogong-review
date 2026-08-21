@@ -6,8 +6,8 @@ window.initNotionMobileEditor = function (containerSelector, options) {
   
 ;
 
-    // 版本更新机制：Service Worker 负责缓存策略，页面负责确认线上 index.html 是否已经更新。
-    // 仅关闭 iPad 后台不会清除 SW/网页缓存，因此不能只依赖 register() 的默认更新时机。
+    // 强制更新机制：Service Worker 负责联网优先，页面负责校验线上 index.html 版本。
+    // 检测到新版本后不提供“稍后再说”，直接刷新并保留当前 hash 页面，避免 iPad 后台长期运行旧代码。
     (function () {
       var CHECK_INTERVAL = 60 * 1000;
       var lastCheckAt = 0;
@@ -31,31 +31,37 @@ window.initNotionMobileEditor = function (containerSelector, options) {
         return false;
       }
 
+      function showUpdating(remoteVersion) {
+        if (document.getElementById('app-force-update')) return;
+        var overlay = document.createElement('div');
+        overlay.id = 'app-force-update';
+        overlay.style.cssText = 'position:fixed;z-index:2147483647;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.96);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;';
+        overlay.innerHTML = '<div style="width:min(320px,82vw);padding:28px 24px;border-radius:22px;background:#fff;box-shadow:0 12px 40px rgba(0,0,0,.12);text-align:center;color:#1C1C1E;"><div style="font-size:30px;margin-bottom:12px;">↻</div><div style="font-size:18px;font-weight:650;">正在更新系统</div><div style="margin-top:8px;color:#8E8E93;font-size:13px;line-height:1.6;">检测到新版本 v' + String(remoteVersion || '') + '，请稍候…</div></div>';
+        document.body.appendChild(overlay);
+      }
+
       function reloadToVersion(remoteVersion) {
         if (isReloading) return;
         isReloading = true;
+        showUpdating(remoteVersion);
         var hash = window.location.hash || '#home';
-        var nextUrl = window.location.pathname + '?appVersion=' + encodeURIComponent(remoteVersion) + hash;
-        window.location.replace(nextUrl);
+        var nextUrl = window.location.pathname + '?appVersion=' + encodeURIComponent(remoteVersion) + '&refresh=' + Date.now() + hash;
+        window.setTimeout(function () { window.location.replace(nextUrl); }, 180);
       }
 
       function checkLatestVersion() {
         var now = Date.now();
         if (now - lastCheckAt < CHECK_INTERVAL) return;
         lastCheckAt = now;
-
         var url = new URL('/index.html', window.location.origin);
         url.searchParams.set('version_check', String(now));
-        fetch(url.href, {
-          cache: 'no-store',
-          credentials: 'same-origin'
-        })
+        fetch(url.href, { cache: 'no-store', credentials: 'same-origin' })
           .then(function (response) {
             if (!response.ok) throw new Error('version check failed: ' + response.status);
             return response.text();
           })
           .then(function (html) {
-            var match = html.match(/App\.VERSION\s*=\s*['\"]([^'\"]+)['\"]/);
+            var match = html.match(/App\.VERSION\s*=\s*['"]([^'"]+)['"]/);
             var remoteVersion = match && match[1];
             if (remoteVersion && isNewer(remoteVersion, App.VERSION)) {
               console.info('[App.Update] 检测到新版本', App.VERSION, '→', remoteVersion);
@@ -63,7 +69,7 @@ window.initNotionMobileEditor = function (containerSelector, options) {
             }
           })
           .catch(function (error) {
-            // 版本检查失败时继续使用当前页面，不影响离线使用。
+            // 检查失败时保持当前页面，离线场景仍可继续使用本地缓存。
             console.debug('[App.Update] 版本检查暂不可用:', error.message);
           });
       }
@@ -73,21 +79,13 @@ window.initNotionMobileEditor = function (containerSelector, options) {
           checkLatestVersion();
           return;
         }
-
         navigator.serviceWorker.addEventListener('controllerchange', function () {
           if (isReloading) return;
-          isReloading = true;
-          window.location.reload();
+          reloadToVersion('最新');
         });
-
         navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
-          .then(function (registration) {
-            // 明确要求浏览器立即检查 sw.js，而不是等待默认的更新检查周期。
-            return registration.update();
-          })
-          .catch(function (error) {
-            console.warn('[App.Update] Service Worker 更新失败:', error);
-          })
+          .then(function (registration) { return registration.update(); })
+          .catch(function (error) { console.warn('[App.Update] Service Worker 更新失败:', error); })
           .then(checkLatestVersion);
       }
 

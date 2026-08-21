@@ -21,8 +21,8 @@ App.Router = {
   async handleRoute() {
     const hash = location.hash.slice(1) || 'home';
     const [base, queryString] = hash.split('?');
-    // 新信息架构使用 library；保留旧链接别名，避免收藏的旧错题/笔记入口失效。
-    const routeAliases = { 'wrong-question': 'library', 'note': 'library' };
+    // 笔记主入口已并入错题本；保留 #notes 旧链接，统一打开错题本的笔记视图。
+    const routeAliases = { notes: 'errors' };
     const pageBase = routeAliases[base] || base;
     const params = {};
     if (queryString) {
@@ -55,10 +55,6 @@ App.Router = {
       try { App.Pages.Errors._masonryInst.destroy(); } catch (e) {}
       App.Pages.Errors._masonryInst = null;
     }
-    if (pageBase !== 'library' && App.Pages.Library && App.Pages.Library._masonryInst) {
-      try { App.Pages.Library._masonryInst.destroy(); } catch (e) {}
-      App.Pages.Library._masonryInst = null;
-    }
 
     // 显示目标页面
     const pageEl = document.getElementById('page-' + pageBase);
@@ -80,7 +76,7 @@ App.Router = {
     try {
       if (App.Draft && App.Draft.clearForm) {
         ['note', 'error', 'exam'].forEach(function (p) {
-      if (pageBase !== p + '-form') App.Draft.clearForm(p);
+          if (base !== p + '-form') App.Draft.clearForm(p);
         });
       }
     } catch (e) {}
@@ -92,6 +88,7 @@ App.Router = {
 
     // 调用页面渲染
     try {
+      if (base === 'notes') params.view = 'notes';
       await this.renderPage(pageBase, params);
     } catch (err) {
       console.error('页面渲染错误:', err);
@@ -155,12 +152,6 @@ App.Router = {
         break;
       case 'notes':
         if (App.Pages.Notes && App.Pages.Notes.render) await App.Pages.Notes.render(params);
-        break;
-      case 'library':
-        if (App.Pages.Library && App.Pages.Library.render) await App.Pages.Library.render(params);
-        break;
-      case 'review':
-        if (App.Pages.Review && App.Pages.Review.render) await App.Pages.Review.render(params);
         break;
       case 'exams':
         if (App.Pages.Exams && App.Pages.Exams.render) await App.Pages.Exams.render(params);
@@ -354,3 +345,5 @@ document.addEventListener('DOMContentLoaded', async () => {
     }).catch(() => {});
   }
 });
+
+

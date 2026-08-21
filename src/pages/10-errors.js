@@ -14,21 +14,19 @@ App.Pages.Errors = {
     search: '',
     searchVisible: false,
     allErrors: [],
+    allNotes: [],
+    view: 'wrong',
+    noteType: null,
     gallerySize: 'md',   // 画廊窗口大小: sm 小 / md 中 / lg 大
     gallerySizeAuto: true // 是否自动根据窗口宽度选择密度（用户手动切换后变为 false）
   },
 
-  // 根据来源和错题自身的科目/模块生成列表路由，避免详情页回到旧错题本。
-  _buildErrorListRoute(error, params) {
-    if (params && typeof params.returnTo === 'string' && /^(library|errors)(?:\?|$)/.test(params.returnTo)) {
-      return params.returnTo;
-    }
+  // 根据错题自身的科目/模块生成列表路由，避免详情页依赖浏览器历史返回。
+  _buildErrorListRoute(error) {
     const query = [];
     if (error && error.subject) query.push('subject=' + encodeURIComponent(error.subject));
     if (error && error.module) query.push('module=' + encodeURIComponent(error.module));
-    const routeBase = params && params.routeBase === 'errors' ? 'errors' : 'library';
-    if (routeBase === 'library') query.push('view=wrong');
-    return routeBase + (query.length ? '?' + query.join('&') : '');
+    return 'errors' + (query.length ? '?' + query.join('&') : '');
   },
 
   // v8.12.30 错题本侧边栏 SVG 图标（像素级还原设计稿：直接引用设计稿导出路径，fill/stroke 用 currentColor）
@@ -49,6 +47,7 @@ App.Pages.Errors = {
   async render(params) {
     const container = document.getElementById('page-errors');
     container.innerHTML = '';
+    this.state.view = params && (params.view === 'notes' || params.tab === 'notes') ? 'notes' : 'wrong';
 
     // 详情页返回会携带错题所属科目/模块；从 URL 恢复筛选上下文，
     // 这样直接刷新或复制链接打开列表时也不会退回到全部错题。
@@ -63,6 +62,7 @@ App.Pages.Errors = {
       this.state.knowledgePoint = null;
       this.state.errorCause = null;
       this.state.status = null;
+      this.state.noteType = null;
       this.state.search = '';
       this.state.searchVisible = false;
       this._expanded = this._expanded || {};
@@ -114,6 +114,11 @@ App.Pages.Errors = {
       this._showPageMenu();
     });
 
+    const viewTabs = document.createElement('div');
+    viewTabs.id = 'error-view-tabs';
+    stickyWrap.appendChild(viewTabs);
+    this.renderViewTabs(viewTabs);
+
     // 搜索区（通过右上角三点菜单展开）
     const searchArea = document.createElement('div');
     searchArea.id = 'error-search-area';
@@ -145,19 +150,64 @@ App.Pages.Errors = {
       const query = [];
       if (this.state.subject) query.push('subject=' + encodeURIComponent(this.state.subject));
       if (this.state.module) query.push('module=' + encodeURIComponent(this.state.module));
-      App.Router.navigate('error-form' + (query.length ? '?' + query.join('&') : ''));
+      const formRoute = this.state.view === 'notes' ? 'note-form' : 'error-form';
+      query.push('returnTo=' + encodeURIComponent(this._viewRoute(this.state.view)));
+      App.Router.navigate(formRoute + '?' + query.join('&'));
     });
+    fab.setAttribute('aria-label', this.state.view === 'notes' ? '新建笔记' : '新增错题');
+    fab.title = this.state.view === 'notes' ? '新建笔记' : '新增错题';
     container.appendChild(fab);
 
     // 加载数据并渲染
     await this.loadData();
     await this.renderSubjectGrid(sidebar);
-    this.renderFilters(filterArea);
-    await this.renderList(listArea);
+    this.renderViewTabs(viewTabs);
+    if (this.state.view === 'notes') {
+      this.renderNoteFilters(filterArea);
+      this.renderNotesList(listArea);
+    } else {
+      this.renderFilters(filterArea);
+      await this.renderList(listArea);
+    }
+  },
+
+  _viewRoute(view) {
+    const query = [];
+    if (this.state.subject) query.push('subject=' + encodeURIComponent(this.state.subject));
+    if (this.state.module) query.push('module=' + encodeURIComponent(this.state.module));
+    if (view === 'notes') query.push('view=notes');
+    return 'errors' + (query.length ? '?' + query.join('&') : '');
+  },
+
+  renderViewTabs(container) {
+    container.innerHTML = '';
+    const wrap = document.createElement('div');
+    wrap.className = 'errors-view-tabs';
+    const errorCount = this.state.allErrors.filter(error =>
+      (!this.state.subject || error.subject === this.state.subject) &&
+      (!this.state.module || error.module === this.state.module)
+    ).length;
+    const noteCount = this.state.allNotes.filter(note =>
+      (!this.state.subject || note.subject === this.state.subject) &&
+      (!this.state.module || note.module === this.state.module)
+    ).length;
+    [['wrong', '错题', errorCount], ['notes', '笔记', noteCount]].forEach(([view, label, count]) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = this.state.view === view ? 'is-active' : '';
+      button.textContent = label + ' ' + count;
+      button.addEventListener('click', () => {
+        if (this.state.view !== view) App.Router.navigate(this._viewRoute(view));
+      });
+      wrap.appendChild(button);
+    });
+    container.appendChild(wrap);
   },
 
   async loadData() {
-    this.state.allErrors = await App.DB.getErrors();
+    const result = await Promise.all([App.DB.getErrors(), App.DB.getNotes()]);
+    this.state.allErrors = result[0];
+    this.state.allNotes = result[1];
   },
 
   // 合并「本模块库 + 数据中已用值」得到可筛选的考点列表（扁平科目传科目名，合并该科目所有模块）
@@ -553,6 +603,7 @@ App.Pages.Errors = {
           q = '?subject=' + encodeURIComponent(this.state.subject);
           if (this.state.module) q += '&module=' + encodeURIComponent(this.state.module);
         }
+        q += (q ? '&' : '?') + 'returnTo=' + encodeURIComponent(this._viewRoute('wrong'));
         App.Router.navigate('error-form' + q);
       });
       empty.appendChild(action);
@@ -567,10 +618,7 @@ App.Pages.Errors = {
     // 先销毁旧实例（若存在）
     if (this._masonryInst) { try { this._masonryInst.destroy(); } catch (e) {} this._masonryInst = null; }
     const inst = App.Components.masonryGrid(masonryWrap, {
-      onOpen: (error) => App.Router.navigate(
-        'error-detail?id=' + encodeURIComponent(error.id) +
-        '&returnTo=' + encodeURIComponent(this._buildErrorListRoute(error, { routeBase: 'errors' }))
-      )
+      onOpen: (error) => App.Router.navigate('error-detail?id=' + error.id)
     });
     this._masonryInst = inst;
     inst.render(errors, false);
@@ -578,12 +626,94 @@ App.Pages.Errors = {
     masonryWrap.dataset.masonry = '1';
   },
 
+  renderNoteFilters(container) {
+    container.innerHTML = '';
+    App.NoteTypes.ensureDefault();
+    const types = App.NoteTypes.getAll();
+    if (!types.length) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'note-modchips errors-note-types';
+    const addChip = (label, active, onClick, color) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'note-modchip' + (active ? ' active' : '');
+      if (active && color) chip.style.cssText = 'background:' + color + '22;color:' + color + ';';
+      chip.textContent = label;
+      chip.addEventListener('click', onClick);
+      wrap.appendChild(chip);
+    };
+    addChip('类型全部', !this.state.noteType, () => {
+      this.state.noteType = null;
+      this.refreshFiltersAndList();
+    });
+    types.forEach(type => addChip(type.name, this.state.noteType === type.name, () => {
+      this.state.noteType = this.state.noteType === type.name ? null : type.name;
+      this.refreshFiltersAndList();
+    }, type.color));
+    container.appendChild(wrap);
+  },
+
+  _noteSearchText(note) {
+    let content = '';
+    try { content = App.Utils.toNoteHtml(note.content || '').replace(/<[^>]*>/g, ' '); } catch (e) {}
+    return [note.title || '', content, note.subject || '', note.module || '', note.knowledgePoint || ''].join(' ').toLowerCase();
+  },
+
+  renderNotesList(container) {
+    container.innerHTML = '';
+    let notes = (this.state.allNotes || []).filter(note =>
+      (!this.state.subject || note.subject === this.state.subject) &&
+      (!this.state.module || note.module === this.state.module) &&
+      (!this.state.noteType || note.type === this.state.noteType)
+    );
+    if (this.state.search) {
+      const keyword = this.state.search.trim().toLowerCase();
+      notes = notes.filter(note => this._noteSearchText(note).includes(keyword));
+    }
+    notes.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+
+    if (this.state.subject === '言语理解' && (!this.state.module || this.state.module === '逻辑填空')) {
+      const wordDbEntry = document.createElement('div');
+      wordDbEntry.className = 'notes-worddb-entry';
+      wordDbEntry.innerHTML = '<span class="notes-worddb-entry__icon">📚</span><span class="notes-worddb-entry__text"><span class="notes-worddb-entry__title">词语库</span><span class="notes-worddb-entry__desc">成语 / 实词释义与辨析 · 逻辑填空</span></span><span class="notes-worddb-entry__arrow">›</span>';
+      wordDbEntry.addEventListener('click', () => App.Router.navigate('worddb?subject=' + encodeURIComponent('言语理解') + '&module=' + encodeURIComponent('逻辑填空')));
+      container.appendChild(wordDbEntry);
+    }
+
+    if (!notes.length) {
+      const empty = document.createElement('div');
+      empty.className = 'eerr-empty';
+      empty.innerHTML = '<div class="eerr-empty__icon">📝</div><div class="eerr-empty__title">还没有笔记</div><div class="eerr-empty__desc">点击「新建笔记」，记录你的第一条复盘</div>';
+      const action = document.createElement('button');
+      action.type = 'button';
+      action.className = 'eerr-empty__action';
+      action.textContent = '＋ 新建笔记';
+      action.addEventListener('click', () => {
+        const query = [];
+        if (this.state.subject) query.push('subject=' + encodeURIComponent(this.state.subject));
+        if (this.state.module) query.push('module=' + encodeURIComponent(this.state.module));
+        query.push('returnTo=' + encodeURIComponent(this._viewRoute('notes')));
+        App.Router.navigate('note-form?' + query.join('&'));
+      });
+      empty.appendChild(action);
+      container.appendChild(empty);
+      return;
+    }
+
+    notes.forEach(note => container.appendChild(App.Pages.Notes.buildNoteCard(note, this._viewRoute('notes'))));
+  },
+
   // 局部刷新：筛选条即时切换不动画，列表仅做进入动画
   refreshFiltersAndList() {
     const filterArea = document.getElementById('error-filter-area');
     const listArea = document.getElementById('error-list');
-    if (filterArea) this.renderFilters(filterArea);
-    if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
+    if (this.state.view === 'notes') {
+      if (filterArea) this.renderNoteFilters(filterArea);
+      if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderNotesList(c));
+    } else {
+      if (filterArea) this.renderFilters(filterArea);
+      if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
+    }
   },
 
   refreshAll() {
@@ -593,9 +723,16 @@ App.Pages.Errors = {
     const listArea = document.getElementById('error-list');
 
     if (sidebar) this.renderSubjectGrid(sidebar);
+    const tabs = document.getElementById('error-view-tabs');
+    if (tabs) this.renderViewTabs(tabs);
     if (searchArea) this.renderSearchBar(searchArea);
-    if (filterArea) this.renderFilters(filterArea);
-    if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
+    if (this.state.view === 'notes') {
+      if (filterArea) this.renderNoteFilters(filterArea);
+      if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderNotesList(c));
+    } else {
+      if (filterArea) this.renderFilters(filterArea);
+      if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
+    }
   },
 
   // 右上角三点菜单
@@ -619,13 +756,14 @@ App.Pages.Errors = {
     const val = (this.state.search || '').replace(/"/g, '&quot;');
     searchBar.innerHTML = `
       <span class="search-bar__icon">🔍</span>
-      <input type="text" placeholder="搜索错题 / 知识点" id="error-search" value="${val}">
+      <input type="text" placeholder="${this.state.view === 'notes' ? '搜索笔记标题 / 内容' : '搜索错题 / 知识点'}" id="error-search" value="${val}">
     `;
     container.appendChild(searchBar);
     const input = searchBar.querySelector('input');
     input.addEventListener('input', App.Utils.debounce((e) => {
       this.state.search = e.target.value;
-      this.renderList(document.getElementById('error-list'));
+      if (this.state.view === 'notes') this.renderNotesList(document.getElementById('error-list'));
+      else this.renderList(document.getElementById('error-list'));
     }, 300));
   },
 
@@ -657,7 +795,7 @@ App.Pages.Errors = {
 
     // 返回栏 + 右上角：屏幕勾画铅笔 + 三点菜单（编辑已整合进三点菜单）
     const header = App.Components.pageHeader('错题详情', null, null, {
-      onBack: () => App.Router.navigate(this._buildErrorListRoute(error, params))
+      onBack: () => App.Router.navigate(this._buildErrorListRoute(error))
     });
     const detailRight = header.querySelector('.page-header__right');
     if (detailRight) {
@@ -1002,12 +1140,9 @@ App.Pages.Errors = {
     container.innerHTML = '';
 
     let isEdit = !!params.id;
-    const contextReturn = params && params.subject && params.module
-      ? 'library?subject=' + encodeURIComponent(params.subject) + '&module=' + encodeURIComponent(params.module) + '&view=wrong'
-      : 'library';
-    const returnRoute = params && typeof params.returnTo === 'string' && /^(?:error-detail|library)(?:\?|$)/.test(params.returnTo)
+    const returnRoute = params && typeof params.returnTo === 'string' && /^(?:error-detail|errors|notes)(?:\?|$)/.test(params.returnTo)
       ? params.returnTo
-      : contextReturn;
+      : 'errors';
 
     // 默认空白表单
     let formData = {
@@ -1125,7 +1260,9 @@ App.Pages.Errors = {
 
       // v8.14.11 申论错题统一走专属表单：无论从哪条路径进入，只要科目固定为申论即切换
       if (formData.subject === '申论') {
-        App.Pages.Errors.renderShenlunForm(isEdit && formData._formId ? { id: formData.id || formData._formId } : { module: formData.module || '' });
+        App.Pages.Errors.renderShenlunForm(isEdit && formData._formId
+          ? { id: formData.id || formData._formId, returnTo: returnRoute }
+          : { module: formData.module || '', returnTo: returnRoute });
         return;
       }
 
@@ -1202,7 +1339,7 @@ App.Pages.Errors = {
             // v8.14.11 科目选「申论」→ 切换为申论专属表单
             if (val === '申论') {
               App.Draft.clearForm('error');
-              App.Pages.Errors.renderShenlunForm({ module: formData.module });
+              App.Pages.Errors.renderShenlunForm({ module: formData.module, returnTo: returnRoute });
               return;
             }
             formData.subject = val;
@@ -1630,12 +1767,9 @@ App.Pages.Errors.renderShenlunForm = function (params) {
   const self = App.Pages.Errors;
 
   let isEdit = !!params.id;
-  const contextReturn = params && params.subject && params.module
-    ? 'library?subject=' + encodeURIComponent(params.subject) + '&module=' + encodeURIComponent(params.module) + '&view=wrong'
-    : 'library';
-  const returnRoute = params && typeof params.returnTo === 'string' && /^(?:error-detail|library)(?:\?|$)/.test(params.returnTo)
+  const returnRoute = params && typeof params.returnTo === 'string' && /^(?:error-detail|errors|notes)(?:\?|$)/.test(params.returnTo)
     ? params.returnTo
-    : contextReturn;
+    : 'errors';
   // 申论错题数据（扁平存于 errors 记录上，与通用错题共存）
   let d = {
     subject: '申论', module: '', question: '',
@@ -2076,3 +2210,5 @@ App.Pages.Errors.renderShenlunForm = function (params) {
     resizeTimer = setTimeout(update, 250);
   });
 })();
+
+

@@ -123,6 +123,37 @@
   padding-bottom: var(--spacing-md);
 }
 
+/* ===== 错题本内的错题 / 笔记视图切换 ===== */
+.errors-view-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 var(--page-padding) var(--spacing-sm);
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+}
+.errors-view-tabs button {
+  flex: 1 1 0;
+  min-height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.errors-view-tabs button.is-active {
+  background: var(--bg-card);
+  color: var(--color-primary);
+  font-weight: 650;
+  box-shadow: var(--shadow-sm);
+}
+.errors-note-types {
+  margin: 0 var(--page-padding) var(--spacing-sm);
+}
+
 
 /* ===== 极简错题卡片：数字标号 + 题目同一排，最多两行 ===== */
 /* ===== 错题画廊（Notion 画廊模式） ===== */

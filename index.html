@@ -3906,129 +3906,6 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 }
 
 /* ===== 科目工作台页面特定样式 ===== */
-/* ===== 学习库 / 复习 V1 ===== */
-#page-library, #page-review {
-  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 96px);
-}
-.library-page, #page-review {
-  min-height: 100%;
-  padding: var(--top-buffer) var(--page-padding) 24px;
-}
-.library-page .page-header, #page-review .page-header { margin: calc(var(--top-buffer) * -1) calc(var(--page-padding) * -1) 0; }
-.library-header { padding: 10px 4px 8px; }
-.review-header { padding: 18px 4px 14px; }
-.library-header h1, .review-header h1 { font-size: 26px; line-height: 1.2; letter-spacing: -0.03em; }
-.review-header p { margin-top: 6px; color: var(--text-secondary); font-size: var(--font-sm); }
-.library-breadcrumb { padding: 0 4px 10px; color: var(--text-tertiary); font-size: var(--font-sm); }
-.library-search { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 12px; margin: 0 0 14px; border-radius: 12px; background: var(--bg-tertiary); color: var(--text-tertiary); }
-.library-search span { font-size: 24px; line-height: 1; transform: rotate(-20deg); }
-.library-search input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text-primary); }
-.library-search input::placeholder { color: var(--text-tertiary); }
-.library-search__clear { width: 24px; height: 24px; border-radius: 12px; color: var(--text-tertiary); font-size: 18px; }
-.library-content { max-width: 980px; margin: 0 auto; }
-.library-section-title { display: flex; align-items: baseline; justify-content: space-between; margin: 6px 2px 10px; }
-.library-section-title span { font-size: var(--font-xl); font-weight: 700; }
-.library-section-title small { color: var(--text-tertiary); font-size: var(--font-xs); }
-.library-subject-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.library-subject-card { position: relative; min-height: 88px; padding: 12px 34px 10px 16px; text-align: left; border: 1px solid var(--border-color); border-radius: 14px; background: var(--bg-card); box-shadow: var(--shadow-sm); color: var(--text-primary); }
-.library-subject-card::before { content: ''; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 0 3px 3px 0; background: var(--subject-color); }
-.library-subject-card:active, .library-module-row:active, .review-subject-card:active { transform: scale(.985); }
-.library-subject-card__icon { display: inline-block; margin: 0 5px 0 0; font-size: 17px; line-height: 1; vertical-align: -1px; }
-.library-subject-card__name { display: inline; font-size: var(--font-md); font-weight: 700; }
-.library-subject-card__stats { display: block; margin-top: 9px; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.2; white-space: nowrap; }
-.library-subject-card__stats b { color: var(--text-secondary); font-weight: 600; }
-.library-subject-card__arrow, .review-subject-card__arrow { position: absolute; right: 12px; top: 50%; color: var(--text-tertiary); font-size: 21px; transform: translateY(-50%); }
-.library-stat-strip { display: flex; gap: 6px; margin-bottom: 14px; }
-.library-stat-strip > div { flex: 1; padding: 8px 6px; border-radius: 12px; background: var(--bg-tertiary); text-align: center; }
-.library-stat-strip strong { display: block; color: var(--color-primary); font-size: 18px; line-height: 1.1; }
-.library-stat-strip span { color: var(--text-secondary); font-size: var(--font-xs); }
-.library-module-list { display: grid; gap: 1px; overflow: hidden; border: 1px solid var(--border-color); border-radius: 14px; background: var(--border-color); }
-.library-module-row { position: relative; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 38px 0 14px; background: var(--bg-card); color: var(--text-primary); text-align: left; }
-.library-module-row__name { flex: 1; min-width: 0; font-size: var(--font-md); font-weight: 650; }
-.library-module-row__stats { flex: 0 0 auto; color: var(--text-tertiary); font-size: var(--font-xs); white-space: nowrap; }
-.library-module-row__arrow { position: absolute; right: 14px; top: 50%; color: var(--text-tertiary); font-size: 21px; transform: translateY(-50%); }
-.library-module-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; margin-bottom: 8px; border-radius: 12px; background: linear-gradient(135deg, var(--color-primary-bg), var(--bg-tertiary)); }
-.library-module-summary__title { font-size: var(--font-lg); font-weight: 700; }
-.library-module-summary__stats { color: var(--text-secondary); font-size: var(--font-xs); white-space: nowrap; }
-.library-module-section { margin-top: 14px; }
-.library-module-section__head { display: flex; align-items: center; gap: 8px; min-height: 28px; margin: 0 2px 7px; }
-.library-module-section__title { flex: 1; min-width: 0; font-size: var(--font-md); font-weight: 700; }
-.library-module-section__link, .library-module-section__add { color: var(--color-primary); font-size: var(--font-xs); }
-.library-module-section__tools { display: flex; align-items: center; gap: 8px; }
-.library-module-section__add { padding: 4px 8px; border-radius: 10px; background: var(--color-primary-bg); }
-.library-module-sticky-masonry { margin-bottom: 2px; }
-.library-module-sticky-masonry .sticky-empty, .library-recent-wrong + .library-section-empty { grid-column: 1 / -1; }
-.library-section-empty { padding: 13px 12px; border-radius: 12px; background: var(--bg-tertiary); color: var(--text-tertiary); font-size: var(--font-xs); line-height: 1.4; text-align: center; }
-.library-recent-wrong { min-height: 0; }
-.library-item-list--recent { margin-bottom: 2px; }
-.library-view-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 4px 2px 9px; }
-.library-view-heading strong { font-size: var(--font-lg); }
-.library-view-heading span { color: var(--text-tertiary); font-size: var(--font-xs); }
-.library-module-word-link { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 11px 13px; margin-top: 14px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-card); color: var(--text-primary); text-align: left; }
-.library-module-word-link span:last-child { color: var(--text-tertiary); font-size: var(--font-xs); }
-.library-tabs { display: flex; gap: 4px; overflow-x: auto; margin-bottom: 10px; padding-bottom: 2px; scrollbar-width: none; }
-.library-tabs::-webkit-scrollbar { display: none; }
-.library-tabs button { flex: 0 0 auto; min-height: 30px; padding: 0 11px; border-radius: 15px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: var(--font-xs); }
-.library-tabs button.is-active { background: var(--color-primary); color: #fff; font-weight: 600; }
-.library-item-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.library-item-list--masonry { display: block; }
-.library-error-masonry-wrap { width: 100%; }
-.library-item-card { position: relative; min-height: 104px; padding: 10px 12px 9px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-card); box-shadow: none; cursor: pointer; }
-.library-item-card:active { background: var(--bg-tertiary); }
-.library-item-card__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.library-type-pill { padding: 2px 7px; border-radius: 999px; background: var(--color-primary-bg); color: var(--color-primary); font-size: 11px; }
-.library-item-card--wrong .library-type-pill { background: #FFF0EF; color: var(--color-danger); }
-.library-item-card--word .library-type-pill { background: #FFF7E8; color: #B76E00; }
-.library-item-card--method .library-type-pill { background: #F2EDFF; color: #7448C2; }
-.library-item-card__meta, .library-item-card__date { color: var(--text-tertiary); font-size: 11px; }
-.library-item-card h3 { overflow: hidden; margin: 7px 0 4px; font-size: var(--font-md); line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
-.library-item-card p { display: -webkit-box; overflow: hidden; margin: 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.library-item-card__bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
-.library-item-card__open { color: var(--color-primary); font-size: 18px; line-height: 1; }
-.library-empty, .review-empty { padding: 42px 20px; border-radius: 20px; background: var(--bg-tertiary); text-align: center; }
-.library-empty span, .review-empty span, .review-finished > span { display: block; font-size: 32px; margin-bottom: 8px; }
-.library-empty strong, .review-empty strong { display: block; font-size: var(--font-lg); }
-.library-empty small, .review-empty small { display: block; margin-top: 5px; color: var(--text-tertiary); font-size: var(--font-sm); }
-.sc-fab.library-fab { z-index: 40; width: 45px; height: 45px; }
-.library-fab svg { width: 22px; height: 22px; }
-
-.review-hint { padding: 10px 12px; margin: 0 0 12px; border-radius: 12px; color: var(--text-secondary); background: var(--bg-tertiary); font-size: var(--font-sm); }
-.review-subject-list { display: grid; gap: 10px; }
-.review-subject-card { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 44px 14px 14px; border: 1px solid var(--border-color); border-radius: 18px; background: var(--bg-card); text-align: left; }
-.review-subject-card__icon { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 14px; font-size: 23px; }
-.review-subject-card__body strong, .review-subject-card__body small { display: block; }
-.review-subject-card__body strong { font-size: var(--font-lg); }
-.review-subject-card__body small { margin-top: 3px; color: var(--text-tertiary); font-size: var(--font-sm); }
-.review-start-btn, .review-next-btn { display: block; width: 100%; min-height: 48px; margin-top: 16px; border-radius: 16px; background: var(--gradient-primary); color: #fff; font-size: var(--font-lg); font-weight: 650; box-shadow: var(--shadow-btn); }
-.review-session { max-width: 760px; margin: 0 auto; padding: 16px 0 24px; }
-.review-session__meta { color: var(--color-primary); font-size: var(--font-sm); font-weight: 600; }
-.review-session__question { margin: 12px 0 16px; padding: 18px; border-radius: 18px; background: var(--bg-tertiary); font-size: var(--font-lg); line-height: 1.75; white-space: pre-line; }
-.review-options { display: grid; gap: 10px; }
-.review-option { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 14px; border: 1px solid var(--border-color); border-radius: 15px; background: var(--bg-card); text-align: left; color: var(--text-primary); font-size: var(--font-md); line-height: 1.55; }
-.review-option b { display: inline-flex; flex: 0 0 28px; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 14px; background: var(--bg-tertiary); color: var(--color-primary); }
-.review-option:active { background: var(--color-primary-bg); }
-.review-option:disabled { opacity: .7; }
-.review-result { display: flex; flex-direction: column; gap: 4px; padding: 14px; margin-top: 14px; border-radius: 15px; font-size: var(--font-sm); }
-.review-result.is-correct { background: #EAF8EE; color: #227A3A; }
-.review-result.is-wrong { background: #FFF0EF; color: #B42318; }
-.review-result strong { font-size: var(--font-lg); }
-.review-no-options { padding: 16px; border-radius: 14px; background: var(--bg-tertiary); color: var(--text-secondary); }
-.review-finished { padding: 80px 20px; text-align: center; }
-.review-finished h1 { font-size: 26px; }
-.review-finished p { margin-top: 8px; color: var(--text-secondary); }
-.review-finished .review-start-btn { max-width: 340px; margin: 22px auto 0; }
-
-@media (max-width: 700px) {
-  .library-subject-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .library-item-list { grid-template-columns: 1fr; }
-}
-@media (max-width: 430px) {
-  .library-page, #page-review { padding-left: 12px; padding-right: 12px; }
-  .library-subject-grid { grid-template-columns: 1fr; }
-  .library-subject-card { min-height: 80px; }
-  .library-module-summary { display: block; }
-  .library-module-summary__stats { margin-top: 6px; }
-}
 .workspace-container {
   padding-top: var(--safe-top);
 }
@@ -4722,6 +4599,37 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   min-width: 0;
   /* 底部只需少量呼吸空间，导航栏遮挡缓冲已由 .page 的 padding-bottom 承担 */
   padding-bottom: var(--spacing-md);
+}
+
+/* ===== 错题本内的错题 / 笔记视图切换 ===== */
+.errors-view-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 var(--page-padding) var(--spacing-sm);
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+}
+.errors-view-tabs button {
+  flex: 1 1 0;
+  min-height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.errors-view-tabs button.is-active {
+  background: var(--bg-card);
+  color: var(--color-primary);
+  font-weight: 650;
+  box-shadow: var(--shadow-sm);
+}
+.errors-note-types {
+  margin: 0 var(--page-padding) var(--spacing-sm);
 }
 
 
@@ -10511,10 +10419,6 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
     <section id="page-errors" class="page" style="display:none"></section>
     <!-- 笔记 -->
     <section id="page-notes" class="page" style="display:none"></section>
-    <!-- 学习库（科目 → 模块 → 知识内容） -->
-    <section id="page-library" class="page" style="display:none"></section>
-    <!-- 复习 -->
-    <section id="page-review" class="page" style="display:none"></section>
     <!-- 套卷记录 -->
     <section id="page-exams" class="page" style="display:none"></section>
     <!-- 科目专属复盘工作台 -->
@@ -10554,13 +10458,9 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
       <span class="nav-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg></span>
       <span class="nav-label">首页</span>
     </a>
-    <a href="#library" data-tab="library" class="nav-item">
-      <span class="nav-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 016.5 3H20v17H6.5A2.5 2.5 0 014 17.5z"/><path d="M4 5.5v12M8 7h8M8 11h8M8 15h5"/></svg></span>
-      <span class="nav-label">学习库</span>
-    </a>
-    <a href="#review" data-tab="review" class="nav-item">
-      <span class="nav-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 10-2.34 5.66"/><path d="M20 4v7h-7"/><path d="M12 8v4l3 2"/></svg></span>
-      <span class="nav-label">复习</span>
+    <a href="#errors" data-tab="errors" class="nav-item">
+      <span class="nav-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span>
+      <span class="nav-label">错题</span>
     </a>
     <a href="#exams" data-tab="exams" class="nav-item">
       <span class="nav-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
@@ -10606,7 +10506,7 @@ window.App = window.App || {};
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-  App.VERSION = '8.21.6';
+App.VERSION = '8.21.7';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -14492,10 +14392,6 @@ Object.assign(App.Components, {
     let cards = [];   // 当前已渲染的卡片数据
 
     const getColumnCount = () => {
-      if (o.columns) {
-        const fixedColumns = parseInt(o.columns, 10);
-        if (!isNaN(fixedColumns) && fixedColumns > 0) return fixedColumns;
-      }
       const w = window.innerWidth;
       if (w >= 1024) return 4;
       if (w >= 768) return 3;
@@ -20062,8 +19958,8 @@ App.Router = {
   async handleRoute() {
     const hash = location.hash.slice(1) || 'home';
     const [base, queryString] = hash.split('?');
-    // 新信息架构使用 library；保留旧链接别名，避免收藏的旧错题/笔记入口失效。
-    const routeAliases = { 'wrong-question': 'library', 'note': 'library' };
+    // 笔记主入口已并入错题本；保留 #notes 旧链接，统一打开错题本的笔记视图。
+    const routeAliases = { notes: 'errors' };
     const pageBase = routeAliases[base] || base;
     const params = {};
     if (queryString) {
@@ -20096,10 +19992,6 @@ App.Router = {
       try { App.Pages.Errors._masonryInst.destroy(); } catch (e) {}
       App.Pages.Errors._masonryInst = null;
     }
-    if (pageBase !== 'library' && App.Pages.Library && App.Pages.Library._masonryInst) {
-      try { App.Pages.Library._masonryInst.destroy(); } catch (e) {}
-      App.Pages.Library._masonryInst = null;
-    }
 
     // 显示目标页面
     const pageEl = document.getElementById('page-' + pageBase);
@@ -20121,7 +20013,7 @@ App.Router = {
     try {
       if (App.Draft && App.Draft.clearForm) {
         ['note', 'error', 'exam'].forEach(function (p) {
-      if (pageBase !== p + '-form') App.Draft.clearForm(p);
+          if (base !== p + '-form') App.Draft.clearForm(p);
         });
       }
     } catch (e) {}
@@ -20133,6 +20025,7 @@ App.Router = {
 
     // 调用页面渲染
     try {
+      if (base === 'notes') params.view = 'notes';
       await this.renderPage(pageBase, params);
     } catch (err) {
       console.error('页面渲染错误:', err);
@@ -20196,12 +20089,6 @@ App.Router = {
         break;
       case 'notes':
         if (App.Pages.Notes && App.Pages.Notes.render) await App.Pages.Notes.render(params);
-        break;
-      case 'library':
-        if (App.Pages.Library && App.Pages.Library.render) await App.Pages.Library.render(params);
-        break;
-      case 'review':
-        if (App.Pages.Review && App.Pages.Review.render) await App.Pages.Review.render(params);
         break;
       case 'exams':
         if (App.Pages.Exams && App.Pages.Exams.render) await App.Pages.Exams.render(params);
@@ -20397,6 +20284,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 
+
+
 // ===== 笔记类型数据服务（对齐画布「iPad-笔记类型管理」8:170 /「新增类型」10:1 / 弹窗 10:114） =====
 window.App = window.App || {};
 App.NoteTypes = (function () {
@@ -20444,136 +20333,6 @@ App.NoteTypes = (function () {
   return { getAll, ensureDefault, add, remove, getColor, DEFAULT_COLORS: DEFAULT_TYPES.map(t => t.color) };
 })();
 
-
-
-// ===== 学习库统一内容适配层 =====
-// 第一阶段只做读取适配，不新增或迁移 IndexedDB 表。
-// 旧数据仍分别保存在 errors / notes / words 中，由这里统一成 KnowledgeItem。
-window.App = window.App || {};
-
-App.Knowledge = (function () {
-  const METHOD_TYPES = ['技巧总结', '解题方法', '方法总结'];
-
-  function plainText(value) {
-    if (value == null) return '';
-    if (Array.isArray(value)) {
-      try { return plainText(App.Utils.toNoteHtml(value)); } catch (e) { return JSON.stringify(value); }
-    }
-    const raw = String(value);
-    if (!/[<&]/.test(raw)) return raw.replace(/\s+/g, ' ').trim();
-    const holder = document.createElement('div');
-    holder.innerHTML = raw;
-    return (holder.textContent || holder.innerText || '').replace(/\s+/g, ' ').trim();
-  }
-
-  function normalizeError(error) {
-    const compare = Array.isArray(error.compareGroups)
-      ? error.compareGroups.map(g => [g && g.words, g && g.relation].filter(Boolean).join('：')).filter(Boolean).join('；')
-      : '';
-    const summary = [
-      error.errorCause ? '错误原因：' + error.errorCause : '',
-      compare ? '词语辨析：' + compare : '',
-      error.pitfall ? '复盘：' + error.pitfall : ''
-    ].filter(Boolean).join(' · ');
-    return {
-      id: 'wrong:' + error.id,
-      sourceId: error.id,
-      sourceStore: 'errors',
-      subject: error.subject || '',
-      module: error.module || '',
-      type: 'wrong',
-      typeLabel: '错题',
-      title: error.question || '未命名错题',
-      summary: summary || '暂无复盘摘要',
-      content: error.question || '',
-      status: error.status || '未掌握',
-      createdTime: error.createdAt || error.updatedAt || '',
-      updatedTime: error.updatedAt || error.createdAt || '',
-      raw: error
-    };
-  }
-
-  function normalizeNote(note) {
-    const isMethod = METHOD_TYPES.indexOf(note.type) !== -1;
-    const content = plainText(note.content);
-    return {
-      id: (isMethod ? 'method:' : 'note:') + note.id,
-      sourceId: note.id,
-      sourceStore: 'notes',
-      subject: note.subject || '',
-      module: note.module || '',
-      type: isMethod ? 'method' : 'note',
-      typeLabel: isMethod ? '方法' : '笔记',
-      title: note.title || '未命名笔记',
-      summary: content || '暂无内容摘要',
-      content,
-      status: 'active',
-      createdTime: note.createdAt || note.updatedAt || '',
-      updatedTime: note.updatedAt || note.createdAt || '',
-      raw: note
-    };
-  }
-
-  function normalizeWord(word) {
-    let title = word.name || '';
-    if (!title && Array.isArray(word.compareWords)) {
-      title = word.compareWords.map(t => t && t.name).filter(Boolean).join(' VS ');
-    }
-    const isCompare = word.category === 'word-compare' || (word.compareWords && word.compareWords.length > 1);
-    return {
-      id: 'word:' + word.id,
-      sourceId: word.id,
-      sourceStore: 'words',
-      sourceCategory: word.category || (isCompare ? 'word-compare' : 'word-def'),
-      subject: word.subject || '',
-      module: word.module || '',
-      type: 'word',
-      typeLabel: isCompare ? '词语辨析' : '词语',
-      title: title || '未命名词语',
-      summary: word.compareNote || word.meaning || word.myUnderstanding || '暂无释义',
-      content: word.meaning || word.compareNote || '',
-      status: 'active',
-      createdTime: word.createdAt || word.updatedAt || '',
-      updatedTime: word.updatedAt || word.createdAt || '',
-      raw: word
-    };
-  }
-
-  async function getAll() {
-    const [errors, notes, words] = await Promise.all([
-      App.DB.getErrors(), App.DB.getNotes(), App.DB.getWords()
-    ]);
-    return [
-      ...errors.map(normalizeError),
-      ...notes.map(normalizeNote),
-      ...words.map(normalizeWord)
-    ].filter(item => item.subject);
-  }
-
-  function matches(item, query) {
-    const q = String(query || '').trim().toLowerCase();
-    if (!q) return true;
-    return [item.subject, item.module, item.title, item.summary, item.typeLabel]
-      .join(' ').toLowerCase().includes(q);
-  }
-
-  function filter(items, options) {
-    const opts = options || {};
-    return (items || []).filter(item => {
-      if (opts.subject && item.subject !== opts.subject) return false;
-      if (opts.module && item.module !== opts.module) return false;
-      if (opts.type === 'note' && item.type !== 'note' && item.type !== 'method') return false;
-      if (opts.type && opts.type !== 'all' && opts.type !== 'note' && item.type !== opts.type) return false;
-      return matches(item, opts.search);
-    });
-  }
-
-  function count(items, options) {
-    return filter(items, options).length;
-  }
-
-  return { getAll, filter, count, plainText, METHOD_TYPES };
-})();
 
 
 // ===== 考公笔试复盘系统 - 复盘首页 =====
@@ -21763,626 +21522,6 @@ App.Pages.Home = {
 
 
 
-// ===== 学习库 V1：科目 → 模块 → 知识内容 =====
-window.App = window.App || {};
-App.Pages = App.Pages || {};
-
-App.Pages.Library = {
-  state: { subject: null, module: null, tab: 'all', search: '', items: [], stickies: [] },
-  SUBJECT_ORDER: ['言语理解', '判断推理', '资料分析', '数量关系', '常识判断', '申论'],
-
-  _escape(value) {
-    return String(value == null ? '' : value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  },
-
-  _query(extra) {
-    const q = Object.assign({}, extra || {});
-    if (this.state.subject) q.subject = this.state.subject;
-    if (this.state.module) q.module = this.state.module;
-    const list = Object.keys(q).filter(k => q[k] !== undefined && q[k] !== null && q[k] !== '')
-      .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(q[k]));
-    return list.length ? '?' + list.join('&') : '';
-  },
-
-  async render(params) {
-    params = params || {};
-    const knownSubjects = this.SUBJECT_ORDER;
-    const subject = knownSubjects.indexOf(params.subject || '') >= 0 ? params.subject : null;
-    const modules = subject ? App.Constants.getModules(subject) : [];
-    const module = subject && params.module && modules.indexOf(params.module) >= 0 ? params.module : null;
-    this.state.subject = subject;
-    this.state.module = module;
-    const requestedView = params.view || params.tab || 'all';
-    this.state.tab = ['all', 'wrong', 'note', 'word'].indexOf(requestedView) >= 0 ? requestedView : 'all';
-    if (this.state.tab === 'word' && module !== '逻辑填空') this.state.tab = 'all';
-    this.state.search = params.search || '';
-    this.state.items = await App.Knowledge.getAll();
-    try { this.state.stickies = await App.DB.getStickies(); } catch (e) { this.state.stickies = []; }
-
-    const container = document.getElementById('page-library');
-    if (this._masonryInst) {
-      try { this._masonryInst.destroy(); } catch (e) {}
-      this._masonryInst = null;
-    }
-    container.innerHTML = '';
-    const body = document.createElement('div');
-    body.className = 'library-page';
-    container.appendChild(body);
-
-    this._renderHeader(body);
-    const search = this._renderSearch(body);
-    const content = document.createElement('div');
-    content.className = 'library-content';
-    body.appendChild(content);
-
-    const renderContent = () => {
-      content.innerHTML = '';
-      if (!this.state.subject) this._renderHome(content);
-      else if (!this.state.module) this._renderSubject(content);
-      else this._renderModule(content);
-    };
-    search.input.value = this.state.search;
-    search.input.addEventListener('input', () => {
-      this.state.search = search.input.value;
-      renderContent();
-    });
-    renderContent();
-    this._renderFab(body);
-  },
-
-  _renderHeader(container) {
-    if (!this.state.subject) {
-      const header = document.createElement('div');
-      header.className = 'library-header';
-      header.innerHTML = '<div><h1>学习库</h1></div>';
-      container.appendChild(header);
-      return;
-    }
-    const title = this.state.module || this.state.subject;
-    const header = App.Components.pageHeader(title, null, null, {
-      onBack: () => App.Router.navigate(this.state.module
-        ? (this.state.tab === 'all'
-          ? 'library?subject=' + encodeURIComponent(this.state.subject)
-          : this._moduleRoute('all'))
-        : 'library')
-    });
-    container.appendChild(header);
-    if (this.state.module) {
-      const trail = document.createElement('div');
-      trail.className = 'library-breadcrumb';
-      trail.textContent = this.state.subject + '  /  ' + this.state.module;
-      container.appendChild(trail);
-    }
-  },
-
-  _renderSearch(container) {
-    const wrap = document.createElement('label');
-    wrap.className = 'library-search';
-    wrap.innerHTML = '<span aria-hidden="true">⌕</span><input type="search" placeholder="搜索科目、模块或知识内容" aria-label="搜索学习库"><button type="button" class="library-search__clear" aria-label="清除搜索">×</button>';
-    const input = wrap.querySelector('input');
-    const clear = wrap.querySelector('.library-search__clear');
-    clear.addEventListener('click', () => { input.value = ''; input.dispatchEvent(new Event('input')); input.focus(); });
-    container.appendChild(wrap);
-    return { input };
-  },
-
-  _subjectItems(subject) { return App.Knowledge.filter(this.state.items, { subject }); },
-  _moduleItems(subject, module) { return App.Knowledge.filter(this.state.items, { subject, module }); },
-
-  _renderHome(container) {
-    const query = this.state.search.trim();
-    if (query) {
-      const results = App.Knowledge.filter(this.state.items, { search: query }).slice(0, 30);
-      const title = document.createElement('div');
-      title.className = 'library-section-title';
-      title.innerHTML = '<span>搜索结果</span><small>' + results.length + ' 条</small>';
-      container.appendChild(title);
-      this._renderItemList(container, results);
-      return;
-    }
-
-    const title = document.createElement('div');
-    title.className = 'library-section-title';
-    title.innerHTML = '<span>按科目浏览</span><small>选择科目进入模块</small>';
-    container.appendChild(title);
-    const grid = document.createElement('div');
-    grid.className = 'library-subject-grid';
-    this.SUBJECT_ORDER.forEach(name => {
-      const subject = App.Constants.SUBJECTS.find(s => s.name === name) || { name, color: '#0066CC', icon: '📚' };
-      const items = this._subjectItems(name);
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.className = 'library-subject-card';
-      card.style.setProperty('--subject-color', subject.color || '#0066CC');
-      card.innerHTML = '<span class="library-subject-card__icon">' + this._escape(subject.icon || '📚') + '</span>' +
-        '<span class="library-subject-card__name">' + this._escape(name) + '</span>' +
-        '<span class="library-subject-card__stats"><b>' + App.Knowledge.count(items, { type: 'wrong' }) + '</b> 错题 · <b>' + App.Knowledge.count(items, { type: 'note' }) + '</b> 笔记 · <b>' + App.Knowledge.count(items, { type: 'word' }) + '</b> 词语</span>' +
-        '<span class="library-subject-card__arrow">›</span>';
-      card.addEventListener('click', () => App.Router.navigate('library?subject=' + encodeURIComponent(name)));
-      grid.appendChild(card);
-    });
-    container.appendChild(grid);
-  },
-
-  _renderSubject(container) {
-    const items = this._subjectItems(this.state.subject);
-    const summary = document.createElement('div');
-    summary.className = 'library-stat-strip';
-    summary.innerHTML = '<div><strong>' + App.Knowledge.count(items, { type: 'wrong' }) + '</strong><span>错题</span></div>' +
-      '<div><strong>' + App.Knowledge.count(items, { type: 'note' }) + '</strong><span>笔记</span></div>' +
-      '<div><strong>' + App.Knowledge.count(items, { type: 'word' }) + '</strong><span>词语库</span></div>';
-    container.appendChild(summary);
-
-    const title = document.createElement('div');
-    title.className = 'library-section-title';
-    title.innerHTML = '<span>模块</span><small>选择模块查看全部内容</small>';
-    container.appendChild(title);
-    const list = document.createElement('div');
-    list.className = 'library-module-list';
-    App.Constants.getModules(this.state.subject).forEach(module => {
-      const moduleItems = this._moduleItems(this.state.subject, module);
-      const row = document.createElement('button');
-      row.type = 'button';
-      row.className = 'library-module-row';
-      row.innerHTML = '<span class="library-module-row__name">' + this._escape(module) + '</span>' +
-        '<span class="library-module-row__stats">错题 ' + App.Knowledge.count(moduleItems, { type: 'wrong' }) + '　笔记 ' + App.Knowledge.count(moduleItems, { type: 'note' }) + '　词语库 ' + App.Knowledge.count(moduleItems, { type: 'word' }) + '</span>' +
-        '<span class="library-module-row__arrow" aria-hidden="true">›</span>';
-      row.addEventListener('click', () => App.Router.navigate('library?subject=' + encodeURIComponent(this.state.subject) + '&module=' + encodeURIComponent(module)));
-      list.appendChild(row);
-    });
-    container.appendChild(list);
-  },
-
-  _moduleRoute(view, context) {
-    const subject = context && context.subject ? context.subject : this.state.subject;
-    const module = context && context.module ? context.module : this.state.module;
-    const query = 'subject=' + encodeURIComponent(subject || '') + '&module=' + encodeURIComponent(module || '');
-    return 'library?' + query + (view && view !== 'all' ? '&view=' + encodeURIComponent(view) : '');
-  },
-
-  _isWordModule() { return this.state.module === '逻辑填空'; },
-
-  _sortRecent(items) {
-    return (items || []).slice().sort((a, b) => new Date(b.updatedTime || b.createdTime || 0) - new Date(a.updatedTime || a.createdTime || 0));
-  },
-
-  _moduleStickies() {
-    const search = this.state.search.trim().toLowerCase();
-    return (this.state.stickies || []).filter(sticky => {
-      if (sticky.subject !== this.state.subject || sticky.module !== this.state.module) return false;
-      return !search || String(sticky.content || '').toLowerCase().includes(search);
-    });
-  },
-
-  _sectionHead(title, count, actionText, onAction) {
-    const head = document.createElement('div');
-    head.className = 'library-module-section__head';
-    const titleEl = document.createElement('div');
-    titleEl.className = 'library-module-section__title';
-    titleEl.textContent = title + (count == null ? '' : '（' + count + '）');
-    head.appendChild(titleEl);
-    if (actionText && onAction) {
-      const action = document.createElement('button');
-      action.type = 'button';
-      action.className = 'library-module-section__link';
-      action.textContent = actionText;
-      action.addEventListener('click', onAction);
-      head.appendChild(action);
-    }
-    return head;
-  },
-
-  _sectionEmpty(text) {
-    const empty = document.createElement('div');
-    empty.className = 'library-section-empty';
-    empty.textContent = text;
-    return empty;
-  },
-
-  _renderRecentWrong(container, items) {
-    const recent = this._sortRecent(items).slice(0, 4);
-    if (!recent.length) {
-      container.appendChild(this._sectionEmpty('暂无错题，点击右下角「+」新增错题'));
-      return;
-    }
-    const masonryWrap = document.createElement('div');
-    masonryWrap.className = 'error-masonry-wrap library-error-masonry-wrap library-recent-wrong';
-    container.appendChild(masonryWrap);
-    const inst = App.Components.masonryGrid(masonryWrap, {
-      columns: 2,
-      onOpen: (error) => this._openWrongDetail(error)
-    });
-    this._masonryInst = inst;
-    inst.render(recent.map(item => item.raw), false);
-  },
-
-  _openStickySheet() {
-    App.Components.stickySheet({
-      title: '新增便签',
-      onSave: async (data) => {
-        try {
-          await App.DB.addSticky(Object.assign({}, data, {
-            subject: this.state.subject,
-            module: this.state.module
-          }));
-          App.Components.toast('已新增便签 ✓', 'success');
-          this.render({ subject: this.state.subject, module: this.state.module, view: 'all', search: this.state.search });
-        } catch (e) { App.Components.toast('保存失败', 'error'); }
-      }
-    });
-  },
-
-  _renderModuleAll(container, items) {
-    const visibleItems = App.Knowledge.filter(items, { search: this.state.search });
-    const stickies = this._moduleStickies();
-
-    const stickySection = document.createElement('section');
-    stickySection.className = 'library-module-section';
-    stickySection.appendChild(this._sectionHead('便签', stickies.length, '查看全部', () => App.Router.navigate('stickies?subject=' + encodeURIComponent(this.state.subject) + '&module=' + encodeURIComponent(this.state.module))));
-    const stickyTools = document.createElement('div');
-    stickyTools.className = 'library-module-section__tools';
-    const addSticky = document.createElement('button');
-    addSticky.type = 'button';
-    addSticky.className = 'library-module-section__add';
-    addSticky.textContent = '＋ 新增便签';
-    addSticky.addEventListener('click', () => this._openStickySheet());
-    stickyTools.appendChild(addSticky);
-    stickySection.querySelector('.library-module-section__head').appendChild(stickyTools);
-    const stickyGrid = document.createElement('div');
-    stickyGrid.className = 'sticky-masonry sticky-masonry--home library-module-sticky-masonry';
-    if (!stickies.length) stickyGrid.appendChild(this._sectionEmpty('暂无本模块便签，先记下一条零碎想法吧'));
-    else stickies.slice(0, 4).forEach(sticky => stickyGrid.appendChild(App.Components.stickyCard(sticky, { onRefresh: () => this.render({ subject: this.state.subject, module: this.state.module, view: 'all', search: this.state.search }) })));
-    stickySection.appendChild(stickyGrid);
-    container.appendChild(stickySection);
-
-    const wrongItems = visibleItems.filter(item => item.type === 'wrong');
-    const wrongSection = document.createElement('section');
-    wrongSection.className = 'library-module-section';
-    wrongSection.appendChild(this._sectionHead('错题本', wrongItems.length, '查看全部', () => App.Router.navigate(this._moduleRoute('wrong'))));
-    this._renderRecentWrong(wrongSection, wrongItems);
-    container.appendChild(wrongSection);
-
-    const noteItems = visibleItems.filter(item => item.type === 'note' || item.type === 'method');
-    const noteSection = document.createElement('section');
-    noteSection.className = 'library-module-section';
-    noteSection.appendChild(this._sectionHead('笔记', noteItems.length, '查看全部', () => App.Router.navigate(this._moduleRoute('note'))));
-    const noteList = document.createElement('div');
-    noteList.className = 'library-item-list library-item-list--recent';
-    if (!noteItems.length) noteList.appendChild(this._sectionEmpty('暂无笔记，点击右下角「+」新增笔记'));
-    else this._sortRecent(noteItems).slice(0, 4).forEach(item => noteList.appendChild(this._itemCard(item)));
-    noteSection.appendChild(noteList);
-    container.appendChild(noteSection);
-
-    if (this._isWordModule()) {
-      const wordLink = document.createElement('button');
-      wordLink.type = 'button';
-      wordLink.className = 'library-module-word-link';
-      wordLink.innerHTML = '<span>词语库</span><span>仅逻辑填空模块使用　›</span>';
-      wordLink.addEventListener('click', () => App.Router.navigate(this._moduleRoute('word')));
-      container.appendChild(wordLink);
-    }
-  },
-
-  _renderModule(container) {
-    const items = this._moduleItems(this.state.subject, this.state.module);
-    const moduleStats = '错题 ' + App.Knowledge.count(items, { type: 'wrong' }) + '　笔记 ' + App.Knowledge.count(items, { type: 'note' }) +
-      (this._isWordModule() ? '　词语库 ' + App.Knowledge.count(items, { type: 'word' }) : '');
-    const summary = document.createElement('div');
-    summary.className = 'library-module-summary';
-    summary.innerHTML = '<div class="library-module-summary__title">' + this._escape(this.state.module) + '</div>' +
-      '<div class="library-module-summary__stats">' + moduleStats + '</div>';
-    container.appendChild(summary);
-
-    if (this.state.tab === 'all') {
-      this._renderModuleAll(container, items);
-      return;
-    }
-
-    const viewTitle = this.state.tab === 'wrong' ? '错题本' : (this.state.tab === 'note' ? '笔记' : '词语库');
-    const viewHead = document.createElement('div');
-    viewHead.className = 'library-view-heading';
-    viewHead.innerHTML = '<strong>' + this._escape(viewTitle) + '</strong><span>返回「全部」查看模块概览</span>';
-    container.appendChild(viewHead);
-    const list = document.createElement('div');
-    list.className = 'library-item-list';
-    container.appendChild(list);
-    this._renderItemList(list, App.Knowledge.filter(items, { type: this.state.tab, search: this.state.search }));
-  },
-
-  _renderItemList(container, items) {
-    if (this._masonryInst) {
-      try { this._masonryInst.destroy(); } catch (e) {}
-      this._masonryInst = null;
-    }
-    container.classList.remove('library-item-list--masonry');
-    if (!items.length) {
-      const hint = this.state.module && !this._isWordModule() ? '可以通过右下角「+」新增错题或笔记' : '可以通过右下角「+」新增错题、笔记或词语';
-      container.innerHTML = '<div class="library-empty"><span>📚</span><strong>这里还没有内容</strong><small>' + hint + '</small></div>';
-      return;
-    }
-
-    // 学习库错题页回退到旧错题本卡片：保留题干、辨析词语、标签、错因、复盘和日期。
-    // 仅学习库错题页固定为两列；旧错题本页面仍使用原有的自适应列数。
-    const isWrongMasonry = this.state.tab === 'wrong' && items.every(item => item.type === 'wrong');
-    if (isWrongMasonry) {
-      container.classList.add('library-item-list--masonry');
-      const masonryWrap = document.createElement('div');
-      masonryWrap.className = 'error-masonry-wrap library-error-masonry-wrap';
-      container.appendChild(masonryWrap);
-      const inst = App.Components.masonryGrid(masonryWrap, {
-        columns: 2,
-        onOpen: (error) => this._openWrongDetail(error)
-      });
-      this._masonryInst = inst;
-      inst.render(items.map(item => item.raw), false);
-      return;
-    }
-
-    items.slice().sort((a, b) => new Date(b.updatedTime || b.createdTime || 0) - new Date(a.updatedTime || a.createdTime || 0))
-      .forEach(item => container.appendChild(this._itemCard(item)));
-  },
-
-  _itemIndexTitle(item) {
-    if (item.type !== 'wrong') return item.title;
-    const raw = item.raw || {};
-    const groups = Array.isArray(raw.compareGroups) ? raw.compareGroups : [];
-    const compareWords = groups.map(group => {
-      if (Array.isArray(group && group.words)) return group.words.filter(Boolean).join(' VS ');
-      return group && group.words ? String(group.words) : '';
-    }).filter(Boolean);
-    if (compareWords.length) return compareWords.join(' · ');
-    const points = Array.isArray(raw.knowledgePoints) ? raw.knowledgePoints.filter(Boolean) : [];
-    if (points.length) return points.slice(0, 2).join(' · ');
-    if (raw.knowledgePoint) return String(raw.knowledgePoint);
-    return raw.errorCause || '待复盘错题';
-  },
-
-  _itemCard(item) {
-    const card = document.createElement('article');
-    card.className = 'library-item-card library-item-card--' + item.type;
-    const date = item.updatedTime || item.createdTime;
-    const meta = item.module || '';
-    const wrongSummary = item.type === 'wrong' && item.raw
-      ? [item.raw.errorCause ? '错误原因：' + item.raw.errorCause : '', item.raw.pitfall ? '复盘：' + item.raw.pitfall : ''].filter(Boolean).join(' · ')
-      : '';
-    const summary = wrongSummary || item.summary;
-    card.innerHTML = '<div class="library-item-card__top"><span class="library-type-pill">' + this._escape(item.typeLabel) + '</span><span class="library-item-card__meta">' + this._escape(meta) + '</span></div>' +
-      '<h3>' + this._escape(this._itemIndexTitle(item)) + '</h3>' +
-      '<p>' + this._escape(summary) + '</p>' +
-      '<div class="library-item-card__bottom"><span class="library-item-card__date">' + this._escape(date ? App.Utils.formatDate(date) : '') + '</span><span class="library-item-card__open" aria-hidden="true">›</span></div>';
-    card.addEventListener('click', () => this._openItem(item));
-    return card;
-  },
-
-  _openItem(item) {
-    if (item.sourceStore === 'errors') {
-      this._openWrongDetail(item.raw || { id: item.sourceId, subject: item.subject, module: item.module });
-    } else if (item.sourceStore === 'notes') {
-      App.Router.navigate('note-detail?id=' + encodeURIComponent(item.sourceId));
-    } else {
-      const category = item.sourceCategory || 'word-def';
-      App.Router.navigate('worddb?category=' + encodeURIComponent(category) + '&subject=' + encodeURIComponent(item.subject) + '&module=' + encodeURIComponent(item.module));
-    }
-  },
-
-  _openWrongDetail(error) {
-    const returnTo = 'library?subject=' + encodeURIComponent(error.subject || '') +
-      '&module=' + encodeURIComponent(error.module || '') + '&view=wrong';
-    App.Router.navigate('error-detail?id=' + encodeURIComponent(error.id) +
-      '&returnTo=' + encodeURIComponent(returnTo));
-  },
-
-  async _getContext() {
-    let subject = this.state.subject;
-    if (!subject) {
-      subject = await App.Components.centeredPicker(this.SUBJECT_ORDER.map(name => ({ icon: '📚', label: name, value: name })), '选择科目', '新增内容必须先绑定科目');
-      if (!subject) return null;
-    }
-    let module = this.state.module;
-    if (!module) {
-      const modules = App.Constants.getModules(subject);
-      module = await App.Components.centeredPicker(modules.map(name => ({ icon: '📂', label: name, value: name })), '选择模块', '新增内容必须绑定到具体模块');
-      if (!module) return null;
-    }
-    return { subject, module };
-  },
-
-  _renderFab(container) {
-    const fab = document.createElement('button');
-    fab.type = 'button';
-    fab.className = 'sc-fab fab--solid-blue library-fab';
-    fab.setAttribute('aria-label', '新增学习内容');
-    fab.title = '新增学习内容';
-    fab.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
-    fab.addEventListener('click', async () => {
-      const context = await this._getContext();
-      if (!context) return;
-      const actions = [
-        { label: '📋 错题', value: 'wrong' },
-        { label: '📝 笔记', value: 'note' },
-        { label: '💡 方法总结', value: 'method' }
-      ];
-      if (context.module === '逻辑填空') actions.splice(2, 0, { label: '🔀 词语辨析', value: 'word' });
-      const action = await App.Components.actionSheet(actions, '新增内容');
-      if (!action) return;
-      const base = 'subject=' + encodeURIComponent(context.subject) + '&module=' + encodeURIComponent(context.module);
-      if (action === 'wrong') App.Router.navigate('error-form?' + base + '&returnTo=' + encodeURIComponent(this._moduleRoute('wrong', context)));
-      if (action === 'note') App.Router.navigate('note-form?' + base);
-      if (action === 'method') App.Router.navigate('note-form?' + base + '&type=' + encodeURIComponent('解题方法'));
-      if (action === 'word' && context.module === '逻辑填空') App.Router.navigate('worddb?category=word-compare&create=1&' + base);
-    });
-    container.appendChild(fab);
-  }
-};
-
-
-// ===== 复习模块 V1：历史错题重新训练 =====
-window.App = window.App || {};
-App.Pages = App.Pages || {};
-
-App.Pages.Review = {
-  state: { queue: [], index: 0, result: null, subject: null },
-  _escape(value) {
-    return String(value == null ? '' : value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  },
-
-  async _loadQueue(subject) {
-    const due = await App.DB.getReviewQueue();
-    const all = due.length ? due : await App.DB.getErrors();
-    return all.filter(e => !subject || e.subject === subject);
-  },
-
-  async render(params) {
-    params = params || {};
-    const container = document.getElementById('page-review');
-    container.innerHTML = '';
-    if (params.mode === 'session') {
-      if (!this.state.queue.length || this.state.subject !== (params.subject || null)) {
-        this.state.subject = params.subject || null;
-        this.state.queue = await this._loadQueue(this.state.subject);
-        this.state.index = 0;
-        this.state.result = null;
-      }
-      this._renderSession(container);
-      return;
-    }
-    this.state.queue = [];
-    this.state.result = null;
-    await this._renderHome(container);
-  },
-
-  async _renderHome(container) {
-    const header = document.createElement('div');
-    header.className = 'review-header';
-    header.innerHTML = '<div class="library-eyebrow">REVIEW MODE</div><h1>今日复习</h1><p>重新抽取历史错题，及时巩固薄弱知识点</p>';
-    container.appendChild(header);
-
-    const due = await App.DB.getReviewQueue();
-    const all = due.length ? due : await App.DB.getErrors();
-    const groups = this._groupBySubject(all);
-    const hint = document.createElement('div');
-    hint.className = 'review-hint';
-    hint.textContent = due.length ? '优先显示超过 3 天未复习的错题' : (all.length ? '当前没有到期错题，先展示全部历史错题' : '还没有可复习的错题');
-    container.appendChild(hint);
-
-    const list = document.createElement('div');
-    list.className = 'review-subject-list';
-    Object.keys(groups).forEach(subject => {
-      const cfg = App.Constants.SUBJECTS.find(s => s.name === subject) || { icon: '📚', color: '#0066CC' };
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.className = 'review-subject-card';
-      card.innerHTML = '<span class="review-subject-card__icon" style="background:' + this._escape(cfg.color || '#0066CC') + '22">' + this._escape(cfg.icon || '📚') + '</span>' +
-        '<span class="review-subject-card__body"><strong>' + this._escape(subject) + '</strong><small>' + groups[subject].length + ' 题待复习</small></span><span class="review-subject-card__arrow">›</span>';
-      card.addEventListener('click', () => this._startSession(subject));
-      list.appendChild(card);
-    });
-    if (!Object.keys(groups).length) list.innerHTML = '<div class="review-empty"><span>🎉</span><strong>暂无待复习错题</strong><small>先去学习库新增错题，之后可以在这里重新训练</small></div>';
-    container.appendChild(list);
-
-    const start = document.createElement('button');
-    start.type = 'button';
-    start.className = 'review-start-btn';
-    start.textContent = all.length ? '开始全部复习' : '去学习库';
-    start.addEventListener('click', () => all.length ? this._startSession(null) : App.Router.navigate('library'));
-    container.appendChild(start);
-  },
-
-  _groupBySubject(errors) {
-    const groups = {};
-    (errors || []).forEach(error => {
-      const key = error.subject || '未分类';
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(error);
-    });
-    return groups;
-  },
-
-  async _startSession(subject) {
-    this.state.subject = subject || null;
-    this.state.queue = await this._loadQueue(this.state.subject);
-    this.state.index = 0;
-    this.state.result = null;
-    App.Router.navigate('review?mode=session' + (subject ? '&subject=' + encodeURIComponent(subject) : ''));
-  },
-
-  _renderSession(container) {
-    container.innerHTML = '';
-    const error = this.state.queue[this.state.index];
-    if (!error) {
-      container.innerHTML = '<div class="review-finished"><span>✅</span><h1>本轮复习完成</h1><p>这组错题已经重新训练一遍。</p><button type="button" class="review-start-btn">返回复习首页</button></div>';
-      container.querySelector('button').addEventListener('click', () => App.Router.navigate('review'));
-      return;
-    }
-
-    const header = App.Components.pageHeader('第 ' + (this.state.index + 1) + ' / ' + this.state.queue.length + ' 题', '退出', () => App.Router.navigate('review'), { onBack: () => App.Router.navigate('review') });
-    const right = header.querySelector('.page-header__right');
-    if (right) { right.style.cursor = 'pointer'; right.addEventListener('click', () => App.Router.navigate('review')); }
-    container.appendChild(header);
-
-    const content = document.createElement('div');
-    content.className = 'review-session';
-    content.innerHTML = '<div class="review-session__meta">' + this._escape(error.subject || '未分类') + (error.module ? ' · ' + this._escape(error.module) : '') + '</div>' +
-      '<div class="review-session__question">' + this._escape(error.question || '暂无题干') + '</div>';
-    const options = document.createElement('div');
-    options.className = 'review-options';
-    const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
-    (error.options || []).filter(Boolean).forEach((option, index) => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'review-option';
-      button.innerHTML = '<b>' + letters[index] + '</b><span>' + this._escape(option) + '</span>';
-      button.disabled = !!this.state.result;
-      button.addEventListener('click', () => this._answer(error, letters[index]));
-      options.appendChild(button);
-    });
-    content.appendChild(options);
-    if (!options.children.length) {
-      const noOptions = document.createElement('div');
-      noOptions.className = 'review-no-options';
-      noOptions.textContent = '这道错题没有可选项，请查看原题后完成复习。';
-      content.appendChild(noOptions);
-      const mark = document.createElement('button');
-      mark.type = 'button';
-      mark.className = 'review-next-btn';
-      mark.textContent = '标记为已复习';
-      mark.disabled = !!this.state.result;
-      mark.addEventListener('click', () => this._answer(error, error.correctOption || ''));
-      content.appendChild(mark);
-    }
-    if (this.state.result) {
-      const result = document.createElement('div');
-      result.className = 'review-result ' + (this.state.result.correct ? 'is-correct' : 'is-wrong');
-      result.innerHTML = '<strong>' + (this.state.result.correct ? '回答正确 ✓' : '回答错误') + '</strong><span>正确答案：' + this._escape(error.correctOption || '未记录') + '</span>';
-      content.appendChild(result);
-      const next = document.createElement('button');
-      next.type = 'button';
-      next.className = 'review-next-btn';
-      next.textContent = this.state.index + 1 >= this.state.queue.length ? '完成本轮' : '下一题';
-      next.addEventListener('click', () => { this.state.index++; this.state.result = null; this._renderSession(container); });
-      content.appendChild(next);
-    }
-    container.appendChild(content);
-  },
-
-  async _answer(error, selected) {
-    const correct = !!error.correctOption && selected === error.correctOption;
-    error.userOption = selected;
-    error.reviewCount = (error.reviewCount || 0) + 1;
-    error.lastReviewDate = new Date().toISOString();
-    error.status = correct ? '已掌握' : '未掌握';
-    try {
-      await App.DB.updateError(error);
-      this.state.result = { correct, selected };
-      const container = document.getElementById('page-review');
-      this._renderSession(container);
-    } catch (e) {
-      App.Components.toast('复习结果保存失败', 'error');
-    }
-  }
-};
-
-
 // ===== 考公笔试复盘系统 - 错题本页面 =====
 // ===== 考公笔试复盘系统 - 错题本页面 =====
 // ===== 考公笔试复盘系统 - 错题本页面 =====
@@ -22399,21 +21538,19 @@ App.Pages.Errors = {
     search: '',
     searchVisible: false,
     allErrors: [],
+    allNotes: [],
+    view: 'wrong',
+    noteType: null,
     gallerySize: 'md',   // 画廊窗口大小: sm 小 / md 中 / lg 大
     gallerySizeAuto: true // 是否自动根据窗口宽度选择密度（用户手动切换后变为 false）
   },
 
-  // 根据来源和错题自身的科目/模块生成列表路由，避免详情页回到旧错题本。
-  _buildErrorListRoute(error, params) {
-    if (params && typeof params.returnTo === 'string' && /^(library|errors)(?:\?|$)/.test(params.returnTo)) {
-      return params.returnTo;
-    }
+  // 根据错题自身的科目/模块生成列表路由，避免详情页依赖浏览器历史返回。
+  _buildErrorListRoute(error) {
     const query = [];
     if (error && error.subject) query.push('subject=' + encodeURIComponent(error.subject));
     if (error && error.module) query.push('module=' + encodeURIComponent(error.module));
-    const routeBase = params && params.routeBase === 'errors' ? 'errors' : 'library';
-    if (routeBase === 'library') query.push('view=wrong');
-    return routeBase + (query.length ? '?' + query.join('&') : '');
+    return 'errors' + (query.length ? '?' + query.join('&') : '');
   },
 
   // v8.12.30 错题本侧边栏 SVG 图标（像素级还原设计稿：直接引用设计稿导出路径，fill/stroke 用 currentColor）
@@ -22434,6 +21571,7 @@ App.Pages.Errors = {
   async render(params) {
     const container = document.getElementById('page-errors');
     container.innerHTML = '';
+    this.state.view = params && (params.view === 'notes' || params.tab === 'notes') ? 'notes' : 'wrong';
 
     // 详情页返回会携带错题所属科目/模块；从 URL 恢复筛选上下文，
     // 这样直接刷新或复制链接打开列表时也不会退回到全部错题。
@@ -22448,6 +21586,7 @@ App.Pages.Errors = {
       this.state.knowledgePoint = null;
       this.state.errorCause = null;
       this.state.status = null;
+      this.state.noteType = null;
       this.state.search = '';
       this.state.searchVisible = false;
       this._expanded = this._expanded || {};
@@ -22499,6 +21638,11 @@ App.Pages.Errors = {
       this._showPageMenu();
     });
 
+    const viewTabs = document.createElement('div');
+    viewTabs.id = 'error-view-tabs';
+    stickyWrap.appendChild(viewTabs);
+    this.renderViewTabs(viewTabs);
+
     // 搜索区（通过右上角三点菜单展开）
     const searchArea = document.createElement('div');
     searchArea.id = 'error-search-area';
@@ -22530,19 +21674,64 @@ App.Pages.Errors = {
       const query = [];
       if (this.state.subject) query.push('subject=' + encodeURIComponent(this.state.subject));
       if (this.state.module) query.push('module=' + encodeURIComponent(this.state.module));
-      App.Router.navigate('error-form' + (query.length ? '?' + query.join('&') : ''));
+      const formRoute = this.state.view === 'notes' ? 'note-form' : 'error-form';
+      query.push('returnTo=' + encodeURIComponent(this._viewRoute(this.state.view)));
+      App.Router.navigate(formRoute + '?' + query.join('&'));
     });
+    fab.setAttribute('aria-label', this.state.view === 'notes' ? '新建笔记' : '新增错题');
+    fab.title = this.state.view === 'notes' ? '新建笔记' : '新增错题';
     container.appendChild(fab);
 
     // 加载数据并渲染
     await this.loadData();
     await this.renderSubjectGrid(sidebar);
-    this.renderFilters(filterArea);
-    await this.renderList(listArea);
+    this.renderViewTabs(viewTabs);
+    if (this.state.view === 'notes') {
+      this.renderNoteFilters(filterArea);
+      this.renderNotesList(listArea);
+    } else {
+      this.renderFilters(filterArea);
+      await this.renderList(listArea);
+    }
+  },
+
+  _viewRoute(view) {
+    const query = [];
+    if (this.state.subject) query.push('subject=' + encodeURIComponent(this.state.subject));
+    if (this.state.module) query.push('module=' + encodeURIComponent(this.state.module));
+    if (view === 'notes') query.push('view=notes');
+    return 'errors' + (query.length ? '?' + query.join('&') : '');
+  },
+
+  renderViewTabs(container) {
+    container.innerHTML = '';
+    const wrap = document.createElement('div');
+    wrap.className = 'errors-view-tabs';
+    const errorCount = this.state.allErrors.filter(error =>
+      (!this.state.subject || error.subject === this.state.subject) &&
+      (!this.state.module || error.module === this.state.module)
+    ).length;
+    const noteCount = this.state.allNotes.filter(note =>
+      (!this.state.subject || note.subject === this.state.subject) &&
+      (!this.state.module || note.module === this.state.module)
+    ).length;
+    [['wrong', '错题', errorCount], ['notes', '笔记', noteCount]].forEach(([view, label, count]) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = this.state.view === view ? 'is-active' : '';
+      button.textContent = label + ' ' + count;
+      button.addEventListener('click', () => {
+        if (this.state.view !== view) App.Router.navigate(this._viewRoute(view));
+      });
+      wrap.appendChild(button);
+    });
+    container.appendChild(wrap);
   },
 
   async loadData() {
-    this.state.allErrors = await App.DB.getErrors();
+    const result = await Promise.all([App.DB.getErrors(), App.DB.getNotes()]);
+    this.state.allErrors = result[0];
+    this.state.allNotes = result[1];
   },
 
   // 合并「本模块库 + 数据中已用值」得到可筛选的考点列表（扁平科目传科目名，合并该科目所有模块）
@@ -22938,6 +22127,7 @@ App.Pages.Errors = {
           q = '?subject=' + encodeURIComponent(this.state.subject);
           if (this.state.module) q += '&module=' + encodeURIComponent(this.state.module);
         }
+        q += (q ? '&' : '?') + 'returnTo=' + encodeURIComponent(this._viewRoute('wrong'));
         App.Router.navigate('error-form' + q);
       });
       empty.appendChild(action);
@@ -22952,10 +22142,7 @@ App.Pages.Errors = {
     // 先销毁旧实例（若存在）
     if (this._masonryInst) { try { this._masonryInst.destroy(); } catch (e) {} this._masonryInst = null; }
     const inst = App.Components.masonryGrid(masonryWrap, {
-      onOpen: (error) => App.Router.navigate(
-        'error-detail?id=' + encodeURIComponent(error.id) +
-        '&returnTo=' + encodeURIComponent(this._buildErrorListRoute(error, { routeBase: 'errors' }))
-      )
+      onOpen: (error) => App.Router.navigate('error-detail?id=' + error.id)
     });
     this._masonryInst = inst;
     inst.render(errors, false);
@@ -22963,12 +22150,94 @@ App.Pages.Errors = {
     masonryWrap.dataset.masonry = '1';
   },
 
+  renderNoteFilters(container) {
+    container.innerHTML = '';
+    App.NoteTypes.ensureDefault();
+    const types = App.NoteTypes.getAll();
+    if (!types.length) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'note-modchips errors-note-types';
+    const addChip = (label, active, onClick, color) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'note-modchip' + (active ? ' active' : '');
+      if (active && color) chip.style.cssText = 'background:' + color + '22;color:' + color + ';';
+      chip.textContent = label;
+      chip.addEventListener('click', onClick);
+      wrap.appendChild(chip);
+    };
+    addChip('类型全部', !this.state.noteType, () => {
+      this.state.noteType = null;
+      this.refreshFiltersAndList();
+    });
+    types.forEach(type => addChip(type.name, this.state.noteType === type.name, () => {
+      this.state.noteType = this.state.noteType === type.name ? null : type.name;
+      this.refreshFiltersAndList();
+    }, type.color));
+    container.appendChild(wrap);
+  },
+
+  _noteSearchText(note) {
+    let content = '';
+    try { content = App.Utils.toNoteHtml(note.content || '').replace(/<[^>]*>/g, ' '); } catch (e) {}
+    return [note.title || '', content, note.subject || '', note.module || '', note.knowledgePoint || ''].join(' ').toLowerCase();
+  },
+
+  renderNotesList(container) {
+    container.innerHTML = '';
+    let notes = (this.state.allNotes || []).filter(note =>
+      (!this.state.subject || note.subject === this.state.subject) &&
+      (!this.state.module || note.module === this.state.module) &&
+      (!this.state.noteType || note.type === this.state.noteType)
+    );
+    if (this.state.search) {
+      const keyword = this.state.search.trim().toLowerCase();
+      notes = notes.filter(note => this._noteSearchText(note).includes(keyword));
+    }
+    notes.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+
+    if (this.state.subject === '言语理解' && (!this.state.module || this.state.module === '逻辑填空')) {
+      const wordDbEntry = document.createElement('div');
+      wordDbEntry.className = 'notes-worddb-entry';
+      wordDbEntry.innerHTML = '<span class="notes-worddb-entry__icon">📚</span><span class="notes-worddb-entry__text"><span class="notes-worddb-entry__title">词语库</span><span class="notes-worddb-entry__desc">成语 / 实词释义与辨析 · 逻辑填空</span></span><span class="notes-worddb-entry__arrow">›</span>';
+      wordDbEntry.addEventListener('click', () => App.Router.navigate('worddb?subject=' + encodeURIComponent('言语理解') + '&module=' + encodeURIComponent('逻辑填空')));
+      container.appendChild(wordDbEntry);
+    }
+
+    if (!notes.length) {
+      const empty = document.createElement('div');
+      empty.className = 'eerr-empty';
+      empty.innerHTML = '<div class="eerr-empty__icon">📝</div><div class="eerr-empty__title">还没有笔记</div><div class="eerr-empty__desc">点击「新建笔记」，记录你的第一条复盘</div>';
+      const action = document.createElement('button');
+      action.type = 'button';
+      action.className = 'eerr-empty__action';
+      action.textContent = '＋ 新建笔记';
+      action.addEventListener('click', () => {
+        const query = [];
+        if (this.state.subject) query.push('subject=' + encodeURIComponent(this.state.subject));
+        if (this.state.module) query.push('module=' + encodeURIComponent(this.state.module));
+        query.push('returnTo=' + encodeURIComponent(this._viewRoute('notes')));
+        App.Router.navigate('note-form?' + query.join('&'));
+      });
+      empty.appendChild(action);
+      container.appendChild(empty);
+      return;
+    }
+
+    notes.forEach(note => container.appendChild(App.Pages.Notes.buildNoteCard(note, this._viewRoute('notes'))));
+  },
+
   // 局部刷新：筛选条即时切换不动画，列表仅做进入动画
   refreshFiltersAndList() {
     const filterArea = document.getElementById('error-filter-area');
     const listArea = document.getElementById('error-list');
-    if (filterArea) this.renderFilters(filterArea);
-    if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
+    if (this.state.view === 'notes') {
+      if (filterArea) this.renderNoteFilters(filterArea);
+      if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderNotesList(c));
+    } else {
+      if (filterArea) this.renderFilters(filterArea);
+      if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
+    }
   },
 
   refreshAll() {
@@ -22978,9 +22247,16 @@ App.Pages.Errors = {
     const listArea = document.getElementById('error-list');
 
     if (sidebar) this.renderSubjectGrid(sidebar);
+    const tabs = document.getElementById('error-view-tabs');
+    if (tabs) this.renderViewTabs(tabs);
     if (searchArea) this.renderSearchBar(searchArea);
-    if (filterArea) this.renderFilters(filterArea);
-    if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
+    if (this.state.view === 'notes') {
+      if (filterArea) this.renderNoteFilters(filterArea);
+      if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderNotesList(c));
+    } else {
+      if (filterArea) this.renderFilters(filterArea);
+      if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
+    }
   },
 
   // 右上角三点菜单
@@ -23004,13 +22280,14 @@ App.Pages.Errors = {
     const val = (this.state.search || '').replace(/"/g, '&quot;');
     searchBar.innerHTML = `
       <span class="search-bar__icon">🔍</span>
-      <input type="text" placeholder="搜索错题 / 知识点" id="error-search" value="${val}">
+      <input type="text" placeholder="${this.state.view === 'notes' ? '搜索笔记标题 / 内容' : '搜索错题 / 知识点'}" id="error-search" value="${val}">
     `;
     container.appendChild(searchBar);
     const input = searchBar.querySelector('input');
     input.addEventListener('input', App.Utils.debounce((e) => {
       this.state.search = e.target.value;
-      this.renderList(document.getElementById('error-list'));
+      if (this.state.view === 'notes') this.renderNotesList(document.getElementById('error-list'));
+      else this.renderList(document.getElementById('error-list'));
     }, 300));
   },
 
@@ -23042,7 +22319,7 @@ App.Pages.Errors = {
 
     // 返回栏 + 右上角：屏幕勾画铅笔 + 三点菜单（编辑已整合进三点菜单）
     const header = App.Components.pageHeader('错题详情', null, null, {
-      onBack: () => App.Router.navigate(this._buildErrorListRoute(error, params))
+      onBack: () => App.Router.navigate(this._buildErrorListRoute(error))
     });
     const detailRight = header.querySelector('.page-header__right');
     if (detailRight) {
@@ -23387,12 +22664,9 @@ App.Pages.Errors = {
     container.innerHTML = '';
 
     let isEdit = !!params.id;
-    const contextReturn = params && params.subject && params.module
-      ? 'library?subject=' + encodeURIComponent(params.subject) + '&module=' + encodeURIComponent(params.module) + '&view=wrong'
-      : 'library';
-    const returnRoute = params && typeof params.returnTo === 'string' && /^(?:error-detail|library)(?:\?|$)/.test(params.returnTo)
+    const returnRoute = params && typeof params.returnTo === 'string' && /^(?:error-detail|errors|notes)(?:\?|$)/.test(params.returnTo)
       ? params.returnTo
-      : contextReturn;
+      : 'errors';
 
     // 默认空白表单
     let formData = {
@@ -23510,7 +22784,9 @@ App.Pages.Errors = {
 
       // v8.14.11 申论错题统一走专属表单：无论从哪条路径进入，只要科目固定为申论即切换
       if (formData.subject === '申论') {
-        App.Pages.Errors.renderShenlunForm(isEdit && formData._formId ? { id: formData.id || formData._formId } : { module: formData.module || '' });
+        App.Pages.Errors.renderShenlunForm(isEdit && formData._formId
+          ? { id: formData.id || formData._formId, returnTo: returnRoute }
+          : { module: formData.module || '', returnTo: returnRoute });
         return;
       }
 
@@ -23587,7 +22863,7 @@ App.Pages.Errors = {
             // v8.14.11 科目选「申论」→ 切换为申论专属表单
             if (val === '申论') {
               App.Draft.clearForm('error');
-              App.Pages.Errors.renderShenlunForm({ module: formData.module });
+              App.Pages.Errors.renderShenlunForm({ module: formData.module, returnTo: returnRoute });
               return;
             }
             formData.subject = val;
@@ -24015,12 +23291,9 @@ App.Pages.Errors.renderShenlunForm = function (params) {
   const self = App.Pages.Errors;
 
   let isEdit = !!params.id;
-  const contextReturn = params && params.subject && params.module
-    ? 'library?subject=' + encodeURIComponent(params.subject) + '&module=' + encodeURIComponent(params.module) + '&view=wrong'
-    : 'library';
-  const returnRoute = params && typeof params.returnTo === 'string' && /^(?:error-detail|library)(?:\?|$)/.test(params.returnTo)
+  const returnRoute = params && typeof params.returnTo === 'string' && /^(?:error-detail|errors|notes)(?:\?|$)/.test(params.returnTo)
     ? params.returnTo
-    : contextReturn;
+    : 'errors';
   // 申论错题数据（扁平存于 errors 记录上，与通用错题共存）
   let d = {
     subject: '申论', module: '', question: '',
@@ -24463,6 +23736,8 @@ App.Pages.Errors.renderShenlunForm = function (params) {
 })();
 
 
+
+
 // ===== 考公笔试复盘系统 - 笔记页面 =====
 window.App = window.App || {};
 App.Pages = App.Pages || {};
@@ -24850,7 +24125,7 @@ App.Pages.Notes = {
   },
 
   // 笔记卡片：iPad 分屏优先——分类、日期和摘要集中呈现，减少无效留白。
-  buildNoteCard(note) {
+  buildNoteCard(note, returnTo) {
     const card = document.createElement('div');
     card.className = 'note-item note-item--card note-item--compact';
     const subj = note.subject ? App.Constants.SUBJECTS.find(s => s.name === note.subject) : null;
@@ -24897,7 +24172,9 @@ App.Pages.Notes = {
         ${location ? `<div class="note-item__location">${location}</div>` : ''}
       </div>
     `;
-    card.addEventListener('click', () => App.Router.navigate('note-detail?id=' + note.id));
+    const detailRoute = 'note-detail?id=' + encodeURIComponent(note.id) +
+      (returnTo ? '&returnTo=' + encodeURIComponent(returnTo) : '');
+    card.addEventListener('click', () => App.Router.navigate(detailRoute));
     return card;
   },
 
@@ -24943,14 +24220,17 @@ App.Pages.Notes = {
   async renderDetail(params) {
     const container = document.getElementById('page-note-detail');
     container.innerHTML = '';
+    const detailReturnRoute = params && typeof params.returnTo === 'string' && /^(?:errors|notes)(?:\?|$)/.test(params.returnTo)
+      ? params.returnTo
+      : 'notes';
 
     const noteId = params.id;
-    if (!noteId) { App.Router.navigate('notes'); return; }
+    if (!noteId) { App.Router.navigate(detailReturnRoute); return; }
 
     const note = await App.DB.get('notes', noteId);
     if (!note) {
       App.Components.toast('笔记不存在', 'error');
-      App.Router.navigate('notes');
+      App.Router.navigate(detailReturnRoute);
       return;
     }
 
@@ -24963,7 +24243,9 @@ App.Pages.Notes = {
     }
 
     // 返回栏 + 右上角：✍️ 手写 + ⋮ 菜单（无「编辑」按钮——点击标题/正文即就地编辑）
-    const header = App.Components.pageHeader('笔记详情', '⋮', () => this._showDetailMenu(note));
+    const header = App.Components.pageHeader('笔记详情', '⋮', () => this._showDetailMenu(note), {
+      onBack: () => App.Router.navigate(detailReturnRoute)
+    });
     const moreBtn = header.querySelector('.page-header__right');
     if (moreBtn) {
       moreBtn.classList.add('note-detail-more');
@@ -25387,13 +24669,15 @@ App.Pages.Notes = {
     container.innerHTML = '';
 
     let isEdit = !!params.id;
+    const returnRoute = params && typeof params.returnTo === 'string' && /^(?:errors|notes)(?:\?|$)/.test(params.returnTo)
+      ? params.returnTo
+      : 'notes';
 
     let formData = {
       subject: params.subject || '',
       module: '',
       knowledgePoint: '',
-      // 学习库新增入口可预设为「解题方法」，仍复用原笔记表存储和编辑器。
-      type: params.type || '',
+      type: '',
       title: '',
       content: '',
       linkedErrors: []
@@ -25779,7 +25063,7 @@ App.Pages.Notes = {
         await submitFormInternal();
         App.Components.toast('已保存 ✓', 'success');
         App.Draft.clearForm('note');
-        App.Router.navigate('notes');
+        App.Router.navigate(returnRoute);
       } catch (e) { App.Components.toast('保存失败', 'error'); }
     };
 
@@ -26023,26 +25307,19 @@ App.Pages = App.Pages || {};
 
 App.Pages.Stickies = {
   async render(params) {
-    params = params || {};
     const container = document.getElementById('page-stickies');
     container.innerHTML = '';
-    const hasContext = !!(params.subject && params.module);
-    const title = hasContext ? params.module + ' · 便签' : '便签';
 
-    const header = App.Components.pageHeader(title, '＋', () => {
+    const header = App.Components.pageHeader('便签', '＋', () => {
       App.Components.stickySheet({
         title: '新增便签',
         onSave: async (data) => {
-          try {
-            await App.DB.addSticky(Object.assign({}, data, hasContext ? { subject: params.subject, module: params.module } : {}));
-          } catch (e) { App.Components.toast('保存失败', 'error'); return; }
+          try { await App.DB.addSticky(data); } catch (e) { App.Components.toast('保存失败', 'error'); return; }
           App.Components.toast('已添加 ✓', 'success');
-          this.render(params);
+          this.render({});
         }
       });
-    }, hasContext ? {
-      onBack: () => App.Router.navigate('library?subject=' + encodeURIComponent(params.subject) + '&module=' + encodeURIComponent(params.module))
-    } : undefined);
+    });
     container.appendChild(header);
 
     const content = document.createElement('div');
@@ -26053,30 +25330,28 @@ App.Pages.Stickies = {
     content.appendChild(wrap);
     container.appendChild(content);
 
-    await this._fill(wrap, params);
+    await this._fill(wrap);
   },
 
-  async _fill(wrap, params) {
+  async _fill(wrap) {
     wrap.innerHTML = '';
     let stickies = [];
     try { stickies = await App.DB.getStickies(); } catch (e) {}
-    if (params && params.subject && params.module) {
-      stickies = stickies.filter(sticky => sticky.subject === params.subject && sticky.module === params.module);
-    }
 
     const masonry = document.createElement('div');
-    masonry.className = 'sticky-masonry ' + (params && params.subject && params.module ? 'sticky-masonry--home' : 'sticky-masonry--manage');
+    masonry.className = 'sticky-masonry sticky-masonry--manage';
     if (stickies.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'sticky-empty';
       empty.textContent = '暂无便签，点击右上角 + 添加第一条';
       masonry.appendChild(empty);
     } else {
-      stickies.forEach(s => masonry.appendChild(App.Components.stickyCard(s, { onRefresh: () => this._fill(wrap, params) })));
+      stickies.forEach(s => masonry.appendChild(App.Components.stickyCard(s, { onRefresh: () => this._fill(wrap) })));
     }
     wrap.appendChild(masonry);
   }
 };
+
 
 
 // ===== 考公笔试复盘系统 - 学习统计页面（日历） =====
@@ -28304,8 +27579,6 @@ App.Pages.WordDB = {
 
     // 加载数据并渲染表格
     await this._loadAndRender(tableArea);
-    // 学习库「新增词语辨析」入口：先进入现有词语库，再自动打开原有表单。
-    if (params.create === '1') setTimeout(() => this._showWordForm(null), 0);
   },
 
   _getCategoryTitle() {
@@ -29575,8 +28848,8 @@ window.initNotionMobileEditor = function (containerSelector, options) {
   
 ;
 
-    // 版本更新机制：Service Worker 负责缓存策略，页面负责确认线上 index.html 是否已经更新。
-    // 仅关闭 iPad 后台不会清除 SW/网页缓存，因此不能只依赖 register() 的默认更新时机。
+    // 强制更新机制：Service Worker 负责联网优先，页面负责校验线上 index.html 版本。
+    // 检测到新版本后不提供“稍后再说”，直接刷新并保留当前 hash 页面，避免 iPad 后台长期运行旧代码。
     (function () {
       var CHECK_INTERVAL = 60 * 1000;
       var lastCheckAt = 0;
@@ -29600,31 +28873,37 @@ window.initNotionMobileEditor = function (containerSelector, options) {
         return false;
       }
 
+      function showUpdating(remoteVersion) {
+        if (document.getElementById('app-force-update')) return;
+        var overlay = document.createElement('div');
+        overlay.id = 'app-force-update';
+        overlay.style.cssText = 'position:fixed;z-index:2147483647;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.96);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;';
+        overlay.innerHTML = '<div style="width:min(320px,82vw);padding:28px 24px;border-radius:22px;background:#fff;box-shadow:0 12px 40px rgba(0,0,0,.12);text-align:center;color:#1C1C1E;"><div style="font-size:30px;margin-bottom:12px;">↻</div><div style="font-size:18px;font-weight:650;">正在更新系统</div><div style="margin-top:8px;color:#8E8E93;font-size:13px;line-height:1.6;">检测到新版本 v' + String(remoteVersion || '') + '，请稍候…</div></div>';
+        document.body.appendChild(overlay);
+      }
+
       function reloadToVersion(remoteVersion) {
         if (isReloading) return;
         isReloading = true;
+        showUpdating(remoteVersion);
         var hash = window.location.hash || '#home';
-        var nextUrl = window.location.pathname + '?appVersion=' + encodeURIComponent(remoteVersion) + hash;
-        window.location.replace(nextUrl);
+        var nextUrl = window.location.pathname + '?appVersion=' + encodeURIComponent(remoteVersion) + '&refresh=' + Date.now() + hash;
+        window.setTimeout(function () { window.location.replace(nextUrl); }, 180);
       }
 
       function checkLatestVersion() {
         var now = Date.now();
         if (now - lastCheckAt < CHECK_INTERVAL) return;
         lastCheckAt = now;
-
         var url = new URL('/index.html', window.location.origin);
         url.searchParams.set('version_check', String(now));
-        fetch(url.href, {
-          cache: 'no-store',
-          credentials: 'same-origin'
-        })
+        fetch(url.href, { cache: 'no-store', credentials: 'same-origin' })
           .then(function (response) {
             if (!response.ok) throw new Error('version check failed: ' + response.status);
             return response.text();
           })
           .then(function (html) {
-            var match = html.match(/App\.VERSION\s*=\s*['\"]([^'\"]+)['\"]/);
+            var match = html.match(/App\.VERSION\s*=\s*['"]([^'"]+)['"]/);
             var remoteVersion = match && match[1];
             if (remoteVersion && isNewer(remoteVersion, App.VERSION)) {
               console.info('[App.Update] 检测到新版本', App.VERSION, '→', remoteVersion);
@@ -29632,7 +28911,7 @@ window.initNotionMobileEditor = function (containerSelector, options) {
             }
           })
           .catch(function (error) {
-            // 版本检查失败时继续使用当前页面，不影响离线使用。
+            // 检查失败时保持当前页面，离线场景仍可继续使用本地缓存。
             console.debug('[App.Update] 版本检查暂不可用:', error.message);
           });
       }
@@ -29642,21 +28921,13 @@ window.initNotionMobileEditor = function (containerSelector, options) {
           checkLatestVersion();
           return;
         }
-
         navigator.serviceWorker.addEventListener('controllerchange', function () {
           if (isReloading) return;
-          isReloading = true;
-          window.location.reload();
+          reloadToVersion('最新');
         });
-
         navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
-          .then(function (registration) {
-            // 明确要求浏览器立即检查 sw.js，而不是等待默认的更新检查周期。
-            return registration.update();
-          })
-          .catch(function (error) {
-            console.warn('[App.Update] Service Worker 更新失败:', error);
-          })
+          .then(function (registration) { return registration.update(); })
+          .catch(function (error) { console.warn('[App.Update] Service Worker 更新失败:', error); })
           .then(checkLatestVersion);
       }
 

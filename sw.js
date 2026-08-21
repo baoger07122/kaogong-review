@@ -2,7 +2,7 @@
 // 策略：联网优先（network-first）。每次打开都向服务器拉取最新 index.html，
 // 在线时永远显示最新版本；离线时回退到缓存。彻底解决 iPad「添加到主屏幕」后
 // 一直显示旧版的问题。
-const CACHE = 'kaogong-cache-v2.3.7';
+const CACHE = 'kaogong-cache-v2.3.8';
 
 self.addEventListener('install', (event) => {
   // 直接激活，不等旧页面关闭

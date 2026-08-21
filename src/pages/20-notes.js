@@ -385,7 +385,7 @@ App.Pages.Notes = {
   },
 
   // 笔记卡片：iPad 分屏优先——分类、日期和摘要集中呈现，减少无效留白。
-  buildNoteCard(note) {
+  buildNoteCard(note, returnTo) {
     const card = document.createElement('div');
     card.className = 'note-item note-item--card note-item--compact';
     const subj = note.subject ? App.Constants.SUBJECTS.find(s => s.name === note.subject) : null;
@@ -432,7 +432,9 @@ App.Pages.Notes = {
         ${location ? `<div class="note-item__location">${location}</div>` : ''}
       </div>
     `;
-    card.addEventListener('click', () => App.Router.navigate('note-detail?id=' + note.id));
+    const detailRoute = 'note-detail?id=' + encodeURIComponent(note.id) +
+      (returnTo ? '&returnTo=' + encodeURIComponent(returnTo) : '');
+    card.addEventListener('click', () => App.Router.navigate(detailRoute));
     return card;
   },
 
@@ -478,14 +480,17 @@ App.Pages.Notes = {
   async renderDetail(params) {
     const container = document.getElementById('page-note-detail');
     container.innerHTML = '';
+    const detailReturnRoute = params && typeof params.returnTo === 'string' && /^(?:errors|notes)(?:\?|$)/.test(params.returnTo)
+      ? params.returnTo
+      : 'notes';
 
     const noteId = params.id;
-    if (!noteId) { App.Router.navigate('notes'); return; }
+    if (!noteId) { App.Router.navigate(detailReturnRoute); return; }
 
     const note = await App.DB.get('notes', noteId);
     if (!note) {
       App.Components.toast('笔记不存在', 'error');
-      App.Router.navigate('notes');
+      App.Router.navigate(detailReturnRoute);
       return;
     }
 
@@ -498,7 +503,9 @@ App.Pages.Notes = {
     }
 
     // 返回栏 + 右上角：✍️ 手写 + ⋮ 菜单（无「编辑」按钮——点击标题/正文即就地编辑）
-    const header = App.Components.pageHeader('笔记详情', '⋮', () => this._showDetailMenu(note));
+    const header = App.Components.pageHeader('笔记详情', '⋮', () => this._showDetailMenu(note), {
+      onBack: () => App.Router.navigate(detailReturnRoute)
+    });
     const moreBtn = header.querySelector('.page-header__right');
     if (moreBtn) {
       moreBtn.classList.add('note-detail-more');
@@ -922,13 +929,15 @@ App.Pages.Notes = {
     container.innerHTML = '';
 
     let isEdit = !!params.id;
+    const returnRoute = params && typeof params.returnTo === 'string' && /^(?:errors|notes)(?:\?|$)/.test(params.returnTo)
+      ? params.returnTo
+      : 'notes';
 
     let formData = {
       subject: params.subject || '',
       module: '',
       knowledgePoint: '',
-      // 学习库新增入口可预设为「解题方法」，仍复用原笔记表存储和编辑器。
-      type: params.type || '',
+      type: '',
       title: '',
       content: '',
       linkedErrors: []
@@ -1314,7 +1323,7 @@ App.Pages.Notes = {
         await submitFormInternal();
         App.Components.toast('已保存 ✓', 'success');
         App.Draft.clearForm('note');
-        App.Router.navigate('notes');
+        App.Router.navigate(returnRoute);
       } catch (e) { App.Components.toast('保存失败', 'error'); }
     };
 
