@@ -66,7 +66,7 @@ App.Pages.Library = {
     if (!this.state.subject) {
       const header = document.createElement('div');
       header.className = 'library-header';
-      header.innerHTML = '<div><div class="library-eyebrow">KNOWLEDGE HUB</div><h1>学习库</h1><p>把错题、笔记和词语沉淀为自己的知识资产</p></div>';
+      header.innerHTML = '<div><h1>学习库</h1></div>';
       container.appendChild(header);
       return;
     }
@@ -147,20 +147,20 @@ App.Pages.Library = {
     title.className = 'library-section-title';
     title.innerHTML = '<span>模块</span><small>选择模块查看全部内容</small>';
     container.appendChild(title);
-    const grid = document.createElement('div');
-    grid.className = 'library-module-grid';
+    const list = document.createElement('div');
+    list.className = 'library-module-list';
     App.Constants.getModules(this.state.subject).forEach(module => {
       const moduleItems = this._moduleItems(this.state.subject, module);
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.className = 'library-module-card';
-      card.innerHTML = '<span class="library-module-card__name">' + this._escape(module) + '</span>' +
-        '<span class="library-module-card__stats">错题 ' + App.Knowledge.count(moduleItems, { type: 'wrong' }) + '　笔记 ' + App.Knowledge.count(moduleItems, { type: 'note' }) + '　词语库 ' + App.Knowledge.count(moduleItems, { type: 'word' }) + '</span>' +
-        '<span class="library-module-card__arrow">›</span>';
-      card.addEventListener('click', () => App.Router.navigate('library?subject=' + encodeURIComponent(this.state.subject) + '&module=' + encodeURIComponent(module)));
-      grid.appendChild(card);
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'library-module-row';
+      row.innerHTML = '<span class="library-module-row__name">' + this._escape(module) + '</span>' +
+        '<span class="library-module-row__stats">错题 ' + App.Knowledge.count(moduleItems, { type: 'wrong' }) + '　笔记 ' + App.Knowledge.count(moduleItems, { type: 'note' }) + '　词语库 ' + App.Knowledge.count(moduleItems, { type: 'word' }) + '</span>' +
+        '<span class="library-module-row__arrow" aria-hidden="true">›</span>';
+      row.addEventListener('click', () => App.Router.navigate('library?subject=' + encodeURIComponent(this.state.subject) + '&module=' + encodeURIComponent(module)));
+      list.appendChild(row);
     });
-    container.appendChild(grid);
+    container.appendChild(list);
   },
 
   _renderModule(container) {
@@ -204,37 +204,38 @@ App.Pages.Library = {
       return;
     }
 
-    // 错题沿用旧错题本的完整卡片：题干、辨析词语、考点/错因、思维误区和日期。
-    // 学习库按当前产品要求固定为横向两列；旧错题本不传 columns，继续使用原自适应列数。
-    const isWrongMasonry = this.state.tab === 'wrong' && items.every(item => item.type === 'wrong');
-    if (isWrongMasonry) {
-      const masonryWrap = document.createElement('div');
-      masonryWrap.className = 'error-masonry-wrap library-error-masonry-wrap';
-      container.appendChild(masonryWrap);
-      const inst = App.Components.masonryGrid(masonryWrap, {
-        columns: 2,
-        onOpen: (error) => this._openWrongDetail(error)
-      });
-      this._masonryInst = inst;
-      inst.render(items.map(item => item.raw), false);
-      return;
-    }
-
     items.slice().sort((a, b) => new Date(b.updatedTime || b.createdTime || 0) - new Date(a.updatedTime || a.createdTime || 0))
       .forEach(item => container.appendChild(this._itemCard(item)));
+  },
+
+  _itemIndexTitle(item) {
+    if (item.type !== 'wrong') return item.title;
+    const raw = item.raw || {};
+    const groups = Array.isArray(raw.compareGroups) ? raw.compareGroups : [];
+    const compareWords = groups.map(group => {
+      if (Array.isArray(group && group.words)) return group.words.filter(Boolean).join(' VS ');
+      return group && group.words ? String(group.words) : '';
+    }).filter(Boolean);
+    if (compareWords.length) return compareWords.join(' · ');
+    const points = Array.isArray(raw.knowledgePoints) ? raw.knowledgePoints.filter(Boolean) : [];
+    if (points.length) return points.slice(0, 2).join(' · ');
+    if (raw.knowledgePoint) return String(raw.knowledgePoint);
+    return raw.errorCause || '待复盘错题';
   },
 
   _itemCard(item) {
     const card = document.createElement('article');
     card.className = 'library-item-card library-item-card--' + item.type;
     const date = item.updatedTime || item.createdTime;
-    const meta = [item.module, date ? App.Utils.formatDate(date) : ''].filter(Boolean).join(' · ');
-    const extra = item.type === 'wrong' && item.raw.errorCause
-      ? '<div class="library-item-card__extra">错误原因：' + this._escape(item.raw.errorCause) + '</div>' : '';
+    const meta = item.module || '';
+    const wrongSummary = item.type === 'wrong' && item.raw
+      ? [item.raw.errorCause ? '错误原因：' + item.raw.errorCause : '', item.raw.pitfall ? '复盘：' + item.raw.pitfall : ''].filter(Boolean).join(' · ')
+      : '';
+    const summary = wrongSummary || item.summary;
     card.innerHTML = '<div class="library-item-card__top"><span class="library-type-pill">' + this._escape(item.typeLabel) + '</span><span class="library-item-card__meta">' + this._escape(meta) + '</span></div>' +
-      '<h3>' + this._escape(item.title) + '</h3>' +
-      '<p>' + this._escape(item.summary) + '</p>' + extra +
-      '<span class="library-item-card__open">查看详情 ›</span>';
+      '<h3>' + this._escape(this._itemIndexTitle(item)) + '</h3>' +
+      '<p>' + this._escape(summary) + '</p>' +
+      '<div class="library-item-card__bottom"><span class="library-item-card__date">' + this._escape(date ? App.Utils.formatDate(date) : '') + '</span><span class="library-item-card__open" aria-hidden="true">›</span></div>';
     card.addEventListener('click', () => this._openItem(item));
     return card;
   },
