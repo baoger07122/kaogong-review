@@ -1696,3 +1696,46 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   padding: 0 8px;
   font-size: 14px;
 }
+
+/* 笔记顶部便签区，沿用首页便签的标题栏和两列瀑布流。 */
+.notes-sticky-section {
+  margin: 0 0 var(--spacing-lg);
+}
+.notes-sticky-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: var(--spacing-sm);
+}
+.notes-sticky-section__title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--font-lg);
+  font-weight: 600;
+}
+.notes-sticky-section__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.notes-sticky-section__all {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+}
+.notes-sticky-section__add {
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 15px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+}
+.notes-sticky-section__masonry {
+  margin-bottom: 2px;
+}

@@ -150,6 +150,9 @@ App.Router = {
       case 'errors':
         if (App.Pages.Errors && App.Pages.Errors.render) await App.Pages.Errors.render(params);
         break;
+      case 'review':
+        if (App.Pages.Review && App.Pages.Review.render) await App.Pages.Review.render(params);
+        break;
       case 'notes':
         if (App.Pages.Notes && App.Pages.Notes.render) await App.Pages.Notes.render(params);
         break;

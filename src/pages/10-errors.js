@@ -15,6 +15,7 @@ App.Pages.Errors = {
     searchVisible: false,
     allErrors: [],
     allNotes: [],
+    allStickies: [],
     view: 'wrong',
     noteType: null,
     gallerySize: 'md',   // 画廊窗口大小: sm 小 / md 中 / lg 大
@@ -205,9 +206,14 @@ App.Pages.Errors = {
   },
 
   async loadData() {
-    const result = await Promise.all([App.DB.getErrors(), App.DB.getNotes()]);
+    const result = await Promise.all([
+      App.DB.getErrors(),
+      App.DB.getNotes(),
+      App.DB.getStickies().catch(() => [])
+    ]);
     this.state.allErrors = result[0];
     this.state.allNotes = result[1];
+    this.state.allStickies = result[2] || [];
   },
 
   // 合并「本模块库 + 数据中已用值」得到可筛选的考点列表（扁平科目传科目名，合并该科目所有模块）
@@ -429,9 +435,13 @@ App.Pages.Errors = {
       });
       // 点击科目行：选中 / 取消该科目
       row.addEventListener('click', () => {
-        this.state.subject = (this.state.subject === s.name) ? null : s.name;
+        const selecting = this.state.subject !== s.name;
+        this.state.subject = selecting ? s.name : null;
         this.state.module = null;
         this.state.knowledgePoint = null;
+        // 点击科目本身默认展开模块；箭头仍可单独收起。
+        if (selecting && !App.Constants.isFlatSubject(s.name)) this._expanded[s.name] = true;
+        if (!selecting) this._expanded[s.name] = false;
         this.refreshAll();
       });
       container.appendChild(row);
@@ -661,6 +671,7 @@ App.Pages.Errors = {
 
   renderNotesList(container) {
     container.innerHTML = '';
+    this.renderNotesStickySection(container);
     let notes = (this.state.allNotes || []).filter(note =>
       (!this.state.subject || note.subject === this.state.subject) &&
       (!this.state.module || note.module === this.state.module) &&
@@ -701,6 +712,66 @@ App.Pages.Errors = {
     }
 
     notes.forEach(note => container.appendChild(App.Pages.Notes.buildNoteCard(note, this._viewRoute('notes'))));
+  },
+
+  // 笔记顶部便签区沿用首页便签：最近展示、新增、查看全部，以及原有卡片操作。
+  _openStickyEditor() {
+    App.Components.stickySheet({
+      title: '新增便签',
+      onSave: async (data) => {
+        try {
+          await App.DB.addSticky(data);
+          App.Components.toast('已新增便签 ✓', 'success');
+          await this.loadData();
+          this.refreshAll();
+        } catch (e) {
+          App.Components.toast('保存失败', 'error');
+        }
+      }
+    });
+  },
+
+  renderNotesStickySection(container) {
+    const section = document.createElement('section');
+    section.className = 'notes-sticky-section';
+
+    const head = document.createElement('div');
+    head.className = 'notes-sticky-section__head';
+    head.innerHTML = '<div class="notes-sticky-section__title"><span aria-hidden="true">📝</span><span>便签</span></div>';
+
+    const actions = document.createElement('div');
+    actions.className = 'notes-sticky-section__actions';
+    const allBtn = document.createElement('button');
+    allBtn.type = 'button';
+    allBtn.className = 'notes-sticky-section__all';
+    allBtn.textContent = '查看全部 ›';
+    allBtn.addEventListener('click', () => App.Router.navigate('stickies'));
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'notes-sticky-section__add';
+    addBtn.textContent = '＋ 新增';
+    addBtn.addEventListener('click', () => this._openStickyEditor());
+    actions.appendChild(allBtn);
+    actions.appendChild(addBtn);
+    head.appendChild(actions);
+    section.appendChild(head);
+
+    const stickies = (this.state.allStickies || []).slice(0, 6);
+    const masonry = document.createElement('div');
+    masonry.className = 'sticky-masonry sticky-masonry--home notes-sticky-section__masonry';
+    if (!stickies.length) {
+      const empty = document.createElement('div');
+      empty.className = 'sticky-empty--capsule';
+      empty.innerHTML = '<div class="sticky-empty__icon">📝</div><div class="sticky-empty__title">还没有便签</div><div class="sticky-empty__sub">点击右侧「＋ 新增」，写下第一条便签</div><button type="button" class="sticky-empty__btn">＋ 新建便签</button>';
+      empty.querySelector('.sticky-empty__btn').addEventListener('click', () => this._openStickyEditor());
+      masonry.appendChild(empty);
+    } else {
+      stickies.forEach(sticky => masonry.appendChild(App.Components.stickyCard(sticky, {
+        onRefresh: async () => { await this.loadData(); this.refreshAll(); }
+      })));
+    }
+    section.appendChild(masonry);
+    container.appendChild(section);
   },
 
   // 局部刷新：筛选条即时切换不动画，列表仅做进入动画
