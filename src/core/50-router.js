@@ -21,8 +21,8 @@ App.Router = {
   async handleRoute() {
     const hash = location.hash.slice(1) || 'home';
     const [base, queryString] = hash.split('?');
-    // 笔记主入口已并入错题本；保留 #notes 旧链接，统一打开错题本的笔记视图。
-    const routeAliases = { notes: 'errors' };
+    // 保留旧错题/笔记入口；主导航使用学习库，错题页内部仍承载错题与笔记切换。
+    const routeAliases = { notes: 'errors', 'wrong-question': 'library', 'note': 'library' };
     const pageBase = routeAliases[base] || base;
     const params = {};
     if (queryString) {
@@ -54,6 +54,10 @@ App.Router = {
     if (pageBase !== 'errors' && App.Pages.Errors && App.Pages.Errors._masonryInst) {
       try { App.Pages.Errors._masonryInst.destroy(); } catch (e) {}
       App.Pages.Errors._masonryInst = null;
+    }
+    if (pageBase !== 'library' && App.Pages.Library && App.Pages.Library._masonryInst) {
+      try { App.Pages.Library._masonryInst.destroy(); } catch (e) {}
+      App.Pages.Library._masonryInst = null;
     }
 
     // 显示目标页面
@@ -152,6 +156,12 @@ App.Router = {
         break;
       case 'notes':
         if (App.Pages.Notes && App.Pages.Notes.render) await App.Pages.Notes.render(params);
+        break;
+      case 'library':
+        if (App.Pages.Library && App.Pages.Library.render) await App.Pages.Library.render(params);
+        break;
+      case 'review':
+        if (App.Pages.Review && App.Pages.Review.render) await App.Pages.Review.render(params);
         break;
       case 'exams':
         if (App.Pages.Exams && App.Pages.Exams.render) await App.Pages.Exams.render(params);
