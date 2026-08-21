@@ -153,6 +153,17 @@
 .ss-row__label { font-size: 15px; font-weight: 500; color: var(--text-primary); }
 .ss-row__val { font-size: 13px; color: var(--text-tertiary); }
 .ss-arrow { font-size: 16px; color: var(--text-tertiary); margin-left: 4px; }
+.settings-update-btn {
+  border: 0;
+  border-radius: 15px;
+  padding: 6px 12px;
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.settings-update-btn:disabled { opacity: .55; cursor: default; }
 
 /* ===== 云同步卡片 ===== */
 .cloud-card {
@@ -567,4 +578,3 @@
   margin-top: 10px;
 }
 .kp-tree.is-managed .kp-add-row { display: flex; }
-

@@ -9,8 +9,7 @@ window.initNotionMobileEditor = function (containerSelector, options) {
     // 强制更新机制：Service Worker 负责联网优先，页面负责校验线上 index.html 版本。
     // 检测到新版本后不提供“稍后再说”，直接刷新并保留当前 hash 页面，避免 iPad 后台长期运行旧代码。
     (function () {
-      var CHECK_INTERVAL = 60 * 1000;
-      var lastCheckAt = 0;
+      var isChecking = false;
       var isReloading = false;
 
       function parseVersion(version) {
@@ -50,12 +49,12 @@ window.initNotionMobileEditor = function (containerSelector, options) {
       }
 
       function checkLatestVersion() {
+        if (isChecking) return Promise.resolve({ status: 'checking', version: App.VERSION });
+        isChecking = true;
         var now = Date.now();
-        if (now - lastCheckAt < CHECK_INTERVAL) return;
-        lastCheckAt = now;
         var url = new URL('/index.html', window.location.origin);
         url.searchParams.set('version_check', String(now));
-        fetch(url.href, { cache: 'no-store', credentials: 'same-origin' })
+        return fetch(url.href, { cache: 'no-store', credentials: 'same-origin' })
           .then(function (response) {
             if (!response.ok) throw new Error('version check failed: ' + response.status);
             return response.text();
@@ -66,33 +65,34 @@ window.initNotionMobileEditor = function (containerSelector, options) {
             if (remoteVersion && isNewer(remoteVersion, App.VERSION)) {
               console.info('[App.Update] 检测到新版本', App.VERSION, '→', remoteVersion);
               reloadToVersion(remoteVersion);
+              return { status: 'update', version: remoteVersion };
             }
+            return { status: 'latest', version: remoteVersion || App.VERSION };
           })
           .catch(function (error) {
             // 检查失败时保持当前页面，离线场景仍可继续使用本地缓存。
             console.debug('[App.Update] 版本检查暂不可用:', error.message);
+            return { status: 'error', version: App.VERSION, error: error };
+          })
+          .then(function (result) {
+            isChecking = false;
+            return result;
           });
       }
 
+      // 设置页手动检查入口与自动更新逻辑共用同一个函数，避免版本判断分叉。
+      App.Update = App.Update || {};
+      App.Update.checkForUpdate = checkLatestVersion;
+
       function registerServiceWorker() {
         if (!('serviceWorker' in navigator)) {
-          checkLatestVersion();
           return;
         }
-        navigator.serviceWorker.addEventListener('controllerchange', function () {
-          if (isReloading) return;
-          reloadToVersion('最新');
-        });
         navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
-          .then(function (registration) { return registration.update(); })
           .catch(function (error) { console.warn('[App.Update] Service Worker 更新失败:', error); })
-          .then(checkLatestVersion);
+          .then(function () {});
       }
 
       window.addEventListener('load', registerServiceWorker);
-      window.addEventListener('pageshow', checkLatestVersion);
-      document.addEventListener('visibilitychange', function () {
-        if (document.visibilityState === 'visible') checkLatestVersion();
-      });
     })();
   

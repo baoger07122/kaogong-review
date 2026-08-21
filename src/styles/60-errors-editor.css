@@ -123,7 +123,7 @@
   padding-bottom: var(--spacing-md);
 }
 
-/* ===== 错题本内的错题 / 笔记视图切换 ===== */
+/* ===== 学习库内的错题 / 笔记 / 便签视图切换 ===== */
 .errors-view-tabs {
   display: flex;
   gap: 4px;
@@ -1697,45 +1697,57 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   font-size: 14px;
 }
 
-/* 笔记顶部便签区，沿用首页便签的标题栏和两列瀑布流。 */
-.notes-sticky-section {
-  margin: 0 0 var(--spacing-lg);
-}
-.notes-sticky-section__head {
+/* ===== 当前模块便签：横向优先、再向下的连续两列布局 ===== */
+.errors-sticky-list-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: var(--spacing-sm);
+  margin: 0 var(--page-padding) var(--spacing-md);
 }
-.notes-sticky-section__title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
+.errors-sticky-list-head strong,
+.errors-sticky-list-head small {
+  display: block;
+}
+.errors-sticky-list-head strong {
   font-size: var(--font-lg);
-  font-weight: 600;
 }
-.notes-sticky-section__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.notes-sticky-section__all {
-  border: 0;
-  background: transparent;
-  color: var(--text-secondary);
+.errors-sticky-list-head small {
+  margin-top: 3px;
+  color: var(--text-tertiary);
   font-size: var(--font-xs);
 }
-.notes-sticky-section__add {
-  height: 30px;
-  padding: 0 14px;
+.errors-sticky-add {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 15px;
+  border-radius: 16px;
   background: var(--color-primary);
   color: #fff;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--font-xs);
+  font-weight: 600;
 }
-.notes-sticky-section__masonry {
-  margin-bottom: 2px;
+.errors-sticky-add:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+}
+.errors-sticky-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: row;
+  align-items: start;
+  gap: 12px;
+  padding: 0 var(--page-padding) var(--spacing-lg);
+}
+.errors-sticky-list .sticky-card {
+  width: auto;
+  margin: 0;
+  break-inside: auto;
+}
+.errors-sticky-empty {
+  margin: 0 var(--page-padding);
+}
+@media (max-width: 600px) {
+  .errors-sticky-list { grid-template-columns: 1fr; }
 }

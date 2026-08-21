@@ -48,7 +48,9 @@ App.Pages.Errors = {
   async render(params) {
     const container = document.getElementById('page-errors');
     container.innerHTML = '';
-    this.state.view = params && (params.view === 'notes' || params.tab === 'notes') ? 'notes' : 'wrong';
+    this.state.view = params && (params.view === 'notes' || params.tab === 'notes')
+      ? 'notes'
+      : (params && (params.view === 'stickies' || params.tab === 'stickies') ? 'stickies' : 'wrong');
 
     // 详情页返回会携带错题所属科目/模块；从 URL 恢复筛选上下文，
     // 这样直接刷新或复制链接打开列表时也不会退回到全部错题。
@@ -98,8 +100,7 @@ App.Pages.Errors = {
     const header = document.createElement('div');
     header.className = 'page-header';
     header.innerHTML = `
-      <div class="page-header__title" style="flex:1;font-size:26px;font-weight:600;">错题本</div>
-      <div class="page-header__right" style="display:flex;align-items:center;gap:6px;">
+      <div class="page-header__right" style="display:flex;align-items:center;gap:6px;margin-left:auto;">
         <button class="page-header__more" id="error-more" title="更多" aria-label="更多">
           <svg width="16" height="4" viewBox="0 0 16 4" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="2" cy="2" r="1.6" fill="#4A4A4A"/>
@@ -148,6 +149,10 @@ App.Pages.Errors = {
     fab.title = '新增错题';
     fab.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
     fab.addEventListener('click', () => {
+      if (this.state.view === 'stickies') {
+        this._openStickyEditor();
+        return;
+      }
       const query = [];
       if (this.state.subject) query.push('subject=' + encodeURIComponent(this.state.subject));
       if (this.state.module) query.push('module=' + encodeURIComponent(this.state.module));
@@ -155,8 +160,8 @@ App.Pages.Errors = {
       query.push('returnTo=' + encodeURIComponent(this._viewRoute(this.state.view)));
       App.Router.navigate(formRoute + '?' + query.join('&'));
     });
-    fab.setAttribute('aria-label', this.state.view === 'notes' ? '新建笔记' : '新增错题');
-    fab.title = this.state.view === 'notes' ? '新建笔记' : '新增错题';
+    fab.setAttribute('aria-label', this.state.view === 'notes' ? '新建笔记' : (this.state.view === 'stickies' ? '新增便签' : '新增错题'));
+    fab.title = this.state.view === 'notes' ? '新建笔记' : (this.state.view === 'stickies' ? '新增便签' : '新增错题');
     container.appendChild(fab);
 
     // 加载数据并渲染
@@ -166,6 +171,9 @@ App.Pages.Errors = {
     if (this.state.view === 'notes') {
       this.renderNoteFilters(filterArea);
       this.renderNotesList(listArea);
+    } else if (this.state.view === 'stickies') {
+      filterArea.innerHTML = '';
+      this.renderStickiesList(listArea);
     } else {
       this.renderFilters(filterArea);
       await this.renderList(listArea);
@@ -176,8 +184,15 @@ App.Pages.Errors = {
     const query = [];
     if (this.state.subject) query.push('subject=' + encodeURIComponent(this.state.subject));
     if (this.state.module) query.push('module=' + encodeURIComponent(this.state.module));
-    if (view === 'notes') query.push('view=notes');
+    if (view === 'notes' || view === 'stickies') query.push('view=' + view);
     return 'errors' + (query.length ? '?' + query.join('&') : '');
+  },
+
+  _getModuleStickies() {
+    if (!this.state.subject || (!this.state.module && !App.Constants.isFlatSubject(this.state.subject))) return [];
+    return (this.state.allStickies || []).filter(sticky => {
+      return sticky.subject === this.state.subject && sticky.module === (this.state.module || '');
+    });
   },
 
   renderViewTabs(container) {
@@ -192,7 +207,8 @@ App.Pages.Errors = {
       (!this.state.subject || note.subject === this.state.subject) &&
       (!this.state.module || note.module === this.state.module)
     ).length;
-    [['wrong', '错题', errorCount], ['notes', '笔记', noteCount]].forEach(([view, label, count]) => {
+    const stickyCount = this._getModuleStickies().length;
+    [['wrong', '错题', errorCount], ['notes', '笔记', noteCount], ['stickies', '便签', stickyCount]].forEach(([view, label, count]) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = this.state.view === view ? 'is-active' : '';
@@ -671,7 +687,6 @@ App.Pages.Errors = {
 
   renderNotesList(container) {
     container.innerHTML = '';
-    this.renderNotesStickySection(container);
     let notes = (this.state.allNotes || []).filter(note =>
       (!this.state.subject || note.subject === this.state.subject) &&
       (!this.state.module || note.module === this.state.module) &&
@@ -714,13 +729,19 @@ App.Pages.Errors = {
     notes.forEach(note => container.appendChild(App.Pages.Notes.buildNoteCard(note, this._viewRoute('notes'))));
   },
 
-  // 笔记顶部便签区沿用首页便签：最近展示、新增、查看全部，以及原有卡片操作。
+  // 便签只属于当前模块，不读取首页便签，也不在不同模块之间混合展示。
   _openStickyEditor() {
+    if (!this.state.subject || (!this.state.module && !App.Constants.isFlatSubject(this.state.subject))) {
+      App.Components.toast('请先选择具体科目和模块', 'info');
+      return;
+    }
+    const subject = this.state.subject;
+    const module = this.state.module || '';
     App.Components.stickySheet({
       title: '新增便签',
       onSave: async (data) => {
         try {
-          await App.DB.addSticky(data);
+          await App.DB.addSticky(Object.assign({}, data, { subject: subject, module: module }));
           App.Components.toast('已新增便签 ✓', 'success');
           await this.loadData();
           this.refreshAll();
@@ -731,47 +752,50 @@ App.Pages.Errors = {
     });
   },
 
-  renderNotesStickySection(container) {
-    const section = document.createElement('section');
-    section.className = 'notes-sticky-section';
-
+  renderStickiesList(container) {
+    container.innerHTML = '';
+    const hasContext = !!(this.state.subject && (this.state.module || App.Constants.isFlatSubject(this.state.subject)));
     const head = document.createElement('div');
-    head.className = 'notes-sticky-section__head';
-    head.innerHTML = '<div class="notes-sticky-section__title"><span aria-hidden="true">📝</span><span>便签</span></div>';
-
-    const actions = document.createElement('div');
-    actions.className = 'notes-sticky-section__actions';
-    const allBtn = document.createElement('button');
-    allBtn.type = 'button';
-    allBtn.className = 'notes-sticky-section__all';
-    allBtn.textContent = '查看全部 ›';
-    allBtn.addEventListener('click', () => App.Router.navigate('stickies'));
+    head.className = 'errors-sticky-list-head';
+    head.innerHTML = '<div><strong>便签</strong><small>' + (hasContext ? (this.state.module || this.state.subject) : '请选择左侧科目和模块') + '</small></div>';
     const addBtn = document.createElement('button');
     addBtn.type = 'button';
-    addBtn.className = 'notes-sticky-section__add';
-    addBtn.textContent = '＋ 新增';
+    addBtn.className = 'errors-sticky-add';
+    addBtn.textContent = '＋ 新增便签';
+    addBtn.disabled = !hasContext;
     addBtn.addEventListener('click', () => this._openStickyEditor());
-    actions.appendChild(allBtn);
-    actions.appendChild(addBtn);
-    head.appendChild(actions);
-    section.appendChild(head);
+    head.appendChild(addBtn);
+    container.appendChild(head);
 
-    const stickies = (this.state.allStickies || []).slice(0, 6);
-    const masonry = document.createElement('div');
-    masonry.className = 'sticky-masonry sticky-masonry--home notes-sticky-section__masonry';
+    let stickies = hasContext ? this._getModuleStickies().slice() : [];
+    if (this.state.search) {
+      const keyword = this.state.search.trim().toLowerCase();
+      stickies = stickies.filter(sticky => String(sticky.content || '').toLowerCase().includes(keyword));
+    }
     if (!stickies.length) {
       const empty = document.createElement('div');
-      empty.className = 'sticky-empty--capsule';
-      empty.innerHTML = '<div class="sticky-empty__icon">📝</div><div class="sticky-empty__title">还没有便签</div><div class="sticky-empty__sub">点击右侧「＋ 新增」，写下第一条便签</div><button type="button" class="sticky-empty__btn">＋ 新建便签</button>';
-      empty.querySelector('.sticky-empty__btn').addEventListener('click', () => this._openStickyEditor());
-      masonry.appendChild(empty);
-    } else {
-      stickies.forEach(sticky => masonry.appendChild(App.Components.stickyCard(sticky, {
-        onRefresh: async () => { await this.loadData(); this.refreshAll(); }
-      })));
+      empty.className = 'eerr-empty errors-sticky-empty';
+      empty.innerHTML = hasContext
+        ? '<div class="eerr-empty__icon">📝</div><div class="eerr-empty__title">这个模块还没有便签</div><div class="eerr-empty__desc">添加只会保存在当前模块内</div>'
+        : '<div class="eerr-empty__icon">📝</div><div class="eerr-empty__title">先选择一个模块</div><div class="eerr-empty__desc">每个模块的便签相互独立</div>';
+      if (hasContext) {
+        const action = document.createElement('button');
+        action.type = 'button';
+        action.className = 'eerr-empty__action';
+        action.textContent = '＋ 新建便签';
+        action.addEventListener('click', () => this._openStickyEditor());
+        empty.appendChild(action);
+      }
+      container.appendChild(empty);
+      return;
     }
-    section.appendChild(masonry);
-    container.appendChild(section);
+
+    const grid = document.createElement('div');
+    grid.className = 'errors-sticky-list';
+    stickies.forEach(sticky => grid.appendChild(App.Components.stickyCard(sticky, {
+      onRefresh: async () => { await this.loadData(); this.refreshAll(); }
+    })));
+    container.appendChild(grid);
   },
 
   // 局部刷新：筛选条即时切换不动画，列表仅做进入动画
@@ -781,6 +805,9 @@ App.Pages.Errors = {
     if (this.state.view === 'notes') {
       if (filterArea) this.renderNoteFilters(filterArea);
       if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderNotesList(c));
+    } else if (this.state.view === 'stickies') {
+      if (filterArea) filterArea.innerHTML = '';
+      if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderStickiesList(c));
     } else {
       if (filterArea) this.renderFilters(filterArea);
       if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
@@ -800,6 +827,9 @@ App.Pages.Errors = {
     if (this.state.view === 'notes') {
       if (filterArea) this.renderNoteFilters(filterArea);
       if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderNotesList(c));
+    } else if (this.state.view === 'stickies') {
+      if (filterArea) filterArea.innerHTML = '';
+      if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderStickiesList(c));
     } else {
       if (filterArea) this.renderFilters(filterArea);
       if (listArea) App.Utils.transitionSwap(listArea, (c) => this.renderList(c));
@@ -808,9 +838,10 @@ App.Pages.Errors = {
 
   // 右上角三点菜单
   async _showPageMenu() {
+    const searchName = this.state.view === 'notes' ? '笔记' : (this.state.view === 'stickies' ? '便签' : '错题');
     const action = await App.Components.actionSheet([
-      { label: '🔍 ' + (this.state.searchVisible ? '隐藏搜索' : '搜索错题'), value: 'search' }
-    ], '错题本');
+      { label: '🔍 ' + (this.state.searchVisible ? '隐藏搜索' : '搜索' + searchName), value: 'search' }
+    ], '学习库');
     if (action === 'search') {
       this.state.searchVisible = !this.state.searchVisible;
       const searchArea = document.getElementById('error-search-area');
@@ -827,13 +858,14 @@ App.Pages.Errors = {
     const val = (this.state.search || '').replace(/"/g, '&quot;');
     searchBar.innerHTML = `
       <span class="search-bar__icon">🔍</span>
-      <input type="text" placeholder="${this.state.view === 'notes' ? '搜索笔记标题 / 内容' : '搜索错题 / 知识点'}" id="error-search" value="${val}">
+      <input type="text" placeholder="${this.state.view === 'notes' ? '搜索笔记标题 / 内容' : (this.state.view === 'stickies' ? '搜索便签内容' : '搜索错题 / 知识点')}" id="error-search" value="${val}">
     `;
     container.appendChild(searchBar);
     const input = searchBar.querySelector('input');
     input.addEventListener('input', App.Utils.debounce((e) => {
       this.state.search = e.target.value;
       if (this.state.view === 'notes') this.renderNotesList(document.getElementById('error-list'));
+      else if (this.state.view === 'stickies') this.renderStickiesList(document.getElementById('error-list'));
       else this.renderList(document.getElementById('error-list'));
     }, 300));
   },

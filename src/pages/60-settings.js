@@ -200,6 +200,47 @@ App.Pages.Settings = {
     noteGroup.appendChild(ntRow);
     content.appendChild(noteGroup);
 
+    // ===== 更新组：手动检查线上版本 =====
+    const updateGroup = document.createElement('div');
+    updateGroup.className = 'settings-group';
+    updateGroup.innerHTML = `
+      <div style="padding:12px var(--spacing-md);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;">系统</div>
+      <div class="ss-row">
+        <div class="ss-row__left">
+          <span class="ss-ico"><svg viewBox="0 0 24 24" fill="none" stroke="#0066CC" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.34 5.66"/><path d="M20 4v7h-7"/></svg></span>
+          <span class="ss-row__label">检查更新</span>
+        </div>
+        <button type="button" class="settings-update-btn" id="settings-check-update">检查更新</button>
+      </div>
+    `;
+    const updateBtn = updateGroup.querySelector('#settings-check-update');
+    updateBtn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      if (!App.Update || typeof App.Update.checkForUpdate !== 'function') {
+        App.Components.toast('更新检查功能暂不可用', 'error');
+        return;
+      }
+      updateBtn.disabled = true;
+      updateBtn.textContent = '检查中…';
+      try {
+        const result = await App.Update.checkForUpdate();
+        if (result && result.status === 'latest') {
+          App.Components.toast('当前已是最新版本 v' + result.version, 'success');
+        } else if (result && result.status === 'checking') {
+          App.Components.toast('正在检查更新，请稍候', 'info');
+        } else if (!result || result.status === 'error') {
+          App.Components.toast('检查更新失败，请稍后重试', 'error');
+        }
+      } catch (error) {
+        App.Components.toast('检查更新失败，请稍后重试', 'error');
+      } finally {
+        updateBtn.disabled = false;
+        updateBtn.textContent = '检查更新';
+      }
+    });
+    updateGroup.querySelector('.ss-row').addEventListener('click', () => updateBtn.click());
+    content.appendChild(updateGroup);
+
 
     // ===== 偏好组（对齐画布 7:485：组标题「偏好」+ 界面字号 + 关于版本，图标底） =====
     const aboutGroup = document.createElement('div');
