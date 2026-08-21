@@ -27,7 +27,7 @@ App.Pages.Errors = {
     if (error && error.subject) query.push('subject=' + encodeURIComponent(error.subject));
     if (error && error.module) query.push('module=' + encodeURIComponent(error.module));
     const routeBase = params && params.routeBase === 'errors' ? 'errors' : 'library';
-    if (routeBase === 'library') query.push('tab=wrong');
+    if (routeBase === 'library') query.push('view=wrong');
     return routeBase + (query.length ? '?' + query.join('&') : '');
   },
 
@@ -1002,9 +1002,12 @@ App.Pages.Errors = {
     container.innerHTML = '';
 
     let isEdit = !!params.id;
-    const returnRoute = params && typeof params.returnTo === 'string' && /^error-detail(?:\?|$)/.test(params.returnTo)
+    const contextReturn = params && params.subject && params.module
+      ? 'library?subject=' + encodeURIComponent(params.subject) + '&module=' + encodeURIComponent(params.module) + '&view=wrong'
+      : 'library';
+    const returnRoute = params && typeof params.returnTo === 'string' && /^(?:error-detail|library)(?:\?|$)/.test(params.returnTo)
       ? params.returnTo
-      : 'errors';
+      : contextReturn;
 
     // 默认空白表单
     let formData = {
@@ -1627,9 +1630,12 @@ App.Pages.Errors.renderShenlunForm = function (params) {
   const self = App.Pages.Errors;
 
   let isEdit = !!params.id;
-  const returnRoute = params && typeof params.returnTo === 'string' && /^error-detail(?:\?|$)/.test(params.returnTo)
+  const contextReturn = params && params.subject && params.module
+    ? 'library?subject=' + encodeURIComponent(params.subject) + '&module=' + encodeURIComponent(params.module) + '&view=wrong'
+    : 'library';
+  const returnRoute = params && typeof params.returnTo === 'string' && /^(?:error-detail|library)(?:\?|$)/.test(params.returnTo)
     ? params.returnTo
-    : 'errors';
+    : contextReturn;
   // 申论错题数据（扁平存于 errors 记录上，与通用错题共存）
   let d = {
     subject: '申论', module: '', question: '',

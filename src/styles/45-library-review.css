@@ -42,6 +42,22 @@
 .library-module-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; margin-bottom: 8px; border-radius: 12px; background: linear-gradient(135deg, var(--color-primary-bg), var(--bg-tertiary)); }
 .library-module-summary__title { font-size: var(--font-lg); font-weight: 700; }
 .library-module-summary__stats { color: var(--text-secondary); font-size: var(--font-xs); white-space: nowrap; }
+.library-module-section { margin-top: 14px; }
+.library-module-section__head { display: flex; align-items: center; gap: 8px; min-height: 28px; margin: 0 2px 7px; }
+.library-module-section__title { flex: 1; min-width: 0; font-size: var(--font-md); font-weight: 700; }
+.library-module-section__link, .library-module-section__add { color: var(--color-primary); font-size: var(--font-xs); }
+.library-module-section__tools { display: flex; align-items: center; gap: 8px; }
+.library-module-section__add { padding: 4px 8px; border-radius: 10px; background: var(--color-primary-bg); }
+.library-module-sticky-masonry { margin-bottom: 2px; }
+.library-module-sticky-masonry .sticky-empty, .library-recent-wrong + .library-section-empty { grid-column: 1 / -1; }
+.library-section-empty { padding: 13px 12px; border-radius: 12px; background: var(--bg-tertiary); color: var(--text-tertiary); font-size: var(--font-xs); line-height: 1.4; text-align: center; }
+.library-recent-wrong { min-height: 0; }
+.library-item-list--recent { margin-bottom: 2px; }
+.library-view-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 4px 2px 9px; }
+.library-view-heading strong { font-size: var(--font-lg); }
+.library-view-heading span { color: var(--text-tertiary); font-size: var(--font-xs); }
+.library-module-word-link { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 11px 13px; margin-top: 14px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-card); color: var(--text-primary); text-align: left; }
+.library-module-word-link span:last-child { color: var(--text-tertiary); font-size: var(--font-xs); }
 .library-tabs { display: flex; gap: 4px; overflow-x: auto; margin-bottom: 10px; padding-bottom: 2px; scrollbar-width: none; }
 .library-tabs::-webkit-scrollbar { display: none; }
 .library-tabs button { flex: 0 0 auto; min-height: 30px; padding: 0 11px; border-radius: 15px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: var(--font-xs); }

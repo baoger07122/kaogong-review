@@ -3,7 +3,7 @@ window.App = window.App || {};
 App.Pages = App.Pages || {};
 
 App.Pages.Library = {
-  state: { subject: null, module: null, tab: 'all', search: '', items: [] },
+  state: { subject: null, module: null, tab: 'all', search: '', items: [], stickies: [] },
   SUBJECT_ORDER: ['言语理解', '判断推理', '资料分析', '数量关系', '常识判断', '申论'],
 
   _escape(value) {
@@ -27,9 +27,12 @@ App.Pages.Library = {
     const module = subject && params.module && modules.indexOf(params.module) >= 0 ? params.module : null;
     this.state.subject = subject;
     this.state.module = module;
-    this.state.tab = ['all', 'wrong', 'note', 'word'].indexOf(params.tab) >= 0 ? params.tab : 'all';
+    const requestedView = params.view || params.tab || 'all';
+    this.state.tab = ['all', 'wrong', 'note', 'word'].indexOf(requestedView) >= 0 ? requestedView : 'all';
+    if (this.state.tab === 'word' && module !== '逻辑填空') this.state.tab = 'all';
     this.state.search = params.search || '';
     this.state.items = await App.Knowledge.getAll();
+    try { this.state.stickies = await App.DB.getStickies(); } catch (e) { this.state.stickies = []; }
 
     const container = document.getElementById('page-library');
     if (this._masonryInst) {
@@ -73,7 +76,9 @@ App.Pages.Library = {
     const title = this.state.module || this.state.subject;
     const header = App.Components.pageHeader(title, null, null, {
       onBack: () => App.Router.navigate(this.state.module
-        ? 'library?subject=' + encodeURIComponent(this.state.subject)
+        ? (this.state.tab === 'all'
+          ? 'library?subject=' + encodeURIComponent(this.state.subject)
+          : this._moduleRoute('all'))
         : 'library')
     });
     container.appendChild(header);
@@ -163,31 +168,156 @@ App.Pages.Library = {
     container.appendChild(list);
   },
 
+  _moduleRoute(view, context) {
+    const subject = context && context.subject ? context.subject : this.state.subject;
+    const module = context && context.module ? context.module : this.state.module;
+    const query = 'subject=' + encodeURIComponent(subject || '') + '&module=' + encodeURIComponent(module || '');
+    return 'library?' + query + (view && view !== 'all' ? '&view=' + encodeURIComponent(view) : '');
+  },
+
+  _isWordModule() { return this.state.module === '逻辑填空'; },
+
+  _sortRecent(items) {
+    return (items || []).slice().sort((a, b) => new Date(b.updatedTime || b.createdTime || 0) - new Date(a.updatedTime || a.createdTime || 0));
+  },
+
+  _moduleStickies() {
+    const search = this.state.search.trim().toLowerCase();
+    return (this.state.stickies || []).filter(sticky => {
+      if (sticky.subject !== this.state.subject || sticky.module !== this.state.module) return false;
+      return !search || String(sticky.content || '').toLowerCase().includes(search);
+    });
+  },
+
+  _sectionHead(title, count, actionText, onAction) {
+    const head = document.createElement('div');
+    head.className = 'library-module-section__head';
+    const titleEl = document.createElement('div');
+    titleEl.className = 'library-module-section__title';
+    titleEl.textContent = title + (count == null ? '' : '（' + count + '）');
+    head.appendChild(titleEl);
+    if (actionText && onAction) {
+      const action = document.createElement('button');
+      action.type = 'button';
+      action.className = 'library-module-section__link';
+      action.textContent = actionText;
+      action.addEventListener('click', onAction);
+      head.appendChild(action);
+    }
+    return head;
+  },
+
+  _sectionEmpty(text) {
+    const empty = document.createElement('div');
+    empty.className = 'library-section-empty';
+    empty.textContent = text;
+    return empty;
+  },
+
+  _renderRecentWrong(container, items) {
+    const recent = this._sortRecent(items).slice(0, 4);
+    if (!recent.length) {
+      container.appendChild(this._sectionEmpty('暂无错题，点击右下角「+」新增错题'));
+      return;
+    }
+    const masonryWrap = document.createElement('div');
+    masonryWrap.className = 'error-masonry-wrap library-error-masonry-wrap library-recent-wrong';
+    container.appendChild(masonryWrap);
+    const inst = App.Components.masonryGrid(masonryWrap, {
+      columns: 2,
+      onOpen: (error) => this._openWrongDetail(error)
+    });
+    this._masonryInst = inst;
+    inst.render(recent.map(item => item.raw), false);
+  },
+
+  _openStickySheet() {
+    App.Components.stickySheet({
+      title: '新增便签',
+      onSave: async (data) => {
+        try {
+          await App.DB.addSticky(Object.assign({}, data, {
+            subject: this.state.subject,
+            module: this.state.module
+          }));
+          App.Components.toast('已新增便签 ✓', 'success');
+          this.render({ subject: this.state.subject, module: this.state.module, view: 'all', search: this.state.search });
+        } catch (e) { App.Components.toast('保存失败', 'error'); }
+      }
+    });
+  },
+
+  _renderModuleAll(container, items) {
+    const visibleItems = App.Knowledge.filter(items, { search: this.state.search });
+    const stickies = this._moduleStickies();
+
+    const stickySection = document.createElement('section');
+    stickySection.className = 'library-module-section';
+    stickySection.appendChild(this._sectionHead('便签', stickies.length, '查看全部', () => App.Router.navigate('stickies?subject=' + encodeURIComponent(this.state.subject) + '&module=' + encodeURIComponent(this.state.module))));
+    const stickyTools = document.createElement('div');
+    stickyTools.className = 'library-module-section__tools';
+    const addSticky = document.createElement('button');
+    addSticky.type = 'button';
+    addSticky.className = 'library-module-section__add';
+    addSticky.textContent = '＋ 新增便签';
+    addSticky.addEventListener('click', () => this._openStickySheet());
+    stickyTools.appendChild(addSticky);
+    stickySection.querySelector('.library-module-section__head').appendChild(stickyTools);
+    const stickyGrid = document.createElement('div');
+    stickyGrid.className = 'sticky-masonry sticky-masonry--home library-module-sticky-masonry';
+    if (!stickies.length) stickyGrid.appendChild(this._sectionEmpty('暂无本模块便签，先记下一条零碎想法吧'));
+    else stickies.slice(0, 4).forEach(sticky => stickyGrid.appendChild(App.Components.stickyCard(sticky, { onRefresh: () => this.render({ subject: this.state.subject, module: this.state.module, view: 'all', search: this.state.search }) })));
+    stickySection.appendChild(stickyGrid);
+    container.appendChild(stickySection);
+
+    const wrongItems = visibleItems.filter(item => item.type === 'wrong');
+    const wrongSection = document.createElement('section');
+    wrongSection.className = 'library-module-section';
+    wrongSection.appendChild(this._sectionHead('错题本', wrongItems.length, '查看全部', () => App.Router.navigate(this._moduleRoute('wrong'))));
+    this._renderRecentWrong(wrongSection, wrongItems);
+    container.appendChild(wrongSection);
+
+    const noteItems = visibleItems.filter(item => item.type === 'note' || item.type === 'method');
+    const noteSection = document.createElement('section');
+    noteSection.className = 'library-module-section';
+    noteSection.appendChild(this._sectionHead('笔记', noteItems.length, '查看全部', () => App.Router.navigate(this._moduleRoute('note'))));
+    const noteList = document.createElement('div');
+    noteList.className = 'library-item-list library-item-list--recent';
+    if (!noteItems.length) noteList.appendChild(this._sectionEmpty('暂无笔记，点击右下角「+」新增笔记'));
+    else this._sortRecent(noteItems).slice(0, 4).forEach(item => noteList.appendChild(this._itemCard(item)));
+    noteSection.appendChild(noteList);
+    container.appendChild(noteSection);
+
+    if (this._isWordModule()) {
+      const wordLink = document.createElement('button');
+      wordLink.type = 'button';
+      wordLink.className = 'library-module-word-link';
+      wordLink.innerHTML = '<span>词语库</span><span>仅逻辑填空模块使用　›</span>';
+      wordLink.addEventListener('click', () => App.Router.navigate(this._moduleRoute('word')));
+      container.appendChild(wordLink);
+    }
+  },
+
   _renderModule(container) {
     const items = this._moduleItems(this.state.subject, this.state.module);
+    const moduleStats = '错题 ' + App.Knowledge.count(items, { type: 'wrong' }) + '　笔记 ' + App.Knowledge.count(items, { type: 'note' }) +
+      (this._isWordModule() ? '　词语库 ' + App.Knowledge.count(items, { type: 'word' }) : '');
     const summary = document.createElement('div');
     summary.className = 'library-module-summary';
     summary.innerHTML = '<div class="library-module-summary__title">' + this._escape(this.state.module) + '</div>' +
-      '<div class="library-module-summary__stats">错题 ' + App.Knowledge.count(items, { type: 'wrong' }) + '　笔记 ' + App.Knowledge.count(items, { type: 'note' }) + '　词语库 ' + App.Knowledge.count(items, { type: 'word' }) + '</div>';
+      '<div class="library-module-summary__stats">' + moduleStats + '</div>';
     container.appendChild(summary);
 
-    const tabs = document.createElement('div');
-    tabs.className = 'library-tabs';
-    [['all', '全部'], ['wrong', '错题'], ['note', '笔记'], ['word', '词语库']].forEach(([key, label]) => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = this.state.tab === key ? 'is-active' : '';
-      button.textContent = label;
-      button.addEventListener('click', () => {
-        this.state.tab = key;
-        tabs.querySelectorAll('button').forEach(b => b.classList.remove('is-active'));
-        button.classList.add('is-active');
-        list.innerHTML = '';
-        this._renderItemList(list, App.Knowledge.filter(items, { type: key, search: this.state.search }));
-      });
-      tabs.appendChild(button);
-    });
-    container.appendChild(tabs);
+    if (this.state.tab === 'all') {
+      this._renderModuleAll(container, items);
+      return;
+    }
+
+    const viewTitle = this.state.tab === 'wrong' ? '错题本' : (this.state.tab === 'note' ? '笔记' : '词语库');
+    const viewHead = document.createElement('div');
+    viewHead.className = 'library-view-heading';
+    viewHead.innerHTML = '<strong>' + this._escape(viewTitle) + '</strong><span>返回「全部」查看模块概览</span>';
+    container.appendChild(viewHead);
     const list = document.createElement('div');
     list.className = 'library-item-list';
     container.appendChild(list);
@@ -201,7 +331,8 @@ App.Pages.Library = {
     }
     container.classList.remove('library-item-list--masonry');
     if (!items.length) {
-      container.innerHTML = '<div class="library-empty"><span>📚</span><strong>这里还没有内容</strong><small>可以通过右下角「+」新增错题、笔记或词语</small></div>';
+      const hint = this.state.module && !this._isWordModule() ? '可以通过右下角「+」新增错题或笔记' : '可以通过右下角「+」新增错题、笔记或词语';
+      container.innerHTML = '<div class="library-empty"><span>📚</span><strong>这里还没有内容</strong><small>' + hint + '</small></div>';
       return;
     }
 
@@ -271,7 +402,7 @@ App.Pages.Library = {
 
   _openWrongDetail(error) {
     const returnTo = 'library?subject=' + encodeURIComponent(error.subject || '') +
-      '&module=' + encodeURIComponent(error.module || '') + '&tab=wrong';
+      '&module=' + encodeURIComponent(error.module || '') + '&view=wrong';
     App.Router.navigate('error-detail?id=' + encodeURIComponent(error.id) +
       '&returnTo=' + encodeURIComponent(returnTo));
   },
@@ -301,18 +432,19 @@ App.Pages.Library = {
     fab.addEventListener('click', async () => {
       const context = await this._getContext();
       if (!context) return;
-      const action = await App.Components.actionSheet([
+      const actions = [
         { label: '📋 错题', value: 'wrong' },
         { label: '📝 笔记', value: 'note' },
-        { label: '🔀 词语辨析', value: 'word' },
         { label: '💡 方法总结', value: 'method' }
-      ], '新增内容');
+      ];
+      if (context.module === '逻辑填空') actions.splice(2, 0, { label: '🔀 词语辨析', value: 'word' });
+      const action = await App.Components.actionSheet(actions, '新增内容');
       if (!action) return;
       const base = 'subject=' + encodeURIComponent(context.subject) + '&module=' + encodeURIComponent(context.module);
-      if (action === 'wrong') App.Router.navigate('error-form?' + base);
+      if (action === 'wrong') App.Router.navigate('error-form?' + base + '&returnTo=' + encodeURIComponent(this._moduleRoute('wrong', context)));
       if (action === 'note') App.Router.navigate('note-form?' + base);
       if (action === 'method') App.Router.navigate('note-form?' + base + '&type=' + encodeURIComponent('解题方法'));
-      if (action === 'word') App.Router.navigate('worddb?category=word-compare&create=1&' + base);
+      if (action === 'word' && context.module === '逻辑填空') App.Router.navigate('worddb?category=word-compare&create=1&' + base);
     });
     container.appendChild(fab);
   }
