@@ -54,7 +54,7 @@ Object.assign(App.Components, {
     });
   },
 
-  // ===== 便签编辑面板（底部滑出：内容 + 颜色 + 置顶） =====
+  // ===== 便签编辑面板（居中弹窗：轻量富文本 + 颜色 + 置顶） =====
   // opts: { title, initial: {content,color,pinned}, onSave(data) }
   stickySheet(opts) {
     const container = document.getElementById('modal-container');
@@ -76,32 +76,23 @@ Object.assign(App.Components, {
     close.className = 'sticky-sheet__close';
     close.type = 'button';
     close.textContent = '✕';
-    close.addEventListener('click', () => overlay.remove());
+    let closed = false;
+    const closeOverlay = () => {
+      if (closed) return;
+      closed = true;
+      App.Components._unlockScroll();
+      if (overlay.parentNode) overlay.remove();
+    };
+    close.addEventListener('click', closeOverlay);
     head.appendChild(t);
     head.appendChild(close);
     panel.appendChild(head);
 
-    // 内容输入
-    const ta = document.createElement('textarea');
-    ta.className = 'sticky-sheet__input';
-    ta.placeholder = '输入便签内容…';
-    ta.value = (opts.initial && opts.initial.content) || '';
-    panel.appendChild(ta);
-
-    // v8.6.17 待办按钮：插入一行「[ ] 待办事项」（查看时显示方框可勾选，完成后划线并后移）
-    const taskBtn = document.createElement('button');
-    taskBtn.className = 'sticky-sheet__close sticky-sheet__taskbtn';
-    taskBtn.type = 'button';
-    taskBtn.textContent = '▢';
-    taskBtn.title = '插入待办事项';
-    taskBtn.style.cssText = 'margin-right:8px;font-size:15px;';
-    taskBtn.addEventListener('click', () => {
-      const cur = ta.value;
-      const atEnd = !cur || /\n\s*$/.test(cur);
-      ta.value = cur + (atEnd ? '' : '\n') + '[ ] ';
-      ta.focus();
+    // 轻量富文本编辑器：不使用全局移动格式栏，避免与 Safari 原生工具栏重叠。
+    const editor = App.Components.stickyRichEditor((opts.initial && opts.initial.content) || '', {
+      placeholder: '输入便签内容…'
     });
-    head.appendChild(taskBtn);
+    panel.appendChild(editor.element);
 
     // 颜色选择
     const colorRow = document.createElement('div');
@@ -142,24 +133,34 @@ Object.assign(App.Components, {
     pinRow.appendChild(pinSwitch);
     panel.appendChild(pinRow);
 
-    // 保存
+    // 操作按钮：与新增待办居中弹窗保持一致。
+    const actions = document.createElement('div');
+    actions.className = 'sticky-sheet__actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'todo-modal__btn todo-modal__btn--cancel sticky-sheet__cancel';
+    cancelBtn.textContent = '取消';
+    cancelBtn.addEventListener('click', closeOverlay);
     const saveBtn = document.createElement('button');
-    saveBtn.className = 'sticky-sheet__save';
+    saveBtn.className = 'todo-modal__btn todo-modal__btn--ok sticky-sheet__save';
     saveBtn.textContent = '保存';
     saveBtn.addEventListener('click', () => {
-      const content = ta.value.trim();
+      const content = editor.getContent();
       if (!content) { App.Components.toast('便签内容不能为空', 'error'); return; }
-      overlay.remove();
+      closeOverlay();
       if (typeof opts.onSave === 'function') {
         opts.onSave({ content: content, color: curColor, pinned: pinSwitch.classList.contains('is-on') });
       }
     });
-    panel.appendChild(saveBtn);
+    actions.appendChild(cancelBtn);
+    actions.appendChild(saveBtn);
+    panel.appendChild(actions);
 
     overlay.appendChild(panel);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeOverlay(); });
+    App.Components._lockScroll();
     container.appendChild(overlay);
-    setTimeout(() => { ta.focus(); }, 60);
+    setTimeout(() => { editor.focusAtEnd(); }, 60);
   },
 
   // ===== 便签卡片（瀑布流用；点击/长按弹操作菜单） =====
@@ -171,27 +172,40 @@ Object.assign(App.Components, {
 
     const content = document.createElement('div');
     content.className = 'sticky-card__content';
-    // v8.6.17 待办渲染：`[ ] 事项`/`[x] 事项` 行 → 方框可勾选；完成后划线 + 显示后移（已完成的待办行排到末尾）
     const rawContent = sticky.content || '';
-    const lines = String(rawContent).split('\n');
-    const doneTasks = [];
-    let html = '';
     const escTxt = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    lines.forEach((line) => {
-      const m = line.match(/^\s*\[([ xX])\]\s+(.*)$/);
-      if (m) {
-        const isDone = m[1] !== ' ';
-        const row = '<label class="sticky-task' + (isDone ? ' sticky-task--done' : '') + '">' +
-          '<input type="checkbox" data-raw="' + escTxt(line) + '" ' + (isDone ? 'checked' : '') + '>' +
-          '<span class="sticky-task__text">' + escTxt(m[2]) + '</span></label>';
-        if (isDone) doneTasks.push(row);
-        else html += row;
-      } else {
-        html += '<div>' + escTxt(line) + '</div>';
-      }
-    });
-    html += doneTasks.join('');
-    content.innerHTML = html;
+    const isRich = /<\/?(?:p|div|strong|b|em|i|u|ul|ol|li|blockquote|pre|code|span)[\s>]/i.test(String(rawContent));
+    if (isRich) {
+      const holder = document.createElement('div');
+      holder.innerHTML = String(rawContent);
+      holder.querySelectorAll('script,style,iframe,object,embed,form').forEach(el => el.remove());
+      holder.querySelectorAll('*').forEach(el => {
+        Array.from(el.attributes).forEach(attr => {
+          if (/^on/i.test(attr.name) || ['href', 'src', 'action', 'formaction'].includes(attr.name)) el.removeAttribute(attr.name);
+        });
+      });
+      content.classList.add('sticky-card__content--rich');
+      content.innerHTML = holder.innerHTML;
+    } else {
+      // 兼容旧便签中的 [ ] / [x] 待办语法；新建便签已不再提供待办按钮。
+      const lines = String(rawContent).split('\n');
+      const doneTasks = [];
+      let html = '';
+      lines.forEach((line) => {
+        const m = line.match(/^\s*\[([ xX])\]\s+(.*)$/);
+        if (m) {
+          const isDone = m[1] !== ' ';
+          const row = '<label class="sticky-task' + (isDone ? ' sticky-task--done' : '') + '">' +
+            '<input type="checkbox" data-raw="' + escTxt(line) + '" ' + (isDone ? 'checked' : '') + '>' +
+            '<span class="sticky-task__text">' + escTxt(m[2]) + '</span></label>';
+          if (isDone) doneTasks.push(row);
+          else html += row;
+        } else {
+          html += '<div>' + escTxt(line) + '</div>';
+        }
+      });
+      content.innerHTML = html + doneTasks.join('');
+    }
     card.appendChild(content);
     // 待办勾选交互：切换 [ ] ↔ [x]，划线 + 重排（完成后自动后移）
     content.querySelectorAll('input[type=checkbox][data-raw]').forEach((cb) => {
@@ -232,7 +246,10 @@ Object.assign(App.Components, {
         });
       } else if (action === 'copy') {
         try {
-          await navigator.clipboard.writeText(sticky.content || '');
+          const holder = document.createElement('div');
+          holder.innerHTML = /<\/?[a-z][\s\S]*>/i.test(String(sticky.content || '')) ? String(sticky.content || '') : '';
+          const copied = holder.innerHTML ? (holder.innerText || holder.textContent || '') : (sticky.content || '');
+          await navigator.clipboard.writeText(copied);
           App.Components.toast('已复制到剪贴板', 'success');
         } catch (e) {
           App.Components.toast('复制失败', 'error');

@@ -13,9 +13,207 @@ App.Pages.Notes = {
     allNotes: []
   },
 
+  _noteTypeColorBg(color) {
+    const hex = String(color || '').replace('#', '');
+    return /^[0-9a-fA-F]{6}$/.test(hex)
+      ? 'rgba(' + [0, 2, 4].map(i => parseInt(hex.substr(i, 2), 16)).join(',') + ',0.12)'
+      : 'rgba(0,102,204,0.12)';
+  },
+
+  _noteContextMatches(note, subject, module) {
+    return note && note.subject === subject && (module ? note.module === module : !note.module);
+  },
+
+  _noteTypeOptions(subject, module, current) {
+    const types = subject ? App.NoteTypes.getForContext(subject, module).slice() : [];
+    const selected = current || App.NoteTypes.UNCLASSIFIED;
+    if (selected !== App.NoteTypes.UNCLASSIFIED && !types.some(t => t.name === selected)) {
+      types.push({
+        name: selected,
+        color: App.NoteTypes.getColor(selected, subject, module),
+        enabled: false
+      });
+    }
+    return [{ name: App.NoteTypes.UNCLASSIFIED, color: '#8E8E93', enabled: true }].concat(types);
+  },
+
+  async openNoteTypePicker(note, onSaved) {
+    const subject = note.subject || '';
+    const module = note.module || '';
+    const modal = App.Components.centeredModal({ title: '修改标签' });
+    if (!modal) return;
+
+    const hint = document.createElement('div');
+    hint.className = 'app-centered-modal__hint';
+    hint.textContent = '选择当前模块标签';
+    modal.body.appendChild(hint);
+
+    let selected = note.type || App.NoteTypes.UNCLASSIFIED;
+    const options = document.createElement('div');
+    options.className = 'note-type-picker';
+    const renderOptions = () => {
+      options.innerHTML = '';
+      this._noteTypeOptions(subject, module, selected).forEach(type => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'note-type-picker__option' + (type.name === selected ? ' is-selected' : '');
+        button.textContent = type.name;
+        button.style.setProperty('--note-type-color', type.color || '#0066CC');
+        button.addEventListener('click', () => { selected = type.name; renderOptions(); });
+        options.appendChild(button);
+      });
+    };
+    renderOptions();
+    modal.body.appendChild(options);
+
+    const actions = document.createElement('div');
+    actions.className = 'todo-modal__actions app-centered-modal__actions';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'todo-modal__btn todo-modal__btn--cancel';
+    cancel.textContent = '取消';
+    cancel.addEventListener('click', () => modal.close());
+    const save = document.createElement('button');
+    save.type = 'button';
+    save.className = 'todo-modal__btn todo-modal__btn--ok';
+    save.textContent = '保存';
+    save.addEventListener('click', async () => {
+      const next = selected || App.NoteTypes.UNCLASSIFIED;
+      note.type = next;
+      try {
+        await App.DB.updateNote(note);
+        App.Utils.rememberSelect.set('note', subject, module, next);
+        modal.close();
+        App.Components.toast('标签已更新', 'success');
+        if (typeof onSaved === 'function') await onSaved(note);
+      } catch (e) {
+        App.Components.toast('标签保存失败', 'error');
+      }
+    });
+    actions.appendChild(cancel);
+    actions.appendChild(save);
+    modal.body.appendChild(actions);
+  },
+
+  async openNoteTypeEditor(context, name, onDone) {
+    const subject = context && context.subject;
+    const module = context && context.module;
+    const editing = !!name;
+    const list = App.NoteTypes.getForContextAll(subject, module);
+    const current = editing ? list.find(t => t.name === name) : null;
+    const draft = {
+      name: current ? current.name : '',
+      color: current ? current.color : '#0066CC'
+    };
+    const modal = App.Components.centeredModal({ title: editing ? '编辑标签' : '新增标签' });
+    if (!modal) return;
+
+    const scope = document.createElement('div');
+    scope.className = 'app-centered-modal__hint';
+    scope.textContent = '当前范围：' + subject + (module ? ' / ' + module : '（科目级）');
+    modal.body.appendChild(scope);
+
+    const label = document.createElement('div');
+    label.className = 'app-centered-modal__field-label';
+    label.textContent = '标签名称';
+    modal.body.appendChild(label);
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'todo-modal__input app-centered-modal__text-input';
+    input.placeholder = '例如：高频考点';
+    input.value = draft.name;
+    input.addEventListener('input', () => { draft.name = input.value; });
+    modal.body.appendChild(input);
+
+    const colorLabel = document.createElement('div');
+    colorLabel.className = 'app-centered-modal__field-label';
+    colorLabel.textContent = '标签颜色';
+    modal.body.appendChild(colorLabel);
+    const colorRow = document.createElement('div');
+    colorRow.className = 'note-type-color-picker';
+    const colors = Array.from(new Set((App.NoteTypes.DEFAULT_COLORS || []).concat(['#0066CC', '#FF9500', '#34C759', '#9B7BFF'])));
+    const renderColors = () => {
+      colorRow.innerHTML = '';
+      colors.forEach(color => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'note-type-color-picker__dot' + (draft.color === color ? ' is-selected' : '');
+        b.style.background = color;
+        b.title = color;
+        b.addEventListener('click', () => { draft.color = color; renderColors(); });
+        colorRow.appendChild(b);
+      });
+    };
+    renderColors();
+    modal.body.appendChild(colorRow);
+
+    const preview = document.createElement('div');
+    preview.className = 'note-type-editor__preview';
+    const updatePreview = () => {
+      preview.textContent = draft.name.trim() || '标签预览';
+      preview.style.background = this._noteTypeColorBg(draft.color);
+      preview.style.color = draft.color;
+    };
+    input.addEventListener('input', updatePreview);
+    colorRow.addEventListener('click', updatePreview);
+    updatePreview();
+    modal.body.appendChild(preview);
+
+    const actions = document.createElement('div');
+    actions.className = 'todo-modal__actions app-centered-modal__actions';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'todo-modal__btn todo-modal__btn--cancel';
+    cancel.textContent = '取消';
+    cancel.addEventListener('click', () => modal.close());
+    const save = document.createElement('button');
+    save.type = 'button';
+    save.className = 'todo-modal__btn todo-modal__btn--ok';
+    save.textContent = '保存';
+    save.addEventListener('click', async () => {
+      const nextName = draft.name.trim();
+      if (!nextName) { App.Components.toast('请输入标签名称', 'error'); return; }
+      if (!editing && list.some(t => t.name === nextName)) {
+        App.Components.toast('已存在同名标签', 'error'); return;
+      }
+      if (editing) {
+        if (!App.NoteTypes.renameForContext(subject, module, name, nextName, draft.color)) {
+          App.Components.toast('标签保存失败', 'error'); return;
+        }
+        try {
+          const notes = await App.DB.getNotes();
+          for (const note of notes) {
+            if (this._noteContextMatches(note, subject, module) && note.type === name) {
+              note.type = nextName;
+              await App.DB.updateNote(note);
+            }
+          }
+        } catch (e) { /* 标签已保存，历史笔记同步失败时保留当前配置 */ }
+      } else if (!App.NoteTypes.addForContext(subject, module, nextName, draft.color)) {
+        App.Components.toast('标签保存失败', 'error'); return;
+      }
+      modal.close();
+      App.Components.toast('标签已保存', 'success');
+      if (typeof onDone === 'function') await onDone();
+    });
+    actions.appendChild(cancel);
+    actions.appendChild(save);
+    modal.body.appendChild(actions);
+    setTimeout(() => input.focus(), 60);
+  },
+
   async render(params) {
     const container = document.getElementById('page-notes');
     container.innerHTML = '';
+    if (params && Object.prototype.hasOwnProperty.call(params, 'subject')) {
+      const requestedSubject = params.subject || null;
+      const isKnownSubject = !!requestedSubject && App.Constants.SUBJECTS.some(s => s.name === requestedSubject);
+      this.state.subject = isKnownSubject ? requestedSubject : null;
+      const modules = this.state.subject ? App.Constants.getModules(this.state.subject) : [];
+      this.state.module = this.state.subject && params.module && modules.indexOf(params.module) !== -1 ? params.module : null;
+      this.state.type = params.type || params.noteType || null;
+      this.state.knowledgePoint = null;
+    }
 
     // 左侧边栏（科目 - 模块）+ 主内容区（与错题本一致）
     const layout = document.createElement('div');
@@ -98,6 +296,7 @@ App.Pages.Notes = {
       const query = [];
       if (this.state.subject) query.push('subject=' + encodeURIComponent(this.state.subject));
       if (this.state.module) query.push('module=' + encodeURIComponent(this.state.module));
+      if (this.state.type) query.push('type=' + encodeURIComponent(this.state.type));
       App.Router.navigate('note-form' + (query.length ? '?' + query.join('&') : ''));
     });
     container.appendChild(fab);
@@ -261,7 +460,7 @@ App.Pages.Notes = {
       this.state.type = null;
       this.refreshFiltersAndList();
     }));
-    types.forEach(t => {
+    [{ name: App.NoteTypes.UNCLASSIFIED, color: '#8E8E93' }].concat(types).forEach(t => {
       const isActive = this.state.type === t.name;
       const chip = document.createElement('button');
       chip.type = 'button';
@@ -324,7 +523,9 @@ App.Pages.Notes = {
     if (this.state.subject) notes = notes.filter(n => n.subject === this.state.subject);
     if (this.state.module) notes = notes.filter(n => n.module === this.state.module);
     if (this.state.knowledgePoint) notes = notes.filter(n => n.knowledgePoint === this.state.knowledgePoint);
-    if (this.state.type) notes = notes.filter(n => n.type === this.state.type);
+    if (this.state.type) notes = notes.filter(n => this.state.type === App.NoteTypes.UNCLASSIFIED
+      ? (!n.type || n.type === App.NoteTypes.UNCLASSIFIED)
+      : n.type === this.state.type);
     if (this.state.search) {
       const kw = this.state.search.toLowerCase();
       const noteText = (n) => {
@@ -386,6 +587,7 @@ App.Pages.Notes = {
         if (this.state.subject) {
           q = '?subject=' + encodeURIComponent(this.state.subject);
           if (this.state.module) q += '&module=' + encodeURIComponent(this.state.module);
+          if (this.state.type) q += '&type=' + encodeURIComponent(this.state.type);
         }
         App.Router.navigate('note-form' + q);
       });
@@ -401,14 +603,6 @@ App.Pages.Notes = {
   buildNoteCard(note, returnTo) {
     const card = document.createElement('div');
     card.className = 'note-item note-item--card note-item--compact';
-    const subj = note.subject ? App.Constants.SUBJECTS.find(s => s.name === note.subject) : null;
-    const color = subj && subj.color ? subj.color : '#4A90E2';
-    const firstChar = note.subject ? note.subject.slice(0, 1) : '记';
-    const hex = String(color).replace('#', '');
-    let bg = 'rgba(74,144,226,0.12)';
-    if (/^[0-9a-fA-F]{6}$/.test(hex)) {
-      bg = 'rgba(' + [0, 2, 4].map(i => parseInt(hex.substr(i, 2), 16)).join(',') + ',0.12)';
-    }
     // 摘要：统一转为可读纯文本，避免旧块数据在列表出现 JSON 碎片。
     let summary = '';
     try {
@@ -423,21 +617,16 @@ App.Pages.Notes = {
       if (!isNaN(dd.getTime())) dateTxt = (dd.getMonth() + 1) + ' 月 ' + dd.getDate() + ' 日';
     } catch (e) { dateTxt = ''; }
     // 类型 pill（对齐画布：类型在笔记卡上显示效果）
-    let typePill = '';
-    if (note.type) {
-      const tc = App.NoteTypes.getColor(note.type, note.subject, note.module);
-      const tHex = String(tc).replace('#', '');
-      const tBg = /^[0-9a-fA-F]{6}$/.test(tHex)
-        ? 'rgba(' + [0, 2, 4].map(i => parseInt(tHex.substr(i, 2), 16)).join(',') + ',0.12)'
-        : 'rgba(0,102,204,0.12)';
-      typePill = `<div class="note-type-pill" style="background:${tBg};color:${tc};">${note.type}</div>`;
-    }
+    const displayType = note.type || App.NoteTypes.UNCLASSIFIED;
+    const tc = note.type && note.type !== App.NoteTypes.UNCLASSIFIED
+      ? App.NoteTypes.getColor(note.type, note.subject, note.module)
+      : '#8E8E93';
+    const typePill = `<button type="button" class="note-type-pill" style="background:${this._noteTypeColorBg(tc)};color:${tc};">${displayType}</button>`;
     const location = [note.subject, note.module, note.knowledgePoint].filter(Boolean).join(' · ');
     card.innerHTML = `
-      <div class="note-avatar" style="background:${bg};color:${color};">${firstChar}</div>
       <div class="note-item__body">
         <div class="note-item__topline">
-          ${typePill || '<span></span>'}
+          ${typePill}
           <time class="note-item__date">${dateTxt}</time>
         </div>
         <div class="note-item__title">${App.Utils.truncate(note.title, 48)}</div>
@@ -447,6 +636,19 @@ App.Pages.Notes = {
     `;
     const detailRoute = 'note-detail?id=' + encodeURIComponent(note.id) +
       (returnTo ? '&returnTo=' + encodeURIComponent(returnTo) : '');
+    const typeButton = card.querySelector('.note-type-pill');
+    if (typeButton) {
+      typeButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        App.Pages.Notes.openNoteTypePicker(note, async () => {
+          if (returnTo && /^errors(?:\?|$)/.test(returnTo) && App.Pages.Errors && App.Pages.Errors.refreshAll) {
+            await App.Pages.Errors.refreshAll();
+          } else if (App.Pages.Notes.refreshAll) {
+            App.Pages.Notes.refreshAll();
+          }
+        });
+      });
+    }
     card.addEventListener('click', () => App.Router.navigate(detailRoute));
     return card;
   },
@@ -493,6 +695,7 @@ App.Pages.Notes = {
   async renderDetail(params) {
     const container = document.getElementById('page-note-detail');
     container.innerHTML = '';
+    this._detailParams = params || {};
     const detailReturnRoute = params && typeof params.returnTo === 'string' && /^(?:errors|notes)(?:\?|$)/.test(params.returnTo)
       ? params.returnTo
       : 'notes';
@@ -560,9 +763,16 @@ App.Pages.Notes = {
     const infoEl = document.createElement('div');
     infoEl.className = 'note-detail-info';
     const infoBits = [];
-    if (note.type) infoBits.push('<span class="note-detail-info__chip">' + note.type + '</span>');
+    infoBits.push('<button type="button" class="note-detail-info__chip">' + (note.type || App.NoteTypes.UNCLASSIFIED) + '</button>');
     infoBits.push('<span class="note-detail-info__hint">轻点标题或正文即可编辑</span>');
     infoEl.innerHTML = infoBits.join('');
+    const detailTypeButton = infoEl.querySelector('.note-detail-info__chip');
+    if (detailTypeButton) {
+      detailTypeButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.openNoteTypePicker(note, () => this.renderDetail(params));
+      });
+    }
     content.appendChild(infoEl);
 
     // 正文（完整 HTML 直通渲染；点击就地编辑为 HTML 编辑器）
@@ -769,7 +979,7 @@ App.Pages.Notes = {
       const existing = note.id ? await App.DB.get('notes', note.id) : null;
       const payload = {
         id: note.id, subject: note.subject || '', module: note.module || '',
-        knowledgePoint: note.knowledgePoint || '', type: note.type || '', title: note.title || '未命名笔记',
+        knowledgePoint: note.knowledgePoint || '', type: note.type || App.NoteTypes.UNCLASSIFIED, title: note.title || '未命名笔记',
         content: content || '',
         linkedErrors: note.linkedErrors || [],
         linkedReviews: existing ? existing.linkedReviews || [] : [],
@@ -864,6 +1074,7 @@ App.Pages.Notes = {
   // ===== 详情页右上角三点菜单 =====
   async _showDetailMenu(note) {
     const action = await App.Components.actionSheet([
+      { label: '🏷️ 修改标签', value: 'changeType' },
       { label: '📋 复制副本', value: 'duplicate' },
       { label: '📂 移动位置', value: 'move' },
       { label: '🗑️ 删除', value: 'delete' }
@@ -871,6 +1082,9 @@ App.Pages.Notes = {
     if (!action) return;
 
     switch (action) {
+      case 'changeType':
+        await this.openNoteTypePicker(note, () => this.renderDetail(Object.assign({}, this._detailParams, { id: note.id })));
+        break;
       case 'delete': {
         const confirmed = await App.Components.confirm(
           '删除笔记',
@@ -950,7 +1164,7 @@ App.Pages.Notes = {
       subject: params.subject || '',
       module: '',
       knowledgePoint: '',
-      type: '',
+      type: params.type || params.noteType || params.tag || '',
       title: '',
       content: '',
       linkedErrors: []
@@ -971,7 +1185,7 @@ App.Pages.Notes = {
             subject: note.subject || '',
             module: note.module || '',
             knowledgePoint: note.knowledgePoint || '',
-            type: note.type || '',
+            type: note.type || App.NoteTypes.UNCLASSIFIED,
             title: note.title || '',
             content: note.content || '',
             linkedErrors: note.linkedErrors || [],
@@ -995,7 +1209,7 @@ App.Pages.Notes = {
               isEdit = true;
               formData = {
                 subject: note.subject || '', module: note.module || '',
-                knowledgePoint: note.knowledgePoint || '', type: note.type || '', title: note.title || '',
+                knowledgePoint: note.knowledgePoint || '', type: note.type || App.NoteTypes.UNCLASSIFIED, title: note.title || '',
                 content: note.content || '', linkedErrors: note.linkedErrors || [],
                 id: note.id
               };
@@ -1020,6 +1234,24 @@ App.Pages.Notes = {
           if (last && last.subject) {
             formData.subject = last.subject;
             formData.module = (last.module && App.Constants.getModules(last.subject).indexOf(last.module) !== -1) ? last.module : '';
+          }
+        }
+        // 标签和科目/模块一样：从标签筛选页进入时优先带入 URL 标签，
+        // 否则使用当前模块上次使用的标签，最后回退到“未分类”。
+        if (!formData.type) {
+          const last = App.Utils.rememberSelect.get('note');
+          const sameLastContext = !!last
+            && last.subject === formData.subject
+            && (last.module || '') === (formData.module || '');
+          const candidate = params.type || params.noteType || params.tag
+            || (sameLastContext && last.type) || '';
+          const types = formData.subject
+            ? App.NoteTypes.getForContext(formData.subject, formData.module)
+            : [];
+          if (candidate === App.NoteTypes.UNCLASSIFIED || types.some(t => t.name === candidate)) {
+            formData.type = candidate;
+          } else {
+            formData.type = App.NoteTypes.UNCLASSIFIED;
           }
         }
       }
@@ -1064,7 +1296,7 @@ App.Pages.Notes = {
       // ===== 笔记类型选择（对齐画布：类型chips，可多选? 单选一个类型） =====
       const typeWrap = document.createElement('div');
       typeWrap.className = 'note-type-field';
-      typeWrap.innerHTML = '<div class="note-type-kw">类型（当前模块）</div>';
+      typeWrap.innerHTML = '<div class="note-type-kw">标签（当前模块）</div>';
       const chipsBox = document.createElement('div');
       chipsBox.className = 'note-modchips';
       const renderTypeChips = () => {
@@ -1091,7 +1323,7 @@ App.Pages.Notes = {
           b.addEventListener('click', onClick);
           return b;
         };
-        chipsBox.appendChild(mk('无', !formData.type, () => { formData.type = ''; renderTypeChips(); }));
+        chipsBox.appendChild(mk(App.NoteTypes.UNCLASSIFIED, formData.type === App.NoteTypes.UNCLASSIFIED, () => { formData.type = App.NoteTypes.UNCLASSIFIED; renderTypeChips(); }));
         types.forEach(t => {
           const c = t.color;
           const isActive = formData.type === t.name;
@@ -1134,7 +1366,7 @@ App.Pages.Notes = {
       catSelector.addEventListener('click', async (e) => {
         if (e.target.classList.contains('note-cat-clear')) {
           formData.subject = ''; formData.module = ''; formData.knowledgePoint = '';
-          formData.type = '';
+          formData.type = App.NoteTypes.UNCLASSIFIED;
           updateCatLabel();
           renderTypeChips();
           return;
@@ -1310,7 +1542,8 @@ App.Pages.Notes = {
     // 核心保存逻辑
     const submitFormInternal = async () => {
       if (formData._getContent) formData.content = formData._getContent();
-      App.Utils.rememberSelect.set('note', formData.subject, formData.module);
+      formData.type = formData.type || App.NoteTypes.UNCLASSIFIED;
+      App.Utils.rememberSelect.set('note', formData.subject, formData.module, formData.type);
       if (!formData.subject || !formData.title.trim()) return;
 
       if (isEdit && formData.id) {
@@ -1527,7 +1760,7 @@ App.Pages.Notes = {
         };
         op('↑', '上移', '', () => { if (App.NoteTypes.moveForContext(context.subject, context.module, t.name, 'up')) renderRows(); });
         op('↓', '下移', '', () => { if (App.NoteTypes.moveForContext(context.subject, context.module, t.name, 'down')) renderRows(); });
-        op('编辑', '编辑标签', '', () => App.Router.navigate(this._noteTypeFormRoute(context, t.name)));
+        op('编辑', '编辑标签', '', () => this.openNoteTypeEditor(context, t.name, renderRows));
         op(t.enabled === false ? '启用' : '停用', t.enabled === false ? '启用标签' : '停用标签', t.enabled === false ? '' : 'ntype-op--danger', async () => {
           if (t.enabled !== false) {
             const ok = await App.Components.confirm('停用标签', '停用后，新建笔记时不会再显示「' + t.name + '」，已有笔记仍会保留。确定继续吗？', '停用', '取消', true);
@@ -1536,8 +1769,31 @@ App.Pages.Notes = {
           App.NoteTypes.setEnabledForContext(context.subject, context.module, t.name, t.enabled === false);
           renderRows();
         });
+        op('删除', '删除标签', 'ntype-op--danger', async () => {
+          const count = (this.state.allNotes || []).filter(n => noteMatches(n) && n.type === t.name).length;
+          const ok = await App.Components.confirm(
+            '删除标签',
+            '删除「' + t.name + '」后，' + count + ' 篇相关笔记会转为“未分类”，笔记内容不会删除。确定继续吗？',
+            '删除', '取消', true
+          );
+          if (!ok) return;
+          if (!App.NoteTypes.removeForContext(context.subject, context.module, t.name)) {
+            App.Components.toast('标签删除失败', 'error'); return;
+          }
+          try {
+            const notes = await App.DB.getNotes();
+            for (const note of notes) {
+              if (noteMatches(note) && note.type === t.name) {
+                note.type = App.NoteTypes.UNCLASSIFIED;
+                await App.DB.updateNote(note);
+              }
+            }
+          } catch (e) { /* 配置已删除，笔记同步失败时下次可继续整理 */ }
+          App.Components.toast('标签已删除', 'success');
+          renderRows();
+        });
         row.appendChild(right);
-        row.addEventListener('click', () => App.Router.navigate(this._noteTypeFormRoute(context, t.name)));
+        row.addEventListener('click', () => this.openNoteTypeEditor(context, t.name, renderRows));
         listBox.appendChild(row);
         if (idx < types.length - 1) {
           const sep = document.createElement('div');
@@ -1553,12 +1809,12 @@ App.Pages.Notes = {
     addBtn.type = 'button';
     addBtn.className = 'ntype-add';
     addBtn.textContent = '+ 新增标签';
-    addBtn.addEventListener('click', () => App.Router.navigate(this._noteTypeFormRoute(context)));
+    addBtn.addEventListener('click', () => this.openNoteTypeEditor(context, '', renderRows));
     body.appendChild(addBtn);
 
     const footerHint = document.createElement('div');
     footerHint.className = 'ntype-manage-hint ntype-manage-hint--footer';
-    footerHint.textContent = '停用不会删除已有笔记中的标签；标签只在当前科目和模块内生效。';
+    footerHint.textContent = '删除标签不会删除笔记，相关笔记会转为“未分类”；标签只在当前科目和模块内生效。';
     body.appendChild(footerHint);
 
     container.appendChild(body);

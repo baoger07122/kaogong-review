@@ -252,6 +252,7 @@
 .note-type-pill-row { margin-bottom: 4px; }
 .note-type-pill {
   display: inline-block;
+  border: 0;
   max-width: 150px;
   padding: 2px 10px;
   border-radius: 999px;
@@ -260,6 +261,53 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.note-type-pill:active { opacity: 0.72; }
+
+/* 标签选择/编辑弹窗：复用新增待办的居中弹窗基线 */
+.app-centered-modal { max-height: min(82svh, 640px); overflow-y: auto; }
+.app-centered-modal__body { display: flex; flex-direction: column; gap: 10px; }
+.app-centered-modal__hint { color: var(--text-tertiary); font-size: 12px; line-height: 1.45; }
+.app-centered-modal__field-label { color: var(--text-tertiary); font-size: 12px; font-weight: 600; margin-top: 4px; }
+.app-centered-modal__text-input { height: 44px; margin: 0; resize: none; }
+.app-centered-modal__actions { margin-top: 8px; }
+.note-type-picker { display: flex; flex-direction: column; gap: 8px; }
+.note-type-picker__option {
+  width: 100%;
+  min-height: 40px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.note-type-picker__option.is-selected { background: var(--color-primary); color: #fff; font-weight: 600; }
+.note-type-picker__option:active { opacity: 0.78; }
+.note-type-color-picker { display: flex; flex-wrap: wrap; gap: 12px; padding: 3px 0 4px; }
+.note-type-color-picker__dot {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.08);
+  cursor: pointer;
+}
+.note-type-color-picker__dot.is-selected { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--color-primary); }
+.note-type-editor__preview {
+  align-self: flex-start;
+  min-height: 28px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  box-sizing: border-box;
 }
 
 /* 详情页右上角图标按钮（三点菜单 / 编辑等） */
@@ -356,4 +404,3 @@
   color: var(--text-light);
   pointer-events: none;
 }
-

@@ -851,6 +851,163 @@ Object.assign(App.Components, {
     };
   },
 
+  // ===== 便签轻量富文本编辑器 =====
+  // 便签只保留：加粗、减少/增加缩进、无序列表、有序列表。
+  // 不注册全局移动格式栏，格式栏固定在便签居中弹窗内部，避免与 Safari 工具栏叠加。
+  stickyRichEditor(initialContent, opts) {
+    opts = opts || {};
+    const wrapper = document.createElement('div');
+    wrapper.className = 'sticky-rich-editor';
+    const area = document.createElement('div');
+    area.className = 'sticky-rich-editor__area';
+    area.contentEditable = true;
+    area.setAttribute('contenteditable', 'true');
+    area.dataset.placeholder = opts.placeholder || '输入便签内容…';
+
+    const esc = (value) => String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+    const plainToHtml = (value) => String(value || '').split('\n').map(line => {
+      const task = line.match(/^\s*\[([ xX])\]\s+(.*)$/);
+      if (task) return '<p data-sticky-task="' + (task[1] === ' ' ? 'pending' : 'done') + '">' + esc(task[2]) + '</p>';
+      return '<p>' + (line ? esc(line) : '<br>') + '</p>';
+    }).join('') || '<p><br></p>';
+    const looksLikeHtml = (value) => /<\/?[a-z][\s\S]*>/i.test(String(value || ''));
+    area.innerHTML = looksLikeHtml(initialContent) ? String(initialContent || '') : plainToHtml(initialContent);
+
+    let savedRange = null;
+    const captureSelection = () => {
+      try {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount) {
+          const range = sel.getRangeAt(0);
+          if (area.contains(range.commonAncestorContainer)) savedRange = range.cloneRange();
+        }
+      } catch (e) {}
+    };
+    const restoreSelection = () => {
+      try {
+        area.focus({ preventScroll: true });
+        if (savedRange && area.contains(savedRange.commonAncestorContainer)) {
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(savedRange);
+        }
+      } catch (e) {}
+    };
+    const currentBlock = () => {
+      const sel = window.getSelection();
+      let node = sel && sel.rangeCount ? sel.getRangeAt(0).startContainer : area;
+      if (node && node.nodeType !== 1) node = node.parentElement;
+      while (node && node !== area && !/^(P|DIV|LI|H[1-6]|BLOCKQUOTE)$/.test(node.tagName)) node = node.parentElement;
+      return node && node !== area ? node : null;
+    };
+    const indent = (direction) => {
+      restoreSelection();
+      const block = currentBlock();
+      if (!block) return;
+      if (block.tagName === 'LI') {
+        try { document.execCommand(direction > 0 ? 'indent' : 'outdent'); } catch (e) {}
+      } else {
+        const current = parseFloat(block.style.marginLeft) || 0;
+        block.style.marginLeft = Math.max(0, current + (direction > 0 ? 20 : -20)) || '';
+      }
+      captureSelection();
+      if (opts.onChange) opts.onChange(area.innerHTML);
+    };
+    const apply = (command) => {
+      restoreSelection();
+      if (command === 'bold') document.execCommand('bold');
+      else if (command === 'bullet') document.execCommand('insertUnorderedList');
+      else if (command === 'numbered') document.execCommand('insertOrderedList');
+      else if (command === 'indent') { indent(1); return; }
+      else if (command === 'outdent') { indent(-1); return; }
+      captureSelection();
+      if (opts.onChange) opts.onChange(area.innerHTML);
+    };
+
+    area.addEventListener('mouseup', captureSelection);
+    area.addEventListener('keyup', captureSelection);
+    area.addEventListener('focusin', captureSelection);
+    area.addEventListener('input', () => { captureSelection(); if (opts.onChange) opts.onChange(area.innerHTML); });
+    area.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab') { e.preventDefault(); indent(e.shiftKey ? -1 : 1); }
+    });
+    area.addEventListener('paste', (e) => {
+      const data = e.clipboardData || window.clipboardData;
+      const text = data && data.getData('text/plain');
+      if (!text || !App.Utils.simpleMarkdown) return;
+      const trimmed = text.trim();
+      const isMarkdown = /\n/.test(text) || /^#{1,4}\s/.test(trimmed) || /^[-*]\s/.test(trimmed)
+        || /^\d+\.\s/.test(trimmed) || /^>\s?/.test(trimmed) || /\*\*.+\*\*/.test(trimmed)
+        || /`[^`]+`/.test(trimmed);
+      if (!isMarkdown) return;
+      e.preventDefault();
+      restoreSelection();
+      try { document.execCommand('insertHTML', false, App.Utils.simpleMarkdown(text)); }
+      catch (err) { document.execCommand('insertText', false, text); }
+      captureSelection();
+      if (opts.onChange) opts.onChange(area.innerHTML);
+    });
+
+    const toolbar = document.createElement('div');
+    toolbar.className = 'sticky-rich-editor__toolbar';
+    [
+      { label: '<b>B</b>', title: '加粗', command: 'bold' },
+      { label: '⇤', title: '减少缩进', command: 'outdent' },
+      { label: '⇥', title: '增加缩进', command: 'indent' },
+      { label: '•', title: '无序列表', command: 'bullet' },
+      { label: '1.', title: '有序列表', command: 'numbered' }
+    ].forEach(item => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'sticky-rich-editor__tool';
+      button.innerHTML = item.label;
+      button.title = item.title;
+      button.addEventListener('mousedown', (e) => e.preventDefault());
+      button.addEventListener('click', () => apply(item.command));
+      toolbar.appendChild(button);
+    });
+    wrapper.appendChild(area);
+    wrapper.appendChild(toolbar);
+
+    const sanitize = (html) => {
+      const holder = document.createElement('div');
+      holder.innerHTML = String(html || '');
+      holder.querySelectorAll('script,style,iframe,object,embed,form').forEach(el => el.remove());
+      holder.querySelectorAll('*').forEach(el => {
+        Array.from(el.attributes).forEach(attr => {
+          if (/^on/i.test(attr.name) || ['href', 'src', 'action', 'formaction'].includes(attr.name)) el.removeAttribute(attr.name);
+        });
+      });
+      return holder.innerHTML;
+    };
+    const hasRichFormat = () => !!area.querySelector('strong,b,em,i,u,s,ul,ol,li,blockquote,pre,code,[style*="margin-left"]');
+    const plainText = () => Array.from(area.querySelectorAll(':scope > p, :scope > div')).map(block => {
+      const task = block.dataset && block.dataset.stickyTask;
+      const value = String(block.innerText || block.textContent || '').replace(/\u00a0/g, '');
+      return task ? '[' + (task === 'done' ? 'x' : ' ') + '] ' + value : value;
+    }).join('\n') || String(area.innerText || area.textContent || '').replace(/\u00a0/g, '');
+
+    return {
+      element: wrapper,
+      area,
+      getHtml: () => sanitize(area.innerHTML),
+      getContent: () => hasRichFormat() ? sanitize(area.innerHTML) : plainText().trim(),
+      setContent: (value) => { area.innerHTML = looksLikeHtml(value) ? String(value || '') : plainToHtml(value); },
+      focusAtEnd: () => {
+        area.focus();
+        const range = document.createRange();
+        range.selectNodeContents(area);
+        range.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        captureSelection();
+      }
+    };
+  },
+
   notionEditor(initialContent, placeholder, onChange, dataMode, _ext) {
     const ext = _ext || {};
     const wrapper = document.createElement('div');

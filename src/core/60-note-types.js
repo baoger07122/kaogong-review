@@ -5,6 +5,7 @@ window.App = window.App || {};
 App.NoteTypes = (function () {
   const KEY = 'kg_note_types';
   const CONTEXT_KEY = 'kg_note_types_by_context';
+  const UNCLASSIFIED = '未分类';
   const DEFAULT_TYPES = [
     { name: '技巧总结', color: '#0066CC' },
     { name: '解题方法', color: '#FF9500' },
@@ -118,6 +119,13 @@ App.NoteTypes = (function () {
     return saveContext(subject, module, list);
   }
 
+  function removeForContext(subject, module, name) {
+    const list = getForContextAll(subject, module);
+    const next = list.filter(item => item.name !== name);
+    if (next.length === list.length) return false;
+    return saveContext(subject, module, next);
+  }
+
   function renameForContext(subject, module, oldName, newName, color) {
     const list = getForContextAll(subject, module);
     const nm = String(newName || '').trim();
@@ -181,9 +189,11 @@ App.NoteTypes = (function () {
     getKey,
     getForContext,
     getForContextAll,
+    UNCLASSIFIED,
     add,
     remove,
     addForContext,
+    removeForContext,
     renameForContext,
     updateForContext,
     setEnabledForContext,

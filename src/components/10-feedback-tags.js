@@ -1,5 +1,53 @@
 /* 弹窗、标签、卡片和表单组件 */
 Object.assign(App.Components, {
+  // ===== 统一居中弹窗外壳：新增待办、标签和便签弹窗共用 =====
+  // opts: { title, closeOnBackdrop, onClose }
+  centeredModal(opts) {
+    opts = opts || {};
+    const container = document.getElementById('modal-container');
+    if (!container) return null;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'todo-modal-overlay app-centered-modal-overlay';
+    const card = document.createElement('div');
+    card.className = 'todo-modal app-centered-modal';
+
+    const head = document.createElement('div');
+    head.className = 'todo-modal__head';
+    const title = document.createElement('div');
+    title.className = 'todo-modal__title';
+    title.textContent = opts.title || '';
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'todo-modal__close';
+    closeBtn.setAttribute('aria-label', '关闭');
+    closeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3l6 6M9 3L3 9"/></svg>';
+    head.appendChild(title);
+    head.appendChild(closeBtn);
+    card.appendChild(head);
+
+    const body = document.createElement('div');
+    body.className = 'app-centered-modal__body';
+    card.appendChild(body);
+    overlay.appendChild(card);
+
+    App.Components._lockScroll();
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      App.Components._unlockScroll();
+      if (typeof opts.onClose === 'function') opts.onClose();
+      if (overlay.parentNode) overlay.remove();
+    };
+    closeBtn.addEventListener('click', close);
+    if (opts.closeOnBackdrop !== false) {
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    }
+    container.appendChild(overlay);
+    return { overlay, card, head, body, close };
+  },
+
   // ===== 待办备注底部面板（平滑滑入，不重新渲染页面） =====
   todoNoteSheet(todo, opts) {
     opts = opts || {};

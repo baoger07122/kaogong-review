@@ -433,13 +433,18 @@
   margin: -4px 0 14px;
 }
 .note-detail-info__chip {
+  border: 0;
   padding: 3px 9px;
   border-radius: 999px;
   background: var(--color-primary-bg);
   color: var(--color-primary);
   font-size: 11px;
   font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
+.note-detail-info__chip:active { opacity: 0.72; }
 .note-detail-info__hint { color: var(--text-tertiary); font-size: 11px; }
 .note-detail-title .md-preview-p { margin: 0; line-height: 1.4; font-size: inherit; font-weight: inherit; }
 .note-detail-title .md-preview-p:last-child { margin-bottom: 0; }

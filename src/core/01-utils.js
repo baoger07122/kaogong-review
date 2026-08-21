@@ -544,13 +544,18 @@ App.Utils = {
       try {
         const s = localStorage.getItem('kg_last_' + kind + '_subject');
         if (!s) return null;
-        return { subject: s, module: localStorage.getItem('kg_last_' + kind + '_module') || '' };
+        return {
+          subject: s,
+          module: localStorage.getItem('kg_last_' + kind + '_module') || '',
+          type: localStorage.getItem('kg_last_' + kind + '_type') || ''
+        };
       } catch (e) { return null; }
     },
-    set(kind, subject, module) {
+    set(kind, subject, module, type) {
       try {
         localStorage.setItem('kg_last_' + kind + '_subject', subject || '');
         localStorage.setItem('kg_last_' + kind + '_module', module || '');
+        if (type !== undefined) localStorage.setItem('kg_last_' + kind + '_type', type || '');
       } catch (e) {}
     }
   },

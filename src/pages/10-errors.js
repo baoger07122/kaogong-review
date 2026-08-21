@@ -156,6 +156,7 @@ App.Pages.Errors = {
       const query = [];
       if (this.state.subject) query.push('subject=' + encodeURIComponent(this.state.subject));
       if (this.state.module) query.push('module=' + encodeURIComponent(this.state.module));
+      if (this.state.view === 'notes' && this.state.noteType) query.push('type=' + encodeURIComponent(this.state.noteType));
       const formRoute = this.state.view === 'notes' ? 'note-form' : 'error-form';
       query.push('returnTo=' + encodeURIComponent(this._viewRoute(this.state.view)));
       App.Router.navigate(formRoute + '?' + query.join('&'));
@@ -423,7 +424,8 @@ App.Pages.Errors = {
       this.state.subject = null;
       this.state.module = null;
       this.state.knowledgePoint = null;
-      this.state.noteType = null;
+      this.state.noteType = (this.state.view === 'notes' && (params.type || params.noteType))
+        ? (params.type || params.noteType) : null;
       this._expanded = {};
       this.refreshAll();
     });
@@ -682,7 +684,7 @@ App.Pages.Errors = {
       this.state.noteType = null;
       this.refreshFiltersAndList();
     });
-    types.forEach(type => addChip(type.name, this.state.noteType === type.name, () => {
+    [{ name: App.NoteTypes.UNCLASSIFIED, color: '#8E8E93' }].concat(types).forEach(type => addChip(type.name, this.state.noteType === type.name, () => {
       this.state.noteType = this.state.noteType === type.name ? null : type.name;
       this.refreshFiltersAndList();
     }, type.color));
@@ -700,7 +702,9 @@ App.Pages.Errors = {
     let notes = (this.state.allNotes || []).filter(note =>
       (!this.state.subject || note.subject === this.state.subject) &&
       (!this.state.module || note.module === this.state.module) &&
-      (!this.state.noteType || note.type === this.state.noteType)
+      (!this.state.noteType || (this.state.noteType === App.NoteTypes.UNCLASSIFIED
+        ? (!note.type || note.type === App.NoteTypes.UNCLASSIFIED)
+        : note.type === this.state.noteType))
     );
     if (this.state.search) {
       const keyword = this.state.search.trim().toLowerCase();
@@ -728,6 +732,7 @@ App.Pages.Errors = {
         const query = [];
         if (this.state.subject) query.push('subject=' + encodeURIComponent(this.state.subject));
         if (this.state.module) query.push('module=' + encodeURIComponent(this.state.module));
+        if (this.state.noteType) query.push('type=' + encodeURIComponent(this.state.noteType));
         query.push('returnTo=' + encodeURIComponent(this._viewRoute('notes')));
         App.Router.navigate('note-form?' + query.join('&'));
       });
