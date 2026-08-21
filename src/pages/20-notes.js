@@ -543,24 +543,6 @@ App.Pages.Notes = {
 
     // 顶部不再显示笔记统计（用户 v8.2.11 指定）
 
-    // 词语库入口：言语理解（逻辑填空）专属
-    if (this.state.subject === '言语理解') {
-      const wordDbEntry = document.createElement('div');
-      wordDbEntry.className = 'notes-worddb-entry';
-      wordDbEntry.innerHTML = `
-        <span class="notes-worddb-entry__icon">📚</span>
-        <span class="notes-worddb-entry__text">
-          <span class="notes-worddb-entry__title">词语库</span>
-          <span class="notes-worddb-entry__desc">成语 / 实词 释义与辨析 · 逻辑填空</span>
-        </span>
-        <span class="notes-worddb-entry__arrow">›</span>
-      `;
-      wordDbEntry.addEventListener('click', () => {
-        App.Router.navigate('worddb?subject=' + encodeURIComponent(this.state.subject) + '&module=' + encodeURIComponent('逻辑填空'));
-      });
-      container.appendChild(wordDbEntry);
-    }
-
     if (notes.length === 0) {
       // v8.15.1 笔记空状态对齐错题本空状态（.eerr-empty 卡片：图标+文案+新建按钮，靠上）
       const empty = document.createElement('div');
@@ -680,15 +662,7 @@ App.Pages.Notes = {
 
   // 右上角三点菜单（v8.14.11 搜索已常驻顶栏，菜单只保留轻量项）
   async _showPageMenu() {
-    const items = [];
-    if (this.state.subject === '言语理解') {
-      items.push({ label: '📚 词语库', value: 'worddb' });
-    }
-    if (!items.length) { App.Components.toast('暂无可选项', 'info'); return; }
-    const action = await App.Components.actionSheet(items, '笔记');
-    if (action === 'worddb') {
-      App.Router.navigate('worddb?subject=' + encodeURIComponent('言语理解') + '&module=' + encodeURIComponent('逻辑填空'));
-    }
+    App.Components.toast('暂无可选项', 'info');
   },
 
   // ===== 笔记详情页（Notion 式无模式就地编辑：点击即编辑，失焦即保存回查看） =====

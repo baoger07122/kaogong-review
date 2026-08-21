@@ -209,13 +209,27 @@ App.Pages.Errors = {
       (!this.state.module || note.module === this.state.module)
     ).length;
     const stickyCount = this._getModuleStickies().length;
-    [['wrong', '错题', errorCount], ['notes', '笔记', noteCount], ['stickies', '便签', stickyCount]].forEach(([view, label, count]) => {
+    const views = [
+      ['wrong', '错题', errorCount],
+      ['notes', '笔记', noteCount],
+      ['stickies', '便签', stickyCount]
+    ];
+    // 词语库只属于“言语理解 / 逻辑填空”模块，并作为当前模块的横向页签入口。
+    // 仅选中科目或进入其他模块时，不展示该入口。
+    if (this.state.subject === '言语理解' && this.state.module === '逻辑填空') {
+      views.push(['worddb', '词语库', null]);
+    }
+    views.forEach(([view, label, count]) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = this.state.view === view ? 'is-active' : '';
-      button.textContent = label + ' ' + count;
+      button.textContent = label + (count === null ? '' : ' ' + count);
       button.addEventListener('click', () => {
-        if (this.state.view !== view) App.Router.navigate(this._viewRoute(view));
+        if (view === 'worddb') {
+          App.Router.navigate('worddb?subject=' + encodeURIComponent('言语理解') + '&module=' + encodeURIComponent('逻辑填空'));
+        } else if (this.state.view !== view) {
+          App.Router.navigate(this._viewRoute(view));
+        }
       });
       wrap.appendChild(button);
     });
@@ -711,14 +725,6 @@ App.Pages.Errors = {
       notes = notes.filter(note => this._noteSearchText(note).includes(keyword));
     }
     notes.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
-
-    if (this.state.subject === '言语理解' && (!this.state.module || this.state.module === '逻辑填空')) {
-      const wordDbEntry = document.createElement('div');
-      wordDbEntry.className = 'notes-worddb-entry';
-      wordDbEntry.innerHTML = '<span class="notes-worddb-entry__icon">📚</span><span class="notes-worddb-entry__text"><span class="notes-worddb-entry__title">词语库</span><span class="notes-worddb-entry__desc">成语 / 实词释义与辨析 · 逻辑填空</span></span><span class="notes-worddb-entry__arrow">›</span>';
-      wordDbEntry.addEventListener('click', () => App.Router.navigate('worddb?subject=' + encodeURIComponent('言语理解') + '&module=' + encodeURIComponent('逻辑填空')));
-      container.appendChild(wordDbEntry);
-    }
 
     if (!notes.length) {
       const empty = document.createElement('div');
