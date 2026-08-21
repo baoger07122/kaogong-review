@@ -165,12 +165,14 @@ App.Pages.Notes = {
         this._expanded[s.name] = !this._expanded[s.name];
         this.renderSubjectGrid(container);
       });
-      // 点击科目行：选中 / 取消该科目
+      // 点击科目行：选中科目，并在展开/收起模块之间切换；不再重复点击跳回「全部」
       row.addEventListener('click', () => {
-        this.state.subject = (this.state.subject === s.name) ? null : s.name;
+        const sameSubject = this.state.subject === s.name;
+        this.state.subject = s.name;
         this.state.module = null;
         this.state.knowledgePoint = null;
         this.state.type = null;
+        if (!App.Constants.isFlatSubject(s.name)) this._expanded[s.name] = sameSubject ? !this._expanded[s.name] : true;
         this.refreshAll();
       });
       container.appendChild(row);

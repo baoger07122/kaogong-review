@@ -450,16 +450,15 @@ App.Pages.Errors = {
         this._expanded[s.name] = !this._expanded[s.name];
         this.renderSubjectGrid(container);
       });
-      // 点击科目行：选中 / 取消该科目
+      // 点击科目行：选中科目，并在展开/收起模块之间切换；不再重复点击跳回「全部」
       row.addEventListener('click', () => {
-        const selecting = this.state.subject !== s.name;
-        this.state.subject = selecting ? s.name : null;
+        const sameSubject = this.state.subject === s.name;
+        this.state.subject = s.name;
         this.state.module = null;
         this.state.knowledgePoint = null;
         this.state.noteType = null;
-        // 点击科目本身默认展开模块；箭头仍可单独收起。
-        if (selecting && !App.Constants.isFlatSubject(s.name)) this._expanded[s.name] = true;
-        if (!selecting) this._expanded[s.name] = false;
+        // 第一次点击展开，再点一次收起；科目仍保持选中。
+        if (!App.Constants.isFlatSubject(s.name)) this._expanded[s.name] = sameSubject ? !this._expanded[s.name] : true;
         this.refreshAll();
       });
       container.appendChild(row);
