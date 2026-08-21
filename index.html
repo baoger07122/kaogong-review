@@ -3955,6 +3955,8 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .library-tabs button { flex: 0 0 auto; min-height: 30px; padding: 0 11px; border-radius: 15px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: var(--font-xs); }
 .library-tabs button.is-active { background: var(--color-primary); color: #fff; font-weight: 600; }
 .library-item-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.library-item-list--masonry { display: block; }
+.library-error-masonry-wrap { width: 100%; }
 .library-item-card { position: relative; min-height: 104px; padding: 10px 12px 9px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-card); box-shadow: none; cursor: pointer; }
 .library-item-card:active { background: var(--bg-tertiary); }
 .library-item-card__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -10588,7 +10590,7 @@ window.App = window.App || {};
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-  App.VERSION = '8.21.4';
+  App.VERSION = '8.21.5';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -21946,8 +21948,26 @@ App.Pages.Library = {
       try { this._masonryInst.destroy(); } catch (e) {}
       this._masonryInst = null;
     }
+    container.classList.remove('library-item-list--masonry');
     if (!items.length) {
       container.innerHTML = '<div class="library-empty"><span>📚</span><strong>这里还没有内容</strong><small>可以通过右下角「+」新增错题、笔记或词语</small></div>';
+      return;
+    }
+
+    // 学习库错题页回退到旧错题本卡片：保留题干、辨析词语、标签、错因、复盘和日期。
+    // 仅学习库错题页固定为两列；旧错题本页面仍使用原有的自适应列数。
+    const isWrongMasonry = this.state.tab === 'wrong' && items.every(item => item.type === 'wrong');
+    if (isWrongMasonry) {
+      container.classList.add('library-item-list--masonry');
+      const masonryWrap = document.createElement('div');
+      masonryWrap.className = 'error-masonry-wrap library-error-masonry-wrap';
+      container.appendChild(masonryWrap);
+      const inst = App.Components.masonryGrid(masonryWrap, {
+        columns: 2,
+        onOpen: (error) => this._openWrongDetail(error)
+      });
+      this._masonryInst = inst;
+      inst.render(items.map(item => item.raw), false);
       return;
     }
 

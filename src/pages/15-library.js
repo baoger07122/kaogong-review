@@ -199,8 +199,26 @@ App.Pages.Library = {
       try { this._masonryInst.destroy(); } catch (e) {}
       this._masonryInst = null;
     }
+    container.classList.remove('library-item-list--masonry');
     if (!items.length) {
       container.innerHTML = '<div class="library-empty"><span>📚</span><strong>这里还没有内容</strong><small>可以通过右下角「+」新增错题、笔记或词语</small></div>';
+      return;
+    }
+
+    // 学习库错题页回退到旧错题本卡片：保留题干、辨析词语、标签、错因、复盘和日期。
+    // 仅学习库错题页固定为两列；旧错题本页面仍使用原有的自适应列数。
+    const isWrongMasonry = this.state.tab === 'wrong' && items.every(item => item.type === 'wrong');
+    if (isWrongMasonry) {
+      container.classList.add('library-item-list--masonry');
+      const masonryWrap = document.createElement('div');
+      masonryWrap.className = 'error-masonry-wrap library-error-masonry-wrap';
+      container.appendChild(masonryWrap);
+      const inst = App.Components.masonryGrid(masonryWrap, {
+        columns: 2,
+        onOpen: (error) => this._openWrongDetail(error)
+      });
+      this._masonryInst = inst;
+      inst.render(items.map(item => item.raw), false);
       return;
     }
 
