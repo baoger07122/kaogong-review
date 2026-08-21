@@ -3954,6 +3954,7 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .library-tabs button { flex: 0 0 auto; min-height: 34px; padding: 0 14px; border-radius: 17px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: var(--font-sm); }
 .library-tabs button.is-active { background: var(--color-primary); color: #fff; font-weight: 600; }
 .library-item-list { display: grid; gap: 10px; }
+.library-error-masonry-wrap { width: 100%; }
 .library-item-card { position: relative; padding: 14px 16px 15px; border: 1px solid var(--border-color); border-radius: 18px; background: var(--bg-card); box-shadow: var(--shadow-sm); cursor: pointer; }
 .library-item-card:active { background: var(--bg-tertiary); }
 .library-item-card__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -10585,7 +10586,7 @@ window.App = window.App || {};
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-  App.VERSION = '8.21.2';
+  App.VERSION = '8.21.3';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -14471,6 +14472,10 @@ Object.assign(App.Components, {
     let cards = [];   // 当前已渲染的卡片数据
 
     const getColumnCount = () => {
+      if (o.columns) {
+        const fixedColumns = parseInt(o.columns, 10);
+        if (!isNaN(fixedColumns) && fixedColumns > 0) return fixedColumns;
+      }
       const w = window.innerWidth;
       if (w >= 1024) return 4;
       if (w >= 768) return 3;
@@ -20071,6 +20076,10 @@ App.Router = {
       try { App.Pages.Errors._masonryInst.destroy(); } catch (e) {}
       App.Pages.Errors._masonryInst = null;
     }
+    if (pageBase !== 'library' && App.Pages.Library && App.Pages.Library._masonryInst) {
+      try { App.Pages.Library._masonryInst.destroy(); } catch (e) {}
+      App.Pages.Library._masonryInst = null;
+    }
 
     // 显示目标页面
     const pageEl = document.getElementById('page-' + pageBase);
@@ -20366,7 +20375,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }).catch(() => {});
   }
 });
-
 
 
 // ===== 笔记类型数据服务（对齐画布「iPad-笔记类型管理」8:170 /「新增类型」10:1 / 弹窗 10:114） =====
@@ -21769,6 +21777,10 @@ App.Pages.Library = {
     this.state.items = await App.Knowledge.getAll();
 
     const container = document.getElementById('page-library');
+    if (this._masonryInst) {
+      try { this._masonryInst.destroy(); } catch (e) {}
+      this._masonryInst = null;
+    }
     container.innerHTML = '';
     const body = document.createElement('div');
     body.className = 'library-page';
@@ -21928,10 +21940,31 @@ App.Pages.Library = {
   },
 
   _renderItemList(container, items) {
+    if (this._masonryInst) {
+      try { this._masonryInst.destroy(); } catch (e) {}
+      this._masonryInst = null;
+    }
     if (!items.length) {
       container.innerHTML = '<div class="library-empty"><span>📚</span><strong>这里还没有内容</strong><small>可以通过右下角「+」新增错题、笔记或词语</small></div>';
       return;
     }
+
+    // 错题沿用旧错题本的完整卡片：题干、辨析词语、考点/错因、思维误区和日期。
+    // 学习库按当前产品要求固定为横向两列；旧错题本不传 columns，继续使用原自适应列数。
+    const isWrongMasonry = this.state.tab === 'wrong' && items.every(item => item.type === 'wrong');
+    if (isWrongMasonry) {
+      const masonryWrap = document.createElement('div');
+      masonryWrap.className = 'error-masonry-wrap library-error-masonry-wrap';
+      container.appendChild(masonryWrap);
+      const inst = App.Components.masonryGrid(masonryWrap, {
+        columns: 2,
+        onOpen: (error) => this._openWrongDetail(error)
+      });
+      this._masonryInst = inst;
+      inst.render(items.map(item => item.raw), false);
+      return;
+    }
+
     items.slice().sort((a, b) => new Date(b.updatedTime || b.createdTime || 0) - new Date(a.updatedTime || a.createdTime || 0))
       .forEach(item => container.appendChild(this._itemCard(item)));
   },
@@ -21953,13 +21986,20 @@ App.Pages.Library = {
 
   _openItem(item) {
     if (item.sourceStore === 'errors') {
-      App.Router.navigate('error-detail?id=' + encodeURIComponent(item.sourceId));
+      this._openWrongDetail(item.raw || { id: item.sourceId, subject: item.subject, module: item.module });
     } else if (item.sourceStore === 'notes') {
       App.Router.navigate('note-detail?id=' + encodeURIComponent(item.sourceId));
     } else {
       const category = item.sourceCategory || 'word-def';
       App.Router.navigate('worddb?category=' + encodeURIComponent(category) + '&subject=' + encodeURIComponent(item.subject) + '&module=' + encodeURIComponent(item.module));
     }
+  },
+
+  _openWrongDetail(error) {
+    const returnTo = 'library?subject=' + encodeURIComponent(error.subject || '') +
+      '&module=' + encodeURIComponent(error.module || '') + '&tab=wrong';
+    App.Router.navigate('error-detail?id=' + encodeURIComponent(error.id) +
+      '&returnTo=' + encodeURIComponent(returnTo));
   },
 
   async _getContext() {
@@ -22192,12 +22232,17 @@ App.Pages.Errors = {
     gallerySizeAuto: true // 是否自动根据窗口宽度选择密度（用户手动切换后变为 false）
   },
 
-  // 根据错题自身的科目/模块生成列表路由，避免详情页依赖浏览器历史返回。
-  _buildErrorListRoute(error) {
+  // 根据来源和错题自身的科目/模块生成列表路由，避免详情页回到旧错题本。
+  _buildErrorListRoute(error, params) {
+    if (params && typeof params.returnTo === 'string' && /^(library|errors)(?:\?|$)/.test(params.returnTo)) {
+      return params.returnTo;
+    }
     const query = [];
     if (error && error.subject) query.push('subject=' + encodeURIComponent(error.subject));
     if (error && error.module) query.push('module=' + encodeURIComponent(error.module));
-    return 'errors' + (query.length ? '?' + query.join('&') : '');
+    const routeBase = params && params.routeBase === 'errors' ? 'errors' : 'library';
+    if (routeBase === 'library') query.push('tab=wrong');
+    return routeBase + (query.length ? '?' + query.join('&') : '');
   },
 
   // v8.12.30 错题本侧边栏 SVG 图标（像素级还原设计稿：直接引用设计稿导出路径，fill/stroke 用 currentColor）
@@ -22736,7 +22781,10 @@ App.Pages.Errors = {
     // 先销毁旧实例（若存在）
     if (this._masonryInst) { try { this._masonryInst.destroy(); } catch (e) {} this._masonryInst = null; }
     const inst = App.Components.masonryGrid(masonryWrap, {
-      onOpen: (error) => App.Router.navigate('error-detail?id=' + error.id)
+      onOpen: (error) => App.Router.navigate(
+        'error-detail?id=' + encodeURIComponent(error.id) +
+        '&returnTo=' + encodeURIComponent(this._buildErrorListRoute(error, { routeBase: 'errors' }))
+      )
     });
     this._masonryInst = inst;
     inst.render(errors, false);
@@ -22823,7 +22871,7 @@ App.Pages.Errors = {
 
     // 返回栏 + 右上角：屏幕勾画铅笔 + 三点菜单（编辑已整合进三点菜单）
     const header = App.Components.pageHeader('错题详情', null, null, {
-      onBack: () => App.Router.navigate(this._buildErrorListRoute(error))
+      onBack: () => App.Router.navigate(this._buildErrorListRoute(error, params))
     });
     const detailRight = header.querySelector('.page-header__right');
     if (detailRight) {
@@ -24236,8 +24284,6 @@ App.Pages.Errors.renderShenlunForm = function (params) {
     resizeTimer = setTimeout(update, 250);
   });
 })();
-
-
 
 
 // ===== 考公笔试复盘系统 - 笔记页面 =====

@@ -32,6 +32,10 @@ App.Pages.Library = {
     this.state.items = await App.Knowledge.getAll();
 
     const container = document.getElementById('page-library');
+    if (this._masonryInst) {
+      try { this._masonryInst.destroy(); } catch (e) {}
+      this._masonryInst = null;
+    }
     container.innerHTML = '';
     const body = document.createElement('div');
     body.className = 'library-page';
@@ -191,10 +195,31 @@ App.Pages.Library = {
   },
 
   _renderItemList(container, items) {
+    if (this._masonryInst) {
+      try { this._masonryInst.destroy(); } catch (e) {}
+      this._masonryInst = null;
+    }
     if (!items.length) {
       container.innerHTML = '<div class="library-empty"><span>📚</span><strong>这里还没有内容</strong><small>可以通过右下角「+」新增错题、笔记或词语</small></div>';
       return;
     }
+
+    // 错题沿用旧错题本的完整卡片：题干、辨析词语、考点/错因、思维误区和日期。
+    // 学习库按当前产品要求固定为横向两列；旧错题本不传 columns，继续使用原自适应列数。
+    const isWrongMasonry = this.state.tab === 'wrong' && items.every(item => item.type === 'wrong');
+    if (isWrongMasonry) {
+      const masonryWrap = document.createElement('div');
+      masonryWrap.className = 'error-masonry-wrap library-error-masonry-wrap';
+      container.appendChild(masonryWrap);
+      const inst = App.Components.masonryGrid(masonryWrap, {
+        columns: 2,
+        onOpen: (error) => this._openWrongDetail(error)
+      });
+      this._masonryInst = inst;
+      inst.render(items.map(item => item.raw), false);
+      return;
+    }
+
     items.slice().sort((a, b) => new Date(b.updatedTime || b.createdTime || 0) - new Date(a.updatedTime || a.createdTime || 0))
       .forEach(item => container.appendChild(this._itemCard(item)));
   },
@@ -216,13 +241,20 @@ App.Pages.Library = {
 
   _openItem(item) {
     if (item.sourceStore === 'errors') {
-      App.Router.navigate('error-detail?id=' + encodeURIComponent(item.sourceId));
+      this._openWrongDetail(item.raw || { id: item.sourceId, subject: item.subject, module: item.module });
     } else if (item.sourceStore === 'notes') {
       App.Router.navigate('note-detail?id=' + encodeURIComponent(item.sourceId));
     } else {
       const category = item.sourceCategory || 'word-def';
       App.Router.navigate('worddb?category=' + encodeURIComponent(category) + '&subject=' + encodeURIComponent(item.subject) + '&module=' + encodeURIComponent(item.module));
     }
+  },
+
+  _openWrongDetail(error) {
+    const returnTo = 'library?subject=' + encodeURIComponent(error.subject || '') +
+      '&module=' + encodeURIComponent(error.module || '') + '&tab=wrong';
+    App.Router.navigate('error-detail?id=' + encodeURIComponent(error.id) +
+      '&returnTo=' + encodeURIComponent(returnTo));
   },
 
   async _getContext() {

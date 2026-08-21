@@ -18,12 +18,17 @@ App.Pages.Errors = {
     gallerySizeAuto: true // 是否自动根据窗口宽度选择密度（用户手动切换后变为 false）
   },
 
-  // 根据错题自身的科目/模块生成列表路由，避免详情页依赖浏览器历史返回。
-  _buildErrorListRoute(error) {
+  // 根据来源和错题自身的科目/模块生成列表路由，避免详情页回到旧错题本。
+  _buildErrorListRoute(error, params) {
+    if (params && typeof params.returnTo === 'string' && /^(library|errors)(?:\?|$)/.test(params.returnTo)) {
+      return params.returnTo;
+    }
     const query = [];
     if (error && error.subject) query.push('subject=' + encodeURIComponent(error.subject));
     if (error && error.module) query.push('module=' + encodeURIComponent(error.module));
-    return 'errors' + (query.length ? '?' + query.join('&') : '');
+    const routeBase = params && params.routeBase === 'errors' ? 'errors' : 'library';
+    if (routeBase === 'library') query.push('tab=wrong');
+    return routeBase + (query.length ? '?' + query.join('&') : '');
   },
 
   // v8.12.30 错题本侧边栏 SVG 图标（像素级还原设计稿：直接引用设计稿导出路径，fill/stroke 用 currentColor）
@@ -562,7 +567,10 @@ App.Pages.Errors = {
     // 先销毁旧实例（若存在）
     if (this._masonryInst) { try { this._masonryInst.destroy(); } catch (e) {} this._masonryInst = null; }
     const inst = App.Components.masonryGrid(masonryWrap, {
-      onOpen: (error) => App.Router.navigate('error-detail?id=' + error.id)
+      onOpen: (error) => App.Router.navigate(
+        'error-detail?id=' + encodeURIComponent(error.id) +
+        '&returnTo=' + encodeURIComponent(this._buildErrorListRoute(error, { routeBase: 'errors' }))
+      )
     });
     this._masonryInst = inst;
     inst.render(errors, false);
@@ -649,7 +657,7 @@ App.Pages.Errors = {
 
     // 返回栏 + 右上角：屏幕勾画铅笔 + 三点菜单（编辑已整合进三点菜单）
     const header = App.Components.pageHeader('错题详情', null, null, {
-      onBack: () => App.Router.navigate(this._buildErrorListRoute(error))
+      onBack: () => App.Router.navigate(this._buildErrorListRoute(error, params))
     });
     const detailRight = header.querySelector('.page-header__right');
     if (detailRight) {
@@ -2062,5 +2070,3 @@ App.Pages.Errors.renderShenlunForm = function (params) {
     resizeTimer = setTimeout(update, 250);
   });
 })();
-
-

@@ -46,6 +46,7 @@
 .library-tabs button { flex: 0 0 auto; min-height: 34px; padding: 0 14px; border-radius: 17px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: var(--font-sm); }
 .library-tabs button.is-active { background: var(--color-primary); color: #fff; font-weight: 600; }
 .library-item-list { display: grid; gap: 10px; }
+.library-error-masonry-wrap { width: 100%; }
 .library-item-card { position: relative; padding: 14px 16px 15px; border: 1px solid var(--border-color); border-radius: 18px; background: var(--bg-card); box-shadow: var(--shadow-sm); cursor: pointer; }
 .library-item-card:active { background: var(--bg-tertiary); }
 .library-item-card__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

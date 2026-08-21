@@ -55,6 +55,10 @@ App.Router = {
       try { App.Pages.Errors._masonryInst.destroy(); } catch (e) {}
       App.Pages.Errors._masonryInst = null;
     }
+    if (pageBase !== 'library' && App.Pages.Library && App.Pages.Library._masonryInst) {
+      try { App.Pages.Library._masonryInst.destroy(); } catch (e) {}
+      App.Pages.Library._masonryInst = null;
+    }
 
     // 显示目标页面
     const pageEl = document.getElementById('page-' + pageBase);
@@ -350,4 +354,3 @@ document.addEventListener('DOMContentLoaded', async () => {
     }).catch(() => {});
   }
 });
-

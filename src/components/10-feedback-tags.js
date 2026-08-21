@@ -1121,6 +1121,10 @@ Object.assign(App.Components, {
     let cards = [];   // 当前已渲染的卡片数据
 
     const getColumnCount = () => {
+      if (o.columns) {
+        const fixedColumns = parseInt(o.columns, 10);
+        if (!isNaN(fixedColumns) && fixedColumns > 0) return fixedColumns;
+      }
       const w = window.innerWidth;
       if (w >= 1024) return 4;
       if (w >= 768) return 3;
