@@ -211,7 +211,8 @@ App.Pages.Notes = {
       this.state.subject = isKnownSubject ? requestedSubject : null;
       const modules = this.state.subject ? App.Constants.getModules(this.state.subject) : [];
       this.state.module = this.state.subject && params.module && modules.indexOf(params.module) !== -1 ? params.module : null;
-      this.state.type = params.type || params.noteType || null;
+      const requestedType = params.type || params.noteType || null;
+      this.state.type = requestedType === App.NoteTypes.UNCLASSIFIED ? null : requestedType;
       this.state.knowledgePoint = null;
     }
 
@@ -456,11 +457,11 @@ App.Pages.Notes = {
       chip.addEventListener('click', onClick);
       return chip;
     };
-    wrap.appendChild(mk('类型全部', !this.state.type, () => {
+    wrap.appendChild(mk('全部', !this.state.type, () => {
       this.state.type = null;
       this.refreshFiltersAndList();
     }));
-    [{ name: App.NoteTypes.UNCLASSIFIED, color: '#8E8E93' }].concat(types).forEach(t => {
+    types.forEach(t => {
       const isActive = this.state.type === t.name;
       const chip = document.createElement('button');
       chip.type = 'button';
@@ -603,11 +604,12 @@ App.Pages.Notes = {
       if (!isNaN(dd.getTime())) dateTxt = (dd.getMonth() + 1) + ' 月 ' + dd.getDate() + ' 日';
     } catch (e) { dateTxt = ''; }
     // 类型 pill（对齐画布：类型在笔记卡上显示效果）
-    const displayType = note.type || App.NoteTypes.UNCLASSIFIED;
-    const tc = note.type && note.type !== App.NoteTypes.UNCLASSIFIED
+    const hasType = !!(note.type && note.type !== App.NoteTypes.UNCLASSIFIED);
+    const displayType = hasType ? note.type : '';
+    const tc = hasType
       ? App.NoteTypes.getColor(note.type, note.subject, note.module)
       : '#8E8E93';
-    const typePill = cardOpts.hideType ? '' : `<button type="button" class="note-type-pill" style="background:${this._noteTypeColorBg(tc)};color:${tc};">${displayType}</button>`;
+    const typePill = cardOpts.hideType || !hasType ? '' : `<button type="button" class="note-type-pill" style="background:${this._noteTypeColorBg(tc)};color:${tc};">${displayType}</button>`;
     const location = [!cardOpts.hideSubject && note.subject, note.module, note.knowledgePoint].filter(Boolean).join(' · ');
     card.innerHTML = `
       <div class="note-item__body">
@@ -740,7 +742,9 @@ App.Pages.Notes = {
     const infoEl = document.createElement('div');
     infoEl.className = 'note-detail-info';
     const infoBits = [];
-    infoBits.push('<button type="button" class="note-detail-info__chip">' + (note.type || App.NoteTypes.UNCLASSIFIED) + '</button>');
+    if (note.type && note.type !== App.NoteTypes.UNCLASSIFIED) {
+      infoBits.push('<button type="button" class="note-detail-info__chip">' + note.type + '</button>');
+    }
     infoBits.push('<span class="note-detail-info__hint">轻点标题或正文即可编辑</span>');
     infoEl.innerHTML = infoBits.join('');
     const detailTypeButton = infoEl.querySelector('.note-detail-info__chip');

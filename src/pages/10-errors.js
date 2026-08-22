@@ -696,11 +696,11 @@ App.Pages.Errors = {
       chip.addEventListener('click', onClick);
       wrap.appendChild(chip);
     };
-    addChip('类型全部', !this.state.noteType, () => {
+    addChip('全部', !this.state.noteType, () => {
       this.state.noteType = null;
       this.refreshFiltersAndList();
     });
-    [{ name: App.NoteTypes.UNCLASSIFIED, color: '#8E8E93' }].concat(types).forEach(type => addChip(type.name, this.state.noteType === type.name, () => {
+    types.forEach(type => addChip(type.name, this.state.noteType === type.name, () => {
       this.state.noteType = this.state.noteType === type.name ? null : type.name;
       this.refreshFiltersAndList();
     }, type.color));
