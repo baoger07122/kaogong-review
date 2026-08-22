@@ -18,20 +18,25 @@
 .sticky-add-btn:active { transform: scale(0.92); }
 
 .sticky-masonry {
-  column-count: 2;
-  column-gap: var(--spacing-sm);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-sm);
+  align-items: start;
 }
-.sticky-masonry--manage { column-gap: var(--spacing-md); }
-.sticky-masonry--home { column-count: 2; column-gap: 12px; }   /* v8.6.10 首页便签改纵向瀑布流（两列，与管理页一致；原横向滚动已移除） */
+.sticky-masonry__column { min-width: 0; display: flex; flex-direction: column; gap: var(--spacing-sm); }
+.sticky-masonry--manage { gap: var(--spacing-md); }
+.sticky-masonry--home { gap: 12px; }   /* 两列首张卡片从同一顶部开始，按输入顺序左右分配后各列向下排列 */
 
 /* v8.12.4 首页便签对齐画布 7:539：白底描边(无阴影)圆角16、内容13px两行、时间11px */
 .sticky-masonry--home .sticky-card {
+  margin-bottom: 0;
+}
+.sticky-masonry--home .sticky-card__surface {
   border: 1px solid #E0E0E0;
   border-radius: 16px;
   background: #FFFFFF;
   box-shadow: none;
   padding: 12px 14px;
-  margin-bottom: 12px;
 }
 .sticky-masonry--home .sticky-card__content {
   font-size: 13px;
@@ -67,6 +72,13 @@
   flex-direction: column;
   box-sizing: border-box;
 }
+.sticky-scroll .sticky-card__surface {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
 .sticky-scroll .sticky-card__content {
   flex: 1;
   min-height: 0;
@@ -94,15 +106,26 @@
 .sticky-card {
   break-inside: avoid;
   border-radius: var(--radius-lg);
-  padding: 12px;
-  margin-bottom: var(--spacing-sm);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   position: relative;
-  transition: transform 0.12s ease;
+  touch-action: pan-y;
 }
-.sticky-card:active { transform: scale(0.98); }
+.sticky-card__surface {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  padding: 12px;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  transition: transform 0.18s ease;
+}
+.sticky-card:active .sticky-card__surface { transform: scale(0.99); }
+.sticky-card.is-swiping .sticky-card__surface { transition: none; }
 .sticky-card.is-pinned::before {
   content: '📌';
   position: absolute;
@@ -110,6 +133,22 @@
   left: 8px;             /* v8.4.19 方案要求左上角小图钉（原右上角） */
   font-size: 12px;
   opacity: 0.9;
+  z-index: 3;
+}
+.sticky-card__tag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  margin-bottom: 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.72);
+  color: #6B7280;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .sticky-card__content {
   font-size: var(--font-md);
@@ -124,6 +163,24 @@
   font-size: var(--font-xs);
   color: #9CA3AF;
 }
+.sticky-card__delete {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 76px;
+  border: 0;
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  background: #FF3B30;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sticky-card.is-swipe-open .sticky-card__surface { transform: translateX(-76px); }
+.sticky-card.is-deleting { animation: sticky-card-remove 0.18s ease forwards; }
+@keyframes sticky-card-remove { to { opacity: 0; transform: scale(0.88); } }
 /* v8.6.17 便签待办：方框勾选 → 划线 + 显示后移 */
 .sticky-task {
   display: flex;
@@ -253,6 +310,12 @@
   -webkit-tap-highlight-color: transparent;
 }
 .sticky-rich-editor__tool:active { background: var(--bg-card); color: var(--color-primary); }
+.sticky-rich-editor__tool.is-active {
+  background: var(--bg-card);
+  color: var(--color-primary);
+  box-shadow: 0 0 0 1px rgba(0,102,204,0.12);
+}
+.sticky-rich-editor__tool.is-pressed { transform: scale(0.9); background: var(--bg-card); color: var(--color-primary); }
 .sticky-card__content--rich p { margin: 0 0 5px; }
 .sticky-card__content--rich p:last-child { margin-bottom: 0; }
 .sticky-card__content--rich ul,
@@ -264,6 +327,22 @@
   margin-top: 14px;
 }
 .sticky-sheet__label { font-size: var(--font-sm); color: var(--text-secondary); }
+.sticky-sheet__tag-field { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+.sticky-sheet__tag-field .sticky-sheet__label { flex: 0 0 auto; }
+.sticky-sheet__tag-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--divider-color);
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-sm);
+  outline: none;
+}
+.sticky-sheet__tag-input:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(0,102,204,0.1); }
 .sticky-sheet__dots { display: flex; gap: 8px; }
 .sticky-sheet__dot {
   width: 26px;

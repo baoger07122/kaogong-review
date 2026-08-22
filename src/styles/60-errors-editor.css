@@ -1740,16 +1740,12 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .errors-sticky-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-auto-flow: row;
   align-items: start;
   gap: 12px;
   padding: 0 var(--page-padding) var(--spacing-lg);
 }
-.errors-sticky-list .sticky-card {
-  width: auto;
-  margin: 0;
-  break-inside: auto;
-}
+.errors-sticky-list .sticky-masonry__column { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.errors-sticky-list .sticky-card { width: auto; margin: 0; break-inside: auto; }
 .errors-sticky-empty {
   margin: 0 var(--page-padding);
 }

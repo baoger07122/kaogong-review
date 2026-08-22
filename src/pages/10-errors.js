@@ -193,6 +193,9 @@ App.Pages.Errors = {
     if (!this.state.subject || (!this.state.module && !App.Constants.isFlatSubject(this.state.subject))) return [];
     return (this.state.allStickies || []).filter(sticky => {
       return sticky.subject === this.state.subject && sticky.module === (this.state.module || '');
+    }).sort((a, b) => {
+      if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+      return new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0);
     });
   },
 
@@ -438,8 +441,7 @@ App.Pages.Errors = {
       this.state.subject = null;
       this.state.module = null;
       this.state.knowledgePoint = null;
-      this.state.noteType = (this.state.view === 'notes' && (params.type || params.noteType))
-        ? (params.type || params.noteType) : null;
+      this.state.noteType = null;
       this._expanded = {};
       this.refreshAll();
     });
@@ -747,7 +749,10 @@ App.Pages.Errors = {
       return;
     }
 
-    notes.forEach(note => container.appendChild(App.Pages.Notes.buildNoteCard(note, this._viewRoute('notes'))));
+    notes.forEach(note => container.appendChild(App.Pages.Notes.buildNoteCard(note, this._viewRoute('notes'), {
+      hideType: !!this.state.noteType,
+      hideSubject: !!this.state.subject
+    })));
   },
 
   // 便签只属于当前模块，不读取首页便签，也不在不同模块之间混合展示。
@@ -776,17 +781,6 @@ App.Pages.Errors = {
   renderStickiesList(container) {
     container.innerHTML = '';
     const hasContext = !!(this.state.subject && (this.state.module || App.Constants.isFlatSubject(this.state.subject)));
-    const head = document.createElement('div');
-    head.className = 'errors-sticky-list-head';
-    head.innerHTML = '<div><strong>便签</strong><small>' + (hasContext ? (this.state.module || this.state.subject) : '请选择左侧科目和模块') + '</small></div>';
-    const addBtn = document.createElement('button');
-    addBtn.type = 'button';
-    addBtn.className = 'errors-sticky-add';
-    addBtn.textContent = '＋ 新增便签';
-    addBtn.disabled = !hasContext;
-    addBtn.addEventListener('click', () => this._openStickyEditor());
-    head.appendChild(addBtn);
-    container.appendChild(head);
 
     let stickies = hasContext ? this._getModuleStickies().slice() : [];
     if (this.state.search) {
@@ -799,23 +793,13 @@ App.Pages.Errors = {
       empty.innerHTML = hasContext
         ? '<div class="eerr-empty__icon">📝</div><div class="eerr-empty__title">这个模块还没有便签</div><div class="eerr-empty__desc">添加只会保存在当前模块内</div>'
         : '<div class="eerr-empty__icon">📝</div><div class="eerr-empty__title">先选择一个模块</div><div class="eerr-empty__desc">每个模块的便签相互独立</div>';
-      if (hasContext) {
-        const action = document.createElement('button');
-        action.type = 'button';
-        action.className = 'eerr-empty__action';
-        action.textContent = '＋ 新建便签';
-        action.addEventListener('click', () => this._openStickyEditor());
-        empty.appendChild(action);
-      }
       container.appendChild(empty);
       return;
     }
 
-    const grid = document.createElement('div');
-    grid.className = 'errors-sticky-list';
-    stickies.forEach(sticky => grid.appendChild(App.Components.stickyCard(sticky, {
+    const grid = App.Components.stickyMasonry(stickies, 'errors-sticky-list', {
       onRefresh: async () => { await this.loadData(); this.refreshAll(); }
-    })));
+    });
     container.appendChild(grid);
   },
 

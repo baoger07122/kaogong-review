@@ -3132,15 +3132,15 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   line-height: 1;
 }
 .note-item__topline {
-  min-height: 18px;
+  min-height: 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 2px;
+  margin-bottom: 3px;
 }
-.note-item__topline .note-type-pill { display: block; }
-.note-item--compact .note-item__title {
+.note-item__topline .note-item__title {
+  min-width: 0;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -3149,12 +3149,21 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   margin: 0 0 3px;
   line-height: 1.35;
 }
+.note-item__meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin-top: 6px;
+}
+.note-item__meta .note-type-pill { flex: 0 0 auto; }
 .note-item--compact .note-item__summary {
   -webkit-line-clamp: 2;
   line-height: 1.45;
 }
 .note-item__location {
-  margin-top: 4px;
+  min-width: 0;
+  margin-top: 0;
   color: var(--text-tertiary);
   font-size: 11px;
   line-height: 1.25;
@@ -6331,16 +6340,12 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .errors-sticky-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-auto-flow: row;
   align-items: start;
   gap: 12px;
   padding: 0 var(--page-padding) var(--spacing-lg);
 }
-.errors-sticky-list .sticky-card {
-  width: auto;
-  margin: 0;
-  break-inside: auto;
-}
+.errors-sticky-list .sticky-masonry__column { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.errors-sticky-list .sticky-card { width: auto; margin: 0; break-inside: auto; }
 .errors-sticky-empty {
   margin: 0 var(--page-padding);
 }
@@ -9196,20 +9201,25 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sticky-add-btn:active { transform: scale(0.92); }
 
 .sticky-masonry {
-  column-count: 2;
-  column-gap: var(--spacing-sm);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-sm);
+  align-items: start;
 }
-.sticky-masonry--manage { column-gap: var(--spacing-md); }
-.sticky-masonry--home { column-count: 2; column-gap: 12px; }   /* v8.6.10 首页便签改纵向瀑布流（两列，与管理页一致；原横向滚动已移除） */
+.sticky-masonry__column { min-width: 0; display: flex; flex-direction: column; gap: var(--spacing-sm); }
+.sticky-masonry--manage { gap: var(--spacing-md); }
+.sticky-masonry--home { gap: 12px; }   /* 两列首张卡片从同一顶部开始，按输入顺序左右分配后各列向下排列 */
 
 /* v8.12.4 首页便签对齐画布 7:539：白底描边(无阴影)圆角16、内容13px两行、时间11px */
 .sticky-masonry--home .sticky-card {
+  margin-bottom: 0;
+}
+.sticky-masonry--home .sticky-card__surface {
   border: 1px solid #E0E0E0;
   border-radius: 16px;
   background: #FFFFFF;
   box-shadow: none;
   padding: 12px 14px;
-  margin-bottom: 12px;
 }
 .sticky-masonry--home .sticky-card__content {
   font-size: 13px;
@@ -9245,6 +9255,13 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   flex-direction: column;
   box-sizing: border-box;
 }
+.sticky-scroll .sticky-card__surface {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
 .sticky-scroll .sticky-card__content {
   flex: 1;
   min-height: 0;
@@ -9272,15 +9289,26 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .sticky-card {
   break-inside: avoid;
   border-radius: var(--radius-lg);
-  padding: 12px;
-  margin-bottom: var(--spacing-sm);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   position: relative;
-  transition: transform 0.12s ease;
+  touch-action: pan-y;
 }
-.sticky-card:active { transform: scale(0.98); }
+.sticky-card__surface {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  padding: 12px;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  transition: transform 0.18s ease;
+}
+.sticky-card:active .sticky-card__surface { transform: scale(0.99); }
+.sticky-card.is-swiping .sticky-card__surface { transition: none; }
 .sticky-card.is-pinned::before {
   content: '📌';
   position: absolute;
@@ -9288,6 +9316,22 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   left: 8px;             /* v8.4.19 方案要求左上角小图钉（原右上角） */
   font-size: 12px;
   opacity: 0.9;
+  z-index: 3;
+}
+.sticky-card__tag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  margin-bottom: 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.72);
+  color: #6B7280;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .sticky-card__content {
   font-size: var(--font-md);
@@ -9302,6 +9346,24 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   font-size: var(--font-xs);
   color: #9CA3AF;
 }
+.sticky-card__delete {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 76px;
+  border: 0;
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  background: #FF3B30;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sticky-card.is-swipe-open .sticky-card__surface { transform: translateX(-76px); }
+.sticky-card.is-deleting { animation: sticky-card-remove 0.18s ease forwards; }
+@keyframes sticky-card-remove { to { opacity: 0; transform: scale(0.88); } }
 /* v8.6.17 便签待办：方框勾选 → 划线 + 显示后移 */
 .sticky-task {
   display: flex;
@@ -9431,6 +9493,12 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   -webkit-tap-highlight-color: transparent;
 }
 .sticky-rich-editor__tool:active { background: var(--bg-card); color: var(--color-primary); }
+.sticky-rich-editor__tool.is-active {
+  background: var(--bg-card);
+  color: var(--color-primary);
+  box-shadow: 0 0 0 1px rgba(0,102,204,0.12);
+}
+.sticky-rich-editor__tool.is-pressed { transform: scale(0.9); background: var(--bg-card); color: var(--color-primary); }
 .sticky-card__content--rich p { margin: 0 0 5px; }
 .sticky-card__content--rich p:last-child { margin-bottom: 0; }
 .sticky-card__content--rich ul,
@@ -9442,6 +9510,22 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   margin-top: 14px;
 }
 .sticky-sheet__label { font-size: var(--font-sm); color: var(--text-secondary); }
+.sticky-sheet__tag-field { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+.sticky-sheet__tag-field .sticky-sheet__label { flex: 0 0 auto; }
+.sticky-sheet__tag-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--divider-color);
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-sm);
+  outline: none;
+}
+.sticky-sheet__tag-input:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(0,102,204,0.1); }
 .sticky-sheet__dots { display: flex; gap: 8px; }
 .sticky-sheet__dot {
   width: 26px;
@@ -10726,7 +10810,7 @@ window.App = window.App || {};
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.21.13';
+App.VERSION = '8.22.1';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -11883,6 +11967,7 @@ App.DB = (function() {
   async function addSticky(sticky) {
     if (!sticky.id) sticky.id = App.Utils.genId('sticky');
     sticky.content = sticky.content || '';
+    sticky.tag = String(sticky.tag || '').trim();
     sticky.color = sticky.color || '#FFFBEB';
     sticky.pinned = !!sticky.pinned;
     sticky.createdAt = sticky.createdAt || new Date().toISOString();
@@ -11891,6 +11976,7 @@ App.DB = (function() {
   }
 
   async function updateSticky(sticky) {
+    sticky.tag = String(sticky.tag || '').trim();
     sticky.updatedAt = new Date().toISOString();
     return put('stickies', sticky);
   }
@@ -11901,10 +11987,10 @@ App.DB = (function() {
 
   async function getStickies() {
     const all = await getAll('stickies');
-    // 置顶优先，其次按最近更新时间倒序
+    // 置顶优先，其次严格按新增时间倒序；编辑不会改变便签在列表中的时间位置。
     return all.sort((a, b) => {
       if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
-      return new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0);
+      return new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0);
     });
   }
 
@@ -12241,7 +12327,6 @@ App.DB = (function() {
     isAvailable
   };
 })();
-
 
 
 // ===== 考公笔试复盘系统 - 标签库（考点按模块 / 错因全局，均可增删、持久化） =====
@@ -16521,16 +16606,23 @@ Object.assign(App.Components, {
       while (node && node !== area && !/^(P|DIV|LI|H[1-6]|BLOCKQUOTE)$/.test(node.tagName)) node = node.parentElement;
       return node && node !== area ? node : null;
     };
+    const INDENT_STEP = 10;
     const indent = (direction) => {
       restoreSelection();
       const block = currentBlock();
-      if (!block) return;
-      if (block.tagName === 'LI') {
-        try { document.execCommand(direction > 0 ? 'indent' : 'outdent'); } catch (e) {}
-      } else {
-        const current = parseFloat(block.style.marginLeft) || 0;
-        block.style.marginLeft = Math.max(0, current + (direction > 0 ? 20 : -20)) || '';
+      if (!block) {
+        const blank = document.createElement('p');
+        blank.style.marginLeft = direction > 0 ? INDENT_STEP + 'px' : '';
+        blank.innerHTML = '<br>';
+        area.appendChild(blank);
+        placeCaretAtEnd(blank);
+        captureSelection();
+        if (opts.onChange) opts.onChange(area.innerHTML);
+        return;
       }
+      // 统一使用段落左边距，普通文字、空白行及两种列表都能生效；步进缩短为原来的一半。
+      const current = parseFloat(block.style.marginLeft) || 0;
+      block.style.marginLeft = Math.max(0, current + (direction > 0 ? INDENT_STEP : -INDENT_STEP)) || '';
       captureSelection();
       if (opts.onChange) opts.onChange(area.innerHTML);
     };
@@ -16545,10 +16637,24 @@ Object.assign(App.Components, {
       if (opts.onChange) opts.onChange(area.innerHTML);
     };
 
-    area.addEventListener('mouseup', captureSelection);
-    area.addEventListener('keyup', captureSelection);
+    const syncToolbarState = () => {
+      toolbar.querySelectorAll('[data-command]').forEach(button => {
+        let active = false;
+        const command = button.dataset.command;
+        try {
+          if (command === 'bold') active = document.queryCommandState('bold');
+          if (command === 'bullet') active = document.queryCommandState('insertUnorderedList');
+          if (command === 'numbered') active = document.queryCommandState('insertOrderedList');
+        } catch (e) {}
+        const block = currentBlock();
+        if (command === 'indent') active = !!(block && (parseFloat(block.style.marginLeft) || 0) > 0);
+        button.classList.toggle('is-active', !!active);
+      });
+    };
+    area.addEventListener('mouseup', () => { captureSelection(); syncToolbarState(); });
+    area.addEventListener('keyup', () => { captureSelection(); syncToolbarState(); });
     area.addEventListener('focusin', captureSelection);
-    area.addEventListener('input', () => { captureSelection(); if (opts.onChange) opts.onChange(area.innerHTML); });
+    area.addEventListener('input', () => { captureSelection(); syncToolbarState(); if (opts.onChange) opts.onChange(area.innerHTML); });
     area.addEventListener('keydown', (e) => {
       if (e.key === 'Tab') { e.preventDefault(); indent(e.shiftKey ? -1 : 1); }
     });
@@ -16581,10 +16687,18 @@ Object.assign(App.Components, {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'sticky-rich-editor__tool';
+      button.dataset.command = item.command;
       button.innerHTML = item.label;
       button.title = item.title;
+      button.setAttribute('aria-label', item.title);
       button.addEventListener('mousedown', (e) => e.preventDefault());
-      button.addEventListener('click', () => apply(item.command));
+      button.addEventListener('pointerdown', (e) => e.preventDefault());
+      button.addEventListener('click', () => {
+        button.classList.add('is-pressed');
+        setTimeout(() => button.classList.remove('is-pressed'), 160);
+        apply(item.command);
+        syncToolbarState();
+      });
       toolbar.appendChild(button);
     });
     wrapper.appendChild(area);
@@ -19324,6 +19438,22 @@ Object.assign(App.Components, {
     });
     panel.appendChild(editor.element);
 
+    // 便签标签：单个短标签，直接在编辑窗口内修改，避免再跳转页面。
+    const tagField = document.createElement('label');
+    tagField.className = 'sticky-sheet__tag-field';
+    const tagLabel = document.createElement('span');
+    tagLabel.className = 'sticky-sheet__label';
+    tagLabel.textContent = '标签';
+    const tagInput = document.createElement('input');
+    tagInput.type = 'text';
+    tagInput.className = 'sticky-sheet__tag-input';
+    tagInput.maxLength = 16;
+    tagInput.placeholder = '添加标签（可选）';
+    tagInput.value = (opts.initial && opts.initial.tag) || '';
+    tagField.appendChild(tagLabel);
+    tagField.appendChild(tagInput);
+    panel.appendChild(tagField);
+
     // 颜色选择
     const colorRow = document.createElement('div');
     colorRow.className = 'sticky-sheet__row';
@@ -19379,7 +19509,12 @@ Object.assign(App.Components, {
       if (!content) { App.Components.toast('便签内容不能为空', 'error'); return; }
       closeOverlay();
       if (typeof opts.onSave === 'function') {
-        opts.onSave({ content: content, color: curColor, pinned: pinSwitch.classList.contains('is-on') });
+        opts.onSave({
+          content: content,
+          tag: tagInput.value.trim(),
+          color: curColor,
+          pinned: pinSwitch.classList.contains('is-on')
+        });
       }
     });
     actions.appendChild(cancelBtn);
@@ -19393,12 +19528,26 @@ Object.assign(App.Components, {
     setTimeout(() => { editor.focusAtEnd(); }, 60);
   },
 
-  // ===== 便签卡片（瀑布流用；点击/长按弹操作菜单） =====
-  // opts: { sticky, onRefresh }  onRefresh 在增删改后由调用方重渲染
+  // ===== 便签卡片（直接编辑 + 左滑删除） =====
+  // opts: { onRefresh }  onRefresh 在增删改后由调用方重渲染。
   stickyCard(sticky, opts) {
+    opts = opts || {};
     const card = document.createElement('div');
     card.className = 'sticky-card' + (sticky.pinned ? ' is-pinned' : '');
-    card.style.background = sticky.color || '#FFFBEB';
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+
+    const surface = document.createElement('div');
+    surface.className = 'sticky-card__surface';
+    surface.style.background = sticky.color || '#FFFBEB';
+
+    const tag = String(sticky.tag || '').trim();
+    if (tag) {
+      const tagEl = document.createElement('span');
+      tagEl.className = 'sticky-card__tag';
+      tagEl.textContent = tag;
+      surface.appendChild(tagEl);
+    }
 
     const content = document.createElement('div');
     content.className = 'sticky-card__content';
@@ -19436,69 +19585,150 @@ Object.assign(App.Components, {
       });
       content.innerHTML = html + doneTasks.join('');
     }
-    card.appendChild(content);
-    // 待办勾选交互：切换 [ ] ↔ [x]，划线 + 重排（完成后自动后移）
+    surface.appendChild(content);
+
+    const meta = document.createElement('div');
+    meta.className = 'sticky-card__meta';
+    const created = new Date(sticky.createdAt || sticky.updatedAt || 0);
+    meta.textContent = isNaN(created.getTime()) ? '' : (created.getMonth() + 1) + '月' + created.getDate() + '日';
+    surface.appendChild(meta);
+    card.appendChild(surface);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'sticky-card__delete';
+    deleteBtn.setAttribute('aria-label', '删除便签');
+    deleteBtn.textContent = '删除';
+    card.appendChild(deleteBtn);
+
+    const closeSwipe = () => {
+      card.classList.remove('is-swipe-open', 'is-swiping');
+      surface.style.transform = '';
+    };
+    const openEditor = () => {
+      App.Components.stickySheet({
+        title: '编辑便签',
+        initial: sticky,
+        onSave: async (data) => {
+          Object.assign(sticky, data);
+          try { await App.DB.updateSticky(sticky); } catch (e) { App.Components.toast('保存失败', 'error'); return; }
+          App.Components.toast('已保存 ✓', 'success');
+          if (typeof opts.onRefresh === 'function') opts.onRefresh();
+        }
+      });
+    };
+    const copyContent = async () => {
+      try {
+        const holder = document.createElement('div');
+        holder.innerHTML = /<\/?[a-z][\s\S]*>/i.test(String(sticky.content || '')) ? String(sticky.content || '') : '';
+        const copied = holder.innerHTML ? (holder.innerText || holder.textContent || '') : (sticky.content || '');
+        await navigator.clipboard.writeText(copied);
+        App.Components.toast('已复制到剪贴板', 'success');
+      } catch (e) { App.Components.toast('复制失败', 'error'); }
+    };
+    const deleteSticky = async () => {
+      const ok = await App.Components.confirm('删除便签', '确定删除这条便签？此操作不可撤销。', '删除', '取消', true);
+      if (!ok) return;
+      card.classList.add('is-deleting');
+      setTimeout(async () => {
+        try { await App.DB.removeSticky(sticky.id); } catch (e) {}
+        if (typeof opts.onRefresh === 'function') opts.onRefresh();
+      }, 170);
+    };
+    const showMenu = async () => {
+      const action = await App.Components.actionSheet([
+        { label: '📋 复制内容', value: 'copy' },
+        { label: '🗑️ 删除', value: 'delete' }
+      ], (sticky.content || '').slice(0, 18));
+      if (action === 'copy') await copyContent();
+      if (action === 'delete') await deleteSticky();
+    };
+
+    // 待办旧数据仍支持勾选，但阻止勾选事件误触发直接编辑。
     content.querySelectorAll('input[type=checkbox][data-raw]').forEach((cb) => {
+      cb.addEventListener('click', (e) => e.stopPropagation());
       cb.addEventListener('change', async () => {
         const old = cb.dataset.raw;
         const pat = /^(\s*)\[[ xX]\]/;
         const repl = cb.checked ? '$1[x]' : '$1[ ]';
-        const newContent = String(sticky.content || '').split('\n').map((l) => (l === old ? l.replace(pat, repl) : l)).join('\n');
-        sticky.content = newContent;
+        sticky.content = String(sticky.content || '').split('\n').map((l) => (l === old ? l.replace(pat, repl) : l)).join('\n');
         try { await App.DB.updateSticky(sticky); } catch (e) { /* 忽略 */ }
-        if (opts.onRefresh) opts.onRefresh();
+        if (typeof opts.onRefresh === 'function') opts.onRefresh();
       });
     });
 
-    const meta = document.createElement('div');
-    meta.className = 'sticky-card__meta';
-    meta.textContent = App.Utils.formatRelativeTime(sticky.updatedAt || sticky.createdAt);
-    card.appendChild(meta);
+    deleteBtn.addEventListener('click', (e) => { e.stopPropagation(); closeSwipe(); deleteSticky(); });
+    card.addEventListener('contextmenu', (e) => { e.preventDefault(); showMenu(); });
 
-    card.addEventListener('click', async () => {
-      const action = await App.Components.actionSheet([
-        { label: '✏️ 编辑', value: 'edit' },
-        { label: '📋 复制内容', value: 'copy' },
-        { label: '🗑️ 删除', value: 'delete' }
-      ], (sticky.content || '').slice(0, 18));
-      if (!action) return;
-
-      if (action === 'edit') {
-        App.Components.stickySheet({
-          title: '编辑便签',
-          initial: sticky,
-          onSave: async (data) => {
-            Object.assign(sticky, data);
-            try { await App.DB.updateSticky(sticky); } catch (e) { App.Components.toast('保存失败', 'error'); return; }
-            App.Components.toast('已保存 ✓', 'success');
-            if (opts && typeof opts.onRefresh === 'function') opts.onRefresh();
-          }
-        });
-      } else if (action === 'copy') {
-        try {
-          const holder = document.createElement('div');
-          holder.innerHTML = /<\/?[a-z][\s\S]*>/i.test(String(sticky.content || '')) ? String(sticky.content || '') : '';
-          const copied = holder.innerHTML ? (holder.innerText || holder.textContent || '') : (sticky.content || '');
-          await navigator.clipboard.writeText(copied);
-          App.Components.toast('已复制到剪贴板', 'success');
-        } catch (e) {
-          App.Components.toast('复制失败', 'error');
-        }
-      } else if (action === 'delete') {
-        const ok = await App.Components.confirm('删除便签', '确定删除这条便签？此操作不可撤销。', '删除', '取消', true);
-        if (ok) {
-          card.style.transition = 'transform 0.18s ease, opacity 0.18s ease';
-          card.style.transform = 'scale(0.6)';
-          card.style.opacity = '0';
-          setTimeout(async () => {
-            try { await App.DB.removeSticky(sticky.id); } catch (e) {}
-            if (opts && typeof opts.onRefresh === 'function') opts.onRefresh();
-          }, 170);
-        }
+    let startX = null;
+    let startY = null;
+    let moved = false;
+    let swiping = false;
+    let suppressClick = false;
+    let longPressFired = false;
+    let pressTimer = null;
+    const clearPress = () => { if (pressTimer) clearTimeout(pressTimer); pressTimer = null; };
+    card.addEventListener('pointerdown', (e) => {
+      if (e.target.closest && e.target.closest('button,input')) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      startX = e.clientX; startY = e.clientY; moved = false; swiping = false;
+      clearPress();
+      pressTimer = setTimeout(() => { longPressFired = true; showMenu(); }, 550);
+    });
+    card.addEventListener('pointermove', (e) => {
+      if (startX === null) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) { moved = true; clearPress(); }
+      if (dx < -8 && Math.abs(dx) > Math.abs(dy)) {
+        swiping = true;
+        card.classList.add('is-swiping');
+        surface.style.transform = 'translateX(' + Math.max(-78, dx) + 'px)';
       }
     });
-
+    const finishPointer = (e) => {
+      clearPress();
+      if (swiping) {
+        const dx = e.clientX - startX;
+        card.classList.toggle('is-swipe-open', dx < -44);
+        surface.style.transform = '';
+        card.classList.remove('is-swiping');
+        suppressClick = true;
+      } else if (moved) {
+        suppressClick = true;
+      }
+      startX = null; startY = null;
+      if (suppressClick) setTimeout(() => { suppressClick = false; }, 120);
+    };
+    card.addEventListener('pointerup', finishPointer);
+    card.addEventListener('pointercancel', (e) => { clearPress(); if (swiping) closeSwipe(); startX = null; startY = null; });
+    card.addEventListener('click', (e) => {
+      if (e.target.closest && e.target.closest('.sticky-card__delete')) return;
+      if (longPressFired) { longPressFired = false; return; }
+      if (suppressClick) return;
+      if (card.classList.contains('is-swipe-open')) { closeSwipe(); return; }
+      openEditor();
+    });
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEditor(); }
+    });
     return card;
+  },
+
+  // 按输入顺序左右分配，再各列向下排列，保证两列首张卡片同时从顶部开始。
+  stickyMasonry(stickies, className, opts) {
+    const wrap = document.createElement('div');
+    wrap.className = className || 'sticky-masonry';
+    const columns = [0, 1].map(() => {
+      const col = document.createElement('div');
+      col.className = 'sticky-masonry__column';
+      return col;
+    });
+    (stickies || []).forEach((sticky, index) => {
+      columns[index % 2].appendChild(this.stickyCard(sticky, opts || {}));
+    });
+    columns.forEach(col => wrap.appendChild(col));
+    return wrap;
   },
   centeredPicker(options, title, subtitle, longPress) {
     return new Promise((resolve) => {
@@ -22116,9 +22346,13 @@ App.Pages.Home = {
       });
       masonry.appendChild(empty);
     } else {
-      stickies.slice(0, 10).forEach(s => {
-        masonry.appendChild(App.Components.stickyCard(s, { onRefresh: () => this._refreshStickySection() }));
-      });
+      const stickyGrid = App.Components.stickyMasonry(
+        stickies.slice(0, 10),
+        'sticky-masonry sticky-masonry--home',
+        { onRefresh: () => this._refreshStickySection() }
+      );
+      wrap.appendChild(stickyGrid);
+      return;
     }
     wrap.appendChild(masonry);
   },
@@ -22132,7 +22366,6 @@ App.Pages.Home = {
     await this._fillStickySection(wrap);
   }
 };
-
 
 
 // ===== 复习模块 V1：历史错题重新训练 =====
@@ -22498,6 +22731,9 @@ App.Pages.Errors = {
     if (!this.state.subject || (!this.state.module && !App.Constants.isFlatSubject(this.state.subject))) return [];
     return (this.state.allStickies || []).filter(sticky => {
       return sticky.subject === this.state.subject && sticky.module === (this.state.module || '');
+    }).sort((a, b) => {
+      if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+      return new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0);
     });
   },
 
@@ -22743,8 +22979,7 @@ App.Pages.Errors = {
       this.state.subject = null;
       this.state.module = null;
       this.state.knowledgePoint = null;
-      this.state.noteType = (this.state.view === 'notes' && (params.type || params.noteType))
-        ? (params.type || params.noteType) : null;
+      this.state.noteType = null;
       this._expanded = {};
       this.refreshAll();
     });
@@ -23052,7 +23287,10 @@ App.Pages.Errors = {
       return;
     }
 
-    notes.forEach(note => container.appendChild(App.Pages.Notes.buildNoteCard(note, this._viewRoute('notes'))));
+    notes.forEach(note => container.appendChild(App.Pages.Notes.buildNoteCard(note, this._viewRoute('notes'), {
+      hideType: !!this.state.noteType,
+      hideSubject: !!this.state.subject
+    })));
   },
 
   // 便签只属于当前模块，不读取首页便签，也不在不同模块之间混合展示。
@@ -23081,17 +23319,6 @@ App.Pages.Errors = {
   renderStickiesList(container) {
     container.innerHTML = '';
     const hasContext = !!(this.state.subject && (this.state.module || App.Constants.isFlatSubject(this.state.subject)));
-    const head = document.createElement('div');
-    head.className = 'errors-sticky-list-head';
-    head.innerHTML = '<div><strong>便签</strong><small>' + (hasContext ? (this.state.module || this.state.subject) : '请选择左侧科目和模块') + '</small></div>';
-    const addBtn = document.createElement('button');
-    addBtn.type = 'button';
-    addBtn.className = 'errors-sticky-add';
-    addBtn.textContent = '＋ 新增便签';
-    addBtn.disabled = !hasContext;
-    addBtn.addEventListener('click', () => this._openStickyEditor());
-    head.appendChild(addBtn);
-    container.appendChild(head);
 
     let stickies = hasContext ? this._getModuleStickies().slice() : [];
     if (this.state.search) {
@@ -23104,23 +23331,13 @@ App.Pages.Errors = {
       empty.innerHTML = hasContext
         ? '<div class="eerr-empty__icon">📝</div><div class="eerr-empty__title">这个模块还没有便签</div><div class="eerr-empty__desc">添加只会保存在当前模块内</div>'
         : '<div class="eerr-empty__icon">📝</div><div class="eerr-empty__title">先选择一个模块</div><div class="eerr-empty__desc">每个模块的便签相互独立</div>';
-      if (hasContext) {
-        const action = document.createElement('button');
-        action.type = 'button';
-        action.className = 'eerr-empty__action';
-        action.textContent = '＋ 新建便签';
-        action.addEventListener('click', () => this._openStickyEditor());
-        empty.appendChild(action);
-      }
       container.appendChild(empty);
       return;
     }
 
-    const grid = document.createElement('div');
-    grid.className = 'errors-sticky-list';
-    stickies.forEach(sticky => grid.appendChild(App.Components.stickyCard(sticky, {
+    const grid = App.Components.stickyMasonry(stickies, 'errors-sticky-list', {
       onRefresh: async () => { await this.loadData(); this.refreshAll(); }
-    })));
+    });
     container.appendChild(grid);
   },
 
@@ -25223,11 +25440,15 @@ App.Pages.Notes = {
       return;
     }
 
-    notes.forEach((note, idx) => container.appendChild(this.buildNoteCard(note)));
+    notes.forEach((note, idx) => container.appendChild(this.buildNoteCard(note, null, {
+      hideType: !!this.state.type,
+      hideSubject: !!this.state.subject
+    })));
   },
 
   // 笔记卡片：iPad 分屏优先——分类、日期和摘要集中呈现，减少无效留白。
-  buildNoteCard(note, returnTo) {
+  buildNoteCard(note, returnTo, cardOpts) {
+    cardOpts = cardOpts || {};
     const card = document.createElement('div');
     card.className = 'note-item note-item--card note-item--compact';
     // 摘要：统一转为可读纯文本，避免旧块数据在列表出现 JSON 碎片。
@@ -25248,17 +25469,16 @@ App.Pages.Notes = {
     const tc = note.type && note.type !== App.NoteTypes.UNCLASSIFIED
       ? App.NoteTypes.getColor(note.type, note.subject, note.module)
       : '#8E8E93';
-    const typePill = `<button type="button" class="note-type-pill" style="background:${this._noteTypeColorBg(tc)};color:${tc};">${displayType}</button>`;
-    const location = [note.subject, note.module, note.knowledgePoint].filter(Boolean).join(' · ');
+    const typePill = cardOpts.hideType ? '' : `<button type="button" class="note-type-pill" style="background:${this._noteTypeColorBg(tc)};color:${tc};">${displayType}</button>`;
+    const location = [!cardOpts.hideSubject && note.subject, note.module, note.knowledgePoint].filter(Boolean).join(' · ');
     card.innerHTML = `
       <div class="note-item__body">
         <div class="note-item__topline">
-          ${typePill}
+          <div class="note-item__title">${App.Utils.truncate(note.title, 48)}</div>
           <time class="note-item__date">${dateTxt}</time>
         </div>
-        <div class="note-item__title">${App.Utils.truncate(note.title, 48)}</div>
         ${summary ? `<div class="note-item__summary">${summary}</div>` : ''}
-        ${location ? `<div class="note-item__location">${location}</div>` : ''}
+        ${(typePill || location) ? `<div class="note-item__meta">${typePill}${location ? `<div class="note-item__location">${location}</div>` : ''}</div>` : ''}
       </div>
     `;
     const detailRoute = 'note-detail?id=' + encodeURIComponent(note.id) +

@@ -902,16 +902,23 @@ Object.assign(App.Components, {
       while (node && node !== area && !/^(P|DIV|LI|H[1-6]|BLOCKQUOTE)$/.test(node.tagName)) node = node.parentElement;
       return node && node !== area ? node : null;
     };
+    const INDENT_STEP = 10;
     const indent = (direction) => {
       restoreSelection();
       const block = currentBlock();
-      if (!block) return;
-      if (block.tagName === 'LI') {
-        try { document.execCommand(direction > 0 ? 'indent' : 'outdent'); } catch (e) {}
-      } else {
-        const current = parseFloat(block.style.marginLeft) || 0;
-        block.style.marginLeft = Math.max(0, current + (direction > 0 ? 20 : -20)) || '';
+      if (!block) {
+        const blank = document.createElement('p');
+        blank.style.marginLeft = direction > 0 ? INDENT_STEP + 'px' : '';
+        blank.innerHTML = '<br>';
+        area.appendChild(blank);
+        placeCaretAtEnd(blank);
+        captureSelection();
+        if (opts.onChange) opts.onChange(area.innerHTML);
+        return;
       }
+      // 统一使用段落左边距，普通文字、空白行及两种列表都能生效；步进缩短为原来的一半。
+      const current = parseFloat(block.style.marginLeft) || 0;
+      block.style.marginLeft = Math.max(0, current + (direction > 0 ? INDENT_STEP : -INDENT_STEP)) || '';
       captureSelection();
       if (opts.onChange) opts.onChange(area.innerHTML);
     };
@@ -926,10 +933,24 @@ Object.assign(App.Components, {
       if (opts.onChange) opts.onChange(area.innerHTML);
     };
 
-    area.addEventListener('mouseup', captureSelection);
-    area.addEventListener('keyup', captureSelection);
+    const syncToolbarState = () => {
+      toolbar.querySelectorAll('[data-command]').forEach(button => {
+        let active = false;
+        const command = button.dataset.command;
+        try {
+          if (command === 'bold') active = document.queryCommandState('bold');
+          if (command === 'bullet') active = document.queryCommandState('insertUnorderedList');
+          if (command === 'numbered') active = document.queryCommandState('insertOrderedList');
+        } catch (e) {}
+        const block = currentBlock();
+        if (command === 'indent') active = !!(block && (parseFloat(block.style.marginLeft) || 0) > 0);
+        button.classList.toggle('is-active', !!active);
+      });
+    };
+    area.addEventListener('mouseup', () => { captureSelection(); syncToolbarState(); });
+    area.addEventListener('keyup', () => { captureSelection(); syncToolbarState(); });
     area.addEventListener('focusin', captureSelection);
-    area.addEventListener('input', () => { captureSelection(); if (opts.onChange) opts.onChange(area.innerHTML); });
+    area.addEventListener('input', () => { captureSelection(); syncToolbarState(); if (opts.onChange) opts.onChange(area.innerHTML); });
     area.addEventListener('keydown', (e) => {
       if (e.key === 'Tab') { e.preventDefault(); indent(e.shiftKey ? -1 : 1); }
     });
@@ -962,10 +983,18 @@ Object.assign(App.Components, {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'sticky-rich-editor__tool';
+      button.dataset.command = item.command;
       button.innerHTML = item.label;
       button.title = item.title;
+      button.setAttribute('aria-label', item.title);
       button.addEventListener('mousedown', (e) => e.preventDefault());
-      button.addEventListener('click', () => apply(item.command));
+      button.addEventListener('pointerdown', (e) => e.preventDefault());
+      button.addEventListener('click', () => {
+        button.classList.add('is-pressed');
+        setTimeout(() => button.classList.remove('is-pressed'), 160);
+        apply(item.command);
+        syncToolbarState();
+      });
       toolbar.appendChild(button);
     });
     wrapper.appendChild(area);

@@ -94,6 +94,22 @@ Object.assign(App.Components, {
     });
     panel.appendChild(editor.element);
 
+    // 便签标签：单个短标签，直接在编辑窗口内修改，避免再跳转页面。
+    const tagField = document.createElement('label');
+    tagField.className = 'sticky-sheet__tag-field';
+    const tagLabel = document.createElement('span');
+    tagLabel.className = 'sticky-sheet__label';
+    tagLabel.textContent = '标签';
+    const tagInput = document.createElement('input');
+    tagInput.type = 'text';
+    tagInput.className = 'sticky-sheet__tag-input';
+    tagInput.maxLength = 16;
+    tagInput.placeholder = '添加标签（可选）';
+    tagInput.value = (opts.initial && opts.initial.tag) || '';
+    tagField.appendChild(tagLabel);
+    tagField.appendChild(tagInput);
+    panel.appendChild(tagField);
+
     // 颜色选择
     const colorRow = document.createElement('div');
     colorRow.className = 'sticky-sheet__row';
@@ -149,7 +165,12 @@ Object.assign(App.Components, {
       if (!content) { App.Components.toast('便签内容不能为空', 'error'); return; }
       closeOverlay();
       if (typeof opts.onSave === 'function') {
-        opts.onSave({ content: content, color: curColor, pinned: pinSwitch.classList.contains('is-on') });
+        opts.onSave({
+          content: content,
+          tag: tagInput.value.trim(),
+          color: curColor,
+          pinned: pinSwitch.classList.contains('is-on')
+        });
       }
     });
     actions.appendChild(cancelBtn);
@@ -163,12 +184,26 @@ Object.assign(App.Components, {
     setTimeout(() => { editor.focusAtEnd(); }, 60);
   },
 
-  // ===== 便签卡片（瀑布流用；点击/长按弹操作菜单） =====
-  // opts: { sticky, onRefresh }  onRefresh 在增删改后由调用方重渲染
+  // ===== 便签卡片（直接编辑 + 左滑删除） =====
+  // opts: { onRefresh }  onRefresh 在增删改后由调用方重渲染。
   stickyCard(sticky, opts) {
+    opts = opts || {};
     const card = document.createElement('div');
     card.className = 'sticky-card' + (sticky.pinned ? ' is-pinned' : '');
-    card.style.background = sticky.color || '#FFFBEB';
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+
+    const surface = document.createElement('div');
+    surface.className = 'sticky-card__surface';
+    surface.style.background = sticky.color || '#FFFBEB';
+
+    const tag = String(sticky.tag || '').trim();
+    if (tag) {
+      const tagEl = document.createElement('span');
+      tagEl.className = 'sticky-card__tag';
+      tagEl.textContent = tag;
+      surface.appendChild(tagEl);
+    }
 
     const content = document.createElement('div');
     content.className = 'sticky-card__content';
@@ -206,69 +241,150 @@ Object.assign(App.Components, {
       });
       content.innerHTML = html + doneTasks.join('');
     }
-    card.appendChild(content);
-    // 待办勾选交互：切换 [ ] ↔ [x]，划线 + 重排（完成后自动后移）
+    surface.appendChild(content);
+
+    const meta = document.createElement('div');
+    meta.className = 'sticky-card__meta';
+    const created = new Date(sticky.createdAt || sticky.updatedAt || 0);
+    meta.textContent = isNaN(created.getTime()) ? '' : (created.getMonth() + 1) + '月' + created.getDate() + '日';
+    surface.appendChild(meta);
+    card.appendChild(surface);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'sticky-card__delete';
+    deleteBtn.setAttribute('aria-label', '删除便签');
+    deleteBtn.textContent = '删除';
+    card.appendChild(deleteBtn);
+
+    const closeSwipe = () => {
+      card.classList.remove('is-swipe-open', 'is-swiping');
+      surface.style.transform = '';
+    };
+    const openEditor = () => {
+      App.Components.stickySheet({
+        title: '编辑便签',
+        initial: sticky,
+        onSave: async (data) => {
+          Object.assign(sticky, data);
+          try { await App.DB.updateSticky(sticky); } catch (e) { App.Components.toast('保存失败', 'error'); return; }
+          App.Components.toast('已保存 ✓', 'success');
+          if (typeof opts.onRefresh === 'function') opts.onRefresh();
+        }
+      });
+    };
+    const copyContent = async () => {
+      try {
+        const holder = document.createElement('div');
+        holder.innerHTML = /<\/?[a-z][\s\S]*>/i.test(String(sticky.content || '')) ? String(sticky.content || '') : '';
+        const copied = holder.innerHTML ? (holder.innerText || holder.textContent || '') : (sticky.content || '');
+        await navigator.clipboard.writeText(copied);
+        App.Components.toast('已复制到剪贴板', 'success');
+      } catch (e) { App.Components.toast('复制失败', 'error'); }
+    };
+    const deleteSticky = async () => {
+      const ok = await App.Components.confirm('删除便签', '确定删除这条便签？此操作不可撤销。', '删除', '取消', true);
+      if (!ok) return;
+      card.classList.add('is-deleting');
+      setTimeout(async () => {
+        try { await App.DB.removeSticky(sticky.id); } catch (e) {}
+        if (typeof opts.onRefresh === 'function') opts.onRefresh();
+      }, 170);
+    };
+    const showMenu = async () => {
+      const action = await App.Components.actionSheet([
+        { label: '📋 复制内容', value: 'copy' },
+        { label: '🗑️ 删除', value: 'delete' }
+      ], (sticky.content || '').slice(0, 18));
+      if (action === 'copy') await copyContent();
+      if (action === 'delete') await deleteSticky();
+    };
+
+    // 待办旧数据仍支持勾选，但阻止勾选事件误触发直接编辑。
     content.querySelectorAll('input[type=checkbox][data-raw]').forEach((cb) => {
+      cb.addEventListener('click', (e) => e.stopPropagation());
       cb.addEventListener('change', async () => {
         const old = cb.dataset.raw;
         const pat = /^(\s*)\[[ xX]\]/;
         const repl = cb.checked ? '$1[x]' : '$1[ ]';
-        const newContent = String(sticky.content || '').split('\n').map((l) => (l === old ? l.replace(pat, repl) : l)).join('\n');
-        sticky.content = newContent;
+        sticky.content = String(sticky.content || '').split('\n').map((l) => (l === old ? l.replace(pat, repl) : l)).join('\n');
         try { await App.DB.updateSticky(sticky); } catch (e) { /* 忽略 */ }
-        if (opts.onRefresh) opts.onRefresh();
+        if (typeof opts.onRefresh === 'function') opts.onRefresh();
       });
     });
 
-    const meta = document.createElement('div');
-    meta.className = 'sticky-card__meta';
-    meta.textContent = App.Utils.formatRelativeTime(sticky.updatedAt || sticky.createdAt);
-    card.appendChild(meta);
+    deleteBtn.addEventListener('click', (e) => { e.stopPropagation(); closeSwipe(); deleteSticky(); });
+    card.addEventListener('contextmenu', (e) => { e.preventDefault(); showMenu(); });
 
-    card.addEventListener('click', async () => {
-      const action = await App.Components.actionSheet([
-        { label: '✏️ 编辑', value: 'edit' },
-        { label: '📋 复制内容', value: 'copy' },
-        { label: '🗑️ 删除', value: 'delete' }
-      ], (sticky.content || '').slice(0, 18));
-      if (!action) return;
-
-      if (action === 'edit') {
-        App.Components.stickySheet({
-          title: '编辑便签',
-          initial: sticky,
-          onSave: async (data) => {
-            Object.assign(sticky, data);
-            try { await App.DB.updateSticky(sticky); } catch (e) { App.Components.toast('保存失败', 'error'); return; }
-            App.Components.toast('已保存 ✓', 'success');
-            if (opts && typeof opts.onRefresh === 'function') opts.onRefresh();
-          }
-        });
-      } else if (action === 'copy') {
-        try {
-          const holder = document.createElement('div');
-          holder.innerHTML = /<\/?[a-z][\s\S]*>/i.test(String(sticky.content || '')) ? String(sticky.content || '') : '';
-          const copied = holder.innerHTML ? (holder.innerText || holder.textContent || '') : (sticky.content || '');
-          await navigator.clipboard.writeText(copied);
-          App.Components.toast('已复制到剪贴板', 'success');
-        } catch (e) {
-          App.Components.toast('复制失败', 'error');
-        }
-      } else if (action === 'delete') {
-        const ok = await App.Components.confirm('删除便签', '确定删除这条便签？此操作不可撤销。', '删除', '取消', true);
-        if (ok) {
-          card.style.transition = 'transform 0.18s ease, opacity 0.18s ease';
-          card.style.transform = 'scale(0.6)';
-          card.style.opacity = '0';
-          setTimeout(async () => {
-            try { await App.DB.removeSticky(sticky.id); } catch (e) {}
-            if (opts && typeof opts.onRefresh === 'function') opts.onRefresh();
-          }, 170);
-        }
+    let startX = null;
+    let startY = null;
+    let moved = false;
+    let swiping = false;
+    let suppressClick = false;
+    let longPressFired = false;
+    let pressTimer = null;
+    const clearPress = () => { if (pressTimer) clearTimeout(pressTimer); pressTimer = null; };
+    card.addEventListener('pointerdown', (e) => {
+      if (e.target.closest && e.target.closest('button,input')) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      startX = e.clientX; startY = e.clientY; moved = false; swiping = false;
+      clearPress();
+      pressTimer = setTimeout(() => { longPressFired = true; showMenu(); }, 550);
+    });
+    card.addEventListener('pointermove', (e) => {
+      if (startX === null) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) { moved = true; clearPress(); }
+      if (dx < -8 && Math.abs(dx) > Math.abs(dy)) {
+        swiping = true;
+        card.classList.add('is-swiping');
+        surface.style.transform = 'translateX(' + Math.max(-78, dx) + 'px)';
       }
     });
-
+    const finishPointer = (e) => {
+      clearPress();
+      if (swiping) {
+        const dx = e.clientX - startX;
+        card.classList.toggle('is-swipe-open', dx < -44);
+        surface.style.transform = '';
+        card.classList.remove('is-swiping');
+        suppressClick = true;
+      } else if (moved) {
+        suppressClick = true;
+      }
+      startX = null; startY = null;
+      if (suppressClick) setTimeout(() => { suppressClick = false; }, 120);
+    };
+    card.addEventListener('pointerup', finishPointer);
+    card.addEventListener('pointercancel', (e) => { clearPress(); if (swiping) closeSwipe(); startX = null; startY = null; });
+    card.addEventListener('click', (e) => {
+      if (e.target.closest && e.target.closest('.sticky-card__delete')) return;
+      if (longPressFired) { longPressFired = false; return; }
+      if (suppressClick) return;
+      if (card.classList.contains('is-swipe-open')) { closeSwipe(); return; }
+      openEditor();
+    });
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEditor(); }
+    });
     return card;
+  },
+
+  // 按输入顺序左右分配，再各列向下排列，保证两列首张卡片同时从顶部开始。
+  stickyMasonry(stickies, className, opts) {
+    const wrap = document.createElement('div');
+    wrap.className = className || 'sticky-masonry';
+    const columns = [0, 1].map(() => {
+      const col = document.createElement('div');
+      col.className = 'sticky-masonry__column';
+      return col;
+    });
+    (stickies || []).forEach((sticky, index) => {
+      columns[index % 2].appendChild(this.stickyCard(sticky, opts || {}));
+    });
+    columns.forEach(col => wrap.appendChild(col));
+    return wrap;
   },
   centeredPicker(options, title, subtitle, longPress) {
     return new Promise((resolve) => {

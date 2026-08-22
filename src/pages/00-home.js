@@ -1166,9 +1166,13 @@ App.Pages.Home = {
       });
       masonry.appendChild(empty);
     } else {
-      stickies.slice(0, 10).forEach(s => {
-        masonry.appendChild(App.Components.stickyCard(s, { onRefresh: () => this._refreshStickySection() }));
-      });
+      const stickyGrid = App.Components.stickyMasonry(
+        stickies.slice(0, 10),
+        'sticky-masonry sticky-masonry--home',
+        { onRefresh: () => this._refreshStickySection() }
+      );
+      wrap.appendChild(stickyGrid);
+      return;
     }
     wrap.appendChild(masonry);
   },
@@ -1182,4 +1186,3 @@ App.Pages.Home = {
     await this._fillStickySection(wrap);
   }
 };
-

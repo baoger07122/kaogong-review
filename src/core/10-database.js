@@ -341,6 +341,7 @@ App.DB = (function() {
   async function addSticky(sticky) {
     if (!sticky.id) sticky.id = App.Utils.genId('sticky');
     sticky.content = sticky.content || '';
+    sticky.tag = String(sticky.tag || '').trim();
     sticky.color = sticky.color || '#FFFBEB';
     sticky.pinned = !!sticky.pinned;
     sticky.createdAt = sticky.createdAt || new Date().toISOString();
@@ -349,6 +350,7 @@ App.DB = (function() {
   }
 
   async function updateSticky(sticky) {
+    sticky.tag = String(sticky.tag || '').trim();
     sticky.updatedAt = new Date().toISOString();
     return put('stickies', sticky);
   }
@@ -359,10 +361,10 @@ App.DB = (function() {
 
   async function getStickies() {
     const all = await getAll('stickies');
-    // 置顶优先，其次按最近更新时间倒序
+    // 置顶优先，其次严格按新增时间倒序；编辑不会改变便签在列表中的时间位置。
     return all.sort((a, b) => {
       if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
-      return new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0);
+      return new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0);
     });
   }
 
@@ -699,4 +701,3 @@ App.DB = (function() {
     isAvailable
   };
 })();
-

@@ -578,11 +578,15 @@ App.Pages.Notes = {
       return;
     }
 
-    notes.forEach((note, idx) => container.appendChild(this.buildNoteCard(note)));
+    notes.forEach((note, idx) => container.appendChild(this.buildNoteCard(note, null, {
+      hideType: !!this.state.type,
+      hideSubject: !!this.state.subject
+    })));
   },
 
   // 笔记卡片：iPad 分屏优先——分类、日期和摘要集中呈现，减少无效留白。
-  buildNoteCard(note, returnTo) {
+  buildNoteCard(note, returnTo, cardOpts) {
+    cardOpts = cardOpts || {};
     const card = document.createElement('div');
     card.className = 'note-item note-item--card note-item--compact';
     // 摘要：统一转为可读纯文本，避免旧块数据在列表出现 JSON 碎片。
@@ -603,17 +607,16 @@ App.Pages.Notes = {
     const tc = note.type && note.type !== App.NoteTypes.UNCLASSIFIED
       ? App.NoteTypes.getColor(note.type, note.subject, note.module)
       : '#8E8E93';
-    const typePill = `<button type="button" class="note-type-pill" style="background:${this._noteTypeColorBg(tc)};color:${tc};">${displayType}</button>`;
-    const location = [note.subject, note.module, note.knowledgePoint].filter(Boolean).join(' · ');
+    const typePill = cardOpts.hideType ? '' : `<button type="button" class="note-type-pill" style="background:${this._noteTypeColorBg(tc)};color:${tc};">${displayType}</button>`;
+    const location = [!cardOpts.hideSubject && note.subject, note.module, note.knowledgePoint].filter(Boolean).join(' · ');
     card.innerHTML = `
       <div class="note-item__body">
         <div class="note-item__topline">
-          ${typePill}
+          <div class="note-item__title">${App.Utils.truncate(note.title, 48)}</div>
           <time class="note-item__date">${dateTxt}</time>
         </div>
-        <div class="note-item__title">${App.Utils.truncate(note.title, 48)}</div>
         ${summary ? `<div class="note-item__summary">${summary}</div>` : ''}
-        ${location ? `<div class="note-item__location">${location}</div>` : ''}
+        ${(typePill || location) ? `<div class="note-item__meta">${typePill}${location ? `<div class="note-item__location">${location}</div>` : ''}</div>` : ''}
       </div>
     `;
     const detailRoute = 'note-detail?id=' + encodeURIComponent(note.id) +
