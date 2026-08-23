@@ -40,9 +40,9 @@ App.Pages.WordDB = {
     this.state.searchQuery = '';
     this.state.compareSearchOpen = false;
 
-    // 返回栏 + 标题；实词组辨析将搜索收进右上角更多菜单，新增使用右下角悬浮按钮。
+    // 返回栏 + 统一标题；科目/模块作为独立上下文显示，避免长标题挤压返回和操作按钮。
     const pageHeader = App.Components.pageHeader(
-      this._getCategoryTitle(),
+      '词语库',
       this.state.category === 'word-compare' ? '⋮' : '导入',
       this.state.category === 'word-compare'
         ? () => { this._showComparePageMenu(); }
@@ -72,6 +72,11 @@ App.Pages.WordDB = {
     );
     catBar.appendChild(catTabs);
     container.appendChild(catBar);
+
+    const context = document.createElement('div');
+    context.className = 'worddb-context';
+    context.innerHTML = '<strong>' + this._escapeHtml(this.state.subject || '言语理解') + '</strong><span>›</span><span>' + this._escapeHtml(this.state.module || '逻辑填空') + '</span>';
+    container.appendChild(context);
 
     // 工具栏
     const toolbar = document.createElement('div');
@@ -103,7 +108,7 @@ App.Pages.WordDB = {
 
   _getCategoryTitle() {
     const cat = this.CATEGORIES.find(c => c.key === this.state.category);
-    return (cat ? cat.label : '词语库') + '\n' + this.state.subject + ' · ' + this.state.module;
+    return cat ? cat.label : '词语库';
   },
 
   // ===== 工具栏 =====

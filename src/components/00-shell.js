@@ -174,7 +174,10 @@ App.Components = {
     let keyboardInset = 0;
     let kbRaf = null;
     let focusTimer = null;
-    const KEYBOARD_THRESHOLD = 120;
+    // Safari 的地址栏/原生编辑工具条也会让 visualViewport 变矮，不能把这类变化
+    // 当成键盘高度，否则底部胶囊会在页面滚动时被推到半屏位置。真正的软键盘
+    // 通常会造成更明显的视口缩小，因此提高判定阈值并保持无键盘时的固定底距。
+    const KEYBOARD_THRESHOLD = 240;
     const isEditorFocused = () => {
       const active = document.activeElement;
       return !!(active && (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)));
@@ -217,7 +220,12 @@ App.Components = {
       const bottom = kb > 0
         ? kb + 8
         : (hideNav ? SAFE_BOTTOM + 8 : NAV_H + SAFE_BOTTOM + 8);
-      bar.style.bottom = bottom + 'px';
+      const nextBottom = Math.max(0, Math.round(bottom));
+      // 普通滚动和 Safari 原生工具条变化不重复写样式，避免 fixed 元素产生微小抖动。
+      if (bar.dataset.bottom !== String(nextBottom)) {
+        bar.style.bottom = nextBottom + 'px';
+        bar.dataset.bottom = String(nextBottom);
+      }
       // 同时告知当前活动编辑器，让浮动格式栏也能适配
       const inst = App.Components._activeMobileEditor;
       if (inst && typeof inst._onKeyboardChange === 'function') inst._onKeyboardChange(kb);

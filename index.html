@@ -441,6 +441,7 @@ input, textarea, select {
 #page-errors .page-sticky {
   position: static;
   top: auto;
+  border-bottom: none;
 }
 
 .page-header {
@@ -541,7 +542,6 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   transition: background 0.15s ease;
 }
 .page-header__more:active { background: #E9E9ED; }
-
 /* ===== 笔记模块chips（对齐画布 8:4：横向圆角999，「全部」主色实心白字，其它灰底） ===== */
 .note-modchips {
   display: flex;
@@ -2940,6 +2940,9 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .todo-stats__grid--doneonly .todo-stats__value--done { font-size: 40px; }
 
 
+/* 详情页编辑时给 sticky 顶部区域预留滚动缓冲，避免题目/标题压住光标。 */
+.note-detail-content { scroll-padding-top: calc(var(--top-buffer) + 56px); }
+
 /* ===== 套卷时间线 ===== */
 .timeline {
   position: relative;
@@ -3990,8 +3993,15 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .review-header { padding: 18px 4px 14px; }
 .review-header h1 { font-size: 26px; line-height: 1.2; letter-spacing: -0.03em; }
 .review-header p { margin-top: 6px; color: var(--text-secondary); font-size: var(--font-sm); }
+.review-overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.review-overview__card { min-width: 0; padding: 12px 14px; border: 1px solid var(--border-color); border-radius: 16px; background: var(--bg-card); }
+.review-overview__card strong, .review-overview__card span, .review-overview__card small { display: block; }
+.review-overview__card strong { color: var(--color-primary); font-size: 24px; line-height: 1.1; }
+.review-overview__card span { margin-top: 4px; font-size: var(--font-sm); font-weight: 650; }
+.review-overview__card small { margin-top: 3px; overflow: hidden; color: var(--text-tertiary); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
 .review-hint { padding: 10px 12px; margin: 0 0 12px; border-radius: 12px; color: var(--text-secondary); background: var(--bg-tertiary); font-size: var(--font-sm); }
 .review-subject-list { display: grid; gap: 10px; }
+.review-subject-list--grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .review-subject-card { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 44px 14px 14px; border: 1px solid var(--border-color); border-radius: 18px; background: var(--bg-card); text-align: left; }
 .review-subject-card:active { transform: scale(.985); }
 .review-subject-card__icon { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 14px; font-size: 23px; }
@@ -4001,7 +4011,10 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .review-subject-card__arrow { position: absolute; right: 12px; top: 50%; color: var(--text-tertiary); font-size: 21px; transform: translateY(-50%); }
 .review-start-btn, .review-next-btn { display: block; width: 100%; min-height: 48px; margin-top: 16px; border-radius: 16px; background: var(--gradient-primary); color: #fff; font-size: var(--font-lg); font-weight: 650; box-shadow: var(--shadow-btn); }
 .review-session { max-width: 760px; margin: 0 auto; padding: 16px 0 24px; }
-.review-session__meta { color: var(--color-primary); font-size: var(--font-sm); font-weight: 600; }
+.review-session__progress { height: 6px; overflow: hidden; margin-bottom: 12px; border-radius: 999px; background: var(--bg-tertiary); }
+.review-session__progress span { display: block; height: 100%; border-radius: inherit; background: var(--gradient-primary); transition: width .2s ease; }
+.review-session__meta { display: flex; justify-content: space-between; gap: 10px; color: var(--color-primary); font-size: var(--font-sm); font-weight: 600; }
+.review-session__meta em { color: var(--text-tertiary); font-size: var(--font-xs); font-style: normal; font-weight: 500; }
 .review-session__question { margin: 12px 0 16px; padding: 18px; border-radius: 18px; background: var(--bg-tertiary); font-size: var(--font-lg); line-height: 1.75; white-space: pre-line; }
 .review-options { display: grid; gap: 10px; }
 .review-option { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 14px; border: 1px solid var(--border-color); border-radius: 15px; background: var(--bg-card); text-align: left; color: var(--text-primary); font-size: var(--font-md); line-height: 1.55; }
@@ -4012,12 +4025,19 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .review-result.is-correct { background: #EAF8EE; color: #227A3A; }
 .review-result.is-wrong { background: #FFF0EF; color: #B42318; }
 .review-result strong { font-size: var(--font-lg); }
+.review-result small { margin-top: 4px; color: inherit; opacity: .82; }
 .review-no-options { padding: 16px; border-radius: 14px; background: var(--bg-tertiary); color: var(--text-secondary); }
 .review-finished { padding: 80px 20px; text-align: center; }
 .review-finished > span { display: block; font-size: 32px; margin-bottom: 8px; }
 .review-finished h1 { font-size: 26px; }
 .review-finished p { margin-top: 8px; color: var(--text-secondary); }
 .review-finished .review-start-btn { max-width: 340px; margin: 22px auto 0; }
+@media (max-width: 620px) {
+  .review-overview { gap: 6px; }
+  .review-overview__card { padding: 10px; }
+  .review-overview__card small { display: none; }
+  .review-subject-list--grid { grid-template-columns: 1fr; }
+}
 .workspace-container {
   padding-top: var(--safe-top);
 }
@@ -6301,6 +6321,60 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   padding: 0 8px;
   font-size: 14px;
 }
+.error-detail-content--editing {
+  max-width: min(820px, 100%);
+  margin-left: auto;
+  margin-right: auto;
+}
+.error-inline-edit__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.error-inline-edit__heading strong { font-size: var(--font-lg); }
+.error-inline-edit__heading span { color: var(--text-tertiary); font-size: var(--font-xs); }
+.error-inline-edit {
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+}
+.error-inline-edit__field { display: block; margin-bottom: 12px; }
+.error-inline-edit__field > span,
+.error-inline-edit__section-title {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  font-weight: 600;
+}
+.error-inline-edit__input,
+.error-inline-edit__picker {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+}
+.error-inline-edit__input:focus,
+.error-inline-edit__picker:focus { border-color: var(--color-primary); box-shadow: 0 0 0 2px var(--color-primary-bg); }
+textarea.error-inline-edit__input { min-height: 74px; resize: vertical; line-height: 1.6; }
+.error-inline-edit__picker { text-align: left; cursor: pointer; }
+.error-inline-edit__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.error-inline-edit__section-title { margin-top: 4px; }
+.error-inline-edit__actions { display: flex; gap: 10px; margin-top: 4px; }
+.error-inline-edit__actions .btn { flex: 1; min-height: 42px; }
+@media (max-width: 600px) {
+  .error-inline-edit__grid { grid-template-columns: 1fr; gap: 0; }
+}
 
 /* ===== 当前模块便签：横向优先、再向下的连续两列布局 ===== */
 .errors-sticky-list-head {
@@ -6358,7 +6432,21 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 .worddb-cat-bar {
   padding: 0 var(--page-padding);
   background: var(--bg-primary);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.worddb-cat-bar::-webkit-scrollbar { display: none; }
+.worddb-context {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 2px var(--page-padding) 0;
+  color: var(--text-tertiary);
+  font-size: var(--font-xs);
+}
+.worddb-context strong { color: var(--text-primary); font-size: var(--font-sm); }
+.worddb-context span:first-of-type { color: var(--text-tertiary); }
 
 /* ===== 工具栏：筛选 / 搜索 / 新增 ===== */
 .worddb-toolbar {
@@ -6488,6 +6576,8 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
 /* ===== 表格区域 ===== */
 .worddb-table-area {
   padding: 0 var(--page-padding) calc(var(--nav-height) + var(--safe-bottom) + 16px);
+  max-width: 1120px;
+  margin: 0 auto;
 }
 .worddb-thead {
   display: grid;
@@ -6984,7 +7074,6 @@ body.ne-dragging-active .notion-block__handle { cursor: grabbing; }
   .nav-label,
   .notes-worddb-entry { animation: none !important; transition: none !important; }
 }
-
 /* ===== 涂鸦板（共享样式，支持 Apple Pencil / 触摸 / 鼠标） ===== */
 .sketch-pad {
   flex: 1;
@@ -10810,7 +10899,7 @@ window.App = window.App || {};
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.22.2';
+App.VERSION = '8.23.1';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -12860,7 +12949,10 @@ App.Components = {
     let keyboardInset = 0;
     let kbRaf = null;
     let focusTimer = null;
-    const KEYBOARD_THRESHOLD = 120;
+    // Safari 的地址栏/原生编辑工具条也会让 visualViewport 变矮，不能把这类变化
+    // 当成键盘高度，否则底部胶囊会在页面滚动时被推到半屏位置。真正的软键盘
+    // 通常会造成更明显的视口缩小，因此提高判定阈值并保持无键盘时的固定底距。
+    const KEYBOARD_THRESHOLD = 240;
     const isEditorFocused = () => {
       const active = document.activeElement;
       return !!(active && (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)));
@@ -12903,7 +12995,12 @@ App.Components = {
       const bottom = kb > 0
         ? kb + 8
         : (hideNav ? SAFE_BOTTOM + 8 : NAV_H + SAFE_BOTTOM + 8);
-      bar.style.bottom = bottom + 'px';
+      const nextBottom = Math.max(0, Math.round(bottom));
+      // 普通滚动和 Safari 原生工具条变化不重复写样式，避免 fixed 元素产生微小抖动。
+      if (bar.dataset.bottom !== String(nextBottom)) {
+        bar.style.bottom = nextBottom + 'px';
+        bar.dataset.bottom = String(nextBottom);
+      }
       // 同时告知当前活动编辑器，让浮动格式栏也能适配
       const inst = App.Components._activeMobileEditor;
       if (inst && typeof inst._onKeyboardChange === 'function') inst._onKeyboardChange(kb);
@@ -15895,6 +15992,10 @@ Object.assign(App.Components, {
     // v8.5.6 移动端格式栏显示：旧显示逻辑只认 .notion-editable，htmlEditor 需自触发
     area.addEventListener('focusin', () => {
       if (App.Components._showMobileToolbar) App.Components._showMobileToolbar();
+      // iOS 点击表格单元格时不一定先触发 click，直接从当前选区识别单元格，
+      // 确保底部工具栏立即切换到“增加/删除行列”模式。
+      const cell = getCellFromSelection();
+      if (cell) setActiveCell(cell);
       keepCaretVisible();
     });
     area.addEventListener('focusout', (e) => {
@@ -15909,6 +16010,11 @@ Object.assign(App.Components, {
       const cell = getCellFromNode(e.target);
       if (cell) setActiveCell(cell);
       else setActiveCell(null);
+    });
+    area.addEventListener('keyup', () => {
+      // 键盘/外接键盘进入单元格时没有 click 事件，仍需让行列工具可用。
+      const cell = getCellFromSelection();
+      if (cell) setActiveCell(cell);
     });
     wrapper.addEventListener('mousedown', (e) => {
       const t = e.target;
@@ -15947,13 +16053,18 @@ Object.assign(App.Components, {
           let rect = r.getBoundingClientRect ? r.getBoundingClientRect() : null;
           if (!rect || (!rect.height && !rect.width)) rect = target.getBoundingClientRect();
           const vv = window.visualViewport;
-          const viewTop = vv ? vv.offsetTop : 0;
+          const viewTop = vv ? Math.max(0, vv.offsetTop) : 0;
           const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
           const bar = document.querySelector('.notion-mobile-toolbar.is-visible');
           const barTop = bar ? bar.getBoundingClientRect().top : viewBottom - 24;
           const safeBottom = Math.min(viewBottom - 12, barTop - 12);
+          // 详情页标题/返回栏是 sticky 的，光标滚到它下面时会被遮住；将其底部
+          // 视为真正的可编辑区域上边界，而不是只按 visualViewport 顶部计算。
+          const sticky = document.querySelector('.page-sticky, .page-header');
+          const stickyRect = sticky && sticky.getBoundingClientRect ? sticky.getBoundingClientRect() : null;
+          const safeTop = Math.max(viewTop + 12, stickyRect && stickyRect.bottom > viewTop ? stickyRect.bottom + 12 : 0);
           if (rect.bottom > safeBottom) window.scrollBy(0, rect.bottom - safeBottom);
-          else if (rect.top < viewTop + 12) window.scrollBy(0, rect.top - (viewTop + 12));
+          else if (rect.top < safeTop) window.scrollBy(0, rect.top - safeTop);
         } catch (e) { /* 某些浏览器在选区变化瞬间没有可测量矩形，忽略即可 */ }
       });
     }
@@ -22411,6 +22522,21 @@ App.Pages.Review = {
 
     const due = await App.DB.getReviewQueue();
     const all = due.length ? due : await App.DB.getErrors();
+    const allErrors = due.length ? await App.DB.getErrors() : all;
+    const mastered = allErrors.filter(error => error.status === '已掌握').length;
+    const overview = document.createElement('div');
+    overview.className = 'review-overview';
+    [
+      ['待复习', due.length || all.length, due.length ? '已到期错题' : '历史错题'],
+      ['本轮题量', all.length, '点击开始后训练'],
+      ['已掌握', mastered, '可在错题详情修改状态']
+    ].forEach(item => {
+      const card = document.createElement('div');
+      card.className = 'review-overview__card';
+      card.innerHTML = '<strong>' + item[1] + '</strong><span>' + item[0] + '</span><small>' + item[2] + '</small>';
+      overview.appendChild(card);
+    });
+    container.appendChild(overview);
     const groups = this._groupBySubject(all);
     const hint = document.createElement('div');
     hint.className = 'review-hint';
@@ -22418,14 +22544,14 @@ App.Pages.Review = {
     container.appendChild(hint);
 
     const list = document.createElement('div');
-    list.className = 'review-subject-list';
+    list.className = 'review-subject-list review-subject-list--grid';
     Object.keys(groups).forEach(subject => {
       const cfg = App.Constants.SUBJECTS.find(s => s.name === subject) || { icon: '📚', color: '#0066CC' };
       const card = document.createElement('button');
       card.type = 'button';
       card.className = 'review-subject-card';
       card.innerHTML = '<span class="review-subject-card__icon" style="background:' + this._escape(cfg.color || '#0066CC') + '22">' + this._escape(cfg.icon || '📚') + '</span>' +
-        '<span class="review-subject-card__body"><strong>' + this._escape(subject) + '</strong><small>' + groups[subject].length + ' 题待复习</small></span><span class="review-subject-card__arrow">›</span>';
+        '<span class="review-subject-card__body"><strong>' + this._escape(subject) + '</strong><small>' + groups[subject].length + ' 题待复习 · 点击进入训练</small></span><span class="review-subject-card__arrow">›</span>';
       card.addEventListener('click', () => this._startSession(subject));
       list.appendChild(card);
     });
@@ -22474,7 +22600,9 @@ App.Pages.Review = {
 
     const content = document.createElement('div');
     content.className = 'review-session';
-    content.innerHTML = '<div class="review-session__meta">' + this._escape(error.subject || '未分类') + (error.module ? ' · ' + this._escape(error.module) : '') + '</div>' +
+    const progress = Math.round(((this.state.index + 1) / this.state.queue.length) * 100);
+    content.innerHTML = '<div class="review-session__progress"><span style="width:' + progress + '%"></span></div>' +
+      '<div class="review-session__meta">' + this._escape(error.subject || '未分类') + (error.module ? ' · ' + this._escape(error.module) : '') + '<em>第 ' + (this.state.index + 1) + ' / ' + this.state.queue.length + ' 题</em></div>' +
       '<div class="review-session__question">' + this._escape(error.question || '暂无题干') + '</div>';
     const options = document.createElement('div');
     options.className = 'review-options';
@@ -22505,7 +22633,7 @@ App.Pages.Review = {
     if (this.state.result) {
       const result = document.createElement('div');
       result.className = 'review-result ' + (this.state.result.correct ? 'is-correct' : 'is-wrong');
-      result.innerHTML = '<strong>' + (this.state.result.correct ? '回答正确 ✓' : '回答错误') + '</strong><span>正确答案：' + this._escape(error.correctOption || '未记录') + '</span>';
+      result.innerHTML = '<strong>' + (this.state.result.correct ? '回答正确 ✓' : '回答错误') + '</strong><span>正确答案：' + this._escape(error.correctOption || '未记录') + '</span>' + (error.errorCause ? '<small>错因：' + this._escape(error.errorCause) + '</small>' : '');
       content.appendChild(result);
       const next = document.createElement('button');
       next.type = 'button';
@@ -22533,7 +22661,6 @@ App.Pages.Review = {
     }
   }
 };
-
 
 
 // ===== 考公笔试复盘系统 - 错题本页面 =====
@@ -22998,14 +23125,15 @@ App.Pages.Errors = {
         <span class="sidebar__item-icon" style="color:${isActive ? '#0066CC' : s.color}">${this._subjectIconSvg(s.name) || s.icon}</span>
         <span class="sidebar__item-name">${s.name}</span>
         ${count > 0 ? `<span class="sidebar__item-count">${count}</span>` : ''}
-        <span class="sidebar__arrow"><svg width="8" height="5" viewBox="0 0 8 5" fill="none"><path d="M1 1l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        ${!App.Constants.isFlatSubject(s.name) ? '<span class="sidebar__arrow"><svg width="8" height="5" viewBox="0 0 8 5" fill="none"><path d="M1 1l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>' : ''}
       `;
       // 箭头：展开/收起该科目下的模块
-      row.querySelector('.sidebar__arrow').addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._expanded[s.name] = !this._expanded[s.name];
-        this.renderSubjectGrid(container);
-      });
+      const arrow = row.querySelector('.sidebar__arrow');
+      if (arrow) arrow.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._expanded[s.name] = !this._expanded[s.name];
+          this.renderSubjectGrid(container);
+        });
       // 点击科目行：选中科目，并在展开/收起模块之间切换；不再重复点击跳回「全部」
       row.addEventListener('click', () => {
         const sameSubject = this.state.subject === s.name;
@@ -23473,6 +23601,7 @@ App.Pages.Errors = {
     container.appendChild(header);
 
     const content = document.createElement('div');
+    content.className = 'error-detail-content';
     content.style.cssText = 'padding:var(--spacing-md) var(--page-padding);padding-bottom:calc(var(--safe-bottom) + var(--spacing-lg));';
 
     // 题号 + 标签
@@ -23695,6 +23824,166 @@ App.Pages.Errors = {
     container.appendChild(content);
   },
 
+  // ===== 错题详情页就地编辑 =====
+  // 详情页只替换当前内容区，不再跳转到独立表单页面；返回/取消时恢复原详情。
+  _openInlineErrorEditor(error) {
+    const content = document.querySelector('#page-error-detail .error-detail-content');
+    if (!content || this._inlineErrorEditing) return;
+    this._inlineErrorEditing = true;
+
+    const draft = {
+      subject: error.subject || '',
+      module: error.module || '',
+      knowledgePoints: Array.isArray(error.knowledgePoints) ? error.knowledgePoints.slice() : [],
+      errorCause: error.errorCause || '',
+      pitfall: error.pitfall || '',
+      question: error.question || '',
+      options: (error.options || []).slice(),
+      correctOption: error.correctOption || '',
+      userOption: error.userOption || '',
+      accuracy: error.accuracy == null ? '' : String(error.accuracy),
+      questionSource: error.questionSource || '',
+      status: error.status || '未掌握'
+    };
+    while (draft.options.length < 4) draft.options.push('');
+
+    content.innerHTML = '';
+    content.classList.add('error-detail-content--editing');
+
+    const heading = document.createElement('div');
+    heading.className = 'error-inline-edit__heading';
+    heading.innerHTML = '<strong>就地编辑错题</strong><span>修改后直接保存，仍停留在当前详情页</span>';
+    content.appendChild(heading);
+
+    const form = document.createElement('div');
+    form.className = 'error-inline-edit';
+    const field = (label, value, multiline) => {
+      const group = document.createElement('label');
+      group.className = 'error-inline-edit__field';
+      const name = document.createElement('span');
+      name.textContent = label;
+      const input = document.createElement(multiline ? 'textarea' : 'input');
+      input.value = value || '';
+      input.className = 'error-inline-edit__input';
+      if (multiline) input.rows = label === '题干' ? 5 : 3;
+      group.appendChild(name);
+      group.appendChild(input);
+      return { group, input };
+    };
+    const picker = (label, value, options, onPick) => {
+      const group = document.createElement('div');
+      group.className = 'error-inline-edit__field';
+      group._pickerOptions = options || [];
+      const name = document.createElement('span');
+      name.textContent = label;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'error-inline-edit__picker';
+      button.textContent = value || '请选择';
+      button.addEventListener('click', async () => {
+        const selected = await App.Components.centeredPicker((group._pickerOptions || []).map(v => ({ label: v, value: v })), '选择' + label, '');
+        if (selected !== undefined && selected !== null && selected !== '') {
+          onPick(selected);
+          button.textContent = selected;
+        }
+      });
+      group.appendChild(name);
+      group.appendChild(button);
+      return group;
+    };
+
+    const subjectPicker = picker('科目', draft.subject, App.Constants.SUBJECTS.map(s => s.name), (value) => {
+      draft.subject = value;
+      draft.module = '';
+      modulePicker._pickerOptions = App.Constants.getModules(value);
+      modulePicker.querySelector('button').textContent = '请选择';
+    });
+    form.appendChild(subjectPicker);
+    const modulePicker = picker('模块', draft.module, App.Constants.getModules(draft.subject), (value) => { draft.module = value; });
+    form.appendChild(modulePicker);
+
+    const kp = field('考点（多个用逗号分隔）', draft.knowledgePoints.join('、'), false);
+    kp.input.addEventListener('input', () => { draft.knowledgePoints = kp.input.value.split(/[、,，]/).map(v => v.trim()).filter(Boolean); });
+    form.appendChild(kp.group);
+    const cause = field('错因', draft.errorCause, false);
+    cause.input.addEventListener('input', () => { draft.errorCause = cause.input.value; });
+    form.appendChild(cause.group);
+    const question = field('题干', draft.question, true);
+    question.input.addEventListener('input', () => { draft.question = question.input.value; });
+    form.appendChild(question.group);
+
+    const optionsTitle = document.createElement('div');
+    optionsTitle.className = 'error-inline-edit__section-title';
+    optionsTitle.textContent = '选项';
+    form.appendChild(optionsTitle);
+    ['A', 'B', 'C', 'D'].forEach((letter, index) => {
+      const opt = field(letter, draft.options[index], false);
+      opt.input.addEventListener('input', () => { draft.options[index] = opt.input.value; });
+      form.appendChild(opt.group);
+    });
+    const answerRow = document.createElement('div');
+    answerRow.className = 'error-inline-edit__grid';
+    answerRow.appendChild(picker('正确选项', draft.correctOption, ['A', 'B', 'C', 'D'], value => { draft.correctOption = value; }));
+    answerRow.appendChild(picker('你的选项', draft.userOption, ['A', 'B', 'C', 'D'], value => { draft.userOption = value; }));
+    form.appendChild(answerRow);
+
+    const pitfall = field('思维误区', draft.pitfall, true);
+    pitfall.input.addEventListener('input', () => { draft.pitfall = pitfall.input.value; });
+    form.appendChild(pitfall.group);
+    const source = field('题目来源', draft.questionSource, false);
+    source.input.addEventListener('input', () => { draft.questionSource = source.input.value; });
+    form.appendChild(source.group);
+    const metaRow = document.createElement('div');
+    metaRow.className = 'error-inline-edit__grid';
+    const accuracy = field('全站正确率（%）', draft.accuracy, false);
+    accuracy.input.type = 'number';
+    accuracy.input.addEventListener('input', () => { draft.accuracy = accuracy.input.value; });
+    metaRow.appendChild(accuracy.group);
+    metaRow.appendChild(picker('状态', draft.status, ['未掌握', '已掌握'], value => { draft.status = value; }));
+    form.appendChild(metaRow);
+
+    const actions = document.createElement('div');
+    actions.className = 'error-inline-edit__actions';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn btn--outline';
+    cancel.textContent = '取消';
+    cancel.addEventListener('click', () => { this._inlineErrorEditing = false; this.renderDetail({ id: error.id }); });
+    const save = document.createElement('button');
+    save.type = 'button';
+    save.className = 'btn btn--primary';
+    save.textContent = '保存修改';
+    save.addEventListener('click', async () => {
+      if (!draft.subject || (!App.Constants.isFlatSubject(draft.subject) && !draft.module) || !draft.question.trim()) {
+        App.Components.toast('请先完成科目、模块和题干', 'error');
+        return;
+      }
+      if (!draft.knowledgePoints.length) draft.knowledgePoints = [App.Constants.DEFAULT_REVIEW_TAG || '待复盘'];
+      error.subject = draft.subject;
+      error.module = draft.module;
+      error.knowledgePoints = draft.knowledgePoints;
+      error.errorCause = draft.errorCause || App.Constants.DEFAULT_REVIEW_TAG || '待复盘';
+      error.pitfall = draft.pitfall;
+      error.question = draft.question.trim();
+      error.options = draft.options.map(v => String(v || '').trim()).filter(Boolean);
+      error.correctOption = draft.correctOption;
+      error.userOption = draft.userOption;
+      error.accuracy = parseInt(draft.accuracy, 10) || 0;
+      error.questionSource = draft.questionSource;
+      error.status = draft.status;
+      try {
+        await App.DB.updateError(error);
+        this._inlineErrorEditing = false;
+        App.Components.toast('已保存 ✓', 'success');
+        this.renderDetail({ id: error.id });
+      } catch (e) { App.Components.toast('保存失败，请重试', 'error'); }
+    });
+    actions.appendChild(cancel);
+    actions.appendChild(save);
+    form.appendChild(actions);
+    content.appendChild(form);
+  },
+
   // ===== 错题详情页右上角三点菜单 =====
   async _showErrorMenu(error) {
     const isMastered = error.status === '已掌握';
@@ -23708,7 +23997,7 @@ App.Pages.Errors = {
 
     switch (action) {
       case 'edit': {
-        App.Router.navigate('error-form?id=' + encodeURIComponent(error.id) + '&returnTo=' + encodeURIComponent('error-detail?id=' + error.id));
+        this._openInlineErrorEditor(error);
         break;
       }
       case 'master': {
@@ -25889,6 +26178,14 @@ App.Pages.Notes = {
           range.collapse(false);
           sel.removeAllRanges();
           sel.addRange(range);
+          // 题目/返回栏采用 sticky 顶部布局，光标若落在其下方，先把当前行
+          // 放到可视区中部，避免用户开始输入时仍被顶部区域盖住。
+          const sticky = document.querySelector('.page-sticky, .page-header');
+          const stickyRect = sticky && sticky.getBoundingClientRect ? sticky.getBoundingClientRect() : null;
+          const editorRect = editable.getBoundingClientRect ? editable.getBoundingClientRect() : null;
+          if (editorRect && stickyRect && editorRect.top < stickyRect.bottom + 12) {
+            editable.scrollIntoView({ block: 'center', inline: 'nearest' });
+          }
         } catch (e2) {}
       });
     } catch (err) {}
@@ -29063,9 +29360,9 @@ App.Pages.WordDB = {
     this.state.searchQuery = '';
     this.state.compareSearchOpen = false;
 
-    // 返回栏 + 标题；实词组辨析将搜索收进右上角更多菜单，新增使用右下角悬浮按钮。
+    // 返回栏 + 统一标题；科目/模块作为独立上下文显示，避免长标题挤压返回和操作按钮。
     const pageHeader = App.Components.pageHeader(
-      this._getCategoryTitle(),
+      '词语库',
       this.state.category === 'word-compare' ? '⋮' : '导入',
       this.state.category === 'word-compare'
         ? () => { this._showComparePageMenu(); }
@@ -29095,6 +29392,11 @@ App.Pages.WordDB = {
     );
     catBar.appendChild(catTabs);
     container.appendChild(catBar);
+
+    const context = document.createElement('div');
+    context.className = 'worddb-context';
+    context.innerHTML = '<strong>' + this._escapeHtml(this.state.subject || '言语理解') + '</strong><span>›</span><span>' + this._escapeHtml(this.state.module || '逻辑填空') + '</span>';
+    container.appendChild(context);
 
     // 工具栏
     const toolbar = document.createElement('div');
@@ -29126,7 +29428,7 @@ App.Pages.WordDB = {
 
   _getCategoryTitle() {
     const cat = this.CATEGORIES.find(c => c.key === this.state.category);
-    return (cat ? cat.label : '词语库') + '\n' + this.state.subject + ' · ' + this.state.module;
+    return cat ? cat.label : '词语库';
   },
 
   // ===== 工具栏 =====

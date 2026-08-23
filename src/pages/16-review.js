@@ -41,6 +41,21 @@ App.Pages.Review = {
 
     const due = await App.DB.getReviewQueue();
     const all = due.length ? due : await App.DB.getErrors();
+    const allErrors = due.length ? await App.DB.getErrors() : all;
+    const mastered = allErrors.filter(error => error.status === '已掌握').length;
+    const overview = document.createElement('div');
+    overview.className = 'review-overview';
+    [
+      ['待复习', due.length || all.length, due.length ? '已到期错题' : '历史错题'],
+      ['本轮题量', all.length, '点击开始后训练'],
+      ['已掌握', mastered, '可在错题详情修改状态']
+    ].forEach(item => {
+      const card = document.createElement('div');
+      card.className = 'review-overview__card';
+      card.innerHTML = '<strong>' + item[1] + '</strong><span>' + item[0] + '</span><small>' + item[2] + '</small>';
+      overview.appendChild(card);
+    });
+    container.appendChild(overview);
     const groups = this._groupBySubject(all);
     const hint = document.createElement('div');
     hint.className = 'review-hint';
@@ -48,14 +63,14 @@ App.Pages.Review = {
     container.appendChild(hint);
 
     const list = document.createElement('div');
-    list.className = 'review-subject-list';
+    list.className = 'review-subject-list review-subject-list--grid';
     Object.keys(groups).forEach(subject => {
       const cfg = App.Constants.SUBJECTS.find(s => s.name === subject) || { icon: '📚', color: '#0066CC' };
       const card = document.createElement('button');
       card.type = 'button';
       card.className = 'review-subject-card';
       card.innerHTML = '<span class="review-subject-card__icon" style="background:' + this._escape(cfg.color || '#0066CC') + '22">' + this._escape(cfg.icon || '📚') + '</span>' +
-        '<span class="review-subject-card__body"><strong>' + this._escape(subject) + '</strong><small>' + groups[subject].length + ' 题待复习</small></span><span class="review-subject-card__arrow">›</span>';
+        '<span class="review-subject-card__body"><strong>' + this._escape(subject) + '</strong><small>' + groups[subject].length + ' 题待复习 · 点击进入训练</small></span><span class="review-subject-card__arrow">›</span>';
       card.addEventListener('click', () => this._startSession(subject));
       list.appendChild(card);
     });
@@ -104,7 +119,9 @@ App.Pages.Review = {
 
     const content = document.createElement('div');
     content.className = 'review-session';
-    content.innerHTML = '<div class="review-session__meta">' + this._escape(error.subject || '未分类') + (error.module ? ' · ' + this._escape(error.module) : '') + '</div>' +
+    const progress = Math.round(((this.state.index + 1) / this.state.queue.length) * 100);
+    content.innerHTML = '<div class="review-session__progress"><span style="width:' + progress + '%"></span></div>' +
+      '<div class="review-session__meta">' + this._escape(error.subject || '未分类') + (error.module ? ' · ' + this._escape(error.module) : '') + '<em>第 ' + (this.state.index + 1) + ' / ' + this.state.queue.length + ' 题</em></div>' +
       '<div class="review-session__question">' + this._escape(error.question || '暂无题干') + '</div>';
     const options = document.createElement('div');
     options.className = 'review-options';
@@ -135,7 +152,7 @@ App.Pages.Review = {
     if (this.state.result) {
       const result = document.createElement('div');
       result.className = 'review-result ' + (this.state.result.correct ? 'is-correct' : 'is-wrong');
-      result.innerHTML = '<strong>' + (this.state.result.correct ? '回答正确 ✓' : '回答错误') + '</strong><span>正确答案：' + this._escape(error.correctOption || '未记录') + '</span>';
+      result.innerHTML = '<strong>' + (this.state.result.correct ? '回答正确 ✓' : '回答错误') + '</strong><span>正确答案：' + this._escape(error.correctOption || '未记录') + '</span>' + (error.errorCause ? '<small>错因：' + this._escape(error.errorCause) + '</small>' : '');
       content.appendChild(result);
       const next = document.createElement('button');
       next.type = 'button';
@@ -163,4 +180,3 @@ App.Pages.Review = {
     }
   }
 };
-

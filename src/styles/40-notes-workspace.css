@@ -1,3 +1,6 @@
+/* 详情页编辑时给 sticky 顶部区域预留滚动缓冲，避免题目/标题压住光标。 */
+.note-detail-content { scroll-padding-top: calc(var(--top-buffer) + 56px); }
+
 /* ===== 套卷时间线 ===== */
 .timeline {
   position: relative;

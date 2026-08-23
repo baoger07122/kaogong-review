@@ -1027,6 +1027,14 @@ App.Pages.Notes = {
           range.collapse(false);
           sel.removeAllRanges();
           sel.addRange(range);
+          // 题目/返回栏采用 sticky 顶部布局，光标若落在其下方，先把当前行
+          // 放到可视区中部，避免用户开始输入时仍被顶部区域盖住。
+          const sticky = document.querySelector('.page-sticky, .page-header');
+          const stickyRect = sticky && sticky.getBoundingClientRect ? sticky.getBoundingClientRect() : null;
+          const editorRect = editable.getBoundingClientRect ? editable.getBoundingClientRect() : null;
+          if (editorRect && stickyRect && editorRect.top < stickyRect.bottom + 12) {
+            editable.scrollIntoView({ block: 'center', inline: 'nearest' });
+          }
         } catch (e2) {}
       });
     } catch (err) {}

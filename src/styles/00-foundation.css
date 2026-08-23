@@ -423,6 +423,7 @@ input, textarea, select {
 #page-errors .page-sticky {
   position: static;
   top: auto;
+  border-bottom: none;
 }
 
 .page-header {
@@ -523,4 +524,3 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   transition: background 0.15s ease;
 }
 .page-header__more:active { background: #E9E9ED; }
-

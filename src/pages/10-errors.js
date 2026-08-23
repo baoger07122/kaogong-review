@@ -460,14 +460,15 @@ App.Pages.Errors = {
         <span class="sidebar__item-icon" style="color:${isActive ? '#0066CC' : s.color}">${this._subjectIconSvg(s.name) || s.icon}</span>
         <span class="sidebar__item-name">${s.name}</span>
         ${count > 0 ? `<span class="sidebar__item-count">${count}</span>` : ''}
-        <span class="sidebar__arrow"><svg width="8" height="5" viewBox="0 0 8 5" fill="none"><path d="M1 1l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        ${!App.Constants.isFlatSubject(s.name) ? '<span class="sidebar__arrow"><svg width="8" height="5" viewBox="0 0 8 5" fill="none"><path d="M1 1l3 3 3-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>' : ''}
       `;
       // 箭头：展开/收起该科目下的模块
-      row.querySelector('.sidebar__arrow').addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._expanded[s.name] = !this._expanded[s.name];
-        this.renderSubjectGrid(container);
-      });
+      const arrow = row.querySelector('.sidebar__arrow');
+      if (arrow) arrow.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._expanded[s.name] = !this._expanded[s.name];
+          this.renderSubjectGrid(container);
+        });
       // 点击科目行：选中科目，并在展开/收起模块之间切换；不再重复点击跳回「全部」
       row.addEventListener('click', () => {
         const sameSubject = this.state.subject === s.name;
@@ -935,6 +936,7 @@ App.Pages.Errors = {
     container.appendChild(header);
 
     const content = document.createElement('div');
+    content.className = 'error-detail-content';
     content.style.cssText = 'padding:var(--spacing-md) var(--page-padding);padding-bottom:calc(var(--safe-bottom) + var(--spacing-lg));';
 
     // 题号 + 标签
@@ -1157,6 +1159,166 @@ App.Pages.Errors = {
     container.appendChild(content);
   },
 
+  // ===== 错题详情页就地编辑 =====
+  // 详情页只替换当前内容区，不再跳转到独立表单页面；返回/取消时恢复原详情。
+  _openInlineErrorEditor(error) {
+    const content = document.querySelector('#page-error-detail .error-detail-content');
+    if (!content || this._inlineErrorEditing) return;
+    this._inlineErrorEditing = true;
+
+    const draft = {
+      subject: error.subject || '',
+      module: error.module || '',
+      knowledgePoints: Array.isArray(error.knowledgePoints) ? error.knowledgePoints.slice() : [],
+      errorCause: error.errorCause || '',
+      pitfall: error.pitfall || '',
+      question: error.question || '',
+      options: (error.options || []).slice(),
+      correctOption: error.correctOption || '',
+      userOption: error.userOption || '',
+      accuracy: error.accuracy == null ? '' : String(error.accuracy),
+      questionSource: error.questionSource || '',
+      status: error.status || '未掌握'
+    };
+    while (draft.options.length < 4) draft.options.push('');
+
+    content.innerHTML = '';
+    content.classList.add('error-detail-content--editing');
+
+    const heading = document.createElement('div');
+    heading.className = 'error-inline-edit__heading';
+    heading.innerHTML = '<strong>就地编辑错题</strong><span>修改后直接保存，仍停留在当前详情页</span>';
+    content.appendChild(heading);
+
+    const form = document.createElement('div');
+    form.className = 'error-inline-edit';
+    const field = (label, value, multiline) => {
+      const group = document.createElement('label');
+      group.className = 'error-inline-edit__field';
+      const name = document.createElement('span');
+      name.textContent = label;
+      const input = document.createElement(multiline ? 'textarea' : 'input');
+      input.value = value || '';
+      input.className = 'error-inline-edit__input';
+      if (multiline) input.rows = label === '题干' ? 5 : 3;
+      group.appendChild(name);
+      group.appendChild(input);
+      return { group, input };
+    };
+    const picker = (label, value, options, onPick) => {
+      const group = document.createElement('div');
+      group.className = 'error-inline-edit__field';
+      group._pickerOptions = options || [];
+      const name = document.createElement('span');
+      name.textContent = label;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'error-inline-edit__picker';
+      button.textContent = value || '请选择';
+      button.addEventListener('click', async () => {
+        const selected = await App.Components.centeredPicker((group._pickerOptions || []).map(v => ({ label: v, value: v })), '选择' + label, '');
+        if (selected !== undefined && selected !== null && selected !== '') {
+          onPick(selected);
+          button.textContent = selected;
+        }
+      });
+      group.appendChild(name);
+      group.appendChild(button);
+      return group;
+    };
+
+    const subjectPicker = picker('科目', draft.subject, App.Constants.SUBJECTS.map(s => s.name), (value) => {
+      draft.subject = value;
+      draft.module = '';
+      modulePicker._pickerOptions = App.Constants.getModules(value);
+      modulePicker.querySelector('button').textContent = '请选择';
+    });
+    form.appendChild(subjectPicker);
+    const modulePicker = picker('模块', draft.module, App.Constants.getModules(draft.subject), (value) => { draft.module = value; });
+    form.appendChild(modulePicker);
+
+    const kp = field('考点（多个用逗号分隔）', draft.knowledgePoints.join('、'), false);
+    kp.input.addEventListener('input', () => { draft.knowledgePoints = kp.input.value.split(/[、,，]/).map(v => v.trim()).filter(Boolean); });
+    form.appendChild(kp.group);
+    const cause = field('错因', draft.errorCause, false);
+    cause.input.addEventListener('input', () => { draft.errorCause = cause.input.value; });
+    form.appendChild(cause.group);
+    const question = field('题干', draft.question, true);
+    question.input.addEventListener('input', () => { draft.question = question.input.value; });
+    form.appendChild(question.group);
+
+    const optionsTitle = document.createElement('div');
+    optionsTitle.className = 'error-inline-edit__section-title';
+    optionsTitle.textContent = '选项';
+    form.appendChild(optionsTitle);
+    ['A', 'B', 'C', 'D'].forEach((letter, index) => {
+      const opt = field(letter, draft.options[index], false);
+      opt.input.addEventListener('input', () => { draft.options[index] = opt.input.value; });
+      form.appendChild(opt.group);
+    });
+    const answerRow = document.createElement('div');
+    answerRow.className = 'error-inline-edit__grid';
+    answerRow.appendChild(picker('正确选项', draft.correctOption, ['A', 'B', 'C', 'D'], value => { draft.correctOption = value; }));
+    answerRow.appendChild(picker('你的选项', draft.userOption, ['A', 'B', 'C', 'D'], value => { draft.userOption = value; }));
+    form.appendChild(answerRow);
+
+    const pitfall = field('思维误区', draft.pitfall, true);
+    pitfall.input.addEventListener('input', () => { draft.pitfall = pitfall.input.value; });
+    form.appendChild(pitfall.group);
+    const source = field('题目来源', draft.questionSource, false);
+    source.input.addEventListener('input', () => { draft.questionSource = source.input.value; });
+    form.appendChild(source.group);
+    const metaRow = document.createElement('div');
+    metaRow.className = 'error-inline-edit__grid';
+    const accuracy = field('全站正确率（%）', draft.accuracy, false);
+    accuracy.input.type = 'number';
+    accuracy.input.addEventListener('input', () => { draft.accuracy = accuracy.input.value; });
+    metaRow.appendChild(accuracy.group);
+    metaRow.appendChild(picker('状态', draft.status, ['未掌握', '已掌握'], value => { draft.status = value; }));
+    form.appendChild(metaRow);
+
+    const actions = document.createElement('div');
+    actions.className = 'error-inline-edit__actions';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn btn--outline';
+    cancel.textContent = '取消';
+    cancel.addEventListener('click', () => { this._inlineErrorEditing = false; this.renderDetail({ id: error.id }); });
+    const save = document.createElement('button');
+    save.type = 'button';
+    save.className = 'btn btn--primary';
+    save.textContent = '保存修改';
+    save.addEventListener('click', async () => {
+      if (!draft.subject || (!App.Constants.isFlatSubject(draft.subject) && !draft.module) || !draft.question.trim()) {
+        App.Components.toast('请先完成科目、模块和题干', 'error');
+        return;
+      }
+      if (!draft.knowledgePoints.length) draft.knowledgePoints = [App.Constants.DEFAULT_REVIEW_TAG || '待复盘'];
+      error.subject = draft.subject;
+      error.module = draft.module;
+      error.knowledgePoints = draft.knowledgePoints;
+      error.errorCause = draft.errorCause || App.Constants.DEFAULT_REVIEW_TAG || '待复盘';
+      error.pitfall = draft.pitfall;
+      error.question = draft.question.trim();
+      error.options = draft.options.map(v => String(v || '').trim()).filter(Boolean);
+      error.correctOption = draft.correctOption;
+      error.userOption = draft.userOption;
+      error.accuracy = parseInt(draft.accuracy, 10) || 0;
+      error.questionSource = draft.questionSource;
+      error.status = draft.status;
+      try {
+        await App.DB.updateError(error);
+        this._inlineErrorEditing = false;
+        App.Components.toast('已保存 ✓', 'success');
+        this.renderDetail({ id: error.id });
+      } catch (e) { App.Components.toast('保存失败，请重试', 'error'); }
+    });
+    actions.appendChild(cancel);
+    actions.appendChild(save);
+    form.appendChild(actions);
+    content.appendChild(form);
+  },
+
   // ===== 错题详情页右上角三点菜单 =====
   async _showErrorMenu(error) {
     const isMastered = error.status === '已掌握';
@@ -1170,7 +1332,7 @@ App.Pages.Errors = {
 
     switch (action) {
       case 'edit': {
-        App.Router.navigate('error-form?id=' + encodeURIComponent(error.id) + '&returnTo=' + encodeURIComponent('error-detail?id=' + error.id));
+        this._openInlineErrorEditor(error);
         break;
       }
       case 'master': {

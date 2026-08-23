@@ -191,6 +191,10 @@ Object.assign(App.Components, {
     // v8.5.6 移动端格式栏显示：旧显示逻辑只认 .notion-editable，htmlEditor 需自触发
     area.addEventListener('focusin', () => {
       if (App.Components._showMobileToolbar) App.Components._showMobileToolbar();
+      // iOS 点击表格单元格时不一定先触发 click，直接从当前选区识别单元格，
+      // 确保底部工具栏立即切换到“增加/删除行列”模式。
+      const cell = getCellFromSelection();
+      if (cell) setActiveCell(cell);
       keepCaretVisible();
     });
     area.addEventListener('focusout', (e) => {
@@ -205,6 +209,11 @@ Object.assign(App.Components, {
       const cell = getCellFromNode(e.target);
       if (cell) setActiveCell(cell);
       else setActiveCell(null);
+    });
+    area.addEventListener('keyup', () => {
+      // 键盘/外接键盘进入单元格时没有 click 事件，仍需让行列工具可用。
+      const cell = getCellFromSelection();
+      if (cell) setActiveCell(cell);
     });
     wrapper.addEventListener('mousedown', (e) => {
       const t = e.target;
@@ -243,13 +252,18 @@ Object.assign(App.Components, {
           let rect = r.getBoundingClientRect ? r.getBoundingClientRect() : null;
           if (!rect || (!rect.height && !rect.width)) rect = target.getBoundingClientRect();
           const vv = window.visualViewport;
-          const viewTop = vv ? vv.offsetTop : 0;
+          const viewTop = vv ? Math.max(0, vv.offsetTop) : 0;
           const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
           const bar = document.querySelector('.notion-mobile-toolbar.is-visible');
           const barTop = bar ? bar.getBoundingClientRect().top : viewBottom - 24;
           const safeBottom = Math.min(viewBottom - 12, barTop - 12);
+          // 详情页标题/返回栏是 sticky 的，光标滚到它下面时会被遮住；将其底部
+          // 视为真正的可编辑区域上边界，而不是只按 visualViewport 顶部计算。
+          const sticky = document.querySelector('.page-sticky, .page-header');
+          const stickyRect = sticky && sticky.getBoundingClientRect ? sticky.getBoundingClientRect() : null;
+          const safeTop = Math.max(viewTop + 12, stickyRect && stickyRect.bottom > viewTop ? stickyRect.bottom + 12 : 0);
           if (rect.bottom > safeBottom) window.scrollBy(0, rect.bottom - safeBottom);
-          else if (rect.top < viewTop + 12) window.scrollBy(0, rect.top - (viewTop + 12));
+          else if (rect.top < safeTop) window.scrollBy(0, rect.top - safeTop);
         } catch (e) { /* 某些浏览器在选区变化瞬间没有可测量矩形，忽略即可 */ }
       });
     }

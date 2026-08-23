@@ -4,7 +4,21 @@
 .worddb-cat-bar {
   padding: 0 var(--page-padding);
   background: var(--bg-primary);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.worddb-cat-bar::-webkit-scrollbar { display: none; }
+.worddb-context {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 2px var(--page-padding) 0;
+  color: var(--text-tertiary);
+  font-size: var(--font-xs);
+}
+.worddb-context strong { color: var(--text-primary); font-size: var(--font-sm); }
+.worddb-context span:first-of-type { color: var(--text-tertiary); }
 
 /* ===== 工具栏：筛选 / 搜索 / 新增 ===== */
 .worddb-toolbar {
@@ -134,6 +148,8 @@
 /* ===== 表格区域 ===== */
 .worddb-table-area {
   padding: 0 var(--page-padding) calc(var(--nav-height) + var(--safe-bottom) + 16px);
+  max-width: 1120px;
+  margin: 0 auto;
 }
 .worddb-thead {
   display: grid;
@@ -630,4 +646,3 @@
   .nav-label,
   .notes-worddb-entry { animation: none !important; transition: none !important; }
 }
-

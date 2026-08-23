@@ -7,8 +7,15 @@
 .review-header { padding: 18px 4px 14px; }
 .review-header h1 { font-size: 26px; line-height: 1.2; letter-spacing: -0.03em; }
 .review-header p { margin-top: 6px; color: var(--text-secondary); font-size: var(--font-sm); }
+.review-overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.review-overview__card { min-width: 0; padding: 12px 14px; border: 1px solid var(--border-color); border-radius: 16px; background: var(--bg-card); }
+.review-overview__card strong, .review-overview__card span, .review-overview__card small { display: block; }
+.review-overview__card strong { color: var(--color-primary); font-size: 24px; line-height: 1.1; }
+.review-overview__card span { margin-top: 4px; font-size: var(--font-sm); font-weight: 650; }
+.review-overview__card small { margin-top: 3px; overflow: hidden; color: var(--text-tertiary); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
 .review-hint { padding: 10px 12px; margin: 0 0 12px; border-radius: 12px; color: var(--text-secondary); background: var(--bg-tertiary); font-size: var(--font-sm); }
 .review-subject-list { display: grid; gap: 10px; }
+.review-subject-list--grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .review-subject-card { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 44px 14px 14px; border: 1px solid var(--border-color); border-radius: 18px; background: var(--bg-card); text-align: left; }
 .review-subject-card:active { transform: scale(.985); }
 .review-subject-card__icon { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 14px; font-size: 23px; }
@@ -18,7 +25,10 @@
 .review-subject-card__arrow { position: absolute; right: 12px; top: 50%; color: var(--text-tertiary); font-size: 21px; transform: translateY(-50%); }
 .review-start-btn, .review-next-btn { display: block; width: 100%; min-height: 48px; margin-top: 16px; border-radius: 16px; background: var(--gradient-primary); color: #fff; font-size: var(--font-lg); font-weight: 650; box-shadow: var(--shadow-btn); }
 .review-session { max-width: 760px; margin: 0 auto; padding: 16px 0 24px; }
-.review-session__meta { color: var(--color-primary); font-size: var(--font-sm); font-weight: 600; }
+.review-session__progress { height: 6px; overflow: hidden; margin-bottom: 12px; border-radius: 999px; background: var(--bg-tertiary); }
+.review-session__progress span { display: block; height: 100%; border-radius: inherit; background: var(--gradient-primary); transition: width .2s ease; }
+.review-session__meta { display: flex; justify-content: space-between; gap: 10px; color: var(--color-primary); font-size: var(--font-sm); font-weight: 600; }
+.review-session__meta em { color: var(--text-tertiary); font-size: var(--font-xs); font-style: normal; font-weight: 500; }
 .review-session__question { margin: 12px 0 16px; padding: 18px; border-radius: 18px; background: var(--bg-tertiary); font-size: var(--font-lg); line-height: 1.75; white-space: pre-line; }
 .review-options { display: grid; gap: 10px; }
 .review-option { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 14px; border: 1px solid var(--border-color); border-radius: 15px; background: var(--bg-card); text-align: left; color: var(--text-primary); font-size: var(--font-md); line-height: 1.55; }
@@ -29,9 +39,16 @@
 .review-result.is-correct { background: #EAF8EE; color: #227A3A; }
 .review-result.is-wrong { background: #FFF0EF; color: #B42318; }
 .review-result strong { font-size: var(--font-lg); }
+.review-result small { margin-top: 4px; color: inherit; opacity: .82; }
 .review-no-options { padding: 16px; border-radius: 14px; background: var(--bg-tertiary); color: var(--text-secondary); }
 .review-finished { padding: 80px 20px; text-align: center; }
 .review-finished > span { display: block; font-size: 32px; margin-bottom: 8px; }
 .review-finished h1 { font-size: 26px; }
 .review-finished p { margin-top: 8px; color: var(--text-secondary); }
 .review-finished .review-start-btn { max-width: 340px; margin: 22px auto 0; }
+@media (max-width: 620px) {
+  .review-overview { gap: 6px; }
+  .review-overview__card { padding: 10px; }
+  .review-overview__card small { display: none; }
+  .review-subject-list--grid { grid-template-columns: 1fr; }
+}
