@@ -200,19 +200,23 @@ App.Pages.Settings = {
     noteGroup.appendChild(ntRow);
     content.appendChild(noteGroup);
 
-    // ===== 版本与更新：按设计稿展示版本信息和手动检查按钮 =====
+    // ===== 版本与更新：沿用设置页紧凑行式布局，补充版本提示字段 =====
     const updateGroup = document.createElement('div');
-    updateGroup.className = 'settings-update-card';
+    updateGroup.className = 'settings-group';
     updateGroup.innerHTML = `
-      <div class="settings-update-card__title">版本与更新</div>
-      <div class="settings-update-card__main">
-        <div class="settings-update-card__info">
-          <div class="settings-update-card__version">v${App.VERSION || ''}</div>
-          <div class="settings-update-card__desc">个人管家 v${App.VERSION || ''} - 统一震动反馈并配置<br>Capacitor 云端 iOS 构建流程</div>
+      <div style="padding:12px var(--spacing-md);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;">系统</div>
+      <div class="ss-row settings-update-row">
+        <div class="ss-row__left settings-update-row__left">
+          <span class="ss-ico"><svg viewBox="0 0 24 24" fill="none" stroke="#0066CC" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.34 5.66"/><path d="M20 4v7h-7"/></svg></span>
+          <div class="settings-update-copy">
+            <span class="ss-row__label">版本与更新</span>
+            <span class="settings-update-copy__version">v${App.VERSION || ''}</span>
+            <span class="settings-update-copy__desc">个人管家 v${App.VERSION || ''} - 统一震动反馈并配置 Capacitor 云端 iOS 构建流程</span>
+            <span class="settings-update-copy__hint">手动检查后会加载最新版本，数据仍保存在本机。</span>
+          </div>
         </div>
         <button type="button" class="settings-update-btn" id="settings-check-update">检查更新</button>
       </div>
-      <div class="settings-update-card__hint">手动检查后会加载最新版本，数据仍保存在本机。</div>
     `;
     const updateBtn = updateGroup.querySelector('#settings-check-update');
     updateBtn.addEventListener('click', async (event) => {

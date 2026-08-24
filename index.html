@@ -4259,83 +4259,66 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
 .ss-row__label { font-size: 15px; font-weight: 500; color: var(--text-primary); }
 .ss-row__val { font-size: 13px; color: var(--text-tertiary); }
 .ss-arrow { font-size: 16px; color: var(--text-tertiary); margin-left: 4px; }
-/* ===== 版本与更新卡片：对齐 iPad 设计稿 ===== */
-.settings-update-card {
-  margin: 0 clamp(16px, 5vw, 60px) var(--spacing-lg);
-  padding: 42px 40px 40px;
-  border-radius: 46px;
-  background: var(--bg-card);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.06);
+/* ===== 版本与更新：沿用设置页白卡分组与紧凑行式布局 ===== */
+.settings-update-row {
+  align-items: flex-start;
+  gap: 16px;
+  padding-top: 15px;
+  padding-bottom: 15px;
 }
-.settings-update-card__title {
-  margin-bottom: 32px;
-  color: var(--text-primary);
-  font-size: clamp(26px, 3vw, 36px);
-  font-weight: 700;
-  line-height: 1.2;
-}
-.settings-update-card__main {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 28px;
-}
-.settings-update-card__info {
+.settings-update-row__left {
   min-width: 0;
-  flex: 1;
+  align-items: flex-start;
 }
-.settings-update-card__version {
-  margin-bottom: 12px;
-  color: var(--text-primary);
-  font-size: clamp(28px, 3vw, 38px);
-  font-weight: 700;
-  line-height: 1.1;
+.settings-update-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
-.settings-update-card__desc,
-.settings-update-card__hint {
+.settings-update-copy .ss-row__label {
+  line-height: 1.25;
+}
+.settings-update-copy__version,
+.settings-update-copy__desc,
+.settings-update-copy__hint {
   color: var(--text-tertiary);
-  font-size: clamp(17px, 2.15vw, 27px);
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.4;
 }
-.settings-update-card__hint {
-  margin-top: 26px;
+.settings-update-copy__version {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+.settings-update-copy__desc,
+.settings-update-copy__hint {
+  max-width: 680px;
 }
 .settings-update-btn {
   flex: 0 0 auto;
-  min-width: 220px;
-  min-height: 108px;
-  padding: 0 28px;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 12px;
   border: 0;
-  border-radius: 28px;
-  background: #2176F5;
-  color: #fff;
-  font-size: clamp(22px, 2.4vw, 30px);
-  font-weight: 500;
+  border-radius: 15px;
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
-  transition: transform 0.18s ease, opacity 0.18s ease;
+  transition: transform 0.15s ease, opacity 0.15s ease;
 }
 .settings-update-btn:active { transform: scale(0.97); }
 .settings-update-btn:disabled { opacity: .55; cursor: default; }
 
 @media (max-width: 700px) {
-  .settings-update-card {
-    padding: 28px 24px 26px;
-    border-radius: 30px;
+  .settings-update-row {
+    align-items: center;
   }
-  .settings-update-card__title { margin-bottom: 22px; }
-  .settings-update-card__main {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 20px;
+  .settings-update-copy__desc,
+  .settings-update-copy__hint {
+    max-width: 100%;
   }
-  .settings-update-btn {
-    min-width: 0;
-    min-height: 56px;
-    padding: 0 24px;
-    border-radius: 18px;
-    font-size: 18px;
-  }
-  .settings-update-card__hint { margin-top: 20px; }
 }
 
 /* ===== 云同步卡片 ===== */
@@ -11156,7 +11139,7 @@ window.App = window.App || {};
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.24.7';
+App.VERSION = '8.24.8';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -12087,6 +12070,24 @@ App.DB = (function() {
     return db;
   }
 
+  // 首页倒数日目前独立存储在 localStorage，备份时也必须显式纳入文件。
+  function readCountdownBackup() {
+    try {
+      if (typeof localStorage === 'undefined') return [];
+      const value = JSON.parse(localStorage.getItem('kg_countdown') || '[]');
+      return Array.isArray(value) ? value : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function writeCountdownBackup(value) {
+    if (typeof localStorage === 'undefined') return;
+    if (!Array.isArray(value)) throw new Error('备份字段「countdown」格式错误');
+    if (value.length) localStorage.setItem('kg_countdown', JSON.stringify(value));
+    else localStorage.removeItem('kg_countdown');
+  }
+
   // 写入操作统一等事务真正提交后再 resolve。
   // 仅监听 request.onsuccess 会在配额不足/事务提交失败时误报“保存成功”。
   function writeTransaction(storeName, action) {
@@ -12642,6 +12643,7 @@ App.DB = (function() {
       keyvalue: kv.filter(r => !(r.key && r.key.indexOf('auto_backup_') === 0)),   // v8.6.6 排除自动备份包，防递归膨胀
       words,
       stickies,
+      countdown: readCountdownBackup(),
       noteTypes: App.NoteTypes && App.NoteTypes.exportData ? App.NoteTypes.exportData() : null
     };
 
@@ -12665,6 +12667,10 @@ App.DB = (function() {
     if (!jsonData || !jsonData.version) {
       throw new Error('无效的备份文件格式');
     }
+    const hasCountdown = Object.prototype.hasOwnProperty.call(jsonData, 'countdown');
+    if (hasCountdown && !Array.isArray(jsonData.countdown)) {
+      throw new Error('备份字段「countdown」格式错误');
+    }
 
     const mappings = {
       'errors': 'errors',
@@ -12684,6 +12690,10 @@ App.DB = (function() {
       replacements[storeName] = items;
     }
     await replaceStores(replacements);
+    // 旧备份没有 countdown 字段时保留本机现有倒数日，避免旧文件导入导致数据意外消失。
+    if (hasCountdown) {
+      writeCountdownBackup(jsonData.countdown);
+    }
     if (Object.prototype.hasOwnProperty.call(jsonData, 'noteTypes') && App.NoteTypes && App.NoteTypes.importData) {
       App.NoteTypes.importData(jsonData.noteTypes);
     }
@@ -12709,6 +12719,7 @@ App.DB = (function() {
       keyvalue: kv.filter(r => !(r.key && r.key.indexOf('auto_backup_') === 0)),
       words,
       stickies,
+      countdown: readCountdownBackup(),
       noteTypes: App.NoteTypes && App.NoteTypes.exportData ? App.NoteTypes.exportData() : null
     };
   }
@@ -29576,19 +29587,23 @@ App.Pages.Settings = {
     noteGroup.appendChild(ntRow);
     content.appendChild(noteGroup);
 
-    // ===== 版本与更新：按设计稿展示版本信息和手动检查按钮 =====
+    // ===== 版本与更新：沿用设置页紧凑行式布局，补充版本提示字段 =====
     const updateGroup = document.createElement('div');
-    updateGroup.className = 'settings-update-card';
+    updateGroup.className = 'settings-group';
     updateGroup.innerHTML = `
-      <div class="settings-update-card__title">版本与更新</div>
-      <div class="settings-update-card__main">
-        <div class="settings-update-card__info">
-          <div class="settings-update-card__version">v${App.VERSION || ''}</div>
-          <div class="settings-update-card__desc">个人管家 v${App.VERSION || ''} - 统一震动反馈并配置<br>Capacitor 云端 iOS 构建流程</div>
+      <div style="padding:12px var(--spacing-md);font-size:var(--font-xs);color:var(--text-tertiary);font-weight:600;text-transform:uppercase;">系统</div>
+      <div class="ss-row settings-update-row">
+        <div class="ss-row__left settings-update-row__left">
+          <span class="ss-ico"><svg viewBox="0 0 24 24" fill="none" stroke="#0066CC" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.34 5.66"/><path d="M20 4v7h-7"/></svg></span>
+          <div class="settings-update-copy">
+            <span class="ss-row__label">版本与更新</span>
+            <span class="settings-update-copy__version">v${App.VERSION || ''}</span>
+            <span class="settings-update-copy__desc">个人管家 v${App.VERSION || ''} - 统一震动反馈并配置 Capacitor 云端 iOS 构建流程</span>
+            <span class="settings-update-copy__hint">手动检查后会加载最新版本，数据仍保存在本机。</span>
+          </div>
         </div>
         <button type="button" class="settings-update-btn" id="settings-check-update">检查更新</button>
       </div>
-      <div class="settings-update-card__hint">手动检查后会加载最新版本，数据仍保存在本机。</div>
     `;
     const updateBtn = updateGroup.querySelector('#settings-check-update');
     updateBtn.addEventListener('click', async (event) => {

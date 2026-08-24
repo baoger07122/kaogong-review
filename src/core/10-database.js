@@ -11,6 +11,24 @@ App.DB = (function() {
     return db;
   }
 
+  // 首页倒数日目前独立存储在 localStorage，备份时也必须显式纳入文件。
+  function readCountdownBackup() {
+    try {
+      if (typeof localStorage === 'undefined') return [];
+      const value = JSON.parse(localStorage.getItem('kg_countdown') || '[]');
+      return Array.isArray(value) ? value : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function writeCountdownBackup(value) {
+    if (typeof localStorage === 'undefined') return;
+    if (!Array.isArray(value)) throw new Error('备份字段「countdown」格式错误');
+    if (value.length) localStorage.setItem('kg_countdown', JSON.stringify(value));
+    else localStorage.removeItem('kg_countdown');
+  }
+
   // 写入操作统一等事务真正提交后再 resolve。
   // 仅监听 request.onsuccess 会在配额不足/事务提交失败时误报“保存成功”。
   function writeTransaction(storeName, action) {
@@ -566,6 +584,7 @@ App.DB = (function() {
       keyvalue: kv.filter(r => !(r.key && r.key.indexOf('auto_backup_') === 0)),   // v8.6.6 排除自动备份包，防递归膨胀
       words,
       stickies,
+      countdown: readCountdownBackup(),
       noteTypes: App.NoteTypes && App.NoteTypes.exportData ? App.NoteTypes.exportData() : null
     };
 
@@ -589,6 +608,10 @@ App.DB = (function() {
     if (!jsonData || !jsonData.version) {
       throw new Error('无效的备份文件格式');
     }
+    const hasCountdown = Object.prototype.hasOwnProperty.call(jsonData, 'countdown');
+    if (hasCountdown && !Array.isArray(jsonData.countdown)) {
+      throw new Error('备份字段「countdown」格式错误');
+    }
 
     const mappings = {
       'errors': 'errors',
@@ -608,6 +631,10 @@ App.DB = (function() {
       replacements[storeName] = items;
     }
     await replaceStores(replacements);
+    // 旧备份没有 countdown 字段时保留本机现有倒数日，避免旧文件导入导致数据意外消失。
+    if (hasCountdown) {
+      writeCountdownBackup(jsonData.countdown);
+    }
     if (Object.prototype.hasOwnProperty.call(jsonData, 'noteTypes') && App.NoteTypes && App.NoteTypes.importData) {
       App.NoteTypes.importData(jsonData.noteTypes);
     }
@@ -633,6 +660,7 @@ App.DB = (function() {
       keyvalue: kv.filter(r => !(r.key && r.key.indexOf('auto_backup_') === 0)),
       words,
       stickies,
+      countdown: readCountdownBackup(),
       noteTypes: App.NoteTypes && App.NoteTypes.exportData ? App.NoteTypes.exportData() : null
     };
   }
