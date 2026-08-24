@@ -331,8 +331,8 @@ input, textarea, select {
   padding: 0;
   border-radius: 22px;
   position: relative;
-  isolation: isolate;
   transition: color 0.12s ease;
+  z-index: 1;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -340,26 +340,32 @@ input, textarea, select {
   opacity: 1;
 }
 
-/* 选中胶囊使用独立图层，避免渐变背景无法平滑过渡造成“瞬间切换”。 */
+/* 统一选中胶囊由 #nav-active-indicator 管理，不在每个按钮内部单独生成。 */
 .nav-item::before {
+  display: none;
+}
+
+#nav-active-indicator {
   content: '';
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  border-radius: 22px;
   background: var(--gradient-primary);
   box-shadow: 0 4px 12px rgba(0, 102, 204, 0.30), 0 1px 3px rgba(0, 102, 204, 0.18);
   opacity: 0;
-  transform: scale(0.72);
-  transition: opacity 0.22s ease, transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translate3d(0, 0, 0);
+  transition: transform 0.48s cubic-bezier(0.22, 1.2, 0.36, 1),
+              width 0.20s ease, height 0.20s ease,
+              opacity 0.16s ease, box-shadow 0.32s ease;
   pointer-events: none;
   z-index: 0;
 }
 
-/* 手指按下时只压缩蓝色胶囊，文字和图标保持稳定。 */
-.nav-item:active::before {
-  opacity: 0.88;
-  transform: scale(0.90);
-  transition-duration: 0.10s;
+#nav-active-indicator.is-ready {
+  opacity: 1;
 }
 
 .nav-icon {
@@ -397,18 +403,6 @@ input, textarea, select {
   color: #fff;
 }
 
-.nav-item.active::before {
-  opacity: 1;
-  transform: scale(1);
-  animation: navPillActivate 0.32s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.nav-item.active:active::before {
-  opacity: 0.96;
-  transform: scale(0.94);
-  animation: none;
-}
-
 .nav-item.active .nav-icon {
   background: none;
   color: #fff;
@@ -422,30 +416,10 @@ input, textarea, select {
   font-weight: 600;
 }
 
-/* 胶囊轻微“压下—回弹”，让交互反馈集中在蓝色选中区域。 */
-@keyframes navPillActivate {
-  0% {
-    opacity: 0.35;
-    transform: scale(0.78);
-    box-shadow: 0 1px 5px rgba(0, 102, 204, 0.16);
-  }
-  62% {
-    opacity: 1;
-    transform: scale(1.035);
-    box-shadow: 0 6px 16px rgba(0, 102, 204, 0.34), 0 1px 4px rgba(0, 102, 204, 0.20);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-    box-shadow: 0 4px 12px rgba(0, 102, 204, 0.30), 0 1px 3px rgba(0, 102, 204, 0.18);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .nav-item,
-  .nav-item::before {
+  #nav-active-indicator {
     transition-duration: 0.01ms;
-    animation-duration: 0.01ms;
   }
 }
 

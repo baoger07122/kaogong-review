@@ -10,6 +10,13 @@ App.Router = {
   init() {
     window.addEventListener('hashchange', () => this.handleRoute());
 
+    // 横屏分屏、旋转或窗口尺寸变化后，重新计算统一选中胶囊的位置。
+    let navIndicatorTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(navIndicatorTimer);
+      navIndicatorTimer = setTimeout(() => this.updateNavIndicator(this.currentPage), 80);
+    }, { passive: true });
+
     // 首次加载
     if (!location.hash) {
       location.replace('#home');
@@ -109,6 +116,28 @@ App.Router = {
     document.querySelectorAll('#bottom-nav .nav-item').forEach(a => {
       a.classList.toggle('active', a.dataset.tab === currentPage);
     });
+    this.updateNavIndicator(currentPage);
+  },
+
+  // 参考视频的导航动效：一个选中胶囊在各导航项之间连续滑动。
+  updateNavIndicator(currentPage) {
+    const nav = document.getElementById('bottom-nav');
+    const indicator = document.getElementById('nav-active-indicator');
+    if (!nav || !indicator) return;
+    const active = nav.querySelector('.nav-item[data-tab="' + currentPage + '"]');
+    if (!active) return;
+
+    const move = () => {
+      if (!active.isConnected || active.offsetWidth === 0) return;
+      indicator.style.width = active.offsetWidth + 'px';
+      indicator.style.height = active.offsetHeight + 'px';
+      indicator.style.transform = 'translate3d(' + active.offsetLeft + 'px,' + active.offsetTop + 'px,0)';
+      indicator.classList.add('is-ready');
+    };
+
+    // 首次渲染先定位再显示，避免初始胶囊从左侧闪入；后续切换保留 CSS 位移动画。
+    if (indicator.classList.contains('is-ready')) move();
+    else window.requestAnimationFrame(move);
   },
 
   // v8.12.19 移除右下角悬浮 FAB（用户决定删除一键添加错题按钮）

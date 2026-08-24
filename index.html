@@ -349,8 +349,8 @@ input, textarea, select {
   padding: 0;
   border-radius: 22px;
   position: relative;
-  isolation: isolate;
   transition: color 0.12s ease;
+  z-index: 1;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -358,26 +358,32 @@ input, textarea, select {
   opacity: 1;
 }
 
-/* 选中胶囊使用独立图层，避免渐变背景无法平滑过渡造成“瞬间切换”。 */
+/* 统一选中胶囊由 #nav-active-indicator 管理，不在每个按钮内部单独生成。 */
 .nav-item::before {
+  display: none;
+}
+
+#nav-active-indicator {
   content: '';
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  border-radius: 22px;
   background: var(--gradient-primary);
   box-shadow: 0 4px 12px rgba(0, 102, 204, 0.30), 0 1px 3px rgba(0, 102, 204, 0.18);
   opacity: 0;
-  transform: scale(0.72);
-  transition: opacity 0.22s ease, transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translate3d(0, 0, 0);
+  transition: transform 0.48s cubic-bezier(0.22, 1.2, 0.36, 1),
+              width 0.20s ease, height 0.20s ease,
+              opacity 0.16s ease, box-shadow 0.32s ease;
   pointer-events: none;
   z-index: 0;
 }
 
-/* 手指按下时只压缩蓝色胶囊，文字和图标保持稳定。 */
-.nav-item:active::before {
-  opacity: 0.88;
-  transform: scale(0.90);
-  transition-duration: 0.10s;
+#nav-active-indicator.is-ready {
+  opacity: 1;
 }
 
 .nav-icon {
@@ -415,18 +421,6 @@ input, textarea, select {
   color: #fff;
 }
 
-.nav-item.active::before {
-  opacity: 1;
-  transform: scale(1);
-  animation: navPillActivate 0.32s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.nav-item.active:active::before {
-  opacity: 0.96;
-  transform: scale(0.94);
-  animation: none;
-}
-
 .nav-item.active .nav-icon {
   background: none;
   color: #fff;
@@ -440,30 +434,10 @@ input, textarea, select {
   font-weight: 600;
 }
 
-/* 胶囊轻微“压下—回弹”，让交互反馈集中在蓝色选中区域。 */
-@keyframes navPillActivate {
-  0% {
-    opacity: 0.35;
-    transform: scale(0.78);
-    box-shadow: 0 1px 5px rgba(0, 102, 204, 0.16);
-  }
-  62% {
-    opacity: 1;
-    transform: scale(1.035);
-    box-shadow: 0 6px 16px rgba(0, 102, 204, 0.34), 0 1px 4px rgba(0, 102, 204, 0.20);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-    box-shadow: 0 4px 12px rgba(0, 102, 204, 0.30), 0 1px 3px rgba(0, 102, 204, 0.18);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .nav-item,
-  .nav-item::before {
+  #nav-active-indicator {
     transition-duration: 0.01ms;
-    animation-duration: 0.01ms;
   }
 }
 
@@ -10959,6 +10933,8 @@ textarea.error-inline-edit__input { min-height: 74px; resize: vertical; line-hei
 
   <!-- 底部导航栏 -->
   <nav id="bottom-nav">
+    <!-- 统一选中胶囊：在导航项之间移动，避免每个按钮各自闪动 -->
+    <span id="nav-active-indicator" aria-hidden="true"></span>
     <a href="#home" data-tab="home" class="nav-item active">
       <span class="nav-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg></span>
       <span class="nav-label">首页</span>
@@ -11139,7 +11115,7 @@ window.App = window.App || {};
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.24.8';
+App.VERSION = '8.24.9';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -21111,6 +21087,13 @@ App.Router = {
   init() {
     window.addEventListener('hashchange', () => this.handleRoute());
 
+    // 横屏分屏、旋转或窗口尺寸变化后，重新计算统一选中胶囊的位置。
+    let navIndicatorTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(navIndicatorTimer);
+      navIndicatorTimer = setTimeout(() => this.updateNavIndicator(this.currentPage), 80);
+    }, { passive: true });
+
     // 首次加载
     if (!location.hash) {
       location.replace('#home');
@@ -21210,6 +21193,28 @@ App.Router = {
     document.querySelectorAll('#bottom-nav .nav-item').forEach(a => {
       a.classList.toggle('active', a.dataset.tab === currentPage);
     });
+    this.updateNavIndicator(currentPage);
+  },
+
+  // 参考视频的导航动效：一个选中胶囊在各导航项之间连续滑动。
+  updateNavIndicator(currentPage) {
+    const nav = document.getElementById('bottom-nav');
+    const indicator = document.getElementById('nav-active-indicator');
+    if (!nav || !indicator) return;
+    const active = nav.querySelector('.nav-item[data-tab="' + currentPage + '"]');
+    if (!active) return;
+
+    const move = () => {
+      if (!active.isConnected || active.offsetWidth === 0) return;
+      indicator.style.width = active.offsetWidth + 'px';
+      indicator.style.height = active.offsetHeight + 'px';
+      indicator.style.transform = 'translate3d(' + active.offsetLeft + 'px,' + active.offsetTop + 'px,0)';
+      indicator.classList.add('is-ready');
+    };
+
+    // 首次渲染先定位再显示，避免初始胶囊从左侧闪入；后续切换保留 CSS 位移动画。
+    if (indicator.classList.contains('is-ready')) move();
+    else window.requestAnimationFrame(move);
   },
 
   // v8.12.19 移除右下角悬浮 FAB（用户决定删除一键添加错题按钮）
