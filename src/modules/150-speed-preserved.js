@@ -179,10 +179,10 @@ App.Pages.SpeedCalc = {
     container.appendChild(header);
   },
 
+  // 速算按键音效：触感由全局 App.Haptics 统一处理，这里只保留原有声音反馈。
   // iOS 把 PWA 切到后台后，即使 AudioContext 仍报告 running，音频输出也可能已经失效。
   // 返回前台后的下一次按键强制在用户手势中重建/恢复 context，避免「第一次有声、切后台后静音」。
-  _tapHaptic() {
-    try { if (navigator.vibrate) { navigator.vibrate(8); return; } } catch (e) {}
+  _tapKeySound() {
     try {
       const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       if (!isIOS) return;
@@ -1846,8 +1846,8 @@ renderHome(container) {
       b.className = 'sc-numpad__btn' + (k.cls ? ' sc-numpad__btn--' + k.cls : '') + (extraCls || '');
       b.textContent = k.label || k.k;
       b.addEventListener('click', () => press(k.k));
-      // v8.6.39 触觉反馈：Android vibrate / iOS Web Audio 低频脉冲近似
-      b.addEventListener('pointerdown', () => this._tapHaptic());
+      // 按键音效保留；触感由全局 App.Haptics 统一触发。
+      b.addEventListener('pointerdown', () => this._tapKeySound());
       return b;
     };
     NUM_ROWS.forEach(row => row.forEach(k => grid.appendChild(mkBtn({ k: k }))));
@@ -2495,4 +2495,3 @@ function bindSwipeDelete(row, listEl, onDelete) {
     });
   }
 }
-
