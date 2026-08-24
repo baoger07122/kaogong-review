@@ -350,14 +350,12 @@ input, textarea, select {
   border-radius: 22px;
   position: relative;
   isolation: isolate;
-  overflow: hidden;
-  transition: color 0.22s ease, transform 0.18s ease;
+  transition: color 0.12s ease;
   -webkit-tap-highlight-color: transparent;
 }
 
 .nav-item:active {
-  opacity: 0.92;
-  transform: scale(0.96);
+  opacity: 1;
 }
 
 /* 选中胶囊使用独立图层，避免渐变背景无法平滑过渡造成“瞬间切换”。 */
@@ -375,6 +373,13 @@ input, textarea, select {
   z-index: 0;
 }
 
+/* 手指按下时只压缩蓝色胶囊，文字和图标保持稳定。 */
+.nav-item:active::before {
+  opacity: 0.88;
+  transform: scale(0.90);
+  transition-duration: 0.10s;
+}
+
 .nav-icon {
   display: flex;
   align-items: center;
@@ -382,7 +387,7 @@ input, textarea, select {
   line-height: 1;
   position: relative;
   z-index: 1;
-  transition: transform 0.22s ease, color 0.22s ease;
+  transition: none;
 }
 .nav-icon svg {
   width: 22px;
@@ -395,7 +400,7 @@ input, textarea, select {
   letter-spacing: 0.02em;
   position: relative;
   z-index: 1;
-  transition: color 0.22s ease, font-weight 0.22s ease;
+  transition: none;
   line-height: 1;
 }
 
@@ -413,10 +418,13 @@ input, textarea, select {
 .nav-item.active::before {
   opacity: 1;
   transform: scale(1);
+  animation: navPillActivate 0.32s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.nav-item.active .nav-icon {
-  animation: navIconActivate 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+.nav-item.active:active::before {
+  opacity: 0.96;
+  transform: scale(0.94);
+  animation: none;
 }
 
 .nav-item.active .nav-icon {
@@ -432,17 +440,28 @@ input, textarea, select {
   font-weight: 600;
 }
 
-@keyframes navIconActivate {
-  0% { transform: scale(0.82); }
-  65% { transform: scale(1.1); }
-  100% { transform: scale(1); }
+/* 胶囊轻微“压下—回弹”，让交互反馈集中在蓝色选中区域。 */
+@keyframes navPillActivate {
+  0% {
+    opacity: 0.35;
+    transform: scale(0.78);
+    box-shadow: 0 1px 5px rgba(0, 102, 204, 0.16);
+  }
+  62% {
+    opacity: 1;
+    transform: scale(1.035);
+    box-shadow: 0 6px 16px rgba(0, 102, 204, 0.34), 0 1px 4px rgba(0, 102, 204, 0.20);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 4px 12px rgba(0, 102, 204, 0.30), 0 1px 3px rgba(0, 102, 204, 0.18);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .nav-item,
-  .nav-item::before,
-  .nav-icon,
-  .nav-label {
+  .nav-item::before {
     transition-duration: 0.01ms;
     animation-duration: 0.01ms;
   }
@@ -11137,7 +11156,7 @@ window.App = window.App || {};
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.24.6';
+App.VERSION = '8.24.7';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
