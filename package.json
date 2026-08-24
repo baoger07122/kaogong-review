@@ -5,9 +5,19 @@
   "description": "考公笔试复盘系统 - 前端 + Node/SQLite 云同步后端（部署到 Render）",
   "scripts": {
     "build": "node build.js",
+    "cap:sync": "npm run build && npx cap sync ios",
+    "cap:add:ios": "npx cap add ios",
     "postinstall": "cd server && npm install",
     "setup:server": "cd server && npm install",
     "start": "node server/server.js"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.5.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.0"
   },
   "engines": {
     "node": ">=22.5.0"

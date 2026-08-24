@@ -75,8 +75,17 @@ const JS_MODULES = [
   'src/bootstrap/00-editor-entry.js',
   'src/modules/150-speed-preserved.js'
 ];
-const js = JS_MODULES
+// 当前项目不是 Vite/Webpack 应用，Capacitor 插件不会自动被打进单文件页面。
+// 将 Core 与 Haptics 的 IIFE 桥接脚本放在业务 JS 之前，远程页面在 Capacitor
+// WebView 中即可访问原生 Haptics；普通浏览器仍由网页 fallback 接管。
+const CAPACITOR_BRIDGE_MODULES = [
+  'node_modules/@capacitor/core/dist/capacitor.js',
+  'node_modules/@capacitor/haptics/dist/plugin.js'
+];
+const capacitorBridge = CAPACITOR_BRIDGE_MODULES
   .map(file => fs.readFileSync(path.join(root, file), 'utf8'))
+  .join('\n\n');
+const js = [capacitorBridge].concat(JS_MODULES.map(file => fs.readFileSync(path.join(root, file), 'utf8')))
   .join('\n\n');
 const template = fs.readFileSync(path.join(root, 'src', 'index.template.html'), 'utf8');
 
@@ -88,4 +97,8 @@ const out = template
   .replace('<!--BUILD_JS-->', () => '<script>' + js + '</script>');
 
 fs.writeFileSync(path.join(root, 'index.html'), out);
-console.log('✓ 已生成 index.html (' + (out.length / 1024).toFixed(0) + ' KB)');
+// Capacitor 的 webDir 使用同一份构建产物作为离线备用页面；App 在线时仍由
+// capacitor.config.json 的 server.url 优先加载 Render 远程页面。
+fs.mkdirSync(path.join(root, 'www'), { recursive: true });
+fs.writeFileSync(path.join(root, 'www', 'index.html'), out);
+console.log('✓ 已生成 index.html 与 www/index.html (' + (out.length / 1024).toFixed(0) + ' KB)');

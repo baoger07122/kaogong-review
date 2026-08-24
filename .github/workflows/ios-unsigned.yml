@@ -1,0 +1,81 @@
+name: Build unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'capacitor.config.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'build.js'
+      - 'src/core/05-haptics.js'
+      - 'src/modules/150-speed-preserved.js'
+      - '.github/workflows/ios-unsigned.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios-unsigned:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Create iOS project when it is not committed
+        run: |
+          if [ ! -d ios ]; then
+            npx cap add ios
+          fi
+
+      - name: Sync Capacitor iOS project
+        run: npx cap sync ios
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build unsigned App.app
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -target App \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/ios \
+            build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          VERSION=$(node -e "const fs=require('fs'); const s=fs.readFileSync('src/core/00-constants.js','utf8'); const m=s.match(/App\\.VERSION\\s*=\\s*['\"]([^'\"]+)['\"]/); process.stdout.write(m ? m[1] : 'dev')")
+          mkdir -p build/ipa/Payload
+          cp -R build/ios/Build/Products/Release-iphoneos/App.app build/ipa/Payload/App.app
+          cd build/ipa
+          zip -qry "kaogong-review-${VERSION}-unsigned.ipa" Payload
+          echo "IPA_NAME=kaogong-review-${VERSION}-unsigned.ipa" >> "$GITHUB_ENV"
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IPA_NAME }}
+          path: build/ipa/${{ env.IPA_NAME }}
+          if-no-files-found: error
+          retention-days: 14

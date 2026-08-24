@@ -16,6 +16,7 @@ server/.env
 .workbuddy/
 deploy-static/
 考公笔试复盘系统.html
+www/
 
 # 系统文件
 .DS_Store

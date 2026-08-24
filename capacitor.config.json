@@ -1,0 +1,19 @@
+{
+  "appId": "com.baoger07122.kaogongreview",
+  "appName": "考公笔试复盘系统",
+  "webDir": "www",
+  "loggingBehavior": "none",
+  "server": {
+    "url": "https://kaogong-review.onrender.com/",
+    "cleartext": false,
+    "allowNavigation": [
+      "kaogong-review.onrender.com"
+    ]
+  },
+  "ios": {
+    "contentInset": "never",
+    "preferredContentMode": "mobile",
+    "scrollEnabled": true,
+    "backgroundColor": "#FFFFFF"
+  }
+}

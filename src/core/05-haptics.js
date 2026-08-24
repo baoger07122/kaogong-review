@@ -25,7 +25,10 @@ App.Haptics = App.Haptics || (function () {
       var capacitor = window.Capacitor;
       var plugins = capacitor && capacitor.Plugins;
       var haptics = plugins && plugins.Haptics;
-      if (haptics && typeof haptics.impact === 'function') {
+      var isNative = capacitor && typeof capacitor.isNativePlatform === 'function'
+        ? capacitor.isNativePlatform()
+        : false;
+      if (isNative && haptics && typeof haptics.impact === 'function') {
         haptics.impact({ style: 'LIGHT' });
         return true;
       }
