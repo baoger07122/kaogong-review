@@ -48,6 +48,7 @@ const JS_MODULES = [
   'src/app.js',
   'src/core/00-constants.js',
   'src/core/01-utils.js',
+  'src/core/05-haptics.js',
   'src/core/10-database.js',
   'src/core/20-tags.js',
   'src/components/00-shell.js',
