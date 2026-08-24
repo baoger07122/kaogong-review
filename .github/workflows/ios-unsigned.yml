@@ -19,14 +19,14 @@ permissions:
 
 jobs:
   build-ios-unsigned:
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -46,18 +46,25 @@ jobs:
       - name: Sync Capacitor iOS project
         run: npx cap sync ios
 
-      - name: Show Xcode version
-        run: xcodebuild -version
+      - name: Select Xcode 26
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort | tail -n 1)
+          if [ -z "$XCODE_PATH" ]; then
+            echo "Xcode 26 was not found on this runner"
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
 
-      - name: Build unsigned App.app
+      - name: Archive unsigned App
         run: |
           xcodebuild \
             -project ios/App/App.xcodeproj \
-            -target App \
+            -scheme App \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/ios/App.xcarchive \
+            archive \
             -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath build/ios \
-            build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
@@ -67,7 +74,7 @@ jobs:
         run: |
           VERSION=$(node -e "const fs=require('fs'); const s=fs.readFileSync('src/core/00-constants.js','utf8'); const m=s.match(/App\\.VERSION\\s*=\\s*['\"]([^'\"]+)['\"]/); process.stdout.write(m ? m[1] : 'dev')")
           mkdir -p build/ipa/Payload
-          cp -R build/ios/Build/Products/Release-iphoneos/App.app build/ipa/Payload/App.app
+          cp -R build/ios/App.xcarchive/Products/Applications/App.app build/ipa/Payload/App.app
           cd build/ipa
           zip -qry "kaogong-review-${VERSION}-unsigned.ipa" Payload
           echo "IPA_NAME=kaogong-review-${VERSION}-unsigned.ipa" >> "$GITHUB_ENV"

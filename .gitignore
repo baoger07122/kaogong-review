@@ -17,6 +17,7 @@ server/.env
 deploy-static/
 考公笔试复盘系统.html
 www/
+ios/
 
 # 系统文件
 .DS_Store

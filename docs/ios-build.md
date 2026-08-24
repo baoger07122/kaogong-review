@@ -12,7 +12,7 @@
 
 工作流文件：`.github/workflows/ios-unsigned.yml`
 
-工作流使用 GitHub macOS Runner、Node.js 22 和 Xcode。没有提交 `ios/` 工程时，工作流会自动执行 `npx cap add ios`；存在工程时则复用已有工程。之后执行 `npx cap sync ios`、`xcodebuild build`，最后把 `App.app` 打包成：
+工作流使用 GitHub macOS 15 Runner、Node.js 22 和 Xcode 26。没有提交 `ios/` 工程时，工作流会自动执行 `npx cap add ios`；存在工程时则复用已有工程。之后执行 `npx cap sync ios`、`xcodebuild archive`，最后把归档中的 `App.app` 打包成：
 
 ```text
 kaogong-review-X.Y.Z-unsigned.ipa
@@ -28,4 +28,3 @@ kaogong-review-X.Y.Z-unsigned.ipa
 
 - HTML、CSS、JavaScript 和业务逻辑：更新 Render，不需要重装 IPA。
 - Capacitor 插件、Info.plist、App 图标、Bundle ID 和 Swift 原生代码：重新运行 IPA 工作流并重新自签。
-
