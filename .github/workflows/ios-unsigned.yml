@@ -10,6 +10,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'build.js'
+      - 'assets/app-icon.png'
       - 'src/core/05-haptics.js'
       - 'src/modules/150-speed-preserved.js'
       - '.github/workflows/ios-unsigned.yml'
@@ -45,6 +46,12 @@ jobs:
 
       - name: Sync Capacitor iOS project
         run: npx cap sync ios
+
+      - name: Apply app icon
+        run: |
+          ICON_SET="ios/App/App/Assets.xcassets/AppIcon.appiconset"
+          mkdir -p "$ICON_SET"
+          sips -z 1024 1024 assets/app-icon.png --out "$ICON_SET/AppIcon-512@2x.png"
 
       - name: Select Xcode 26
         run: |
