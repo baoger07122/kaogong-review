@@ -16,7 +16,7 @@ on:
       - '.github/workflows/ios-unsigned.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-ios-unsigned:
@@ -85,6 +85,25 @@ jobs:
           cd build/ipa
           zip -qry "kaogong-review-${VERSION}-unsigned.ipa" Payload
           echo "IPA_NAME=kaogong-review-${VERSION}-unsigned.ipa" >> "$GITHUB_ENV"
+
+      - name: Publish IPA into workspace
+        shell: bash
+        env:
+          IPA_NAME: ${{ env.IPA_NAME }}
+        run: |
+          VERSION="${IPA_NAME#kaogong-review-}"
+          VERSION="${VERSION%-unsigned.ipa}"
+          mkdir -p "downloads/${VERSION}"
+          cp "build/ipa/${IPA_NAME}" "downloads/${VERSION}/${IPA_NAME}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "downloads/${VERSION}/${IPA_NAME}"
+          if git diff --cached --quiet; then
+            echo "IPA already exists in the workspace"
+          else
+            git commit -m "chore: publish ${IPA_NAME} [skip ci]"
+            git push origin HEAD:main
+          fi
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
