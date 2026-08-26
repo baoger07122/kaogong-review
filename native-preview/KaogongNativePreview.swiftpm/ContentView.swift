@@ -4,14 +4,40 @@ struct ContentView: View {
     @State private var selection: RootTab = .home
 
     var body: some View {
+        TabView(selection: $selection) {
+            NavigationStack { previewPage(.home) }
+                .tabItem { Label(RootTab.home.title, systemImage: RootTab.home.systemImage) }
+                .tag(RootTab.home)
+
+            NavigationStack { previewPage(.library) }
+                .tabItem { Label(RootTab.library.title, systemImage: RootTab.library.systemImage) }
+                .tag(RootTab.library)
+
+            NavigationStack { previewPage(.review) }
+                .tabItem { Label(RootTab.review.title, systemImage: RootTab.review.systemImage) }
+                .tag(RootTab.review)
+
+            NavigationStack { previewPage(.exams) }
+                .tabItem { Label(RootTab.exams.title, systemImage: RootTab.exams.systemImage) }
+                .tag(RootTab.exams)
+
+            NavigationStack { previewPage(.settings) }
+                .tabItem { Label(RootTab.settings.title, systemImage: RootTab.settings.systemImage) }
+                .tag(RootTab.settings)
+        }
+        .tint(AppTheme.accent)
+        .sensoryFeedback(.selection, trigger: selection)
+    }
+
+    private func previewPage(_ tab: RootTab) -> some View {
         GeometryReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 5) {
-                            Text(selection.title)
+                            Text(tab.title)
                                 .font(.largeTitle.bold())
-                            Text("原生导航交互预览 · 8.26.4")
+                            Text("最初版本系统 TabView 对照预览")
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -30,7 +56,7 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("预览说明")
                             .font(.headline)
-                        Text("拖动 Swift Playgrounds 的 App Preview 分隔线，观察横屏半屏宽度下的底部悬浮导航。点击五个入口，检查 iPadOS 原生 Liquid Glass 的流动切换、回弹反馈，以及图标和文字变蓝的效果。")
+                        Text("这里使用与第一个原生 IPA 相同的系统 TabView，没有自定义导航、动画或玻璃效果。请观察 iPad 横屏和半屏时系统把导航放在顶部还是底部，并与当时安装的 IPA 对比切换手感。")
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -44,10 +70,6 @@ struct ContentView: View {
             }
             .background(AppTheme.groupedBackground)
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            NativeBottomTabBar(selection: $selection)
-        }
-        .sensoryFeedback(.selection, trigger: selection)
     }
 
     private func previewMetric(_ title: String, value: String, color: Color) -> some View {
