@@ -30,6 +30,11 @@ App.Pages.Errors = {
     return 'errors' + (query.length ? '?' + query.join('&') : '');
   },
 
+  _buildErrorDetailRoute(error, edit) {
+    const id = error && error.id != null ? encodeURIComponent(String(error.id)) : '';
+    return 'error-detail?id=' + id + (edit ? '&edit=1' : '');
+  },
+
   // v8.12.30 错题本侧边栏 SVG 图标（像素级还原设计稿：直接引用设计稿导出路径，fill/stroke 用 currentColor）
   // 每科目图标形状与设计稿 7:688/700/729/738/749/757 完全一致；颜色由外层 style(color) 控制（未选中主题色/选中蓝）
   _subjectIconSvg(subjectName) {
@@ -665,7 +670,20 @@ App.Pages.Errors = {
     // 先销毁旧实例（若存在）
     if (this._masonryInst) { try { this._masonryInst.destroy(); } catch (e) {} this._masonryInst = null; }
     const inst = App.Components.masonryGrid(masonryWrap, {
-      onOpen: (error) => App.Router.navigate('error-detail?id=' + error.id)
+      onOpen: (error) => App.Router.navigate(this._buildErrorDetailRoute(error)),
+      onAction: (error, action) => {
+        if (action === 'edit') {
+          App.Router.navigate(this._buildErrorDetailRoute(error, true));
+          return;
+        }
+        if (action === 'delete') {
+          this._deleteError(error).then((deleted) => {
+            if (!deleted) return;
+            const list = document.getElementById('error-list');
+            if (list && this.state.view === 'wrong') this.renderList(list);
+          });
+        }
+      }
     });
     this._masonryInst = inst;
     inst.render(errors, false);
@@ -879,6 +897,8 @@ App.Pages.Errors = {
   // ===== 错题详情页 =====
   async renderDetail(params) {
     const container = document.getElementById('page-error-detail');
+    // 页面重新进入时清理旧编辑锁，避免上一次异常退出导致本次点击被直接 return。
+    this._inlineErrorEditing = false;
     container.innerHTML = '';
 
     const errorId = params.id;
@@ -922,6 +942,17 @@ App.Pages.Errors = {
         this._openScreenDoodle(error, params);
       });
       detailRight.appendChild(doodleBtn);
+
+      const editBtn = document.createElement('button');
+      editBtn.className = 'detail-header-action';
+      editBtn.textContent = '✎';
+      editBtn.title = '编辑错题';
+      editBtn.setAttribute('aria-label', '编辑错题');
+      editBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._openInlineErrorEditor(error);
+      });
+      detailRight.appendChild(editBtn);
 
       const moreBtn = document.createElement('button');
       moreBtn.className = 'detail-header-action';
@@ -1157,6 +1188,9 @@ App.Pages.Errors = {
     content.appendChild(reviewInfo);
 
     container.appendChild(content);
+
+    // 从列表卡片点击“编辑”时，打开详情后立即进入就地编辑态。
+    if (params && params.edit === '1') this._openInlineErrorEditor(error);
   },
 
   // ===== 错题详情页就地编辑 =====
@@ -1317,6 +1351,49 @@ App.Pages.Errors = {
     actions.appendChild(save);
     form.appendChild(actions);
     content.appendChild(form);
+
+    // 让进入编辑态后立即有可见焦点，避免用户误以为输入框没有生效。
+    const firstInput = form.querySelector('input, textarea');
+    if (firstInput) {
+      requestAnimationFrame(() => {
+        try { firstInput.focus({ preventScroll: true }); } catch (e) { firstInput.focus(); }
+      });
+    }
+  },
+
+  // 统一处理列表和详情页删除，先删除本地记录，再确保登录状态下立即删除云端记录。
+  // 这样不会因为 500ms 防抖队列尚未发送，随后同步又把旧错题拉回本机。
+  async _deleteError(error) {
+    if (!error || error.id == null) return false;
+    const confirmed = await App.Components.confirm(
+      '删除错题',
+      '确定删除这道错题？此操作不可撤销。',
+      '删除', '取消', true
+    );
+    if (!confirmed) return false;
+
+    try {
+      await App.DB.remove('errors', error.id);
+    } catch (e) {
+      App.Components.toast('删除失败，请重试', 'error');
+      return false;
+    }
+
+    let cloudPending = false;
+    if (App.Cloud && App.Cloud.isLoggedIn && App.Cloud.isLoggedIn() && App.Cloud.deleteNow) {
+      try {
+        await App.Cloud.deleteNow('errors', error.id);
+      } catch (e) {
+        // 本地删除已经完成，云端删除仍会保留在队列中重试。
+        cloudPending = true;
+      }
+    }
+    this.state.allErrors = (this.state.allErrors || []).filter(item => String(item.id) !== String(error.id));
+    App.Components.toast(
+      cloudPending ? '已从本机删除，云端删除将在联网后重试' : '已删除',
+      cloudPending ? 'warning' : 'success'
+    );
+    return true;
   },
 
   // ===== 错题详情页右上角三点菜单 =====
@@ -1359,16 +1436,8 @@ App.Pages.Errors = {
         break;
       }
       case 'delete': {
-        const confirmed = await App.Components.confirm(
-          '删除错题',
-          '确定删除这道错题？此操作不可撤销。',
-          '删除', '取消', true
-        );
-        if (confirmed) {
-          await App.DB.remove('errors', error.id);
-          App.Components.toast('已删除', 'success');
-          App.Router.navigate('errors');
-        }
+        const deleted = await this._deleteError(error);
+        if (deleted) App.Router.navigate(this._buildErrorListRoute(error));
         break;
       }
     }

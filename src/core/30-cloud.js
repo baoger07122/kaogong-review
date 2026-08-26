@@ -83,6 +83,19 @@ App.Cloud = (function () {
     if (!res.ok && res.status !== 404) throw new Error('删除 ' + coll + ' 失败(' + res.status + ')');
   }
 
+  // 删除操作需要比普通保存队列更快完成，避免手动同步时旧记录先被拉回本地。
+  // 不清空整个队列，只等待当前批次结束后直接删除指定记录；失败时保留队列任务重试。
+  async function deleteNow(coll, id) {
+    if (!isLoggedIn() || !COLLS.includes(coll) || !id) return;
+    if (_flushTimer) {
+      clearTimeout(_flushTimer);
+      _flushTimer = null;
+    }
+    while (_flushing) await new Promise(resolve => setTimeout(resolve, 20));
+    await deleteRecord(coll, id);
+    _queue.delete(coll + '\u0000' + id);
+  }
+
   // ---------- 队列（防抖批量推送）----------
   function jobKey(job) {
     const id = job.op === 'put' ? job.item && job.item.id : job.id;
@@ -312,9 +325,8 @@ App.Cloud = (function () {
     init, wrapDB, validate,
     isLoggedIn, getEmail, getLastSyncText,
     login, register, logout,
-    syncNow, reconcile,
+    syncNow, reconcile, deleteNow,
     COLLS
   };
 })();
-
 
