@@ -35,7 +35,7 @@
 
 ## 文档
 
+- `NATIVE_REWRITE_MASTER_PLAN.md`：完整阶段计划、三层验收勾选表和用户签收记录。
 - `FEATURE_ACCEPTANCE.md`：页面、功能和交互验收合同。
 - `DATA_AND_API_CONTRACT.md`：本地数据、备份 JSON 与云 API 合同。
 - `MIGRATION_PLAN.md`：旧数据迁移、回滚和正式切换方案。
-
