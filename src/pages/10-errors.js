@@ -35,6 +35,12 @@ App.Pages.Errors = {
     return 'error-detail?id=' + id + (edit ? '&edit=1' : '');
   },
 
+  _buildErrorEditRoute(error) {
+    const id = error && error.id != null ? encodeURIComponent(String(error.id)) : '';
+    const returnTo = this._buildErrorListRoute(error);
+    return 'error-form?id=' + id + '&returnTo=' + encodeURIComponent(returnTo);
+  },
+
   // v8.12.30 错题本侧边栏 SVG 图标（像素级还原设计稿：直接引用设计稿导出路径，fill/stroke 用 currentColor）
   // 每科目图标形状与设计稿 7:688/700/729/738/749/757 完全一致；颜色由外层 style(color) 控制（未选中主题色/选中蓝）
   _subjectIconSvg(subjectName) {
@@ -673,7 +679,7 @@ App.Pages.Errors = {
       onOpen: (error) => App.Router.navigate(this._buildErrorDetailRoute(error)),
       onAction: (error, action) => {
         if (action === 'edit') {
-          App.Router.navigate(this._buildErrorDetailRoute(error, true));
+          App.Router.navigate(this._buildErrorEditRoute(error));
           return;
         }
         if (action === 'delete') {
@@ -897,8 +903,6 @@ App.Pages.Errors = {
   // ===== 错题详情页 =====
   async renderDetail(params) {
     const container = document.getElementById('page-error-detail');
-    // 页面重新进入时清理旧编辑锁，避免上一次异常退出导致本次点击被直接 return。
-    this._inlineErrorEditing = false;
     container.innerHTML = '';
 
     const errorId = params.id;
@@ -950,7 +954,7 @@ App.Pages.Errors = {
       editBtn.setAttribute('aria-label', '编辑错题');
       editBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this._openInlineErrorEditor(error);
+        App.Router.navigate(this._buildErrorEditRoute(error));
       });
       detailRight.appendChild(editBtn);
 
@@ -1188,9 +1192,6 @@ App.Pages.Errors = {
     content.appendChild(reviewInfo);
 
     container.appendChild(content);
-
-    // 从列表卡片点击“编辑”时，打开详情后立即进入就地编辑态。
-    if (params && params.edit === '1') this._openInlineErrorEditor(error);
   },
 
   // ===== 错题详情页就地编辑 =====
@@ -1409,7 +1410,7 @@ App.Pages.Errors = {
 
     switch (action) {
       case 'edit': {
-        this._openInlineErrorEditor(error);
+        App.Router.navigate(this._buildErrorEditRoute(error));
         break;
       }
       case 'master': {
