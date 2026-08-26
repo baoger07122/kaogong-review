@@ -20,7 +20,6 @@ targets:
     platform: iOS
     sources:
       - Sources
-    resources:
       - path: Resources/Assets.xcassets
         buildPhase: resources
     settings:
