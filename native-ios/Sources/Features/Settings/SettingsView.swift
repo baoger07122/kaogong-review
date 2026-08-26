@@ -53,7 +53,7 @@ struct SettingsView: View {
             }
 
             Section("原生重写") {
-                LabeledContent("版本", value: "8.26.2")
+                LabeledContent("版本", value: "8.26.3")
                 LabeledContent("基线", value: "Web v8.25.3")
                 LabeledContent("界面", value: "SwiftUI / UIKit")
                 LabeledContent("WebView", value: "未使用")

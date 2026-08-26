@@ -7,8 +7,6 @@ on:
       - codex/ios-native-rewrite
     paths:
       - 'native-ios/**'
-      - 'assets/app-icon.png'
-      - 'docs/native-rewrite/**'
       - '.github/workflows/ios-native-unsigned.yml'
 
 permissions:
@@ -40,7 +38,7 @@ jobs:
         run: |
           ICON_SET="native-ios/Resources/Assets.xcassets/AppIcon.appiconset"
           mkdir -p "$ICON_SET"
-          sips -z 1024 1024 assets/app-icon.png --out "$ICON_SET/AppIcon-1024.png"
+          sips -z 1024 1024 native-ios/Resources/NativeAppIcon.png --out "$ICON_SET/AppIcon-1024.png"
 
       - name: Generate Xcode project
         working-directory: native-ios
