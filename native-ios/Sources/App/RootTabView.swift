@@ -34,29 +34,35 @@ struct RootTabView: View {
     @State private var selection: RootTab = .home
 
     var body: some View {
-        TabView(selection: $selection) {
-            NavigationStack { HomeView() }
-                .tabItem { Label(RootTab.home.title, systemImage: RootTab.home.systemImage) }
-                .tag(RootTab.home)
-
-            NavigationStack { LibraryView() }
-                .tabItem { Label(RootTab.library.title, systemImage: RootTab.library.systemImage) }
-                .tag(RootTab.library)
-
-            NavigationStack { ReviewView() }
-                .tabItem { Label(RootTab.review.title, systemImage: RootTab.review.systemImage) }
-                .tag(RootTab.review)
-
-            NavigationStack { ExamsView() }
-                .tabItem { Label(RootTab.exams.title, systemImage: RootTab.exams.systemImage) }
-                .tag(RootTab.exams)
-
-            NavigationStack { SettingsView() }
-                .tabItem { Label(RootTab.settings.title, systemImage: RootTab.settings.systemImage) }
-                .tag(RootTab.settings)
+        ZStack {
+            ForEach(RootTab.allCases) { tab in
+                tabContent(tab)
+                    .opacity(selection == tab ? 1 : 0)
+                    .allowsHitTesting(selection == tab)
+                    .accessibilityHidden(selection != tab)
+                    .zIndex(selection == tab ? 1 : 0)
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            NativeBottomTabBar(selection: $selection)
         }
         .tint(AppTheme.accent)
         .sensoryFeedback(.selection, trigger: selection)
     }
-}
 
+    @ViewBuilder
+    private func tabContent(_ tab: RootTab) -> some View {
+        switch tab {
+        case .home:
+            NavigationStack { HomeView() }
+        case .library:
+            NavigationStack { LibraryView() }
+        case .review:
+            NavigationStack { ReviewView() }
+        case .exams:
+            NavigationStack { ExamsView() }
+        case .settings:
+            NavigationStack { SettingsView() }
+        }
+    }
+}
