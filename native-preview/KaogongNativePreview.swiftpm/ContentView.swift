@@ -30,7 +30,7 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("预览说明")
                             .font(.headline)
-                        Text("拖动 Swift Playgrounds 的 App Preview 分隔线，观察横屏半屏宽度下的悬浮导航。点击五个入口，检查透明玻璃选中镜片的移动，以及图标和文字变蓝的效果。")
+                        Text("拖动 Swift Playgrounds 的 App Preview 分隔线，观察横屏半屏宽度下的底部悬浮导航。点击五个入口，检查 iPadOS 原生 Liquid Glass 的流动切换、回弹反馈，以及图标和文字变蓝的效果。")
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }

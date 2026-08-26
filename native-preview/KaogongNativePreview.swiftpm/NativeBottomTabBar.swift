@@ -3,24 +3,18 @@ import SwiftUI
 struct NativeBottomTabBar: View {
     @Binding var selection: RootTab
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var selectionBackground
+    @Namespace private var glassNamespace
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(RootTab.allCases) { tab in
-                tabButton(tab)
-            }
-        }
-        .padding(7)
-        .frame(maxWidth: 700)
-        .background {
-            Capsule(style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay {
-                    Capsule(style: .continuous)
-                        .stroke(.white.opacity(0.62), lineWidth: 0.8)
+        GlassEffectContainer(spacing: 14) {
+            HStack(spacing: 6) {
+                ForEach(RootTab.allCases) { tab in
+                    tabButton(tab)
                 }
-                .shadow(color: .black.opacity(0.08), radius: 18, y: 7)
+            }
+            .padding(7)
+            .frame(maxWidth: 700)
+            .glassEffect(.regular, in: Capsule())
         }
         .padding(.horizontal, 22)
         .padding(.top, 8)
@@ -35,33 +29,17 @@ struct NativeBottomTabBar: View {
             if reduceMotion {
                 selection = tab
             } else {
-                withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+                withAnimation(.spring(duration: 0.42, bounce: 0.18)) {
                     selection = tab
                 }
             }
         } label: {
             ZStack {
                 if isSelected {
-                    Capsule(style: .continuous)
-                        .fill(.ultraThinMaterial)
-                        .matchedGeometryEffect(id: "root-tab-selection", in: selectionBackground)
-                        .overlay {
-                            Capsule(style: .continuous)
-                                .stroke(
-                                    LinearGradient(
-                                        colors: [
-                                            .white.opacity(0.95),
-                                            AppTheme.accent.opacity(0.18),
-                                            .white.opacity(0.55)
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: 1
-                                )
-                        }
-                        .shadow(color: AppTheme.accent.opacity(0.08), radius: 8, y: 4)
-                        .shadow(color: .white.opacity(0.7), radius: 3, y: -1)
+                    Color.clear
+                        .glassEffect(.clear.interactive(), in: Capsule())
+                        .glassEffectID("root-tab-selection", in: glassNamespace)
+                        .glassEffectTransition(.matchedGeometry)
                 }
 
                 VStack(spacing: 3) {
