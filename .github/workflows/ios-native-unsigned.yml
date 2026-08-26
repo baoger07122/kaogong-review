@@ -1,0 +1,99 @@
+name: Build native unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/ios-native-rewrite
+    paths:
+      - 'native-ios/**'
+      - 'assets/app-icon.png'
+      - 'docs/native-rewrite/**'
+      - '.github/workflows/ios-native-unsigned.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-native-ios:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout native branch
+        uses: actions/checkout@v5
+
+      - name: Select Xcode 26
+        shell: bash
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort | tail -n 1)
+          if [ -z "$XCODE_PATH" ]; then
+            echo "Xcode 26 was not found on this runner"
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Prepare native app icon
+        run: |
+          ICON_SET="native-ios/Resources/Assets.xcassets/AppIcon.appiconset"
+          mkdir -p "$ICON_SET"
+          sips -z 1024 1024 assets/app-icon.png --out "$ICON_SET/AppIcon-1024.png"
+
+      - name: Generate Xcode project
+        working-directory: native-ios
+        run: xcodegen generate
+
+      - name: Archive native App
+        run: |
+          xcodebuild \
+            -project native-ios/KaogongReviewNative.xcodeproj \
+            -scheme KaogongReviewNative \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/native-ios/KaogongReviewNative.xcarchive \
+            archive \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package native unsigned IPA
+        shell: bash
+        run: |
+          VERSION=$(awk '/MARKETING_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' native-ios/project.yml)
+          IPA_NAME="kaogong-review-native-${VERSION}-unsigned.ipa"
+          mkdir -p build/native-ipa/Payload
+          cp -R build/native-ios/KaogongReviewNative.xcarchive/Products/Applications/KaogongReviewNative.app build/native-ipa/Payload/
+          cd build/native-ipa
+          zip -qry "$IPA_NAME" Payload
+          echo "NATIVE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "IPA_NAME=$IPA_NAME" >> "$GITHUB_ENV"
+
+      - name: Publish native IPA into workspace
+        shell: bash
+        env:
+          IPA_NAME: ${{ env.IPA_NAME }}
+          NATIVE_VERSION: ${{ env.NATIVE_VERSION }}
+        run: |
+          mkdir -p "downloads/native/${NATIVE_VERSION}"
+          cp "build/native-ipa/${IPA_NAME}" "downloads/native/${NATIVE_VERSION}/${IPA_NAME}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "downloads/native/${NATIVE_VERSION}/${IPA_NAME}"
+          if git diff --cached --quiet; then
+            echo "Native IPA already exists in the workspace"
+          else
+            git commit -m "chore: publish ${IPA_NAME} [skip ci]"
+            git push origin HEAD:codex/ios-native-rewrite
+          fi
+
+      - name: Upload native unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IPA_NAME }}
+          path: build/native-ipa/${{ env.IPA_NAME }}
+          if-no-files-found: error
+          retention-days: 14
+
