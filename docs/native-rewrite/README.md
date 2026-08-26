@@ -43,6 +43,14 @@
 - 每轮截图明确标注设备型号、方向、视口宽高、系统版本、页面状态和对应 Git 提交。
 - 视觉差异在截图阶段返工；只有截图确认后才发布新的测试 IPA。
 
+### Swift Playgrounds iCloud 预览
+
+- 仓库内预览源：`native-preview/KaogongNativePreview.swiftpm/`。
+- Windows iCloud 同步目标：`C:\Users\bao\iCloudDrive\iCloud~com~apple~Playgrounds\KaogongNativePreview.swiftpm`。
+- 预览项目只使用模拟数据，不读取正式 App 数据库或登录凭证。
+- 视觉方案更新先同步到该固定项目；用户在 iPad Swift Playgrounds 中重新打开即可查看。
+- 预览编号独立于正式 App 版本；只有方案确认并进入 `native-ios/**` 后才升级原生 App 版本和构建 IPA。
+
 ## 不可变边界
 
 1. 正式 iOS App 的页面和业务交互全部使用 SwiftUI/UIKit。
