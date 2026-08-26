@@ -7,7 +7,6 @@ on:
       - codex/ios-native-rewrite
     paths:
       - 'native-ios/**'
-      - '.github/workflows/ios-native-unsigned.yml'
 
 permissions:
   contents: write
@@ -19,6 +18,38 @@ jobs:
     steps:
       - name: Checkout native branch
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Validate native version
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          VERSION=$(awk '/MARKETING_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' native-ios/project.yml)
+          if [[ ! "$VERSION" =~ ^[0-9]{1,2}\.[0-9]{1,2}\.[1-9][0-9]*$ ]]; then
+            echo "Native version must use month.day.iteration, got: $VERSION"
+            exit 1
+          fi
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            DATE_PREFIX=$(TZ=Asia/Shanghai date '+%-m.%-d.')
+            if [[ "$VERSION" != "$DATE_PREFIX"* ]]; then
+              echo "Native version must start with today's Asia/Shanghai date: $DATE_PREFIX"
+              exit 1
+            fi
+
+            if [ -n "$BEFORE_SHA" ] && [[ ! "$BEFORE_SHA" =~ ^0+$ ]]; then
+              PREVIOUS_VERSION=$(git show "$BEFORE_SHA:native-ios/project.yml" 2>/dev/null | awk '/MARKETING_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' || true)
+              if [ "$VERSION" = "$PREVIOUS_VERSION" ] && [ -f "downloads/native/${VERSION}/kaogong-review-native-${VERSION}-unsigned.ipa" ]; then
+                echo "Native source changed after $VERSION was already published; increment the iteration number"
+                exit 1
+              fi
+            fi
+          fi
+
+          echo "Validated native version: $VERSION"
 
       - name: Select Xcode 26
         shell: bash
