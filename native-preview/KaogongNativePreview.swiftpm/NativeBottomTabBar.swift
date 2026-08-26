@@ -6,23 +6,25 @@ struct NativeBottomTabBar: View {
     @Namespace private var selectionBackground
 
     var body: some View {
-        HStack {
-            Spacer(minLength: 12)
-            HStack(spacing: 8) {
-                ForEach(RootTab.allCases) { tab in
-                    tabButton(tab)
-                }
+        HStack(spacing: 6) {
+            ForEach(RootTab.allCases) { tab in
+                tabButton(tab)
             }
-            .frame(maxWidth: 760)
-            Spacer(minLength: 12)
         }
+        .padding(7)
+        .frame(maxWidth: 700)
+        .background {
+            Capsule(style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay {
+                    Capsule(style: .continuous)
+                        .stroke(.white.opacity(0.62), lineWidth: 0.8)
+                }
+                .shadow(color: .black.opacity(0.08), radius: 18, y: 7)
+        }
+        .padding(.horizontal, 22)
         .padding(.top, 8)
-        .padding(.bottom, 6)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .top) {
-            Divider().opacity(0.45)
-        }
-        .shadow(color: .black.opacity(0.06), radius: 12, y: -3)
+        .padding(.bottom, 10)
     }
 
     private func tabButton(_ tab: RootTab) -> some View {
@@ -40,10 +42,26 @@ struct NativeBottomTabBar: View {
         } label: {
             ZStack {
                 if isSelected {
-                    RoundedRectangle(cornerRadius: 19, style: .continuous)
-                        .fill(AppTheme.accent.gradient)
+                    Capsule(style: .continuous)
+                        .fill(.ultraThinMaterial)
                         .matchedGeometryEffect(id: "root-tab-selection", in: selectionBackground)
-                        .shadow(color: AppTheme.accent.opacity(0.24), radius: 8, y: 4)
+                        .overlay {
+                            Capsule(style: .continuous)
+                                .stroke(
+                                    LinearGradient(
+                                        colors: [
+                                            .white.opacity(0.95),
+                                            AppTheme.accent.opacity(0.18),
+                                            .white.opacity(0.55)
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1
+                                )
+                        }
+                        .shadow(color: AppTheme.accent.opacity(0.08), radius: 8, y: 4)
+                        .shadow(color: .white.opacity(0.7), radius: 3, y: -1)
                 }
 
                 VStack(spacing: 3) {
@@ -54,14 +72,14 @@ struct NativeBottomTabBar: View {
                         .font(.caption2.weight(.semibold))
                         .lineLimit(1)
                 }
-                .foregroundStyle(isSelected ? Color.white : Color.secondary)
+                .foregroundStyle(isSelected ? AppTheme.accent : Color.secondary)
                 .transaction { transaction in
                     transaction.animation = nil
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 58)
-            .contentShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+            .frame(height: 62)
+            .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(tab.title)
