@@ -359,6 +359,9 @@ App.DB = (function() {
   async function addSticky(sticky) {
     if (!sticky.id) sticky.id = App.Utils.genId('sticky');
     sticky.content = sticky.content || '';
+    // 便签作用域：空科目+空模块代表首页便签；有值时代表具体模块便签。
+    sticky.subject = String(sticky.subject || '').trim();
+    sticky.module = String(sticky.module || '').trim();
     sticky.tag = String(sticky.tag || '').trim();
     sticky.color = sticky.color || '#FFFBEB';
     sticky.pinned = !!sticky.pinned;
@@ -368,6 +371,8 @@ App.DB = (function() {
   }
 
   async function updateSticky(sticky) {
+    sticky.subject = String(sticky.subject || '').trim();
+    sticky.module = String(sticky.module || '').trim();
     sticky.tag = String(sticky.tag || '').trim();
     sticky.updatedAt = new Date().toISOString();
     return put('stickies', sticky);
@@ -377,10 +382,25 @@ App.DB = (function() {
     return remove('stickies', id);
   }
 
-  async function getStickies() {
+  async function getStickies(filters) {
     const all = await getAll('stickies');
+    const options = filters || {};
+    let results = all;
+    if (options.scope === 'home') {
+      // 首页便签与模块便签共用一张表，但首页只显示未绑定作用域的数据。
+      results = results.filter(sticky =>
+        !String(sticky.subject || '').trim() && !String(sticky.module || '').trim()
+      );
+    } else if (options.subject) {
+      const subject = String(options.subject).trim();
+      const module = String(options.module || '').trim();
+      results = results.filter(sticky =>
+        String(sticky.subject || '').trim() === subject &&
+        String(sticky.module || '').trim() === module
+      );
+    }
     // 置顶优先，其次严格按新增时间倒序；编辑不会改变便签在列表中的时间位置。
-    return all.sort((a, b) => {
+    return results.sort((a, b) => {
       if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
       return new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0);
     });

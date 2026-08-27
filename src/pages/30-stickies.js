@@ -33,7 +33,8 @@ App.Pages.Stickies = {
   async _fill(wrap) {
     wrap.innerHTML = '';
     let stickies = [];
-    try { stickies = await App.DB.getStickies(); } catch (e) {}
+    // 此页面是首页便签的管理入口，不混入各模块的独立便签。
+    try { stickies = await App.DB.getStickies({ scope: 'home' }); } catch (e) {}
 
     const masonry = document.createElement('div');
     masonry.className = 'sticky-masonry sticky-masonry--manage';

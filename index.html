@@ -11138,7 +11138,7 @@ window.App = window.App || {};
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.26.2';
+App.VERSION = '8.27.1';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -12417,6 +12417,9 @@ App.DB = (function() {
   async function addSticky(sticky) {
     if (!sticky.id) sticky.id = App.Utils.genId('sticky');
     sticky.content = sticky.content || '';
+    // 便签作用域：空科目+空模块代表首页便签；有值时代表具体模块便签。
+    sticky.subject = String(sticky.subject || '').trim();
+    sticky.module = String(sticky.module || '').trim();
     sticky.tag = String(sticky.tag || '').trim();
     sticky.color = sticky.color || '#FFFBEB';
     sticky.pinned = !!sticky.pinned;
@@ -12426,6 +12429,8 @@ App.DB = (function() {
   }
 
   async function updateSticky(sticky) {
+    sticky.subject = String(sticky.subject || '').trim();
+    sticky.module = String(sticky.module || '').trim();
     sticky.tag = String(sticky.tag || '').trim();
     sticky.updatedAt = new Date().toISOString();
     return put('stickies', sticky);
@@ -12435,10 +12440,25 @@ App.DB = (function() {
     return remove('stickies', id);
   }
 
-  async function getStickies() {
+  async function getStickies(filters) {
     const all = await getAll('stickies');
+    const options = filters || {};
+    let results = all;
+    if (options.scope === 'home') {
+      // 首页便签与模块便签共用一张表，但首页只显示未绑定作用域的数据。
+      results = results.filter(sticky =>
+        !String(sticky.subject || '').trim() && !String(sticky.module || '').trim()
+      );
+    } else if (options.subject) {
+      const subject = String(options.subject).trim();
+      const module = String(options.module || '').trim();
+      results = results.filter(sticky =>
+        String(sticky.subject || '').trim() === subject &&
+        String(sticky.module || '').trim() === module
+      );
+    }
     // 置顶优先，其次严格按新增时间倒序；编辑不会改变便签在列表中的时间位置。
-    return all.sort((a, b) => {
+    return results.sort((a, b) => {
       if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
       return new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0);
     });
@@ -22830,7 +22850,8 @@ App.Pages.Home = {
   async _fillStickySection(wrap) {
     wrap.innerHTML = '';
     let stickies = [];
-    try { stickies = await App.DB.getStickies(); } catch (e) {}
+    // 首页只展示独立首页便签；绑定到科目/模块的便签留在对应模块内。
+    try { stickies = await App.DB.getStickies({ scope: 'home' }); } catch (e) {}
 
     // 标题栏：📝 便签（数量）  [+ 查看全部 ›]
     const head = document.createElement('div');
@@ -27643,7 +27664,8 @@ App.Pages.Stickies = {
   async _fill(wrap) {
     wrap.innerHTML = '';
     let stickies = [];
-    try { stickies = await App.DB.getStickies(); } catch (e) {}
+    // 此页面是首页便签的管理入口，不混入各模块的独立便签。
+    try { stickies = await App.DB.getStickies({ scope: 'home' }); } catch (e) {}
 
     const masonry = document.createElement('div');
     masonry.className = 'sticky-masonry sticky-masonry--manage';

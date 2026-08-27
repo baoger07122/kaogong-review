@@ -3,7 +3,7 @@
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.26.2';
+App.VERSION = '8.27.1';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');

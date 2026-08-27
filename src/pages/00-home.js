@@ -1101,7 +1101,8 @@ App.Pages.Home = {
   async _fillStickySection(wrap) {
     wrap.innerHTML = '';
     let stickies = [];
-    try { stickies = await App.DB.getStickies(); } catch (e) {}
+    // 首页只展示独立首页便签；绑定到科目/模块的便签留在对应模块内。
+    try { stickies = await App.DB.getStickies({ scope: 'home' }); } catch (e) {}
 
     // 标题栏：📝 便签（数量）  [+ 查看全部 ›]
     const head = document.createElement('div');
