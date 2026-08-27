@@ -49,7 +49,10 @@
 - Windows iCloud 同步目标：`C:\Users\bao\iCloudDrive\iCloud~com~apple~Playgrounds\KaogongNativePreview.swiftpm`。
 - 预览项目只使用模拟数据，不读取正式 App 数据库或登录凭证。
 - 视觉方案更新先同步到该固定项目；用户在 iPad Swift Playgrounds 中重新打开即可查看。
-- 预览编号独立于正式 App 版本；只有方案确认并进入 `native-ios/**` 后才升级原生 App 版本和构建 IPA。
+- 纯 Playgrounds 视觉预览只修改本地工作区并同步 iCloud，不提交、不推送，也不更新正式版本号。
+- 用户确认预览后，才把方案迁移到 `native-ios/**`；迁移后的正式代码需要正常提交和推送。
+- 只有生成新的可测试 IPA 时，才按“月.日.当天 IPA 次数”更新原生版本号；预览次数不计入迭代号。
+- 预览完成只记录在“预览进度”中，不能提前勾选正式开发、构建或用户验收栏。
 
 ## 不可变边界
 
