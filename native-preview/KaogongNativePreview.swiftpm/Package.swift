@@ -14,7 +14,7 @@ let package = Package(
         .iOSApplication(
             name: "考公原生预览",
             targets: ["AppModule"],
-            displayVersion: "8.27.1",
+            displayVersion: "8.27.2",
             bundleVersion: "1",
             appIcon: .placeholder(icon: .box),
             accentColor: .presetColor(.blue),

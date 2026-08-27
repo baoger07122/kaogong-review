@@ -3,12 +3,14 @@ import SwiftUI
 struct NativeBottomTabBar: View {
     @Binding var selection: RootTab
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var selectionTray
+    @Namespace private var glassNamespace
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(RootTab.allCases) { tab in
-                tabButton(tab)
+        GlassEffectContainer(spacing: 6) {
+            HStack(spacing: 6) {
+                ForEach(RootTab.allCases) { tab in
+                    tabButton(tab)
+                }
             }
         }
         .padding(.horizontal, 10)
@@ -38,31 +40,10 @@ struct NativeBottomTabBar: View {
         } label: {
             ZStack {
                 if isSelected {
-                    Capsule(style: .continuous)
-                        .fill(AppTheme.accent.opacity(0.10))
-                        .overlay {
-                            Capsule(style: .continuous)
-                                .stroke(
-                                    LinearGradient(
-                                        colors: [
-                                            Color.white.opacity(0.70),
-                                            AppTheme.accent.opacity(0.12)
-                                        ],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    ),
-                                    lineWidth: 0.6
-                                )
-                        }
-                        .matchedGeometryEffect(
-                            id: "root-tab-selection",
-                            in: selectionTray
-                        )
-                        .shadow(
-                            color: AppTheme.accent.opacity(0.12),
-                            radius: 7,
-                            y: 3
-                        )
+                    Color.clear
+                        .glassEffect(.clear.interactive(), in: Capsule())
+                        .glassEffectID("root-tab-selection", in: glassNamespace)
+                        .glassEffectTransition(.matchedGeometry)
                         .offset(y: -2)
                 }
 
@@ -74,7 +55,7 @@ struct NativeBottomTabBar: View {
                         .font(.caption2.weight(.semibold))
                         .lineLimit(1)
                 }
-                .foregroundStyle(isSelected ? AppTheme.accent : Color.secondary)
+                .foregroundStyle(isSelected ? AppTheme.accent : Color.black)
                 .transaction { transaction in
                     transaction.animation = nil
                 }
