@@ -16,8 +16,7 @@ struct NativeBottomTabBar: View {
             .frame(maxWidth: 760)
             Spacer(minLength: 12)
         }
-        .padding(.top, 8)
-        .padding(.bottom, 6)
+        .padding(.vertical, 3)
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) {
             Divider().opacity(0.45)
@@ -40,28 +39,27 @@ struct NativeBottomTabBar: View {
         } label: {
             ZStack {
                 if isSelected {
-                    RoundedRectangle(cornerRadius: 19, style: .continuous)
-                        .fill(AppTheme.accent.gradient)
+                    Capsule(style: .continuous)
+                        .fill(Color.black.opacity(0.055))
                         .matchedGeometryEffect(id: "root-tab-selection", in: selectionBackground)
-                        .shadow(color: AppTheme.accent.opacity(0.24), radius: 8, y: 4)
                 }
 
-                VStack(spacing: 3) {
+                VStack(spacing: 2) {
                     Image(systemName: tab.systemImage)
-                        .font(.system(size: 20, weight: .semibold))
-                        .frame(height: 22)
+                        .font(.system(size: 18, weight: .semibold))
+                        .frame(height: 19)
                     Text(tab.title)
-                        .font(.caption2.weight(.semibold))
+                        .font(.system(size: 10, weight: .medium))
                         .lineLimit(1)
                 }
-                .foregroundStyle(isSelected ? Color.white : Color.secondary)
+                .foregroundStyle(isSelected ? AppTheme.accent : Color.black)
                 .transaction { transaction in
                     transaction.animation = nil
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 58)
-            .contentShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+            .frame(height: 44)
+            .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(tab.title)
