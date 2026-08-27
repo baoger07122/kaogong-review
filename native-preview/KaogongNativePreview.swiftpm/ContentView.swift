@@ -53,6 +53,10 @@ struct ContentView: View {
                         previewMetric("今日完成", value: "5", color: .green)
                     }
 
+                    if tab == .home {
+                        nativeIconCandidates
+                    }
+
                     VStack(alignment: .leading, spacing: 12) {
                         Text("预览说明")
                             .font(.headline)
@@ -84,5 +88,65 @@ struct ContentView: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.background, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var nativeIconCandidates: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("原生图标候选")
+                .font(.headline)
+
+            HStack(alignment: .top, spacing: 12) {
+                iconCandidateGroup(title: "学习库", candidates: [
+                    ("rectangle.stack.fill", "知识卡片"),
+                    ("square.grid.2x2.fill", "知识分类"),
+                    ("folder.fill", "资料文件夹"),
+                    ("archivebox.fill", "知识收纳"),
+                    ("graduationcap.fill", "学习")
+                ])
+
+                iconCandidateGroup(title: "复习", candidates: [
+                    ("checklist", "复习清单"),
+                    ("list.bullet.clipboard.fill", "剪贴板"),
+                    ("checkmark.seal.fill", "完成复盘"),
+                    ("brain.head.profile", "记忆回顾"),
+                    ("target", "重点复习")
+                ])
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func iconCandidateGroup(
+        title: String,
+        candidates: [(String, String)]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 74), spacing: 8)],
+                spacing: 10
+            ) {
+                ForEach(Array(candidates.enumerated()), id: \.offset) { _, candidate in
+                    VStack(spacing: 5) {
+                        Image(systemName: candidate.0)
+                            .font(.system(size: 25, weight: .medium))
+                            .frame(height: 30)
+                            .foregroundStyle(.primary)
+                        Text(candidate.1)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 7)
+                    .background(.tertiary.opacity(0.35), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
