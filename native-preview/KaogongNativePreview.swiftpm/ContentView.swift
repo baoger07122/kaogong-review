@@ -101,7 +101,12 @@ struct ContentView: View {
                     ("square.grid.2x2.fill", "知识分类"),
                     ("folder.fill", "资料文件夹"),
                     ("archivebox.fill", "知识收纳"),
-                    ("graduationcap.fill", "学习")
+                    ("graduationcap.fill", "学习"),
+                    ("books.vertical.fill", "书籍集合"),
+                    ("text.book.closed.fill", "知识文本"),
+                    ("square.stack.3d.up.fill", "资料堆叠"),
+                    ("doc.richtext.fill", "富文本资料"),
+                    ("list.bullet.rectangle.portrait.fill", "知识列表")
                 ])
 
                 iconCandidateGroup(title: "复习", candidates: [
@@ -109,7 +114,12 @@ struct ContentView: View {
                     ("list.bullet.clipboard.fill", "剪贴板"),
                     ("checkmark.seal.fill", "完成复盘"),
                     ("brain.head.profile", "记忆回顾"),
-                    ("target", "重点复习")
+                    ("target", "重点复习"),
+                    ("calendar.badge.clock", "复习安排"),
+                    ("calendar.badge.checkmark", "复习完成"),
+                    ("doc.text.magnifyingglass", "题目回顾"),
+                    ("checkmark.circle.fill", "检查掌握"),
+                    ("lightbulb.fill", "复习要点")
                 ])
             }
         }
