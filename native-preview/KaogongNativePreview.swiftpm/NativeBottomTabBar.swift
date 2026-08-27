@@ -3,22 +3,24 @@ import SwiftUI
 struct NativeBottomTabBar: View {
     @Binding var selection: RootTab
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var glassNamespace
+    @Namespace private var selectionTray
 
     var body: some View {
-        GlassEffectContainer(spacing: 14) {
-            HStack(spacing: 6) {
-                ForEach(RootTab.allCases) { tab in
-                    tabButton(tab)
-                }
+        HStack(spacing: 6) {
+            ForEach(RootTab.allCases) { tab in
+                tabButton(tab)
             }
-            .padding(7)
-            .frame(maxWidth: 700)
-            .glassEffect(.regular, in: Capsule())
         }
-        .padding(.horizontal, 22)
+        .padding(.horizontal, 10)
         .padding(.top, 8)
-        .padding(.bottom, 10)
+        .padding(.bottom, 6)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.06))
+                .frame(height: 0.5)
+        }
+        .shadow(color: .black.opacity(0.045), radius: 10, y: -3)
     }
 
     private func tabButton(_ tab: RootTab) -> some View {
@@ -36,13 +38,35 @@ struct NativeBottomTabBar: View {
         } label: {
             ZStack {
                 if isSelected {
-                    Color.clear
-                        .glassEffect(.clear.interactive(), in: Capsule())
-                        .glassEffectID("root-tab-selection", in: glassNamespace)
-                        .glassEffectTransition(.matchedGeometry)
+                    Capsule(style: .continuous)
+                        .fill(AppTheme.accent.opacity(0.10))
+                        .overlay {
+                            Capsule(style: .continuous)
+                                .stroke(
+                                    LinearGradient(
+                                        colors: [
+                                            Color.white.opacity(0.70),
+                                            AppTheme.accent.opacity(0.12)
+                                        ],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    ),
+                                    lineWidth: 0.6
+                                )
+                        }
+                        .matchedGeometryEffect(
+                            id: "root-tab-selection",
+                            in: selectionTray
+                        )
+                        .shadow(
+                            color: AppTheme.accent.opacity(0.12),
+                            radius: 7,
+                            y: 3
+                        )
+                        .offset(y: -2)
                 }
 
-                VStack(spacing: 3) {
+                VStack(spacing: 2) {
                     Image(systemName: tab.systemImage)
                         .font(.system(size: 20, weight: .semibold))
                         .frame(height: 22)
@@ -56,7 +80,7 @@ struct NativeBottomTabBar: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 62)
+            .frame(height: 52)
             .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
