@@ -22,8 +22,8 @@ enum RootTab: String, CaseIterable, Identifiable {
     var systemImage: String {
         switch self {
         case .home: "house"
-        case .library: "rectangle.stack.fill"
-        case .review: "checklist"
+        case .library: "text.book.closed.fill"
+        case .review: "calendar.badge.clock"
         case .exams: "doc.text"
         case .settings: "gearshape"
         }
