@@ -3,16 +3,41 @@ import SwiftUI
 struct NativeBottomTabBar: View {
     @Binding var selection: RootTab
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var glassNamespace
+
+    private let itemSpacing: CGFloat = 6
 
     var body: some View {
-        GlassEffectContainer(spacing: 6) {
-            HStack(spacing: 6) {
-                ForEach(RootTab.allCases) { tab in
-                    tabButton(tab)
+        GeometryReader { proxy in
+            let tabs = RootTab.allCases
+            let itemWidth = (
+                proxy.size.width - itemSpacing * CGFloat(tabs.count - 1)
+            ) / CGFloat(tabs.count)
+
+            ZStack(alignment: .leading) {
+                GlassEffectContainer(spacing: itemSpacing) {
+                    Color.clear
+                        .frame(width: itemWidth, height: 52)
+                        .glassEffect(.clear.interactive(), in: Capsule())
+                        .offset(
+                            x: selectionOffset(
+                                itemWidth: itemWidth,
+                                tabs: tabs
+                            ),
+                            y: -2
+                        )
                 }
+                .allowsHitTesting(false)
+                .zIndex(0)
+
+                HStack(spacing: itemSpacing) {
+                    ForEach(tabs) { tab in
+                        tabButton(tab)
+                    }
+                }
+                .zIndex(1)
             }
         }
+        .frame(height: 52)
         .padding(.horizontal, 10)
         .padding(.top, 8)
         .padding(.bottom, 6)
@@ -23,6 +48,14 @@ struct NativeBottomTabBar: View {
                 .frame(height: 0.5)
         }
         .shadow(color: .black.opacity(0.045), radius: 10, y: -3)
+    }
+
+    private func selectionOffset(
+        itemWidth: CGFloat,
+        tabs: [RootTab]
+    ) -> CGFloat {
+        guard let index = tabs.firstIndex(of: selection) else { return 0 }
+        return CGFloat(index) * (itemWidth + itemSpacing)
     }
 
     private func tabButton(_ tab: RootTab) -> some View {
@@ -38,27 +71,17 @@ struct NativeBottomTabBar: View {
                 }
             }
         } label: {
-            ZStack {
-                if isSelected {
-                    Color.clear
-                        .glassEffect(.clear.interactive(), in: Capsule())
-                        .glassEffectID("root-tab-selection", in: glassNamespace)
-                        .glassEffectTransition(.matchedGeometry)
-                        .offset(y: -2)
-                }
-
-                VStack(spacing: 2) {
-                    Image(systemName: tab.systemImage)
-                        .font(.system(size: 20, weight: .semibold))
-                        .frame(height: 22)
-                    Text(tab.title)
-                        .font(.caption2.weight(.semibold))
-                        .lineLimit(1)
-                }
-                .foregroundStyle(isSelected ? AppTheme.accent : Color.black)
-                .transaction { transaction in
-                    transaction.animation = nil
-                }
+            VStack(spacing: 2) {
+                Image(systemName: tab.systemImage)
+                    .font(.system(size: 20, weight: .semibold))
+                    .frame(height: 22)
+                Text(tab.title)
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isSelected ? AppTheme.accent : Color.black)
+            .transaction { transaction in
+                transaction.animation = nil
             }
             .frame(maxWidth: .infinity)
             .frame(height: 52)
