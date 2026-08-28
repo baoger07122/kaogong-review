@@ -1,0 +1,107 @@
+name: Build iPad window controls test IPA (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-window-test:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout native branch
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode 26
+        shell: bash
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort | tail -n 1)
+          if [ -z "$XCODE_PATH" ]; then
+            echo "Xcode 26 was not found on this runner"
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate isolated window test project
+        working-directory: native-window-test
+        run: xcodegen generate
+
+      - name: Archive isolated window test App
+        run: |
+          xcodebuild \
+            -project native-window-test/KaogongWindowTest.xcodeproj \
+            -scheme KaogongWindowTest \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/window-test/KaogongWindowTest.xcarchive \
+            archive \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Verify isolated window test App
+        shell: bash
+        run: |
+          APP_PATH="build/window-test/KaogongWindowTest.xcarchive/Products/Applications/KaogongWindowTest.app"
+          test -x "$APP_PATH/KaogongWindowTest"
+          test -f "$APP_PATH/Info.plist"
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Info.plist")
+          BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")
+          DEVICE_FAMILY=$(/usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily:0' "$APP_PATH/Info.plist")
+          SCENE_DELEGATE=$(/usr/libexec/PlistBuddy -c 'Print :UIApplicationSceneManifest:UISceneConfigurations:UIWindowSceneSessionRoleApplication:0:UISceneDelegateClassName' "$APP_PATH/Info.plist")
+          if [ "$VERSION" != "8.28.6" ] || [ "$BUILD" != "10" ]; then
+            echo "Unexpected test version: ${VERSION} (${BUILD})"
+            exit 1
+          fi
+          if [ "$DEVICE_FAMILY" != "2" ]; then
+            echo "Window test must be iPad-only"
+            exit 1
+          fi
+          if [[ "$SCENE_DELEGATE" != *"WindowTestSceneDelegate" ]]; then
+            echo "Unexpected scene delegate: $SCENE_DELEGATE"
+            exit 1
+          fi
+          echo "Verified isolated UIKit window test ${VERSION} (${BUILD})"
+
+      - name: Package isolated unsigned IPA
+        shell: bash
+        run: |
+          IPA_NAME="kaogong-window-test-8.28.6-unsigned.ipa"
+          mkdir -p build/window-test-ipa/Payload
+          cp -R build/window-test/KaogongWindowTest.xcarchive/Products/Applications/KaogongWindowTest.app build/window-test-ipa/Payload/
+          cd build/window-test-ipa
+          zip -qry "$IPA_NAME" Payload
+          echo "IPA_NAME=$IPA_NAME" >> "$GITHUB_ENV"
+
+      - name: Publish window test IPA into workspace
+        shell: bash
+        env:
+          IPA_NAME: ${{ env.IPA_NAME }}
+        run: |
+          mkdir -p "downloads/native/8.28.6"
+          cp "build/window-test-ipa/${IPA_NAME}" "downloads/native/8.28.6/${IPA_NAME}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "downloads/native/8.28.6/${IPA_NAME}"
+          if git diff --cached --quiet; then
+            echo "Window test IPA already exists in the workspace"
+          else
+            git commit -m "chore: publish ${IPA_NAME} [skip ci]"
+            git push origin HEAD:codex/ios-native-rewrite
+          fi
+
+      - name: Upload isolated unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IPA_NAME }}
+          path: build/window-test-ipa/${{ env.IPA_NAME }}
+          if-no-files-found: error
+          retention-days: 14
