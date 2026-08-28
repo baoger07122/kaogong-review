@@ -10,8 +10,8 @@ settings:
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     TARGETED_DEVICE_FAMILY: "2"
     SUPPORTS_MACCATALYST: NO
-    MARKETING_VERSION: "8.28.1"
-    CURRENT_PROJECT_VERSION: "5"
+    MARKETING_VERSION: "8.28.2"
+    CURRENT_PROJECT_VERSION: "6"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Manual
 targets:
@@ -32,6 +32,8 @@ targets:
       path: Resources/Info.plist
       properties:
         CFBundleDisplayName: 考公复盘·原生
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIApplicationSupportsIndirectInputEvents: true

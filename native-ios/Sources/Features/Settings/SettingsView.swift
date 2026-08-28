@@ -10,6 +10,10 @@ struct SettingsView: View {
     @State private var showImporter = false
     @State private var healthMessage = "尚未检查"
 
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
+    }
+
     var body: some View {
         List {
             Section("数据迁移") {
@@ -53,7 +57,7 @@ struct SettingsView: View {
             }
 
             Section("原生重写") {
-                LabeledContent("版本", value: "8.28.1")
+                LabeledContent("版本", value: appVersion)
                 LabeledContent("基线", value: "Web v8.25.3")
                 LabeledContent("界面", value: "SwiftUI / UIKit")
                 LabeledContent("WebView", value: "未使用")
