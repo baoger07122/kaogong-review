@@ -3,7 +3,6 @@ import SwiftUI
 
 struct HomeView: View {
     @Query private var records: [StoredRecord]
-    @State private var showWindowToolbarTest = false
 
     private func count(_ collection: String) -> Int {
         records.lazy.filter { $0.collection == collection }.count
@@ -57,21 +56,6 @@ struct HomeView: View {
         }
         .background(AppTheme.groupedBackground)
         .navigationTitle("首页")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showWindowToolbarTest = true
-                } label: {
-                    Image(systemName: "rectangle.topthird.inset.filled")
-                }
-                .accessibilityLabel("窗口工具栏测试")
-            }
-        }
-        .alert("窗口工具栏测试", isPresented: $showWindowToolbarTest) {
-            Button("知道了", role: .cancel) {}
-        } message: {
-            Text("这是 iPadOS 26 顶部窗口控件适配测试按钮。")
-        }
         .navigationDestination(for: AppRoute.self) { route in
             switch route {
             case .studyStats:

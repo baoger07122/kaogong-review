@@ -108,12 +108,17 @@ jobs:
             echo "Deprecated UIRequiresFullScreen must not be present"
             exit 1
           fi
+          SCENE_SUPPORT=$(/usr/libexec/PlistBuddy -c 'Print :UIApplicationSceneManifest:UIApplicationSupportsMultipleScenes' "$APP_PATH/Info.plist")
+          if [ "$SCENE_SUPPORT" != "true" ]; then
+            echo "UIApplicationSceneManifest must explicitly enable scene-based multi-window support"
+            exit 1
+          fi
           APP_ICON_NAME=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIcons~ipad:CFBundlePrimaryIcon:CFBundleIconName' "$APP_PATH/Info.plist")
           if [ "$APP_ICON_NAME" != "AppIcon" ]; then
             echo "Unexpected iPad app icon name: $APP_ICON_NAME"
             exit 1
           fi
-          echo "Verified version ${APP_VERSION} (${APP_BUILD}), iPad-only window configuration, executable, Info.plist, Assets.car, and AppIcon metadata"
+          echo "Verified version ${APP_VERSION} (${APP_BUILD}), scene lifecycle, iPad-only window configuration, executable, Info.plist, Assets.car, and AppIcon metadata"
 
       - name: Package native unsigned IPA
         shell: bash
