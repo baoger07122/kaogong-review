@@ -10,8 +10,8 @@ settings:
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     TARGETED_DEVICE_FAMILY: "2"
     SUPPORTS_MACCATALYST: NO
-    MARKETING_VERSION: "8.28.7"
-    CURRENT_PROJECT_VERSION: "11"
+    MARKETING_VERSION: "8.28.8"
+    CURRENT_PROJECT_VERSION: "12"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Manual
 targets:
@@ -22,13 +22,13 @@ targets:
       - Sources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.baoger07122.kaogongreview.windowtestminimal
+        PRODUCT_BUNDLE_IDENTIFIER: com.baoger07122.kaogongreview.windowtesttoolbar
         PRODUCT_NAME: KaogongWindowTest
         TARGETED_DEVICE_FAMILY: "2"
     info:
       path: Resources/Info.plist
       properties:
-        CFBundleDisplayName: 窗口极简测试
+        CFBundleDisplayName: 窗口工具栏测试
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UIApplicationSceneManifest:

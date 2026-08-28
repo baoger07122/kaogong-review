@@ -58,7 +58,7 @@ jobs:
           BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")
           DEVICE_FAMILY=$(/usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily:0' "$APP_PATH/Info.plist")
           SCENE_DELEGATE=$(/usr/libexec/PlistBuddy -c 'Print :UIApplicationSceneManifest:UISceneConfigurations:UIWindowSceneSessionRoleApplication:0:UISceneDelegateClassName' "$APP_PATH/Info.plist")
-          if [ "$VERSION" != "8.28.7" ] || [ "$BUILD" != "11" ]; then
+          if [ "$VERSION" != "8.28.8" ] || [ "$BUILD" != "12" ]; then
             echo "Unexpected test version: ${VERSION} (${BUILD})"
             exit 1
           fi
@@ -75,7 +75,7 @@ jobs:
       - name: Package isolated unsigned IPA
         shell: bash
         run: |
-          IPA_NAME="kaogong-window-minimal-test-8.28.7-unsigned.ipa"
+          IPA_NAME="kaogong-window-toolbar-test-8.28.8-unsigned.ipa"
           mkdir -p build/window-test-ipa/Payload
           cp -R build/window-test/KaogongWindowTest.xcarchive/Products/Applications/KaogongWindowTest.app build/window-test-ipa/Payload/
           cd build/window-test-ipa
@@ -87,11 +87,11 @@ jobs:
         env:
           IPA_NAME: ${{ env.IPA_NAME }}
         run: |
-          mkdir -p "downloads/native/8.28.7"
-          cp "build/window-test-ipa/${IPA_NAME}" "downloads/native/8.28.7/${IPA_NAME}"
+          mkdir -p "downloads/native/8.28.8"
+          cp "build/window-test-ipa/${IPA_NAME}" "downloads/native/8.28.8/${IPA_NAME}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "downloads/native/8.28.7/${IPA_NAME}"
+          git add "downloads/native/8.28.8/${IPA_NAME}"
           if git diff --cached --quiet; then
             echo "Window test IPA already exists in the workspace"
           else
