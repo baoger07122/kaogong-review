@@ -21,7 +21,7 @@ final class WindowTestSceneDelegate: UIResponder, UIWindowSceneDelegate {
     func preferredWindowingControlStyle(
         for scene: UIWindowScene
     ) -> UIWindowScene.WindowingControlStyle {
-        .unified
+        .minimal
     }
 }
 
@@ -47,7 +47,7 @@ private final class WindowTestViewController: UIViewController {
         statusLabel.textAlignment = .center
 
         let detailLabel = UILabel()
-        detailLabel.text = "版本 8.28.6\n本测试不加载数据库和正式页面。\n请只观察左上角三点是否与系统时间位于同一顶栏。"
+        detailLabel.text = "版本 8.28.7 · Minimal\n本测试不加载数据库和正式页面。\n请只观察左上角三点是否与系统时间位于同一顶栏。"
         detailLabel.font = .systemFont(ofSize: 15, weight: .regular)
         detailLabel.textColor = .secondaryLabel
         detailLabel.textAlignment = .center

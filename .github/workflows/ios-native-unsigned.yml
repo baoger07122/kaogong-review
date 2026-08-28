@@ -8,6 +8,7 @@ permissions:
 
 jobs:
   build-native-ios:
+    if: ${{ false }}
     runs-on: macos-15
 
     steps:
@@ -157,3 +158,8 @@ jobs:
           path: build/native-ipa/${{ env.IPA_NAME }}
           if-no-files-found: error
           retention-days: 14
+
+  build-window-test:
+    uses: ./.github/workflows/ios-window-test-unsigned.yml
+    permissions:
+      contents: write
