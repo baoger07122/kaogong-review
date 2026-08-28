@@ -1,17 +1,23 @@
-import UIKit
+import SwiftData
+import SwiftUI
 
 @main
-final class KaogongReviewNativeApp: UIResponder, UIApplicationDelegate {
-    func application(
-        _ application: UIApplication,
-        configurationForConnecting connectingSceneSession: UISceneSession,
-        options: UIScene.ConnectionOptions
-    ) -> UISceneConfiguration {
-        let configuration = UISceneConfiguration(
-            name: "Default Configuration",
-            sessionRole: connectingSceneSession.role
-        )
-        configuration.delegateClass = NativeWindowSceneDelegate.self
-        return configuration
+struct KaogongReviewNativeApp: App {
+    private let modelContainer: ModelContainer
+
+    init() {
+        do {
+            modelContainer = try ModelContainer(for: StoredRecord.self)
+        } catch {
+            fatalError("无法初始化原生数据库：\(error.localizedDescription)")
+        }
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            RootTabView()
+                .environment(\.apiClient, .production)
+        }
+        .modelContainer(modelContainer)
     }
 }

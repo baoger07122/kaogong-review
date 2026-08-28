@@ -37,10 +37,7 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
-          UISceneConfigurations:
-            UIWindowSceneSessionRoleApplication:
-              - UISceneConfigurationName: Default Configuration
-                UISceneDelegateClassName: "$(PRODUCT_MODULE_NAME).NativeWindowSceneDelegate"
+          UISceneConfigurations: {}
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIApplicationSupportsIndirectInputEvents: true
