@@ -1,0 +1,51 @@
+name: Check native iOS build
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  check-native-ios:
+    runs-on: macos-15
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v5
+
+      - name: Select Xcode 26
+        shell: bash
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort | tail -n 1)
+          if [ -z "$XCODE_PATH" ]; then
+            echo "Xcode 26 was not found on this runner"
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Prepare App icon
+        run: |
+          ICON_SET="native-ios/Resources/Assets.xcassets/AppIcon.appiconset"
+          mkdir -p "$ICON_SET"
+          sips -z 1024 1024 native-ios/Resources/NativeAppIcon.png --out "$ICON_SET/AppIcon-1024.png"
+
+      - name: Generate Xcode project
+        working-directory: native-ios
+        run: xcodegen generate
+
+      - name: Compile native App without packaging
+        run: |
+          xcodebuild \
+            -project native-ios/KaogongReviewNative.xcodeproj \
+            -scheme KaogongReviewNative \
+            -destination 'generic/platform=iOS' \
+            -configuration Debug \
+            build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
