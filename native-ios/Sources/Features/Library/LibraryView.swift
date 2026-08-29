@@ -9,6 +9,7 @@ struct LibraryView: View {
     @State private var searchText = ""
     @State private var selectedStatus = ""
     @State private var selectedTag = ""
+    @State private var cardSize: LibraryCardSize = .medium
 
     var body: some View {
         GeometryReader { proxy in
@@ -44,7 +45,7 @@ struct LibraryView: View {
                             color: .secondary
                         )
                     } else {
-                        LibraryMasonryGrid(records: displayedRecords, kind: kind)
+                        LibraryMasonryGrid(records: displayedRecords, kind: kind, columnCount: cardSize.columnCount)
                     }
                 }
                 .padding(14)
@@ -120,6 +121,19 @@ struct LibraryView: View {
                     filterLabel(selectedTag.isEmpty ? (kind == .notes ? "标签" : "分类") : selectedTag)
                 }
             }
+
+            HStack(spacing: 1) {
+                ForEach(LibraryCardSize.allCases) { size in
+                    Button(size.rawValue) { cardSize = size }
+                        .font(AppTheme.auxiliaryFont.weight(cardSize == size ? .semibold : .regular))
+                        .foregroundStyle(cardSize == size ? AppTheme.accent : Color.secondary)
+                        .frame(width: 27, height: 28)
+                        .background(cardSize == size ? AppTheme.accent.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+                        .buttonStyle(.plain)
+                }
+            }
+            .padding(3)
+            .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
     }
 

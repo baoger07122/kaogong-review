@@ -223,17 +223,18 @@ struct LibraryRecordCard: View {
 struct LibraryMasonryGrid: View {
     let records: [LibraryRecordSnapshot]
     let kind: LibraryContentKind
+    let columnCount: Int
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            VStack(spacing: 10) {
-                ForEach(Array(records.enumerated()).filter { $0.offset.isMultiple(of: 2) }, id: \.element.id) { _, record in
-                    cardLink(record)
-                }
-            }
-            VStack(spacing: 10) {
-                ForEach(Array(records.enumerated()).filter { !$0.offset.isMultiple(of: 2) }, id: \.element.id) { _, record in
-                    cardLink(record)
+            ForEach(0..<max(1, columnCount), id: \.self) { column in
+                VStack(spacing: 10) {
+                    ForEach(
+                        Array(records.enumerated()).filter { $0.offset % max(1, columnCount) == column },
+                        id: \.element.id
+                    ) { _, record in
+                        cardLink(record)
+                    }
                 }
             }
         }

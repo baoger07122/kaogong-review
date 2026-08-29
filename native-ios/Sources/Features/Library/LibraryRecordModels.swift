@@ -36,6 +36,21 @@ enum LibraryContentKind: String, CaseIterable, Identifiable {
     }
 }
 
+enum LibraryCardSize: String, CaseIterable, Identifiable {
+    case small = "小"
+    case medium = "中"
+    case large = "大"
+
+    var id: String { rawValue }
+    var columnCount: Int {
+        switch self {
+        case .small: 3
+        case .medium: 2
+        case .large: 1
+        }
+    }
+}
+
 struct LibraryScope: Equatable {
     var subject: String?
     var module: String?
