@@ -7,6 +7,7 @@ struct SubjectDefinition: Identifiable, Hashable {
     let modules: [String]
 
     var id: String { name }
+    var isFlat: Bool { name == "资料分析" }
 
     static let all: [SubjectDefinition] = [
         .init(name: "言语理解", systemImage: "book", color: .blue,
@@ -23,4 +24,3 @@ struct SubjectDefinition: Identifiable, Hashable {
               modules: ["归纳概括", "综合分析", "提出对策", "贯彻执行", "大作文"])
     ]
 }
-

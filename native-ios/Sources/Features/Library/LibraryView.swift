@@ -3,128 +3,220 @@ import SwiftUI
 
 struct LibraryView: View {
     @Query private var records: [StoredRecord]
+    @State private var scope = LibraryScope()
+    @State private var expandedSubject: String?
+    @State private var kind: LibraryContentKind = .errors
     @State private var searchText = ""
+    @State private var selectedStatus = ""
+    @State private var selectedTag = ""
 
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 2), spacing: 14) {
-                ForEach(filteredSubjects) { subject in
-                    NavigationLink {
-                        SubjectLibraryView(subject: subject)
+        GeometryReader { proxy in
+            HStack(spacing: 0) {
+                LibrarySidebar(
+                    records: records,
+                    scope: $scope,
+                    expandedSubject: $expandedSubject,
+                    onScopeChanged: resetContextFilters
+                )
+                .frame(width: sidebarWidth(in: proxy.size.width))
+
+                Divider()
+                content
+            }
+        }
+        .background(AppTheme.groupedBackground)
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var content: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    filterBar
+                    if displayedRecords.isEmpty {
+                        NativeStatusCard(
+                            title: emptyTitle,
+                            detail: emptyDetail,
+                            systemImage: emptyIcon,
+                            color: .secondary
+                        )
+                    } else {
+                        LibraryMasonryGrid(records: displayedRecords, kind: kind)
+                    }
+                }
+                .padding(14)
+            }
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(scope.title)
+                    .font(AppTheme.pageTitleFont)
+                Text(contextSummary)
+                    .font(AppTheme.auxiliaryFont)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 4) {
+                ForEach(availableKinds) { value in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.16)) { kind = value }
+                        selectedStatus = ""
+                        selectedTag = ""
                     } label: {
-                        subjectCard(subject)
+                        Text(value.rawValue)
+                            .font(.system(size: 12, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                            .foregroundStyle(kind == value ? AppTheme.accent : Color.primary)
+                            .background(kind == value ? AppTheme.secondaryBackground : Color.clear, in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(24)
+            .padding(3)
+            .background(Color.primary.opacity(0.05), in: Capsule())
         }
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
         .background(AppTheme.groupedBackground)
-        .navigationTitle("学习库")
-        .searchable(text: $searchText, prompt: "搜索科目")
     }
 
-    private var filteredSubjects: [SubjectDefinition] {
-        guard !searchText.isEmpty else { return SubjectDefinition.all }
-        return SubjectDefinition.all.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
-    }
-
-    private func collectionCount(_ collection: String, subject: String) -> Int {
-        records.lazy.filter { $0.collection == collection && $0.subject == subject }.count
-    }
-
-    private func subjectCard(_ subject: SubjectDefinition) -> some View {
-        HStack(spacing: 16) {
-            Image(systemName: subject.systemImage)
-                .font(.title2)
-                .foregroundStyle(subject.color)
-                .frame(width: 48, height: 48)
-                .background(subject.color.opacity(0.13), in: RoundedRectangle(cornerRadius: 14))
-            VStack(alignment: .leading, spacing: 7) {
-                Text(subject.name).font(.headline)
-                Text("\(collectionCount("errors", subject: subject.name)) 错题 · \(collectionCount("notes", subject: subject.name)) 笔记")
-                    .font(.caption)
+    private var filterBar: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 7) {
+                Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
+                TextField(searchPrompt, text: $searchText)
+                    .font(AppTheme.inputFont)
             }
-            Spacer()
-            Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
-        }
-        .nativeCard()
-    }
-}
+            .padding(.horizontal, 10)
+            .frame(height: 36)
+            .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-struct SubjectLibraryView: View {
-    let subject: SubjectDefinition
-    @Query private var records: [StoredRecord]
-
-    var body: some View {
-        List(subject.modules, id: \.self) { module in
-            NavigationLink {
-                ModuleLibraryView(subject: subject.name, module: module)
-            } label: {
-                HStack {
-                    Text(module).font(.headline)
-                    Spacer()
-                    Text("\(count("errors", module: module)) 题 · \(count("notes", module: module)) 笔记")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+            if kind == .errors {
+                Menu {
+                    Button("全部状态") { selectedStatus = "" }
+                    Button("未掌握") { selectedStatus = "未掌握" }
+                    Button("已掌握") { selectedStatus = "已掌握" }
+                } label: {
+                    filterLabel(selectedStatus.isEmpty ? "状态" : selectedStatus)
                 }
-                .padding(.vertical, 6)
+            }
+
+            if !availableTags.isEmpty {
+                Menu {
+                    Button(kind == .notes ? "全部标签" : "全部分类") { selectedTag = "" }
+                    ForEach(availableTags, id: \.self) { tag in
+                        Button(tag) { selectedTag = tag }
+                    }
+                } label: {
+                    filterLabel(selectedTag.isEmpty ? (kind == .notes ? "标签" : "分类") : selectedTag)
+                }
             }
         }
-        .navigationTitle(subject.name)
     }
 
-    private func count(_ collection: String, module: String) -> Int {
-        records.lazy.filter { $0.collection == collection && $0.subject == subject.name && $0.module == module }.count
-    }
-}
-
-struct ModuleLibraryView: View {
-    enum ContentKind: String, CaseIterable, Identifiable {
-        case all = "全部"
-        case errors = "错题"
-        case notes = "笔记"
-        case stickies = "便签"
-        var id: String { rawValue }
+    private func filterLabel(_ value: String) -> some View {
+        HStack(spacing: 4) {
+            Text(value).lineLimit(1)
+            Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+        }
+        .font(AppTheme.auxiliaryFont)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .frame(height: 36)
+        .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
-    let subject: String
-    let module: String
-    @Query private var records: [StoredRecord]
-    @State private var kind: ContentKind = .all
+    private var availableKinds: [LibraryContentKind] {
+        var values: [LibraryContentKind] = [.errors, .notes]
+        if scope.isLogicFill && (kind == .notes || kind == .words) { values.append(.words) }
+        values.append(.stickies)
+        return values
+    }
 
-    private var filtered: [StoredRecord] {
+    private var scopedRecords: [StoredRecord] {
         records.filter { record in
-            guard record.subject == subject && record.module == module else { return false }
-            switch kind {
-            case .all: return ["errors", "notes", "stickies"].contains(record.collection)
-            case .errors: return record.collection == "errors"
-            case .notes: return record.collection == "notes"
-            case .stickies: return record.collection == "stickies"
-            }
+            guard record.collection == kind.collection, scope.contains(record) else { return false }
+            if kind == .stickies && !scope.hasModuleContext { return false }
+            if kind == .words && !scope.isLogicFill { return false }
+            return true
         }
-        .sorted { ($0.updatedAt ?? $0.createdAt ?? .distantPast) > ($1.updatedAt ?? $1.createdAt ?? .distantPast) }
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            Picker("内容类型", selection: $kind) {
-                ForEach(ContentKind.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .padding()
+    private var snapshots: [LibraryRecordSnapshot] {
+        scopedRecords.map(LibraryRecordSnapshot.init)
+    }
 
-            if filtered.isEmpty {
-                ContentUnavailableView("暂无\(kind.rawValue)", systemImage: "tray", description: Text("导入备份后可在这里核对模块数据。"))
-            } else {
-                List(filtered, id: \.compoundID) { record in
-                    NavigationLink { RecordJSONDetailView(record: record) } label: { RecordRow(record: record) }
-                }
-                .listStyle(.plain)
-            }
+    private var displayedRecords: [LibraryRecordSnapshot] {
+        let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return snapshots.filter { snapshot in
+            let matchesSearch = keyword.isEmpty
+                || snapshot.title.localizedCaseInsensitiveContains(keyword)
+                || snapshot.summary.localizedCaseInsensitiveContains(keyword)
+                || snapshot.tags.contains { $0.localizedCaseInsensitiveContains(keyword) }
+            let matchesStatus = selectedStatus.isEmpty || snapshot.status == selectedStatus
+            let matchesTag = selectedTag.isEmpty || snapshot.tags.contains(selectedTag)
+            return matchesSearch && matchesStatus && matchesTag
         }
-        .navigationTitle(module)
-        .navigationBarTitleDisplayMode(.inline)
+        .sorted { ($0.record.updatedAt ?? $0.createdAt ?? .distantPast) > ($1.record.updatedAt ?? $1.createdAt ?? .distantPast) }
+    }
+
+    private var availableTags: [String] {
+        Array(Set(snapshots.flatMap(\.tags))).sorted()
+    }
+
+    private var contextSummary: String {
+        let values: [(String, LibraryContentKind)] = [("错题", .errors), ("笔记", .notes), ("便签", .stickies)]
+        return values.map { label, value in
+            let count = records.lazy.filter { $0.collection == value.collection && scope.contains($0) }.count
+            return "\(count) \(label)"
+        }.joined(separator: " · ")
+    }
+
+    private var emptyTitle: String {
+        if kind == .stickies && !scope.hasModuleContext { return "先选择一个模块" }
+        return kind.emptyTitle
+    }
+
+    private var emptyDetail: String {
+        if kind == .stickies && !scope.hasModuleContext { return "每个模块的便签相互独立" }
+        return kind.emptyDetail
+    }
+
+    private var emptyIcon: String {
+        switch kind {
+        case .errors: "checklist"
+        case .notes: "note.text"
+        case .stickies: "note"
+        case .words: "character.book.closed"
+        }
+    }
+
+    private var searchPrompt: String {
+        switch kind {
+        case .errors: "搜索错题 / 知识点"
+        case .notes: "搜索笔记标题 / 内容"
+        case .stickies: "搜索便签内容"
+        case .words: "搜索词语 / 释义"
+        }
+    }
+
+    private func resetContextFilters() {
+        searchText = ""
+        selectedStatus = ""
+        selectedTag = ""
+        if kind == .words && !scope.isLogicFill { kind = .notes }
+    }
+
+    private func sidebarWidth(in width: CGFloat) -> CGFloat {
+        min(184, max(148, width * 0.27))
     }
 }
