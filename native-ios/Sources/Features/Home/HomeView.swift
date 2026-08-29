@@ -2,95 +2,613 @@ import SwiftData
 import SwiftUI
 
 struct HomeView: View {
+    private enum Editor: Equatable {
+        case countdown(String?)
+        case todo(String?)
+        case sticky(String?)
+    }
+
+    @Environment(\.modelContext) private var modelContext
     @Query private var records: [StoredRecord]
 
-    private func count(_ collection: String) -> Int {
-        records.lazy.filter { $0.collection == collection }.count
-    }
+    @State private var editor: Editor?
+    @State private var inlineStickyID: String?
+    @State private var inlineStickyText = ""
+    @State private var showToast = false
+    @State private var countdownNameDraft = ""
+    @State private var countdownDateDraft = Date.now
+    @State private var todoTitleDraft = ""
+    @State private var todoNoteDraft = ""
+    @State private var todoTypeDraft = "yanyu"
+    @State private var todoScheduleDraft = Date.now
+    @State private var stickyContentDraft = ""
+    @State private var stickyTagDraft = ""
+    @State private var stickyColorDraft = "#FFFFFF"
+    @State private var stickyPinnedDraft = false
+    @State private var stickyFormatSelection = ""
+
+    private var todos: [HomeTodo] { HomeRecordRepository.todos(from: records) }
+    private var stickies: [HomeSticky] { HomeRecordRepository.stickies(from: records) }
+    private var countdowns: [HomeCountdown] { HomeRecordRepository.countdowns(from: records) }
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 22) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("原生正式版")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.accent)
-                    Text("今天继续稳稳向前")
-                        .font(.largeTitle.bold())
-                    Text("当前为原生重写第一阶段，已建立独立数据空间。")
-                        .foregroundStyle(.secondary)
-                }
-
-                NativeSectionHeader(title: "学习概览", subtitle: "导入旧备份后显示真实数量")
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
-                    metric(title: "错题", value: count("errors"), image: "xmark.circle", color: .red)
-                    metric(title: "笔记", value: count("notes"), image: "note.text", color: .blue)
-                    metric(title: "套卷", value: count("exams"), image: "doc.text", color: .purple)
-                }
-
-                NativeSectionHeader(title: "快捷入口")
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    NavigationLink(value: AppRoute.studyStats) {
-                        shortcut(title: "学习统计", subtitle: "日历与时长", image: "chart.line.uptrend.xyaxis")
-                    }
-                    .buttonStyle(.plain)
-                    NavigationLink(value: AppRoute.speedPractice) {
-                        shortcut(title: "速算练习", subtitle: "等待原生模块", image: "sum")
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                NativeSectionHeader(title: "今日待办")
-                VStack(alignment: .leading, spacing: 8) {
-                    if count("todos") == 0 {
-                        Label("暂无待办，可先在设置中导入 Web 备份", systemImage: "checkmark.circle")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("已导入 \(count("todos")) 条待办，原生编辑将在首页阶段实现。")
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .nativeCard()
+            VStack(alignment: .leading, spacing: 16) {
+                header
+                hero
+                featureGrid
+                todoSection
+                stickySection
             }
-            .padding(24)
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 42)
         }
-        .background(AppTheme.groupedBackground)
-        .navigationTitle("首页")
+        .background(Color.white)
+        .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(for: AppRoute.self) { route in
-            switch route {
-            case .studyStats:
-                NativePlaceholderView(title: "学习统计", detail: "将在首页原生阶段实现日历、时长与任务统计。", systemImage: "chart.line.uptrend.xyaxis")
-            case .speedPractice:
-                NativePlaceholderView(title: "速算练习", detail: "后续使用 SwiftUI 自定义键盘完整重写。", systemImage: "sum")
-            default:
-                NativePlaceholderView(title: "功能建设中", detail: "该路由已冻结，等待对应原生模块实现。")
+            HomeShortcutView(route: route)
+        }
+        .overlay { editorOverlay }
+        .overlay(alignment: .top) {
+            if showToast {
+                NativeToast(message: "已保存")
+                    .padding(.top, 12)
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
     }
 
-    private func metric(title: String, value: Int, image: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: image).font(.title2).foregroundStyle(color)
-            Text("\(value)").font(.title.bold())
-            Text(title).font(.subheadline).foregroundStyle(.secondary)
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("首页").font(AppTheme.pageTitleFont)
+            Text("\(greeting) · \(HomeRecordRepository.chineseDate(.now))")
+                .font(AppTheme.auxiliaryFont)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var hero: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 0) { heroProgress; Divider(); countdownPanel }
+            VStack(spacing: 14) { heroProgress; Divider(); countdownPanel }
+        }
+        .padding(17)
+        .background(
+            LinearGradient(
+                colors: [Color.blue.opacity(0.13), Color.white.opacity(0.94)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.blue.opacity(0.08), lineWidth: 0.7)
+        }
+    }
+
+    private var heroProgress: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("今日待办").font(AppTheme.fieldLabelFont).foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("\(completedTodayCount)")
+                    .font(.system(size: 28, weight: .semibold, design: .rounded))
+                Text("项已完成").font(AppTheme.bodyFont).foregroundStyle(.secondary)
+            }
+            ProgressView(value: completionProgress).tint(AppTheme.accent)
+            Text("还有 \(unmasteredErrorCount) 道错题待掌握 · 本周新增 \(weekNewErrorCount) 道")
+                .font(AppTheme.auxiliaryFont)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            if let running = todos.first(where: { $0.timerStartedAt != nil }) {
+                timerCapsule(running)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .nativeCard()
+        .padding(.trailing, 16)
     }
 
-    private func shortcut(title: String, subtitle: String, image: String) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: image)
-                .font(.title2)
-                .frame(width: 44, height: 44)
-                .background(AppTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 13))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.headline)
-                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+    private var countdownPanel: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("倒数日").font(AppTheme.fieldLabelFont).foregroundStyle(.secondary)
+                Spacer()
+                Button { beginCountdown(nil) } label: {
+                    Image(systemName: "plus.circle.fill").font(.system(size: 17, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("新增倒数日")
             }
-            Spacer()
-            Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
+
+            if countdowns.isEmpty {
+                Text("暂无倒数日").font(AppTheme.bodyFont).foregroundStyle(.secondary)
+            } else {
+                ForEach(countdowns.prefix(4)) { countdown in
+                    HStack(spacing: 7) {
+                        Button { beginCountdown(countdown) } label: {
+                            HStack(spacing: 8) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(countdown.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                                    Text(countdownDateText(countdown)).font(.system(size: 9)).foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 4)
+                                Text(countdownRemainingText(countdown))
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(AppTheme.accent)
+                                    .monospacedDigit()
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        Button { deleteCountdown(countdown.id) } label: {
+                            Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("删除\(countdown.name)")
+                    }
+                }
+            }
         }
-        .nativeCard()
+        .padding(.leading, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func timerCapsule(_ todo: HomeTodo) -> some View {
+        Button { toggleTimer(todo) } label: {
+            HStack(spacing: 7) {
+                Text(todo.title).lineLimit(1)
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(HomeRecordRepository.durationText(
+                        milliseconds: todo.elapsedMilliseconds,
+                        startedAt: todo.timerStartedAt,
+                        now: context.date
+                    ))
+                    .monospacedDigit()
+                }
+                Image(systemName: "pause.fill")
+            }
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(AppTheme.accent)
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(AppTheme.accent.opacity(0.10), in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var featureGrid: some View {
+        HStack(alignment: .top, spacing: 8) {
+            ForEach(HomeFeature.all) { feature in
+                NavigationLink(value: feature.route) {
+                    VStack(spacing: 6) {
+                        Image(systemName: feature.systemImage)
+                            .font(.system(size: 21, weight: .semibold))
+                            .foregroundStyle(feature.color)
+                            .frame(width: 50, height: 50)
+                            .background(feature.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        Text(feature.title)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(NativePressButtonStyle())
+            }
+        }
+    }
+
+    private var todoSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Text("今日待办").font(AppTheme.sectionTitleFont)
+                Text("\(todayTodos.filter { !$0.isCompleted }.count)")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(AppTheme.accent)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(AppTheme.accent.opacity(0.10), in: Capsule())
+                Spacer()
+                Button { beginTodo(nil) } label: {
+                    Image(systemName: "plus.circle.fill").font(.system(size: 19, weight: .semibold))
+                }
+                .accessibilityLabel("新增待办")
+            }
+
+            if todayTodos.isEmpty {
+                NativeStatusCard(
+                    title: "还没有待办事项",
+                    detail: "点击右上角新增，开启今日计划",
+                    systemImage: "checkmark.square",
+                    color: .secondary
+                )
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(todayTodos) { todo in
+                        HomeTodoRow(
+                            todo: todo,
+                            onToggleCompleted: { toggleCompleted(todo) },
+                            onSaveNote: { saveTodoNote(todo, note: $0) },
+                            onLongPress: { beginTodo(todo) },
+                            onDelete: { deleteTodo(todo.id) },
+                            onToggleTimer: { toggleTimer(todo) }
+                        )
+                        if todo.id != todayTodos.last?.id { Divider().padding(.leading, 42) }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.06), lineWidth: 0.6) }
+            }
+        }
+    }
+
+    private var stickySection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Text("便签").font(AppTheme.sectionTitleFont)
+                Text("\(stickies.count)").font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                Spacer()
+                Button { beginSticky(nil) } label: {
+                    Image(systemName: "plus.circle.fill").font(.system(size: 19, weight: .semibold))
+                }
+                .accessibilityLabel("新增便签")
+            }
+
+            if stickies.isEmpty {
+                NativeStatusCard(
+                    title: "还没有便签",
+                    detail: "点击右上角新增，写下第一条便签",
+                    systemImage: "note.text",
+                    color: .secondary
+                )
+            } else {
+                HStack(alignment: .top, spacing: 10) {
+                    stickyColumn(even: true)
+                    stickyColumn(even: false)
+                }
+            }
+        }
+    }
+
+    private func stickyColumn(even: Bool) -> some View {
+        VStack(spacing: 10) {
+            ForEach(Array(stickies.enumerated()).filter { $0.offset.isMultiple(of: 2) == even }, id: \.element.id) { _, sticky in
+                HomeStickyCard(
+                    sticky: sticky,
+                    isInlineEditing: inlineStickyID == sticky.id,
+                    inlineText: $inlineStickyText,
+                    onBeginInlineEdit: {
+                        inlineStickyID = sticky.id
+                        inlineStickyText = sticky.content
+                    },
+                    onFinishInlineEdit: { finishInlineSticky(sticky) },
+                    onOpenEditor: { beginSticky(sticky) },
+                    onDelete: { deleteSticky(sticky.id) }
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    @ViewBuilder
+    private var editorOverlay: some View {
+        switch editor {
+        case .countdown(let id): countdownEditor(id: id)
+        case .todo(let id): todoEditor(id: id)
+        case .sticky(let id): stickyEditor(id: id)
+        case nil: EmptyView()
+        }
+    }
+
+    private func countdownEditor(id: String?) -> some View {
+        NativeEditorDialog(
+            title: id == nil ? "新增倒数日" : "编辑倒数日",
+            canSave: !countdownNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            onClose: closeEditor,
+            onSave: saveCountdown
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                NativeFieldLabel(title: "名称")
+                TextField("请输入倒数日名称", text: $countdownNameDraft).textFieldStyle(NativeTextFieldStyle())
+                DatePicker("目标日期", selection: $countdownDateDraft, displayedComponents: .date)
+                    .font(AppTheme.inputFont)
+                    .environment(\.locale, Locale(identifier: "zh_CN"))
+            }
+        }
+    }
+
+    private func todoEditor(id: String?) -> some View {
+        NativeEditorDialog(
+            title: id == nil ? "新增待办" : "编辑待办",
+            canSave: !todoTitleDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            onClose: closeEditor,
+            onSave: saveTodo
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                NativeFieldLabel(title: "待办内容")
+                TextField("准备完成什么？", text: $todoTitleDraft).textFieldStyle(NativeTextFieldStyle())
+                NativeFieldLabel(title: "备注")
+                TextEditor(text: $todoNoteDraft)
+                    .font(AppTheme.inputFont)
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .frame(minHeight: 64, maxHeight: 88)
+                    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+                    .overlay { RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.08), lineWidth: 0.6) }
+                DatePicker("计划日期", selection: $todoScheduleDraft, displayedComponents: .date)
+                DatePicker("计划时间", selection: $todoScheduleDraft, displayedComponents: .hourAndMinute)
+                NativeFieldLabel(title: "科目")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 7) {
+                        ForEach(HomeRecordRepository.todoTypes) { item in
+                            Button(item.title) { todoTypeDraft = item.key }
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(todoTypeDraft == item.key ? .white : .primary)
+                                .padding(.horizontal, 11)
+                                .frame(height: 30)
+                                .background(todoTypeDraft == item.key ? AppTheme.accent : Color.primary.opacity(0.055), in: Capsule())
+                                .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .font(AppTheme.inputFont)
+            .environment(\.locale, Locale(identifier: "zh_CN"))
+        }
+    }
+
+    private func stickyEditor(id: String?) -> some View {
+        NativeEditorDialog(
+            title: id == nil ? "新增便签" : "编辑便签",
+            canSave: !stickyContentDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            onClose: closeEditor,
+            onSave: saveSticky
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                TextEditor(text: $stickyContentDraft)
+                    .font(AppTheme.inputFont)
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .frame(minHeight: 82, maxHeight: 120)
+                    .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 13))
+                    .overlay { RoundedRectangle(cornerRadius: 13).stroke(Color.primary.opacity(0.08), lineWidth: 0.6) }
+                HStack(spacing: 8) {
+                    stickyFormatButton("bold", image: "bold") { applyStickyFormat(.bold) }
+                    stickyFormatButton("outdent", image: "decrease.indent") { applyStickyFormat(.outdent) }
+                    stickyFormatButton("indent", image: "increase.indent") { applyStickyFormat(.indent) }
+                    stickyFormatButton("bullet", image: "list.bullet") { applyStickyFormat(.bullet) }
+                    stickyFormatButton("number", image: "list.number") { applyStickyFormat(.number) }
+                }
+                NativeFieldLabel(title: "标签")
+                TextField("可选，例如：言语", text: $stickyTagDraft).textFieldStyle(NativeTextFieldStyle())
+                HStack(spacing: 10) {
+                    ForEach(HomeRecordRepository.stickyColors, id: \.self) { hex in
+                        Button { stickyColorDraft = hex } label: {
+                            Circle()
+                                .fill(Color(homeHex: hex))
+                                .frame(width: 26, height: 26)
+                                .overlay { Circle().stroke(stickyColorDraft == hex ? AppTheme.accent : Color.primary.opacity(0.12), lineWidth: stickyColorDraft == hex ? 2.5 : 0.7) }
+                                .overlay { if stickyColorDraft == hex { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(AppTheme.accent) } }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer()
+                    Toggle("置顶", isOn: $stickyPinnedDraft).font(.system(size: 12, weight: .medium)).fixedSize()
+                }
+            }
+        }
+    }
+
+    private var todayTodos: [HomeTodo] {
+        todos.filter { todo in
+            if !todo.isCompleted { return true }
+            guard let completedAt = todo.completedAt else { return false }
+            return Calendar.current.isDateInToday(completedAt)
+        }
+    }
+
+    private var completedTodayCount: Int { todayTodos.filter(\.isCompleted).count }
+    private var completionProgress: Double {
+        guard !todayTodos.isEmpty else { return 0 }
+        return Double(completedTodayCount) / Double(todayTodos.count)
+    }
+    private var unmasteredErrorCount: Int {
+        records.filter { $0.collection == "errors" && ($0.jsonObject?["status"] as? String) == "未掌握" }.count
+    }
+    private var weekNewErrorCount: Int {
+        guard let interval = Calendar.current.dateInterval(of: .weekOfYear, for: .now) else { return 0 }
+        return records.filter { $0.collection == "errors" && $0.createdAt.map(interval.contains) == true }.count
+    }
+    private var greeting: String {
+        switch Calendar.current.component(.hour, from: .now) {
+        case 0..<11: "早上好"
+        case 11..<14: "中午好"
+        case 14..<19: "下午好"
+        default: "晚上好"
+        }
+    }
+
+    private func beginCountdown(_ countdown: HomeCountdown?) {
+        countdownNameDraft = countdown?.name ?? ""
+        countdownDateDraft = countdown?.date ?? Calendar.current.date(byAdding: .day, value: 30, to: .now) ?? .now
+        withAnimation(.spring(duration: 0.25, bounce: 0.08)) { editor = .countdown(countdown?.id) }
+    }
+
+    private func beginTodo(_ todo: HomeTodo?) {
+        todoTitleDraft = todo?.title ?? ""
+        todoNoteDraft = todo?.note ?? ""
+        todoTypeDraft = todo?.type ?? "yanyu"
+        todoScheduleDraft = todo?.scheduledAt ?? .now
+        withAnimation(.spring(duration: 0.25, bounce: 0.08)) { editor = .todo(todo?.id) }
+    }
+
+    private func beginSticky(_ sticky: HomeSticky?) {
+        inlineStickyID = nil
+        stickyContentDraft = sticky?.content ?? ""
+        stickyTagDraft = sticky?.tag ?? ""
+        stickyColorDraft = sticky?.colorHex ?? "#FFFFFF"
+        stickyPinnedDraft = sticky?.isPinned ?? false
+        stickyFormatSelection = ""
+        withAnimation(.spring(duration: 0.25, bounce: 0.08)) { editor = .sticky(sticky?.id) }
+    }
+
+    private func closeEditor() { withAnimation(.easeOut(duration: 0.16)) { editor = nil } }
+
+    private func saveCountdown() {
+        guard case .countdown(let id) = editor else { return }
+        let name = countdownNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        var values = countdowns
+        if let id, let index = values.firstIndex(where: { $0.id == id }) {
+            values[index].name = name
+            values[index].date = countdownDateDraft
+        } else {
+            values.append(HomeRecordRepository.makeCountdown(name: name, date: countdownDateDraft))
+        }
+        do { try HomeRecordRepository.save(countdowns: values, records: records, context: modelContext); completeSave() } catch { }
+    }
+
+    private func saveTodo() {
+        guard case .todo(let id) = editor else { return }
+        let title = todoTitleDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        var value = id.flatMap { key in todos.first(where: { $0.id == key }) }
+            ?? HomeRecordRepository.makeTodo(title: title, note: "", type: todoTypeDraft, scheduledAt: todoScheduleDraft)
+        value.title = title
+        value.note = todoNoteDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        value.type = todoTypeDraft
+        value.scheduledAt = todoScheduleDraft
+        do { try HomeRecordRepository.save(todo: value, records: records, context: modelContext); completeSave() } catch { }
+    }
+
+    private func saveSticky() {
+        guard case .sticky(let id) = editor else { return }
+        let content = stickyContentDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else { return }
+        var value = id.flatMap { key in stickies.first(where: { $0.id == key }) }
+            ?? HomeRecordRepository.makeSticky(content: content, tag: "", colorHex: stickyColorDraft, isPinned: stickyPinnedDraft)
+        value.content = content
+        value.tag = stickyTagDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        value.colorHex = stickyColorDraft
+        value.isPinned = stickyPinnedDraft
+        do { try HomeRecordRepository.save(sticky: value, records: records, context: modelContext); completeSave() } catch { }
+    }
+
+    private func completeSave() {
+        closeEditor()
+        withAnimation(.spring(duration: 0.28, bounce: 0.12)) { showToast = true }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1_200))
+            withAnimation(.easeOut(duration: 0.2)) { showToast = false }
+        }
+    }
+
+    private func deleteCountdown(_ id: String) {
+        try? HomeRecordRepository.save(countdowns: countdowns.filter { $0.id != id }, records: records, context: modelContext)
+    }
+
+    private func deleteTodo(_ id: String) {
+        try? HomeRecordRepository.remove(collection: "todos", id: id, records: records, context: modelContext)
+    }
+
+    private func deleteSticky(_ id: String) {
+        if inlineStickyID == id { inlineStickyID = nil }
+        try? HomeRecordRepository.remove(collection: "stickies", id: id, records: records, context: modelContext)
+    }
+
+    private func toggleCompleted(_ todo: HomeTodo) {
+        var value = todo
+        value.isCompleted.toggle()
+        value.completedAt = value.isCompleted ? .now : nil
+        if value.isCompleted { pauseTimer(&value) }
+        try? HomeRecordRepository.save(todo: value, records: records, context: modelContext)
+    }
+
+    private func saveTodoNote(_ todo: HomeTodo, note: String) {
+        var value = todo
+        value.note = note
+        try? HomeRecordRepository.save(todo: value, records: records, context: modelContext)
+    }
+
+    private func toggleTimer(_ todo: HomeTodo) {
+        var selected = todo
+        if selected.timerStartedAt != nil {
+            pauseTimer(&selected)
+        } else {
+            for running in todos where running.timerStartedAt != nil && running.id != selected.id {
+                var paused = running
+                pauseTimer(&paused)
+                try? HomeRecordRepository.save(todo: paused, records: records, context: modelContext)
+            }
+            selected.timerStartedAt = .now
+        }
+        try? HomeRecordRepository.save(todo: selected, records: records, context: modelContext)
+    }
+
+    private func pauseTimer(_ todo: inout HomeTodo) {
+        guard let startedAt = todo.timerStartedAt else { return }
+        let milliseconds = max(0, Date.now.timeIntervalSince(startedAt) * 1_000)
+        todo.elapsedMilliseconds += milliseconds
+        todo.dailyTimes[HomeRecordRepository.dayKey(startedAt), default: 0] += milliseconds
+        todo.timerStartedAt = nil
+    }
+
+    private func finishInlineSticky(_ sticky: HomeSticky) {
+        var value = sticky
+        value.content = inlineStickyText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.content.isEmpty { value.content = sticky.content }
+        try? HomeRecordRepository.save(sticky: value, records: records, context: modelContext)
+        inlineStickyID = nil
+    }
+
+    private enum StickyFormat { case bold, outdent, indent, bullet, number }
+    private func applyStickyFormat(_ format: StickyFormat) {
+        switch format {
+        case .bold:
+            guard !stickyContentDraft.isEmpty else { return }
+            stickyContentDraft = "**\(stickyContentDraft)**"
+        case .indent:
+            stickyContentDraft = stickyContentDraft.split(separator: "\n", omittingEmptySubsequences: false).map { "  " + String($0) }.joined(separator: "\n")
+        case .outdent:
+            stickyContentDraft = stickyContentDraft.split(separator: "\n", omittingEmptySubsequences: false).map { line in
+                var value = String(line)
+                if value.hasPrefix("  ") { value.removeFirst(2) }
+                return value
+            }.joined(separator: "\n")
+        case .bullet:
+            stickyContentDraft = stickyContentDraft.split(separator: "\n", omittingEmptySubsequences: false).map { "• " + String($0) }.joined(separator: "\n")
+        case .number:
+            stickyContentDraft = stickyContentDraft.split(separator: "\n", omittingEmptySubsequences: false).enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
+        }
+    }
+
+    private func stickyFormatButton(_ id: String, image: String, action: @escaping () -> Void) -> some View {
+        Button {
+            stickyFormatSelection = id
+            action()
+        } label: {
+            Image(systemName: image)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(stickyFormatSelection == id ? AppTheme.accent : .primary)
+                .frame(width: 36, height: 32)
+                .background(stickyFormatSelection == id ? AppTheme.accent.opacity(0.11) : Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func countdownDateText(_ countdown: HomeCountdown) -> String {
+        let remaining = HomeRecordRepository.daysRemaining(until: countdown.date)
+        if remaining == 0 { return "今天" }
+        if remaining == 1 { return "明天" }
+        return HomeRecordRepository.chineseDate(countdown.date, includeYear: false)
+    }
+
+    private func countdownRemainingText(_ countdown: HomeCountdown) -> String {
+        let remaining = HomeRecordRepository.daysRemaining(until: countdown.date)
+        if remaining == 0 { return "今天" }
+        if remaining < 0 { return "已过" }
+        return "\(remaining) 天"
     }
 }
