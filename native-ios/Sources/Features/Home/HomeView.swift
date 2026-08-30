@@ -367,20 +367,7 @@ struct HomeView: View {
             onSave: saveSticky
         ) {
             VStack(alignment: .leading, spacing: 10) {
-                TextEditor(text: $stickyContentDraft)
-                    .font(AppTheme.inputFont)
-                    .scrollContentBackground(.hidden)
-                    .padding(8)
-                    .frame(minHeight: 82, maxHeight: 120)
-                    .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 13))
-                    .overlay { RoundedRectangle(cornerRadius: 13).stroke(Color.primary.opacity(0.08), lineWidth: 0.6) }
-                HStack(spacing: 8) {
-                    stickyFormatButton("bold", image: "bold") { applyStickyFormat(.bold) }
-                    stickyFormatButton("outdent", image: "decrease.indent") { applyStickyFormat(.outdent) }
-                    stickyFormatButton("indent", image: "increase.indent") { applyStickyFormat(.indent) }
-                    stickyFormatButton("bullet", image: "list.bullet") { applyStickyFormat(.bullet) }
-                    stickyFormatButton("number", image: "list.number") { applyStickyFormat(.number) }
-                }
+                NativeRichTextEditor(html: $stickyContentDraft, minHeight: 105, mode: .compact)
                 NativeFieldLabel(title: "标签")
                 TextField("可选，例如：言语", text: $stickyTagDraft).textFieldStyle(NativeTextFieldStyle())
                 HStack(spacing: 10) {

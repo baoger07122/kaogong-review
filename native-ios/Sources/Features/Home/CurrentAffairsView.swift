@@ -139,11 +139,7 @@ struct CurrentAffairsView: View {
                 let next = modules.dropFirst().index(after: current)
                 draftModule = next == modules.endIndex ? modules[1] : modules[next]
             }
-            TextEditor(text: $draftContent)
-                .font(AppTheme.inputFont)
-                .frame(minHeight: 130)
-                .padding(8)
-                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
+            NativeRichTextEditor(html: $draftContent, minHeight: 130)
         }
     }
 

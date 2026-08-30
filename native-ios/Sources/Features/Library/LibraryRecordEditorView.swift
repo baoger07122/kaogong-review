@@ -113,7 +113,7 @@ struct LibraryRecordEditorView: View {
                 Text("已掌握").tag("已掌握")
             }.pickerStyle(.segmented)
             NativeFieldLabel(title: "解析与笔记")
-            editor(text: $draft.content, height: 120)
+            richEditor(text: $draft.content, height: 120)
             if draft.subject == "言语理解", draft.module == "逻辑填空" { comparisonGroups }
             if draft.subject == "判断推理", draft.module == "图形推理" { graphFields }
         }
@@ -215,7 +215,7 @@ struct LibraryRecordEditorView: View {
             stringList(title: "我错误的踩分点", values: $draft.wrongList)
             stringList(title: "我遗漏的踩分点", values: $draft.missedList)
             NativeFieldLabel(title: "复盘笔记")
-            editor(text: $draft.content, height: 110)
+            richEditor(text: $draft.content, height: 110)
         }
         .nativeCard()
     }
@@ -248,7 +248,7 @@ struct LibraryRecordEditorView: View {
             }
             TextField("考点（可选）", text: $draft.knowledgePoint).textFieldStyle(NativeTextFieldStyle())
             NativeFieldLabel(title: "正文")
-            editor(text: $draft.content, height: 240)
+            richEditor(text: $draft.content, height: 240)
             Text("当前先使用原生纯文本输入；第五阶段统一替换为 TextKit 富文本编辑器。")
                 .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
         }
@@ -257,7 +257,7 @@ struct LibraryRecordEditorView: View {
 
     private var stickyFields: some View {
         VStack(alignment: .leading, spacing: 12) {
-            editor(text: $draft.content, height: 170)
+            NativeRichTextEditor(html: $draft.content, minHeight: 170, mode: .compact)
             TextField("标签（可选）", text: $draft.type).textFieldStyle(NativeTextFieldStyle())
             HStack(spacing: 10) {
                 ForEach(HomeRecordRepository.stickyColors, id: \.self) { hex in
@@ -278,7 +278,7 @@ struct LibraryRecordEditorView: View {
             TextField("词语", text: $draft.title).textFieldStyle(NativeTextFieldStyle())
             TextField("分类（可选）", text: $draft.type).textFieldStyle(NativeTextFieldStyle())
             NativeFieldLabel(title: "释义与辨析")
-            editor(text: $draft.content, height: 180)
+            richEditor(text: $draft.content, height: 180)
         }
         .nativeCard()
     }
@@ -289,6 +289,10 @@ struct LibraryRecordEditorView: View {
             .frame(minHeight: height)
             .padding(8)
             .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
+    }
+
+    private func richEditor(text: Binding<String>, height: CGFloat) -> some View {
+        NativeRichTextEditor(html: text, minHeight: height)
     }
 
     private var canSave: Bool {

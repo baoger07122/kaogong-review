@@ -29,8 +29,7 @@ struct ExamEditorView: View {
                 linkedErrorsSection
                 VStack(alignment: .leading, spacing: 8) {
                     NativeFieldLabel(title: "复盘笔记")
-                    TextEditor(text: $draft.reviewNote).font(AppTheme.inputFont).frame(minHeight: 150).padding(8)
-                        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
+                    NativeRichTextEditor(html: $draft.reviewNote, minHeight: 150)
                 }.nativeCard()
             }.padding(20)
         }
