@@ -224,6 +224,7 @@ struct LibraryMasonryGrid: View {
     let records: [LibraryRecordSnapshot]
     let kind: LibraryContentKind
     let columnCount: Int
+    let onOpen: (LibraryRecordSnapshot) -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -241,8 +242,8 @@ struct LibraryMasonryGrid: View {
     }
 
     private func cardLink(_ record: LibraryRecordSnapshot) -> some View {
-        NavigationLink {
-            RecordJSONDetailView(record: record.record)
+        Button {
+            onOpen(record)
         } label: {
             LibraryRecordCard(snapshot: record, kind: kind)
         }

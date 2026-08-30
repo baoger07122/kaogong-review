@@ -10,6 +10,7 @@ struct LibraryView: View {
     @State private var selectedStatus = ""
     @State private var selectedTag = ""
     @State private var cardSize: LibraryCardSize = .medium
+    @State private var editorTarget: LibraryEditorTarget?
 
     var body: some View {
         GeometryReader { proxy in
@@ -28,6 +29,15 @@ struct LibraryView: View {
         }
         .background(AppTheme.groupedBackground)
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(item: $editorTarget) { target in
+            NavigationStack {
+                LibraryRecordEditorView(
+                    kind: target.kind,
+                    scope: scope,
+                    record: records.first { $0.collection == target.kind.collection && $0.recordID == target.recordID }
+                )
+            }
+        }
     }
 
     private var content: some View {
@@ -45,7 +55,12 @@ struct LibraryView: View {
                             color: .secondary
                         )
                     } else {
-                        LibraryMasonryGrid(records: displayedRecords, kind: kind, columnCount: cardSize.columnCount)
+                        LibraryMasonryGrid(
+                            records: displayedRecords,
+                            kind: kind,
+                            columnCount: cardSize.columnCount,
+                            onOpen: { editorTarget = LibraryEditorTarget(kind: kind, recordID: $0.record.recordID) }
+                        )
                     }
                 }
                 .padding(14)
@@ -55,12 +70,25 @@ struct LibraryView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(scope.title)
-                    .font(AppTheme.pageTitleFont)
-                Text(contextSummary)
-                    .font(AppTheme.auxiliaryFont)
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(scope.title)
+                        .font(AppTheme.pageTitleFont)
+                    Text(contextSummary)
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    editorTarget = LibraryEditorTarget(kind: kind, recordID: nil)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 14, weight: .bold))
+                        .frame(width: 34, height: 34)
+                        .background(AppTheme.accent.opacity(0.10), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled((kind == .stickies && !scope.hasModuleContext) || (kind == .words && !scope.isLogicFill))
             }
 
             HStack(spacing: 4) {
@@ -233,4 +261,10 @@ struct LibraryView: View {
     private func sidebarWidth(in width: CGFloat) -> CGFloat {
         min(184, max(148, width * 0.27))
     }
+}
+
+private struct LibraryEditorTarget: Identifiable {
+    let kind: LibraryContentKind
+    let recordID: String?
+    var id: String { "\(kind.rawValue):\(recordID ?? "new")" }
 }
