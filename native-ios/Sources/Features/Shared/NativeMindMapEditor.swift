@@ -37,46 +37,81 @@ struct NativeMindMapEditor: View {
         VStack(spacing: 0) {
             toolbar
             Divider()
-            GeometryReader { proxy in
-                let positions = layout(in: proxy.size)
-                ZStack {
-                    Canvas { context, _ in
-                        for node in visibleNodes {
-                            guard let parentID = node.parentID, let start = positions[parentID], let end = positions[node.id] else { continue }
-                            var path = Path(); path.move(to: CGPoint(x: start.x + 55, y: start.y)); path.addCurve(to: CGPoint(x: end.x - 55, y: end.y), control1: CGPoint(x: start.x + 95, y: start.y), control2: CGPoint(x: end.x - 95, y: end.y))
-                            context.stroke(path, with: .color(AppTheme.accent.opacity(0.35)), lineWidth: 1.5)
-                        }
-                    }
-                    ForEach(visibleNodes) { node in
-                        Button { selectedID = node.id } label: {
-                            VStack(spacing: 3) {
-                                Text(node.text.isEmpty ? "未命名" : node.text).font(AppTheme.inputFont.weight(node.parentID == nil ? .semibold : .regular)).lineLimit(2)
-                                if childCount(node.id) > 0 { Text(node.collapsed ? "+\(childCount(node.id))" : "\(childCount(node.id)) 个分支").font(.system(size: 9)).foregroundStyle(.secondary) }
-                            }
-                            .foregroundStyle(selectedID == node.id ? AppTheme.accent : .primary)
-                            .frame(width: 110, minHeight: 48)
-                            .background(selectedID == node.id ? AppTheme.accent.opacity(0.11) : AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 12))
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(selectedID == node.id ? AppTheme.accent.opacity(0.35) : Color.primary.opacity(0.07), lineWidth: 0.8))
-                        }
-                        .buttonStyle(.plain)
-                        .position(positions[node.id] ?? .zero)
-                    }
-                }
-                .scaleEffect(zoom)
-                .offset(pan)
-                .contentShape(Rectangle())
-                .gesture(DragGesture().onChanged { pan = CGSize(width: lastPan.width + $0.translation.width, height: lastPan.height + $0.translation.height) }.onEnded { _ in lastPan = pan })
-                .simultaneousGesture(MagnifyGesture().onChanged { zoom = min(2.2, max(0.55, lastZoom * $0.magnification)) }.onEnded { _ in lastZoom = zoom })
-            }
-            .frame(minHeight: 330)
-            .background(Color.white)
-            if selectedID != nil {
-                Divider(); TextField("节点内容", text: selectedText).textFieldStyle(NativeTextFieldStyle()).padding(8)
-            }
+            mapArea
+            selectedNodeEditor
         }
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.controlRadius))
         .overlay(RoundedRectangle(cornerRadius: AppTheme.controlRadius).stroke(Color.primary.opacity(0.08), lineWidth: 0.7))
         .onChange(of: document) { _, value in encodedDocument = value.encoded }
+    }
+
+    private var mapArea: some View {
+        GeometryReader { proxy in
+            let positions = layout(in: proxy.size)
+            ZStack {
+                edgeCanvas(positions: positions)
+                ForEach(visibleNodes) { node in
+                    nodeButton(node).position(positions[node.id] ?? .zero)
+                }
+            }
+            .scaleEffect(zoom)
+            .offset(pan)
+            .contentShape(Rectangle())
+            .gesture(panGesture)
+            .simultaneousGesture(zoomGesture)
+        }
+        .frame(minHeight: 330)
+        .background(Color.white)
+    }
+
+    private func edgeCanvas(positions: [UUID: CGPoint]) -> some View {
+        Canvas { context, _ in
+            for node in visibleNodes {
+                guard let parentID = node.parentID, let start = positions[parentID], let end = positions[node.id] else { continue }
+                var path = Path()
+                path.move(to: CGPoint(x: start.x + 55, y: start.y))
+                path.addCurve(to: CGPoint(x: end.x - 55, y: end.y), control1: CGPoint(x: start.x + 95, y: start.y), control2: CGPoint(x: end.x - 95, y: end.y))
+                context.stroke(path, with: .color(AppTheme.accent.opacity(0.35)), lineWidth: 1.5)
+            }
+        }
+    }
+
+    private func nodeButton(_ node: MindMapNode) -> some View {
+        let selected = selectedID == node.id
+        let count = childCount(node.id)
+        return Button { selectedID = node.id } label: {
+            VStack(spacing: 3) {
+                Text(node.text.isEmpty ? "未命名" : node.text)
+                    .font(AppTheme.inputFont.weight(node.parentID == nil ? .semibold : .regular)).lineLimit(2)
+                if count > 0 {
+                    Text(node.collapsed ? "+\(count)" : "\(count) 个分支").font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+            }
+            .foregroundStyle(selected ? AppTheme.accent : Color.primary)
+            .frame(width: 110, minHeight: 48)
+            .background(selected ? AppTheme.accent.opacity(0.11) : AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? AppTheme.accent.opacity(0.35) : Color.primary.opacity(0.07), lineWidth: 0.8))
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder private var selectedNodeEditor: some View {
+        if selectedID != nil {
+            Divider()
+            TextField("节点内容", text: selectedText).textFieldStyle(NativeTextFieldStyle()).padding(8)
+        }
+    }
+
+    private var panGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in pan = CGSize(width: lastPan.width + value.translation.width, height: lastPan.height + value.translation.height) }
+            .onEnded { _ in lastPan = pan }
+    }
+
+    private var zoomGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in zoom = min(2.2, max(0.55, lastZoom * value.magnification)) }
+            .onEnded { _ in lastZoom = zoom }
     }
 
     private var toolbar: some View {
