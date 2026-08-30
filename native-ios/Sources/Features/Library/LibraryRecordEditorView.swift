@@ -114,6 +114,9 @@ struct LibraryRecordEditorView: View {
             }.pickerStyle(.segmented)
             NativeFieldLabel(title: "解析与笔记")
             richEditor(text: $draft.content, height: 120)
+            DisclosureGroup("涂鸦与手写") {
+                NativePencilDrawingEditor(encodedData: $draft.pencilKitData).padding(.top, 8)
+            }
             if draft.subject == "言语理解", draft.module == "逻辑填空" { comparisonGroups }
             if draft.subject == "判断推理", draft.module == "图形推理" { graphFields }
         }

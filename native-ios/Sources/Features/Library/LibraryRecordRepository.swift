@@ -41,6 +41,7 @@ struct LibraryRecordDraft {
     var missedList: [String] = []
     var graphRule = ""
     var recognition = ""
+    var pencilKitData = ""
     var colorHex = "#FFFFFF"
     var pinned = false
 
@@ -80,6 +81,7 @@ struct LibraryRecordDraft {
         missedList = original["missedList"] as? [String] ?? []
         graphRule = LibraryRecordDraft.text(original, keys: ["graphRule", "patternRule"])
         recognition = LibraryRecordDraft.text(original, keys: ["recognition", "recognitionPath"])
+        pencilKitData = LibraryRecordDraft.text(original, keys: ["pencilKitData", "drawingData"])
         colorHex = LibraryRecordDraft.text(original, keys: ["color", "colorHex"]).isEmpty ? "#FFFFFF" : LibraryRecordDraft.text(original, keys: ["color", "colorHex"])
         pinned = (original["pinned"] as? Bool) ?? false
 
@@ -138,6 +140,8 @@ enum LibraryRecordRepository {
                 .map { ["words": $0.words, "relation": $0.relation] }
             object["graphRule"] = draft.graphRule
             object["recognition"] = draft.recognition
+            object["pencilKitData"] = draft.pencilKitData
+            object["drawingPreview"] = PencilDrawingCompatibility.previewDataURL(encodedData: draft.pencilKitData)
             object["reviewCount"] = object["reviewCount"] ?? 0
             object["lastReviewDate"] = object["lastReviewDate"] ?? iso(now)
             if draft.subject == "申论" {
