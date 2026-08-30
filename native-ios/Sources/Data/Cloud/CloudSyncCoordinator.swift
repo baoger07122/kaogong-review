@@ -51,7 +51,7 @@ final class CloudSyncCoordinator: ObservableObject {
     }
 
     func synchronize(records: [StoredRecord], context: ModelContext, api: APIClient) async {
-        guard let token = try? tokenStore.read(), let token else {
+        guard let token = try? tokenStore.read() else {
             message = "请先登录"
             return
         }
