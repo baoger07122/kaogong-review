@@ -1,6 +1,18 @@
 import Foundation
 import SwiftData
 
+struct LogicComparisonDraft: Identifiable, Equatable {
+    var id = UUID()
+    var words = ""
+    var relation = ""
+}
+
+struct ShenlunBiasDraft: Identifiable, Equatable {
+    var id = UUID()
+    var wrong = ""
+    var right = ""
+}
+
 struct LibraryRecordDraft {
     var original: [String: Any] = [:]
     var id = ""
@@ -15,6 +27,20 @@ struct LibraryRecordDraft {
     var options = ["", "", "", ""]
     var correctOption = ""
     var userOption = ""
+    var pitfall = ""
+    var questionSource = ""
+    var images: [String] = []
+    var compareGroups: [LogicComparisonDraft] = []
+    var score = ""
+    var totalScore = ""
+    var myFramework = ""
+    var standardFramework = ""
+    var paragraph = ""
+    var bias: [ShenlunBiasDraft] = []
+    var wrongList: [String] = []
+    var missedList: [String] = []
+    var graphRule = ""
+    var recognition = ""
     var colorHex = "#FFFFFF"
     var pinned = false
 
@@ -36,17 +62,43 @@ struct LibraryRecordDraft {
         }
         correctOption = LibraryRecordDraft.text(original, keys: ["correctOption"])
         userOption = LibraryRecordDraft.text(original, keys: ["userOption"])
+        pitfall = LibraryRecordDraft.text(original, keys: ["pitfall"])
+        questionSource = LibraryRecordDraft.text(original, keys: ["questionSource", "source"])
+        images = (original["images"] as? [String]) ?? (original["image"] as? String).map { [$0] } ?? []
+        if let groups = original["compareGroups"] as? [[String: Any]] {
+            compareGroups = groups.map { .init(words: $0["words"] as? String ?? "", relation: $0["relation"] as? String ?? "") }
+        }
+        score = LibraryRecordDraft.numberText(original["score"])
+        totalScore = LibraryRecordDraft.numberText(original["totalScore"])
+        myFramework = LibraryRecordDraft.text(original, keys: ["myFramework"])
+        standardFramework = LibraryRecordDraft.text(original, keys: ["stdFramework"])
+        paragraph = LibraryRecordDraft.text(original, keys: ["paragraph"])
+        if let rows = original["bias"] as? [[String: Any]] {
+            bias = rows.map { .init(wrong: $0["wrong"] as? String ?? "", right: $0["right"] as? String ?? "") }
+        }
+        wrongList = original["wrongList"] as? [String] ?? []
+        missedList = original["missedList"] as? [String] ?? []
+        graphRule = LibraryRecordDraft.text(original, keys: ["graphRule", "patternRule"])
+        recognition = LibraryRecordDraft.text(original, keys: ["recognition", "recognitionPath"])
         colorHex = LibraryRecordDraft.text(original, keys: ["color", "colorHex"]).isEmpty ? "#FFFFFF" : LibraryRecordDraft.text(original, keys: ["color", "colorHex"])
         pinned = (original["pinned"] as? Bool) ?? false
 
         if kind == .stickies {
             content = LibraryRecordDraft.text(original, keys: ["content", "text"])
         }
+        if kind == .errors, subject == "申论" {
+            status = LibraryRecordDraft.text(original, keys: ["status"]).isEmpty ? "待吸收" : LibraryRecordDraft.text(original, keys: ["status"])
+        }
     }
 
     private static func text(_ object: [String: Any], keys: [String]) -> String {
         for key in keys where object[key] is String { return object[key] as? String ?? "" }
         return ""
+    }
+
+    private static func numberText(_ value: Any?) -> String {
+        if let value = value as? NSNumber { return value.stringValue }
+        return value as? String ?? ""
     }
 }
 
@@ -78,8 +130,31 @@ enum LibraryRecordRepository {
             object["options"] = draft.options.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             object["correctOption"] = draft.correctOption
             object["userOption"] = draft.userOption
+            object["pitfall"] = draft.pitfall
+            object["questionSource"] = draft.questionSource
+            object["images"] = draft.images
+            object["compareGroups"] = draft.compareGroups
+                .filter { !$0.words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !$0.relation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .map { ["words": $0.words, "relation": $0.relation] }
+            object["graphRule"] = draft.graphRule
+            object["recognition"] = draft.recognition
             object["reviewCount"] = object["reviewCount"] ?? 0
             object["lastReviewDate"] = object["lastReviewDate"] ?? iso(now)
+            if draft.subject == "申论" {
+                object["isShenlun"] = true
+                object["score"] = Int(draft.score) ?? 0
+                object["totalScore"] = Int(draft.totalScore) ?? 0
+                object["source"] = draft.questionSource
+                object["myFramework"] = draft.myFramework
+                object["stdFramework"] = draft.standardFramework
+                object["paragraph"] = draft.paragraph
+                object["bias"] = draft.bias.filter { !$0.wrong.isEmpty || !$0.right.isEmpty }.map { ["wrong": $0.wrong, "right": $0.right] }
+                object["wrongList"] = draft.wrongList.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                object["missedList"] = draft.missedList.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                object["knowledgePoints"] = []
+                object["options"] = []
+                object["errorCause"] = ""
+            }
         case .notes:
             object["title"] = draft.title
             object["content"] = draft.content

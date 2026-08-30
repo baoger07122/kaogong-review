@@ -2,6 +2,7 @@ import SwiftData
 import SwiftUI
 
 struct LibraryView: View {
+    @Environment(\.modelContext) private var modelContext
     @Query private var records: [StoredRecord]
     @State private var scope = LibraryScope()
     @State private var expandedSubject: String?
@@ -11,6 +12,9 @@ struct LibraryView: View {
     @State private var selectedTag = ""
     @State private var cardSize: LibraryCardSize = .medium
     @State private var editorTarget: LibraryEditorTarget?
+    @State private var showNewNoteType = false
+    @State private var noteTypeDraft = ""
+    @State private var noteTypeColor = NoteTypeRepository.colors[0]
 
     var body: some View {
         GeometryReader { proxy in
@@ -34,9 +38,13 @@ struct LibraryView: View {
                 LibraryRecordEditorView(
                     kind: target.kind,
                     scope: scope,
-                    record: records.first { $0.collection == target.kind.collection && $0.recordID == target.recordID }
+                    record: records.first { $0.collection == target.kind.collection && $0.recordID == target.recordID },
+                    preferredType: target.recordID == nil ? selectedTag : ""
                 )
             }
+        }
+        .overlay {
+            if showNewNoteType { noteTypeDialog }
         }
     }
 
@@ -47,12 +55,18 @@ struct LibraryView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     filterBar
+                    if kind == .notes, noteContext != nil { noteTypeBar }
                     if displayedRecords.isEmpty {
                         NativeStatusCard(
                             title: emptyTitle,
                             detail: emptyDetail,
                             systemImage: emptyIcon,
                             color: .secondary
+                        )
+                    } else if kind == .errors, scope.subject == "判断推理", scope.module == "图形推理" {
+                        GraphReasoningFlashcardView(
+                            records: displayedRecords,
+                            onEdit: { editorTarget = LibraryEditorTarget(kind: kind, recordID: $0.record.recordID) }
                         )
                     } else {
                         LibraryMasonryGrid(
@@ -139,7 +153,7 @@ struct LibraryView: View {
                 }
             }
 
-            if !availableTags.isEmpty {
+            if !availableTags.isEmpty && kind != .notes {
                 Menu {
                     Button(kind == .notes ? "全部标签" : "全部分类") { selectedTag = "" }
                     ForEach(availableTags, id: \.self) { tag in
@@ -212,7 +226,75 @@ struct LibraryView: View {
     }
 
     private var availableTags: [String] {
-        Array(Set(snapshots.flatMap(\.tags))).sorted()
+        if kind == .notes, let context = noteContext {
+            return NoteTypeRepository.types(subject: context.subject, module: context.module, records: records).map(\.name)
+        }
+        return Array(Set(snapshots.flatMap(\.tags))).sorted()
+    }
+
+    private var noteContext: (subject: String, module: String)? {
+        guard let subject = scope.subject, scope.hasModuleContext else { return nil }
+        return (subject, subject == "资料分析" ? "" : (scope.module ?? ""))
+    }
+
+    private var noteTypeBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                noteTypeChip(title: "全部", color: "#0066CC", selected: selectedTag.isEmpty) { selectedTag = "" }
+                ForEach(availableNoteTypes) { item in
+                    noteTypeChip(title: item.name, color: item.color, selected: selectedTag == item.name) { selectedTag = item.name }
+                }
+                Button {
+                    noteTypeDraft = ""
+                    noteTypeColor = NoteTypeRepository.colors[0]
+                    showNewNoteType = true
+                } label: {
+                    Image(systemName: "plus").font(.system(size: 11, weight: .bold)).frame(width: 29, height: 29)
+                        .background(Color.primary.opacity(0.055), in: Circle())
+                }.buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var availableNoteTypes: [NoteTypeDefinition] {
+        guard let context = noteContext else { return [] }
+        return NoteTypeRepository.types(subject: context.subject, module: context.module, records: records)
+    }
+
+    private func noteTypeChip(title: String, color: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(AppTheme.auxiliaryFont.weight(.semibold))
+                .foregroundStyle(selected ? Color(homeHex: color) : .secondary)
+                .padding(.horizontal, 10).frame(height: 29)
+                .background(selected ? Color(homeHex: color).opacity(0.10) : Color.primary.opacity(0.045), in: Capsule())
+        }.buttonStyle(.plain)
+    }
+
+    private var noteTypeDialog: some View {
+        NativeEditorDialog(
+            title: "新增笔记标签",
+            canSave: !noteTypeDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            onClose: { showNewNoteType = false },
+            onSave: saveNoteType
+        ) {
+            TextField("标签名称", text: $noteTypeDraft).textFieldStyle(NativeTextFieldStyle())
+            HStack(spacing: 12) {
+                ForEach(NoteTypeRepository.colors, id: \.self) { color in
+                    Button { noteTypeColor = color } label: {
+                        Circle().fill(Color(homeHex: color)).frame(width: 27, height: 27)
+                            .overlay(Circle().stroke(noteTypeColor == color ? Color.primary : .clear, lineWidth: 2))
+                    }.buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func saveNoteType() {
+        guard let context = noteContext else { return }
+        let name = noteTypeDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        try? NoteTypeRepository.add(name, color: noteTypeColor, subject: context.subject, module: context.module, records: records, context: modelContext)
+        selectedTag = name
+        showNewNoteType = false
     }
 
     private var contextSummary: String {

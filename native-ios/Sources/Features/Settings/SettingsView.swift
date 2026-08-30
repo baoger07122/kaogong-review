@@ -56,6 +56,14 @@ struct SettingsView: View {
                 LabeledContent("状态", value: healthMessage)
             }
 
+            Section("笔记") {
+                NavigationLink {
+                    NoteTypeManagerView()
+                } label: {
+                    Label("笔记类型", systemImage: "tag")
+                }
+            }
+
             Section("原生重写") {
                 LabeledContent("版本", value: appVersion)
                 LabeledContent("基线", value: "Web v8.25.3")
