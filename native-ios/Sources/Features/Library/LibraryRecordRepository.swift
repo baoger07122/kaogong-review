@@ -42,6 +42,7 @@ struct LibraryRecordDraft {
     var graphRule = ""
     var recognition = ""
     var pencilKitData = ""
+    var mindMapData = ""
     var colorHex = "#FFFFFF"
     var pinned = false
 
@@ -82,6 +83,7 @@ struct LibraryRecordDraft {
         graphRule = LibraryRecordDraft.text(original, keys: ["graphRule", "patternRule"])
         recognition = LibraryRecordDraft.text(original, keys: ["recognition", "recognitionPath"])
         pencilKitData = LibraryRecordDraft.text(original, keys: ["pencilKitData", "drawingData"])
+        mindMapData = LibraryRecordDraft.text(original, keys: ["mindMap", "mindMapData"])
         colorHex = LibraryRecordDraft.text(original, keys: ["color", "colorHex"]).isEmpty ? "#FFFFFF" : LibraryRecordDraft.text(original, keys: ["color", "colorHex"])
         pinned = (original["pinned"] as? Bool) ?? false
 
@@ -166,6 +168,7 @@ enum LibraryRecordRepository {
             object["knowledgePoint"] = draft.knowledgePoint
             object["linkedErrors"] = object["linkedErrors"] ?? []
             object["linkedReviews"] = object["linkedReviews"] ?? []
+            object["mindMap"] = draft.mindMapData
         case .stickies:
             object["content"] = draft.content
             object["tag"] = draft.type.trimmingCharacters(in: .whitespacesAndNewlines)

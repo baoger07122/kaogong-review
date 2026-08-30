@@ -252,6 +252,9 @@ struct LibraryRecordEditorView: View {
             TextField("考点（可选）", text: $draft.knowledgePoint).textFieldStyle(NativeTextFieldStyle())
             NativeFieldLabel(title: "正文")
             richEditor(text: $draft.content, height: 240)
+            DisclosureGroup("思维导图") {
+                NativeMindMapEditor(encodedDocument: $draft.mindMapData).padding(.top, 8)
+            }
             Text("当前先使用原生纯文本输入；第五阶段统一替换为 TextKit 富文本编辑器。")
                 .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
         }
