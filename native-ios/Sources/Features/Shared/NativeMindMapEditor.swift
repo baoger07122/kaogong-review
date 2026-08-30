@@ -88,7 +88,8 @@ struct NativeMindMapEditor: View {
                 }
             }
             .foregroundStyle(selected ? AppTheme.accent : Color.primary)
-            .frame(width: 110, minHeight: 48)
+            .frame(width: 110)
+            .frame(minHeight: 48)
             .background(selected ? AppTheme.accent.opacity(0.11) : AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(selected ? AppTheme.accent.opacity(0.35) : Color.primary.opacity(0.07), lineWidth: 0.8))
         }
