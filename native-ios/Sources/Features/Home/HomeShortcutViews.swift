@@ -10,6 +10,8 @@ struct HomeShortcutView: View {
             TodoStatsView()
         case .studyReport:
             StudyReportView()
+        case .speedPractice:
+            SpeedPracticeView()
         case .currentAffairs:
             CurrentAffairsView()
         case .knowledgePoints:
@@ -18,12 +20,6 @@ struct HomeShortcutView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     switch route {
-                    case .speedPractice:
-                    placeholder(
-                        title: "原生速算将在专项阶段实现",
-                        detail: "入口和返回路径已经恢复；自定义键盘、题型、计时、音效与全局震动仍按第七阶段验收。",
-                        image: "number.square.fill"
-                    )
                     default:
                         placeholder(title: "功能建设中", detail: "当前路由尚未进入正式重写阶段。", image: "hammer")
                     }
