@@ -43,8 +43,8 @@ struct APIClient: Sendable {
         try await send(path: collection, method: "GET", token: token, body: Optional<String>.none)
     }
 
-    func upsert(_ value: JSONValue, collection: String, id: String, token: String) async throws {
-        let _: JSONValue = try await send(path: "\(collection)/\(id)", method: "PUT", token: token, body: value)
+    func upsert(_ value: JSONValue, collection: String, token: String) async throws {
+        let _: JSONValue = try await send(path: collection, method: "POST", token: token, body: value)
     }
 
     func delete(collection: String, id: String, token: String) async throws {
@@ -90,4 +90,3 @@ extension EnvironmentValues {
         set { self[APIClientEnvironmentKey.self] = newValue }
     }
 }
-

@@ -8,6 +8,9 @@ struct SettingsView: View {
     @Query private var records: [StoredRecord]
     @StateObject private var importer = LegacyBackupImportCoordinator()
     @State private var showImporter = false
+    @State private var showExporter = false
+    @State private var exportDocument: BackupJSONDocument?
+    @State private var exportMessage: String?
     @State private var healthMessage = "尚未检查"
 
     private var appVersion: String {
@@ -17,12 +20,12 @@ struct SettingsView: View {
     var body: some View {
         List {
             Section("数据迁移") {
-                Button {
-                    showImporter = true
-                } label: {
+                Button { showImporter = true } label: {
                     Label("导入 Web 备份 JSON", systemImage: "square.and.arrow.down")
                 }
-
+                Button { prepareExport() } label: {
+                    Label("导出 Web 兼容备份", systemImage: "square.and.arrow.up")
+                }
                 HStack {
                     Label("原生数据库记录", systemImage: "externaldrive")
                     Spacer()
@@ -40,6 +43,9 @@ struct SettingsView: View {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
                 }
+                if let exportMessage {
+                    Text(exportMessage).font(.footnote).foregroundStyle(.secondary)
+                }
             }
 
             Section("云端 API") {
@@ -54,6 +60,11 @@ struct SettingsView: View {
                     }
                 }
                 LabeledContent("状态", value: healthMessage)
+                NavigationLink {
+                    CloudSyncView()
+                } label: {
+                    Label("登录与手动同步", systemImage: "icloud")
+                }
             }
 
             Section("笔记") {
@@ -69,7 +80,7 @@ struct SettingsView: View {
                 LabeledContent("基线", value: "Web v8.25.3")
                 LabeledContent("界面", value: "SwiftUI / UIKit")
                 LabeledContent("WebView", value: "未使用")
-                Text("当前为第一阶段测试包：导航、数据兼容层和备份导入可测试；业务编辑功能按验收矩阵分阶段开放。")
+                Text("原生功能正在按验收矩阵逐模块重写；已开发项目仍需真机逐项验收。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -83,6 +94,30 @@ struct SettingsView: View {
             case .failure(let error):
                 importer.reportError(error)
             }
+        }
+        .fileExporter(
+            isPresented: $showExporter,
+            document: exportDocument,
+            contentType: .json,
+            defaultFilename: "考公备考系统-backup.json"
+        ) { result in
+            switch result {
+            case .success:
+                exportMessage = "备份已保存，可由 Web 版重新导入"
+            case .failure(let error):
+                exportMessage = "导出失败：\(error.localizedDescription)"
+            }
+            exportDocument = nil
+        }
+    }
+
+    private func prepareExport() {
+        do {
+            exportDocument = try LegacyBackupExporter.makeDocument(records: records)
+            exportMessage = nil
+            showExporter = true
+        } catch {
+            exportMessage = "无法生成备份：\(error.localizedDescription)"
         }
     }
 }
