@@ -470,3 +470,79 @@ private enum MarkdownRichTextConverter {
             .replacingOccurrences(of: ">", with: "&gt;")
     }
 }
+
+enum LegacyRichTextConverter {
+    static func html(from value: Any) -> String {
+        if let text = value as? String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("["),
+               let data = trimmed.data(using: .utf8),
+               let blocks = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                return html(fromBlocks: blocks)
+            }
+            return text
+        }
+        if let blocks = value as? [[String: Any]] { return html(fromBlocks: blocks) }
+        return ""
+    }
+
+    private static func html(fromBlocks blocks: [[String: Any]]) -> String {
+        var output = ""
+        var index = 0
+        while index < blocks.count {
+            let block = blocks[index]
+            let type = block["type"] as? String ?? "text"
+            let content = inline(block)
+            let indent = max(0, block["indent"] as? Int ?? 0)
+            let style = indent > 0 ? " style=\"padding-left:\(indent * 24)px\"" : ""
+            switch type {
+            case "heading1", "heading2", "heading3", "heading4":
+                let level = type == "heading1" ? 1 : 2
+                output += "<h\(level)\(style)>\(content)</h\(level)>"
+            case "bulletList", "orderedList":
+                let tag = type == "bulletList" ? "ul" : "ol"
+                output += "<\(tag)\(style)>"
+                while index < blocks.count, (blocks[index]["type"] as? String) == type {
+                    output += "<li>\(inline(blocks[index]))</li>"
+                    index += 1
+                }
+                output += "</\(tag)>"
+                index -= 1
+            case "quote": output += "<blockquote\(style)>\(content)</blockquote>"
+            case "divider": output += "<p style=\"color:#999;font-size:10px\">────────────────</p>"
+            case "code": output += "<pre><code>\(escape(block["content"] as? String ?? ""))</code></pre>"
+            case "todo":
+                let checked = block["checked"] as? Bool == true ? "☑" : "☐"
+                output += "<p\(style)>\(checked) \(content)</p>"
+            case "callout": output += "<blockquote\(style)>\(escape(block["emoji"] as? String ?? "💡")) \(content)</blockquote>"
+            case "table":
+                output += "<table>"
+                for row in block["tableData"] as? [[Any]] ?? [] {
+                    output += "<tr>" + row.map { "<td>\(escape(String(describing: $0)))</td>" }.joined() + "</tr>"
+                }
+                output += "</table>"
+            case "image":
+                let image = block["imgData"] as? [String: Any] ?? [:]
+                output += "<img src=\"\(escape(image["src"] as? String ?? ""))\" alt=\"\(escape(image["alt"] as? String ?? ""))\">"
+            case "toggle":
+                output += "<p\(style)>▸ \(content)</p>"
+                if let children = block["children"] as? [[String: Any]] { output += html(fromBlocks: children) }
+            default: output += "<p\(style)>\(content.isEmpty ? "<br>" : content)</p>"
+            }
+            index += 1
+        }
+        return output
+    }
+
+    private static func inline(_ block: [String: Any]) -> String {
+        if let html = block["html"] as? String, !html.isEmpty { return html }
+        return escape(block["content"] as? String ?? "").replacingOccurrences(of: "\n", with: "<br>")
+    }
+
+    private static func escape(_ value: String) -> String {
+        value.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+}

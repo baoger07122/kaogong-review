@@ -59,6 +59,9 @@ struct LibraryRecordDraft {
         module = (original["module"] as? String) ?? scope.module ?? defaultModules.first ?? ""
         title = LibraryRecordDraft.text(original, keys: ["title", "question", "words", "text"])
         content = LibraryRecordDraft.text(original, keys: ["content", "note", "meaning", "myUnderstanding"])
+        if content.isEmpty, let legacyContent = original["content"] {
+            content = LegacyRichTextConverter.html(from: legacyContent)
+        }
         type = LibraryRecordDraft.text(original, keys: ["type", "tag", "category"])
         knowledgePoint = LibraryRecordDraft.text(original, keys: ["knowledgePoint"])
         if let values = original["knowledgePoints"] as? [String], !values.isEmpty {
