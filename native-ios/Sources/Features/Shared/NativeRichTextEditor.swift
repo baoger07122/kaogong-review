@@ -5,6 +5,8 @@ enum RichTextToolbarMode { case full, compact }
 
 private enum RichTextCommandKind: Equatable {
     case bold, italic, underline, strike, indent, outdent, bullets, numbers
+    case link(String)
+    case undo, redo
 }
 
 private struct RichTextCommand: Equatable {
@@ -17,6 +19,8 @@ struct NativeRichTextEditor: View {
     let minHeight: CGFloat
     var mode: RichTextToolbarMode = .full
     @State private var command: RichTextCommand?
+    @State private var showLinkPrompt = false
+    @State private var linkTarget = "https://"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,18 +40,44 @@ struct NativeRichTextEditor: View {
                     formatButton(.indent, "increase.indent")
                     formatButton(.bullets, "list.bullet")
                     formatButton(.numbers, "list.number")
+                    if mode == .full {
+                        Button { showLinkPrompt = true } label: {
+                            toolbarImage("link.badge.plus")
+                        }
+                        .buttonStyle(.plain)
+                        formatButton(.undo, "arrow.uturn.backward")
+                        formatButton(.redo, "arrow.uturn.forward")
+                    }
                 }.padding(6)
             }
         }
         .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
         .overlay(RoundedRectangle(cornerRadius: AppTheme.controlRadius).stroke(Color.primary.opacity(0.07), lineWidth: 0.7))
+        .alert("添加链接", isPresented: $showLinkPrompt) {
+            TextField("https://example.com", text: $linkTarget)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.URL)
+            Button("取消", role: .cancel) {}
+            Button("添加") {
+                let value = linkTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !value.isEmpty else { return }
+                command = RichTextCommand(kind: .link(value))
+                linkTarget = "https://"
+            }
+        } message: {
+            Text("选中文字后添加链接；没有选中文字时会直接插入链接地址。")
+        }
     }
 
     private func formatButton(_ kind: RichTextCommandKind, _ image: String) -> some View {
         Button { command = RichTextCommand(kind: kind) } label: {
-            Image(systemName: image).font(.system(size: 13, weight: .semibold)).frame(width: 31, height: 29)
-                .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
+            toolbarImage(image)
         }.buttonStyle(.plain)
+    }
+
+    private func toolbarImage(_ image: String) -> some View {
+        Image(systemName: image).font(.system(size: 13, weight: .semibold)).frame(width: 31, height: 29)
+            .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -64,6 +94,8 @@ private struct RichTextTextView: UIViewRepresentable {
         view.font = .systemFont(ofSize: 13)
         view.adjustsFontForContentSizeCategory = false
         view.textContainerInset = UIEdgeInsets(top: 10, left: 8, bottom: 10, right: 8)
+        view.allowsEditingTextAttributes = true
+        view.linkTextAttributes = [.foregroundColor: UIColor.systemBlue, .underlineStyle: NSUnderlineStyle.single.rawValue]
         view.attributedText = Self.attributed(from: html)
         context.coordinator.lastHTML = html
         return view
@@ -91,6 +123,7 @@ private struct RichTextTextView: UIViewRepresentable {
 
         func apply(_ command: RichTextCommandKind, to view: UITextView) {
             let range = view.selectedRange
+            var restoreSelection = true
             switch command {
             case .bold: toggleFontTrait(.traitBold, view: view, range: range)
             case .italic: toggleFontTrait(.traitItalic, view: view, range: range)
@@ -100,9 +133,26 @@ private struct RichTextTextView: UIViewRepresentable {
             case .outdent: changeIndent(-18, view: view, range: range)
             case .bullets: prefixParagraphs("• ", view: view, range: range)
             case .numbers: numberParagraphs(view: view, range: range)
+            case let .link(target): addLink(target, view: view, range: range); restoreSelection = false
+            case .undo: view.undoManager?.undo(); restoreSelection = false
+            case .redo: view.undoManager?.redo(); restoreSelection = false
             }
-            view.selectedRange = range
+            if restoreSelection { view.selectedRange = range }
             publish(view)
+        }
+
+        private func addLink(_ target: String, view: UITextView, range: NSRange) {
+            guard let url = URL(string: target) else { return }
+            if range.length == 0 {
+                let insertion = NSAttributedString(
+                    string: target,
+                    attributes: [.link: url, .font: UIFont.systemFont(ofSize: 13)]
+                )
+                view.textStorage.insert(insertion, at: range.location)
+                view.selectedRange = NSRange(location: range.location + insertion.length, length: 0)
+            } else {
+                view.textStorage.addAttribute(.link, value: url, range: range)
+            }
         }
 
         private func toggleFontTrait(_ trait: UIFontDescriptor.SymbolicTraits, view: UITextView, range: NSRange) {
