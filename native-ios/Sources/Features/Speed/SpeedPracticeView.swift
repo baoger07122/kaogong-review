@@ -72,9 +72,9 @@ struct SpeedPracticeView: View {
                 customTypes
                 settingsCard
 
-                Button(settings.selectedType == .dataReal ? "该题型尚未开放" : "开始练习") { start() }
+                Button(startButtonTitle) { start() }
                     .buttonStyle(NativePrimaryButtonStyle())
-                    .disabled(settings.selectedType == .dataReal || activeTypes.isEmpty)
+                    .disabled(!canStart)
             }
             .padding(20)
         }
@@ -131,6 +131,59 @@ struct SpeedPracticeView: View {
                 }
             }
             .padding(.top, 10)
+
+            Divider().padding(.vertical, 8)
+            HStack {
+                Text("数字设置").font(AppTheme.bodyFont)
+                Spacer()
+                Picker("数字设置", selection: customNumberModeBinding) {
+                    ForEach(SpeedCustomNumberMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+
+            switch settings.customNumberMode ?? .none {
+            case .none:
+                Text("保持题型原有数字规则")
+                    .font(AppTheme.auxiliaryFont)
+                    .foregroundStyle(.secondary)
+            case .fixed:
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 9), spacing: 7) {
+                    ForEach(1...9, id: \.self) { number in
+                        Button {
+                            toggleFixedNumber(number)
+                        } label: {
+                            Text("\(number)")
+                                .font(AppTheme.inputFont.monospacedDigit())
+                                .frame(maxWidth: .infinity, minHeight: 32)
+                                .background(
+                                    selectedFixedNumbers.contains(number) ? AppTheme.accent.opacity(0.14) : AppTheme.secondaryBackground,
+                                    in: RoundedRectangle(cornerRadius: 8)
+                                )
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(selectedFixedNumbers.contains(number) ? AppTheme.accent : Color.clear, lineWidth: 1)
+                                }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            case .range:
+                HStack(spacing: 8) {
+                    TextField("最小值", value: customRangeMinimumBinding, format: .number)
+                        .keyboardType(.numberPad)
+                        .textFieldStyle(NativeTextFieldStyle())
+                    Text("至").font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                    TextField("最大值", value: customRangeMaximumBinding, format: .number)
+                        .keyboardType(.numberPad)
+                        .textFieldStyle(NativeTextFieldStyle())
+                }
+                Text("范围限制为 1–999；只替换纯四则运算的第二个数字。")
+                    .font(AppTheme.auxiliaryFont)
+                    .foregroundStyle(.secondary)
+            }
         }
         .font(AppTheme.bodyFont)
         .padding(14)
@@ -410,6 +463,18 @@ struct SpeedPracticeView: View {
         return custom.count > 1 ? custom : (settings.selectedType.isAvailable ? [settings.selectedType] : [])
     }
 
+    private var canStart: Bool {
+        guard settings.selectedType != .dataReal, !activeTypes.isEmpty else { return false }
+        if settings.customNumberMode == .fixed { return !selectedFixedNumbers.isEmpty }
+        return true
+    }
+
+    private var startButtonTitle: String {
+        if settings.selectedType == .dataReal { return "该题型尚未开放" }
+        if settings.customNumberMode == .fixed, selectedFixedNumbers.isEmpty { return "请先选择固定数字" }
+        return "开始练习"
+    }
+
     private var memoBinding: Binding<String> {
         Binding(get: { questions.indices.contains(index) ? questions[index].memo : "" }, set: { if questions.indices.contains(index) { questions[index].memo = $0 } })
     }
@@ -419,6 +484,31 @@ struct SpeedPracticeView: View {
             get: { settings.soundEnabled ?? true },
             set: { settings.soundEnabled = $0; persistSettings() }
         )
+    }
+
+    private var customNumberModeBinding: Binding<SpeedCustomNumberMode> {
+        Binding(
+            get: { settings.customNumberMode ?? .none },
+            set: { settings.customNumberMode = $0; persistSettings() }
+        )
+    }
+
+    private var customRangeMinimumBinding: Binding<Int> {
+        Binding(
+            get: { settings.customRangeMinimum ?? 1 },
+            set: { settings.customRangeMinimum = min(max(1, $0), 999); persistSettings() }
+        )
+    }
+
+    private var customRangeMaximumBinding: Binding<Int> {
+        Binding(
+            get: { settings.customRangeMaximum ?? 99 },
+            set: { settings.customRangeMaximum = min(max(1, $0), 999); persistSettings() }
+        )
+    }
+
+    private var selectedFixedNumbers: [Int] {
+        (settings.customFixedNumbers ?? []).filter { (1...9).contains($0) }
     }
 
     private var correctCount: Int { questions.filter { $0.isCorrect == true }.count }
@@ -437,7 +527,16 @@ struct SpeedPracticeView: View {
     }
 
     private func start() {
-        let generated = SpeedQuestionEngine.questions(types: activeTypes, count: settings.questionCount, sequential: settings.sequential, estimates: estimateRows)
+        let generated = SpeedQuestionEngine.questions(
+            types: activeTypes,
+            count: settings.questionCount,
+            sequential: settings.sequential,
+            estimates: estimateRows,
+            customMode: settings.customNumberMode,
+            fixedNumbers: selectedFixedNumbers,
+            rangeMinimum: settings.customRangeMinimum ?? 1,
+            rangeMaximum: settings.customRangeMaximum ?? 99
+        )
         guard !generated.isEmpty else { return }
         questions = generated
         index = 0
@@ -490,6 +589,18 @@ struct SpeedPracticeView: View {
 
     private func persistSettings() {
         try? SpeedRepository.saveSettings(settings, records: records, context: modelContext)
+    }
+
+    private func toggleFixedNumber(_ number: Int) {
+        var values = selectedFixedNumbers
+        if values.contains(number) {
+            values.removeAll { $0 == number }
+        } else {
+            values.append(number)
+            values.sort()
+        }
+        settings.customFixedNumbers = values
+        persistSettings()
     }
 
     private func saveResultIfNeeded() {

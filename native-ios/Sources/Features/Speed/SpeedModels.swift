@@ -10,6 +10,13 @@ enum SpeedMode: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum SpeedCustomNumberMode: String, Codable, CaseIterable, Identifiable {
+    case none = "不限制"
+    case fixed = "固定数字"
+    case range = "随机范围"
+    var id: String { rawValue }
+}
+
 enum SpeedTypeKey: String, Codable, CaseIterable, Identifiable {
     case addsub2, add3, sub3, addsub3, mul2x1, mul3x1, div3x1, div5x3, spDen, est05, base, growth, dataReal
     var id: String { rawValue }
@@ -82,6 +89,10 @@ struct SpeedSettings: Codable, Equatable {
     var soundEnabled: Bool? = true
     var selectedType: SpeedTypeKey = .addsub2
     var customTypes: [SpeedTypeKey] = [.addsub2]
+    var customNumberMode: SpeedCustomNumberMode?
+    var customFixedNumbers: [Int]?
+    var customRangeMinimum: Int?
+    var customRangeMaximum: Int?
     var questionCount = 10
     var mode: SpeedMode = .train
 }

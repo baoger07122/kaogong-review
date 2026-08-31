@@ -1,12 +1,28 @@
 import Foundation
 
 enum SpeedQuestionEngine {
-    static func questions(types: [SpeedTypeKey], count: Int, sequential: Bool, estimates: [SpeedEstimateRow]) -> [SpeedQuestion] {
+    static func questions(
+        types: [SpeedTypeKey],
+        count: Int,
+        sequential: Bool,
+        estimates: [SpeedEstimateRow],
+        customMode: SpeedCustomNumberMode? = nil,
+        fixedNumbers: [Int] = [],
+        rangeMinimum: Int = 1,
+        rangeMaximum: Int = 99
+    ) -> [SpeedQuestion] {
         let available = types.filter(\.isAvailable)
         guard !available.isEmpty else { return [] }
         return (0..<max(1, count)).compactMap { index in
             let type = sequential ? available[index % available.count] : available.randomElement() ?? available[0]
-            return make(type: type, estimates: estimates)
+            guard let question = make(type: type, estimates: estimates) else { return nil }
+            return applyCustomNumber(
+                to: question,
+                mode: customMode,
+                fixedNumbers: fixedNumbers,
+                rangeMinimum: rangeMinimum,
+                rangeMaximum: rangeMaximum
+            )
         }
     }
 
@@ -68,6 +84,49 @@ enum SpeedQuestionEngine {
 
     static func answerText(_ value: Double) -> String {
         value.rounded() == value ? String(Int(value)) : String(format: "%.2f", value)
+    }
+
+    private static func applyCustomNumber(
+        to question: SpeedQuestion,
+        mode: SpeedCustomNumberMode?,
+        fixedNumbers: [Int],
+        rangeMinimum: Int,
+        rangeMaximum: Int
+    ) -> SpeedQuestion {
+        guard let mode, mode != .none else { return question }
+        let replacement: Int
+        switch mode {
+        case .none:
+            return question
+        case .fixed:
+            let values = fixedNumbers.filter { (1...9).contains($0) }
+            guard let value = values.randomElement() else { return question }
+            replacement = value
+        case .range:
+            let lower = min(max(1, rangeMinimum), 999)
+            let upper = min(max(lower, rangeMaximum), 999)
+            replacement = random(lower...upper)
+        }
+
+        let operators = [" + ", " − ", " × ", " ÷ "]
+        guard let operation = operators.first(where: { question.expression.contains($0) }) else { return question }
+        let parts = question.expression.components(separatedBy: operation)
+        guard parts.count == 2, let first = Double(parts[0]), Double(parts[1]) != nil else { return question }
+
+        let answer: Double
+        switch operation {
+        case " + ": answer = first + Double(replacement)
+        case " − ": answer = first - Double(replacement)
+        case " × ": answer = first * Double(replacement)
+        case " ÷ ": answer = rounded(first / Double(replacement))
+        default: return question
+        }
+        return SpeedQuestion(
+            id: question.id,
+            type: question.type,
+            expression: "\(parts[0])\(operation)\(replacement)",
+            answer: rounded(answer)
+        )
     }
 
     private static func random(_ range: ClosedRange<Int>) -> Int { Int.random(in: range) }
