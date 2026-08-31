@@ -4,7 +4,7 @@ import UIKit
 enum RichTextToolbarMode { case full, compact }
 
 private enum RichTextCommandKind: Equatable {
-    case bold, italic, underline, strike, indent, outdent, bullets, numbers
+    case bold, italic, underline, strike, indent, outdent, bullets, numbers, todos, divider
     case heading(RichTextHeading)
     case foreground(RichTextColor)
     case highlight
@@ -75,11 +75,13 @@ struct NativeRichTextEditor: View {
                         formatButton(.strike, "strikethrough")
                         formatButton(.quote, "text.quote")
                         formatButton(.code, "chevron.left.forwardslash.chevron.right")
+                        formatButton(.divider, "minus")
                     }
                     formatButton(.outdent, "decrease.indent")
                     formatButton(.indent, "increase.indent")
                     formatButton(.bullets, "list.bullet")
                     formatButton(.numbers, "list.number")
+                    if mode == .full { formatButton(.todos, "checklist") }
                     if mode == .full {
                         Button { showLinkPrompt = true } label: {
                             toolbarImage("link.badge.plus")
@@ -161,6 +163,31 @@ private struct RichTextTextView: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) { publish(textView) }
 
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            guard text == "\n" else { return true }
+            let source = textView.text as NSString
+            let lineRange = source.lineRange(for: NSRange(location: range.location, length: 0))
+            let line = source.substring(with: lineRange).trimmingCharacters(in: .newlines)
+            let prefix: String?
+            if line.hasPrefix("• ") { prefix = "• " }
+            else if line.hasPrefix("☐ ") { prefix = "☐ " }
+            else if let match = line.range(of: #"^(\d+)\.\s"#, options: .regularExpression),
+                    let number = Int(line[match].dropLast(2)) {
+                prefix = "\(number + 1). "
+            } else { prefix = nil }
+            guard let prefix else { return true }
+            let content = line.replacingOccurrences(of: #"^(•|☐|\d+\.)\s"#, with: "", options: .regularExpression)
+            if content.isEmpty {
+                textView.textStorage.replaceCharacters(in: lineRange, with: "\n")
+                textView.selectedRange = NSRange(location: lineRange.location + 1, length: 0)
+            } else {
+                textView.textStorage.replaceCharacters(in: range, with: "\n" + prefix)
+                textView.selectedRange = NSRange(location: range.location + prefix.utf16.count + 1, length: 0)
+            }
+            publish(textView)
+            return false
+        }
+
         func apply(_ command: RichTextCommandKind, to view: UITextView) {
             let range = view.selectedRange
             var restoreSelection = true
@@ -178,6 +205,8 @@ private struct RichTextTextView: UIViewRepresentable {
             case .outdent: changeIndent(-18, view: view, range: range)
             case .bullets: prefixParagraphs("• ", view: view, range: range)
             case .numbers: numberParagraphs(view: view, range: range)
+            case .todos: prefixParagraphs("☐ ", view: view, range: range)
+            case .divider: insertDivider(view: view, range: range); restoreSelection = false
             case let .link(target): addLink(target, view: view, range: range); restoreSelection = false
             case .undo: view.undoManager?.undo(); restoreSelection = false
             case .redo: view.undoManager?.redo(); restoreSelection = false
@@ -298,6 +327,19 @@ private struct RichTextTextView: UIViewRepresentable {
                 return "\(index + 1). \(raw)"
             }.joined(separator: "\n")
             view.textStorage.replaceCharacters(in: paragraphRange, with: replacement)
+        }
+
+        private func insertDivider(view: UITextView, range: NSRange) {
+            let insertion = NSAttributedString(
+                string: "\n────────────────\n",
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 10),
+                    .foregroundColor: UIColor.separator
+                ]
+            )
+            view.textStorage.replaceCharacters(in: range, with: insertion)
+            view.selectedRange = NSRange(location: range.location + insertion.length, length: 0)
+            view.typingAttributes = [.font: UIFont.systemFont(ofSize: 13), .foregroundColor: UIColor.label]
         }
 
         private func publish(_ view: UITextView) {
