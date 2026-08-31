@@ -148,6 +148,7 @@ struct SpeedPracticeView: View {
             Toggle("夜间模式", isOn: settingBinding(\.nightMode))
             Toggle("结果不出现负数", isOn: settingBinding(\.noNegative))
             Toggle("显示快速备注", isOn: settingBinding(\.quickMemo))
+            Toggle("按键音效", isOn: soundEnabledBinding)
         }
         .font(AppTheme.inputFont)
         .padding(15)
@@ -380,6 +381,13 @@ struct SpeedPracticeView: View {
         Binding(get: { questions.indices.contains(index) ? questions[index].memo : "" }, set: { if questions.indices.contains(index) { questions[index].memo = $0 } })
     }
 
+    private var soundEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { settings.soundEnabled ?? true },
+            set: { settings.soundEnabled = $0; persistSettings() }
+        )
+    }
+
     private var correctCount: Int { questions.filter { $0.isCorrect == true }.count }
     private var totalTime: Double { questions.reduce(0) { $0 + $1.timeUsed } }
 
@@ -432,7 +440,7 @@ struct SpeedPracticeView: View {
     }
 
     private func pressKey(_ key: String) {
-        AudioServicesPlaySystemSound(1104)
+        if settings.soundEnabled != false { AudioServicesPlaySystemSound(1104) }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         if key == "⌫" { if !currentInput.isEmpty { currentInput.removeLast() } }
         else if key == "." { if !currentInput.contains(".") { currentInput += currentInput.isEmpty ? "0." : "." } }

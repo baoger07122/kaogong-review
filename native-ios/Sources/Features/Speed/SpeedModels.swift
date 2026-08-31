@@ -43,6 +43,7 @@ struct SpeedSettings: Codable, Equatable {
     var nightMode = false
     var noNegative = false
     var quickMemo = true
+    var soundEnabled: Bool? = true
     var selectedType: SpeedTypeKey = .addsub2
     var customTypes: [SpeedTypeKey] = [.addsub2]
     var questionCount = 10
