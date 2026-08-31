@@ -108,6 +108,7 @@ struct NativeRichTextEditor: View {
     @State private var formulaEditor: RichTextFormula?
     @State private var photoItem: PhotosPickerItem?
     @State private var internalLinkPicker: InternalLinkPickerRequest?
+    @State private var isEditing = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -116,60 +117,15 @@ struct NativeRichTextEditor: View {
                 command: $command,
                 selectedTable: $selectedTable,
                 selectedFormula: $selectedFormula,
+                isEditing: $isEditing,
                 internalLinks: internalLinks,
                 onOpenInternalLink: onOpenInternalLink
             )
                 .frame(minHeight: minHeight)
                 .padding(.horizontal, 5)
-            Divider()
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 5) {
-                    if mode == .full {
-                        Menu {
-                            ForEach(RichTextHeading.allCases) { heading in
-                                Button(heading.rawValue) { command = RichTextCommand(kind: .heading(heading)) }
-                            }
-                        } label: { toolbarImage("textformat.size") }
-                        Menu {
-                            ForEach(RichTextColor.allCases) { color in
-                                Button(color.rawValue) { command = RichTextCommand(kind: .foreground(color)) }
-                            }
-                        } label: { toolbarImage("paintpalette") }
-                        formatButton(.highlight, "highlighter")
-                    }
-                    formatButton(.bold, "bold")
-                    if mode == .full {
-                        formatButton(.italic, "italic")
-                        formatButton(.underline, "underline")
-                        formatButton(.strike, "strikethrough")
-                        formatButton(.quote, "text.quote")
-                        formatButton(.code, "chevron.left.forwardslash.chevron.right")
-                        formatButton(.divider, "minus")
-                        Button { tableEditor = selectedTable ?? RichTextTable() } label: { toolbarImage("tablecells") }
-                            .buttonStyle(.plain)
-                        Button { formulaEditor = selectedFormula ?? RichTextFormula() } label: { toolbarImage("function") }
-                            .buttonStyle(.plain)
-                        PhotosPicker(selection: $photoItem, matching: .images) { toolbarImage("photo.badge.plus") }
-                            .buttonStyle(.plain)
-                        if !internalLinks.isEmpty {
-                            Button { internalLinkPicker = InternalLinkPickerRequest() } label: { toolbarImage("link.circle") }
-                                .buttonStyle(.plain)
-                        }
-                    }
-                    formatButton(.outdent, "decrease.indent")
-                    formatButton(.indent, "increase.indent")
-                    formatButton(.bullets, "list.bullet")
-                    formatButton(.numbers, "list.number")
-                    if mode == .full { formatButton(.todos, "checklist") }
-                    if mode == .full {
-                        Button { showLinkPrompt = true } label: {
-                            toolbarImage("link.badge.plus")
-                        }
-                        .buttonStyle(.plain)
-                        formatButton(.undo, "arrow.uturn.backward")
-                        formatButton(.redo, "arrow.uturn.forward")
-                    }
-                }.padding(6)
+            if !isEditing {
+                Divider()
+                toolbarStrip
             }
         }
         .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
@@ -217,6 +173,66 @@ struct NativeRichTextEditor: View {
                 command = RichTextCommand(kind: .image("data:image/jpeg;base64,\(compressed.base64EncodedString())"))
             }
         }
+        .toolbar {
+            if isEditing {
+                ToolbarItem(placement: .keyboard) {
+                    toolbarStrip
+                        .frame(maxWidth: .infinity)
+                }
+            }
+        }
+    }
+
+    private var toolbarStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 5) {
+                if mode == .full {
+                    Menu {
+                        ForEach(RichTextHeading.allCases) { heading in
+                            Button(heading.rawValue) { command = RichTextCommand(kind: .heading(heading)) }
+                        }
+                    } label: { toolbarImage("textformat.size") }
+                    Menu {
+                        ForEach(RichTextColor.allCases) { color in
+                            Button(color.rawValue) { command = RichTextCommand(kind: .foreground(color)) }
+                        }
+                    } label: { toolbarImage("paintpalette") }
+                    formatButton(.highlight, "highlighter")
+                }
+                formatButton(.bold, "bold")
+                if mode == .full {
+                    formatButton(.italic, "italic")
+                    formatButton(.underline, "underline")
+                    formatButton(.strike, "strikethrough")
+                    formatButton(.quote, "text.quote")
+                    formatButton(.code, "chevron.left.forwardslash.chevron.right")
+                    formatButton(.divider, "minus")
+                    Button { tableEditor = selectedTable ?? RichTextTable() } label: { toolbarImage("tablecells") }
+                        .buttonStyle(.plain)
+                    Button { formulaEditor = selectedFormula ?? RichTextFormula() } label: { toolbarImage("function") }
+                        .buttonStyle(.plain)
+                    PhotosPicker(selection: $photoItem, matching: .images) { toolbarImage("photo.badge.plus") }
+                        .buttonStyle(.plain)
+                    if !internalLinks.isEmpty {
+                        Button { internalLinkPicker = InternalLinkPickerRequest() } label: { toolbarImage("link.circle") }
+                            .buttonStyle(.plain)
+                    }
+                }
+                formatButton(.outdent, "decrease.indent")
+                formatButton(.indent, "increase.indent")
+                formatButton(.bullets, "list.bullet")
+                formatButton(.numbers, "list.number")
+                if mode == .full { formatButton(.todos, "checklist") }
+                if mode == .full {
+                    Button { showLinkPrompt = true } label: { toolbarImage("link.badge.plus") }
+                        .buttonStyle(.plain)
+                    formatButton(.undo, "arrow.uturn.backward")
+                    formatButton(.redo, "arrow.uturn.forward")
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+        }
     }
 
     private func formatButton(_ kind: RichTextCommandKind, _ image: String) -> some View {
@@ -236,6 +252,7 @@ private struct RichTextTextView: UIViewRepresentable {
     @Binding var command: RichTextCommand?
     @Binding var selectedTable: RichTextTable?
     @Binding var selectedFormula: RichTextFormula?
+    @Binding var isEditing: Bool
     let internalLinks: [RichTextInternalLink]
     let onOpenInternalLink: ((RichTextInternalLink) -> Void)?
 
@@ -249,6 +266,7 @@ private struct RichTextTextView: UIViewRepresentable {
         view.adjustsFontForContentSizeCategory = false
         view.textContainerInset = UIEdgeInsets(top: 10, left: 8, bottom: 10, right: 8)
         view.allowsEditingTextAttributes = true
+        view.keyboardDismissMode = .interactive
         view.linkTextAttributes = [.foregroundColor: UIColor.systemBlue, .underlineStyle: NSUnderlineStyle.single.rawValue]
         view.attributedText = Self.attributed(from: html)
         context.coordinator.lastHTML = html
@@ -276,12 +294,32 @@ private struct RichTextTextView: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) { publish(textView) }
 
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            DispatchQueue.main.async { self.parent.isEditing = true }
+            keepSelectionVisible(in: textView)
+        }
+
+        func textViewDidEndEditing(_ textView: UITextView) {
+            DispatchQueue.main.async { self.parent.isEditing = false }
+        }
+
         func textViewDidChangeSelection(_ textView: UITextView) {
             let table = tableAttachment(near: textView.selectedRange, view: textView)?.attachment.table
             let formula = formulaAttachment(near: textView.selectedRange, view: textView)?.attachment.formula
             DispatchQueue.main.async {
                 self.parent.selectedTable = table
                 self.parent.selectedFormula = formula
+            }
+            keepSelectionVisible(in: textView)
+        }
+
+        private func keepSelectionVisible(in textView: UITextView) {
+            guard textView.isFirstResponder else { return }
+            let selection = textView.selectedRange
+            DispatchQueue.main.async {
+                guard selection.location <= textView.attributedText.length else { return }
+                textView.layoutIfNeeded()
+                textView.scrollRangeToVisible(selection)
             }
         }
 
