@@ -16,6 +16,7 @@ struct LibraryView: View {
     @State private var noteTypeDraft = ""
     @State private var noteTypeColor = NoteTypeRepository.colors[0]
     @State private var deleteTarget: LibraryDeleteTarget?
+    @State private var inlineErrorID: String?
 
     var body: some View {
         GeometryReader { proxy in
@@ -66,6 +67,18 @@ struct LibraryView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     filterBar
                     if kind == .notes, noteContext != nil { noteTypeBar }
+                    if let inlineErrorRecord {
+                        InlineErrorEditor(
+                            record: inlineErrorRecord,
+                            scope: scope,
+                            records: records,
+                            onClose: { inlineErrorID = nil },
+                            onFullEdit: {
+                                editorTarget = LibraryEditorTarget(kind: .errors, recordID: inlineErrorRecord.recordID)
+                                inlineErrorID = nil
+                            }
+                        )
+                    }
                     if displayedRecords.isEmpty {
                         NativeStatusCard(
                             title: emptyTitle,
@@ -83,7 +96,7 @@ struct LibraryView: View {
                             records: displayedRecords,
                             kind: kind,
                             columnCount: cardSize.columnCount,
-                            onOpen: { editorTarget = LibraryEditorTarget(kind: kind, recordID: $0.record.recordID) },
+                            onOpen: { open($0) },
                             onDelete: { deleteTarget = LibraryDeleteTarget(kind: kind, recordID: $0.record.recordID) }
                         )
                     }
@@ -247,6 +260,11 @@ struct LibraryView: View {
         return Array(Set(snapshots.flatMap(\.tags))).sorted()
     }
 
+    private var inlineErrorRecord: StoredRecord? {
+        guard kind == .errors, let inlineErrorID else { return nil }
+        return records.first { $0.collection == "errors" && $0.recordID == inlineErrorID }
+    }
+
     private var noteContext: (subject: String, module: String)? {
         guard let subject = scope.subject, scope.hasModuleContext else { return nil }
         return (subject, subject == "资料分析" ? "" : (scope.module ?? ""))
@@ -352,6 +370,7 @@ struct LibraryView: View {
         searchText = ""
         selectedStatus = ""
         selectedTag = ""
+        inlineErrorID = nil
         if kind == .words && !scope.isLogicFill { kind = .notes }
     }
 
@@ -361,6 +380,14 @@ struct LibraryView: View {
 
     private func remove(_ target: LibraryDeleteTarget) {
         try? LibraryRecordRepository.remove(kind: target.kind, id: target.recordID, records: records, context: modelContext)
+    }
+
+    private func open(_ snapshot: LibraryRecordSnapshot) {
+        if kind == .errors {
+            withAnimation(.easeInOut(duration: 0.18)) { inlineErrorID = snapshot.record.recordID }
+        } else {
+            editorTarget = LibraryEditorTarget(kind: kind, recordID: snapshot.record.recordID)
+        }
     }
 }
 
