@@ -67,11 +67,16 @@ struct SettingsView: View {
                 }
             }
 
-            Section("笔记") {
+            Section("笔记与便签") {
                 NavigationLink {
                     NoteTypeManagerView()
                 } label: {
                     Label("笔记类型", systemImage: "tag")
+                }
+                NavigationLink {
+                    StickyTagManagerView()
+                } label: {
+                    Label("便签标签", systemImage: "tag.square")
                 }
             }
 

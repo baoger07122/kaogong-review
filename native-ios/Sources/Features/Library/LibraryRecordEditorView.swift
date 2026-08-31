@@ -357,7 +357,13 @@ struct LibraryRecordEditorView: View {
     private var stickyFields: some View {
         VStack(alignment: .leading, spacing: 12) {
             NativeRichTextEditor(html: $draft.content, minHeight: 170, mode: .compact)
-            TextField("标签（可选）", text: $draft.type).textFieldStyle(NativeTextFieldStyle())
+            Menu {
+                Button("无标签") { draft.type = "" }
+                ForEach(stickyTags) { item in Button(item.name) { draft.type = item.name } }
+            } label: {
+                NativePropertyRow(title: "便签标签", value: draft.type.isEmpty ? "无标签" : draft.type, systemImage: "tag") {}
+                    .allowsHitTesting(false)
+            }
             HStack(spacing: 10) {
                 ForEach(HomeRecordRepository.stickyColors, id: \.self) { hex in
                     Button { draft.colorHex = hex } label: {
@@ -486,6 +492,14 @@ struct LibraryRecordEditorView: View {
 
     private var noteTypes: [NoteTypeDefinition] {
         NoteTypeRepository.types(subject: draft.subject, module: draft.subject == "资料分析" ? "" : draft.module, records: records)
+    }
+
+    private var stickyTags: [StickyTagDefinition] {
+        StickyTagRepository.tags(
+            subject: draft.subject,
+            module: draft.subject == "资料分析" ? "" : draft.module,
+            records: records
+        )
     }
 
     private func save() {

@@ -67,6 +67,7 @@ struct LibraryView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     filterBar
                     if kind == .notes, noteContext != nil { noteTypeBar }
+                    if kind == .stickies, stickyContext != nil { stickyTagBar }
                     if let inlineErrorRecord {
                         InlineErrorEditor(
                             record: inlineErrorRecord,
@@ -258,6 +259,9 @@ struct LibraryView: View {
         if kind == .notes, let context = noteContext {
             return NoteTypeRepository.types(subject: context.subject, module: context.module, records: records).map(\.name)
         }
+        if kind == .stickies, let context = stickyContext {
+            return StickyTagRepository.tags(subject: context.subject, module: context.module, records: records).map(\.name)
+        }
         return Array(Set(snapshots.flatMap(\.tags))).sorted()
     }
 
@@ -267,6 +271,11 @@ struct LibraryView: View {
     }
 
     private var noteContext: (subject: String, module: String)? {
+        guard let subject = scope.subject, scope.hasModuleContext else { return nil }
+        return (subject, subject == "资料分析" ? "" : (scope.module ?? ""))
+    }
+
+    private var stickyContext: (subject: String, module: String)? {
         guard let subject = scope.subject, scope.hasModuleContext else { return nil }
         return (subject, subject == "资料分析" ? "" : (scope.module ?? ""))
     }
@@ -293,6 +302,22 @@ struct LibraryView: View {
     private var availableNoteTypes: [NoteTypeDefinition] {
         guard let context = noteContext else { return [] }
         return NoteTypeRepository.types(subject: context.subject, module: context.module, records: records)
+    }
+
+    private var stickyTagBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                noteTypeChip(title: "全部", color: "#0066CC", selected: selectedTag.isEmpty) { selectedTag = "" }
+                ForEach(availableStickyTags) { item in
+                    noteTypeChip(title: item.name, color: item.color, selected: selectedTag == item.name) { selectedTag = item.name }
+                }
+            }
+        }
+    }
+
+    private var availableStickyTags: [StickyTagDefinition] {
+        guard let context = stickyContext else { return [] }
+        return StickyTagRepository.tags(subject: context.subject, module: context.module, records: records)
     }
 
     private func noteTypeChip(title: String, color: String, selected: Bool, action: @escaping () -> Void) -> some View {

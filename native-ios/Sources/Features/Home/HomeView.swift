@@ -368,8 +368,13 @@ struct HomeView: View {
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 NativeRichTextEditor(html: $stickyContentDraft, minHeight: 105, mode: .compact)
-                NativeFieldLabel(title: "标签")
-                TextField("可选，例如：言语", text: $stickyTagDraft).textFieldStyle(NativeTextFieldStyle())
+                Menu {
+                    Button("无标签") { stickyTagDraft = "" }
+                    ForEach(homeStickyTags) { item in Button(item.name) { stickyTagDraft = item.name } }
+                } label: {
+                    NativePropertyRow(title: "便签标签", value: stickyTagDraft.isEmpty ? "无标签" : stickyTagDraft, systemImage: "tag") {}
+                        .allowsHitTesting(false)
+                }
                 HStack(spacing: 10) {
                     ForEach(HomeRecordRepository.stickyColors, id: \.self) { hex in
                         Button { stickyColorDraft = hex } label: {
@@ -394,6 +399,10 @@ struct HomeView: View {
             guard let completedAt = todo.completedAt else { return false }
             return Calendar.current.isDateInToday(completedAt)
         }
+    }
+
+    private var homeStickyTags: [StickyTagDefinition] {
+        StickyTagRepository.tags(subject: "", module: "", records: records)
     }
 
     private var completedTodayCount: Int { todayTodos.filter(\.isCompleted).count }
