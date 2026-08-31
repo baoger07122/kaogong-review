@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 import UIKit
 
@@ -11,6 +12,7 @@ private enum RichTextCommandKind: Equatable {
     case quote
     case code
     case table(RichTextTable)
+    case image(String)
     case link(String)
     case undo, redo
 }
@@ -57,6 +59,7 @@ struct NativeRichTextEditor: View {
     @State private var linkTarget = "https://"
     @State private var selectedTable: RichTextTable?
     @State private var tableEditor: RichTextTable?
+    @State private var photoItem: PhotosPickerItem?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -88,6 +91,8 @@ struct NativeRichTextEditor: View {
                         formatButton(.code, "chevron.left.forwardslash.chevron.right")
                         formatButton(.divider, "minus")
                         Button { tableEditor = selectedTable ?? RichTextTable() } label: { toolbarImage("tablecells") }
+                            .buttonStyle(.plain)
+                        PhotosPicker(selection: $photoItem, matching: .images) { toolbarImage("photo.badge.plus") }
                             .buttonStyle(.plain)
                     }
                     formatButton(.outdent, "decrease.indent")
@@ -127,6 +132,17 @@ struct NativeRichTextEditor: View {
                 command = RichTextCommand(kind: .table(updated))
             }
             .presentationDetents([.medium, .large])
+        }
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task {
+                defer { photoItem = nil }
+                guard let data = try? await item.loadTransferable(type: Data.self),
+                      let image = UIImage(data: data),
+                      let compressed = image.jpegData(compressionQuality: 0.82)
+                else { return }
+                command = RichTextCommand(kind: .image("data:image/jpeg;base64,\(compressed.base64EncodedString())"))
+            }
         }
     }
 
@@ -252,6 +268,7 @@ private struct RichTextTextView: UIViewRepresentable {
             case .todos: prefixParagraphs("☐ ", view: view, range: range)
             case .divider: insertDivider(view: view, range: range); restoreSelection = false
             case let .table(table): upsertTable(table, view: view, range: range); restoreSelection = false
+            case let .image(dataURL): insertImage(dataURL, view: view, range: range); restoreSelection = false
             case let .link(target): addLink(target, view: view, range: range); restoreSelection = false
             case .undo: view.undoManager?.undo(); restoreSelection = false
             case .redo: view.undoManager?.redo(); restoreSelection = false
@@ -399,6 +416,13 @@ private struct RichTextTextView: UIViewRepresentable {
             parent.selectedTable = table
         }
 
+        private func insertImage(_ dataURL: String, view: UITextView, range: NSRange) {
+            guard let attachment = NativeImageAttachment(dataURL: dataURL) else { return }
+            let replacement = NSMutableAttributedString(attributedString: NSAttributedString(attachment: attachment))
+            replacement.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 13)]))
+            replaceAttributed(replacement, in: range, view: view)
+        }
+
         private func tableAttachment(near range: NSRange, view: UITextView) -> (attachment: NativeTableAttachment, range: NSRange)? {
             guard view.attributedText.length > 0 else { return nil }
             for location in [range.location, range.location - 1] where location >= 0 && location < view.attributedText.length {
@@ -433,6 +457,7 @@ private struct RichTextTextView: UIViewRepresentable {
         var replacements: [(NSRange, String)] = []
         serializable.enumerateAttribute(.attachment, in: NSRange(location: 0, length: serializable.length)) { attribute, range, _ in
             if let table = attribute as? NativeTableAttachment, let marker = table.marker { replacements.append((range, marker)) }
+            else if let image = attribute as? NativeImageAttachment { replacements.append((range, image.marker)) }
         }
         for (range, marker) in replacements.reversed() { serializable.replaceCharacters(in: range, with: marker) }
         guard serializable.length > 0, let data = try? serializable.data(from: NSRange(location: 0, length: serializable.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.html]) else { return "" }
@@ -448,6 +473,15 @@ private struct RichTextTextView: UIViewRepresentable {
             let encoded = text.substring(with: match.range(at: 1))
             guard let data = Data(base64Encoded: encoded), let table = try? JSONDecoder().decode(RichTextTable.self, from: data) else { continue }
             value.replaceCharacters(in: match.range, with: NSAttributedString(attachment: NativeTableAttachment(table: table)))
+        }
+        let imagePattern = #"\[\[NATIVE_IMAGE:([A-Za-z0-9+/=]+)\]\]"#
+        guard let imageExpression = try? NSRegularExpression(pattern: imagePattern) else { return }
+        let updatedText = value.string as NSString
+        for match in imageExpression.matches(in: value.string, range: NSRange(location: 0, length: updatedText.length)).reversed() {
+            guard match.numberOfRanges == 2 else { continue }
+            let encoded = updatedText.substring(with: match.range(at: 1))
+            guard let data = Data(base64Encoded: encoded), let dataURL = String(data: data, encoding: .utf8), let attachment = NativeImageAttachment(dataURL: dataURL) else { continue }
+            value.replaceCharacters(in: match.range, with: NSAttributedString(attachment: attachment))
         }
     }
 
@@ -585,6 +619,29 @@ private final class NativeTableAttachment: NSTextAttachment {
                 }
             }
         }
+    }
+}
+
+private final class NativeImageAttachment: NSTextAttachment {
+    let dataURL: String
+
+    init?(dataURL: String) {
+        guard let comma = dataURL.firstIndex(of: ","),
+              let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...])),
+              let source = UIImage(data: data)
+        else { return nil }
+        self.dataURL = dataURL
+        super.init(data: nil, ofType: "com.kaogong.native-image")
+        image = source
+        let maxWidth: CGFloat = 420
+        let scale = min(1, maxWidth / max(1, source.size.width))
+        bounds = CGRect(x: 0, y: -4, width: source.size.width * scale, height: source.size.height * scale)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    var marker: String {
+        "[[NATIVE_IMAGE:\(Data(dataURL.utf8).base64EncodedString())]]"
     }
 }
 
