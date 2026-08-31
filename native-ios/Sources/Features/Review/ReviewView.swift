@@ -9,6 +9,15 @@ private struct ReviewSessionSnapshot: Codable {
     let index: Int
 }
 
+private struct ReviewModuleStat: Identifiable {
+    let subject: String
+    let module: String
+    let total: Int
+    let inPool: Int
+    let mastered: Int
+    var id: String { "\(subject)|\(module)" }
+}
+
 struct ReviewView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
@@ -76,6 +85,33 @@ struct ReviewView: View {
                         }.buttonStyle(.plain).disabled(count == 0)
                     }
                 }
+                if !moduleStats.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("模块复习概览").font(AppTheme.sectionTitleFont)
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+                            ForEach(moduleStats) { stat in
+                                Button { start(subject: stat.subject, module: stat.module) } label: {
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        Text(stat.module.isEmpty ? stat.subject : stat.module)
+                                            .font(AppTheme.inputFont.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
+                                        Text("\(stat.subject) · 共 \(stat.total) 题")
+                                            .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary).lineLimit(1)
+                                        HStack {
+                                            Label("\(stat.inPool)", systemImage: "clock.arrow.circlepath")
+                                            Spacer()
+                                            Label("\(stat.mastered)", systemImage: "checkmark.circle")
+                                        }
+                                        .font(AppTheme.auxiliaryFont)
+                                        .foregroundStyle(AppTheme.accent)
+                                    }
+                                    .nativeCard()
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(stat.inPool == 0)
+                            }
+                        }
+                    }
+                }
                 Button("开始全部复习") { start(subject: nil) }
                     .buttonStyle(NativePrimaryButtonStyle()).disabled(reviewPool.isEmpty)
             }.padding(20)
@@ -84,6 +120,25 @@ struct ReviewView: View {
 
     private var sessionView: some View {
         Group { if index >= queue.count { finishedView } else { questionView(queue[index]) } }
+    }
+
+    private var moduleStats: [ReviewModuleStat] {
+        let keys = Set(errors.map { "\($0.subject ?? "未分类")|\($0.module ?? "")" })
+        return keys.map { key in
+            let parts = key.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+            let subject = parts.first ?? "未分类"
+            let module = parts.count > 1 ? parts[1] : ""
+            let all = errors.filter { ($0.subject ?? "未分类") == subject && ($0.module ?? "") == module }
+            let pool = reviewPool.filter { ($0.subject ?? "未分类") == subject && ($0.module ?? "") == module }
+            return ReviewModuleStat(
+                subject: subject,
+                module: module,
+                total: all.count,
+                inPool: pool.count,
+                mastered: all.filter { ($0.jsonObject?["status"] as? String) == "已掌握" }.count
+            )
+        }
+        .sorted { $0.subject == $1.subject ? $0.module < $1.module : $0.subject < $1.subject }
     }
 
     private func questionView(_ record: StoredRecord) -> some View {
@@ -138,7 +193,15 @@ struct ReviewView: View {
             Text("\(value)").font(.system(size: 23, weight: .semibold)).monospacedDigit(); Text(title).font(AppTheme.inputFont.weight(.semibold)); Text(detail).font(AppTheme.auxiliaryFont).foregroundStyle(.secondary).lineLimit(1)
         }.frame(maxWidth: .infinity, alignment: .leading).nativeCard()
     }
-    private func start(subject: String?) { queueIDs = reviewPool.filter { subject == nil || $0.subject == subject }.map(\.recordID); index = 0; answer = nil; isSession = true; persistSession() }
+    private func start(subject: String?, module: String? = nil) {
+        queueIDs = reviewPool.filter {
+            (subject == nil || $0.subject == subject) && (module == nil || ($0.module ?? "") == module)
+        }.map(\.recordID)
+        index = 0
+        answer = nil
+        isSession = true
+        persistSession()
+    }
     private func exitSession() { isSession = false; queueIDs = []; index = 0; answer = nil; UserDefaults.standard.removeObject(forKey: sessionKey) }
 
     private func persistSession() {

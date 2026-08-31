@@ -2,11 +2,13 @@ import SwiftUI
 import UIKit
 
 struct GraphReasoningFlashcardView: View {
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let records: [LibraryRecordSnapshot]
     let onEdit: (LibraryRecordSnapshot) -> Void
     @State private var index = 0
     @State private var showsBack = false
+    @State private var submittedAnswer: String?
 
     private var current: LibraryRecordSnapshot { records[min(index, max(0, records.count - 1))] }
 
@@ -44,6 +46,7 @@ struct GraphReasoningFlashcardView: View {
         .onChange(of: records.map(\.id)) { _, _ in
             index = min(index, max(0, records.count - 1))
             showsBack = false
+            submittedAnswer = nil
         }
     }
 
@@ -64,11 +67,19 @@ struct GraphReasoningFlashcardView: View {
             if !options.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(options.enumerated()), id: \.offset) { offset, option in
-                        HStack(alignment: .top, spacing: 8) {
-                            Text(String(UnicodeScalar(65 + offset)!)).font(AppTheme.auxiliaryFont.weight(.bold)).foregroundStyle(AppTheme.accent)
-                                .frame(width: 23, height: 23).background(AppTheme.accent.opacity(0.10), in: Circle())
-                            Text(option).font(AppTheme.inputFont)
+                        let letter = String(UnicodeScalar(65 + offset)!)
+                        Button { submit(snapshot, answer: letter) } label: {
+                            HStack(alignment: .top, spacing: 8) {
+                                Text(letter).font(AppTheme.auxiliaryFont.weight(.bold)).foregroundStyle(AppTheme.accent)
+                                    .frame(width: 23, height: 23).background(AppTheme.accent.opacity(0.10), in: Circle())
+                                Text(option).font(AppTheme.inputFont).foregroundStyle(.primary)
+                                Spacer()
+                            }
+                            .padding(8)
+                            .background(submittedAnswer == letter ? AppTheme.accent.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 9))
                         }
+                        .buttonStyle(.plain)
+                        .disabled(submittedAnswer != nil)
                     }
                 }
             }
@@ -116,6 +127,29 @@ struct GraphReasoningFlashcardView: View {
     private func move(_ offset: Int) {
         index = min(max(0, index + offset), records.count - 1)
         showsBack = false
+        submittedAnswer = nil
+    }
+
+    private func submit(_ snapshot: LibraryRecordSnapshot, answer: String) {
+        guard submittedAnswer == nil else { return }
+        var object = snapshot.record.jsonObject ?? [:]
+        let correctAnswer = object["correctOption"] as? String ?? ""
+        let correct = !correctAnswer.isEmpty && answer == correctAnswer
+        let now = ISO8601DateFormatter().string(from: .now)
+        object["userOption"] = answer
+        object["reviewCount"] = ((object["reviewCount"] as? NSNumber)?.intValue ?? 0) + 1
+        object["lastReviewDate"] = now
+        object["updatedAt"] = now
+        object["status"] = correct ? "已掌握" : "未掌握"
+        guard let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return }
+        snapshot.record.payload = payload
+        snapshot.record.updatedAt = .now
+        try? modelContext.save()
+        submittedAnswer = answer
+        UINotificationFeedbackGenerator().notificationOccurred(correct ? .success : .error)
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.12) : .spring(duration: 0.38, bounce: 0.12)) {
+            showsBack = true
+        }
     }
     private func text(_ object: [String: Any], _ key: String, fallback: String? = nil) -> String {
         (object[key] as? String) ?? fallback.flatMap { object[$0] as? String } ?? ""
