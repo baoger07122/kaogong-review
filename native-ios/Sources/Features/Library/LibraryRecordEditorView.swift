@@ -3,6 +3,12 @@ import SwiftData
 import SwiftUI
 import UIKit
 
+private struct LinkedRecordEditorTarget: Identifiable {
+    let collection: String
+    let recordID: String
+    var id: String { "\(collection):\(recordID)" }
+}
+
 struct LibraryRecordEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -16,6 +22,7 @@ struct LibraryRecordEditorView: View {
     @State private var showDelete = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var restoredDraft = false
+    @State private var linkedEditorTarget: LinkedRecordEditorTarget?
 
     init(kind: LibraryContentKind, scope: LibraryScope, record: StoredRecord? = nil, preferredType: String = "") {
         self.kind = kind
@@ -86,6 +93,20 @@ struct LibraryRecordEditorView: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase != .active, recordID == nil else { return }
             LibraryDraftStore.save(draftSnapshot, kind: kind, scope: scope)
+        }
+        .sheet(item: $linkedEditorTarget) { target in
+            if let record = records.first(where: { $0.collection == target.collection && $0.recordID == target.recordID }) {
+                NavigationStack {
+                    LibraryRecordEditorView(
+                        kind: target.collection == "errors" ? .errors : .notes,
+                        scope: LibraryScope(subject: record.subject, module: record.module),
+                        record: record
+                    )
+                }
+            } else {
+                NativeStatusCard(title: "记录不存在", detail: "该站内链接指向的记录可能已被删除", systemImage: "link.badge.plus", color: AppTheme.warning)
+                    .padding(24)
+            }
         }
     }
 
@@ -437,7 +458,21 @@ struct LibraryRecordEditorView: View {
     }
 
     private func richEditor(text: Binding<String>, height: CGFloat) -> some View {
-        NativeRichTextEditor(html: text, minHeight: height)
+        NativeRichTextEditor(
+            html: text,
+            minHeight: height,
+            internalLinks: internalLinkCandidates,
+            onOpenInternalLink: { link in
+                linkedEditorTarget = LinkedRecordEditorTarget(collection: link.collection, recordID: link.recordID)
+            }
+        )
+    }
+
+    private var internalLinkCandidates: [RichTextInternalLink] {
+        records
+            .filter { ($0.collection == "errors" || $0.collection == "notes") && $0.recordID != recordID }
+            .sorted { ($0.updatedAt ?? $0.createdAt ?? .distantPast) > ($1.updatedAt ?? $1.createdAt ?? .distantPast) }
+            .map { RichTextInternalLink(collection: $0.collection, recordID: $0.recordID, title: $0.title) }
     }
 
     private var canSave: Bool {

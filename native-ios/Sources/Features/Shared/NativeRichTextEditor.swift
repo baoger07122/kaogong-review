@@ -14,9 +14,20 @@ private enum RichTextCommandKind: Equatable {
     case table(RichTextTable)
     case image(String)
     case formula(RichTextFormula)
+    case internalLink(RichTextInternalLink)
     case link(String)
     case undo, redo
 }
+
+struct RichTextInternalLink: Equatable, Identifiable {
+    let collection: String
+    let recordID: String
+    let title: String
+    var id: String { "\(collection):\(recordID)" }
+    var url: URL? { URL(string: "kaogong-review://record/\(collection)/\(recordID)") }
+}
+
+private struct InternalLinkPickerRequest: Identifiable { let id = UUID() }
 
 private struct RichTextTable: Codable, Equatable, Identifiable {
     var id = UUID()
@@ -86,6 +97,8 @@ struct NativeRichTextEditor: View {
     @Binding var html: String
     let minHeight: CGFloat
     var mode: RichTextToolbarMode = .full
+    var internalLinks: [RichTextInternalLink] = []
+    var onOpenInternalLink: ((RichTextInternalLink) -> Void)?
     @State private var command: RichTextCommand?
     @State private var showLinkPrompt = false
     @State private var linkTarget = "https://"
@@ -94,10 +107,18 @@ struct NativeRichTextEditor: View {
     @State private var selectedFormula: RichTextFormula?
     @State private var formulaEditor: RichTextFormula?
     @State private var photoItem: PhotosPickerItem?
+    @State private var internalLinkPicker: InternalLinkPickerRequest?
 
     var body: some View {
         VStack(spacing: 0) {
-            RichTextTextView(html: $html, command: $command, selectedTable: $selectedTable, selectedFormula: $selectedFormula)
+            RichTextTextView(
+                html: $html,
+                command: $command,
+                selectedTable: $selectedTable,
+                selectedFormula: $selectedFormula,
+                internalLinks: internalLinks,
+                onOpenInternalLink: onOpenInternalLink
+            )
                 .frame(minHeight: minHeight)
                 .padding(.horizontal, 5)
             Divider()
@@ -130,6 +151,10 @@ struct NativeRichTextEditor: View {
                             .buttonStyle(.plain)
                         PhotosPicker(selection: $photoItem, matching: .images) { toolbarImage("photo.badge.plus") }
                             .buttonStyle(.plain)
+                        if !internalLinks.isEmpty {
+                            Button { internalLinkPicker = InternalLinkPickerRequest() } label: { toolbarImage("link.circle") }
+                                .buttonStyle(.plain)
+                        }
                     }
                     formatButton(.outdent, "decrease.indent")
                     formatButton(.indent, "increase.indent")
@@ -175,6 +200,12 @@ struct NativeRichTextEditor: View {
             }
             .presentationDetents([.medium, .large])
         }
+        .sheet(item: $internalLinkPicker) { _ in
+            RichTextInternalLinkPicker(links: internalLinks) { link in
+                command = RichTextCommand(kind: .internalLink(link))
+            }
+            .presentationDetents([.medium, .large])
+        }
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
             Task {
@@ -205,6 +236,8 @@ private struct RichTextTextView: UIViewRepresentable {
     @Binding var command: RichTextCommand?
     @Binding var selectedTable: RichTextTable?
     @Binding var selectedFormula: RichTextFormula?
+    let internalLinks: [RichTextInternalLink]
+    let onOpenInternalLink: ((RichTextInternalLink) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -223,6 +256,7 @@ private struct RichTextTextView: UIViewRepresentable {
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
+        context.coordinator.parent = self
         if context.coordinator.lastHTML != html, !view.isFirstResponder {
             view.attributedText = Self.attributed(from: html)
             context.coordinator.lastHTML = html
@@ -317,6 +351,7 @@ private struct RichTextTextView: UIViewRepresentable {
             case let .table(table): upsertTable(table, view: view, range: range); restoreSelection = false
             case let .image(dataURL): insertImage(dataURL, view: view, range: range); restoreSelection = false
             case let .formula(formula): upsertFormula(formula, view: view, range: range); restoreSelection = false
+            case let .internalLink(link): insertInternalLink(link, view: view, range: range); restoreSelection = false
             case let .link(target): addLink(target, view: view, range: range); restoreSelection = false
             case .undo: view.undoManager?.undo(); restoreSelection = false
             case .redo: view.undoManager?.redo(); restoreSelection = false
@@ -337,6 +372,35 @@ private struct RichTextTextView: UIViewRepresentable {
             } else {
                 view.textStorage.addAttribute(.link, value: url, range: range)
             }
+        }
+
+        private func insertInternalLink(_ link: RichTextInternalLink, view: UITextView, range: NSRange) {
+            guard let url = link.url else { return }
+            let insertion = NSAttributedString(
+                string: link.title,
+                attributes: [
+                    .link: url,
+                    .font: UIFont.systemFont(ofSize: 13, weight: .medium),
+                    .foregroundColor: UIColor.systemBlue,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue
+                ]
+            )
+            replaceAttributed(insertion, in: range, view: view)
+        }
+
+        func textView(
+            _ textView: UITextView,
+            shouldInteractWith URL: URL,
+            in characterRange: NSRange,
+            interaction: UITextItemInteraction
+        ) -> Bool {
+            guard URL.scheme == "kaogong-review", URL.host == "record" else { return true }
+            let parts = URL.pathComponents.filter { $0 != "/" }
+            guard parts.count == 2,
+                  let link = parent.internalLinks.first(where: { $0.collection == parts[0] && $0.recordID == parts[1] })
+            else { return false }
+            parent.onOpenInternalLink?(link)
+            return false
         }
 
         private func toggleFontTrait(_ trait: UIFontDescriptor.SymbolicTraits, view: UITextView, range: NSRange) {
@@ -802,6 +866,49 @@ private struct DataAnalysisFormulaPicker: View {
                     .frame(maxWidth: 210)
                     .padding(14)
             }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                }
+            }
+        }
+    }
+}
+
+private struct RichTextInternalLinkPicker: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+    let links: [RichTextInternalLink]
+    let onSelect: (RichTextInternalLink) -> Void
+
+    private var filteredLinks: [RichTextInternalLink] {
+        let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return links }
+        return links.filter { $0.title.localizedCaseInsensitiveContains(value) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(filteredLinks) { link in
+                Button {
+                    onSelect(link)
+                    dismiss()
+                } label: {
+                    HStack(spacing: 11) {
+                        Image(systemName: link.collection == "errors" ? "exclamationmark.circle" : "note.text")
+                            .foregroundStyle(AppTheme.accent)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(link.title).font(AppTheme.inputFont).foregroundStyle(.primary).lineLimit(2)
+                            Text(link.collection == "errors" ? "错题" : "笔记")
+                                .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            .searchable(text: $query, prompt: "搜索笔记或错题")
+            .navigationTitle("插入站内链接")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { dismiss() } label: { Image(systemName: "xmark") }
