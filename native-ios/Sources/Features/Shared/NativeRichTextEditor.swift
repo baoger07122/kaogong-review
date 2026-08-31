@@ -10,8 +10,17 @@ private enum RichTextCommandKind: Equatable {
     case highlight
     case quote
     case code
+    case table(RichTextTable)
     case link(String)
     case undo, redo
+}
+
+private struct RichTextTable: Codable, Equatable, Identifiable {
+    var id = UUID()
+    var cells: [[String]] = Array(repeating: Array(repeating: "", count: 2), count: 2)
+
+    var rowCount: Int { cells.count }
+    var columnCount: Int { cells.first?.count ?? 0 }
 }
 
 private enum RichTextHeading: String, CaseIterable, Identifiable {
@@ -46,10 +55,12 @@ struct NativeRichTextEditor: View {
     @State private var command: RichTextCommand?
     @State private var showLinkPrompt = false
     @State private var linkTarget = "https://"
+    @State private var selectedTable: RichTextTable?
+    @State private var tableEditor: RichTextTable?
 
     var body: some View {
         VStack(spacing: 0) {
-            RichTextTextView(html: $html, command: $command)
+            RichTextTextView(html: $html, command: $command, selectedTable: $selectedTable)
                 .frame(minHeight: minHeight)
                 .padding(.horizontal, 5)
             Divider()
@@ -76,6 +87,8 @@ struct NativeRichTextEditor: View {
                         formatButton(.quote, "text.quote")
                         formatButton(.code, "chevron.left.forwardslash.chevron.right")
                         formatButton(.divider, "minus")
+                        Button { tableEditor = selectedTable ?? RichTextTable() } label: { toolbarImage("tablecells") }
+                            .buttonStyle(.plain)
                     }
                     formatButton(.outdent, "decrease.indent")
                     formatButton(.indent, "increase.indent")
@@ -109,6 +122,12 @@ struct NativeRichTextEditor: View {
         } message: {
             Text("选中文字后添加链接；没有选中文字时会直接插入链接地址。")
         }
+        .sheet(item: $tableEditor) { table in
+            RichTextTableEditor(initial: table) { updated in
+                command = RichTextCommand(kind: .table(updated))
+            }
+            .presentationDetents([.medium, .large])
+        }
     }
 
     private func formatButton(_ kind: RichTextCommandKind, _ image: String) -> some View {
@@ -126,6 +145,7 @@ struct NativeRichTextEditor: View {
 private struct RichTextTextView: UIViewRepresentable {
     @Binding var html: String
     @Binding var command: RichTextCommand?
+    @Binding var selectedTable: RichTextTable?
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -162,6 +182,11 @@ private struct RichTextTextView: UIViewRepresentable {
         init(parent: RichTextTextView) { self.parent = parent }
 
         func textViewDidChange(_ textView: UITextView) { publish(textView) }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            let table = tableAttachment(near: textView.selectedRange, view: textView)?.attachment.table
+            DispatchQueue.main.async { self.parent.selectedTable = table }
+        }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             if text.count > 1, MarkdownRichTextConverter.isMarkdown(text) {
@@ -226,6 +251,7 @@ private struct RichTextTextView: UIViewRepresentable {
             case .numbers: numberParagraphs(view: view, range: range)
             case .todos: prefixParagraphs("☐ ", view: view, range: range)
             case .divider: insertDivider(view: view, range: range); restoreSelection = false
+            case let .table(table): upsertTable(table, view: view, range: range); restoreSelection = false
             case let .link(target): addLink(target, view: view, range: range); restoreSelection = false
             case .undo: view.undoManager?.undo(); restoreSelection = false
             case .redo: view.undoManager?.redo(); restoreSelection = false
@@ -361,6 +387,29 @@ private struct RichTextTextView: UIViewRepresentable {
             view.typingAttributes = [.font: UIFont.systemFont(ofSize: 13), .foregroundColor: UIColor.label]
         }
 
+        private func upsertTable(_ table: RichTextTable, view: UITextView, range: NSRange) {
+            let attachment = NativeTableAttachment(table: table)
+            let replacement = NSMutableAttributedString(attributedString: NSAttributedString(attachment: attachment))
+            if let existing = tableAttachment(near: range, view: view), existing.attachment.table.id == table.id {
+                replaceAttributed(replacement, in: existing.range, view: view)
+            } else {
+                replacement.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 13)]))
+                replaceAttributed(replacement, in: range, view: view)
+            }
+            parent.selectedTable = table
+        }
+
+        private func tableAttachment(near range: NSRange, view: UITextView) -> (attachment: NativeTableAttachment, range: NSRange)? {
+            guard view.attributedText.length > 0 else { return nil }
+            for location in [range.location, range.location - 1] where location >= 0 && location < view.attributedText.length {
+                var effective = NSRange()
+                if let attachment = view.attributedText.attribute(.attachment, at: location, effectiveRange: &effective) as? NativeTableAttachment {
+                    return (attachment, effective)
+                }
+            }
+            return nil
+        }
+
         private func publish(_ view: UITextView) {
             let html = RichTextTextView.html(from: view.attributedText)
             lastHTML = html; parent.html = html
@@ -372,6 +421,7 @@ private struct RichTextTextView: UIViewRepresentable {
         if source.contains("<"), let data = source.data(using: .utf8), let result = try? NSMutableAttributedString(
             data: data, options: [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue], documentAttributes: nil
         ) {
+            restoreNativeTables(in: result)
             normalizeFonts(in: result)
             return result
         }
@@ -379,8 +429,26 @@ private struct RichTextTextView: UIViewRepresentable {
     }
 
     private static func html(from value: NSAttributedString) -> String {
-        guard value.length > 0, let data = try? value.data(from: NSRange(location: 0, length: value.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.html]) else { return "" }
+        let serializable = NSMutableAttributedString(attributedString: value)
+        var replacements: [(NSRange, String)] = []
+        serializable.enumerateAttribute(.attachment, in: NSRange(location: 0, length: serializable.length)) { attribute, range, _ in
+            if let table = attribute as? NativeTableAttachment, let marker = table.marker { replacements.append((range, marker)) }
+        }
+        for (range, marker) in replacements.reversed() { serializable.replaceCharacters(in: range, with: marker) }
+        guard serializable.length > 0, let data = try? serializable.data(from: NSRange(location: 0, length: serializable.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.html]) else { return "" }
         return String(data: data, encoding: .utf8) ?? value.string
+    }
+
+    private static func restoreNativeTables(in value: NSMutableAttributedString) {
+        let pattern = #"\[\[NATIVE_TABLE:([A-Za-z0-9+/=]+)\]\]"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return }
+        let text = value.string as NSString
+        for match in expression.matches(in: value.string, range: NSRange(location: 0, length: text.length)).reversed() {
+            guard match.numberOfRanges == 2 else { continue }
+            let encoded = text.substring(with: match.range(at: 1))
+            guard let data = Data(base64Encoded: encoded), let table = try? JSONDecoder().decode(RichTextTable.self, from: data) else { continue }
+            value.replaceCharacters(in: match.range, with: NSAttributedString(attachment: NativeTableAttachment(table: table)))
+        }
     }
 
     private static func normalizeFonts(in value: NSMutableAttributedString) {
@@ -468,6 +536,137 @@ private enum MarkdownRichTextConverter {
         value.replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
+    }
+}
+
+private final class NativeTableAttachment: NSTextAttachment {
+    let table: RichTextTable
+
+    init(table: RichTextTable) {
+        self.table = table
+        super.init(data: nil, ofType: "com.kaogong.native-table")
+        image = Self.render(table)
+        let height = CGFloat(max(1, table.rowCount)) * 34
+        bounds = CGRect(x: 0, y: -4, width: 440, height: height)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    var marker: String? {
+        guard let data = try? JSONEncoder().encode(table) else { return nil }
+        return "[[NATIVE_TABLE:\(data.base64EncodedString())]]"
+    }
+
+    private static func render(_ table: RichTextTable) -> UIImage {
+        let width: CGFloat = 440
+        let rowHeight: CGFloat = 34
+        let height = CGFloat(max(1, table.rowCount)) * rowHeight
+        return UIGraphicsImageRenderer(size: CGSize(width: width, height: height)).image { context in
+            UIColor.secondarySystemBackground.setFill()
+            context.cgContext.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            UIColor.separator.setStroke()
+            context.cgContext.setLineWidth(1)
+            let columns = max(1, table.columnCount)
+            let columnWidth = width / CGFloat(columns)
+            for row in 0...table.rowCount {
+                let y = CGFloat(row) * rowHeight
+                context.cgContext.move(to: CGPoint(x: 0, y: y)); context.cgContext.addLine(to: CGPoint(x: width, y: y))
+            }
+            for column in 0...columns {
+                let x = CGFloat(column) * columnWidth
+                context.cgContext.move(to: CGPoint(x: x, y: 0)); context.cgContext.addLine(to: CGPoint(x: x, y: height))
+            }
+            context.cgContext.strokePath()
+            let attributes: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 12), .foregroundColor: UIColor.label]
+            for (rowIndex, row) in table.cells.enumerated() {
+                for (columnIndex, cell) in row.enumerated() {
+                    let rect = CGRect(x: CGFloat(columnIndex) * columnWidth + 7, y: CGFloat(rowIndex) * rowHeight + 8, width: columnWidth - 14, height: rowHeight - 10)
+                    (cell as NSString).draw(in: rect, withAttributes: attributes)
+                }
+            }
+        }
+    }
+}
+
+private struct RichTextTableEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var table: RichTextTable
+    let onSave: (RichTextTable) -> Void
+
+    init(initial: RichTextTable, onSave: @escaping (RichTextTable) -> Void) {
+        _table = State(initialValue: initial)
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView([.horizontal, .vertical]) {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(table.cells.indices, id: \.self) { row in
+                        HStack(spacing: 7) {
+                            ForEach(table.cells[row].indices, id: \.self) { column in
+                                TextField("内容", text: cellBinding(row: row, column: column))
+                                    .font(AppTheme.inputFont)
+                                    .textFieldStyle(NativeTextFieldStyle())
+                                    .frame(width: 130)
+                            }
+                        }
+                    }
+                }
+                .padding(20)
+            }
+            .navigationTitle("编辑表格")
+            .navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .bottom) {
+                VStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        tableButton("增加行", "plus.rectangle.on.rectangle") { addRow() }
+                        tableButton("删除行", "minus.rectangle") { removeRow() }
+                        tableButton("增加列", "rectangle.split.3x1") { addColumn() }
+                        tableButton("删除列", "rectangle.split.2x1") { removeColumn() }
+                    }
+                    Button("保存") { onSave(table); dismiss() }
+                        .buttonStyle(NativePrimaryButtonStyle())
+                        .frame(maxWidth: 210)
+                }
+                .padding(14)
+                .background(.regularMaterial)
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                }
+            }
+        }
+    }
+
+    private func cellBinding(row: Int, column: Int) -> Binding<String> {
+        Binding(get: { table.cells[row][column] }, set: { table.cells[row][column] = $0 })
+    }
+
+    private func addRow() {
+        guard table.rowCount < 12 else { return }
+        table.cells.append(Array(repeating: "", count: max(1, table.columnCount)))
+    }
+
+    private func removeRow() {
+        guard table.rowCount > 1 else { return }
+        table.cells.removeLast()
+    }
+
+    private func addColumn() {
+        guard table.columnCount < 8 else { return }
+        for row in table.cells.indices { table.cells[row].append("") }
+    }
+
+    private func removeColumn() {
+        guard table.columnCount > 1 else { return }
+        for row in table.cells.indices { table.cells[row].removeLast() }
+    }
+
+    private func tableButton(_ title: String, _ image: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Label(title, systemImage: image).font(AppTheme.auxiliaryFont).frame(maxWidth: .infinity) }
+            .buttonStyle(NativeSecondaryButtonStyle())
     }
 }
 
