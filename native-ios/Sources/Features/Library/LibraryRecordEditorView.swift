@@ -141,7 +141,7 @@ struct LibraryRecordEditorView: View {
             TextField("图形规律", text: $draft.graphRule).textFieldStyle(NativeTextFieldStyle())
             TextField("识别思路", text: $draft.recognition).textFieldStyle(NativeTextFieldStyle())
             NativeFieldLabel(title: "5. 错因与复盘")
-            TextField("考点", text: $draft.knowledgePoint).textFieldStyle(NativeTextFieldStyle())
+            TextField("考点（多个用顿号或逗号分隔）", text: $draft.knowledgePoint).textFieldStyle(NativeTextFieldStyle())
             TextField("错因", text: $draft.errorCause).textFieldStyle(NativeTextFieldStyle())
             TextField("易错点", text: $draft.pitfall).textFieldStyle(NativeTextFieldStyle())
             TextField("题目来源", text: $draft.questionSource).textFieldStyle(NativeTextFieldStyle())
@@ -175,7 +175,7 @@ struct LibraryRecordEditorView: View {
                 TextField("正确答案", text: $draft.correctOption).textFieldStyle(NativeTextFieldStyle())
                 TextField("我的答案", text: $draft.userOption).textFieldStyle(NativeTextFieldStyle())
             }
-            TextField("考点", text: $draft.knowledgePoint).textFieldStyle(NativeTextFieldStyle())
+            TextField("考点（多个用顿号或逗号分隔）", text: $draft.knowledgePoint).textFieldStyle(NativeTextFieldStyle())
             TextField("错因", text: $draft.errorCause).textFieldStyle(NativeTextFieldStyle())
             TextField("思维误区", text: $draft.pitfall).textFieldStyle(NativeTextFieldStyle())
             TextField("题目来源", text: $draft.questionSource).textFieldStyle(NativeTextFieldStyle())

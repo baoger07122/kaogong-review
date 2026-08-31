@@ -106,7 +106,8 @@ struct LibraryRecordSnapshot: Identifiable {
         if let type = Self.firstText(in: object, keys: ["type", "category", "errorCause"]) { values.append(type) }
         if let points = object["knowledgePoints"] as? [String] { values.append(contentsOf: points) }
         if let point = Self.firstText(in: object, keys: ["knowledgePoint"]) { values.append(point) }
-        tags = Array(values.filter { !$0.isEmpty }.prefix(3))
+        var seen = Set<String>()
+        tags = Array(values.filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(3))
     }
 
     private static func firstText(in object: [String: Any], keys: [String]) -> String? {

@@ -61,7 +61,9 @@ struct LibraryRecordDraft {
         content = LibraryRecordDraft.text(original, keys: ["content", "note", "meaning", "myUnderstanding"])
         type = LibraryRecordDraft.text(original, keys: ["type", "tag", "category"])
         knowledgePoint = LibraryRecordDraft.text(original, keys: ["knowledgePoint"])
-        if knowledgePoint.isEmpty, let values = original["knowledgePoints"] as? [String] { knowledgePoint = values.first ?? "" }
+        if let values = original["knowledgePoints"] as? [String], !values.isEmpty {
+            knowledgePoint = values.joined(separator: "、")
+        }
         errorCause = LibraryRecordDraft.text(original, keys: ["errorCause"])
         status = LibraryRecordDraft.text(original, keys: ["status", "masteryStatus"]).isEmpty ? "未掌握" : LibraryRecordDraft.text(original, keys: ["status", "masteryStatus"])
         if let values = original["options"] as? [String], !values.isEmpty {
@@ -139,10 +141,14 @@ enum LibraryRecordRepository {
 
         switch kind {
         case .errors:
+            let knowledgePoints = draft.knowledgePoint
+                .split(whereSeparator: { "、,，".contains($0) })
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
             object["question"] = draft.title
             object["note"] = draft.content
-            object["knowledgePoints"] = draft.knowledgePoint.isEmpty ? [] : [draft.knowledgePoint]
-            object["knowledgePoint"] = draft.knowledgePoint
+            object["knowledgePoints"] = knowledgePoints
+            object["knowledgePoint"] = knowledgePoints.first ?? ""
             object["errorCause"] = draft.errorCause
             object["status"] = draft.status
             object["options"] = draft.options.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }

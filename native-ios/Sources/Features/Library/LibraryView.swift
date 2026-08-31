@@ -97,7 +97,8 @@ struct LibraryView: View {
                             kind: kind,
                             columnCount: cardSize.columnCount,
                             onOpen: { open($0) },
-                            onDelete: { deleteTarget = LibraryDeleteTarget(kind: kind, recordID: $0.record.recordID) }
+                            onDelete: { deleteTarget = LibraryDeleteTarget(kind: kind, recordID: $0.record.recordID) },
+                            hiddenTags: kind == .notes && !selectedTag.isEmpty ? [selectedTag] : []
                         )
                     }
                 }

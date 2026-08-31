@@ -153,11 +153,12 @@ struct LibrarySidebar: View {
 struct LibraryRecordCard: View {
     let snapshot: LibraryRecordSnapshot
     let kind: LibraryContentKind
+    var hiddenTags: Set<String> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                if let firstTag = snapshot.tags.first {
+                if let firstTag = visibleTags.first {
                     Text(firstTag)
                         .font(AppTheme.auxiliaryFont.weight(.semibold))
                         .foregroundStyle(tint)
@@ -189,8 +190,8 @@ struct LibraryRecordCard: View {
                     .lineLimit(4)
             }
 
-            if snapshot.tags.count > 1 {
-                Text(snapshot.tags.dropFirst().joined(separator: " · "))
+            if visibleTags.count > 1 {
+                Text(visibleTags.dropFirst().joined(separator: " · "))
                     .font(AppTheme.auxiliaryFont)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -203,6 +204,10 @@ struct LibraryRecordCard: View {
             RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous)
                 .stroke(Color.primary.opacity(0.055), lineWidth: 0.6)
         }
+    }
+
+    private var visibleTags: [String] {
+        snapshot.tags.filter { !hiddenTags.contains($0) }
     }
 
     private var tint: Color {
@@ -226,6 +231,7 @@ struct LibraryMasonryGrid: View {
     let columnCount: Int
     let onOpen: (LibraryRecordSnapshot) -> Void
     let onDelete: (LibraryRecordSnapshot) -> Void
+    var hiddenTags: Set<String> = []
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -255,7 +261,9 @@ struct LibraryMasonryGrid: View {
     }
 
     private func openButton(_ record: LibraryRecordSnapshot) -> some View {
-        Button { onOpen(record) } label: { LibraryRecordCard(snapshot: record, kind: kind) }
+        Button { onOpen(record) } label: {
+            LibraryRecordCard(snapshot: record, kind: kind, hiddenTags: hiddenTags)
+        }
             .buttonStyle(.plain)
     }
 }
