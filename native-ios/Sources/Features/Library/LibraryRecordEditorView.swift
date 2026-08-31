@@ -58,7 +58,16 @@ struct LibraryRecordEditorView: View {
                 Button("保存", action: save).disabled(!canSave)
             }
             if recordID != nil {
-                ToolbarItem(placement: .bottomBar) {
+                ToolbarItemGroup(placement: .bottomBar) {
+                    if kind == .errors {
+                        Menu {
+                            Button("复制错题", systemImage: "doc.on.doc") { copyError(similar: false) }
+                            Button("新建相似题", systemImage: "plus.square.on.square") { copyError(similar: true) }
+                        } label: {
+                            Label("更多", systemImage: "ellipsis.circle")
+                        }
+                    }
+                    Spacer()
                     Button("删除", role: .destructive) { showDelete = true }
                 }
             }
@@ -109,6 +118,7 @@ struct LibraryRecordEditorView: View {
         Group {
             if draft.subject == "申论" { shenlunFields }
             else { regularErrorFields }
+            errorRelations
         }
     }
 
@@ -276,6 +286,7 @@ struct LibraryRecordEditorView: View {
             DisclosureGroup("思维导图") {
                 NativeMindMapEditor(encodedDocument: $draft.mindMapData).padding(.top, 8)
             }
+            multiRelationSection(title: "关联错题", candidates: relationCandidates(collection: "errors"), selection: $draft.linkedErrorIDs)
             Text("正文使用 TextKit 2 原生富文本编辑器，思维导图数据随当前笔记保存。")
                 .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
         }
@@ -306,8 +317,75 @@ struct LibraryRecordEditorView: View {
             TextField("分类（可选）", text: $draft.type).textFieldStyle(NativeTextFieldStyle())
             NativeFieldLabel(title: "释义与辨析")
             richEditor(text: $draft.content, height: 180)
+            multiRelationSection(title: "关联错题", candidates: relationCandidates(collection: "errors"), selection: $draft.linkedErrorIDs)
         }
         .nativeCard()
+    }
+
+    private var errorRelations: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            NativeFieldLabel(title: "内容关联")
+            Menu {
+                Button("不关联套卷") { draft.sourceExamID = "" }
+                ForEach(relationCandidates(collection: "exams"), id: \.recordID) { record in
+                    Button(record.title) { draft.sourceExamID = record.recordID }
+                }
+            } label: {
+                NativePropertyRow(
+                    title: "来源套卷",
+                    value: relationTitle(collection: "exams", id: draft.sourceExamID),
+                    systemImage: "doc.text"
+                ) {}
+                .allowsHitTesting(false)
+            }
+            multiRelationSection(title: "关联笔记", candidates: relationCandidates(collection: "notes"), selection: $draft.linkedNoteIDs)
+            multiRelationSection(title: "关联词语", candidates: relationCandidates(collection: "words"), selection: $draft.linkedWordIDs)
+        }
+        .nativeCard()
+    }
+
+    private func multiRelationSection(
+        title: String,
+        candidates: [StoredRecord],
+        selection: Binding<[String]>
+    ) -> some View {
+        DisclosureGroup("\(title)（\(selection.wrappedValue.count)）") {
+            if candidates.isEmpty {
+                Text("暂无可关联内容").font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 4) {
+                    ForEach(candidates, id: \.compoundID) { record in
+                        Button {
+                            var values = Set(selection.wrappedValue)
+                            if values.contains(record.recordID) { values.remove(record.recordID) }
+                            else { values.insert(record.recordID) }
+                            selection.wrappedValue = Array(values).sorted()
+                        } label: {
+                            HStack {
+                                Image(systemName: selection.wrappedValue.contains(record.recordID) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(selection.wrappedValue.contains(record.recordID) ? AppTheme.accent : .secondary)
+                                Text(record.title).font(AppTheme.inputFont).foregroundStyle(.primary).lineLimit(2)
+                                Spacer()
+                            }
+                            .padding(.vertical, 5)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.top, 6)
+            }
+        }
+    }
+
+    private func relationCandidates(collection: String) -> [StoredRecord] {
+        records
+            .filter { $0.collection == collection && $0.recordID != recordID }
+            .sorted { ($0.updatedAt ?? $0.createdAt ?? .distantPast) > ($1.updatedAt ?? $1.createdAt ?? .distantPast) }
+    }
+
+    private func relationTitle(collection: String, id: String) -> String {
+        guard !id.isEmpty else { return "未关联" }
+        return records.first { $0.collection == collection && $0.recordID == id }?.title ?? "记录已不存在"
     }
 
     private func editor(text: Binding<String>, height: CGFloat) -> some View {
@@ -344,6 +422,24 @@ struct LibraryRecordEditorView: View {
     private func remove() {
         guard let recordID else { return }
         try? LibraryRecordRepository.remove(kind: kind, id: recordID, records: records, context: modelContext)
+        dismiss()
+    }
+
+    private func copyError(similar: Bool) {
+        guard kind == .errors else { return }
+        var copy = draft
+        copy.id = ""
+        copy.original.removeValue(forKey: "id")
+        copy.original.removeValue(forKey: "createdAt")
+        copy.original.removeValue(forKey: "updatedAt")
+        copy.userOption = ""
+        copy.status = "未掌握"
+        if similar {
+            copy.title = "\(draft.title)（相似题）"
+            copy.content = ""
+            copy.pencilKitData = ""
+        }
+        try? LibraryRecordRepository.save(kind: .errors, draft: copy, records: records, context: modelContext)
         dismiss()
     }
 

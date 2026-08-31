@@ -43,6 +43,10 @@ struct LibraryRecordDraft {
     var recognition = ""
     var pencilKitData = ""
     var mindMapData = ""
+    var sourceExamID = ""
+    var linkedErrorIDs: [String] = []
+    var linkedNoteIDs: [String] = []
+    var linkedWordIDs: [String] = []
     var colorHex = "#FFFFFF"
     var pinned = false
 
@@ -84,6 +88,10 @@ struct LibraryRecordDraft {
         recognition = LibraryRecordDraft.text(original, keys: ["recognition", "recognitionPath"])
         pencilKitData = LibraryRecordDraft.text(original, keys: ["pencilKitData", "drawingData"])
         mindMapData = LibraryRecordDraft.text(original, keys: ["mindMap", "mindMapData"])
+        sourceExamID = LibraryRecordDraft.text(original, keys: ["sourceExamId"])
+        linkedErrorIDs = original["linkedErrors"] as? [String] ?? []
+        linkedNoteIDs = original["linkedNoteIds"] as? [String] ?? []
+        linkedWordIDs = original["linkedWordIds"] as? [String] ?? []
         colorHex = LibraryRecordDraft.text(original, keys: ["color", "colorHex"]).isEmpty ? "#FFFFFF" : LibraryRecordDraft.text(original, keys: ["color", "colorHex"])
         pinned = (original["pinned"] as? Bool) ?? false
 
@@ -117,6 +125,10 @@ enum LibraryRecordRepository {
         let id = draft.id.isEmpty ? makeID(kind: kind) : draft.id
         let existing = records.first { $0.collection == kind.collection && $0.recordID == id }
         var object = draft.original
+        let previousSourceExamID = object["sourceExamId"] as? String ?? ""
+        let previousLinkedErrors = object["linkedErrors"] as? [String] ?? []
+        let previousLinkedNotes = object["linkedNoteIds"] as? [String] ?? []
+        let previousLinkedWords = object["linkedWordIds"] as? [String] ?? []
         object["id"] = id
         object["subject"] = draft.subject
         object["module"] = draft.module
@@ -142,6 +154,9 @@ enum LibraryRecordRepository {
                 .map { ["words": $0.words, "relation": $0.relation] }
             object["graphRule"] = draft.graphRule
             object["recognition"] = draft.recognition
+            object["sourceExamId"] = draft.sourceExamID.isEmpty ? NSNull() : draft.sourceExamID
+            object["linkedNoteIds"] = draft.linkedNoteIDs
+            object["linkedWordIds"] = draft.linkedWordIDs
             object["pencilKitData"] = draft.pencilKitData
             object["drawingPreview"] = PencilDrawingCompatibility.previewDataURL(encodedData: draft.pencilKitData)
             object["reviewCount"] = object["reviewCount"] ?? 0
@@ -166,7 +181,7 @@ enum LibraryRecordRepository {
             object["content"] = draft.content
             object["type"] = draft.type
             object["knowledgePoint"] = draft.knowledgePoint
-            object["linkedErrors"] = object["linkedErrors"] ?? []
+            object["linkedErrors"] = draft.linkedErrorIDs
             object["linkedReviews"] = object["linkedReviews"] ?? []
             object["mindMap"] = draft.mindMapData
         case .stickies:
@@ -178,6 +193,7 @@ enum LibraryRecordRepository {
             object["words"] = draft.title
             object["meaning"] = draft.content
             object["type"] = draft.type
+            object["linkedErrors"] = draft.linkedErrorIDs
         }
 
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
@@ -197,11 +213,51 @@ enum LibraryRecordRepository {
                 updatedAt: now
             ))
         }
+        switch kind {
+        case .errors:
+            try syncSingleRelation(collection: "exams", arrayKey: "linkedErrorIds", oldID: previousSourceExamID, newID: draft.sourceExamID, linkedID: id, records: records)
+            try syncArrayRelations(collection: "notes", arrayKey: "linkedErrors", oldIDs: previousLinkedNotes, newIDs: draft.linkedNoteIDs, linkedID: id, records: records)
+            try syncArrayRelations(collection: "words", arrayKey: "linkedErrors", oldIDs: previousLinkedWords, newIDs: draft.linkedWordIDs, linkedID: id, records: records)
+        case .notes:
+            try syncArrayRelations(collection: "errors", arrayKey: "linkedNoteIds", oldIDs: previousLinkedErrors, newIDs: draft.linkedErrorIDs, linkedID: id, records: records)
+        case .words:
+            try syncArrayRelations(collection: "errors", arrayKey: "linkedWordIds", oldIDs: previousLinkedErrors, newIDs: draft.linkedErrorIDs, linkedID: id, records: records)
+        case .stickies:
+            break
+        }
         try context.save()
     }
 
     static func remove(kind: LibraryContentKind, id: String, records: [StoredRecord], context: ModelContext) throws {
         guard let record = records.first(where: { $0.collection == kind.collection && $0.recordID == id }) else { return }
+        let object = record.jsonObject ?? [:]
+        switch kind {
+        case .errors:
+            try syncSingleRelation(
+                collection: "exams", arrayKey: "linkedErrorIds",
+                oldID: object["sourceExamId"] as? String ?? "", newID: "", linkedID: id, records: records
+            )
+            try syncArrayRelations(
+                collection: "notes", arrayKey: "linkedErrors",
+                oldIDs: object["linkedNoteIds"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
+            )
+            try syncArrayRelations(
+                collection: "words", arrayKey: "linkedErrors",
+                oldIDs: object["linkedWordIds"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
+            )
+        case .notes:
+            try syncArrayRelations(
+                collection: "errors", arrayKey: "linkedNoteIds",
+                oldIDs: object["linkedErrors"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
+            )
+        case .words:
+            try syncArrayRelations(
+                collection: "errors", arrayKey: "linkedWordIds",
+                oldIDs: object["linkedErrors"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
+            )
+        case .stickies:
+            break
+        }
         context.delete(record)
         try context.save()
     }
@@ -215,6 +271,48 @@ enum LibraryRecordRepository {
         case .words: prefix = "word"
         }
         return "\(prefix)_\(Int(Date().timeIntervalSince1970 * 1_000))_\(UUID().uuidString.prefix(6))"
+    }
+
+    private static func syncSingleRelation(
+        collection: String, arrayKey: String, oldID: String, newID: String,
+        linkedID: String, records: [StoredRecord]
+    ) throws {
+        if !oldID.isEmpty, oldID != newID,
+           let record = records.first(where: { $0.collection == collection && $0.recordID == oldID }) {
+            try updateRelation(record: record, key: arrayKey, linkedID: linkedID, include: false)
+        }
+        if !newID.isEmpty,
+           let record = records.first(where: { $0.collection == collection && $0.recordID == newID }) {
+            try updateRelation(record: record, key: arrayKey, linkedID: linkedID, include: true)
+        }
+    }
+
+    private static func syncArrayRelations(
+        collection: String, arrayKey: String, oldIDs: [String], newIDs: [String],
+        linkedID: String, records: [StoredRecord]
+    ) throws {
+        let oldSet = Set(oldIDs)
+        let newSet = Set(newIDs)
+        for relationID in oldSet.subtracting(newSet) {
+            if let record = records.first(where: { $0.collection == collection && $0.recordID == relationID }) {
+                try updateRelation(record: record, key: arrayKey, linkedID: linkedID, include: false)
+            }
+        }
+        for relationID in newSet {
+            if let record = records.first(where: { $0.collection == collection && $0.recordID == relationID }) {
+                try updateRelation(record: record, key: arrayKey, linkedID: linkedID, include: true)
+            }
+        }
+    }
+
+    private static func updateRelation(record: StoredRecord, key: String, linkedID: String, include: Bool) throws {
+        var object = record.jsonObject ?? [:]
+        var values = Set(object[key] as? [String] ?? [])
+        if include { values.insert(linkedID) } else { values.remove(linkedID) }
+        object[key] = Array(values).sorted()
+        object["updatedAt"] = iso(.now)
+        record.payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        record.updatedAt = .now
     }
 
     private static func iso(_ date: Date) -> String { ISO8601DateFormatter().string(from: date) }

@@ -28,6 +28,10 @@ struct LibraryDraftSnapshot: Codable, Equatable {
     var recognition: String
     var pencilKitData: String
     var mindMapData: String
+    var sourceExamID: String?
+    var linkedErrorIDs: [String]?
+    var linkedNoteIDs: [String]?
+    var linkedWordIDs: [String]?
     var colorHex: String
     var pinned: Bool
 
@@ -59,6 +63,10 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         recognition = draft.recognition
         pencilKitData = draft.pencilKitData
         mindMapData = draft.mindMapData
+        sourceExamID = draft.sourceExamID
+        linkedErrorIDs = draft.linkedErrorIDs
+        linkedNoteIDs = draft.linkedNoteIDs
+        linkedWordIDs = draft.linkedWordIDs
         colorHex = draft.colorHex
         pinned = draft.pinned
     }
@@ -91,6 +99,10 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         draft.recognition = recognition
         draft.pencilKitData = pencilKitData
         draft.mindMapData = mindMapData
+        draft.sourceExamID = sourceExamID ?? ""
+        draft.linkedErrorIDs = linkedErrorIDs ?? []
+        draft.linkedNoteIDs = linkedNoteIDs ?? []
+        draft.linkedWordIDs = linkedWordIDs ?? []
         draft.colorHex = colorHex
         draft.pinned = pinned
     }
