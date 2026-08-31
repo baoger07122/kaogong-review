@@ -117,9 +117,45 @@ struct LibraryRecordEditorView: View {
     private var errorFields: some View {
         Group {
             if draft.subject == "申论" { shenlunFields }
+            else if draft.subject == "判断推理", draft.module == "图形推理" { graphErrorPriorityFields }
             else { regularErrorFields }
             errorRelations
         }
+    }
+
+    private var graphErrorPriorityFields: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            NativeFieldLabel(title: "1. 题干")
+            editor(text: $draft.title, height: 90)
+            NativeFieldLabel(title: "2. 题目与选项图片")
+            imagePicker
+            NativeFieldLabel(title: "3. 选项与答案")
+            ForEach(draft.options.indices, id: \.self) { index in
+                TextField("选项 \(index + 1)", text: $draft.options[index]).textFieldStyle(NativeTextFieldStyle())
+            }
+            HStack {
+                TextField("正确答案", text: $draft.correctOption).textFieldStyle(NativeTextFieldStyle())
+                TextField("我的答案", text: $draft.userOption).textFieldStyle(NativeTextFieldStyle())
+            }
+            NativeFieldLabel(title: "4. 规律与识别思路")
+            TextField("图形规律", text: $draft.graphRule).textFieldStyle(NativeTextFieldStyle())
+            TextField("识别思路", text: $draft.recognition).textFieldStyle(NativeTextFieldStyle())
+            NativeFieldLabel(title: "5. 错因与复盘")
+            TextField("考点", text: $draft.knowledgePoint).textFieldStyle(NativeTextFieldStyle())
+            TextField("错因", text: $draft.errorCause).textFieldStyle(NativeTextFieldStyle())
+            TextField("易错点", text: $draft.pitfall).textFieldStyle(NativeTextFieldStyle())
+            TextField("题目来源", text: $draft.questionSource).textFieldStyle(NativeTextFieldStyle())
+            Picker("掌握状态", selection: $draft.status) {
+                Text("未掌握").tag("未掌握")
+                Text("已掌握").tag("已掌握")
+            }
+            .pickerStyle(.segmented)
+            richEditor(text: $draft.content, height: 110)
+            DisclosureGroup("涂鸦与手写") {
+                NativePencilDrawingEditor(encodedData: $draft.pencilKitData).padding(.top, 8)
+            }
+        }
+        .nativeCard()
     }
 
     private var regularErrorFields: some View {
@@ -149,7 +185,6 @@ struct LibraryRecordEditorView: View {
                 NativePencilDrawingEditor(encodedData: $draft.pencilKitData).padding(.top, 8)
             }
             if draft.subject == "言语理解", draft.module == "逻辑填空" { comparisonGroups }
-            if draft.subject == "判断推理", draft.module == "图形推理" { graphFields }
         }
         .nativeCard()
     }
@@ -206,16 +241,6 @@ struct LibraryRecordEditorView: View {
                 }
                 .padding(10).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
             }
-        }
-    }
-
-    private var graphFields: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            NativeFieldLabel(title: "图形推理复盘")
-            TextField("图形规律", text: $draft.graphRule).textFieldStyle(NativeTextFieldStyle())
-            TextField("识别思路", text: $draft.recognition).textFieldStyle(NativeTextFieldStyle())
-            Text("这些字段将显示在图推闪卡背面。")
-                .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
         }
     }
 
