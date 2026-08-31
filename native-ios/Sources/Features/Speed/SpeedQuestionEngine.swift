@@ -54,10 +54,16 @@ enum SpeedQuestionEngine {
         return SpeedQuestion(id: UUID().uuidString, type: type, expression: expression, answer: answer)
     }
 
-    static func isCorrect(input: String, answer: Double, type: SpeedTypeKey) -> Bool {
+    static func isCorrect(input: String, answer: Double, type _: SpeedTypeKey) -> Bool {
         guard let value = Double(input.replacingOccurrences(of: "，", with: ".")) else { return false }
-        if type == .est05 { return abs(value - answer) <= max(0.01, abs(answer) * 0.03) }
-        return abs(value - answer) <= 0.01
+        return abs(value - answer) <= max(0.011, abs(answer) * 0.03)
+    }
+
+    static func errorPercentage(input: String, answer: Double) -> Double? {
+        guard let value = Double(input.replacingOccurrences(of: "，", with: ".")) else { return nil }
+        let error = abs(value - answer)
+        guard abs(answer) >= 0.000_000_001 else { return error < 0.000_000_001 ? 0 : 999 }
+        return (error / abs(answer) * 1_000).rounded() / 10
     }
 
     static func answerText(_ value: Double) -> String {

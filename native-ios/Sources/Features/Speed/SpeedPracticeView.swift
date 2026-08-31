@@ -40,6 +40,10 @@ struct SpeedPracticeView: View {
             guard !didLoad else { return }
             didLoad = true
             settings = SpeedRepository.settings(from: records)
+            if ![10, 15, 20].contains(settings.questionCount) {
+                settings.questionCount = 10
+                persistSettings()
+            }
             estimateRows = SpeedRepository.estimateRows(from: records)
         }
     }
@@ -138,9 +142,25 @@ struct SpeedPracticeView: View {
             HStack {
                 Text("题目数量").font(AppTheme.bodyFont)
                 Spacer()
-                Stepper("\(settings.questionCount) 题", value: settingBinding(\.questionCount), in: 5...50, step: 5)
-                    .labelsHidden()
-                Text("\(settings.questionCount) 题").font(AppTheme.inputFont.monospacedDigit())
+                Menu {
+                    ForEach([10, 15, 20], id: \.self) { count in
+                        Button {
+                            settings.questionCount = count
+                            persistSettings()
+                        } label: {
+                            if settings.questionCount == count {
+                                Label("\(count) 题", systemImage: "checkmark")
+                            } else {
+                                Text("\(count) 题")
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text("\(settings.questionCount) 题").monospacedDigit()
+                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold))
+                    }
+                }
             }
             Toggle("答题后自动进入下一题", isOn: settingBinding(\.confirmAuto))
             Toggle("使用屏幕数字键盘", isOn: settingBinding(\.useScreenKeyboard))
@@ -239,6 +259,10 @@ struct SpeedPracticeView: View {
             VStack(spacing: 16) {
                 Image(systemName: "checkmark.seal.fill").font(.system(size: 54)).foregroundStyle(AppTheme.accent)
                 Text("本轮练习完成").font(AppTheme.pageTitleFont)
+                Text(resultStandardText)
+                    .font(AppTheme.auxiliaryFont)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 10) {
                     resultMetric("正确", value: "\(correctCount)/\(questions.count)")
                     resultMetric("正确率", value: questions.isEmpty ? "0%" : "\(Int(Double(correctCount) / Double(questions.count) * 100))%")
@@ -251,8 +275,17 @@ struct SpeedPracticeView: View {
                                 .foregroundStyle(question.isCorrect == true ? AppTheme.success : AppTheme.danger)
                             Text(question.expression).font(AppTheme.bodyFont)
                             Spacer()
-                            Text("\(question.input) / \(SpeedQuestionEngine.answerText(question.answer))")
-                                .font(AppTheme.auxiliaryFont.monospacedDigit()).foregroundStyle(.secondary)
+                            VStack(alignment: .trailing, spacing: 3) {
+                                Text("\(question.input) / \(SpeedQuestionEngine.answerText(question.answer))")
+                                    .font(AppTheme.auxiliaryFont.monospacedDigit()).foregroundStyle(.secondary)
+                                HStack(spacing: 7) {
+                                    Text(errorText(for: question))
+                                    Text(String(format: "%.1fs", question.timeUsed))
+                                    Text(rating(for: question).rawValue)
+                                        .foregroundStyle(ratingColor(for: question))
+                                }
+                                .font(AppTheme.auxiliaryFont.monospacedDigit())
+                            }
                         }
                         .padding(12)
                         .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 12))
@@ -391,6 +424,14 @@ struct SpeedPracticeView: View {
     private var correctCount: Int { questions.filter { $0.isCorrect == true }.count }
     private var totalTime: Double { questions.reduce(0) { $0 + $1.timeUsed } }
 
+    private var resultStandardText: String {
+        let fallback = SpeedRatingThresholds(excellent: 18, good: 22, pass: 28)
+        let firstType = questions.first?.type
+        let usesSingleType = firstType.map { type in questions.allSatisfy { $0.type == type } } ?? false
+        let thresholds = usesSingleType ? firstType?.ratingThresholds ?? fallback : fallback
+        return "误差 ±3%　合格 ≤ \(Int(thresholds.pass))s　良好 ≤ \(Int(thresholds.good))s　优秀 ≤ \(Int(thresholds.excellent))s"
+    }
+
     private func settingBinding<Value>(_ keyPath: WritableKeyPath<SpeedSettings, Value>) -> Binding<Value> {
         Binding(get: { settings[keyPath: keyPath] }, set: { settings[keyPath: keyPath] = $0; persistSettings() })
     }
@@ -479,6 +520,24 @@ struct SpeedPracticeView: View {
         .padding(12)
         .frame(maxWidth: .infinity)
         .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 13))
+    }
+
+    private func errorText(for question: SpeedQuestion) -> String {
+        guard let value = SpeedQuestionEngine.errorPercentage(input: question.input, answer: question.answer) else { return "误差 —" }
+        return String(format: "误差 %.1f%%", value)
+    }
+
+    private func rating(for question: SpeedQuestion) -> SpeedRating {
+        (question.type.ratingThresholds ?? .init(excellent: 18, good: 22, pass: 28)).rating(for: question.timeUsed)
+    }
+
+    private func ratingColor(for question: SpeedQuestion) -> Color {
+        switch rating(for: question) {
+        case .excellent: AppTheme.accent
+        case .good: AppTheme.success
+        case .pass: AppTheme.warning
+        case .keepGoing: .secondary
+        }
     }
 
     private func timeText(_ seconds: Double) -> String {

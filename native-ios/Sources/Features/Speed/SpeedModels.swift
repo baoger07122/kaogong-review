@@ -34,6 +34,42 @@ enum SpeedTypeKey: String, Codable, CaseIterable, Identifiable {
 
     var isAvailable: Bool { self != .dataReal }
     var isDataAnalysis: Bool { [.base, .growth, .dataReal].contains(self) }
+
+    var ratingThresholds: SpeedRatingThresholds? {
+        switch self {
+        case .addsub2: .init(excellent: 18, good: 22, pass: 28)
+        case .add3, .sub3, .mul3x1: .init(excellent: 35, good: 45, pass: 60)
+        case .addsub3: .init(excellent: 40, good: 50, pass: 70)
+        case .mul2x1: .init(excellent: 20, good: 28, pass: 40)
+        case .div3x1: .init(excellent: 24, good: 30, pass: 38)
+        case .div5x3: .init(excellent: 45, good: 70, pass: 100)
+        case .spDen: .init(excellent: 10, good: 15, pass: 20)
+        case .est05: .init(excellent: 20, good: 30, pass: 45)
+        case .base: .init(excellent: 35, good: 50, pass: 70)
+        case .growth: .init(excellent: 30, good: 45, pass: 60)
+        case .dataReal: nil
+        }
+    }
+}
+
+struct SpeedRatingThresholds: Equatable {
+    let excellent: Double
+    let good: Double
+    let pass: Double
+
+    func rating(for seconds: Double) -> SpeedRating {
+        if seconds <= excellent { return .excellent }
+        if seconds <= good { return .good }
+        if seconds <= pass { return .pass }
+        return .keepGoing
+    }
+}
+
+enum SpeedRating: String {
+    case excellent = "优秀"
+    case good = "良好"
+    case pass = "合格"
+    case keepGoing = "加油"
 }
 
 struct SpeedSettings: Codable, Equatable {
