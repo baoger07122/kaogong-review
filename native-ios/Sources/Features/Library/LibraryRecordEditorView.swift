@@ -152,7 +152,11 @@ struct LibraryRecordEditorView: View {
             .pickerStyle(.segmented)
             richEditor(text: $draft.content, height: 110)
             DisclosureGroup("涂鸦与手写") {
-                NativePencilDrawingEditor(encodedData: $draft.pencilKitData).padding(.top, 8)
+                NativePencilDrawingEditor(
+                    encodedData: $draft.pencilKitData,
+                    legacyPreviewDataURL: draft.legacyDrawingPreview
+                )
+                .padding(.top, 8)
             }
         }
         .nativeCard()
@@ -182,7 +186,11 @@ struct LibraryRecordEditorView: View {
             NativeFieldLabel(title: "解析与笔记")
             richEditor(text: $draft.content, height: 120)
             DisclosureGroup("涂鸦与手写") {
-                NativePencilDrawingEditor(encodedData: $draft.pencilKitData).padding(.top, 8)
+                NativePencilDrawingEditor(
+                    encodedData: $draft.pencilKitData,
+                    legacyPreviewDataURL: draft.legacyDrawingPreview
+                )
+                .padding(.top, 8)
             }
             if draft.subject == "言语理解", draft.module == "逻辑填空" { comparisonGroups }
         }
@@ -311,8 +319,15 @@ struct LibraryRecordEditorView: View {
             DisclosureGroup("思维导图") {
                 NativeMindMapEditor(encodedDocument: $draft.mindMapData).padding(.top, 8)
             }
+            DisclosureGroup("涂鸦与手写") {
+                NativePencilDrawingEditor(
+                    encodedData: $draft.pencilKitData,
+                    legacyPreviewDataURL: draft.legacyDrawingPreview
+                )
+                .padding(.top, 8)
+            }
             multiRelationSection(title: "关联错题", candidates: relationCandidates(collection: "errors"), selection: $draft.linkedErrorIDs)
-            Text("正文使用 TextKit 2 原生富文本编辑器，思维导图数据随当前笔记保存。")
+            Text("正文使用 TextKit 2 原生富文本编辑器，思维导图和 PencilKit 手写数据随当前笔记保存。")
                 .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
         }
         .nativeCard()
@@ -463,6 +478,7 @@ struct LibraryRecordEditorView: View {
             copy.title = "\(draft.title)（相似题）"
             copy.content = ""
             copy.pencilKitData = ""
+            copy.legacyDrawingPreview = ""
         }
         try? LibraryRecordRepository.save(kind: .errors, draft: copy, records: records, context: modelContext)
         dismiss()

@@ -27,6 +27,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
     var graphRule: String
     var recognition: String
     var pencilKitData: String
+    var legacyDrawingPreview: String?
     var mindMapData: String
     var sourceExamID: String?
     var linkedErrorIDs: [String]?
@@ -62,6 +63,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         graphRule = draft.graphRule
         recognition = draft.recognition
         pencilKitData = draft.pencilKitData
+        legacyDrawingPreview = draft.legacyDrawingPreview
         mindMapData = draft.mindMapData
         sourceExamID = draft.sourceExamID
         linkedErrorIDs = draft.linkedErrorIDs
@@ -98,6 +100,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         draft.graphRule = graphRule
         draft.recognition = recognition
         draft.pencilKitData = pencilKitData
+        draft.legacyDrawingPreview = legacyDrawingPreview ?? ""
         draft.mindMapData = mindMapData
         draft.sourceExamID = sourceExamID ?? ""
         draft.linkedErrorIDs = linkedErrorIDs ?? []
@@ -112,6 +115,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
             || !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !images.isEmpty
             || !pencilKitData.isEmpty
+            || !(legacyDrawingPreview ?? "").isEmpty
             || !mindMapData.isEmpty
     }
 }

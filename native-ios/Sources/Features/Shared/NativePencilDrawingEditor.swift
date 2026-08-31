@@ -7,6 +7,7 @@ private struct PencilAction { let id = UUID(); let kind: PencilActionKind }
 
 struct NativePencilDrawingEditor: View {
     @Binding var encodedData: String
+    var legacyPreviewDataURL = ""
     @State private var color = UIColor.black
     @State private var width: CGFloat = 4
     @State private var eraser = false
@@ -14,9 +15,30 @@ struct NativePencilDrawingEditor: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PencilCanvasRepresentable(encodedData: $encodedData, color: color, width: width, eraser: eraser, action: $action)
-                .frame(minHeight: 260)
-                .background(Color.white)
+            ZStack {
+                Color.white
+                if let legacyImage {
+                    Image(uiImage: legacyImage)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(8)
+                        .accessibilityLabel("Web 旧涂鸦底图")
+                }
+                PencilCanvasRepresentable(encodedData: $encodedData, color: color, width: width, eraser: eraser, action: $action)
+            }
+            .frame(minHeight: 260)
+            if legacyImage != nil {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                    Text("已载入 Web 旧涂鸦，可在底图上继续标注")
+                    Spacer()
+                }
+                .font(AppTheme.auxiliaryFont)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Color.primary.opacity(0.035))
+            }
             Divider()
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -40,6 +62,13 @@ struct NativePencilDrawingEditor: View {
         .overlay(RoundedRectangle(cornerRadius: AppTheme.controlRadius).stroke(Color.primary.opacity(0.08), lineWidth: 0.7))
     }
 
+    private var legacyImage: UIImage? {
+        guard let marker = legacyPreviewDataURL.range(of: "base64,") else { return nil }
+        let encoded = String(legacyPreviewDataURL[marker.upperBound...])
+        guard let data = Data(base64Encoded: encoded) else { return nil }
+        return UIImage(data: data)
+    }
+
     private func toolButton(_ image: String, action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: image).font(.system(size: 13, weight: .semibold)).frame(width: 32, height: 29).background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8)) }.buttonStyle(.plain)
     }
@@ -57,8 +86,8 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         let canvas = PKCanvasView()
         canvas.delegate = context.coordinator
         canvas.drawingPolicy = .anyInput
-        canvas.backgroundColor = .white
-        canvas.isOpaque = true
+        canvas.backgroundColor = .clear
+        canvas.isOpaque = false
         if let data = Data(base64Encoded: encodedData), let drawing = try? PKDrawing(data: data) { canvas.drawing = drawing }
         context.coordinator.lastEncoded = encodedData
         updateTool(canvas)

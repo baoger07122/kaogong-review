@@ -42,6 +42,7 @@ struct LibraryRecordDraft {
     var graphRule = ""
     var recognition = ""
     var pencilKitData = ""
+    var legacyDrawingPreview = ""
     var mindMapData = ""
     var sourceExamID = ""
     var linkedErrorIDs: [String] = []
@@ -87,6 +88,7 @@ struct LibraryRecordDraft {
         graphRule = LibraryRecordDraft.text(original, keys: ["graphRule", "patternRule"])
         recognition = LibraryRecordDraft.text(original, keys: ["recognition", "recognitionPath"])
         pencilKitData = LibraryRecordDraft.text(original, keys: ["pencilKitData", "drawingData"])
+        legacyDrawingPreview = LibraryRecordDraft.text(original, keys: ["legacyDrawingPreview", "drawingPreview", "handNote", "doodle"])
         mindMapData = LibraryRecordDraft.text(original, keys: ["mindMap", "mindMapData"])
         sourceExamID = LibraryRecordDraft.text(original, keys: ["sourceExamId"])
         linkedErrorIDs = original["linkedErrors"] as? [String] ?? []
@@ -158,7 +160,14 @@ enum LibraryRecordRepository {
             object["linkedNoteIds"] = draft.linkedNoteIDs
             object["linkedWordIds"] = draft.linkedWordIDs
             object["pencilKitData"] = draft.pencilKitData
-            object["drawingPreview"] = PencilDrawingCompatibility.previewDataURL(encodedData: draft.pencilKitData)
+            let generatedDrawingPreview = PencilDrawingCompatibility.previewDataURL(encodedData: draft.pencilKitData)
+            if draft.legacyDrawingPreview.isEmpty {
+                object["drawingPreview"] = generatedDrawingPreview
+                object["handNote"] = generatedDrawingPreview
+            } else {
+                object["legacyDrawingPreview"] = draft.legacyDrawingPreview
+                object["drawingPreview"] = draft.legacyDrawingPreview
+            }
             object["reviewCount"] = object["reviewCount"] ?? 0
             object["lastReviewDate"] = object["lastReviewDate"] ?? iso(now)
             if draft.subject == "申论" {
@@ -184,6 +193,15 @@ enum LibraryRecordRepository {
             object["linkedErrors"] = draft.linkedErrorIDs
             object["linkedReviews"] = object["linkedReviews"] ?? []
             object["mindMap"] = draft.mindMapData
+            object["pencilKitData"] = draft.pencilKitData
+            let generatedDrawingPreview = PencilDrawingCompatibility.previewDataURL(encodedData: draft.pencilKitData)
+            if draft.legacyDrawingPreview.isEmpty {
+                object["drawingPreview"] = generatedDrawingPreview
+                object["doodle"] = generatedDrawingPreview
+            } else {
+                object["legacyDrawingPreview"] = draft.legacyDrawingPreview
+                object["drawingPreview"] = draft.legacyDrawingPreview
+            }
         case .stickies:
             object["content"] = draft.content
             object["tag"] = draft.type.trimmingCharacters(in: .whitespacesAndNewlines)
