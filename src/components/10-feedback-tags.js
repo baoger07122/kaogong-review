@@ -1058,32 +1058,9 @@ Object.assign(App.Components, {
   },
 
   // ===== 错题画廊卡片（Notion 画廊模式）=====
-  galleryErrorCard(error, onClick, onAction) {
+  galleryErrorCard(error, onClick) {
     const card = document.createElement('div');
     card.className = 'error-gallery-card';
-
-    // 错题卡片动作：保留整张卡片点击进入详情，同时提供明确的编辑/删除入口。
-    // 动作按钮必须阻止冒泡，否则会同时触发卡片的打开事件。
-    if (typeof onAction === 'function') {
-      const actions = document.createElement('div');
-      actions.className = 'error-gallery-card__actions';
-      const makeAction = (label, action, extraClass) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'error-gallery-card__action' + (extraClass ? ' ' + extraClass : '');
-        button.dataset.errorAction = action;
-        button.textContent = label;
-        button.addEventListener('click', (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onAction(action, error);
-        });
-        return button;
-      };
-      actions.appendChild(makeAction('编辑', 'edit'));
-      actions.appendChild(makeAction('删除', 'delete', 'error-gallery-card__action--danger'));
-      card.appendChild(actions);
-    }
 
     // 图片（多张；位于题目上方；宽度自适应；最多显示前 3 张，其余 +N）
     const cardImages = (error.images && error.images.length) ? error.images : (error.image ? [error.image] : []);
@@ -1216,10 +1193,7 @@ Object.assign(App.Components, {
     const createCard = (error) => {
       const card = App.Components.galleryErrorCard(
         error,
-        () => { if (o.onOpen) o.onOpen(error); },
-        typeof o.onAction === 'function'
-          ? (action) => o.onAction(error, action)
-          : null
+        () => { if (o.onOpen) o.onOpen(error); }
       );
       card.classList.add('error-masonry__card');
       // 图片懒加载：首图 lazy（jsdom 用 setAttribute 确保属性可见）

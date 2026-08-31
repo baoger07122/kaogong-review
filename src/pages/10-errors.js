@@ -676,20 +676,7 @@ App.Pages.Errors = {
     // 先销毁旧实例（若存在）
     if (this._masonryInst) { try { this._masonryInst.destroy(); } catch (e) {} this._masonryInst = null; }
     const inst = App.Components.masonryGrid(masonryWrap, {
-      onOpen: (error) => App.Router.navigate(this._buildErrorDetailRoute(error)),
-      onAction: (error, action) => {
-        if (action === 'edit') {
-          App.Router.navigate(this._buildErrorEditRoute(error));
-          return;
-        }
-        if (action === 'delete') {
-          this._deleteError(error).then((deleted) => {
-            if (!deleted) return;
-            const list = document.getElementById('error-list');
-            if (list && this.state.view === 'wrong') this.renderList(list);
-          });
-        }
-      }
+      onOpen: (error) => App.Router.navigate(this._buildErrorDetailRoute(error))
     });
     this._masonryInst = inst;
     inst.render(errors, false);

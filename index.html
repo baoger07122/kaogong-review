@@ -4904,29 +4904,6 @@ body.ipad-split .ipad-back-shift .sc-back-btn {
   -webkit-tap-highlight-color: transparent;
 }
 .error-gallery-card:active { transform: scale(0.98); }
-.error-gallery-card__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  min-height: 24px;
-  margin: -4px -4px 0 0;
-}
-.error-gallery-card__action {
-  min-width: 42px;
-  height: 24px;
-  padding: 0 8px;
-  border: 1px solid var(--divider-color);
-  border-radius: 999px;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 22px;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.error-gallery-card__action:active { background: var(--color-primary-bg); color: var(--color-primary); }
-.error-gallery-card__action--danger { color: var(--color-danger); }
-.error-gallery-card__action--danger:active { background: var(--color-danger-light); color: var(--color-danger); }
 .error-gallery-card__question {
   /* v8.12.31 对齐画布错题卡题目 7:798：13px（--font-md=14 改 13）行高20 */
   font-size: 13px;
@@ -11138,7 +11115,7 @@ window.App = window.App || {};
 window.App = window.App || {};
 
 // ===== 应用版本（每次发布更新；用户可在 设置 → 关于 核对是否最新）=====
-App.VERSION = '8.27.1';
+App.VERSION = '8.31.1';
 // 填充常驻版本角标
 ;(function () {
   var vb = document.getElementById('version-badge');
@@ -15131,32 +15108,9 @@ Object.assign(App.Components, {
   },
 
   // ===== 错题画廊卡片（Notion 画廊模式）=====
-  galleryErrorCard(error, onClick, onAction) {
+  galleryErrorCard(error, onClick) {
     const card = document.createElement('div');
     card.className = 'error-gallery-card';
-
-    // 错题卡片动作：保留整张卡片点击进入详情，同时提供明确的编辑/删除入口。
-    // 动作按钮必须阻止冒泡，否则会同时触发卡片的打开事件。
-    if (typeof onAction === 'function') {
-      const actions = document.createElement('div');
-      actions.className = 'error-gallery-card__actions';
-      const makeAction = (label, action, extraClass) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'error-gallery-card__action' + (extraClass ? ' ' + extraClass : '');
-        button.dataset.errorAction = action;
-        button.textContent = label;
-        button.addEventListener('click', (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onAction(action, error);
-        });
-        return button;
-      };
-      actions.appendChild(makeAction('编辑', 'edit'));
-      actions.appendChild(makeAction('删除', 'delete', 'error-gallery-card__action--danger'));
-      card.appendChild(actions);
-    }
 
     // 图片（多张；位于题目上方；宽度自适应；最多显示前 3 张，其余 +N）
     const cardImages = (error.images && error.images.length) ? error.images : (error.image ? [error.image] : []);
@@ -15289,10 +15243,7 @@ Object.assign(App.Components, {
     const createCard = (error) => {
       const card = App.Components.galleryErrorCard(
         error,
-        () => { if (o.onOpen) o.onOpen(error); },
-        typeof o.onAction === 'function'
-          ? (action) => o.onAction(error, action)
-          : null
+        () => { if (o.onOpen) o.onOpen(error); }
       );
       card.classList.add('error-masonry__card');
       // 图片懒加载：首图 lazy（jsdom 用 setAttribute 确保属性可见）
@@ -23800,20 +23751,7 @@ App.Pages.Errors = {
     // 先销毁旧实例（若存在）
     if (this._masonryInst) { try { this._masonryInst.destroy(); } catch (e) {} this._masonryInst = null; }
     const inst = App.Components.masonryGrid(masonryWrap, {
-      onOpen: (error) => App.Router.navigate(this._buildErrorDetailRoute(error)),
-      onAction: (error, action) => {
-        if (action === 'edit') {
-          App.Router.navigate(this._buildErrorEditRoute(error));
-          return;
-        }
-        if (action === 'delete') {
-          this._deleteError(error).then((deleted) => {
-            if (!deleted) return;
-            const list = document.getElementById('error-list');
-            if (list && this.state.view === 'wrong') this.renderList(list);
-          });
-        }
-      }
+      onOpen: (error) => App.Router.navigate(this._buildErrorDetailRoute(error))
     });
     this._masonryInst = inst;
     inst.render(errors, false);

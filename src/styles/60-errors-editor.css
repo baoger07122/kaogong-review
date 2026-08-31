@@ -194,29 +194,6 @@
   -webkit-tap-highlight-color: transparent;
 }
 .error-gallery-card:active { transform: scale(0.98); }
-.error-gallery-card__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  min-height: 24px;
-  margin: -4px -4px 0 0;
-}
-.error-gallery-card__action {
-  min-width: 42px;
-  height: 24px;
-  padding: 0 8px;
-  border: 1px solid var(--divider-color);
-  border-radius: 999px;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 22px;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.error-gallery-card__action:active { background: var(--color-primary-bg); color: var(--color-primary); }
-.error-gallery-card__action--danger { color: var(--color-danger); }
-.error-gallery-card__action--danger:active { background: var(--color-danger-light); color: var(--color-danger); }
 .error-gallery-card__question {
   /* v8.12.31 对齐画布错题卡题目 7:798：13px（--font-md=14 改 13）行高20 */
   font-size: 13px;
