@@ -9,6 +9,7 @@ struct GraphReasoningFlashcardView: View {
     @State private var index = 0
     @State private var showsBack = false
     @State private var submittedAnswer: String?
+    @State private var previewImage: GraphImagePreviewItem?
 
     private var current: LibraryRecordSnapshot { records[min(index, max(0, records.count - 1))] }
 
@@ -48,6 +49,9 @@ struct GraphReasoningFlashcardView: View {
             showsBack = false
             submittedAnswer = nil
         }
+        .fullScreenCover(item: $previewImage) { item in
+            GraphImagePreviewView(value: item.value)
+        }
     }
 
     private func front(_ snapshot: LibraryRecordSnapshot) -> some View {
@@ -59,7 +63,13 @@ struct GraphReasoningFlashcardView: View {
             if !images.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
-                        ForEach(Array(images.enumerated()), id: \.offset) { _, value in GraphFlashImage(value: value) }
+                        ForEach(Array(images.enumerated()), id: \.offset) { _, value in
+                            Button { previewImage = GraphImagePreviewItem(value: value) } label: {
+                                GraphFlashImage(value: value)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("全屏查看题目图片")
+                        }
                     }
                 }
             }
@@ -161,6 +171,86 @@ struct GraphReasoningFlashcardView: View {
         value.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private struct GraphImagePreviewItem: Identifiable {
+    let id = UUID()
+    let value: String
+}
+
+private struct GraphImagePreviewView: View {
+    @Environment(\.dismiss) private var dismiss
+    let value: String
+    @State private var scale: CGFloat = 1
+    @State private var lastScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            image
+                .scaleEffect(scale)
+                .offset(offset)
+                .gesture(
+                    MagnifyGesture()
+                        .onChanged { value in scale = min(6, max(1, lastScale * value.magnification)) }
+                        .onEnded { _ in
+                            lastScale = scale
+                            if scale <= 1 { reset() }
+                        }
+                )
+                .simultaneousGesture(
+                    DragGesture()
+                        .onChanged { value in
+                            guard scale > 1 else { return }
+                            offset = CGSize(width: lastOffset.width + value.translation.width, height: lastOffset.height + value.translation.height)
+                        }
+                        .onEnded { _ in lastOffset = offset }
+                )
+                .onTapGesture(count: 2) {
+                    withAnimation(.spring(duration: 0.25, bounce: 0.05)) {
+                        if scale > 1 { reset() } else { scale = 2; lastScale = 2 }
+                    }
+                }
+
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(.black.opacity(0.55), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(20)
+        }
+    }
+
+    @ViewBuilder private var image: some View {
+        if let image = localImage {
+            Image(uiImage: image).resizable().scaledToFit().padding(24)
+        } else if let url = URL(string: value), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+            AsyncImage(url: url) { phase in
+                if let image = phase.image { image.resizable().scaledToFit().padding(24) }
+                else if phase.error != nil { Image(systemName: "photo.badge.exclamationmark").font(.system(size: 44)).foregroundStyle(.white) }
+                else { ProgressView().tint(.white) }
+            }
+        } else {
+            Image(systemName: "photo.badge.exclamationmark").font(.system(size: 44)).foregroundStyle(.white)
+        }
+    }
+
+    private var localImage: UIImage? {
+        guard value.hasPrefix("data:"), let comma = value.firstIndex(of: ",") else { return nil }
+        return Data(base64Encoded: String(value[value.index(after: comma)...])).flatMap(UIImage.init(data:))
+    }
+
+    private func reset() {
+        scale = 1
+        lastScale = 1
+        offset = .zero
+        lastOffset = .zero
     }
 }
 
