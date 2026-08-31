@@ -32,10 +32,11 @@ struct ReviewView: View {
     private var due: [StoredRecord] {
         errors.filter {
             let object = $0.jsonObject ?? [:]
-            guard (object["status"] as? String) != "已掌握" else { return false }
+            guard (object["status"] as? String) == "未掌握" else { return false }
             let date = parseDate(object["lastReviewDate"]) ?? $0.createdAt ?? .distantPast
             return Calendar.current.dateComponents([.day], from: date, to: .now).day ?? 0 >= 3
         }
+        .sorted { reviewDate($0) < reviewDate($1) }
     }
     private var reviewPool: [StoredRecord] { due.isEmpty ? errors : due }
     private var queue: [StoredRecord] { queueIDs.compactMap { id in errors.first { $0.recordID == id } } }
@@ -244,5 +245,17 @@ struct ReviewView: View {
     private func optionBackground(letter: String, correct: String) -> Color {
         guard let answer else { return AppTheme.secondaryBackground }; if letter == correct { return AppTheme.success.opacity(0.10) }; if letter == answer.selected { return AppTheme.danger.opacity(0.10) }; return AppTheme.secondaryBackground
     }
-    private func parseDate(_ value: Any?) -> Date? { guard let value = value as? String else { return nil }; return ISO8601DateFormatter().date(from: value) }
+    private func reviewDate(_ record: StoredRecord) -> Date {
+        parseDate(record.jsonObject?["lastReviewDate"]) ?? record.createdAt ?? .distantPast
+    }
+    private func parseDate(_ value: Any?) -> Date? {
+        if let number = value as? NSNumber {
+            let seconds = number.doubleValue > 10_000_000_000 ? number.doubleValue / 1_000 : number.doubleValue
+            return Date(timeIntervalSince1970: seconds)
+        }
+        guard let value = value as? String else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
 }
