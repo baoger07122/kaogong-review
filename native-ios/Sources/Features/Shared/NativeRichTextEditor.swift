@@ -5,8 +5,33 @@ enum RichTextToolbarMode { case full, compact }
 
 private enum RichTextCommandKind: Equatable {
     case bold, italic, underline, strike, indent, outdent, bullets, numbers
+    case heading(RichTextHeading)
+    case foreground(RichTextColor)
+    case highlight
+    case quote
+    case code
     case link(String)
     case undo, redo
+}
+
+private enum RichTextHeading: String, CaseIterable, Identifiable {
+    case body = "正文", heading1 = "一级标题", heading2 = "二级标题"
+    var id: String { rawValue }
+    var size: CGFloat { self == .heading1 ? 18 : self == .heading2 ? 16 : 13 }
+    var weight: UIFont.Weight { self == .body ? .regular : .semibold }
+}
+
+private enum RichTextColor: String, CaseIterable, Identifiable {
+    case primary = "黑色", blue = "蓝色", red = "红色", green = "绿色"
+    var id: String { rawValue }
+    var uiColor: UIColor {
+        switch self {
+        case .primary: .label
+        case .blue: .systemBlue
+        case .red: .systemRed
+        case .green: .systemGreen
+        }
+    }
 }
 
 private struct RichTextCommand: Equatable {
@@ -30,11 +55,26 @@ struct NativeRichTextEditor: View {
             Divider()
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 5) {
+                    if mode == .full {
+                        Menu {
+                            ForEach(RichTextHeading.allCases) { heading in
+                                Button(heading.rawValue) { command = RichTextCommand(kind: .heading(heading)) }
+                            }
+                        } label: { toolbarImage("textformat.size") }
+                        Menu {
+                            ForEach(RichTextColor.allCases) { color in
+                                Button(color.rawValue) { command = RichTextCommand(kind: .foreground(color)) }
+                            }
+                        } label: { toolbarImage("paintpalette") }
+                        formatButton(.highlight, "highlighter")
+                    }
                     formatButton(.bold, "bold")
                     if mode == .full {
                         formatButton(.italic, "italic")
                         formatButton(.underline, "underline")
                         formatButton(.strike, "strikethrough")
+                        formatButton(.quote, "text.quote")
+                        formatButton(.code, "chevron.left.forwardslash.chevron.right")
                     }
                     formatButton(.outdent, "decrease.indent")
                     formatButton(.indent, "increase.indent")
@@ -129,6 +169,11 @@ private struct RichTextTextView: UIViewRepresentable {
             case .italic: toggleFontTrait(.traitItalic, view: view, range: range)
             case .underline: toggleAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, view: view, range: range)
             case .strike: toggleAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, view: view, range: range)
+            case let .heading(level): applyHeading(level, view: view, range: range)
+            case let .foreground(color): applyAttribute(.foregroundColor, value: color.uiColor, view: view, range: range)
+            case .highlight: toggleAttribute(.backgroundColor, value: UIColor.systemYellow.withAlphaComponent(0.35), view: view, range: range)
+            case .quote: toggleQuote(view: view, range: range)
+            case .code: toggleCode(view: view, range: range)
             case .indent: changeIndent(18, view: view, range: range)
             case .outdent: changeIndent(-18, view: view, range: range)
             case .bullets: prefixParagraphs("• ", view: view, range: range)
@@ -193,6 +238,51 @@ private struct RichTextTextView: UIViewRepresentable {
             }
         }
 
+        private func applyHeading(_ level: RichTextHeading, view: UITextView, range: NSRange) {
+            let paragraphRange = (view.text as NSString).paragraphRange(for: range)
+            let font = UIFont.systemFont(ofSize: level.size, weight: level.weight)
+            applyAttribute(.font, value: font, view: view, range: paragraphRange)
+        }
+
+        private func toggleQuote(view: UITextView, range: NSRange) {
+            let paragraphRange = (view.text as NSString).paragraphRange(for: range)
+            let current: NSParagraphStyle? = if view.attributedText.length > 0 {
+                view.attributedText.attribute(.paragraphStyle, at: min(paragraphRange.location, view.attributedText.length - 1), effectiveRange: nil) as? NSParagraphStyle
+            } else {
+                view.typingAttributes[.paragraphStyle] as? NSParagraphStyle
+            }
+            let isQuoted = (current?.headIndent ?? 0) >= 22
+            let style = current?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            style.headIndent = isQuoted ? 0 : 24
+            style.firstLineHeadIndent = isQuoted ? 0 : 24
+            style.paragraphSpacing = isQuoted ? 0 : 5
+            applyAttribute(.paragraphStyle, value: style, view: view, range: paragraphRange)
+            if paragraphRange.length == 0 {
+                var attributes = view.typingAttributes
+                if isQuoted { attributes.removeValue(forKey: .foregroundColor) }
+                else { attributes[.foregroundColor] = UIColor.secondaryLabel }
+                view.typingAttributes = attributes
+            } else if isQuoted {
+                view.textStorage.removeAttribute(.foregroundColor, range: paragraphRange)
+            } else {
+                view.textStorage.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: paragraphRange)
+            }
+        }
+
+        private func toggleCode(view: UITextView, range: NSRange) {
+            let target = range.length == 0 ? NSRange(location: range.location, length: 0) : range
+            let current = font(at: range.location, view: view)
+            let isMonospaced = current.fontDescriptor.symbolicTraits.contains(.traitMonoSpace)
+            let font = isMonospaced ? UIFont.systemFont(ofSize: 13) : UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+            applyAttribute(.font, value: font, view: view, range: target)
+            if isMonospaced {
+                if target.length > 0 { view.textStorage.removeAttribute(.backgroundColor, range: target) }
+                else { var attributes = view.typingAttributes; attributes.removeValue(forKey: .backgroundColor); view.typingAttributes = attributes }
+            } else {
+                applyAttribute(.backgroundColor, value: UIColor.secondarySystemFill, view: view, range: target)
+            }
+        }
+
         private func prefixParagraphs(_ prefix: String, view: UITextView, range: NSRange) {
             let paragraphRange = (view.text as NSString).paragraphRange(for: range)
             let lines = (view.text as NSString).substring(with: paragraphRange).split(separator: "\n", omittingEmptySubsequences: false)
@@ -220,7 +310,7 @@ private struct RichTextTextView: UIViewRepresentable {
         if value.contains("<"), let data = value.data(using: .utf8), let result = try? NSMutableAttributedString(
             data: data, options: [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue], documentAttributes: nil
         ) {
-            result.addAttribute(.font, value: UIFont.systemFont(ofSize: 13), range: NSRange(location: 0, length: result.length))
+            normalizeFonts(in: result)
             return result
         }
         return NSAttributedString(string: value, attributes: [.font: UIFont.systemFont(ofSize: 13)])
@@ -229,5 +319,16 @@ private struct RichTextTextView: UIViewRepresentable {
     private static func html(from value: NSAttributedString) -> String {
         guard value.length > 0, let data = try? value.data(from: NSRange(location: 0, length: value.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.html]) else { return "" }
         return String(data: data, encoding: .utf8) ?? value.string
+    }
+
+    private static func normalizeFonts(in value: NSMutableAttributedString) {
+        let fullRange = NSRange(location: 0, length: value.length)
+        value.enumerateAttribute(.font, in: fullRange) { attribute, range, _ in
+            let source = attribute as? UIFont ?? .systemFont(ofSize: 13)
+            let size = source.pointSize <= 14 ? 13 : source.pointSize
+            let descriptor = UIFont.systemFont(ofSize: size).fontDescriptor.withSymbolicTraits(source.fontDescriptor.symbolicTraits)
+                ?? UIFont.systemFont(ofSize: size).fontDescriptor
+            value.addAttribute(.font, value: UIFont(descriptor: descriptor, size: size), range: range)
+        }
     }
 }
