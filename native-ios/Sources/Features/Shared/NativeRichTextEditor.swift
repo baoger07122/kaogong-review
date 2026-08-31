@@ -164,6 +164,11 @@ private struct RichTextTextView: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) { publish(textView) }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            if text.count > 1, MarkdownRichTextConverter.isMarkdown(text) {
+                let replacement = RichTextTextView.attributed(from: MarkdownRichTextConverter.html(from: text))
+                replaceAttributed(replacement, in: range, view: textView)
+                return false
+            }
             guard text == "\n" else { return true }
             let source = textView.text as NSString
             let lineRange = source.lineRange(for: NSRange(location: range.location, length: 0))
@@ -186,6 +191,20 @@ private struct RichTextTextView: UIViewRepresentable {
             }
             publish(textView)
             return false
+        }
+
+        private func replaceAttributed(_ replacement: NSAttributedString, in range: NSRange, view: UITextView) {
+            let previous = view.attributedText.attributedSubstring(from: range)
+            view.undoManager?.registerUndo(withTarget: self) { coordinator in
+                coordinator.replaceAttributed(
+                    previous,
+                    in: NSRange(location: range.location, length: replacement.length),
+                    view: view
+                )
+            }
+            view.textStorage.replaceCharacters(in: range, with: replacement)
+            view.selectedRange = NSRange(location: range.location + replacement.length, length: 0)
+            publish(view)
         }
 
         func apply(_ command: RichTextCommandKind, to view: UITextView) {
@@ -349,7 +368,8 @@ private struct RichTextTextView: UIViewRepresentable {
     }
 
     private static func attributed(from value: String) -> NSAttributedString {
-        if value.contains("<"), let data = value.data(using: .utf8), let result = try? NSMutableAttributedString(
+        let source = !value.contains("<") && MarkdownRichTextConverter.isMarkdown(value) ? MarkdownRichTextConverter.html(from: value) : value
+        if source.contains("<"), let data = source.data(using: .utf8), let result = try? NSMutableAttributedString(
             data: data, options: [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue], documentAttributes: nil
         ) {
             normalizeFonts(in: result)
@@ -372,5 +392,81 @@ private struct RichTextTextView: UIViewRepresentable {
                 ?? UIFont.systemFont(ofSize: size).fontDescriptor
             value.addAttribute(.font, value: UIFont(descriptor: descriptor, size: size), range: range)
         }
+    }
+}
+
+private enum MarkdownRichTextConverter {
+    static func isMarkdown(_ value: String) -> Bool {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return false }
+        if value.contains("\n") { return true }
+        let patterns = [#"^#{1,4}\s"#, #"^[-*]\s"#, #"^\d+\.\s"#, #"^>\s?"#, #"^```"#, #"^---+$"#, #"\*\*.+\*\*"#, #"~~.+~~"#, #"`[^`]+`"#, #"\[.+\]\(.+\)"#]
+        return patterns.contains { text.range(of: $0, options: .regularExpression) != nil }
+    }
+
+    static func html(from markdown: String) -> String {
+        var output: [String] = []
+        var codeLines: [String] = []
+        var inCode = false
+        for rawLine in markdown.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n") {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") {
+                if inCode {
+                    output.append("<pre><code>\(escape(codeLines.joined(separator: "\n")))</code></pre>")
+                    codeLines = []
+                }
+                inCode.toggle()
+                continue
+            }
+            if inCode { codeLines.append(rawLine); continue }
+            if trimmed.isEmpty { output.append("<p><br></p>"); continue }
+            if trimmed == "---" { output.append("<p style=\"color:#999;font-size:10px\">────────────────</p>"); continue }
+            if let heading = trimmed.range(of: #"^#{1,4}\s+"#, options: .regularExpression) {
+                let level = min(2, trimmed[heading].filter { $0 == "#" }.count)
+                output.append("<h\(level)>\(inline(String(trimmed[heading.upperBound...])))</h\(level)>")
+                continue
+            }
+            if let item = trimmed.range(of: #"^[-*]\s+\[[ xX]\]\s+"#, options: .regularExpression) {
+                let checked = trimmed[item].lowercased().contains("[x]")
+                output.append("<p>\(checked ? "☑" : "☐") \(inline(String(trimmed[item.upperBound...])))</p>")
+                continue
+            }
+            if let item = trimmed.range(of: #"^[-*]\s+"#, options: .regularExpression) {
+                output.append("<p>• \(inline(String(trimmed[item.upperBound...])))</p>")
+                continue
+            }
+            if trimmed.range(of: #"^\d+\.\s+"#, options: .regularExpression) != nil {
+                output.append("<p>\(inline(trimmed))</p>")
+                continue
+            }
+            if let quote = trimmed.range(of: #"^>\s?"#, options: .regularExpression) {
+                output.append("<blockquote>\(inline(String(trimmed[quote.upperBound...])))</blockquote>")
+                continue
+            }
+            output.append("<p>\(inline(rawLine))</p>")
+        }
+        if inCode { output.append("<pre><code>\(escape(codeLines.joined(separator: "\n")))</code></pre>") }
+        return output.joined()
+    }
+
+    private static func inline(_ value: String) -> String {
+        var result = escape(value)
+        let replacements = [
+            (#"\[([^\]]+)\]\(([^)]+)\)"#, #"<a href="$2">$1</a>"#),
+            (#"\*\*(.+?)\*\*"#, #"<strong>$1</strong>"#),
+            (#"~~(.+?)~~"#, #"<del>$1</del>"#),
+            (#"`([^`]+)`"#, #"<code>$1</code>"#),
+            (#"(?<!\*)\*([^*]+)\*(?!\*)"#, #"<em>$1</em>"#)
+        ]
+        for (pattern, replacement) in replacements {
+            result = result.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
+        }
+        return result
+    }
+
+    private static func escape(_ value: String) -> String {
+        value.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
     }
 }
