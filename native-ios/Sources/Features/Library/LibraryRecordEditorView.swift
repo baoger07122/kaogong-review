@@ -25,7 +25,7 @@ struct LibraryRecordEditorView: View {
         if record == nil, let saved = LibraryDraftStore.load(kind: kind, scope: scope) {
             saved.applying(to: &initialDraft)
             _restoredDraft = State(initialValue: true)
-        } else if record == nil, kind == .notes, !preferredType.isEmpty {
+        } else if record == nil, (kind == .notes || kind == .stickies), !preferredType.isEmpty {
             initialDraft.type = preferredType
         }
         _draft = State(initialValue: initialDraft)
