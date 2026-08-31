@@ -15,6 +15,7 @@ struct LibraryView: View {
     @State private var showNewNoteType = false
     @State private var noteTypeDraft = ""
     @State private var noteTypeColor = NoteTypeRepository.colors[0]
+    @State private var deleteTarget: LibraryDeleteTarget?
 
     var body: some View {
         GeometryReader { proxy in
@@ -44,7 +45,16 @@ struct LibraryView: View {
             }
         }
         .overlay {
-            if showNewNoteType { noteTypeDialog }
+            if showNewNoteType {
+                noteTypeDialog
+            } else if let deleteTarget {
+                NativeDeleteDialog(
+                    title: "删除便签",
+                    message: "删除后无法在 App 内恢复。",
+                    onDelete: { remove(deleteTarget); self.deleteTarget = nil },
+                    onCancel: { self.deleteTarget = nil }
+                )
+            }
         }
     }
 
@@ -73,7 +83,8 @@ struct LibraryView: View {
                             records: displayedRecords,
                             kind: kind,
                             columnCount: cardSize.columnCount,
-                            onOpen: { editorTarget = LibraryEditorTarget(kind: kind, recordID: $0.record.recordID) }
+                            onOpen: { editorTarget = LibraryEditorTarget(kind: kind, recordID: $0.record.recordID) },
+                            onDelete: { deleteTarget = LibraryDeleteTarget(kind: kind, recordID: $0.record.recordID) }
                         )
                     }
                 }
@@ -347,10 +358,20 @@ struct LibraryView: View {
     private func sidebarWidth(in width: CGFloat) -> CGFloat {
         min(184, max(148, width * 0.27))
     }
+
+    private func remove(_ target: LibraryDeleteTarget) {
+        try? LibraryRecordRepository.remove(kind: target.kind, id: target.recordID, records: records, context: modelContext)
+    }
 }
 
 private struct LibraryEditorTarget: Identifiable {
     let kind: LibraryContentKind
     let recordID: String?
     var id: String { "\(kind.rawValue):\(recordID ?? "new")" }
+}
+
+private struct LibraryDeleteTarget: Identifiable {
+    let kind: LibraryContentKind
+    let recordID: String
+    var id: String { "\(kind.rawValue):\(recordID)" }
 }

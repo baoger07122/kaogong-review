@@ -225,6 +225,7 @@ struct LibraryMasonryGrid: View {
     let kind: LibraryContentKind
     let columnCount: Int
     let onOpen: (LibraryRecordSnapshot) -> Void
+    let onDelete: (LibraryRecordSnapshot) -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -242,11 +243,63 @@ struct LibraryMasonryGrid: View {
     }
 
     private func cardLink(_ record: LibraryRecordSnapshot) -> some View {
-        Button {
-            onOpen(record)
-        } label: {
-            LibraryRecordCard(snapshot: record, kind: kind)
+        Group {
+            if kind == .stickies {
+                LibrarySwipeDeleteCard(onDelete: { onDelete(record) }) {
+                    openButton(record)
+                }
+            } else {
+                openButton(record)
+            }
         }
-        .buttonStyle(.plain)
+    }
+
+    private func openButton(_ record: LibraryRecordSnapshot) -> some View {
+        Button { onOpen(record) } label: { LibraryRecordCard(snapshot: record, kind: kind) }
+            .buttonStyle(.plain)
+    }
+}
+
+private struct LibrarySwipeDeleteCard<Content: View>: View {
+    let onDelete: () -> Void
+    let content: Content
+    @State private var offset: CGFloat = 0
+
+    init(onDelete: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+        self.onDelete = onDelete
+        self.content = content()
+    }
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            Button {
+                withAnimation(.easeOut(duration: 0.16)) { offset = 0 }
+                onDelete()
+            } label: {
+                Image(systemName: "trash.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 58)
+                    .frame(maxHeight: .infinity)
+                    .background(AppTheme.danger, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous))
+            }
+            .buttonStyle(.plain)
+
+            content
+                .offset(x: offset)
+                .contentShape(Rectangle())
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 12)
+                        .onChanged { value in
+                            guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                            offset = min(0, max(-66, value.translation.width))
+                        }
+                        .onEnded { value in
+                            let shouldOpen = value.predictedEndTranslation.width < -34 || value.translation.width < -30
+                            withAnimation(.spring(duration: 0.22, bounce: 0.05)) { offset = shouldOpen ? -66 : 0 }
+                        }
+                )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous))
     }
 }
