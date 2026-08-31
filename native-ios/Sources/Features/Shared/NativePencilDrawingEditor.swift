@@ -2,7 +2,7 @@ import PencilKit
 import SwiftUI
 import UIKit
 
-private enum PencilActionKind { case undo, redo, clear }
+private enum PencilActionKind { case undo, redo, clear, resetViewport }
 private struct PencilAction { let id = UUID(); let kind: PencilActionKind }
 
 struct NativePencilDrawingEditor: View {
@@ -12,6 +12,7 @@ struct NativePencilDrawingEditor: View {
     @State private var width: CGFloat = 4
     @State private var eraser = false
     @State private var action: PencilAction?
+    @State private var showClearConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,12 +55,26 @@ struct NativePencilDrawingEditor: View {
                     toolButton(eraser ? "eraser.fill" : "eraser") { eraser.toggle() }
                     toolButton("arrow.uturn.backward") { action = PencilAction(kind: .undo) }
                     toolButton("arrow.uturn.forward") { action = PencilAction(kind: .redo) }
-                    toolButton("trash") { action = PencilAction(kind: .clear) }
+                    toolButton("scope") { action = PencilAction(kind: .resetViewport) }
+                    toolButton("trash") { showClearConfirmation = true }
                 }.padding(8)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.controlRadius))
         .overlay(RoundedRectangle(cornerRadius: AppTheme.controlRadius).stroke(Color.primary.opacity(0.08), lineWidth: 0.7))
+        .overlay {
+            if showClearConfirmation {
+                NativeDeleteDialog(
+                    title: "清空涂鸦",
+                    message: "确定清空当前全部笔迹？保存后将无法恢复。",
+                    onDelete: {
+                        action = PencilAction(kind: .clear)
+                        showClearConfirmation = false
+                    },
+                    onCancel: { showClearConfirmation = false }
+                )
+            }
+        }
     }
 
     private var legacyImage: UIImage? {
@@ -88,19 +103,29 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         canvas.drawingPolicy = .anyInput
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
+        canvas.minimumZoomScale = 0.5
+        canvas.maximumZoomScale = 3
+        canvas.bouncesZoom = true
+        canvas.alwaysBounceHorizontal = true
+        canvas.alwaysBounceVertical = true
         if let data = Data(base64Encoded: encodedData), let drawing = try? PKDrawing(data: data) { canvas.drawing = drawing }
         context.coordinator.lastEncoded = encodedData
         updateTool(canvas)
+        updateViewport(canvas)
         return canvas
     }
     func updateUIView(_ canvas: PKCanvasView, context: Context) {
         updateTool(canvas)
+        updateViewport(canvas)
         if let action, context.coordinator.lastActionID != action.id {
             context.coordinator.lastActionID = action.id
             switch action.kind {
             case .undo: canvas.undoManager?.undo()
             case .redo: canvas.undoManager?.redo()
             case .clear: canvas.drawing = PKDrawing(); context.coordinator.publish(canvas)
+            case .resetViewport:
+                canvas.setZoomScale(1, animated: true)
+                canvas.setContentOffset(.zero, animated: true)
             }
             DispatchQueue.main.async { self.action = nil }
         }
@@ -110,13 +135,23 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         }
     }
     private func updateTool(_ canvas: PKCanvasView) { canvas.tool = eraser ? PKEraserTool(.vector) : PKInkingTool(.pen, color: color, width: width) }
+    fileprivate func updateViewport(_ canvas: PKCanvasView) {
+        let drawingBounds = canvas.drawing.bounds
+        let width = max(max(canvas.bounds.width, drawingBounds.maxX + 120), 1_200)
+        let height = max(max(canvas.bounds.height, drawingBounds.maxY + 120), 900)
+        let target = CGSize(width: width, height: height)
+        if canvas.contentSize != target { canvas.contentSize = target }
+    }
 
     final class Coordinator: NSObject, PKCanvasViewDelegate {
         var parent: PencilCanvasRepresentable
         var lastEncoded = ""
         var lastActionID: UUID?
         init(parent: PencilCanvasRepresentable) { self.parent = parent }
-        func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) { publish(canvasView) }
+        func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            parent.updateViewport(canvasView)
+            publish(canvasView)
+        }
         func publish(_ canvas: PKCanvasView) { let value = canvas.drawing.dataRepresentation().base64EncodedString(); lastEncoded = value; parent.encodedData = value }
     }
 }
