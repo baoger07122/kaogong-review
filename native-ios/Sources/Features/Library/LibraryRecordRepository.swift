@@ -1,13 +1,13 @@
 import Foundation
 import SwiftData
 
-struct LogicComparisonDraft: Identifiable, Equatable {
+struct LogicComparisonDraft: Identifiable, Codable, Equatable {
     var id = UUID()
     var words = ""
     var relation = ""
 }
 
-struct ShenlunBiasDraft: Identifiable, Equatable {
+struct ShenlunBiasDraft: Identifiable, Codable, Equatable {
     var id = UUID()
     var wrong = ""
     var right = ""

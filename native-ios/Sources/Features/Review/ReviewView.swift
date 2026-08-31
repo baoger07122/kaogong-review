@@ -4,13 +4,20 @@ import UIKit
 
 private struct ReviewAnswer { let selected: String; let correct: Bool }
 
+private struct ReviewSessionSnapshot: Codable {
+    let queueIDs: [String]
+    let index: Int
+}
+
 struct ReviewView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Query private var records: [StoredRecord]
     @State private var queueIDs: [String] = []
     @State private var index = 0
     @State private var answer: ReviewAnswer?
     @State private var isSession = false
+    private let sessionKey = "native.review.activeSession"
 
     private var errors: [StoredRecord] { records.filter { $0.collection == "errors" } }
     private var due: [StoredRecord] {
@@ -29,6 +36,13 @@ struct ReviewView: View {
             .background(AppTheme.groupedBackground)
             .navigationTitle(isSession ? "复习训练" : "复习")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear(perform: restoreSession)
+            .onChange(of: queueIDs) { _, _ in persistSession() }
+            .onChange(of: index) { _, _ in persistSession() }
+            .onChange(of: isSession) { _, _ in persistSession() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase != .active { persistSession() }
+            }
     }
 
     private var homeView: some View {
@@ -124,8 +138,36 @@ struct ReviewView: View {
             Text("\(value)").font(.system(size: 23, weight: .semibold)).monospacedDigit(); Text(title).font(AppTheme.inputFont.weight(.semibold)); Text(detail).font(AppTheme.auxiliaryFont).foregroundStyle(.secondary).lineLimit(1)
         }.frame(maxWidth: .infinity, alignment: .leading).nativeCard()
     }
-    private func start(subject: String?) { queueIDs = reviewPool.filter { subject == nil || $0.subject == subject }.map(\.recordID); index = 0; answer = nil; isSession = true }
-    private func exitSession() { isSession = false; queueIDs = []; index = 0; answer = nil }
+    private func start(subject: String?) { queueIDs = reviewPool.filter { subject == nil || $0.subject == subject }.map(\.recordID); index = 0; answer = nil; isSession = true; persistSession() }
+    private func exitSession() { isSession = false; queueIDs = []; index = 0; answer = nil; UserDefaults.standard.removeObject(forKey: sessionKey) }
+
+    private func persistSession() {
+        guard isSession, !queueIDs.isEmpty, index < queueIDs.count else {
+            if !isSession { UserDefaults.standard.removeObject(forKey: sessionKey) }
+            return
+        }
+        let snapshot = ReviewSessionSnapshot(queueIDs: queueIDs, index: index)
+        if let data = try? JSONEncoder().encode(snapshot) {
+            UserDefaults.standard.set(data, forKey: sessionKey)
+        }
+    }
+
+    private func restoreSession() {
+        guard !isSession,
+              let data = UserDefaults.standard.data(forKey: sessionKey),
+              let snapshot = try? JSONDecoder().decode(ReviewSessionSnapshot.self, from: data)
+        else { return }
+        let existingIDs = Set(errors.map(\.recordID))
+        let validQueue = snapshot.queueIDs.filter(existingIDs.contains)
+        guard !validQueue.isEmpty, snapshot.index < validQueue.count else {
+            UserDefaults.standard.removeObject(forKey: sessionKey)
+            return
+        }
+        queueIDs = validQueue
+        index = max(0, snapshot.index)
+        answer = nil
+        isSession = true
+    }
     private func submit(record: StoredRecord, selected: String) {
         guard answer == nil else { return }
         var object = record.jsonObject ?? [:]

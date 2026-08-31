@@ -6,6 +6,7 @@ import UIKit
 struct LibraryRecordEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Query private var records: [StoredRecord]
 
     let kind: LibraryContentKind
@@ -14,13 +15,19 @@ struct LibraryRecordEditorView: View {
     @State private var draft: LibraryRecordDraft
     @State private var showDelete = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var restoredDraft = false
 
     init(kind: LibraryContentKind, scope: LibraryScope, record: StoredRecord? = nil, preferredType: String = "") {
         self.kind = kind
         self.scope = scope
         recordID = record?.recordID
         var initialDraft = LibraryRecordDraft(kind: kind, scope: scope, record: record)
-        if record == nil, kind == .notes, !preferredType.isEmpty { initialDraft.type = preferredType }
+        if record == nil, let saved = LibraryDraftStore.load(kind: kind, scope: scope) {
+            saved.applying(to: &initialDraft)
+            _restoredDraft = State(initialValue: true)
+        } else if record == nil, kind == .notes, !preferredType.isEmpty {
+            initialDraft.type = preferredType
+        }
         _draft = State(initialValue: initialDraft)
     }
 
@@ -28,6 +35,12 @@ struct LibraryRecordEditorView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 contextCard
+                if restoredDraft {
+                    Label("已恢复上次未保存的草稿", systemImage: "clock.arrow.circlepath")
+                        .font(AppTheme.auxiliaryFont.weight(.semibold))
+                        .foregroundStyle(AppTheme.accent)
+                        .padding(.horizontal, 4)
+                }
                 switch kind {
                 case .errors: errorFields
                 case .notes: noteFields
@@ -56,6 +69,14 @@ struct LibraryRecordEditorView: View {
         } message: { Text("删除后无法在 App 内恢复。") }
         .onChange(of: selectedPhotos) { _, items in
             Task { await appendImages(items) }
+        }
+        .onChange(of: draftSnapshot) { _, snapshot in
+            guard recordID == nil else { return }
+            LibraryDraftStore.save(snapshot, kind: kind, scope: scope)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase != .active, recordID == nil else { return }
+            LibraryDraftStore.save(draftSnapshot, kind: kind, scope: scope)
         }
     }
 
@@ -255,7 +276,7 @@ struct LibraryRecordEditorView: View {
             DisclosureGroup("思维导图") {
                 NativeMindMapEditor(encodedDocument: $draft.mindMapData).padding(.top, 8)
             }
-            Text("当前先使用原生纯文本输入；第五阶段统一替换为 TextKit 富文本编辑器。")
+            Text("正文使用 TextKit 2 原生富文本编辑器，思维导图数据随当前笔记保存。")
                 .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
         }
         .nativeCard()
@@ -308,12 +329,15 @@ struct LibraryRecordEditorView: View {
         }
     }
 
+    private var draftSnapshot: LibraryDraftSnapshot { LibraryDraftSnapshot(draft) }
+
     private var noteTypes: [NoteTypeDefinition] {
         NoteTypeRepository.types(subject: draft.subject, module: draft.subject == "资料分析" ? "" : draft.module, records: records)
     }
 
     private func save() {
         try? LibraryRecordRepository.save(kind: kind, draft: draft, records: records, context: modelContext)
+        if recordID == nil { LibraryDraftStore.clear(kind: kind, scope: scope) }
         dismiss()
     }
 

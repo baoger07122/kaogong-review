@@ -84,6 +84,7 @@ struct LibraryRecordSnapshot: Identifiable {
     let status: String?
     let createdAt: Date?
     let colorHex: String?
+    let isPinned: Bool
 
     var id: String { record.compoundID }
 
@@ -98,6 +99,7 @@ struct LibraryRecordSnapshot: Identifiable {
         ).map(Self.plainText) ?? ""
         status = Self.firstText(in: object, keys: ["status", "masteryStatus"])
         colorHex = Self.firstText(in: object, keys: ["color", "colorHex"])
+        isPinned = (object["pinned"] as? Bool) ?? (object["pinned"] as? NSNumber)?.boolValue ?? false
         createdAt = record.createdAt ?? Self.date(in: object, keys: ["createdAt", "date", "updatedAt"])
 
         var values: [String] = []

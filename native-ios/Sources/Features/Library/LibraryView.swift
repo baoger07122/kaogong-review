@@ -222,7 +222,11 @@ struct LibraryView: View {
             let matchesTag = selectedTag.isEmpty || snapshot.tags.contains(selectedTag)
             return matchesSearch && matchesStatus && matchesTag
         }
-        .sorted { ($0.record.updatedAt ?? $0.createdAt ?? .distantPast) > ($1.record.updatedAt ?? $1.createdAt ?? .distantPast) }
+        .sorted { left, right in
+            if kind == .stickies, left.isPinned != right.isPinned { return left.isPinned }
+            if kind == .stickies { return (left.createdAt ?? .distantPast) > (right.createdAt ?? .distantPast) }
+            return (left.record.updatedAt ?? left.createdAt ?? .distantPast) > (right.record.updatedAt ?? right.createdAt ?? .distantPast)
+        }
     }
 
     private var availableTags: [String] {
