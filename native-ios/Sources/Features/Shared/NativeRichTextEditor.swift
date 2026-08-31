@@ -13,6 +13,7 @@ private enum RichTextCommandKind: Equatable {
     case code
     case table(RichTextTable)
     case image(String)
+    case formula(RichTextFormula)
     case link(String)
     case undo, redo
 }
@@ -23,6 +24,37 @@ private struct RichTextTable: Codable, Equatable, Identifiable {
 
     var rowCount: Int { cells.count }
     var columnCount: Int { cells.first?.count ?? 0 }
+}
+
+private struct RichTextFormula: Codable, Equatable, Identifiable {
+    var id = UUID()
+    var preset: DataAnalysisFormulaPreset = .baseAmount
+}
+
+private enum DataAnalysisFormulaPreset: String, Codable, CaseIterable, Identifiable {
+    case currentAmount = "现期量"
+    case baseAmount = "基期量"
+    case growthAmount = "增长量"
+    case growthRate = "增长率"
+    case proportion = "比重"
+    case average = "平均数"
+    case multiple = "倍数"
+    case intervalGrowth = "间隔增长率"
+    case proportionChange = "两期比重差"
+    var id: String { rawValue }
+    var expression: String {
+        switch self {
+        case .currentAmount: "现期量 = 基期量 × (1 + r)"
+        case .baseAmount: "基期量 = 现期量 ÷ (1 + r)"
+        case .growthAmount: "增长量 = 现期量 × r ÷ (1 + r)"
+        case .growthRate: "增长率 = 增长量 ÷ 基期量"
+        case .proportion: "比重 = 部分量 ÷ 整体量"
+        case .average: "平均数 = 总量 ÷ 份数"
+        case .multiple: "倍数 = A ÷ B"
+        case .intervalGrowth: "间隔增长率 = r₁ + r₂ + r₁ × r₂"
+        case .proportionChange: "两期比重差 = A ÷ B − a ÷ b"
+        }
+    }
 }
 
 private enum RichTextHeading: String, CaseIterable, Identifiable {
@@ -59,11 +91,13 @@ struct NativeRichTextEditor: View {
     @State private var linkTarget = "https://"
     @State private var selectedTable: RichTextTable?
     @State private var tableEditor: RichTextTable?
+    @State private var selectedFormula: RichTextFormula?
+    @State private var formulaEditor: RichTextFormula?
     @State private var photoItem: PhotosPickerItem?
 
     var body: some View {
         VStack(spacing: 0) {
-            RichTextTextView(html: $html, command: $command, selectedTable: $selectedTable)
+            RichTextTextView(html: $html, command: $command, selectedTable: $selectedTable, selectedFormula: $selectedFormula)
                 .frame(minHeight: minHeight)
                 .padding(.horizontal, 5)
             Divider()
@@ -91,6 +125,8 @@ struct NativeRichTextEditor: View {
                         formatButton(.code, "chevron.left.forwardslash.chevron.right")
                         formatButton(.divider, "minus")
                         Button { tableEditor = selectedTable ?? RichTextTable() } label: { toolbarImage("tablecells") }
+                            .buttonStyle(.plain)
+                        Button { formulaEditor = selectedFormula ?? RichTextFormula() } label: { toolbarImage("function") }
                             .buttonStyle(.plain)
                         PhotosPicker(selection: $photoItem, matching: .images) { toolbarImage("photo.badge.plus") }
                             .buttonStyle(.plain)
@@ -133,6 +169,12 @@ struct NativeRichTextEditor: View {
             }
             .presentationDetents([.medium, .large])
         }
+        .sheet(item: $formulaEditor) { formula in
+            DataAnalysisFormulaPicker(initial: formula) { updated in
+                command = RichTextCommand(kind: .formula(updated))
+            }
+            .presentationDetents([.medium, .large])
+        }
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
             Task {
@@ -162,6 +204,7 @@ private struct RichTextTextView: UIViewRepresentable {
     @Binding var html: String
     @Binding var command: RichTextCommand?
     @Binding var selectedTable: RichTextTable?
+    @Binding var selectedFormula: RichTextFormula?
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -201,7 +244,11 @@ private struct RichTextTextView: UIViewRepresentable {
 
         func textViewDidChangeSelection(_ textView: UITextView) {
             let table = tableAttachment(near: textView.selectedRange, view: textView)?.attachment.table
-            DispatchQueue.main.async { self.parent.selectedTable = table }
+            let formula = formulaAttachment(near: textView.selectedRange, view: textView)?.attachment.formula
+            DispatchQueue.main.async {
+                self.parent.selectedTable = table
+                self.parent.selectedFormula = formula
+            }
         }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
@@ -269,6 +316,7 @@ private struct RichTextTextView: UIViewRepresentable {
             case .divider: insertDivider(view: view, range: range); restoreSelection = false
             case let .table(table): upsertTable(table, view: view, range: range); restoreSelection = false
             case let .image(dataURL): insertImage(dataURL, view: view, range: range); restoreSelection = false
+            case let .formula(formula): upsertFormula(formula, view: view, range: range); restoreSelection = false
             case let .link(target): addLink(target, view: view, range: range); restoreSelection = false
             case .undo: view.undoManager?.undo(); restoreSelection = false
             case .redo: view.undoManager?.redo(); restoreSelection = false
@@ -423,11 +471,34 @@ private struct RichTextTextView: UIViewRepresentable {
             replaceAttributed(replacement, in: range, view: view)
         }
 
+        private func upsertFormula(_ formula: RichTextFormula, view: UITextView, range: NSRange) {
+            let replacement = NSAttributedString(attachment: NativeFormulaAttachment(formula: formula))
+            if let existing = formulaAttachment(near: range, view: view), existing.attachment.formula.id == formula.id {
+                replaceAttributed(replacement, in: existing.range, view: view)
+            } else {
+                let value = NSMutableAttributedString(attributedString: replacement)
+                value.append(NSAttributedString(string: " ", attributes: [.font: UIFont.systemFont(ofSize: 13)]))
+                replaceAttributed(value, in: range, view: view)
+            }
+            parent.selectedFormula = formula
+        }
+
         private func tableAttachment(near range: NSRange, view: UITextView) -> (attachment: NativeTableAttachment, range: NSRange)? {
             guard view.attributedText.length > 0 else { return nil }
             for location in [range.location, range.location - 1] where location >= 0 && location < view.attributedText.length {
                 var effective = NSRange()
                 if let attachment = view.attributedText.attribute(.attachment, at: location, effectiveRange: &effective) as? NativeTableAttachment {
+                    return (attachment, effective)
+                }
+            }
+            return nil
+        }
+
+        private func formulaAttachment(near range: NSRange, view: UITextView) -> (attachment: NativeFormulaAttachment, range: NSRange)? {
+            guard view.attributedText.length > 0 else { return nil }
+            for location in [range.location, range.location - 1] where location >= 0 && location < view.attributedText.length {
+                var effective = NSRange()
+                if let attachment = view.attributedText.attribute(.attachment, at: location, effectiveRange: &effective) as? NativeFormulaAttachment {
                     return (attachment, effective)
                 }
             }
@@ -458,6 +529,7 @@ private struct RichTextTextView: UIViewRepresentable {
         serializable.enumerateAttribute(.attachment, in: NSRange(location: 0, length: serializable.length)) { attribute, range, _ in
             if let table = attribute as? NativeTableAttachment, let marker = table.marker { replacements.append((range, marker)) }
             else if let image = attribute as? NativeImageAttachment { replacements.append((range, image.marker)) }
+            else if let formula = attribute as? NativeFormulaAttachment, let marker = formula.marker { replacements.append((range, marker)) }
         }
         for (range, marker) in replacements.reversed() { serializable.replaceCharacters(in: range, with: marker) }
         guard serializable.length > 0, let data = try? serializable.data(from: NSRange(location: 0, length: serializable.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.html]) else { return "" }
@@ -482,6 +554,15 @@ private struct RichTextTextView: UIViewRepresentable {
             let encoded = updatedText.substring(with: match.range(at: 1))
             guard let data = Data(base64Encoded: encoded), let dataURL = String(data: data, encoding: .utf8), let attachment = NativeImageAttachment(dataURL: dataURL) else { continue }
             value.replaceCharacters(in: match.range, with: NSAttributedString(attachment: attachment))
+        }
+        let formulaPattern = #"\[\[NATIVE_FORMULA:([A-Za-z0-9+/=]+)\]\]"#
+        guard let formulaExpression = try? NSRegularExpression(pattern: formulaPattern) else { return }
+        let formulaText = value.string as NSString
+        for match in formulaExpression.matches(in: value.string, range: NSRange(location: 0, length: formulaText.length)).reversed() {
+            guard match.numberOfRanges == 2 else { continue }
+            let encoded = formulaText.substring(with: match.range(at: 1))
+            guard let data = Data(base64Encoded: encoded), let formula = try? JSONDecoder().decode(RichTextFormula.self, from: data) else { continue }
+            value.replaceCharacters(in: match.range, with: NSAttributedString(attachment: NativeFormulaAttachment(formula: formula)))
         }
     }
 
@@ -642,6 +723,91 @@ private final class NativeImageAttachment: NSTextAttachment {
 
     var marker: String {
         "[[NATIVE_IMAGE:\(Data(dataURL.utf8).base64EncodedString())]]"
+    }
+}
+
+private final class NativeFormulaAttachment: NSTextAttachment {
+    let formula: RichTextFormula
+
+    init(formula: RichTextFormula) {
+        self.formula = formula
+        super.init(data: nil, ofType: "com.kaogong.data-analysis-formula")
+        let text = formula.preset.expression
+        let font = UIFont.systemFont(ofSize: 14, weight: .medium)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.label, .paragraphStyle: paragraph]
+        let textWidth = (text as NSString).size(withAttributes: attributes).width
+        let width = min(430, max(190, textWidth + 28))
+        let textBounds = (text as NSString).boundingRect(
+            with: CGSize(width: width - 28, height: 100),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: attributes,
+            context: nil
+        )
+        let size = CGSize(width: width, height: max(42, ceil(textBounds.height) + 20))
+        image = UIGraphicsImageRenderer(size: size).image { context in
+            UIColor.systemBlue.withAlphaComponent(0.08).setFill()
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 10).fill()
+            (text as NSString).draw(
+                in: CGRect(x: 14, y: 10, width: width - 28, height: size.height - 20),
+                withAttributes: attributes
+            )
+            context.cgContext.setStrokeColor(UIColor.systemBlue.withAlphaComponent(0.18).cgColor)
+            context.cgContext.stroke(CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5), width: 1)
+        }
+        bounds = CGRect(x: 0, y: -10, width: size.width, height: size.height)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    var marker: String? {
+        guard let data = try? JSONEncoder().encode(formula) else { return nil }
+        return "[[NATIVE_FORMULA:\(data.base64EncodedString())]]"
+    }
+}
+
+private struct DataAnalysisFormulaPicker: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var formula: RichTextFormula
+    let onSave: (RichTextFormula) -> Void
+
+    init(initial: RichTextFormula, onSave: @escaping (RichTextFormula) -> Void) {
+        _formula = State(initialValue: initial)
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(DataAnalysisFormulaPreset.allCases) { preset in
+                Button {
+                    formula.preset = preset
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: formula.preset == preset ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(formula.preset == preset ? AppTheme.accent : Color.secondary)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(preset.rawValue).font(AppTheme.cardTitleFont).foregroundStyle(.primary)
+                            Text(preset.expression).font(AppTheme.inputFont).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            .navigationTitle("资料分析公式")
+            .navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .bottom) {
+                Button("保存") { onSave(formula); dismiss() }
+                    .buttonStyle(NativePrimaryButtonStyle())
+                    .frame(maxWidth: 210)
+                    .padding(14)
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                }
+            }
+        }
     }
 }
 
