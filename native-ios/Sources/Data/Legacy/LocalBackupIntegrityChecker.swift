@@ -18,10 +18,6 @@ struct LocalBackupIntegrityReport: Equatable {
 }
 
 enum LocalBackupIntegrityChecker {
-    private static let supportedCollections: Set<String> = [
-        "errors", "notes", "exams", "todos", "subject_reviews", "words", "stickies", "keyvalue"
-    ]
-
     static func check(records: [StoredRecord]) throws -> LocalBackupIntegrityReport {
         let source = records.filter(isIncludedInBackup)
         let data = try LegacyBackupExporter.makeData(records: records)
@@ -44,7 +40,6 @@ enum LocalBackupIntegrityChecker {
     }
 
     private static func isIncludedInBackup(_ record: StoredRecord) -> Bool {
-        guard supportedCollections.contains(record.collection) else { return false }
         return !(record.collection == "keyvalue" && record.recordID.hasPrefix("auto_backup_"))
     }
 
