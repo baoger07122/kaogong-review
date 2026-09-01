@@ -159,6 +159,31 @@ enum LegacyBackupImporter {
 }
 
 @MainActor
+enum LegacyBackupRestorer {
+    static func replace(
+        with package: LegacyImportPackage,
+        in context: ModelContext,
+        beforeSave: () throws -> Void = {}
+    ) throws {
+        let existing = try context.fetch(FetchDescriptor<StoredRecord>())
+        existing.forEach(context.delete)
+        for draft in package.records {
+            context.insert(StoredRecord(
+                collection: draft.collection,
+                recordID: draft.recordID,
+                payload: draft.payload,
+                subject: draft.subject,
+                module: draft.module,
+                createdAt: draft.createdAt,
+                updatedAt: draft.updatedAt
+            ))
+        }
+        try beforeSave()
+        try context.save()
+    }
+}
+
+@MainActor
 final class LegacyBackupImportCoordinator: ObservableObject {
     @Published private(set) var isImporting = false
     @Published private(set) var summary: LegacyImportSummary?
@@ -183,20 +208,7 @@ final class LegacyBackupImportCoordinator: ObservableObject {
         do {
             let data = try Data(contentsOf: url)
             let package = try LegacyBackupImporter.parse(data: data)
-            let existing = try context.fetch(FetchDescriptor<StoredRecord>())
-            existing.forEach(context.delete)
-            for draft in package.records {
-                context.insert(StoredRecord(
-                    collection: draft.collection,
-                    recordID: draft.recordID,
-                    payload: draft.payload,
-                    subject: draft.subject,
-                    module: draft.module,
-                    createdAt: draft.createdAt,
-                    updatedAt: draft.updatedAt
-                ))
-            }
-            try context.save()
+            try LegacyBackupRestorer.replace(with: package, in: context)
             summary = LegacyImportSummary(version: package.version, total: package.records.count, counts: package.counts)
         } catch {
             context.rollback()

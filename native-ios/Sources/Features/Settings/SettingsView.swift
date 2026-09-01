@@ -15,6 +15,8 @@ struct SettingsView: View {
     @State private var pendingImportURL: URL?
     @State private var integrityReport: LocalBackupIntegrityReport?
     @State private var integrityError: String?
+    @State private var restoreSafetyMessage: String?
+    @State private var restoreSafetyError: String?
     @AppStorage("native.lastLocalBackupAt") private var lastLocalBackupAt = 0.0
 
     private var appVersion: String {
@@ -53,6 +55,9 @@ struct SettingsView: View {
                 Button(action: checkBackupIntegrity) {
                     Label("检查备份完整性", systemImage: "checkmark.shield")
                 }
+                Button(action: checkRestoreSafety) {
+                    Label("检查恢复安全性", systemImage: "arrow.uturn.backward.circle")
+                }
                 HStack {
                     Label("原生数据库记录", systemImage: "externaldrive")
                     Spacer()
@@ -83,6 +88,16 @@ struct SettingsView: View {
                 }
                 if let integrityError {
                     Label("备份自检失败：\(integrityError)", systemImage: "xmark.octagon.fill")
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(AppTheme.danger)
+                }
+                if let restoreSafetyMessage {
+                    Label(restoreSafetyMessage, systemImage: "checkmark.circle.fill")
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(AppTheme.success)
+                }
+                if let restoreSafetyError {
+                    Label("恢复安全自检失败：\(restoreSafetyError)", systemImage: "xmark.octagon.fill")
                         .font(AppTheme.auxiliaryFont)
                         .foregroundStyle(AppTheme.danger)
                 }
@@ -191,6 +206,16 @@ struct SettingsView: View {
         } catch {
             integrityReport = nil
             integrityError = error.localizedDescription
+        }
+    }
+
+    private func checkRestoreSafety() {
+        do {
+            restoreSafetyMessage = try LocalRestoreSafetyChecker.check()
+            restoreSafetyError = nil
+        } catch {
+            restoreSafetyMessage = nil
+            restoreSafetyError = error.localizedDescription
         }
     }
 
