@@ -17,6 +17,10 @@ struct SettingsView: View {
     @State private var integrityError: String?
     @State private var restoreSafetyMessage: String?
     @State private var restoreSafetyError: String?
+    @State private var isCheckingUpdate = false
+    @State private var updateMessage: String?
+    @State private var showClearData = false
+    @State private var clearMessage: String?
     @AppStorage("native.lastLocalBackupAt") private var lastLocalBackupAt = 0.0
 
     private var appVersion: String {
@@ -57,6 +61,9 @@ struct SettingsView: View {
                 }
                 Button(action: checkRestoreSafety) {
                     Label("检查恢复安全性", systemImage: "arrow.uturn.backward.circle")
+                }
+                Button(role: .destructive) { showClearData = true } label: {
+                    Label("清除全部本地数据", systemImage: "trash")
                 }
                 HStack {
                     Label("原生数据库记录", systemImage: "externaldrive")
@@ -101,6 +108,11 @@ struct SettingsView: View {
                         .font(AppTheme.auxiliaryFont)
                         .foregroundStyle(AppTheme.danger)
                 }
+                if let clearMessage {
+                    Label(clearMessage, systemImage: "checkmark.circle.fill")
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(AppTheme.success)
+                }
             }
 
             Section("云端 API") {
@@ -137,6 +149,21 @@ struct SettingsView: View {
 
             Section("原生重写") {
                 LabeledContent("版本", value: appVersion)
+                Button {
+                    Task { await checkNativeUpdate() }
+                } label: {
+                    HStack {
+                        Label("检查更新", systemImage: "arrow.triangle.2.circlepath")
+                        Spacer()
+                        if isCheckingUpdate { ProgressView().controlSize(.small) }
+                    }
+                }
+                .disabled(isCheckingUpdate)
+                if let updateMessage {
+                    Text(updateMessage)
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(.secondary)
+                }
                 LabeledContent("基线", value: "Web v8.25.3")
                 LabeledContent("界面", value: "SwiftUI / UIKit")
                 LabeledContent("WebView", value: "未使用")
@@ -147,7 +174,15 @@ struct SettingsView: View {
         }
         .navigationTitle("设置")
         .overlay {
-            if pendingImportURL != nil {
+            if showClearData {
+                NativeDeleteDialog(
+                    title: "清除全部数据",
+                    message: "将永久清除本机全部错题、笔记、便签、套卷、待办及设置，且无法恢复。建议先导出备份。",
+                    onDelete: clearAllLocalData,
+                    onCancel: { showClearData = false },
+                    actionTitle: "清空"
+                )
+            } else if pendingImportURL != nil {
                 NativeDeleteDialog(
                     title: "导入数据",
                     message: "导入将覆盖本机现有的错题、笔记、便签、套卷、待办和设置。建议先导出当前备份，确定继续？",
@@ -217,6 +252,38 @@ struct SettingsView: View {
             restoreSafetyMessage = nil
             restoreSafetyError = error.localizedDescription
         }
+    }
+
+    @MainActor
+    private func checkNativeUpdate() async {
+        isCheckingUpdate = true
+        defer { isCheckingUpdate = false }
+        do {
+            switch try await NativeUpdateChecker.check(currentVersion: appVersion) {
+            case .latest(let release):
+                updateMessage = "当前已是最新可安装版本 v\(release.version)"
+            case .available(let release):
+                updateMessage = "发现可安装版本 v\(release.version)，请先备份数据，再从工作区获取新的未签名 IPA"
+            }
+        } catch {
+            updateMessage = "检查更新失败，请稍后重试"
+        }
+    }
+
+    private func clearAllLocalData() {
+        do {
+            records.forEach(modelContext.delete)
+            try modelContext.save()
+            try? KeychainTokenStore().delete()
+            for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("native.") {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+            clearMessage = "本机数据已清除"
+        } catch {
+            modelContext.rollback()
+            clearMessage = "清除失败：\(error.localizedDescription)"
+        }
+        showClearData = false
     }
 
     private var lastBackupText: String {
