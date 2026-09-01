@@ -14,6 +14,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
     var userOption: String
     var pitfall: String
     var questionSource: String
+    var accuracy: String?
     var images: [String]
     var compareGroups: [LogicComparisonDraft]
     var score: String
@@ -59,6 +60,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         userOption = draft.userOption
         pitfall = draft.pitfall
         questionSource = draft.questionSource
+        accuracy = draft.accuracy
         images = draft.images
         compareGroups = draft.compareGroups
         score = draft.score
@@ -105,6 +107,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         draft.userOption = userOption
         draft.pitfall = pitfall
         draft.questionSource = questionSource
+        draft.accuracy = accuracy ?? ""
         draft.images = images
         draft.compareGroups = compareGroups
         draft.score = score

@@ -28,151 +28,100 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        List {
-            Section("本地数据与备份") {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "externaldrive.badge.icloud")
-                            .font(.system(size: 24, weight: .medium))
-                            .foregroundStyle(AppTheme.accent)
-                            .frame(width: 42, height: 42)
-                            .background(AppTheme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 11))
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("备份到文件或 iCloud Drive")
-                                .font(AppTheme.cardTitleFont)
-                            Text(lastBackupText)
-                                .font(AppTheme.auxiliaryFont)
-                                .foregroundStyle(.secondary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("设置").font(AppTheme.pageTitleFont)
+
+                settingsSection("本地数据与备份") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "externaldrive.badge.icloud")
+                                .font(.system(size: 22, weight: .medium))
+                                .foregroundStyle(AppTheme.accent)
+                                .frame(width: 44, height: 44)
+                                .background(Color.white.opacity(0.76), in: RoundedRectangle(cornerRadius: 12))
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("备份到文件或 iCloud Drive").font(AppTheme.cardTitleFont)
+                                Text(lastBackupText).font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("立即备份", action: prepareExport)
+                                .font(AppTheme.actionFont)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 18)
+                                .frame(height: 36)
+                                .background(AppTheme.accent, in: Capsule())
+                                .buttonStyle(NativePressButtonStyle())
                         }
-                        Spacer()
                     }
-                    Button("立即备份") { prepareExport() }
-                        .buttonStyle(NativePrimaryButtonStyle())
-                        .frame(maxWidth: 210)
-                        .frame(maxWidth: .infinity)
-                }
-                .padding(.vertical, 6)
-
-                Button { showImporter = true } label: {
-                    Label("导入备份并恢复", systemImage: "square.and.arrow.down")
-                }
-                Button(action: checkBackupIntegrity) {
-                    Label("检查备份完整性", systemImage: "checkmark.shield")
-                }
-                Button(action: checkRestoreSafety) {
-                    Label("检查恢复安全性", systemImage: "arrow.uturn.backward.circle")
-                }
-                Button(role: .destructive) { showClearData = true } label: {
-                    Label("清除全部本地数据", systemImage: "trash")
-                }
-                HStack {
-                    Label("原生数据库记录", systemImage: "externaldrive")
-                    Spacer()
-                    Text("\(records.count)").foregroundStyle(.secondary)
-                }
-
-                if importer.isImporting {
-                    HStack { ProgressView(); Text("正在校验并导入…") }
-                }
-                if let summary = importer.summary {
-                    Label(summary.message, systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                }
-                if let error = importer.errorMessage {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                }
-                if let exportMessage {
-                    Text(exportMessage).font(.footnote).foregroundStyle(.secondary)
-                }
-                if let integrityReport {
-                    Label(
-                        integrityReport.message,
-                        systemImage: integrityReport.isComplete ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                    .padding(14)
+                    .background(
+                        LinearGradient(colors: [Color(red: 0.90, green: 0.95, blue: 1), Color(red: 0.96, green: 0.98, blue: 1)], startPoint: .leading, endPoint: .trailing),
+                        in: RoundedRectangle(cornerRadius: 15, style: .continuous)
                     )
-                    .font(AppTheme.auxiliaryFont)
-                    .foregroundStyle(integrityReport.isComplete ? AppTheme.success : AppTheme.warning)
+                    settingsDivider
+                    settingsActionRow("导入备份并恢复", image: "square.and.arrow.down") { showImporter = true }
+                    settingsDivider
+                    settingsActionRow("检查备份完整性", image: "checkmark.shield", action: checkBackupIntegrity)
+                    settingsDivider
+                    settingsActionRow("检查恢复安全性", image: "arrow.uturn.backward.circle", action: checkRestoreSafety)
+                    settingsDivider
+                    settingsActionRow("清除全部本地数据", image: "trash", color: AppTheme.danger, destructive: true) { showClearData = true }
+                    settingsDivider
+                    settingsValueRow("原生数据库记录", value: "\(records.count)", image: "externaldrive")
+                    backupStatusMessages
                 }
-                if let integrityError {
-                    Label("备份自检失败：\(integrityError)", systemImage: "xmark.octagon.fill")
-                        .font(AppTheme.auxiliaryFont)
-                        .foregroundStyle(AppTheme.danger)
-                }
-                if let restoreSafetyMessage {
-                    Label(restoreSafetyMessage, systemImage: "checkmark.circle.fill")
-                        .font(AppTheme.auxiliaryFont)
-                        .foregroundStyle(AppTheme.success)
-                }
-                if let restoreSafetyError {
-                    Label("恢复安全自检失败：\(restoreSafetyError)", systemImage: "xmark.octagon.fill")
-                        .font(AppTheme.auxiliaryFont)
-                        .foregroundStyle(AppTheme.danger)
-                }
-                if let clearMessage {
-                    Label(clearMessage, systemImage: "checkmark.circle.fill")
-                        .font(AppTheme.auxiliaryFont)
-                        .foregroundStyle(AppTheme.success)
-                }
-            }
 
-            Section("云端 API") {
-                Button("检查 Render API") {
-                    Task {
-                        do {
-                            _ = try await apiClient.health()
-                            healthMessage = "连接正常"
-                        } catch {
-                            healthMessage = "连接失败：\(error.localizedDescription)"
+                settingsSection("云端 API") {
+                    settingsActionRow("检查 Render API", image: "network") { checkRenderAPI() }
+                    settingsDivider
+                    settingsValueRow("连接状态", value: healthMessage, image: "wave.3.right")
+                    settingsDivider
+                    NavigationLink { CloudSyncView() } label: {
+                        settingsNavigationRow("登录与手动同步", image: "icloud")
+                    }.buttonStyle(.plain)
+                }
+
+                settingsSection("笔记与便签") {
+                    NavigationLink { NoteTypeManagerView() } label: {
+                        settingsNavigationRow("笔记类型", image: "tag")
+                    }.buttonStyle(.plain)
+                    settingsDivider
+                    NavigationLink { StickyTagManagerView() } label: {
+                        settingsNavigationRow("便签标签", image: "tag.square")
+                    }.buttonStyle(.plain)
+                }
+
+                settingsSection("版本与更新") {
+                    settingsValueRow("当前版本", value: "v\(appVersion)", image: "iphone.gen3")
+                    settingsDivider
+                    Button { Task { await checkNativeUpdate() } } label: {
+                        HStack(spacing: 11) {
+                            Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(AppTheme.accent).frame(width: 22)
+                            Text("检查更新").font(AppTheme.inputFont)
+                            Spacer()
+                            if isCheckingUpdate { ProgressView().controlSize(.small) }
+                            else { Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary) }
                         }
+                        .frame(height: 42)
                     }
-                }
-                LabeledContent("状态", value: healthMessage)
-                NavigationLink {
-                    CloudSyncView()
-                } label: {
-                    Label("登录与手动同步", systemImage: "icloud")
-                }
-            }
-
-            Section("笔记与便签") {
-                NavigationLink {
-                    NoteTypeManagerView()
-                } label: {
-                    Label("笔记类型", systemImage: "tag")
-                }
-                NavigationLink {
-                    StickyTagManagerView()
-                } label: {
-                    Label("便签标签", systemImage: "tag.square")
-                }
-            }
-
-            Section("原生重写") {
-                LabeledContent("版本", value: appVersion)
-                Button {
-                    Task { await checkNativeUpdate() }
-                } label: {
-                    HStack {
-                        Label("检查更新", systemImage: "arrow.triangle.2.circlepath")
-                        Spacer()
-                        if isCheckingUpdate { ProgressView().controlSize(.small) }
+                    .buttonStyle(.plain)
+                    .disabled(isCheckingUpdate)
+                    if let updateMessage {
+                        Text(updateMessage).font(AppTheme.auxiliaryFont).foregroundStyle(.secondary).padding(.leading, 33)
                     }
+                    settingsDivider
+                    settingsValueRow("Web 基线", value: "v8.25.3", image: "safari")
+                    settingsDivider
+                    settingsValueRow("原生界面", value: "SwiftUI / UIKit", image: "swift")
                 }
-                .disabled(isCheckingUpdate)
-                if let updateMessage {
-                    Text(updateMessage)
-                        .font(AppTheme.auxiliaryFont)
-                        .foregroundStyle(.secondary)
-                }
-                LabeledContent("基线", value: "Web v8.25.3")
-                LabeledContent("界面", value: "SwiftUI / UIKit")
-                LabeledContent("WebView", value: "未使用")
-                Text("原生功能正在按验收矩阵逐模块重写；已开发项目仍需真机逐项验收。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 14)
+            .padding(.bottom, 40)
         }
-        .navigationTitle("设置")
+        .background(AppTheme.groupedBackground)
+        .toolbar(.hidden, for: .navigationBar)
         .overlay {
             if showClearData {
                 NativeDeleteDialog(
@@ -215,6 +164,100 @@ struct SettingsView: View {
                 exportMessage = "导出失败：\(error.localizedDescription)"
             }
             exportDocument = nil
+        }
+    }
+
+    private func settingsSection<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.leading, 4)
+            VStack(spacing: 0) { content() }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.055), lineWidth: 0.7) }
+        }
+    }
+
+    private func settingsActionRow(
+        _ title: String,
+        image: String,
+        color: Color = AppTheme.accent,
+        destructive: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 11) {
+                Image(systemName: image).foregroundStyle(color).frame(width: 22)
+                Text(title).font(AppTheme.inputFont).foregroundStyle(destructive ? color : Color.primary)
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
+            }
+            .frame(height: 42)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func settingsNavigationRow(_ title: String, image: String) -> some View {
+        HStack(spacing: 11) {
+            Image(systemName: image).foregroundStyle(AppTheme.accent).frame(width: 22)
+            Text(title).font(AppTheme.inputFont).foregroundStyle(.primary)
+            Spacer()
+            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
+        }
+        .frame(height: 42)
+    }
+
+    private func settingsValueRow(_ title: String, value: String, image: String) -> some View {
+        HStack(spacing: 11) {
+            Image(systemName: image).foregroundStyle(AppTheme.accent).frame(width: 22)
+            Text(title).font(AppTheme.inputFont)
+            Spacer()
+            Text(value).font(AppTheme.inputFont).foregroundStyle(.secondary).lineLimit(1)
+        }
+        .frame(height: 42)
+    }
+
+    private var settingsDivider: some View {
+        Divider().padding(.leading, 33)
+    }
+
+    @ViewBuilder
+    private var backupStatusMessages: some View {
+        if importer.isImporting { HStack { ProgressView(); Text("正在校验并导入…") }.font(AppTheme.auxiliaryFont) }
+        if let summary = importer.summary { settingsStatus(summary.message, image: "checkmark.circle.fill", color: AppTheme.success) }
+        if let error = importer.errorMessage { settingsStatus(error, image: "exclamationmark.triangle.fill", color: AppTheme.danger) }
+        if let exportMessage { settingsStatus(exportMessage, image: "doc.badge.checkmark", color: .secondary) }
+        if let integrityReport {
+            settingsStatus(integrityReport.message, image: integrityReport.isComplete ? "checkmark.circle.fill" : "exclamationmark.triangle.fill", color: integrityReport.isComplete ? AppTheme.success : AppTheme.warning)
+        }
+        if let integrityError { settingsStatus("备份自检失败：\(integrityError)", image: "xmark.octagon.fill", color: AppTheme.danger) }
+        if let restoreSafetyMessage { settingsStatus(restoreSafetyMessage, image: "checkmark.circle.fill", color: AppTheme.success) }
+        if let restoreSafetyError { settingsStatus("恢复安全自检失败：\(restoreSafetyError)", image: "xmark.octagon.fill", color: AppTheme.danger) }
+        if let clearMessage { settingsStatus(clearMessage, image: "checkmark.circle.fill", color: AppTheme.success) }
+    }
+
+    private func settingsStatus(_ message: String, image: String, color: Color) -> some View {
+        Label(message, systemImage: image)
+            .font(AppTheme.auxiliaryFont)
+            .foregroundStyle(color)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
+    }
+
+    private func checkRenderAPI() {
+        Task {
+            do {
+                _ = try await apiClient.health()
+                healthMessage = "连接正常"
+            } catch {
+                healthMessage = "连接失败：\(error.localizedDescription)"
+            }
         }
     }
 
@@ -263,7 +306,7 @@ struct SettingsView: View {
             case .latest(let release):
                 updateMessage = "当前已是最新可安装版本 v\(release.version)"
             case .available(let release):
-                updateMessage = "发现可安装版本 v\(release.version)，请先备份数据，再从工作区获取新的未签名 IPA"
+                updateMessage = "发现可安装版本 v\(release.version)，请先备份数据，再前往 GitHub Releases 下载未签名 IPA"
             }
         } catch {
             updateMessage = "检查更新失败，请稍后重试"

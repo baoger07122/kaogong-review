@@ -28,6 +28,7 @@ struct LibraryView: View {
                     records: records,
                     scope: $scope,
                     expandedSubject: $expandedSubject,
+                    compact: usesCompactSidebar(in: proxy.size.width),
                     onScopeChanged: resetContextFilters
                 )
                 .frame(width: sidebarWidth(in: proxy.size.width))
@@ -118,6 +119,24 @@ struct LibraryView: View {
                 .padding(14)
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            if canCreateRecord {
+                Button {
+                    editorTarget = LibraryEditorTarget(kind: kind, recordID: nil)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 23, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 54, height: 54)
+                        .background(AppTheme.accent, in: Circle())
+                        .shadow(color: AppTheme.accent.opacity(0.28), radius: 12, y: 5)
+                }
+                .buttonStyle(NativePressButtonStyle())
+                .accessibilityLabel("新增\(kind.rawValue)")
+                .padding(.trailing, 18)
+                .padding(.bottom, 18)
+            }
+        }
     }
 
     private var header: some View {
@@ -131,16 +150,6 @@ struct LibraryView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button {
-                    editorTarget = LibraryEditorTarget(kind: kind, recordID: nil)
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 14, weight: .bold))
-                        .frame(width: 34, height: 34)
-                        .background(AppTheme.accent.opacity(0.10), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .disabled((kind == .stickies && !scope.hasModuleContext) || (kind == .words && !scope.isLogicFill))
             }
 
             HStack(spacing: 4) {
@@ -474,7 +483,15 @@ struct LibraryView: View {
     }
 
     private func sidebarWidth(in width: CGFloat) -> CGFloat {
-        min(184, max(148, width * 0.27))
+        usesCompactSidebar(in: width) ? 78 : min(176, max(148, width * 0.22))
+    }
+
+    private func usesCompactSidebar(in width: CGFloat) -> Bool {
+        width < 760
+    }
+
+    private var canCreateRecord: Bool {
+        !((kind == .stickies && !scope.hasModuleContext) || (kind == .words && !scope.isLogicFill))
     }
 
     private func remove(_ target: LibraryDeleteTarget) {

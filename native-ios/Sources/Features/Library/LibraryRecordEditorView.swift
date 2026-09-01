@@ -166,6 +166,7 @@ struct LibraryRecordEditorView: View {
             TextField("错因", text: $draft.errorCause).textFieldStyle(NativeTextFieldStyle())
             TextField("易错点", text: $draft.pitfall).textFieldStyle(NativeTextFieldStyle())
             TextField("题目来源", text: $draft.questionSource).textFieldStyle(NativeTextFieldStyle())
+            TextField("全站正确率（%）", text: $draft.accuracy).keyboardType(.decimalPad).textFieldStyle(NativeTextFieldStyle())
             Picker("掌握状态", selection: $draft.status) {
                 Text("未掌握").tag("未掌握")
                 Text("已掌握").tag("已掌握")
@@ -184,38 +185,84 @@ struct LibraryRecordEditorView: View {
     }
 
     private var regularErrorFields: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            NativeFieldLabel(title: "题目")
-            editor(text: $draft.title, height: 100)
-            imagePicker
-            NativeFieldLabel(title: "选项")
-            ForEach(draft.options.indices, id: \.self) { index in
-                TextField("选项 \(index + 1)", text: $draft.options[index]).textFieldStyle(NativeTextFieldStyle())
+        Group {
+            errorSection("考点与错因", image: "tag") {
+                TextField("考点（多个用顿号或逗号分隔）", text: $draft.knowledgePoint).textFieldStyle(NativeTextFieldStyle())
+                TextField("错因", text: $draft.errorCause).textFieldStyle(NativeTextFieldStyle())
+                TextField("思维误区 / 易错点", text: $draft.pitfall, axis: .vertical)
+                    .textFieldStyle(NativeTextFieldStyle()).lineLimit(2...4)
             }
-            HStack {
-                TextField("正确答案", text: $draft.correctOption).textFieldStyle(NativeTextFieldStyle())
-                TextField("我的答案", text: $draft.userOption).textFieldStyle(NativeTextFieldStyle())
+
+            errorSection("题目图片", image: "photo.on.rectangle.angled") {
+                imagePicker
             }
-            TextField("考点（多个用顿号或逗号分隔）", text: $draft.knowledgePoint).textFieldStyle(NativeTextFieldStyle())
-            TextField("错因", text: $draft.errorCause).textFieldStyle(NativeTextFieldStyle())
-            TextField("思维误区", text: $draft.pitfall).textFieldStyle(NativeTextFieldStyle())
-            TextField("题目来源", text: $draft.questionSource).textFieldStyle(NativeTextFieldStyle())
-            Picker("掌握状态", selection: $draft.status) {
-                Text("未掌握").tag("未掌握")
-                Text("已掌握").tag("已掌握")
-            }.pickerStyle(.segmented)
-            NativeFieldLabel(title: "解析与笔记")
-            richEditor(text: $draft.content, height: 120)
-            DisclosureGroup("涂鸦与手写") {
-                NativePencilDrawingEditor(
-                    encodedData: $draft.pencilKitData,
-                    legacyPreviewDataURL: draft.legacyDrawingPreview
-                )
-                .padding(.top, 8)
+
+            errorSection("题目与选项", image: "list.bullet.rectangle") {
+                NativeFieldLabel(title: "题干")
+                editor(text: $draft.title, height: 100)
+                NativeFieldLabel(title: "选项")
+                ForEach(draft.options.indices, id: \.self) { index in
+                    HStack(spacing: 9) {
+                        Text(String(UnicodeScalar(65 + index)!))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(AppTheme.accent)
+                            .frame(width: 25, height: 25)
+                            .background(AppTheme.accent.opacity(0.09), in: Circle())
+                        TextField("选项内容", text: $draft.options[index]).textFieldStyle(NativeTextFieldStyle())
+                    }
+                }
             }
-            if draft.subject == "言语理解", draft.module == "逻辑填空" { comparisonGroups }
+
+            errorSection("答案与来源", image: "checkmark.circle") {
+                HStack(spacing: 9) {
+                    TextField("正确选项", text: $draft.correctOption).textFieldStyle(NativeTextFieldStyle())
+                    TextField("我的选项", text: $draft.userOption).textFieldStyle(NativeTextFieldStyle())
+                }
+                HStack(spacing: 9) {
+                    TextField("全站正确率（%）", text: $draft.accuracy)
+                        .keyboardType(.decimalPad).textFieldStyle(NativeTextFieldStyle())
+                    TextField("题目来源", text: $draft.questionSource).textFieldStyle(NativeTextFieldStyle())
+                }
+                Picker("掌握状态", selection: $draft.status) {
+                    Text("未掌握").tag("未掌握")
+                    Text("已掌握").tag("已掌握")
+                }.pickerStyle(.segmented)
+            }
+
+            errorSection("错题笔记", image: "note.text") {
+                Text("个人复盘心得、解析与方法总结").font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                richEditor(text: $draft.content, height: 130)
+                DisclosureGroup("涂鸦与手写") {
+                    NativePencilDrawingEditor(
+                        encodedData: $draft.pencilKitData,
+                        legacyPreviewDataURL: draft.legacyDrawingPreview
+                    )
+                    .padding(.top, 8)
+                }
+            }
+
+            if draft.subject == "言语理解", draft.module == "逻辑填空" {
+                errorSection("词语辨析", image: "arrow.left.arrow.right") { comparisonGroups }
+            }
         }
-        .nativeCard()
+    }
+
+    private func errorSection<Content: View>(
+        _ title: String,
+        image: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Label(title, systemImage: image)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.primary)
+            content()
+        }
+        .nativeCard(padding: 15)
+        .overlay {
+            RoundedRectangle(cornerRadius: AppTheme.cardRadius)
+                .stroke(Color.primary.opacity(0.055), lineWidth: 0.7)
+        }
     }
 
     private var imagePicker: some View {

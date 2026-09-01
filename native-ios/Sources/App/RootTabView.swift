@@ -21,10 +21,10 @@ enum RootTab: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
-        case .home: "checklist"
-        case .library: "books.vertical"
-        case .review: "arrow.clockwise"
-        case .exams: "calendar"
+        case .home: "house"
+        case .library: "square.stack.3d.up.fill"
+        case .review: "checkmark.seal.fill"
+        case .exams: "doc.text"
         case .settings: "gearshape"
         }
     }

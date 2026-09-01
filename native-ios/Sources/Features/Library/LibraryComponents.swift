@@ -4,16 +4,21 @@ struct LibrarySidebar: View {
     let records: [StoredRecord]
     @Binding var scope: LibraryScope
     @Binding var expandedSubject: String?
+    let compact: Bool
     let onScopeChanged: () -> Void
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-                Text("学习库")
-                    .font(AppTheme.pageTitleFont)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 16)
-                    .padding(.bottom, 8)
+                if compact {
+                    Color.clear.frame(height: 8)
+                } else {
+                    Text("学习库")
+                        .font(AppTheme.pageTitleFont)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 16)
+                        .padding(.bottom, 8)
+                }
 
                 Button {
                     scope = LibraryScope()
@@ -76,22 +81,38 @@ struct LibrarySidebar: View {
                         scope = LibraryScope(subject: subject.name, module: module)
                         onScopeChanged()
                     } label: {
-                        HStack(spacing: 8) {
-                            Text(module)
-                                .font(.system(size: 12, weight: scope.subject == subject.name && scope.module == module ? .semibold : .regular))
-                                .lineLimit(1)
-                            Spacer(minLength: 4)
-                            let moduleCount = count(subject: subject.name, module: module)
-                            if moduleCount > 0 {
-                                Text("\(moduleCount)")
-                                    .font(AppTheme.auxiliaryFont.monospacedDigit())
-                                    .foregroundStyle(.secondary)
+                        Group {
+                            if compact {
+                                VStack(spacing: 2) {
+                                    Text(module)
+                                        .font(.system(size: 9, weight: scope.subject == subject.name && scope.module == module ? .semibold : .regular))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.72)
+                                    let moduleCount = count(subject: subject.name, module: module)
+                                    if moduleCount > 0 {
+                                        Text("\(moduleCount)").font(.system(size: 8)).foregroundStyle(.secondary)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity)
+                            } else {
+                                HStack(spacing: 8) {
+                                    Text(module)
+                                        .font(.system(size: 12, weight: scope.subject == subject.name && scope.module == module ? .semibold : .regular))
+                                        .lineLimit(1)
+                                    Spacer(minLength: 4)
+                                    let moduleCount = count(subject: subject.name, module: module)
+                                    if moduleCount > 0 {
+                                        Text("\(moduleCount)")
+                                            .font(AppTheme.auxiliaryFont.monospacedDigit())
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .padding(.leading, 42)
+                                .padding(.trailing, 12)
                             }
                         }
                         .foregroundStyle(scope.subject == subject.name && scope.module == module ? AppTheme.accent : Color.primary)
-                        .padding(.leading, 42)
-                        .padding(.trailing, 12)
-                        .frame(height: 34)
+                        .frame(height: compact ? 31 : 34)
                         .background(
                             scope.subject == subject.name && scope.module == module ? AppTheme.accent.opacity(0.09) : Color.clear,
                             in: RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -103,6 +124,7 @@ struct LibrarySidebar: View {
         }
     }
 
+    @ViewBuilder
     private func sidebarRow(
         title: String,
         systemImage: String,
@@ -112,33 +134,57 @@ struct LibrarySidebar: View {
         showsArrow: Bool,
         expanded: Bool
     ) -> some View {
-        HStack(spacing: 9) {
-            Image(systemName: systemImage)
-                .foregroundStyle(selected ? AppTheme.accent : color)
-                .frame(width: 22)
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
-            Spacer(minLength: 4)
-            if count > 0 {
-                Text("\(count)")
-                    .font(AppTheme.auxiliaryFont.monospacedDigit())
-                    .foregroundStyle(.secondary)
+        if compact {
+            VStack(spacing: 3) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(selected ? AppTheme.accent : color)
+                Text(title)
+                    .font(.system(size: 10, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                if count > 0 {
+                    Text("\(count)").font(.system(size: 8)).foregroundStyle(.secondary)
+                }
+                if showsArrow {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(expanded ? 0 : -90))
+                }
             }
-            if showsArrow {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.tertiary)
-                    .rotationEffect(.degrees(expanded ? 0 : -90))
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 58)
+            .padding(.vertical, 4)
+            .foregroundStyle(selected ? AppTheme.accent : Color.primary)
+            .background(selected ? AppTheme.accent.opacity(0.09) : Color.clear, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .contentShape(Rectangle())
+        } else {
+            HStack(spacing: 9) {
+                Image(systemName: systemImage)
+                    .foregroundStyle(selected ? AppTheme.accent : color)
+                    .frame(width: 22)
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer(minLength: 4)
+                if count > 0 {
+                    Text("\(count)")
+                        .font(AppTheme.auxiliaryFont.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                if showsArrow {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(expanded ? 0 : -90))
+                }
             }
+            .padding(.horizontal, 12)
+            .frame(height: 40)
+            .foregroundStyle(selected ? AppTheme.accent : Color.primary)
+            .background(selected ? AppTheme.accent.opacity(0.09) : Color.clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 12)
-        .frame(height: 40)
-        .foregroundStyle(selected ? AppTheme.accent : Color.primary)
-        .background(
-            selected ? AppTheme.accent.opacity(0.09) : Color.clear,
-            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-        )
-        .contentShape(Rectangle())
     }
 
     private func count(subject: String, module: String? = nil) -> Int {

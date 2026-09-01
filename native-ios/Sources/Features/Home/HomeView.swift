@@ -69,36 +69,43 @@ struct HomeView: View {
     }
 
     private var hero: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 0) { heroProgress; Divider(); countdownPanel }
-            VStack(spacing: 14) { heroProgress; Divider(); countdownPanel }
+        HStack(spacing: 0) {
+            heroProgress
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            Rectangle()
+                .fill(Color.primary.opacity(0.12))
+                .frame(width: 0.7)
+                .padding(.vertical, 2)
+            countdownPanel
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding(17)
+        .padding(20)
+        .frame(minHeight: 228)
         .background(
             LinearGradient(
-                colors: [Color.blue.opacity(0.13), Color.white.opacity(0.94)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                colors: [Color(red: 0.88, green: 0.93, blue: 1.0), Color(red: 0.95, green: 0.975, blue: 1.0)],
+                startPoint: .leading,
+                endPoint: .trailing
             ),
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
         )
         .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.blue.opacity(0.08), lineWidth: 0.7)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(AppTheme.accent.opacity(0.15), lineWidth: 0.8)
         }
     }
 
     private var heroProgress: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text("今日待办").font(AppTheme.fieldLabelFont).foregroundStyle(.secondary)
+            Text("今日待办").font(.system(size: 14, weight: .semibold)).foregroundStyle(AppTheme.accent)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("\(completedTodayCount)")
-                    .font(.system(size: 28, weight: .semibold, design: .rounded))
-                Text("项已完成").font(AppTheme.bodyFont).foregroundStyle(.secondary)
+                    .font(.system(size: 46, weight: .semibold, design: .rounded))
+                Text("项已完成").font(.system(size: 14)).foregroundStyle(.secondary)
             }
-            ProgressView(value: completionProgress).tint(AppTheme.accent)
+            ProgressView(value: completionProgress).tint(AppTheme.accent).scaleEffect(x: 1, y: 1.35)
             Text("还有 \(unmasteredErrorCount) 道错题待掌握 · 本周新增 \(weekNewErrorCount) 道")
-                .font(AppTheme.auxiliaryFont)
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
             if let running = todos.first(where: { $0.timerStartedAt != nil }) {
@@ -106,16 +113,16 @@ struct HomeView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.trailing, 16)
+        .padding(.trailing, 20)
     }
 
     private var countdownPanel: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("倒数日").font(AppTheme.fieldLabelFont).foregroundStyle(.secondary)
+                Text("倒数日").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
                 Spacer()
                 Button { beginCountdown(nil) } label: {
-                    Image(systemName: "plus.circle.fill").font(.system(size: 17, weight: .semibold))
+                    Image(systemName: "plus.circle.fill").font(.system(size: 18, weight: .semibold))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("新增倒数日")
@@ -129,12 +136,12 @@ struct HomeView: View {
                         Button { beginCountdown(countdown) } label: {
                             HStack(spacing: 8) {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(countdown.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                                    Text(countdownDateText(countdown)).font(.system(size: 9)).foregroundStyle(.secondary)
+                                    Text(countdown.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                                    Text(countdownDateText(countdown)).font(.system(size: 10)).foregroundStyle(.secondary)
                                 }
                                 Spacer(minLength: 4)
                                 Text(countdownRemainingText(countdown))
-                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                    .font(.system(size: 18, weight: .bold, design: .rounded))
                                     .foregroundStyle(AppTheme.accent)
                                     .monospacedDigit()
                             }
@@ -146,10 +153,13 @@ struct HomeView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("删除\(countdown.name)")
                     }
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 42)
+                    .background(Color.white.opacity(0.88), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
             }
         }
-        .padding(.leading, 16)
+        .padding(.leading, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -177,22 +187,23 @@ struct HomeView: View {
     }
 
     private var featureGrid: some View {
-        HStack(alignment: .top, spacing: 8) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5), spacing: 10) {
             ForEach(HomeFeature.all) { feature in
                 NavigationLink(value: feature.route) {
-                    VStack(spacing: 6) {
+                    VStack(spacing: 8) {
                         Image(systemName: feature.systemImage)
-                            .font(.system(size: 21, weight: .semibold))
+                            .font(.system(size: 23, weight: .semibold))
                             .foregroundStyle(feature.color)
-                            .frame(width: 50, height: 50)
-                            .background(feature.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .frame(width: 56, height: 56)
+                            .background(feature.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
                         Text(feature.title)
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.72)
                     }
                     .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
                 }
                 .buttonStyle(NativePressButtonStyle())
             }

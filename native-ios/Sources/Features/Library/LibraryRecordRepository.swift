@@ -36,6 +36,7 @@ struct LibraryRecordDraft {
     var userOption = ""
     var pitfall = ""
     var questionSource = ""
+    var accuracy = ""
     var images: [String] = []
     var compareGroups: [LogicComparisonDraft] = []
     var score = ""
@@ -92,6 +93,7 @@ struct LibraryRecordDraft {
         userOption = LibraryRecordDraft.text(original, keys: ["userOption"])
         pitfall = LibraryRecordDraft.text(original, keys: ["pitfall"])
         questionSource = LibraryRecordDraft.text(original, keys: ["questionSource", "source"])
+        accuracy = LibraryRecordDraft.numberText(original["accuracy"])
         images = (original["images"] as? [String]) ?? (original["image"] as? String).map { [$0] } ?? []
         if let groups = original["compareGroups"] as? [[String: Any]] {
             compareGroups = groups.map { .init(words: $0["words"] as? String ?? "", relation: $0["relation"] as? String ?? "") }
@@ -195,6 +197,7 @@ enum LibraryRecordRepository {
             object["userOption"] = draft.userOption
             object["pitfall"] = draft.pitfall
             object["questionSource"] = draft.questionSource
+            object["accuracy"] = Double(draft.accuracy.replacingOccurrences(of: "%", with: "")) ?? 0
             object["images"] = draft.images
             object["compareGroups"] = draft.compareGroups
                 .filter { !$0.words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !$0.relation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }

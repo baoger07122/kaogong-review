@@ -50,64 +50,187 @@ struct SpeedPracticeView: View {
 
     private var home: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 8) {
-                    Button { screen = .history } label: { Label("历史", systemImage: "clock.arrow.circlepath") }
-                    Button { screen = .statistics } label: { Label("统计", systemImage: "chart.bar") }
-                    Button { screen = .estimateTable } label: { Label("估算表", systemImage: "tablecells") }
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 9) {
+                    speedActionChip("历史", image: "clock.arrow.circlepath") { screen = .history }
+                    speedActionChip("统计", image: "chart.bar.fill") { screen = .statistics }
+                    speedActionChip("估算表", image: "tablecells") { screen = .estimateTable }
                     Spacer()
+                    HStack(spacing: 7) {
+                        Image(systemName: "checkmark.circle").font(.system(size: 12, weight: .semibold))
+                        Text("确定")
+                        Toggle("", isOn: settingBinding(\.confirmAuto)).labelsHidden().controlSize(.small)
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .frame(height: 36)
+                    .background(Color.primary.opacity(0.05), in: Capsule())
                 }
-                .font(AppTheme.inputFont.weight(.semibold))
 
-                Picker("模式", selection: settingBinding(\.mode)) {
-                    ForEach(SpeedMode.allCases) { Text($0.rawValue).tag($0) }
+                speedModuleCard(
+                    title: "基础计算",
+                    image: "abacus",
+                    values: SpeedTypeKey.allCases.filter { !$0.isDataAnalysis }
+                )
+                speedModuleCard(
+                    title: "资料分析",
+                    image: "chart.line.uptrend.xyaxis",
+                    values: SpeedTypeKey.allCases.filter(\.isDataAnalysis)
+                )
+
+                HStack(spacing: 12) {
+                    Menu {
+                        ForEach([10, 15, 20], id: \.self) { count in
+                            Button("\(count) 题") { settings.questionCount = count; persistSettings() }
+                        }
+                    } label: {
+                        speedOptionLabel("题量: \(settings.questionCount)")
+                    }
+                    Menu {
+                        ForEach(SpeedMode.allCases) { mode in
+                            Button(mode.rawValue) { settings.mode = mode; persistSettings() }
+                        }
+                    } label: {
+                        speedOptionLabel("模式: \(settings.mode.rawValue)")
+                    }
                 }
-                .pickerStyle(.segmented)
+                .frame(maxWidth: .infinity)
 
-                Text("基础计算").font(AppTheme.sectionTitleFont)
-                typeGrid(SpeedTypeKey.allCases.filter { !$0.isDataAnalysis })
-                Text("资料分析").font(AppTheme.sectionTitleFont)
-                typeGrid(SpeedTypeKey.allCases.filter(\.isDataAnalysis))
-
-                customTypes
-                settingsCard
+                DisclosureGroup("练习设置") {
+                    VStack(spacing: 10) {
+                        customTypes
+                        settingsCard
+                    }
+                    .padding(.top, 10)
+                }
+                .font(AppTheme.inputFont)
+                .padding(.horizontal, 15)
+                .padding(.vertical, 12)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.06), lineWidth: 0.7) }
 
                 Button(startButtonTitle) { start() }
-                    .buttonStyle(NativePrimaryButtonStyle())
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(canStart ? AppTheme.accent : Color.secondary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .buttonStyle(NativePressButtonStyle())
                     .disabled(!canStart)
             }
-            .padding(20)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 
     private func typeGrid(_ values: [SpeedTypeKey]) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 128), spacing: 9)], spacing: 9) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
             ForEach(values) { type in
                 Button {
                     settings.selectedType = type
                     if type.isAvailable { settings.customTypes = [type] }
                     persistSettings()
                 } label: {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(type.name).font(AppTheme.cardTitleFont).lineLimit(1)
-                        Text(type.isAvailable ? "点击选择" : "网页版暂未实现")
-                            .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                    HStack(spacing: 9) {
+                        Text(typeSymbol(type))
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundStyle(settings.selectedType == type ? Color.white : AppTheme.accent)
+                            .frame(width: 36, height: 36)
+                            .background(
+                                settings.selectedType == type ? AppTheme.accent : AppTheme.accent.opacity(0.09),
+                                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            )
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(type.name).font(.system(size: 13, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.82)
+                            Text(typeSubtitle(type))
+                                .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
                     }
-                    .padding(12)
+                    .padding(10)
                     .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
                     .background(
-                        settings.selectedType == type ? AppTheme.accent.opacity(0.12) : AppTheme.secondaryBackground,
-                        in: RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
+                        settings.selectedType == type ? AppTheme.accent.opacity(0.10) : Color(red: 0.973, green: 0.98, blue: 1),
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
                     )
                     .overlay {
-                        RoundedRectangle(cornerRadius: AppTheme.controlRadius)
-                            .stroke(settings.selectedType == type ? AppTheme.accent : Color.clear, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(settings.selectedType == type ? AppTheme.accent : AppTheme.accent.opacity(0.16), lineWidth: settings.selectedType == type ? 1.2 : 0.7)
                     }
+                    .shadow(color: settings.selectedType == type ? AppTheme.accent.opacity(0.18) : .clear, radius: 6, y: 2)
                 }
                 .buttonStyle(.plain)
                 .disabled(!type.isAvailable)
             }
         }
+    }
+
+    private func speedModuleCard(title: String, image: String, values: [SpeedTypeKey]) -> some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(spacing: 10) {
+                Image(systemName: image)
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(AppTheme.accent)
+                    .frame(width: 38, height: 38)
+                    .background(AppTheme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 11))
+                Text(title).font(.system(size: 16, weight: .semibold))
+                Spacer()
+                Text("\(values.filter(\.isAvailable).count)/\(values.count) 可练习")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(.tertiary)
+            }
+            typeGrid(values)
+        }
+        .padding(14)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.055), lineWidth: 0.7) }
+    }
+
+    private func speedActionChip(_ title: String, image: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: image)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .frame(height: 36)
+                .background(Color.primary.opacity(0.05), in: Capsule())
+        }
+        .buttonStyle(NativePressButtonStyle())
+    }
+
+    private func speedOptionLabel(_ title: String) -> some View {
+        HStack(spacing: 5) {
+            Text(title)
+            Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+        }
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(AppTheme.accent)
+        .padding(.horizontal, 18)
+        .frame(height: 42)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 13).stroke(AppTheme.accent.opacity(0.28), lineWidth: 1) }
+    }
+
+    private func typeSymbol(_ type: SpeedTypeKey) -> String {
+        switch type {
+        case .addsub2, .addsub3: "±"
+        case .add3: "+"
+        case .sub3: "−"
+        case .mul2x1, .mul3x1: "×"
+        case .div3x1, .div5x3: "÷"
+        case .spDen: "%"
+        case .est05: "≈"
+        case .base: "↗"
+        case .growth: "▥"
+        case .dataReal: "▣"
+        }
+    }
+
+    private func typeSubtitle(_ type: SpeedTypeKey) -> String {
+        guard type.isAvailable else { return "即将上线" }
+        guard let pass = type.ratingThresholds?.pass else { return "可练习" }
+        return "合格 \(Int(pass))s"
     }
 
     private var customTypes: some View {
@@ -192,30 +315,6 @@ struct SpeedPracticeView: View {
 
     private var settingsCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("题目数量").font(AppTheme.bodyFont)
-                Spacer()
-                Menu {
-                    ForEach([10, 15, 20], id: \.self) { count in
-                        Button {
-                            settings.questionCount = count
-                            persistSettings()
-                        } label: {
-                            if settings.questionCount == count {
-                                Label("\(count) 题", systemImage: "checkmark")
-                            } else {
-                                Text("\(count) 题")
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 5) {
-                        Text("\(settings.questionCount) 题").monospacedDigit()
-                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold))
-                    }
-                }
-            }
-            Toggle("答题后自动进入下一题", isOn: settingBinding(\.confirmAuto))
             Toggle("使用屏幕数字键盘", isOn: settingBinding(\.useScreenKeyboard))
             Toggle("按所选题型顺序出题", isOn: settingBinding(\.sequential))
             Toggle("夜间模式", isOn: settingBinding(\.nightMode))
