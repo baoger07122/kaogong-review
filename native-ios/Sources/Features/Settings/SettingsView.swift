@@ -13,6 +13,8 @@ struct SettingsView: View {
     @State private var exportMessage: String?
     @State private var healthMessage = "尚未检查"
     @State private var pendingImportURL: URL?
+    @State private var integrityReport: LocalBackupIntegrityReport?
+    @State private var integrityError: String?
     @AppStorage("native.lastLocalBackupAt") private var lastLocalBackupAt = 0.0
 
     private var appVersion: String {
@@ -48,6 +50,9 @@ struct SettingsView: View {
                 Button { showImporter = true } label: {
                     Label("导入备份并恢复", systemImage: "square.and.arrow.down")
                 }
+                Button(action: checkBackupIntegrity) {
+                    Label("检查备份完整性", systemImage: "checkmark.shield")
+                }
                 HStack {
                     Label("原生数据库记录", systemImage: "externaldrive")
                     Spacer()
@@ -67,6 +72,19 @@ struct SettingsView: View {
                 }
                 if let exportMessage {
                     Text(exportMessage).font(.footnote).foregroundStyle(.secondary)
+                }
+                if let integrityReport {
+                    Label(
+                        integrityReport.message,
+                        systemImage: integrityReport.isComplete ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                    )
+                    .font(AppTheme.auxiliaryFont)
+                    .foregroundStyle(integrityReport.isComplete ? AppTheme.success : AppTheme.warning)
+                }
+                if let integrityError {
+                    Label("备份自检失败：\(integrityError)", systemImage: "xmark.octagon.fill")
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(AppTheme.danger)
                 }
             }
 
@@ -164,6 +182,16 @@ struct SettingsView: View {
         guard let url = pendingImportURL else { return }
         pendingImportURL = nil
         importer.importBackup(from: url, into: modelContext)
+    }
+
+    private func checkBackupIntegrity() {
+        do {
+            integrityReport = try LocalBackupIntegrityChecker.check(records: records)
+            integrityError = nil
+        } catch {
+            integrityReport = nil
+            integrityError = error.localizedDescription
+        }
     }
 
     private var lastBackupText: String {
