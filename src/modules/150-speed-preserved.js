@@ -1734,14 +1734,7 @@ renderHome(container) {
     exprRow.appendChild(answerDisplay);
     body.appendChild(exprRow);
 
-    // v8.15.47 评级标准已移到结果页左上角（做题页不再显示灰色提示）
-    // v8.6.40 三位数除一位数：本次评分展示（提交后更新）
-    const ratingLine = document.createElement('div');
-    ratingLine.className = 'sc-rating-line';
-    ratingLine.textContent = '';
-    body.appendChild(ratingLine);
-
-    // v8.6.23 提交：立即下一题 + 弹出小对/错提示；不显示正确答案、不统计每题用时
+    // 提交：立即下一题 + 弹出小对/错提示；每题用时只保留到结果页和历史记录
     const submit = () => {
       if (submitted) return;
       const val = parseFloat(self.state.currentInput);
@@ -1767,19 +1760,8 @@ renderHome(container) {
           el.classList.add('sc-num-pop');
         });
       }
-      // v8.6.40 三位数除一位数：每题按用时评分（优秀≤24 / 良好≤30 / 合格≤38 / 否则加油）
-      if (this.state.type === 'div3x1') {
-        const t = q.timeUsed;
-        const rating = t <= 24 ? '优秀' : t <= 30 ? '良好' : t <= 38 ? '合格' : '加油';
-        const rl = container.querySelector('.sc-rating-line');
-        if (rl) {
-          rl.textContent = (q.correct ? rating + '！' : '✗ ') + t + 's';
-          rl.className = 'sc-rating-line' + (q.correct ? (rating === '优秀' ? ' ex' : rating === '良好' ? ' gd' : rating === '合格' ? ' ps' : ' go') : ' no');
-        }
-        App.Components.toast((q.correct ? rating + '！' : '✗') + ' ' + t + 's', q.correct ? 'success' : 'error');
-      } else {
-        App.Components.toast(q.correct ? '✓' : '✗', q.correct ? 'success' : 'error');
-      }
+      // 所有题型统一只反馈对错；每题用时仍保留在结果页和历史记录中。
+      App.Components.toast(q.correct ? '✓' : '✗', q.correct ? 'success' : 'error');
       if (isRace) {
         self.next();
       } else {

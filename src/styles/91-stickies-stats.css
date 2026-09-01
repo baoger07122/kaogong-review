@@ -691,14 +691,6 @@
 #page-speed-calc { width: 100%; }
 .sc-page { width: 100%; box-sizing: border-box; }
 
-/* ===== v8.6.40 三位数除一位数：本次评分行 ===== */
-.sc-rating-line { text-align: center; font-size: 13px; color: #9CA3AF; min-height: 18px; margin-top: 2px; }
-.sc-rating-line.ex { color: #3B82F6; font-weight: 700; }
-.sc-rating-line.gd { color: #10B981; font-weight: 700; }
-.sc-rating-line.ps { color: #F59E0B; font-weight: 700; }
-.sc-rating-line.go { color: #9CA3AF; font-weight: 600; }
-.sc-rating-line.no { color: #EF4444; font-weight: 600; }
-
 /* ===== v8.12.13 编辑待办弹窗（对齐画布 36:134） ===== */
 .todo-edit-overlay {
   position: fixed;
