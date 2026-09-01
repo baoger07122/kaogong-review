@@ -1,6 +1,6 @@
 {
-  "version": "9.1.1",
-  "build": 10,
+  "version": "9.1.2",
+  "build": 11,
   "releasedAt": "2026-09-01",
-  "file": "downloads/native/9.1.1/kaogong-review-native-9.1.1-unsigned.ipa"
+  "file": "https://github.com/baoger07122/kaogong-review/releases/download/native-v9.1.2/kaogong-review-native-9.1.2-unsigned.ipa"
 }
