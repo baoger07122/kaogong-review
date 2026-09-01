@@ -17,7 +17,7 @@ struct LibraryView: View {
     @State private var noteTypeDraft = ""
     @State private var noteTypeColor = NoteTypeRepository.colors[0]
     @State private var deleteTarget: LibraryDeleteTarget?
-    @State private var inlineErrorID: String?
+    @State private var detailTarget: LibraryDetailTarget?
     @State private var wordCategory: WordCategory = .idiomDefinition
     @State private var wordSentiment = ""
 
@@ -49,12 +49,22 @@ struct LibraryView: View {
                 )
             }
         }
+        .sheet(item: $detailTarget) { target in
+            if let record = records.first(where: { $0.collection == target.kind.collection && $0.recordID == target.recordID }) {
+                NavigationStack {
+                    LibraryRecordDetailView(kind: target.kind, scope: scope, record: record) {
+                        remove(LibraryDeleteTarget(kind: target.kind, recordID: target.recordID))
+                        detailTarget = nil
+                    }
+                }
+            }
+        }
         .overlay {
             if showNewNoteType {
                 noteTypeDialog
             } else if let deleteTarget {
                 NativeDeleteDialog(
-                    title: "删除便签",
+                    title: "删除\(deleteTarget.kind.rawValue)",
                     message: "删除后无法在 App 内恢复。",
                     onDelete: { remove(deleteTarget); self.deleteTarget = nil },
                     onCancel: { self.deleteTarget = nil }
@@ -73,18 +83,6 @@ struct LibraryView: View {
                     if kind == .words { wordCategoryBar }
                     if kind == .notes, noteContext != nil { noteTypeBar }
                     if kind == .stickies, stickyContext != nil { stickyTagBar }
-                    if let inlineErrorRecord {
-                        InlineErrorEditor(
-                            record: inlineErrorRecord,
-                            scope: scope,
-                            records: records,
-                            onClose: { inlineErrorID = nil },
-                            onFullEdit: {
-                                editorTarget = LibraryEditorTarget(kind: .errors, recordID: inlineErrorRecord.recordID)
-                                inlineErrorID = nil
-                            }
-                        )
-                    }
                     if displayedRecords.isEmpty {
                         VStack(spacing: 10) {
                             NativeStatusCard(
@@ -346,11 +344,6 @@ struct LibraryView: View {
         return Array(Set(snapshots.flatMap(\.tags))).sorted()
     }
 
-    private var inlineErrorRecord: StoredRecord? {
-        guard kind == .errors, let inlineErrorID else { return nil }
-        return records.first { $0.collection == "errors" && $0.recordID == inlineErrorID }
-    }
-
     private var noteContext: (subject: String, module: String)? {
         guard let subject = scope.subject, scope.hasModuleContext else { return nil }
         return (subject, subject == "资料分析" ? "" : (scope.module ?? ""))
@@ -478,12 +471,12 @@ struct LibraryView: View {
         selectedStatus = ""
         selectedTag = ""
         wordSentiment = ""
-        inlineErrorID = nil
+        detailTarget = nil
         if kind == .words && !scope.isLogicFill { kind = .notes }
     }
 
     private func sidebarWidth(in width: CGFloat) -> CGFloat {
-        usesCompactSidebar(in: width) ? 78 : min(176, max(148, width * 0.22))
+        usesCompactSidebar(in: width) ? 96 : min(184, max(156, width * 0.22))
     }
 
     private func usesCompactSidebar(in width: CGFloat) -> Bool {
@@ -500,7 +493,7 @@ struct LibraryView: View {
 
     private func open(_ snapshot: LibraryRecordSnapshot) {
         if kind == .errors {
-            withAnimation(.easeInOut(duration: 0.18)) { inlineErrorID = snapshot.record.recordID }
+            detailTarget = LibraryDetailTarget(kind: kind, recordID: snapshot.record.recordID)
         } else {
             editorTarget = LibraryEditorTarget(kind: kind, recordID: snapshot.record.recordID)
         }
@@ -541,6 +534,12 @@ private struct LibraryEditorTarget: Identifiable {
 }
 
 private struct LibraryDeleteTarget: Identifiable {
+    let kind: LibraryContentKind
+    let recordID: String
+    var id: String { "\(kind.rawValue):\(recordID)" }
+}
+
+private struct LibraryDetailTarget: Identifiable {
     let kind: LibraryContentKind
     let recordID: String
     var id: String { "\(kind.rawValue):\(recordID)" }

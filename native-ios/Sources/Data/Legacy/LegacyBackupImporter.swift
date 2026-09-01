@@ -194,6 +194,11 @@ final class LegacyBackupImportCoordinator: ObservableObject {
         errorMessage = error.localizedDescription
     }
 
+    func clearMessages() {
+        summary = nil
+        errorMessage = nil
+    }
+
     func importBackup(from url: URL, into context: ModelContext) {
         isImporting = true
         summary = nil

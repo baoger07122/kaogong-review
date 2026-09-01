@@ -18,8 +18,34 @@ struct SpeedPracticeView: View {
     @State private var savedResultID: String?
     @State private var showAnswer = false
     @State private var didLoad = false
+    @State private var showSettings = false
 
     private var history: [SpeedRecord] { SpeedRepository.history(from: records).sorted { $0.date > $1.date } }
+    private var historyGroups: [(date: Date, records: [SpeedRecord])] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: history) { calendar.startOfDay(for: $0.date) }
+        return grouped.map { (date: $0.key, records: $0.value.sorted { $0.date > $1.date }) }
+            .sorted { $0.date > $1.date }
+    }
+
+    private var screenTitle: String {
+        switch screen {
+        case .home, .practice, .result: "速算练习"
+        case .history: selectedHistory == nil ? "历史记录" : "练习回看"
+        case .statistics: "速算统计"
+        case .estimateTable: "估算表"
+        }
+    }
+
+    private func navigateBack() {
+        if screen == .history, selectedHistory != nil {
+            selectedHistory = nil
+        } else if screen == .practice {
+            abandon()
+        } else {
+            screen = .home
+        }
+    }
 
     var body: some View {
         Group {
@@ -34,8 +60,18 @@ struct SpeedPracticeView: View {
         }
         .background(settings.nightMode ? Color.black : Color.white)
         .foregroundStyle(settings.nightMode ? Color.white : Color.primary)
-        .navigationTitle("速算练习")
+        .navigationTitle(screenTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(screen != .home)
+        .toolbar {
+            if screen != .home {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: navigateBack) { Image(systemName: "chevron.left") }
+                        .accessibilityLabel("返回")
+                }
+            }
+        }
+        .sheet(isPresented: $showSettings) { practiceSettingsSheet }
         .task {
             guard !didLoad else { return }
             didLoad = true
@@ -56,16 +92,7 @@ struct SpeedPracticeView: View {
                     speedActionChip("统计", image: "chart.bar.fill") { screen = .statistics }
                     speedActionChip("估算表", image: "tablecells") { screen = .estimateTable }
                     Spacer()
-                    HStack(spacing: 7) {
-                        Image(systemName: "checkmark.circle").font(.system(size: 12, weight: .semibold))
-                        Text("确定")
-                        Toggle("", isOn: settingBinding(\.confirmAuto)).labelsHidden().controlSize(.small)
-                    }
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .frame(height: 36)
-                    .background(Color.primary.opacity(0.05), in: Capsule())
+                    speedActionChip("设置", image: "slider.horizontal.3") { showSettings = true }
                 }
 
                 speedModuleCard(
@@ -78,6 +105,17 @@ struct SpeedPracticeView: View {
                     image: "chart.line.uptrend.xyaxis",
                     values: SpeedTypeKey.allCases.filter(\.isDataAnalysis)
                 )
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("自定义练习", systemImage: "square.grid.2x2")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("组合多个题型，并设置固定数字或取值范围")
+                        .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                    customTypes
+                }
+                .padding(14)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.055), lineWidth: 0.7) }
 
                 HStack(spacing: 12) {
                     Menu {
@@ -97,29 +135,18 @@ struct SpeedPracticeView: View {
                 }
                 .frame(maxWidth: .infinity)
 
-                DisclosureGroup("练习设置") {
-                    VStack(spacing: 10) {
-                        customTypes
-                        settingsCard
-                    }
-                    .padding(.top, 10)
-                }
-                .font(AppTheme.inputFont)
-                .padding(.horizontal, 15)
-                .padding(.vertical, 12)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay { RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.06), lineWidth: 0.7) }
-
                 Button(startButtonTitle) { start() }
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(canStart ? AppTheme.accent : Color.secondary)
+                    .foregroundStyle(canStart ? Color.white : Color.secondary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 48)
+                    .background(canStart ? AppTheme.accent : Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
                     .buttonStyle(NativePressButtonStyle())
                     .disabled(!canStart)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
+            .padding(.bottom, 26)
         }
         .background(Color(uiColor: .systemGroupedBackground))
     }
@@ -148,8 +175,8 @@ struct SpeedPracticeView: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
                     .background(
                         settings.selectedType == type ? AppTheme.accent.opacity(0.10) : Color(red: 0.973, green: 0.98, blue: 1),
                         in: RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -327,9 +354,36 @@ struct SpeedPracticeView: View {
         .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
     }
 
+    private var practiceSettingsSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Toggle("答题后需要点击确定", isOn: settingBinding(\.confirmAuto))
+                        .font(AppTheme.inputFont)
+                        .padding(15)
+                        .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
+                    settingsCard
+                }
+                .padding(18)
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("练习设置")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { showSettings = false }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
     private var practice: some View {
         VStack(spacing: 0) {
-            internalHeader(title: "第 \(index + 1) / \(questions.count) 题", back: { abandon() })
+            Text("第 \(index + 1) / \(questions.count) 题")
+                .font(AppTheme.sectionTitleFont)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
             if questions.indices.contains(index) {
                 let question = questions[index]
                 VStack(spacing: 18) {
@@ -456,9 +510,6 @@ struct SpeedPracticeView: View {
     private var historyView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                internalHeader(title: selectedHistory == nil ? "历史记录" : "练习回看", back: {
-                    if selectedHistory != nil { selectedHistory = nil } else { screen = .home }
-                })
                 if let record = selectedHistory {
                     Text("\(record.name) · \(record.date.formatted(.dateTime.year().month().day().hour().minute()))")
                         .font(AppTheme.bodyFont).foregroundStyle(.secondary)
@@ -475,22 +526,39 @@ struct SpeedPracticeView: View {
                 } else if history.isEmpty {
                     NativeStatusCard(title: "暂无练习历史", detail: "完成一轮练习后自动保存", systemImage: "clock", color: AppTheme.accent)
                 } else {
-                    ForEach(history) { record in
-                        Button { selectedHistory = record } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(record.name).font(AppTheme.cardTitleFont)
-                                    Text(record.date.formatted(.dateTime.year().month().day().hour().minute()))
-                                        .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                    ForEach(historyGroups, id: \.date) { group in
+                        Text(historySectionTitle(group.date))
+                            .font(AppTheme.inputFont.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 4)
+                        ForEach(group.records) { record in
+                            Button { selectedHistory = record } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "plus")
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundStyle(AppTheme.accent)
+                                        .frame(width: 38, height: 38)
+                                        .background(AppTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(record.name).font(AppTheme.cardTitleFont)
+                                        Text("共 \(record.totalCount) 题 · \(record.date.formatted(.dateTime.hour().minute()))")
+                                            .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    VStack(alignment: .trailing, spacing: 3) {
+                                        Text(record.totalCount == 0 ? "0%" : "\(Int(Double(record.correctCount) / Double(record.totalCount) * 100))%")
+                                            .font(.system(size: 17, weight: .semibold)).foregroundStyle(AppTheme.accent)
+                                        Text("\(Int(record.totalTime))秒")
+                                            .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                                    }
+                                    Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(.tertiary)
                                 }
-                                Spacer()
-                                Text("\(record.correctCount)/\(record.totalCount)").font(AppTheme.inputFont.weight(.semibold))
-                                Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(.tertiary)
+                                .padding(13)
+                                .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+                                .overlay { RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.07), lineWidth: 0.7) }
                             }
-                            .padding(14)
-                            .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 14))
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                     Button("清除全部历史") { try? SpeedRepository.saveHistory([], records: records, context: modelContext) }
                         .buttonStyle(NativeDangerButtonStyle())
@@ -500,10 +568,16 @@ struct SpeedPracticeView: View {
         }
     }
 
+    private func historySectionTitle(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return "今天" }
+        if calendar.isDateInYesterday(date) { return "昨天" }
+        return date.formatted(.dateTime.month().day())
+    }
+
     private var statistics: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                internalHeader(title: "练习统计", back: { screen = .home })
                 HStack(spacing: 10) {
                     resultMetric("练习次数", value: "\(history.count)")
                     resultMetric("累计题数", value: "\(history.reduce(0) { $0 + $1.totalCount })")
@@ -532,7 +606,6 @@ struct SpeedPracticeView: View {
     private var estimateTable: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                internalHeader(title: "估算表", back: { screen = .home })
                 HStack {
                     Text("范围 → 估算值").font(AppTheme.sectionTitleFont)
                     Spacer()

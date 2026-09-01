@@ -213,7 +213,9 @@ struct HomeView: View {
     private var todoSection: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
-                Text("今日待办").font(AppTheme.sectionTitleFont)
+                Label("今日待办", systemImage: "checkmark.square")
+                    .font(AppTheme.sectionTitleFont)
+                    .foregroundStyle(.primary)
                 Text("\(todayTodos.filter { !$0.isCompleted }.count)")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(AppTheme.accent)
@@ -226,6 +228,10 @@ struct HomeView: View {
                 }
                 .accessibilityLabel("新增待办")
             }
+
+            ProgressView(value: completionProgress)
+                .tint(AppTheme.accent)
+                .scaleEffect(x: 1, y: 1.18)
 
             if todayTodos.isEmpty {
                 NativeStatusCard(
@@ -258,7 +264,9 @@ struct HomeView: View {
     private var stickySection: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
-                Text("便签").font(AppTheme.sectionTitleFont)
+                Label("便签", systemImage: "note.text")
+                    .font(AppTheme.sectionTitleFont)
+                    .foregroundStyle(.primary)
                 Text("\(stickies.count)").font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
                 Spacer()
                 Button { beginSticky(nil) } label: {

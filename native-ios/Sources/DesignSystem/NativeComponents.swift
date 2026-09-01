@@ -147,10 +147,11 @@ struct NativeStatusCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
-        .background(
-            AppTheme.secondaryBackground,
-            in: RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous)
-        )
+        .background(Color.white, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous)
+                .stroke(Color.primary.opacity(0.09), lineWidth: 0.8)
+        }
     }
 }
 

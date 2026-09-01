@@ -85,7 +85,7 @@ struct LibrarySidebar: View {
                             if compact {
                                 VStack(spacing: 2) {
                                     Text(module)
-                                        .font(.system(size: 9, weight: scope.subject == subject.name && scope.module == module ? .semibold : .regular))
+                                        .font(.system(size: 11, weight: scope.subject == subject.name && scope.module == module ? .semibold : .regular))
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.72)
                                     let moduleCount = count(subject: subject.name, module: module)
@@ -112,7 +112,7 @@ struct LibrarySidebar: View {
                             }
                         }
                         .foregroundStyle(scope.subject == subject.name && scope.module == module ? AppTheme.accent : Color.primary)
-                        .frame(height: compact ? 31 : 34)
+                        .frame(height: compact ? 36 : 34)
                         .background(
                             scope.subject == subject.name && scope.module == module ? AppTheme.accent.opacity(0.09) : Color.clear,
                             in: RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -150,7 +150,7 @@ struct LibrarySidebar: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 7, weight: .bold))
                         .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(expanded ? 0 : -90))
+                        .rotationEffect(.degrees(expanded ? 180 : -90))
                 }
             }
             .frame(maxWidth: .infinity)
@@ -176,7 +176,7 @@ struct LibrarySidebar: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(expanded ? 0 : -90))
+                        .rotationEffect(.degrees(expanded ? 180 : -90))
                 }
             }
             .padding(.horizontal, 12)
@@ -203,6 +203,15 @@ struct LibraryRecordCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if kind == .errors {
+                HStack(spacing: 5) {
+                    Label((snapshot.record.module?.isEmpty == false ? snapshot.record.module : snapshot.record.subject) ?? "未分类", systemImage: "square.grid.2x2")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                }
+            }
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 if let firstTag = visibleTags.first {
                     Text(firstTag)
@@ -290,13 +299,14 @@ struct LibraryMasonryGrid: View {
                         cardLink(record)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .top)
             }
         }
     }
 
     private func cardLink(_ record: LibraryRecordSnapshot) -> some View {
         Group {
-            if kind == .stickies {
+            if kind == .stickies || kind == .errors {
                 LibrarySwipeDeleteCard(onDelete: { onDelete(record) }) {
                     openButton(record)
                 }

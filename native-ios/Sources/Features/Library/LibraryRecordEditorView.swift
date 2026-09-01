@@ -23,6 +23,7 @@ struct LibraryRecordEditorView: View {
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var restoredDraft = false
     @State private var linkedEditorTarget: LinkedRecordEditorTarget?
+    @State private var splitMessage: String?
 
     init(kind: LibraryContentKind, scope: LibraryScope, record: StoredRecord? = nil, preferredType: String = "") {
         self.kind = kind
@@ -198,7 +199,19 @@ struct LibraryRecordEditorView: View {
             }
 
             errorSection("题目与选项", image: "list.bullet.rectangle") {
-                NativeFieldLabel(title: "题干")
+                HStack {
+                    NativeFieldLabel(title: "题干")
+                    Spacer()
+                    Button(action: splitQuestionAndOptions) {
+                        Label("AI 拆解题干与选项", systemImage: "sparkles")
+                            .font(AppTheme.auxiliaryFont.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                }
+                if let splitMessage {
+                    Text(splitMessage).font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(splitMessage.hasPrefix("已") ? AppTheme.success : AppTheme.warning)
+                }
                 editor(text: $draft.title, height: 100)
                 NativeFieldLabel(title: "选项")
                 ForEach(draft.options.indices, id: \.self) { index in
@@ -663,6 +676,40 @@ struct LibraryRecordEditorView: View {
         }
         try? LibraryRecordRepository.save(kind: .errors, draft: copy, records: records, context: modelContext)
         dismiss()
+    }
+
+    private func splitQuestionAndOptions() {
+        let source = draft.title
+            .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let expression = try? NSRegularExpression(pattern: "(?m)(?:^|\\s)([A-H])[\\.、．:：]\\s*"), !source.isEmpty else {
+            splitMessage = "请先把包含选项的完整题目粘贴到题干中"
+            return
+        }
+        let nsSource = source as NSString
+        let matches = expression.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
+        guard matches.count >= 2, let first = matches.first else {
+            splitMessage = "未识别到连续的 A、B、C、D 选项，请检查选项标记"
+            return
+        }
+        let question = nsSource.substring(with: NSRange(location: 0, length: first.range.location))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var parsed: [String] = []
+        for (index, match) in matches.enumerated() {
+            let start = match.range.location + match.range.length
+            let end = index + 1 < matches.count ? matches[index + 1].range.location : nsSource.length
+            let value = nsSource.substring(with: NSRange(location: start, length: max(0, end - start)))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty { parsed.append(value) }
+        }
+        guard !question.isEmpty, parsed.count >= 2 else {
+            splitMessage = "题干或选项内容不完整，暂未改动"
+            return
+        }
+        draft.title = question
+        draft.options = parsed
+        splitMessage = "已拆分题干和 \(parsed.count) 个选项，请核对后保存"
     }
 
     @MainActor

@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var exportMessage: String?
     @State private var healthMessage = "尚未检查"
     @State private var pendingImportURL: URL?
+    @State private var isStagingImport = false
     @State private var integrityReport: LocalBackupIntegrityReport?
     @State private var integrityError: String?
     @State private var restoreSafetyMessage: String?
@@ -136,7 +137,7 @@ struct SettingsView: View {
                     title: "导入数据",
                     message: "导入将覆盖本机现有的错题、笔记、便签、套卷、待办和设置。建议先导出当前备份，确定继续？",
                     onDelete: confirmImport,
-                    onCancel: { pendingImportURL = nil },
+                    onCancel: { discardPendingImport() },
                     actionTitle: "确认导入"
                 )
             }
@@ -145,7 +146,7 @@ struct SettingsView: View {
             switch result {
             case .success(let urls):
                 guard let url = urls.first else { return }
-                pendingImportURL = url
+                stageImportFile(from: url)
             case .failure(let error):
                 importer.reportError(error)
             }
@@ -229,6 +230,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var backupStatusMessages: some View {
+        if isStagingImport { HStack { ProgressView(); Text("正在从 iCloud 读取备份…") }.font(AppTheme.auxiliaryFont) }
         if importer.isImporting { HStack { ProgressView(); Text("正在校验并导入…") }.font(AppTheme.auxiliaryFont) }
         if let summary = importer.summary { settingsStatus(summary.message, image: "checkmark.circle.fill", color: AppTheme.success) }
         if let error = importer.errorMessage { settingsStatus(error, image: "exclamationmark.triangle.fill", color: AppTheme.danger) }
@@ -275,6 +277,35 @@ struct SettingsView: View {
         guard let url = pendingImportURL else { return }
         pendingImportURL = nil
         importer.importBackup(from: url, into: modelContext)
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    private func stageImportFile(from sourceURL: URL) {
+        isStagingImport = true
+        importer.clearMessages()
+        Task { @MainActor in
+            let hasAccess = sourceURL.startAccessingSecurityScopedResource()
+            defer {
+                if hasAccess { sourceURL.stopAccessingSecurityScopedResource() }
+                isStagingImport = false
+            }
+            do {
+                let data = try Data(contentsOf: sourceURL, options: .mappedIfSafe)
+                _ = try LegacyBackupImporter.parse(data: data)
+                let stagedURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("kaogong-import-\(UUID().uuidString).json")
+                try data.write(to: stagedURL, options: .atomic)
+                discardPendingImport()
+                pendingImportURL = stagedURL
+            } catch {
+                importer.reportError(error)
+            }
+        }
+    }
+
+    private func discardPendingImport() {
+        if let pendingImportURL { try? FileManager.default.removeItem(at: pendingImportURL) }
+        pendingImportURL = nil
     }
 
     private func checkBackupIntegrity() {
