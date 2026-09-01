@@ -8,7 +8,6 @@ permissions:
 
 jobs:
   build-native-ios:
-    if: ${{ false }}
     runs-on: macos-15
 
     steps:
@@ -158,6 +157,3 @@ jobs:
           path: build/native-ipa/${{ env.IPA_NAME }}
           if-no-files-found: error
           retention-days: 14
-
-  check-native-ios:
-    uses: ./.github/workflows/ios-native-build-check.yml
