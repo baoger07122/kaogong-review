@@ -35,6 +35,15 @@ struct LibraryDraftSnapshot: Codable, Equatable {
     var linkedWordIDs: [String]?
     var colorHex: String
     var pinned: Bool
+    var pinyin: String?
+    var sentiment: String?
+    var partOfSpeech: String?
+    var example: String?
+    var myUnderstanding: String?
+    var collocations: String?
+    var wordSource: String?
+    var compareNote: String?
+    var wordCompareTerms: [WordComparisonTermDraft]?
 
     init(_ draft: LibraryRecordDraft) {
         subject = draft.subject
@@ -71,6 +80,15 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         linkedWordIDs = draft.linkedWordIDs
         colorHex = draft.colorHex
         pinned = draft.pinned
+        pinyin = draft.pinyin
+        sentiment = draft.sentiment
+        partOfSpeech = draft.partOfSpeech
+        example = draft.example
+        myUnderstanding = draft.myUnderstanding
+        collocations = draft.collocations
+        wordSource = draft.wordSource
+        compareNote = draft.compareNote
+        wordCompareTerms = draft.wordCompareTerms
     }
 
     func applying(to draft: inout LibraryRecordDraft) {
@@ -108,6 +126,15 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         draft.linkedWordIDs = linkedWordIDs ?? []
         draft.colorHex = colorHex
         draft.pinned = pinned
+        draft.pinyin = pinyin ?? ""
+        draft.sentiment = sentiment ?? ""
+        draft.partOfSpeech = partOfSpeech ?? ""
+        draft.example = example ?? ""
+        draft.myUnderstanding = myUnderstanding ?? ""
+        draft.collocations = collocations ?? ""
+        draft.wordSource = wordSource ?? ""
+        draft.compareNote = compareNote ?? ""
+        draft.wordCompareTerms = wordCompareTerms ?? []
     }
 
     var hasUserContent: Bool {

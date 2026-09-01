@@ -380,13 +380,98 @@ struct LibraryRecordEditorView: View {
 
     private var wordFields: some View {
         VStack(alignment: .leading, spacing: 12) {
-            TextField("词语", text: $draft.title).textFieldStyle(NativeTextFieldStyle())
-            TextField("分类（可选）", text: $draft.type).textFieldStyle(NativeTextFieldStyle())
-            NativeFieldLabel(title: "释义与辨析")
-            richEditor(text: $draft.content, height: 180)
+            Menu {
+                ForEach(WordCategory.allCases) { category in
+                    Button(category.title) {
+                        draft.type = category.rawValue
+                        ensureComparisonTerms()
+                    }
+                }
+            } label: {
+                NativePropertyRow(title: "词语类型", value: wordCategory.title, systemImage: wordCategory.systemImage) {}
+                    .allowsHitTesting(false)
+            }
+
+            if wordCategory.isComparison {
+                NativeFieldLabel(title: "辨析词语")
+                ForEach($draft.wordCompareTerms) { $term in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            TextField("词语名称", text: $term.name).textFieldStyle(NativeTextFieldStyle())
+                            if draft.wordCompareTerms.count > 2 {
+                                Button(role: .destructive) {
+                                    draft.wordCompareTerms.removeAll { $0.id == term.id }
+                                    syncComparisonTitle()
+                                } label: { Image(systemName: "minus.circle") }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        TextField("该词的独立解释", text: $term.meaning, axis: .vertical)
+                            .textFieldStyle(NativeTextFieldStyle())
+                            .lineLimit(2...4)
+                    }
+                    .padding(10)
+                    .background(AppTheme.groupedBackground, in: RoundedRectangle(cornerRadius: 10))
+                    .onChange(of: term.name) { _, _ in syncComparisonTitle() }
+                }
+                Button {
+                    draft.wordCompareTerms.append(.init())
+                } label: {
+                    Label("增加词语", systemImage: "plus.circle")
+                        .font(AppTheme.inputFont.weight(.semibold))
+                }
+                TextField("核心区别", text: $draft.compareNote, axis: .vertical)
+                    .textFieldStyle(NativeTextFieldStyle())
+                    .lineLimit(2...5)
+            } else {
+                TextField(wordCategory == .idiomDefinition ? "成语" : "实词", text: $draft.title)
+                    .textFieldStyle(NativeTextFieldStyle())
+                TextField("拼音（可选）", text: $draft.pinyin).textFieldStyle(NativeTextFieldStyle())
+            }
+
+            Menu {
+                Button("未设置") { draft.sentiment = "" }
+                ForEach(["褒义", "贬义", "中性"], id: \.self) { value in Button(value) { draft.sentiment = value } }
+            } label: {
+                NativePropertyRow(title: "感情色彩", value: draft.sentiment.isEmpty ? "未设置" : draft.sentiment, systemImage: "face.smiling") {}
+                    .allowsHitTesting(false)
+            }
+            if wordCategory == .wordDefinition {
+                TextField("词性（例如：动词）", text: $draft.partOfSpeech).textFieldStyle(NativeTextFieldStyle())
+            }
+            NativeFieldLabel(title: wordCategory.isComparison ? "整体释义" : "释义")
+            richEditor(text: $draft.content, height: 145)
+            TextField("例句（可选）", text: $draft.example, axis: .vertical)
+                .textFieldStyle(NativeTextFieldStyle())
+                .lineLimit(2...4)
+            if wordCategory == .wordDefinition {
+                TextField("我的理解", text: $draft.myUnderstanding, axis: .vertical).textFieldStyle(NativeTextFieldStyle()).lineLimit(2...4)
+                TextField("常见搭配", text: $draft.collocations, axis: .vertical).textFieldStyle(NativeTextFieldStyle()).lineLimit(2...4)
+                TextField("来源", text: $draft.wordSource).textFieldStyle(NativeTextFieldStyle())
+            }
             multiRelationSection(title: "关联错题", candidates: relationCandidates(collection: "errors"), selection: $draft.linkedErrorIDs)
         }
         .nativeCard()
+        .onAppear {
+            if draft.type.isEmpty { draft.type = WordCategory.idiomDefinition.rawValue }
+            ensureComparisonTerms()
+        }
+    }
+
+    private var wordCategory: WordCategory {
+        WordCategory(rawValue: draft.type) ?? .idiomDefinition
+    }
+
+    private func ensureComparisonTerms() {
+        guard wordCategory.isComparison else { return }
+        while draft.wordCompareTerms.count < 2 { draft.wordCompareTerms.append(.init()) }
+        syncComparisonTitle()
+    }
+
+    private func syncComparisonTitle() {
+        guard wordCategory.isComparison else { return }
+        let names = draft.wordCompareTerms.map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        if !names.isEmpty { draft.title = names.joined(separator: " vs ") }
     }
 
     private var errorRelations: some View {

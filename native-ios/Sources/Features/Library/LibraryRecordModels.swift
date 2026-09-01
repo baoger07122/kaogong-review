@@ -1,5 +1,39 @@
 import Foundation
 
+enum WordCategory: String, CaseIterable, Identifiable {
+    case idiomDefinition = "idiom-def"
+    case idiomComparison = "idiom-compare"
+    case wordDefinition = "word-def"
+    case wordComparison = "word-compare"
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .idiomDefinition: "成语释义"
+        case .idiomComparison: "成语组辨析"
+        case .wordDefinition: "实词释义"
+        case .wordComparison: "实词组辨析"
+        }
+    }
+    var shortTitle: String {
+        switch self {
+        case .idiomDefinition: "成语"
+        case .idiomComparison: "成语辨析"
+        case .wordDefinition: "实词"
+        case .wordComparison: "实词辨析"
+        }
+    }
+    var systemImage: String {
+        switch self {
+        case .idiomDefinition: "book.closed"
+        case .idiomComparison: "arrow.left.arrow.right"
+        case .wordDefinition: "textformat"
+        case .wordComparison: "rectangle.2.swap"
+        }
+    }
+    var isComparison: Bool { self == .idiomComparison || self == .wordComparison }
+}
+
 enum LibraryContentKind: String, CaseIterable, Identifiable {
     case errors = "错题"
     case notes = "笔记"

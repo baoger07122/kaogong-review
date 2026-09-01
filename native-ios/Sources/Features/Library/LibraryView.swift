@@ -1,3 +1,4 @@
+import Foundation
 import SwiftData
 import SwiftUI
 
@@ -17,6 +18,8 @@ struct LibraryView: View {
     @State private var noteTypeColor = NoteTypeRepository.colors[0]
     @State private var deleteTarget: LibraryDeleteTarget?
     @State private var inlineErrorID: String?
+    @State private var wordCategory: WordCategory = .idiomDefinition
+    @State private var wordSentiment = ""
 
     var body: some View {
         GeometryReader { proxy in
@@ -41,7 +44,7 @@ struct LibraryView: View {
                     kind: target.kind,
                     scope: scope,
                     record: records.first { $0.collection == target.kind.collection && $0.recordID == target.recordID },
-                    preferredType: target.recordID == nil ? selectedTag : ""
+                    preferredType: target.recordID == nil ? (target.kind == .words ? wordCategory.rawValue : selectedTag) : ""
                 )
             }
         }
@@ -66,6 +69,7 @@ struct LibraryView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     filterBar
+                    if kind == .words { wordCategoryBar }
                     if kind == .notes, noteContext != nil { noteTypeBar }
                     if kind == .stickies, stickyContext != nil { stickyTagBar }
                     if let inlineErrorRecord {
@@ -81,12 +85,20 @@ struct LibraryView: View {
                         )
                     }
                     if displayedRecords.isEmpty {
-                        NativeStatusCard(
-                            title: emptyTitle,
-                            detail: emptyDetail,
-                            systemImage: emptyIcon,
-                            color: .secondary
-                        )
+                        VStack(spacing: 10) {
+                            NativeStatusCard(
+                                title: emptyTitle,
+                                detail: emptyDetail,
+                                systemImage: emptyIcon,
+                                color: .secondary
+                            )
+                            if kind == .words {
+                                Button(action: importWordSamples) {
+                                    Label("导入当前分类示例", systemImage: "square.and.arrow.down")
+                                }
+                                .buttonStyle(NativeSecondaryButtonStyle())
+                            }
+                        }
                     } else if kind == .errors, scope.subject == "判断推理", scope.module == "图形推理" {
                         GraphReasoningFlashcardView(
                             records: displayedRecords,
@@ -179,7 +191,18 @@ struct LibraryView: View {
                 }
             }
 
-            if !availableTags.isEmpty && kind != .notes {
+            if kind == .words {
+                Menu {
+                    Button("全部感情色彩") { wordSentiment = "" }
+                    ForEach(["褒义", "贬义", "中性"], id: \.self) { value in
+                        Button(value) { wordSentiment = value }
+                    }
+                } label: {
+                    filterLabel(wordSentiment.isEmpty ? "感情色彩" : wordSentiment)
+                }
+            }
+
+            if !availableTags.isEmpty && kind != .notes && kind != .words {
                 Menu {
                     Button(kind == .notes ? "全部标签" : "全部分类") { selectedTag = "" }
                     ForEach(availableTags, id: \.self) { tag in
@@ -238,20 +261,69 @@ struct LibraryView: View {
     }
 
     private var displayedRecords: [LibraryRecordSnapshot] {
-        let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let keyword = normalizedSearch(searchText)
         return snapshots.filter { snapshot in
-            let matchesSearch = keyword.isEmpty
-                || snapshot.title.localizedCaseInsensitiveContains(keyword)
-                || snapshot.summary.localizedCaseInsensitiveContains(keyword)
-                || snapshot.tags.contains { $0.localizedCaseInsensitiveContains(keyword) }
+            let matchesSearch = keyword.isEmpty || normalizedSearch(searchableText(for: snapshot.record)).contains(keyword)
             let matchesStatus = selectedStatus.isEmpty || snapshot.status == selectedStatus
             let matchesTag = selectedTag.isEmpty || snapshot.tags.contains(selectedTag)
-            return matchesSearch && matchesStatus && matchesTag
+            let object = snapshot.record.jsonObject ?? [:]
+            let recordCategory = (object["category"] as? String) ?? (object["type"] as? String) ?? WordCategory.idiomDefinition.rawValue
+            let matchesWordCategory = kind != .words || recordCategory == wordCategory.rawValue
+            let matchesWordSentiment = kind != .words || wordSentiment.isEmpty || (object["sentiment"] as? String) == wordSentiment
+            return matchesSearch && matchesStatus && matchesTag && matchesWordCategory && matchesWordSentiment
         }
         .sorted { left, right in
             if kind == .stickies, left.isPinned != right.isPinned { return left.isPinned }
             if kind == .stickies { return (left.createdAt ?? .distantPast) > (right.createdAt ?? .distantPast) }
             return (left.record.updatedAt ?? left.createdAt ?? .distantPast) > (right.record.updatedAt ?? right.createdAt ?? .distantPast)
+        }
+    }
+
+    private func searchableText(for record: StoredRecord) -> String {
+        let object = record.jsonObject ?? [:]
+        let snapshot = LibraryRecordSnapshot(record: record)
+        var values = [snapshot.title, snapshot.summary]
+        if kind == .words {
+            values.append(contentsOf: ["pinyin", "meaning", "example", "compareNote", "myUnderstanding", "collocations", "pos"]
+                .compactMap { object[$0] as? String })
+            if let terms = object["compareWords"] as? [[String: Any]] {
+                values.append(contentsOf: terms.flatMap {
+                    [$0["name"] as? String, $0["meaning"] as? String].compactMap { $0 }
+                })
+            }
+        } else {
+            values.append(contentsOf: snapshot.tags)
+        }
+        return values.joined(separator: "\n")
+    }
+
+    private func normalizedSearch(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "zh_CN"))
+    }
+
+    private var wordCategoryBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                ForEach(WordCategory.allCases) { category in
+                    Button {
+                        wordCategory = category
+                        wordSentiment = ""
+                    } label: {
+                        Label(category.shortTitle, systemImage: category.systemImage)
+                            .font(AppTheme.auxiliaryFont.weight(.semibold))
+                            .foregroundStyle(wordCategory == category ? AppTheme.accent : Color.secondary)
+                            .padding(.horizontal, 10)
+                            .frame(height: 31)
+                            .background(
+                                wordCategory == category ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045),
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
     }
 
@@ -396,6 +468,7 @@ struct LibraryView: View {
         searchText = ""
         selectedStatus = ""
         selectedTag = ""
+        wordSentiment = ""
         inlineErrorID = nil
         if kind == .words && !scope.isLogicFill { kind = .notes }
     }
@@ -414,6 +487,33 @@ struct LibraryView: View {
         } else {
             editorTarget = LibraryEditorTarget(kind: kind, recordID: snapshot.record.recordID)
         }
+    }
+
+    private func importWordSamples() {
+        guard kind == .words, scope.isLogicFill else { return }
+        let now = Date.now
+        for sample in WordSampleData.samples(for: wordCategory) {
+            var object = sample
+            let id = "word-native-\(UUID().uuidString.lowercased())"
+            object["id"] = id
+            object["category"] = wordCategory.rawValue
+            object["type"] = wordCategory.rawValue
+            object["subject"] = "言语理解"
+            object["module"] = "逻辑填空"
+            object["createdAt"] = ISO8601DateFormatter().string(from: now)
+            object["updatedAt"] = ISO8601DateFormatter().string(from: now)
+            guard let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { continue }
+            modelContext.insert(StoredRecord(
+                collection: "words",
+                recordID: id,
+                payload: payload,
+                subject: "言语理解",
+                module: "逻辑填空",
+                createdAt: now,
+                updatedAt: now
+            ))
+        }
+        try? modelContext.save()
     }
 }
 

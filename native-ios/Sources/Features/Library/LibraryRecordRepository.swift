@@ -13,6 +13,13 @@ struct ShenlunBiasDraft: Identifiable, Codable, Equatable {
     var right = ""
 }
 
+struct WordComparisonTermDraft: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var name = ""
+    var meaning = ""
+    var wordID = ""
+}
+
 struct LibraryRecordDraft {
     var original: [String: Any] = [:]
     var id = ""
@@ -50,6 +57,15 @@ struct LibraryRecordDraft {
     var linkedWordIDs: [String] = []
     var colorHex = "#FFFFFF"
     var pinned = false
+    var pinyin = ""
+    var sentiment = ""
+    var partOfSpeech = ""
+    var example = ""
+    var myUnderstanding = ""
+    var collocations = ""
+    var wordSource = ""
+    var compareNote = ""
+    var wordCompareTerms: [WordComparisonTermDraft] = []
 
     init(kind: LibraryContentKind, scope: LibraryScope, record: StoredRecord? = nil) {
         original = record?.jsonObject ?? [:]
@@ -57,7 +73,7 @@ struct LibraryRecordDraft {
         subject = (original["subject"] as? String) ?? scope.subject ?? "言语理解"
         let defaultModules = SubjectDefinition.all.first { $0.name == subject }?.modules ?? []
         module = (original["module"] as? String) ?? scope.module ?? defaultModules.first ?? ""
-        title = LibraryRecordDraft.text(original, keys: ["title", "question", "words", "text"])
+        title = LibraryRecordDraft.text(original, keys: ["title", "question", "name", "words", "text"])
         content = LibraryRecordDraft.text(original, keys: ["content", "note", "meaning", "myUnderstanding"])
         if content.isEmpty, let legacyContent = original["content"] {
             content = LegacyRichTextConverter.html(from: legacyContent)
@@ -96,11 +112,31 @@ struct LibraryRecordDraft {
         legacyDrawingPreview = LibraryRecordDraft.text(original, keys: ["legacyDrawingPreview", "drawingPreview", "handNote", "doodle"])
         mindMapData = LibraryRecordDraft.text(original, keys: ["mindMap", "mindMapData"])
         sourceExamID = LibraryRecordDraft.text(original, keys: ["sourceExamId"])
-        linkedErrorIDs = original["linkedErrors"] as? [String] ?? []
+        linkedErrorIDs = (original["linkedErrors"] as? [String]) ?? (original["relatedErrorIds"] as? [String]) ?? []
         linkedNoteIDs = original["linkedNoteIds"] as? [String] ?? []
         linkedWordIDs = original["linkedWordIds"] as? [String] ?? []
         colorHex = LibraryRecordDraft.text(original, keys: ["color", "colorHex"]).isEmpty ? "#FFFFFF" : LibraryRecordDraft.text(original, keys: ["color", "colorHex"])
         pinned = (original["pinned"] as? Bool) ?? false
+        pinyin = LibraryRecordDraft.text(original, keys: ["pinyin"])
+        sentiment = LibraryRecordDraft.text(original, keys: ["sentiment"])
+        partOfSpeech = LibraryRecordDraft.text(original, keys: ["pos", "partOfSpeech"])
+        example = LibraryRecordDraft.text(original, keys: ["example"])
+        myUnderstanding = LibraryRecordDraft.text(original, keys: ["myUnderstanding"])
+        collocations = LibraryRecordDraft.text(original, keys: ["collocations"])
+        wordSource = LibraryRecordDraft.text(original, keys: ["source"])
+        compareNote = LibraryRecordDraft.text(original, keys: ["compareNote", "coreDifference"])
+        if let terms = original["compareWords"] as? [[String: Any]] {
+            wordCompareTerms = terms.map {
+                .init(
+                    name: $0["name"] as? String ?? "",
+                    meaning: $0["meaning"] as? String ?? "",
+                    wordID: ($0["wordId"] as? String) ?? ($0["id"] as? String) ?? ""
+                )
+            }
+        } else if type.contains("compare") {
+            let names = title.components(separatedBy: " vs ").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            wordCompareTerms = names.map { .init(name: $0) }
+        }
 
         if kind == .stickies {
             content = LibraryRecordDraft.text(original, keys: ["content", "text"])
@@ -133,7 +169,7 @@ enum LibraryRecordRepository {
         let existing = records.first { $0.collection == kind.collection && $0.recordID == id }
         var object = draft.original
         let previousSourceExamID = object["sourceExamId"] as? String ?? ""
-        let previousLinkedErrors = object["linkedErrors"] as? [String] ?? []
+        let previousLinkedErrors = (object["linkedErrors"] as? [String]) ?? (object["relatedErrorIds"] as? [String]) ?? []
         let previousLinkedNotes = object["linkedNoteIds"] as? [String] ?? []
         let previousLinkedWords = object["linkedWordIds"] as? [String] ?? []
         object["id"] = id
@@ -217,10 +253,24 @@ enum LibraryRecordRepository {
             object["color"] = draft.colorHex
             object["pinned"] = draft.pinned
         case .words:
+            object["name"] = draft.title
             object["words"] = draft.title
             object["meaning"] = draft.content
+            object["category"] = draft.type
             object["type"] = draft.type
             object["linkedErrors"] = draft.linkedErrorIDs
+            object["relatedErrorIds"] = draft.linkedErrorIDs
+            object["pinyin"] = draft.pinyin
+            object["sentiment"] = draft.sentiment
+            object["pos"] = draft.partOfSpeech
+            object["example"] = draft.example
+            object["myUnderstanding"] = draft.myUnderstanding
+            object["collocations"] = draft.collocations
+            object["source"] = draft.wordSource
+            object["compareNote"] = draft.compareNote
+            object["compareWords"] = draft.wordCompareTerms
+                .filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .map { ["name": $0.name, "meaning": $0.meaning, "wordId": $0.wordID] }
         }
 
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
@@ -245,6 +295,7 @@ enum LibraryRecordRepository {
             try syncSingleRelation(collection: "exams", arrayKey: "linkedErrorIds", oldID: previousSourceExamID, newID: draft.sourceExamID, linkedID: id, records: records)
             try syncArrayRelations(collection: "notes", arrayKey: "linkedErrors", oldIDs: previousLinkedNotes, newIDs: draft.linkedNoteIDs, linkedID: id, records: records)
             try syncArrayRelations(collection: "words", arrayKey: "linkedErrors", oldIDs: previousLinkedWords, newIDs: draft.linkedWordIDs, linkedID: id, records: records)
+            try syncArrayRelations(collection: "words", arrayKey: "relatedErrorIds", oldIDs: previousLinkedWords, newIDs: draft.linkedWordIDs, linkedID: id, records: records)
         case .notes:
             try syncArrayRelations(collection: "errors", arrayKey: "linkedNoteIds", oldIDs: previousLinkedErrors, newIDs: draft.linkedErrorIDs, linkedID: id, records: records)
         case .words:
@@ -272,6 +323,10 @@ enum LibraryRecordRepository {
                 collection: "words", arrayKey: "linkedErrors",
                 oldIDs: object["linkedWordIds"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
             )
+            try syncArrayRelations(
+                collection: "words", arrayKey: "relatedErrorIds",
+                oldIDs: object["linkedWordIds"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
+            )
         case .notes:
             try syncArrayRelations(
                 collection: "errors", arrayKey: "linkedNoteIds",
@@ -280,7 +335,7 @@ enum LibraryRecordRepository {
         case .words:
             try syncArrayRelations(
                 collection: "errors", arrayKey: "linkedWordIds",
-                oldIDs: object["linkedErrors"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
+                oldIDs: (object["linkedErrors"] as? [String]) ?? (object["relatedErrorIds"] as? [String]) ?? [], newIDs: [], linkedID: id, records: records
             )
         case .stickies:
             break
