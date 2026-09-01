@@ -79,6 +79,7 @@ struct NativeDeleteDialog: View {
     let message: String
     let onDelete: () -> Void
     let onCancel: () -> Void
+    var actionTitle = "删除"
 
     var body: some View {
         NativeModalContainer {
@@ -89,7 +90,7 @@ struct NativeDeleteDialog: View {
                     .font(AppTheme.bodyFont)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 10) {
-                    Button("删除", action: onDelete)
+                    Button(actionTitle, action: onDelete)
                         .buttonStyle(NativeDangerButtonStyle())
                     Button("取消", action: onCancel)
                         .buttonStyle(NativeSecondaryButtonStyle())

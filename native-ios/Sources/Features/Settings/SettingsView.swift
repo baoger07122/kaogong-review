@@ -12,6 +12,8 @@ struct SettingsView: View {
     @State private var exportDocument: BackupJSONDocument?
     @State private var exportMessage: String?
     @State private var healthMessage = "尚未检查"
+    @State private var pendingImportURL: URL?
+    @AppStorage("native.lastLocalBackupAt") private var lastLocalBackupAt = 0.0
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
@@ -19,12 +21,32 @@ struct SettingsView: View {
 
     var body: some View {
         List {
-            Section("数据迁移") {
-                Button { showImporter = true } label: {
-                    Label("导入 Web 备份 JSON", systemImage: "square.and.arrow.down")
+            Section("本地数据与备份") {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "externaldrive.badge.icloud")
+                            .font(.system(size: 24, weight: .medium))
+                            .foregroundStyle(AppTheme.accent)
+                            .frame(width: 42, height: 42)
+                            .background(AppTheme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 11))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("备份到文件或 iCloud Drive")
+                                .font(AppTheme.cardTitleFont)
+                            Text(lastBackupText)
+                                .font(AppTheme.auxiliaryFont)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    Button("立即备份") { prepareExport() }
+                        .buttonStyle(NativePrimaryButtonStyle())
+                        .frame(maxWidth: 210)
+                        .frame(maxWidth: .infinity)
                 }
-                Button { prepareExport() } label: {
-                    Label("导出 Web 兼容备份", systemImage: "square.and.arrow.up")
+                .padding(.vertical, 6)
+
+                Button { showImporter = true } label: {
+                    Label("导入备份并恢复", systemImage: "square.and.arrow.down")
                 }
                 HStack {
                     Label("原生数据库记录", systemImage: "externaldrive")
@@ -91,11 +113,22 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("设置")
+        .overlay {
+            if pendingImportURL != nil {
+                NativeDeleteDialog(
+                    title: "导入数据",
+                    message: "导入将覆盖本机现有的错题、笔记、便签、套卷、待办和设置。建议先导出当前备份，确定继续？",
+                    onDelete: confirmImport,
+                    onCancel: { pendingImportURL = nil },
+                    actionTitle: "确认导入"
+                )
+            }
+        }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json], allowsMultipleSelection: false) { result in
             switch result {
             case .success(let urls):
                 guard let url = urls.first else { return }
-                importer.importBackup(from: url, into: modelContext)
+                pendingImportURL = url
             case .failure(let error):
                 importer.reportError(error)
             }
@@ -108,7 +141,8 @@ struct SettingsView: View {
         ) { result in
             switch result {
             case .success:
-                exportMessage = "备份已保存，可由 Web 版重新导入"
+                lastLocalBackupAt = Date.now.timeIntervalSince1970
+                exportMessage = "备份已保存，可由原生版或 Web 版重新导入"
             case .failure(let error):
                 exportMessage = "导出失败：\(error.localizedDescription)"
             }
@@ -124,5 +158,19 @@ struct SettingsView: View {
         } catch {
             exportMessage = "无法生成备份：\(error.localizedDescription)"
         }
+    }
+
+    private func confirmImport() {
+        guard let url = pendingImportURL else { return }
+        pendingImportURL = nil
+        importer.importBackup(from: url, into: modelContext)
+    }
+
+    private var lastBackupText: String {
+        guard lastLocalBackupAt > 0 else {
+            return "固定文件名：考公备考系统-backup.json · 暂无备份记录"
+        }
+        let value = Date(timeIntervalSince1970: lastLocalBackupAt)
+        return "上次备份：\(value.formatted(.dateTime.year().month().day().hour().minute().locale(Locale(identifier: "zh_CN"))))"
     }
 }
