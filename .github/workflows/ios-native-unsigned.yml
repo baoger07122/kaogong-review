@@ -8,7 +8,6 @@ permissions:
 
 jobs:
   build-native-ios:
-    if: ${{ false }}
     runs-on: macos-15
 
     steps:
@@ -141,9 +140,13 @@ jobs:
         run: |
           mkdir -p "downloads/native/${NATIVE_VERSION}"
           cp "build/native-ipa/${IPA_NAME}" "downloads/native/${NATIVE_VERSION}/${IPA_NAME}"
+          BUILD_NUMBER=$(awk '/CURRENT_PROJECT_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' native-ios/project.yml)
+          RELEASE_DATE=$(TZ=Asia/Shanghai date '+%Y-%m-%d')
+          printf '{\n  "version": "%s",\n  "build": %s,\n  "releasedAt": "%s",\n  "file": "downloads/native/%s/%s"\n}\n' \
+            "$NATIVE_VERSION" "$BUILD_NUMBER" "$RELEASE_DATE" "$NATIVE_VERSION" "$IPA_NAME" > downloads/native/latest.json
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "downloads/native/${NATIVE_VERSION}/${IPA_NAME}"
+          git add "downloads/native/${NATIVE_VERSION}/${IPA_NAME}" downloads/native/latest.json
           if git diff --cached --quiet; then
             echo "Native IPA already exists in the workspace"
           else
@@ -158,6 +161,3 @@ jobs:
           path: build/native-ipa/${{ env.IPA_NAME }}
           if-no-files-found: error
           retention-days: 14
-
-  check-native-ios:
-    uses: ./.github/workflows/ios-native-build-check.yml
