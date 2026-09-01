@@ -220,4 +220,20 @@ final class LegacyBackupImportCoordinator: ObservableObject {
             errorMessage = error.localizedDescription
         }
     }
+
+    func importBackup(data: Data, into context: ModelContext) {
+        isImporting = true
+        summary = nil
+        errorMessage = nil
+        defer { isImporting = false }
+
+        do {
+            let package = try LegacyBackupImporter.parse(data: data)
+            try LegacyBackupRestorer.replace(with: package, in: context)
+            summary = LegacyImportSummary(version: package.version, total: package.records.count, counts: package.counts)
+        } catch {
+            context.rollback()
+            errorMessage = error.localizedDescription
+        }
+    }
 }

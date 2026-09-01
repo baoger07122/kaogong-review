@@ -80,7 +80,7 @@ struct HomeView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .padding(20)
-        .frame(minHeight: 228)
+        .frame(minHeight: heroMinimumHeight)
         .background(
             LinearGradient(
                 colors: [Color(red: 0.88, green: 0.93, blue: 1.0), Color(red: 0.95, green: 0.975, blue: 1.0)],
@@ -238,7 +238,8 @@ struct HomeView: View {
                     title: "还没有待办事项",
                     detail: "点击右上角新增，开启今日计划",
                     systemImage: "checkmark.square",
-                    color: .secondary
+                    color: AppTheme.accent,
+                    minimumHeight: 176
                 )
             } else {
                 VStack(spacing: 0) {
@@ -280,7 +281,8 @@ struct HomeView: View {
                     title: "还没有便签",
                     detail: "点击右上角新增，写下第一条便签",
                     systemImage: "note.text",
-                    color: .secondary
+                    color: AppTheme.accent,
+                    minimumHeight: 176
                 )
             } else {
                 HStack(alignment: .top, spacing: 10) {
@@ -288,6 +290,15 @@ struct HomeView: View {
                     stickyColumn(even: false)
                 }
             }
+        }
+    }
+
+    private var heroMinimumHeight: CGFloat {
+        switch countdowns.count {
+        case 0: 150
+        case 1: 166
+        case 2: 198
+        default: 228
         }
     }
 

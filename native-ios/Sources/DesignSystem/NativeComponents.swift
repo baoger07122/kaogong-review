@@ -128,6 +128,7 @@ struct NativeStatusCard: View {
     let systemImage: String
     let color: Color
     var isLoading = false
+    var minimumHeight: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 10) {
@@ -146,6 +147,7 @@ struct NativeStatusCard: View {
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
+        .frame(minHeight: minimumHeight)
         .padding(.vertical, 28)
         .background(Color.white, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous))
         .overlay {

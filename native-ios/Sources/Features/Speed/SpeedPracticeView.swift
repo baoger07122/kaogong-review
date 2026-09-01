@@ -59,6 +59,7 @@ struct SpeedPracticeView: View {
             }
         }
         .background(settings.nightMode ? Color.black : Color.white)
+        .preference(key: RootBottomBarHiddenPreferenceKey.self, value: true)
         .foregroundStyle(settings.nightMode ? Color.white : Color.primary)
         .navigationTitle(screenTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -86,8 +87,8 @@ struct SpeedPracticeView: View {
 
     private var home: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 9) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
                     speedActionChip("历史", image: "clock.arrow.circlepath") { screen = .history }
                     speedActionChip("统计", image: "chart.bar.fill") { screen = .statistics }
                     speedActionChip("估算表", image: "tablecells") { screen = .estimateTable }
@@ -98,24 +99,14 @@ struct SpeedPracticeView: View {
                 speedModuleCard(
                     title: "基础计算",
                     image: "abacus",
-                    values: SpeedTypeKey.allCases.filter { !$0.isDataAnalysis }
+                    values: SpeedTypeKey.allCases.filter { !$0.isDataAnalysis },
+                    includesCustomPractice: true
                 )
                 speedModuleCard(
                     title: "资料分析",
                     image: "chart.line.uptrend.xyaxis",
                     values: SpeedTypeKey.allCases.filter(\.isDataAnalysis)
                 )
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Label("自定义练习", systemImage: "square.grid.2x2")
-                        .font(.system(size: 16, weight: .semibold))
-                    Text("组合多个题型，并设置固定数字或取值范围")
-                        .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
-                    customTypes
-                }
-                .padding(14)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay { RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.055), lineWidth: 0.7) }
 
                 HStack(spacing: 12) {
                     Menu {
@@ -139,14 +130,14 @@ struct SpeedPracticeView: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(canStart ? Color.white : Color.secondary)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 48)
+                    .frame(height: 40)
                     .background(canStart ? AppTheme.accent : Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
                     .buttonStyle(NativePressButtonStyle())
                     .disabled(!canStart)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .padding(.bottom, 26)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .padding(.bottom, 12)
         }
         .background(Color(uiColor: .systemGroupedBackground))
     }
@@ -175,8 +166,8 @@ struct SpeedPracticeView: View {
                         }
                         Spacer(minLength: 0)
                     }
-                    .padding(8)
-                    .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+                    .padding(6)
+                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                     .background(
                         settings.selectedType == type ? AppTheme.accent.opacity(0.10) : Color(red: 0.973, green: 0.98, blue: 1),
                         in: RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -193,8 +184,8 @@ struct SpeedPracticeView: View {
         }
     }
 
-    private func speedModuleCard(title: String, image: String, values: [SpeedTypeKey]) -> some View {
-        VStack(alignment: .leading, spacing: 11) {
+    private func speedModuleCard(title: String, image: String, values: [SpeedTypeKey], includesCustomPractice: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Image(systemName: image)
                     .font(.system(size: 19, weight: .semibold))
@@ -208,8 +199,9 @@ struct SpeedPracticeView: View {
                 Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(.tertiary)
             }
             typeGrid(values)
+            if includesCustomPractice { customTypes }
         }
-        .padding(14)
+        .padding(10)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.055), lineWidth: 0.7) }
     }
@@ -219,8 +211,8 @@ struct SpeedPracticeView: View {
             Label(title, systemImage: image)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .frame(height: 36)
+                .padding(.horizontal, 10)
+                .frame(height: 32)
                 .background(Color.primary.opacity(0.05), in: Capsule())
         }
         .buttonStyle(NativePressButtonStyle())
@@ -336,7 +328,7 @@ struct SpeedPracticeView: View {
             }
         }
         .font(AppTheme.bodyFont)
-        .padding(14)
+        .padding(10)
         .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
     }
 
@@ -346,7 +338,6 @@ struct SpeedPracticeView: View {
             Toggle("按所选题型顺序出题", isOn: settingBinding(\.sequential))
             Toggle("夜间模式", isOn: settingBinding(\.nightMode))
             Toggle("结果不出现负数", isOn: settingBinding(\.noNegative))
-            Toggle("显示快速备注", isOn: settingBinding(\.quickMemo))
             Toggle("按键音效", isOn: soundEnabledBinding)
         }
         .font(AppTheme.inputFont)
@@ -362,6 +353,21 @@ struct SpeedPracticeView: View {
                         .font(AppTheme.inputFont)
                         .padding(15)
                         .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
+                    HStack {
+                        Text("题目数量")
+                        Spacer()
+                        Picker("题目数量", selection: settingBinding(\.questionCount)) {
+                            ForEach([10, 15, 20], id: \.self) { Text("\($0) 题").tag($0) }
+                        }
+                    }
+                    HStack {
+                        Text("练习模式")
+                        Spacer()
+                        Picker("练习模式", selection: settingBinding(\.mode)) {
+                            ForEach(SpeedMode.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                    }
+                    .font(AppTheme.inputFont)
                     settingsCard
                 }
                 .padding(18)
@@ -380,45 +386,42 @@ struct SpeedPracticeView: View {
 
     private var practice: some View {
         VStack(spacing: 0) {
-            Text("第 \(index + 1) / \(questions.count) 题")
-                .font(AppTheme.sectionTitleFont)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
             if questions.indices.contains(index) {
                 let question = questions[index]
-                VStack(spacing: 18) {
-                    ProgressView(value: Double(index), total: Double(max(1, questions.count)))
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text(timeText(context.date.timeIntervalSince(startedAt)))
-                            .font(AppTheme.auxiliaryFont.monospacedDigit()).foregroundStyle(.secondary)
-                    }
-                    Text(question.type.name).font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.accent)
-                    Text(question.expression)
-                        .font(.system(size: 30, weight: .semibold, design: .rounded))
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity, minHeight: 82)
-
+                VStack(spacing: 0) {
                     HStack {
-                        Text(currentInput.isEmpty ? "请输入答案" : currentInput)
-                            .font(.system(size: 26, weight: .medium, design: .monospaced))
-                            .foregroundStyle(currentInput.isEmpty ? Color.secondary : Color.primary)
+                        Text("\(index + 1)/\(questions.count)")
                         Spacer()
                         Button { showAnswer.toggle() } label: { Image(systemName: showAnswer ? "eye.slash" : "eye") }
+                        Spacer()
+                        Button("重开", action: start)
+                        Spacer()
+                        TimelineView(.periodic(from: .now, by: 0.1)) { context in
+                            Text(timeText(context.date.timeIntervalSince(startedAt)))
+                                .monospacedDigit()
+                        }
                     }
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(AppTheme.accent)
                     .padding(.horizontal, 16)
-                    .frame(height: 56)
-                    .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
+                    .frame(height: 34)
+                    Divider()
+
+                    Spacer(minLength: 16)
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(question.expression)
+                        Text(currentInput.isEmpty ? "___" : currentInput)
+                            .foregroundStyle(currentInput.isEmpty ? Color.secondary.opacity(0.45) : AppTheme.accent)
+                    }
+                    .font(.system(size: 38, weight: .regular, design: .rounded).monospacedDigit())
+                    .minimumScaleFactor(0.65)
+                    .lineLimit(1)
 
                     if showAnswer {
                         Text("参考答案：\(SpeedQuestionEngine.answerText(question.answer))")
                             .font(AppTheme.bodyFont).foregroundStyle(AppTheme.warning)
                     }
-
-                    if settings.quickMemo {
-                        TextField("快速备注（可选）", text: memoBinding)
-                            .textFieldStyle(NativeTextFieldStyle())
-                    }
-
+                    Spacer(minLength: 16)
                     if settings.useScreenKeyboard {
                         numberPad
                     } else {
@@ -427,37 +430,55 @@ struct SpeedPracticeView: View {
                             .textFieldStyle(NativeTextFieldStyle())
                     }
 
-                    Button("确认答案") { submit() }
-                        .buttonStyle(NativePrimaryButtonStyle())
-                        .disabled(Double(currentInput) == nil)
                 }
-                .padding(20)
-                .frame(maxWidth: 680)
                 .frame(maxWidth: .infinity)
+                .frame(maxHeight: .infinity)
             }
         }
     }
 
     private var numberPad: some View {
-        let keys = ["7", "8", "9", "4", "5", "6", "1", "2", "3", ".", "0", "⌫"]
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
-            ForEach(keys, id: \.self) { key in
-                Button { pressKey(key) } label: {
-                    Text(key).font(.system(size: 20, weight: .medium, design: .rounded))
-                        .frame(maxWidth: .infinity).frame(height: 46)
-                        .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 12))
+        HStack(spacing: 2) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 3), spacing: 2) {
+                ForEach(["1", "2", "3", "4", "5", "6", "7", "8", "9", "±", "0", "."], id: \.self) { key in
+                    Button { key == "±" ? currentInput.toggleSign() : pressKey(key) } label: {
+                        Text(key).font(.system(size: 20, weight: .regular, design: .rounded))
+                            .frame(maxWidth: .infinity).frame(height: 56)
+                            .background(Color(uiColor: .secondarySystemGroupedBackground))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(NativePressButtonStyle())
+                }
+            }
+            VStack(spacing: 2) {
+                keypadAction("C") { currentInput = "" }
+                keypadAction("delete.backward") { pressKey("⌫") }
+                Button(action: submit) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 24, weight: .semibold))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .foregroundStyle(.white)
+                        .background(AppTheme.accent)
                 }
                 .buttonStyle(NativePressButtonStyle())
+                .disabled(Double(currentInput) == nil)
             }
-            Button { currentInput.toggleSign() } label: {
-                Text("±").frame(maxWidth: .infinity).frame(height: 42)
-            }
-            .buttonStyle(NativeSecondaryButtonStyle())
-            Button { currentInput = "" } label: {
-                Text("清空").frame(maxWidth: .infinity).frame(height: 42)
-            }
-            .buttonStyle(NativeSecondaryButtonStyle())
+            .frame(width: 92)
         }
+        .frame(height: 230)
+    }
+
+    private func keypadAction(_ value: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Group {
+                if value.contains(".") { Image(systemName: value) } else { Text(value) }
+            }
+            .font(.system(size: 18, weight: .medium))
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .foregroundStyle(.white)
+            .background(AppTheme.accent)
+        }
+        .buttonStyle(NativePressButtonStyle())
     }
 
     private var result: some View {

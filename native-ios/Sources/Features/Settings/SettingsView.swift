@@ -12,7 +12,6 @@ struct SettingsView: View {
     @State private var exportDocument: BackupJSONDocument?
     @State private var exportMessage: String?
     @State private var healthMessage = "尚未检查"
-    @State private var pendingImportURL: URL?
     @State private var isStagingImport = false
     @State private var integrityReport: LocalBackupIntegrityReport?
     @State private var integrityError: String?
@@ -132,17 +131,9 @@ struct SettingsView: View {
                     onCancel: { showClearData = false },
                     actionTitle: "清空"
                 )
-            } else if pendingImportURL != nil {
-                NativeDeleteDialog(
-                    title: "导入数据",
-                    message: "导入将覆盖本机现有的错题、笔记、便签、套卷、待办和设置。建议先导出当前备份，确定继续？",
-                    onDelete: confirmImport,
-                    onCancel: { discardPendingImport() },
-                    actionTitle: "确认导入"
-                )
             }
         }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json], allowsMultipleSelection: false) { result in
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json, .plainText, .data], allowsMultipleSelection: false) { result in
             switch result {
             case .success(let urls):
                 guard let url = urls.first else { return }
@@ -199,7 +190,9 @@ struct SettingsView: View {
                 Spacer()
                 Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 42)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -211,7 +204,9 @@ struct SettingsView: View {
             Spacer()
             Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: 42)
+        .contentShape(Rectangle())
     }
 
     private func settingsValueRow(_ title: String, value: String, image: String) -> some View {
@@ -273,13 +268,6 @@ struct SettingsView: View {
         }
     }
 
-    private func confirmImport() {
-        guard let url = pendingImportURL else { return }
-        pendingImportURL = nil
-        importer.importBackup(from: url, into: modelContext)
-        try? FileManager.default.removeItem(at: url)
-    }
-
     private func stageImportFile(from sourceURL: URL) {
         isStagingImport = true
         importer.clearMessages()
@@ -290,22 +278,21 @@ struct SettingsView: View {
                 isStagingImport = false
             }
             do {
-                let data = try Data(contentsOf: sourceURL, options: .mappedIfSafe)
-                _ = try LegacyBackupImporter.parse(data: data)
-                let stagedURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("kaogong-import-\(UUID().uuidString).json")
-                try data.write(to: stagedURL, options: .atomic)
-                discardPendingImport()
-                pendingImportURL = stagedURL
+                if sourceURL.isFileURL {
+                    try? FileManager.default.startDownloadingUbiquitousItem(at: sourceURL)
+                }
+                var coordinatedError: NSError?
+                var readResult: Result<Data, Error>?
+                NSFileCoordinator().coordinate(readingItemAt: sourceURL, options: .withoutChanges, error: &coordinatedError) { coordinatedURL in
+                    readResult = Result { try Data(contentsOf: coordinatedURL) }
+                }
+                if let coordinatedError { throw coordinatedError }
+                guard let readResult else { throw CocoaError(.fileReadUnknown) }
+                importer.importBackup(data: try readResult.get(), into: modelContext)
             } catch {
                 importer.reportError(error)
             }
         }
-    }
-
-    private func discardPendingImport() {
-        if let pendingImportURL { try? FileManager.default.removeItem(at: pendingImportURL) }
-        pendingImportURL = nil
     }
 
     private func checkBackupIntegrity() {

@@ -18,6 +18,7 @@ struct LibraryView: View {
     @State private var noteTypeColor = NoteTypeRepository.colors[0]
     @State private var deleteTarget: LibraryDeleteTarget?
     @State private var detailTarget: LibraryDetailTarget?
+    @State private var showSearch = false
     @State private var wordCategory: WordCategory = .idiomDefinition
     @State private var wordSentiment = ""
 
@@ -32,8 +33,6 @@ struct LibraryView: View {
                     onScopeChanged: resetContextFilters
                 )
                 .frame(width: sidebarWidth(in: proxy.size.width))
-
-                Divider()
                 content
             }
         }
@@ -49,13 +48,11 @@ struct LibraryView: View {
                 )
             }
         }
-        .sheet(item: $detailTarget) { target in
+        .navigationDestination(item: $detailTarget) { target in
             if let record = records.first(where: { $0.collection == target.kind.collection && $0.recordID == target.recordID }) {
-                NavigationStack {
-                    LibraryRecordDetailView(kind: target.kind, scope: scope, record: record) {
-                        remove(LibraryDeleteTarget(kind: target.kind, recordID: target.recordID))
-                        detailTarget = nil
-                    }
+                LibraryRecordDetailView(kind: target.kind, scope: scope, record: record) {
+                    remove(LibraryDeleteTarget(kind: target.kind, recordID: target.recordID))
+                    detailTarget = nil
                 }
             }
         }
@@ -76,9 +73,18 @@ struct LibraryView: View {
     private var content: some View {
         VStack(spacing: 0) {
             header
-            Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    if showSearch {
+                        HStack(spacing: 7) {
+                            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                            TextField(searchPrompt, text: $searchText).font(AppTheme.inputFont)
+                            Button { searchText = ""; showSearch = false } label: { Image(systemName: "xmark.circle.fill") }
+                                .buttonStyle(.plain).foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 10).frame(height: 36)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
+                    }
                     filterBar
                     if kind == .words { wordCategoryBar }
                     if kind == .notes, noteContext != nil { noteTypeBar }
@@ -148,6 +154,16 @@ struct LibraryView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Menu {
+                    Button { showSearch = true } label: { Label("搜索", systemImage: "magnifyingglass") }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 36, height: 36)
+                        .background(Color.white, in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
             }
 
             HStack(spacing: 4) {
@@ -163,8 +179,10 @@ struct LibraryView: View {
                             .padding(.vertical, 7)
                             .foregroundStyle(kind == value ? AppTheme.accent : Color.primary)
                             .background(kind == value ? AppTheme.secondaryBackground : Color.clear, in: Capsule())
+                            .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
                 }
             }
             .padding(3)
@@ -178,16 +196,6 @@ struct LibraryView: View {
 
     private var filterBar: some View {
         HStack(spacing: 8) {
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField(searchPrompt, text: $searchText)
-                    .font(AppTheme.inputFont)
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 36)
-            .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-
             if kind == .errors {
                 Menu {
                     Button("全部状态") { selectedStatus = "" }
@@ -539,7 +547,7 @@ private struct LibraryDeleteTarget: Identifiable {
     var id: String { "\(kind.rawValue):\(recordID)" }
 }
 
-private struct LibraryDetailTarget: Identifiable {
+private struct LibraryDetailTarget: Identifiable, Hashable {
     let kind: LibraryContentKind
     let recordID: String
     var id: String { "\(kind.rawValue):\(recordID)" }

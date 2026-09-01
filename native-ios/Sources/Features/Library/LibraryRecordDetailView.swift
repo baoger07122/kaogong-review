@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct LibraryRecordDetailView: View {
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     let kind: LibraryContentKind
     let scope: LibraryScope
     let record: StoredRecord
@@ -9,6 +9,8 @@ struct LibraryRecordDetailView: View {
 
     @State private var showEditor = false
     @State private var showDelete = false
+    @State private var showDoodle = false
+    @State private var drawingData = ""
 
     private var object: [String: Any] { record.jsonObject ?? [:] }
     private var snapshot: LibraryRecordSnapshot { LibraryRecordSnapshot(record: record) }
@@ -74,11 +76,6 @@ struct LibraryRecordDetailView: View {
                     }
                 }
 
-                Button(role: .destructive) { showDelete = true } label: {
-                    Label("删除这条错题", systemImage: "trash")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(NativeDangerButtonStyle())
             }
             .padding(16)
         }
@@ -86,11 +83,28 @@ struct LibraryRecordDetailView: View {
         .navigationTitle("错题详情")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) { Button("关闭") { dismiss() } }
-            ToolbarItem(placement: .topBarTrailing) { Button("编辑") { showEditor = true } }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button { drawingData = firstText(["pencilKitData", "drawingData"]) ?? ""; showDoodle = true } label: {
+                    Image(systemName: "pencil.and.scribble")
+                }
+                .accessibilityLabel("涂鸦")
+                Menu {
+                    Button { showEditor = true } label: { Label("编辑错题", systemImage: "pencil") }
+                    Button(role: .destructive) { showDelete = true } label: { Label("删除错题", systemImage: "trash") }
+                } label: { Image(systemName: "ellipsis") }
+            }
         }
         .sheet(isPresented: $showEditor) {
             NavigationStack { LibraryRecordEditorView(kind: kind, scope: scope, record: record) }
+        }
+        .sheet(isPresented: $showDoodle, onDismiss: saveDrawing) {
+            NavigationStack {
+                NativePencilDrawingEditor(encodedData: $drawingData, legacyPreviewDataURL: firstText(["drawingPreview", "doodle", "drawingDataURL"]) ?? "")
+                    .padding(14)
+                    .navigationTitle("错题涂鸦")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showDoodle = false } } }
+            }
         }
         .overlay {
             if showDelete {
@@ -102,6 +116,16 @@ struct LibraryRecordDetailView: View {
                 )
             }
         }
+    }
+
+    private func saveDrawing() {
+        var updated = object
+        updated["pencilKitData"] = drawingData
+        updated["updatedAt"] = ISO8601DateFormatter().string(from: .now)
+        guard let payload = try? JSONSerialization.data(withJSONObject: updated, options: [.sortedKeys]) else { return }
+        record.payload = payload
+        record.updatedAt = .now
+        try? modelContext.save()
     }
 
     private func detailSection<Content: View>(_ title: String, image: String, @ViewBuilder content: () -> Content) -> some View {

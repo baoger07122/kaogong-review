@@ -1,5 +1,10 @@
 import SwiftUI
 
+struct RootBottomBarHiddenPreferenceKey: PreferenceKey {
+    static var defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
 enum RootTab: String, CaseIterable, Identifiable {
     case home
     case library
@@ -32,6 +37,7 @@ enum RootTab: String, CaseIterable, Identifiable {
 
 struct RootTabView: View {
     @State private var selection: RootTab = .home
+    @State private var hidesBottomBar = false
 
     var body: some View {
         ZStack {
@@ -44,8 +50,9 @@ struct RootTabView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            NativeBottomTabBar(selection: $selection)
+            if !hidesBottomBar { NativeBottomTabBar(selection: $selection) }
         }
+        .onPreferenceChange(RootBottomBarHiddenPreferenceKey.self) { hidesBottomBar = $0 }
         .tint(AppTheme.accent)
         .sensoryFeedback(.selection, trigger: selection)
     }

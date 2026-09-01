@@ -114,9 +114,14 @@ struct LibrarySidebar: View {
                         .foregroundStyle(scope.subject == subject.name && scope.module == module ? AppTheme.accent : Color.primary)
                         .frame(height: compact ? 36 : 34)
                         .background(
-                            scope.subject == subject.name && scope.module == module ? AppTheme.accent.opacity(0.09) : Color.clear,
+                            scope.subject == subject.name && scope.module == module ? AppTheme.accent.opacity(0.09) : Color.white.opacity(0.82),
                             in: RoundedRectangle(cornerRadius: 9, style: .continuous)
                         )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .stroke(scope.subject == subject.name && scope.module == module ? AppTheme.accent.opacity(0.35) : Color.primary.opacity(0.07), lineWidth: 0.7)
+                        }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
@@ -150,7 +155,7 @@ struct LibrarySidebar: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 7, weight: .bold))
                         .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(expanded ? 180 : -90))
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
                 }
             }
             .frame(maxWidth: .infinity)
@@ -176,7 +181,7 @@ struct LibrarySidebar: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(expanded ? 180 : -90))
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
                 }
             }
             .padding(.horizontal, 12)
@@ -306,7 +311,7 @@ struct LibraryMasonryGrid: View {
 
     private func cardLink(_ record: LibraryRecordSnapshot) -> some View {
         Group {
-            if kind == .stickies || kind == .errors {
+            if kind == .stickies {
                 LibrarySwipeDeleteCard(onDelete: { onDelete(record) }) {
                     openButton(record)
                 }
