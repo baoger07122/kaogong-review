@@ -37,7 +37,7 @@ jobs:
 
             if [ -n "$BEFORE_SHA" ] && [[ ! "$BEFORE_SHA" =~ ^0+$ ]]; then
               PREVIOUS_VERSION=$(git show "$BEFORE_SHA:native-ios/project.yml" 2>/dev/null | awk '/MARKETING_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' || true)
-              if [ "$VERSION" = "$PREVIOUS_VERSION" ] && [ -f "downloads/native/${VERSION}/kaogong-review-native-${VERSION}-unsigned.ipa" ]; then
+              if [ "$VERSION" = "$PREVIOUS_VERSION" ] && git tag -l "native-v${VERSION}" | grep -q .; then
                 echo "Native source changed after $VERSION was already published; increment the iteration number"
                 exit 1
               fi
@@ -132,25 +132,41 @@ jobs:
           echo "NATIVE_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "IPA_NAME=$IPA_NAME" >> "$GITHUB_ENV"
 
-      - name: Publish native IPA into workspace
+      - name: Publish native IPA to GitHub Release
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           IPA_NAME: ${{ env.IPA_NAME }}
           NATIVE_VERSION: ${{ env.NATIVE_VERSION }}
         run: |
-          mkdir -p "downloads/native/${NATIVE_VERSION}"
-          cp "build/native-ipa/${IPA_NAME}" "downloads/native/${NATIVE_VERSION}/${IPA_NAME}"
+          TAG="native-v${NATIVE_VERSION}"
           BUILD_NUMBER=$(awk '/CURRENT_PROJECT_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' native-ios/project.yml)
           RELEASE_DATE=$(TZ=Asia/Shanghai date '+%Y-%m-%d')
-          printf '{\n  "version": "%s",\n  "build": %s,\n  "releasedAt": "%s",\n  "file": "downloads/native/%s/%s"\n}\n' \
-            "$NATIVE_VERSION" "$BUILD_NUMBER" "$RELEASE_DATE" "$NATIVE_VERSION" "$IPA_NAME" > downloads/native/latest.json
+          DOWNLOAD_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${IPA_NAME}"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            EXISTING_TARGET=$(gh release view "$TAG" --json targetCommitish --jq '.targetCommitish')
+            if [ "$EXISTING_TARGET" != "$GITHUB_SHA" ]; then
+              echo "Release ${TAG} belongs to ${EXISTING_TARGET}; increment the native version before publishing new source"
+              exit 1
+            fi
+            gh release upload "$TAG" "build/native-ipa/${IPA_NAME}" --clobber
+          else
+            gh release create "$TAG" "build/native-ipa/${IPA_NAME}" \
+              --target "$GITHUB_SHA" \
+              --title "考公复盘·原生 ${NATIVE_VERSION}" \
+              --notes "未签名 iPad IPA，Build ${BUILD_NUMBER}。下载后请使用自签工具签名安装。"
+          fi
+
+          printf '{\n  "version": "%s",\n  "build": %s,\n  "releasedAt": "%s",\n  "file": "%s"\n}\n' \
+            "$NATIVE_VERSION" "$BUILD_NUMBER" "$RELEASE_DATE" "$DOWNLOAD_URL" > downloads/native/latest.json
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "downloads/native/${NATIVE_VERSION}/${IPA_NAME}" downloads/native/latest.json
+          git add downloads/native/latest.json
           if git diff --cached --quiet; then
-            echo "Native IPA already exists in the workspace"
+            echo "Native release manifest is already current"
           else
-            git commit -m "chore: publish ${IPA_NAME} [skip ci]"
+            git commit -m "chore: publish native ${NATIVE_VERSION} release manifest [skip ci]"
             git push origin HEAD:codex/ios-native-rewrite
           fi
 
