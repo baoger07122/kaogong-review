@@ -2,6 +2,11 @@ name: Build native unsigned iOS IPA (manual)
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - codex/ios-native-rewrite
+    paths:
+      - native-ios/project.yml
 
 permissions:
   contents: write
