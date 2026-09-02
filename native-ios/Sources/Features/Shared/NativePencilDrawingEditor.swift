@@ -184,11 +184,11 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
     func makeUIView(context: Context) -> PKCanvasView {
-        let canvas = PKCanvasView()
+        let canvas = InteractivePencilCanvasView()
         canvas.delegate = context.coordinator
         canvas.drawingPolicy = .anyInput
         canvas.isUserInteractionEnabled = true
-        canvas.drawingGestureRecognizer.isEnabled = true
+        if #available(iOS 18.0, *) { canvas.isDrawingEnabled = true }
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
         canvas.contentInsetAdjustmentBehavior = .never
@@ -196,28 +196,27 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         canvas.maximumZoomScale = scrollEnabled ? 3 : 1
         canvas.bouncesZoom = true
         canvas.isScrollEnabled = true
-        canvas.panGestureRecognizer.minimumNumberOfTouches = 2
-        canvas.panGestureRecognizer.maximumNumberOfTouches = 2
         canvas.alwaysBounceHorizontal = scrollEnabled
         canvas.alwaysBounceVertical = scrollEnabled
         if let data = Data(base64Encoded: encodedData), let drawing = try? PKDrawing(data: data) { canvas.drawing = drawing }
         context.coordinator.lastEncoded = encodedData
         updateTool(canvas)
-        updateViewport(canvas)
-        DispatchQueue.main.async { canvas.becomeFirstResponder() }
         return canvas
     }
     func updateUIView(_ canvas: PKCanvasView, context: Context) {
         context.coordinator.parent = self
         updateTool(canvas)
+        canvas.drawingPolicy = .anyInput
         canvas.isUserInteractionEnabled = true
-        canvas.drawingGestureRecognizer.isEnabled = true
+        if #available(iOS 18.0, *) { canvas.isDrawingEnabled = true }
         canvas.isScrollEnabled = true
         canvas.minimumZoomScale = scrollEnabled ? 0.5 : 1
         canvas.maximumZoomScale = scrollEnabled ? 3 : 1
-        canvas.panGestureRecognizer.minimumNumberOfTouches = 2
-        canvas.panGestureRecognizer.maximumNumberOfTouches = 2
-        updateViewport(canvas)
+        canvas.alwaysBounceHorizontal = scrollEnabled
+        canvas.alwaysBounceVertical = scrollEnabled
+        if canvas.window != nil, !canvas.isFirstResponder {
+            DispatchQueue.main.async { canvas.becomeFirstResponder() }
+        }
         if let action, context.coordinator.lastActionID != action.id {
             context.coordinator.lastActionID = action.id
             switch action.kind {
@@ -240,13 +239,6 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         }
     }
     private func updateTool(_ canvas: PKCanvasView) { canvas.tool = eraser ? PKEraserTool(.vector) : PKInkingTool(.pen, color: color, width: width) }
-    fileprivate func updateViewport(_ canvas: PKCanvasView) {
-        let drawingBounds = canvas.drawing.bounds
-        let width = max(max(canvas.bounds.width, drawingBounds.maxX + 120), 1_200)
-        let height = max(max(canvas.bounds.height, drawingBounds.maxY + 120), 900)
-        let target = CGSize(width: width, height: height)
-        if canvas.contentSize != target { canvas.contentSize = target }
-    }
 
     final class Coordinator: NSObject, PKCanvasViewDelegate {
         var parent: PencilCanvasRepresentable
@@ -254,10 +246,20 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         var lastActionID: UUID?
         init(parent: PencilCanvasRepresentable) { self.parent = parent }
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-            parent.updateViewport(canvasView)
             publish(canvasView)
         }
         func publish(_ canvas: PKCanvasView) { let value = canvas.drawing.dataRepresentation().base64EncodedString(); lastEncoded = value; parent.encodedData = value }
+    }
+}
+
+private final class InteractivePencilCanvasView: PKCanvasView {
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        isUserInteractionEnabled = true
+        drawingPolicy = .anyInput
+        if #available(iOS 18.0, *) { isDrawingEnabled = true }
+        DispatchQueue.main.async { [weak self] in self?.becomeFirstResponder() }
     }
 }
 
