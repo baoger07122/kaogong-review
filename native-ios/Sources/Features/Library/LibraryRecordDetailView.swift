@@ -68,15 +68,17 @@ struct LibraryRecordDetailView: View {
         .navigationTitle("错题详情")
         .navigationBarTitleDisplayMode(.inline)
         .preference(key: RootBottomBarHiddenPreferenceKey.self, value: true)
-        .toolbar(showDoodle ? .hidden : .visible, for: .navigationBar)
+        .toolbar(.visible, for: .navigationBar)
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
-                    .accessibilityLabel("涂鸦")
-                Menu {
-                    Button { showEditor = true } label: { Label("编辑错题", systemImage: "pencil") }
-                    Button(role: .destructive) { showDelete = true } label: { Label("删除错题", systemImage: "trash") }
-                } label: { Image(systemName: "ellipsis") }
+            if !showDoodle {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
+                        .accessibilityLabel("涂鸦")
+                    Menu {
+                        Button { showEditor = true } label: { Label("编辑错题", systemImage: "pencil") }
+                        Button(role: .destructive) { showDelete = true } label: { Label("删除错题", systemImage: "trash") }
+                    } label: { Image(systemName: "ellipsis") }
+                }
             }
         }
         .navigationDestination(isPresented: $showEditor) {
