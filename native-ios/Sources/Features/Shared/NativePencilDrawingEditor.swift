@@ -5,33 +5,96 @@ import UIKit
 private enum PencilActionKind { case undo, redo, clear }
 private struct PencilAction { let id = UUID(); let kind: PencilActionKind }
 
+final class PencilDrawingController: ObservableObject {
+    @Published var color = UIColor.black
+    @Published var width: CGFloat = 4
+    @Published var eraser = false
+    @Published var showSettings = false
+    @Published fileprivate var action: PencilAction?
+    @Published fileprivate var showClearConfirmation = false
+
+    private var previousPenColor = UIColor.black
+    private var previousPenWidth: CGFloat = 4
+
+    func selectPen(color value: UIColor) {
+        color = value
+        previousPenColor = value
+        previousPenWidth = width
+        eraser = false
+    }
+
+    func selectWidth(_ value: CGFloat) {
+        width = value
+        previousPenWidth = value
+        eraser = false
+    }
+
+    func toggleEraser() {
+        if eraser {
+            color = previousPenColor
+            width = previousPenWidth
+            eraser = false
+        } else {
+            previousPenColor = color
+            previousPenWidth = width
+            eraser = true
+        }
+    }
+
+    func undo() {
+        action = PencilAction(kind: .undo)
+    }
+
+    func requestClear() {
+        showClearConfirmation = true
+    }
+
+    func prepareForPresentation() {
+        showSettings = false
+    }
+}
+
 struct NativePencilDrawingEditor: View {
     @Binding var encodedData: String
-    var legacyPreviewDataURL = ""
-    var transparentBackground = false
-    var toolbarAtTop = false
-    var onClose: (() -> Void)?
-
-    @State private var color = UIColor.black
-    @State private var width: CGFloat = 4
-    @State private var eraser = false
-    @State private var previousPenColor = UIColor.black
-    @State private var previousPenWidth: CGFloat = 4
-    @State private var action: PencilAction?
-    @State private var showClearConfirmation = false
-    @State private var showPenSettings = false
+    let legacyPreviewDataURL: String
+    let transparentBackground: Bool
+    let toolbarAtTop: Bool
+    let onClose: (() -> Void)?
+    @StateObject private var controller: PencilDrawingController
     @State private var eraserLocation: CGPoint?
+
+    init(
+        encodedData: Binding<String>,
+        legacyPreviewDataURL: String = "",
+        transparentBackground: Bool = false,
+        toolbarAtTop: Bool = false,
+        controller: PencilDrawingController? = nil,
+        onClose: (() -> Void)? = nil
+    ) {
+        _encodedData = encodedData
+        self.legacyPreviewDataURL = legacyPreviewDataURL
+        self.transparentBackground = transparentBackground
+        self.toolbarAtTop = toolbarAtTop
+        self.onClose = onClose
+        _controller = StateObject(wrappedValue: controller ?? PencilDrawingController())
+    }
 
     var body: some View {
         Group {
             if #available(iOS 17.5, *) {
                 editorContent
                     .onPencilSqueeze { phase in
-                        if case .ended(_) = phase { toggleEraser() }
+                        if case .ended(_) = phase {
+                            controller.toggleEraser()
+                            eraserLocation = nil
+                        }
                     }
             } else {
                 editorContent
             }
+        }
+        .onChange(of: controller.eraser) { _, enabled in
+            if !enabled { eraserLocation = nil }
         }
     }
 
@@ -45,20 +108,13 @@ struct NativePencilDrawingEditor: View {
 
     private var floatingEditor: some View {
         canvas
-            .overlay(alignment: .topTrailing) {
-                operationControls
-                    .padding(.top, 10)
-                    .padding(.trailing, 12)
-            }
-            .overlay {
-                GeometryReader { proxy in
-                    penSettingsControl
-                        .position(
-                            x: proxy.size.width / 2,
-                            y: max(108, min(proxy.size.height * 0.32, 280))
-                        )
+            .overlay(alignment: .bottom) {
+                if controller.showSettings {
+                    penSettingsPanel
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
+            .animation(.easeInOut(duration: 0.20), value: controller.showSettings)
             .overlay { clearConfirmation }
     }
 
@@ -107,18 +163,18 @@ struct NativePencilDrawingEditor: View {
             }
             PencilCanvasRepresentable(
                 encodedData: $encodedData,
-                color: color,
-                width: width,
-                eraser: eraser,
+                color: controller.color,
+                width: controller.width,
+                eraser: controller.eraser,
                 scrollEnabled: !transparentBackground,
                 eraserLocation: $eraserLocation,
-                action: $action
+                action: $controller.action
             )
             .contentShape(Rectangle())
             .allowsHitTesting(true)
             .zIndex(1)
 
-            if eraser, let eraserLocation {
+            if controller.eraser, let eraserLocation {
                 Circle()
                     .fill(Color.white.opacity(0.18))
                     .overlay(Circle().stroke(Color.primary.opacity(0.62), lineWidth: 1.2))
@@ -132,64 +188,57 @@ struct NativePencilDrawingEditor: View {
         .frame(minHeight: 260)
     }
 
-    private var operationControls: some View {
-        HStack(spacing: 7) {
-            if let onClose {
-                toolButton("xmark", active: false, accessibilityLabel: "退出涂鸦", action: onClose)
+    private var penSettingsPanel: some View {
+        VStack(spacing: 18) {
+            HStack {
+                Text("画笔调节")
+                    .font(.system(size: 15, weight: .semibold))
+                Spacer()
+                Button("取消") {
+                    withAnimation(.easeInOut(duration: 0.20)) {
+                        controller.showSettings = false
+                    }
+                }
+                .font(AppTheme.inputFont)
             }
-            toolButton(eraser ? "eraser.fill" : "eraser", active: eraser, accessibilityLabel: "橡皮擦") {
-                toggleEraser()
-            }
-            toolButton("arrow.uturn.backward", active: false, accessibilityLabel: "撤销") {
-                action = PencilAction(kind: .undo)
-            }
-            toolButton("trash", active: false, accessibilityLabel: "清空涂鸦") {
-                showClearConfirmation = true
-            }
-        }
-        .padding(6)
-        .background(.ultraThinMaterial, in: Capsule())
-    }
 
-    private var penSettingsControl: some View {
-        HStack(spacing: 10) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.16)) { showPenSettings.toggle() }
-            } label: {
-                Image(systemName: showPenSettings ? "slider.horizontal.3" : "paintpalette")
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 36, height: 34)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(showPenSettings ? "收起画笔调节" : "展开画笔调节")
-
-            if showPenSettings {
+            HStack(spacing: 18) {
                 ForEach([UIColor.black, .systemRed, .systemBlue, .systemGreen], id: \.description) { value in
-                    Button { selectPen(color: value) } label: {
+                    Button {
+                        controller.selectPen(color: value)
+                        eraserLocation = nil
+                    } label: {
                         Circle()
                             .fill(Color(uiColor: value))
-                            .frame(width: 23, height: 23)
+                            .frame(width: 34, height: 34)
                             .overlay(
                                 Circle()
-                                    .stroke(!eraser && color == value ? AppTheme.accent : .clear, lineWidth: 2.5)
+                                    .stroke(
+                                        !controller.eraser && controller.color == value ? AppTheme.accent : Color.primary.opacity(0.10),
+                                        lineWidth: !controller.eraser && controller.color == value ? 3 : 1
+                                    )
                                     .padding(-3)
                             )
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("选择画笔颜色")
                 }
-                Picker("粗细", selection: penWidthBinding) {
-                    Text("细").tag(CGFloat(2))
-                    Text("中").tag(CGFloat(4))
-                    Text("粗").tag(CGFloat(8))
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 120)
             }
+
+            Picker("粗细", selection: penWidthBinding) {
+                Text("细").tag(CGFloat(2))
+                Text("中").tag(CGFloat(4))
+                Text("粗").tag(CGFloat(8))
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 310)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(.ultraThinMaterial, in: Capsule())
+        .padding(.horizontal, 28)
+        .padding(.top, 18)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity)
+        .background(.regularMaterial, in: UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24))
+        .shadow(color: Color.black.opacity(0.10), radius: 18, y: -4)
     }
 
     private var toolStrip: some View {
@@ -197,11 +246,14 @@ struct NativePencilDrawingEditor: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach([UIColor.black, .systemRed, .systemBlue, .systemGreen], id: \.description) { value in
-                        Button { selectPen(color: value) } label: {
+                        Button {
+                            controller.selectPen(color: value)
+                            eraserLocation = nil
+                        } label: {
                             Circle().fill(Color(uiColor: value)).frame(width: 23, height: 23)
                                 .overlay(
                                     Circle()
-                                        .stroke(!eraser && color == value ? AppTheme.accent : .clear, lineWidth: 2.5)
+                                        .stroke(!controller.eraser && controller.color == value ? AppTheme.accent : .clear, lineWidth: 2.5)
                                         .padding(-3)
                                 )
                         }
@@ -220,14 +272,15 @@ struct NativePencilDrawingEditor: View {
             if let onClose {
                 toolButton("xmark", active: false, accessibilityLabel: "退出涂鸦", action: onClose)
             }
-            toolButton(eraser ? "eraser.fill" : "eraser", active: eraser, accessibilityLabel: "橡皮擦") {
-                toggleEraser()
+            toolButton(controller.eraser ? "eraser.fill" : "eraser", active: controller.eraser, accessibilityLabel: "橡皮擦") {
+                controller.toggleEraser()
+                eraserLocation = nil
             }
             toolButton("arrow.uturn.backward", active: false, accessibilityLabel: "撤销") {
-                action = PencilAction(kind: .undo)
+                controller.undo()
             }
             toolButton("trash", active: false, accessibilityLabel: "清空涂鸦") {
-                showClearConfirmation = true
+                controller.requestClear()
             }
         }
         .padding(.horizontal, 10)
@@ -237,15 +290,15 @@ struct NativePencilDrawingEditor: View {
     }
 
     @ViewBuilder private var clearConfirmation: some View {
-        if showClearConfirmation {
+        if controller.showClearConfirmation {
             NativeDeleteDialog(
                 title: "清空涂鸦",
                 message: "确定清空当前全部笔迹？保存后将无法恢复。",
                 onDelete: {
-                    action = PencilAction(kind: .clear)
-                    showClearConfirmation = false
+                    controller.action = PencilAction(kind: .clear)
+                    controller.showClearConfirmation = false
                 },
-                onCancel: { showClearConfirmation = false }
+                onCancel: { controller.showClearConfirmation = false }
             )
         }
     }
@@ -258,36 +311,13 @@ struct NativePencilDrawingEditor: View {
     }
 
     private var penWidthBinding: Binding<CGFloat> {
-        Binding(get: { width }, set: { value in
-            width = value
-            previousPenWidth = value
-            eraser = false
+        Binding(get: { controller.width }, set: { value in
+            controller.selectWidth(value)
             eraserLocation = nil
         })
     }
 
-    private var eraserCursorDiameter: CGFloat { max(28, width * 5) }
-
-    private func selectPen(color value: UIColor) {
-        color = value
-        previousPenColor = value
-        previousPenWidth = width
-        eraser = false
-        eraserLocation = nil
-    }
-
-    private func toggleEraser() {
-        if eraser {
-            color = previousPenColor
-            width = previousPenWidth
-            eraser = false
-            eraserLocation = nil
-        } else {
-            previousPenColor = color
-            previousPenWidth = width
-            eraser = true
-        }
-    }
+    private var eraserCursorDiameter: CGFloat { max(28, controller.width * 5) }
 
     private func toolButton(
         _ image: String,

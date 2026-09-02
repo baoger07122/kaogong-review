@@ -13,6 +13,7 @@ struct LibraryRecordDetailView: View {
     @State private var showDelete = false
     @State private var showDoodle = false
     @State private var drawingData = ""
+    @StateObject private var doodleController = PencilDrawingController()
 
     private var object: [String: Any] { record.jsonObject ?? [:] }
     private var snapshot: LibraryRecordSnapshot { LibraryRecordSnapshot(record: record) }
@@ -47,6 +48,7 @@ struct LibraryRecordDetailView: View {
                     legacyPreviewDataURL: drawingData.isEmpty ? (firstText(["drawingPreview", "doodle", "drawingDataURL"]) ?? "") : "",
                     transparentBackground: true,
                     toolbarAtTop: false,
+                    controller: doodleController,
                     onClose: closeDoodle
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -70,7 +72,28 @@ struct LibraryRecordDetailView: View {
         .preference(key: RootBottomBarHiddenPreferenceKey.self, value: true)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
-            if !showDoodle {
+            if showDoodle {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    doodleToolbarButton("xmark", label: "退出涂鸦", action: closeDoodle)
+                    doodleToolbarButton(
+                        doodleController.eraser ? "eraser.fill" : "eraser",
+                        label: "橡皮擦",
+                        active: doodleController.eraser,
+                        action: doodleController.toggleEraser
+                    )
+                    doodleToolbarButton("arrow.uturn.backward", label: "撤销", action: doodleController.undo)
+                    doodleToolbarButton("trash", label: "清空涂鸦", action: doodleController.requestClear)
+                    doodleToolbarButton(
+                        "paintpalette",
+                        label: doodleController.showSettings ? "收起画笔调节" : "展开画笔调节",
+                        active: doodleController.showSettings
+                    ) {
+                        withAnimation(.easeInOut(duration: 0.20)) {
+                            doodleController.showSettings.toggle()
+                        }
+                    }
+                }
+            } else {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
                         .accessibilityLabel("涂鸦")
@@ -100,6 +123,23 @@ struct LibraryRecordDetailView: View {
             metadataLine("错因", values: textValues(["errorCause", "cause", "reason"]))
             metadataLine("思维误区", values: textValues(["pitfall", "misconception", "thinkingTrap"]))
         }
+    }
+
+    private func doodleToolbarButton(
+        _ systemImage: String,
+        label: String,
+        active: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(active ? Color.white : Color.primary)
+                .frame(width: 32, height: 32)
+                .background(active ? AppTheme.accent : Color.primary.opacity(0.08), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     @ViewBuilder private var imagesBlock: some View {
@@ -371,10 +411,12 @@ struct LibraryRecordDetailView: View {
 
     private func openDoodle() {
         drawingData = firstText(["pencilKitData", "drawingData"]) ?? ""
+        doodleController.prepareForPresentation()
         withAnimation(.easeInOut(duration: 0.18)) { showDoodle = true }
     }
     private func closeDoodle() {
         saveDrawing()
+        doodleController.showSettings = false
         withAnimation(.easeInOut(duration: 0.18)) { showDoodle = false }
     }
     private func saveDrawing() {
