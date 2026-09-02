@@ -127,7 +127,7 @@ struct LibraryRecordSnapshot: Identifiable {
 
     init(record: StoredRecord) {
         self.record = record
-        let object = record.jsonObject ?? [:]
+        let object = record.indexObject ?? [:]
         title = Self.firstText(in: object, keys: ["title", "question", "name", "words", "text", "content"])
             .map(Self.plainText) ?? "未命名记录"
         summary = Self.firstText(

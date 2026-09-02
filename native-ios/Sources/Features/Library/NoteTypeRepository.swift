@@ -113,7 +113,7 @@ enum NoteTypeRepository {
         let object: [String: Any] = ["key": recordID, "value": ["legacy": legacyObject, "contexts": contextsObject]]
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         if let record = records.first(where: { $0.collection == "keyvalue" && $0.recordID == recordID }) {
-            record.payload = payload
+            record.replacePayload(payload)
             record.updatedAt = .now
         } else {
             context.insert(StoredRecord(collection: "keyvalue", recordID: recordID, payload: payload, updatedAt: .now))
@@ -126,7 +126,7 @@ enum NoteTypeRepository {
     }
 
     private static func update(record: StoredRecord, object: [String: Any]) throws {
-        record.payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        record.replacePayload(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
         record.updatedAt = .now
     }
 

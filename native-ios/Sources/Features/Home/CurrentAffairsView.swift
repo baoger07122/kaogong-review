@@ -172,7 +172,7 @@ struct CurrentAffairsView: View {
         object["updatedAt"] = iso(now)
         guard let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return }
         if let existing {
-            existing.payload = payload
+            existing.replacePayload(payload)
             existing.subject = "常识判断"
             existing.module = draftModule
             existing.updatedAt = now

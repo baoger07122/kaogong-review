@@ -16,7 +16,9 @@ private struct SubjectDuration: Identifiable {
 }
 
 struct StudyReportView: View {
-    @Query private var records: [StoredRecord]
+    @Query(filter: #Predicate<StoredRecord> { record in
+        record.collection == "errors" || record.collection == "notes" || record.collection == "todos"
+    }) private var records: [StoredRecord]
     @State private var period: StudyReportPeriod = .day
 
     private var todos: [HomeTodo] { HomeRecordRepository.todos(from: records) }
@@ -96,8 +98,8 @@ struct StudyReportView: View {
             Text("错题统计").font(AppTheme.cardTitleFont)
             HStack {
                 reportMetric("本期新增", value: newErrors.count)
-                reportMetric("待掌握", value: errors.filter { ($0.jsonObject?["status"] as? String) == "未掌握" }.count)
-                reportMetric("已掌握", value: errors.filter { ($0.jsonObject?["status"] as? String) == "已掌握" }.count)
+                reportMetric("待掌握", value: errors.filter { ($0.indexObject?["status"] as? String) == "未掌握" }.count)
+                reportMetric("已掌握", value: errors.filter { ($0.indexObject?["status"] as? String) == "已掌握" }.count)
                 reportMetric("总错题", value: errors.count)
             }
         }

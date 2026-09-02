@@ -206,7 +206,7 @@ struct LibraryRecordDetailView: View {
         if !preview.isEmpty { updated["drawingPreview"] = preview; updated["doodle"] = preview }
         updated["updatedAt"] = ISO8601DateFormatter().string(from: .now)
         guard let payload = try? JSONSerialization.data(withJSONObject: updated, options: [.sortedKeys]) else { return }
-        record.payload = payload
+        record.replacePayload(payload)
         record.updatedAt = .now
         try? modelContext.save()
     }

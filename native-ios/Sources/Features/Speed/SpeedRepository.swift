@@ -33,7 +33,7 @@ enum SpeedRepository {
         let object: [String: Any] = ["key": key, "value": foundation]
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         if let record = records.first(where: { $0.collection == "keyvalue" && $0.recordID == key }) {
-            record.payload = payload
+            record.replacePayload(payload)
             record.updatedAt = .now
         } else {
             context.insert(StoredRecord(collection: "keyvalue", recordID: key, payload: payload, updatedAt: .now))

@@ -89,7 +89,7 @@ enum HomeErrorStatsRepository {
                 predicate: #Predicate { $0.collection == "keyvalue" && $0.recordID == recordID }
             )
             if let existing = try context.fetch(cachedDescriptor).first {
-                existing.payload = payload
+                existing.replacePayload(payload)
                 existing.updatedAt = .now
             } else {
                 context.insert(StoredRecord(
@@ -287,7 +287,7 @@ enum HomeRecordRepository {
     ) throws {
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         if let existing {
-            existing.payload = payload
+            existing.replacePayload(payload)
             existing.createdAt = createdAt ?? existing.createdAt
             existing.updatedAt = updatedAt
         } else {

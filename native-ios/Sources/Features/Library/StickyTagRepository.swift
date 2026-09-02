@@ -146,7 +146,7 @@ enum StickyTagRepository {
         let object: [String: Any] = ["key": recordID, "value": ["contexts": contextsObject]]
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         if let record = records.first(where: { $0.collection == "keyvalue" && $0.recordID == recordID }) {
-            record.payload = payload
+            record.replacePayload(payload)
             record.updatedAt = .now
         } else {
             context.insert(StoredRecord(collection: "keyvalue", recordID: recordID, payload: payload, updatedAt: .now))
@@ -174,7 +174,7 @@ enum StickyTagRepository {
             guard object["tag"] as? String == oldName else { continue }
             object["tag"] = newName
             object["updatedAt"] = ISO8601DateFormatter().string(from: .now)
-            record.payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            record.replacePayload(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
             record.updatedAt = .now
         }
     }

@@ -152,7 +152,7 @@ final class CloudSyncCoordinator: ObservableObject {
         let createdAt = parseDate(object["createdAt"]?.stringValue)
         let updatedAt = parseDate(object["updatedAt"]?.stringValue)
         if let existing {
-            existing.payload = payload
+            existing.replacePayload(payload)
             existing.subject = subject
             existing.module = module
             existing.createdAt = createdAt

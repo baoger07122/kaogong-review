@@ -69,7 +69,7 @@ enum TagLibraryRepository {
         let object: [String: Any] = ["key": kind.recordID, "value": library]
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         if let record = records.first(where: { $0.collection == "keyvalue" && $0.recordID == kind.recordID }) {
-            record.payload = payload
+            record.replacePayload(payload)
             record.updatedAt = .now
         } else {
             context.insert(StoredRecord(collection: "keyvalue", recordID: kind.recordID, payload: payload, updatedAt: .now))
@@ -103,7 +103,7 @@ enum TagLibraryRepository {
                 changed = true
             }
             if changed {
-                record.payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+                record.replacePayload(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
                 record.updatedAt = .now
             }
         }

@@ -278,7 +278,7 @@ enum LibraryRecordRepository {
 
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         if let existing {
-            existing.payload = payload
+            existing.replacePayload(payload)
             existing.subject = draft.subject
             existing.module = draft.module
             existing.updatedAt = now
@@ -396,7 +396,7 @@ enum LibraryRecordRepository {
         if include { values.insert(linkedID) } else { values.remove(linkedID) }
         object[key] = Array(values).sorted()
         object["updatedAt"] = iso(.now)
-        record.payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        record.replacePayload(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
         record.updatedAt = .now
     }
 

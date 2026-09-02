@@ -5,8 +5,8 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.apiClient) private var apiClient
-    @Query private var records: [StoredRecord]
     @StateObject private var importer = LegacyBackupImportCoordinator()
+    @State private var recordCount = 0
     @State private var showImporter = false
     @State private var showExporter = false
     @State private var exportDocument: BackupJSONDocument?
@@ -68,7 +68,7 @@ struct SettingsView: View {
                     settingsDivider
                     settingsActionRow("清除全部本地数据", image: "trash", color: AppTheme.danger, destructive: true) { showClearData = true }
                     settingsDivider
-                    settingsValueRow("原生数据库记录", value: "\(records.count)", image: "externaldrive")
+                    settingsValueRow("原生数据库记录", value: "\(recordCount)", image: "externaldrive")
                     backupStatusMessages
                 }
 
@@ -122,6 +122,8 @@ struct SettingsView: View {
         }
         .background(AppTheme.groupedBackground)
         .toolbar(.hidden, for: .navigationBar)
+        .task { refreshRecordCount() }
+        .onChange(of: importer.summary) { _, _ in refreshRecordCount() }
         .overlay {
             if showClearData {
                 NativeDeleteDialog(
@@ -258,6 +260,7 @@ struct SettingsView: View {
 
     private func prepareExport() {
         do {
+            let records = try modelContext.fetch(FetchDescriptor<StoredRecord>())
             exportDocument = try LegacyBackupExporter.makeDocument(records: records)
             exportMessage = nil
             showExporter = true
@@ -298,6 +301,7 @@ struct SettingsView: View {
 
     private func checkBackupIntegrity() {
         do {
+            let records = try modelContext.fetch(FetchDescriptor<StoredRecord>())
             integrityReport = try LocalBackupIntegrityChecker.check(records: records)
             integrityError = nil
         } catch {
@@ -334,6 +338,7 @@ struct SettingsView: View {
 
     private func clearAllLocalData() {
         do {
+            let records = try modelContext.fetch(FetchDescriptor<StoredRecord>())
             records.forEach(modelContext.delete)
             try modelContext.save()
             try? KeychainTokenStore().delete()
@@ -341,11 +346,16 @@ struct SettingsView: View {
                 UserDefaults.standard.removeObject(forKey: key)
             }
             clearMessage = "本机数据已清除"
+            recordCount = 0
         } catch {
             modelContext.rollback()
             clearMessage = "清除失败：\(error.localizedDescription)"
         }
         showClearData = false
+    }
+
+    private func refreshRecordCount() {
+        recordCount = (try? modelContext.fetchCount(FetchDescriptor<StoredRecord>())) ?? 0
     }
 
     private var lastBackupText: String {

@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 enum OneTimeLocalDataReset {
-    static let markerKey = "native.recoveryReset.9.2.4"
+    static let markerKey = "native.recoveryReset.9.2.5"
 
     static func runIfNeeded(in container: ModelContainer) throws {
         let defaults = UserDefaults.standard

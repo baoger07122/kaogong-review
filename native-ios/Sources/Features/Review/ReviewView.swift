@@ -21,7 +21,7 @@ private struct ReviewModuleStat: Identifiable {
 struct ReviewView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
-    @Query private var records: [StoredRecord]
+    @Query(filter: #Predicate<StoredRecord> { record in record.collection == "errors" }) private var records: [StoredRecord]
     @State private var queueIDs: [String] = []
     @State private var index = 0
     @State private var answer: ReviewAnswer?
@@ -31,7 +31,7 @@ struct ReviewView: View {
     private var errors: [StoredRecord] { records.filter { $0.collection == "errors" } }
     private var due: [StoredRecord] {
         errors.filter {
-            let object = $0.jsonObject ?? [:]
+            let object = $0.indexObject ?? [:]
             guard (object["status"] as? String) == "未掌握" else { return false }
             let date = parseDate(object["lastReviewDate"]) ?? $0.createdAt ?? .distantPast
             return Calendar.current.dateComponents([.day], from: date, to: .now).day ?? 0 >= 3
@@ -66,7 +66,7 @@ struct ReviewView: View {
                 HStack(spacing: 10) {
                     overview("待复习", due.count, due.isEmpty ? "暂无到期错题" : "超过3天未复习")
                     overview("本轮题量", reviewPool.count, "可按科目开始")
-                    overview("已掌握", errors.filter { ($0.jsonObject?["status"] as? String) == "已掌握" }.count, "历史累计")
+                    overview("已掌握", errors.filter { ($0.indexObject?["status"] as? String) == "已掌握" }.count, "历史累计")
                 }
                 Text(due.isEmpty ? (errors.isEmpty ? "还没有可复习的错题" : "当前没有到期错题，先展示全部历史错题") : "优先显示超过3天未复习的错题")
                     .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
@@ -136,7 +136,7 @@ struct ReviewView: View {
                 module: module,
                 total: all.count,
                 inPool: pool.count,
-                mastered: all.filter { ($0.jsonObject?["status"] as? String) == "已掌握" }.count
+                mastered: all.filter { ($0.indexObject?["status"] as? String) == "已掌握" }.count
             )
         }
         .sorted { $0.subject == $1.subject ? $0.module < $1.module : $0.subject < $1.subject }
@@ -239,14 +239,14 @@ struct ReviewView: View {
         let correct = !correctOption.isEmpty && selected == correctOption
         object["userOption"] = selected; object["reviewCount"] = ((object["reviewCount"] as? NSNumber)?.intValue ?? 0) + 1
         object["lastReviewDate"] = ISO8601DateFormatter().string(from: .now); object["updatedAt"] = ISO8601DateFormatter().string(from: .now); object["status"] = correct ? "已掌握" : "未掌握"
-        if let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) { record.payload = payload; record.updatedAt = .now; try? modelContext.save() }
+        if let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) { record.replacePayload(payload); record.updatedAt = .now; try? modelContext.save() }
         UINotificationFeedbackGenerator().notificationOccurred(correct ? .success : .error); answer = ReviewAnswer(selected: selected, correct: correct)
     }
     private func optionBackground(letter: String, correct: String) -> Color {
         guard let answer else { return AppTheme.secondaryBackground }; if letter == correct { return AppTheme.success.opacity(0.10) }; if letter == answer.selected { return AppTheme.danger.opacity(0.10) }; return AppTheme.secondaryBackground
     }
     private func reviewDate(_ record: StoredRecord) -> Date {
-        parseDate(record.jsonObject?["lastReviewDate"]) ?? record.createdAt ?? .distantPast
+        parseDate(record.indexObject?["lastReviewDate"]) ?? record.createdAt ?? .distantPast
     }
     private func parseDate(_ value: Any?) -> Date? {
         if let number = value as? NSNumber {

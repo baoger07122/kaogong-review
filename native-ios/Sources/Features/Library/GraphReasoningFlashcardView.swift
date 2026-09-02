@@ -152,7 +152,7 @@ struct GraphReasoningFlashcardView: View {
         object["updatedAt"] = now
         object["status"] = correct ? "已掌握" : "未掌握"
         guard let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return }
-        snapshot.record.payload = payload
+        snapshot.record.replacePayload(payload)
         snapshot.record.updatedAt = .now
         try? modelContext.save()
         submittedAnswer = answer

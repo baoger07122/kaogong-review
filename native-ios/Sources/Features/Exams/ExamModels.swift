@@ -52,7 +52,7 @@ enum ExamRepository {
         object["totalAccuracy"] = Int(draft.totalAccuracy) ?? 0; object["totalTime"] = Int(draft.totalTime) ?? 0; object["targetScore"] = Int(draft.targetScore) ?? 0
         object["reviewNote"] = draft.reviewNote; object["linkedErrorIds"] = Array(draft.linkedErrorIDs); object["updatedAt"] = ISO8601DateFormatter().string(from: now)
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-        if let existing { existing.payload = payload; existing.updatedAt = now }
+        if let existing { existing.replacePayload(payload); existing.updatedAt = now }
         else { context.insert(StoredRecord(collection: "exams", recordID: id, payload: payload, createdAt: now, updatedAt: now)) }
 
         for error in records where error.collection == "errors" {
@@ -62,7 +62,7 @@ enum ExamRepository {
             guard linked || currentlyLinked else { continue }
             if linked { errorObject["sourceExamId"] = id } else { errorObject.removeValue(forKey: "sourceExamId") }
             errorObject["updatedAt"] = ISO8601DateFormatter().string(from: now)
-            error.payload = try JSONSerialization.data(withJSONObject: errorObject, options: [.sortedKeys]); error.updatedAt = now
+            error.replacePayload(try JSONSerialization.data(withJSONObject: errorObject, options: [.sortedKeys])); error.updatedAt = now
         }
         try context.save()
     }
@@ -72,7 +72,7 @@ enum ExamRepository {
         for error in records where error.collection == "errors" {
             var object = error.jsonObject ?? [:]
             guard object["sourceExamId"] as? String == id else { continue }
-            object.removeValue(forKey: "sourceExamId"); error.payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]); error.updatedAt = .now
+            object.removeValue(forKey: "sourceExamId"); error.replacePayload(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])); error.updatedAt = .now
         }
         try context.save()
     }
