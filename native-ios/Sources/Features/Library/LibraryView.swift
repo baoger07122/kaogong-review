@@ -4,7 +4,13 @@ import SwiftUI
 
 struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query private var records: [StoredRecord]
+    @Query(filter: #Predicate<StoredRecord> { record in
+        record.collection == "errors"
+            || record.collection == "notes"
+            || record.collection == "stickies"
+            || record.collection == "words"
+            || record.collection == "keyvalue"
+    }) private var records: [StoredRecord]
     @State private var scope = LibraryScope()
     @State private var expandedSubject: String?
     @State private var kind: LibraryContentKind = .errors
@@ -21,6 +27,7 @@ struct LibraryView: View {
     @State private var showSearch = false
     @State private var wordCategory: WordCategory = .idiomDefinition
     @State private var wordSentiment = ""
+    @State private var renderLimit = 40
 
     var body: some View {
         GeometryReader { proxy in
@@ -117,6 +124,15 @@ struct LibraryView: View {
                             hiddenTags: kind == .notes && !selectedTag.isEmpty ? [selectedTag] : []
                         )
                     }
+                    if hasMoreRecords {
+                        Button {
+                            renderLimit += 40
+                        } label: {
+                            Label("加载更多", systemImage: "arrow.down.circle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(NativeSecondaryButtonStyle())
+                    }
                 }
                 .padding(14)
             }
@@ -170,6 +186,7 @@ struct LibraryView: View {
                         withAnimation(.easeInOut(duration: 0.16)) { kind = value }
                         selectedStatus = ""
                         selectedTag = ""
+                        renderLimit = 40
                     } label: {
                         Text(value.rawValue)
                             .font(.system(size: 12, weight: .semibold))
@@ -270,44 +287,30 @@ struct LibraryView: View {
     }
 
     private var snapshots: [LibraryRecordSnapshot] {
-        scopedRecords.map(LibraryRecordSnapshot.init)
+        Array(sortedScopedRecords.prefix(renderLimit)).map(LibraryRecordSnapshot.init)
     }
+
+    private var sortedScopedRecords: [StoredRecord] {
+        scopedRecords.sorted { left, right in
+            if kind == .stickies {
+                return (left.updatedAt ?? left.createdAt ?? .distantPast) > (right.updatedAt ?? right.createdAt ?? .distantPast)
+            }
+            return (left.updatedAt ?? left.createdAt ?? .distantPast) > (right.updatedAt ?? right.createdAt ?? .distantPast)
+        }
+    }
+
+    private var hasMoreRecords: Bool { renderLimit < scopedRecords.count }
 
     private var displayedRecords: [LibraryRecordSnapshot] {
         let keyword = normalizedSearch(searchText)
         return snapshots.filter { snapshot in
-            let matchesSearch = keyword.isEmpty || normalizedSearch(searchableText(for: snapshot.record)).contains(keyword)
+            let matchesSearch = keyword.isEmpty || normalizedSearch(snapshot.searchableText).contains(keyword)
             let matchesStatus = selectedStatus.isEmpty || snapshot.status == selectedStatus
             let matchesTag = selectedTag.isEmpty || snapshot.tags.contains(selectedTag)
-            let object = snapshot.record.jsonObject ?? [:]
-            let recordCategory = (object["category"] as? String) ?? (object["type"] as? String) ?? WordCategory.idiomDefinition.rawValue
-            let matchesWordCategory = kind != .words || recordCategory == wordCategory.rawValue
-            let matchesWordSentiment = kind != .words || wordSentiment.isEmpty || (object["sentiment"] as? String) == wordSentiment
+            let matchesWordCategory = kind != .words || snapshot.category == wordCategory.rawValue
+            let matchesWordSentiment = kind != .words || wordSentiment.isEmpty || snapshot.sentiment == wordSentiment
             return matchesSearch && matchesStatus && matchesTag && matchesWordCategory && matchesWordSentiment
         }
-        .sorted { left, right in
-            if kind == .stickies, left.isPinned != right.isPinned { return left.isPinned }
-            if kind == .stickies { return (left.createdAt ?? .distantPast) > (right.createdAt ?? .distantPast) }
-            return (left.record.updatedAt ?? left.createdAt ?? .distantPast) > (right.record.updatedAt ?? right.createdAt ?? .distantPast)
-        }
-    }
-
-    private func searchableText(for record: StoredRecord) -> String {
-        let object = record.jsonObject ?? [:]
-        let snapshot = LibraryRecordSnapshot(record: record)
-        var values = [snapshot.title, snapshot.summary]
-        if kind == .words {
-            values.append(contentsOf: ["pinyin", "meaning", "example", "compareNote", "myUnderstanding", "collocations", "pos"]
-                .compactMap { object[$0] as? String })
-            if let terms = object["compareWords"] as? [[String: Any]] {
-                values.append(contentsOf: terms.flatMap {
-                    [$0["name"] as? String, $0["meaning"] as? String].compactMap { $0 }
-                })
-            }
-        } else {
-            values.append(contentsOf: snapshot.tags)
-        }
-        return values.joined(separator: "\n")
     }
 
     private func normalizedSearch(_ value: String) -> String {
@@ -478,6 +481,7 @@ struct LibraryView: View {
         selectedTag = ""
         wordSentiment = ""
         detailTarget = nil
+        renderLimit = 40
         if kind == .words && !scope.isLogicFill { kind = .notes }
     }
 

@@ -45,6 +45,77 @@ struct HomeCountdown: Identifiable, Hashable {
     var date: Date
 }
 
+struct HomeErrorStats: Codable, Equatable, Sendable {
+    var total: Int
+    var unmastered: Int
+    var weekNew: Int
+
+    static let empty = HomeErrorStats(total: 0, unmastered: 0, weekNew: 0)
+}
+
+enum HomeErrorStatsRepository {
+    static let recordID = "native.home.errorStats"
+
+    static func cached(from records: [StoredRecord]) -> HomeErrorStats? {
+        guard
+            let record = records.first(where: { $0.collection == "keyvalue" && $0.recordID == recordID }),
+            let value = record.jsonObject?["value"]
+        else { return nil }
+        guard JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value)
+        else { return nil }
+        return try? JSONDecoder().decode(HomeErrorStats.self, from: data)
+    }
+
+    static func rebuild(in container: ModelContainer) async throws -> HomeErrorStats {
+        try await Task.detached(priority: .utility) {
+            let context = ModelContext(container)
+            context.autosaveEnabled = false
+            let descriptor = FetchDescriptor<StoredRecord>(
+                predicate: #Predicate { $0.collection == "errors" }
+            )
+            let errors = try context.fetch(descriptor)
+            let stats = calculate(from: errors)
+            let value: [String: Any] = [
+                "total": stats.total,
+                "unmastered": stats.unmastered,
+                "weekNew": stats.weekNew
+            ]
+            let payload = try JSONSerialization.data(withJSONObject: [
+                "key": recordID,
+                "value": value
+            ], options: [.sortedKeys])
+            let cachedDescriptor = FetchDescriptor<StoredRecord>(
+                predicate: #Predicate { $0.collection == "keyvalue" && $0.recordID == recordID }
+            )
+            if let existing = try context.fetch(cachedDescriptor).first {
+                existing.payload = payload
+                existing.updatedAt = .now
+            } else {
+                context.insert(StoredRecord(
+                    collection: "keyvalue",
+                    recordID: recordID,
+                    payload: payload,
+                    updatedAt: .now
+                ))
+            }
+            try context.save()
+            return stats
+        }.value
+    }
+
+    static func calculate(from records: [StoredRecord], now: Date = .now) -> HomeErrorStats {
+        let weekInterval = Calendar.current.dateInterval(of: .weekOfYear, for: now)
+        var unmastered = 0
+        var weekNew = 0
+        for record in records where record.collection == "errors" {
+            if (record.jsonObject?["status"] as? String) != "已掌握" { unmastered += 1 }
+            if let createdAt = record.createdAt, weekInterval?.contains(createdAt) == true { weekNew += 1 }
+        }
+        return HomeErrorStats(total: records.lazy.filter { $0.collection == "errors" }.count, unmastered: unmastered, weekNew: weekNew)
+    }
+}
+
 struct HomeTodoType: Identifiable, Hashable {
     let key: String
     let title: String

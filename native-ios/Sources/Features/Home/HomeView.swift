@@ -12,7 +12,6 @@ struct HomeView: View {
     @Query(filter: #Predicate<StoredRecord> { record in
         record.collection == "todos"
             || record.collection == "stickies"
-            || record.collection == "errors"
             || record.collection == "keyvalue"
     }) private var records: [StoredRecord]
 
@@ -31,6 +30,8 @@ struct HomeView: View {
     @State private var stickyColorDraft = "#FFFFFF"
     @State private var stickyPinnedDraft = false
     @State private var stickyFormatSelection = ""
+    @State private var errorStats: HomeErrorStats?
+    @State private var didRequestErrorStats = false
 
     private var todos: [HomeTodo] { HomeRecordRepository.todos(from: records) }
     private var stickies: [HomeSticky] { HomeRecordRepository.stickies(from: records) }
@@ -51,6 +52,7 @@ struct HomeView: View {
         }
         .background(Color.white)
         .toolbar(.hidden, for: .navigationBar)
+        .task { await loadErrorStatsIfNeeded() }
         .navigationDestination(for: AppRoute.self) { route in
             HomeShortcutView(route: route)
         }
@@ -446,11 +448,21 @@ struct HomeView: View {
         return Double(completedTodayCount) / Double(todayTodos.count)
     }
     private var unmasteredErrorCount: Int {
-        records.filter { $0.collection == "errors" && ($0.jsonObject?["status"] as? String) == "未掌握" }.count
+        (errorStats ?? HomeErrorStatsRepository.cached(from: records) ?? .empty).unmastered
     }
     private var weekNewErrorCount: Int {
-        guard let interval = Calendar.current.dateInterval(of: .weekOfYear, for: .now) else { return 0 }
-        return records.filter { $0.collection == "errors" && $0.createdAt.map(interval.contains) == true }.count
+        (errorStats ?? HomeErrorStatsRepository.cached(from: records) ?? .empty).weekNew
+    }
+
+    @MainActor
+    private func loadErrorStatsIfNeeded() async {
+        guard !didRequestErrorStats else { return }
+        didRequestErrorStats = true
+        if let cached = HomeErrorStatsRepository.cached(from: records) {
+            errorStats = cached
+            return
+        }
+        errorStats = try? await HomeErrorStatsRepository.rebuild(in: modelContext.container)
     }
     private var greeting: String {
         switch Calendar.current.component(.hour, from: .now) {

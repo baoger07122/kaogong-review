@@ -119,6 +119,9 @@ struct LibraryRecordSnapshot: Identifiable {
     let createdAt: Date?
     let colorHex: String?
     let isPinned: Bool
+    let searchableText: String
+    let category: String
+    let sentiment: String
 
     var id: String { record.compoundID }
 
@@ -135,6 +138,8 @@ struct LibraryRecordSnapshot: Identifiable {
         colorHex = Self.firstText(in: object, keys: ["color", "colorHex"])
         isPinned = (object["pinned"] as? Bool) ?? (object["pinned"] as? NSNumber)?.boolValue ?? false
         createdAt = record.createdAt ?? Self.date(in: object, keys: ["createdAt", "date", "updatedAt"])
+        category = Self.firstText(in: object, keys: ["category", "type"]) ?? WordCategory.idiomDefinition.rawValue
+        sentiment = Self.firstText(in: object, keys: ["sentiment"]) ?? ""
 
         var values: [String] = []
         if let type = Self.firstText(in: object, keys: ["type", "category", "errorCause"]) { values.append(type) }
@@ -142,6 +147,17 @@ struct LibraryRecordSnapshot: Identifiable {
         if let point = Self.firstText(in: object, keys: ["knowledgePoint"]) { values.append(point) }
         var seen = Set<String>()
         tags = Array(values.filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(3))
+
+        var searchValues = [title, summary]
+        searchValues.append(contentsOf: tags)
+        searchValues.append(contentsOf: ["pinyin", "meaning", "example", "compareNote", "myUnderstanding", "collocations", "pos"]
+            .compactMap { object[$0] as? String })
+        if let terms = object["compareWords"] as? [[String: Any]] {
+            searchValues.append(contentsOf: terms.flatMap {
+                [$0["name"] as? String, $0["meaning"] as? String].compactMap { $0 }
+            })
+        }
+        searchableText = searchValues.joined(separator: "\n")
     }
 
     private static func firstText(in object: [String: Any], keys: [String]) -> String? {

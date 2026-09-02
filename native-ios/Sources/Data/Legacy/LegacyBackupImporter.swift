@@ -40,6 +40,7 @@ enum LegacyBackupImportError: LocalizedError {
     case missingVersion
     case invalidCollection(String)
     case missingRecordID(String)
+    case tooManyRecords(Int)
 
     var errorDescription: String? {
         switch self {
@@ -47,6 +48,7 @@ enum LegacyBackupImportError: LocalizedError {
         case .missingVersion: "备份文件缺少有效 version"
         case .invalidCollection(let name): "备份字段 \(name) 不是数组"
         case .missingRecordID(let name): "\(name) 中存在缺少 id 的记录"
+        case .tooManyRecords(let count): "备份包含 \(count) 条记录，超过单次迁移上限"
         }
     }
 }
@@ -91,6 +93,11 @@ enum LegacyBackupImporter {
         try appendKeyValue(root["keyvalue"], drafts: &draftsByID, counts: &counts)
         try appendTopLevelValue(root["countdown"], key: "legacy.countdown", drafts: &draftsByID, counts: &counts)
         try appendTopLevelValue(root["noteTypes"], key: "legacy.noteTypes", drafts: &draftsByID, counts: &counts)
+        try appendHomeErrorStats(drafts: &draftsByID, counts: &counts)
+
+        guard draftsByID.count <= 100_000 else {
+            throw LegacyBackupImportError.tooManyRecords(draftsByID.count)
+        }
 
         return LegacyImportPackage(
             version: versionNumber.intValue,
@@ -118,10 +125,11 @@ enum LegacyBackupImporter {
             guard let key = item["key"] as? String, !key.isEmpty else {
                 throw LegacyBackupImportError.missingRecordID("keyvalue")
             }
+            if key.hasPrefix("auto_backup_") { continue }
             let draft = try makeDraft(collection: "keyvalue", id: key, object: item)
             drafts[draft.compoundID] = draft
         }
-        counts["keyvalue", default: 0] += items.count
+        counts["keyvalue", default: 0] = drafts.values.lazy.filter { $0.collection == "keyvalue" }.count
     }
 
     private static func appendTopLevelValue(
@@ -138,6 +146,7 @@ enum LegacyBackupImporter {
     }
 
     private static func makeDraft(collection: String, id: String, object: [String: Any]) throws -> LegacyRecordDraft {
+        let object = normalizedObject(object, collection: collection, id: id)
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         return LegacyRecordDraft(
             collection: collection,
@@ -145,16 +154,87 @@ enum LegacyBackupImporter {
             payload: payload,
             subject: object["subject"] as? String,
             module: object["module"] as? String,
-            createdAt: parseDate(object["createdAt"] as? String),
-            updatedAt: parseDate(object["updatedAt"] as? String)
+            createdAt: parseDate(object["createdAt"]),
+            updatedAt: parseDate(object["updatedAt"])
         )
     }
 
-    private static func parseDate(_ value: String?) -> Date? {
-        guard let value else { return nil }
+    private static func appendHomeErrorStats(
+        drafts: inout [String: LegacyRecordDraft],
+        counts: inout [String: Int]
+    ) throws {
+        let errors = drafts.values.filter { $0.collection == "errors" }
+        let week = Calendar.current.dateInterval(of: .weekOfYear, for: .now)
+        var unmastered = 0
+        var weekNew = 0
+        for draft in errors {
+            let object = (try? JSONSerialization.jsonObject(with: draft.payload)) as? [String: Any]
+            if (object?["status"] as? String) != "已掌握" { unmastered += 1 }
+            if let createdAt = draft.createdAt, week?.contains(createdAt) == true { weekNew += 1 }
+        }
+        let key = "native.home.errorStats"
+        let object: [String: Any] = [
+            "key": key,
+            "value": ["total": errors.count, "unmastered": unmastered, "weekNew": weekNew]
+        ]
+        let draft = try makeDraft(collection: "keyvalue", id: key, object: object)
+        drafts[draft.compoundID] = draft
+        counts["keyvalue", default: 0] = drafts.values.lazy.filter { $0.collection == "keyvalue" }.count
+    }
+
+    private static func normalizedObject(_ source: [String: Any], collection: String, id: String) -> [String: Any] {
+        var object = source
+        object["id"] = object["id"] ?? id
+
+        if collection == "errors" {
+            if let subject = trimmedString(object["subject"]) { object["subject"] = subject }
+            if let module = trimmedString(object["module"]) { object["module"] = module }
+            if let question = object["question"] as? String { object["question"] = normalizedRichText(question) }
+            if let note = object["note"] as? String { object["note"] = normalizedRichText(note) }
+
+            let points: [String]
+            if let values = object["knowledgePoints"] as? [String] {
+                points = values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            } else if let value = trimmedString(object["knowledgePoint"]) {
+                points = [value]
+            } else {
+                points = []
+            }
+            object["knowledgePoints"] = Array(points.prefix(20))
+            object["knowledgePoint"] = points.first ?? ""
+            object["errorCause"] = trimmedString(object["errorCause"]) ?? "待复盘"
+            object["status"] = (object["status"] as? String) == "已掌握" ? "已掌握" : "未掌握"
+            object["reviewCount"] = (object["reviewCount"] as? NSNumber)?.intValue ?? 0
+        }
+
+        return object
+    }
+
+    private static func normalizedRichText(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "<style[\\s\\S]*?</style>", with: "", options: [.regularExpression, .caseInsensitive])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func trimmedString(_ value: Any?) -> String? {
+        guard let value = value as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func parseDate(_ value: Any?) -> Date? {
+        if let number = value as? NSNumber {
+            let raw = number.doubleValue
+            return Date(timeIntervalSince1970: raw > 10_000_000_000 ? raw / 1_000 : raw)
+        }
+        guard let value = value as? String else { return nil }
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+        if let date = fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value) { return date }
+        let day = DateFormatter()
+        day.locale = Locale(identifier: "en_US_POSIX")
+        day.dateFormat = "yyyy-MM-dd"
+        return day.date(from: value)
     }
 }
 
