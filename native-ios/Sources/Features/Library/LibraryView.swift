@@ -38,15 +38,13 @@ struct LibraryView: View {
         }
         .background(AppTheme.groupedBackground)
         .toolbar(.hidden, for: .navigationBar)
-        .sheet(item: $editorTarget) { target in
-            NavigationStack {
-                LibraryRecordEditorView(
-                    kind: target.kind,
-                    scope: scope,
-                    record: records.first { $0.collection == target.kind.collection && $0.recordID == target.recordID },
-                    preferredType: target.recordID == nil ? (target.kind == .words ? wordCategory.rawValue : selectedTag) : ""
-                )
-            }
+        .navigationDestination(item: $editorTarget) { target in
+            LibraryRecordEditorView(
+                kind: target.kind,
+                scope: scope,
+                record: records.first { $0.collection == target.kind.collection && $0.recordID == target.recordID },
+                preferredType: target.recordID == nil ? (target.kind == .words ? wordCategory.rawValue : selectedTag) : ""
+            )
         }
         .navigationDestination(item: $detailTarget) { target in
             if let record = records.first(where: { $0.collection == target.kind.collection && $0.recordID == target.recordID }) {
@@ -138,7 +136,7 @@ struct LibraryView: View {
                 .buttonStyle(NativePressButtonStyle())
                 .accessibilityLabel("新增\(kind.rawValue)")
                 .padding(.trailing, 18)
-                .padding(.bottom, 18)
+                .padding(.bottom, 72)
             }
         }
     }
@@ -535,7 +533,7 @@ struct LibraryView: View {
     }
 }
 
-private struct LibraryEditorTarget: Identifiable {
+private struct LibraryEditorTarget: Identifiable, Hashable {
     let kind: LibraryContentKind
     let recordID: String?
     var id: String { "\(kind.rawValue):\(recordID ?? "new")" }

@@ -61,6 +61,7 @@ struct LibraryRecordEditorView: View {
         .background(AppTheme.groupedBackground)
         .navigationTitle(recordID == nil ? "新增\(kind.rawValue)" : "编辑\(kind.rawValue)")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("保存", action: save).disabled(!canSave)

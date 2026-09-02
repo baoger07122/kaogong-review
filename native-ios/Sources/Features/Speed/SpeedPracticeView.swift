@@ -19,6 +19,7 @@ struct SpeedPracticeView: View {
     @State private var showAnswer = false
     @State private var didLoad = false
     @State private var showSettings = false
+    @State private var showCustomSettings = false
 
     private var history: [SpeedRecord] { SpeedRepository.history(from: records).sorted { $0.date > $1.date } }
     private var historyGroups: [(date: Date, records: [SpeedRecord])] {
@@ -73,6 +74,7 @@ struct SpeedPracticeView: View {
             }
         }
         .sheet(isPresented: $showSettings) { practiceSettingsSheet }
+        .sheet(isPresented: $showCustomSettings) { customPracticeSheet }
         .task {
             guard !didLoad else { return }
             didLoad = true
@@ -142,38 +144,39 @@ struct SpeedPracticeView: View {
         .background(Color(uiColor: .systemGroupedBackground))
     }
 
-    private func typeGrid(_ values: [SpeedTypeKey]) -> some View {
+    private func typeGrid(_ values: [SpeedTypeKey], includesCustomPractice: Bool = false) -> some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
             ForEach(values) { type in
                 Button {
                     settings.selectedType = type
+                    settings.useCustomPractice = false
                     if type.isAvailable { settings.customTypes = [type] }
                     persistSettings()
                 } label: {
                     HStack(spacing: 9) {
                         Text(typeSymbol(type))
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
                             .foregroundStyle(settings.selectedType == type ? Color.white : AppTheme.accent)
-                            .frame(width: 36, height: 36)
+                            .frame(width: 30, height: 30)
                             .background(
                                 settings.selectedType == type ? AppTheme.accent : AppTheme.accent.opacity(0.09),
                                 in: RoundedRectangle(cornerRadius: 10, style: .continuous)
                             )
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(type.name).font(.system(size: 13, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.82)
+                            Text(type.name).font(.system(size: 12, weight: .medium)).lineLimit(1).minimumScaleFactor(0.82)
                             Text(typeSubtitle(type))
-                                .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                                .font(.system(size: 9, weight: .regular)).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 0)
                     }
-                    .padding(6)
-                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                    .padding(9)
+                    .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
                     .background(
                         settings.selectedType == type ? AppTheme.accent.opacity(0.10) : Color(red: 0.973, green: 0.98, blue: 1),
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
                     )
                     .overlay {
-                        RoundedRectangle(cornerRadius: 14)
+                        RoundedRectangle(cornerRadius: 12)
                             .stroke(settings.selectedType == type ? AppTheme.accent : AppTheme.accent.opacity(0.16), lineWidth: settings.selectedType == type ? 1.2 : 0.7)
                     }
                     .shadow(color: settings.selectedType == type ? AppTheme.accent.opacity(0.18) : .clear, radius: 6, y: 2)
@@ -181,6 +184,7 @@ struct SpeedPracticeView: View {
                 .buttonStyle(.plain)
                 .disabled(!type.isAvailable)
             }
+            if includesCustomPractice { customPracticeCard }
         }
     }
 
@@ -198,22 +202,21 @@ struct SpeedPracticeView: View {
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                 Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(.tertiary)
             }
-            typeGrid(values)
-            if includesCustomPractice { customTypes }
+            typeGrid(values, includesCustomPractice: includesCustomPractice)
         }
-        .padding(10)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.055), lineWidth: 0.7) }
+        .padding(12)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.045), lineWidth: 0.6) }
     }
 
     private func speedActionChip(_ title: String, image: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: image)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 10)
-                .frame(height: 32)
-                .background(Color.primary.opacity(0.05), in: Capsule())
+                .padding(.horizontal, 13)
+                .frame(height: 34)
+                .background(Color(red: 0.96, green: 0.96, blue: 0.97), in: Capsule())
         }
         .buttonStyle(NativePressButtonStyle())
     }
@@ -252,8 +255,41 @@ struct SpeedPracticeView: View {
         return "合格 \(Int(pass))s"
     }
 
-    private var customTypes: some View {
-        DisclosureGroup("自定义练习 · 可多选题型") {
+    private var customPracticeCard: some View {
+        Button {
+            settings.useCustomPractice = true
+            persistSettings()
+            showCustomSettings = true
+        } label: {
+            HStack(spacing: 9) {
+                Text("+")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(settings.useCustomPractice == true ? Color.white : AppTheme.accent)
+                    .frame(width: 30, height: 30)
+                    .background(settings.useCustomPractice == true ? AppTheme.accent : AppTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 9))
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 4) {
+                        Text("自定义练习").font(.system(size: 12, weight: .medium))
+                        Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold)).foregroundStyle(.secondary)
+                    }
+                    Text("自选题型组合").font(.system(size: 9)).foregroundStyle(AppTheme.accent)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(9)
+            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+            .background(settings.useCustomPractice == true ? AppTheme.accent.opacity(0.10) : Color(red: 0.973, green: 0.98, blue: 1), in: RoundedRectangle(cornerRadius: 12))
+            .overlay { RoundedRectangle(cornerRadius: 12).stroke(settings.useCustomPractice == true ? AppTheme.accent : AppTheme.accent.opacity(0.16), lineWidth: 0.8) }
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var customPracticeSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("选择题型（可多选）").font(.system(size: 14, weight: .medium))
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 7)], spacing: 7) {
                 ForEach(SpeedTypeKey.allCases.filter(\.isAvailable)) { type in
                     Button {
@@ -272,7 +308,7 @@ struct SpeedPracticeView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.top, 10)
+                    .padding(.top, 4)
 
             Divider().padding(.vertical, 8)
             HStack {
@@ -326,10 +362,20 @@ struct SpeedPracticeView: View {
                     .font(AppTheme.auxiliaryFont)
                     .foregroundStyle(.secondary)
             }
+                }
+                .font(AppTheme.bodyFont)
+                .padding(16)
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("自定义练习")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { settings.useCustomPractice = true; persistSettings(); showCustomSettings = false }
+                }
+            }
         }
-        .font(AppTheme.bodyFont)
-        .padding(10)
-        .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
+        .presentationDetents([.medium, .large])
     }
 
     private var settingsCard: some View {
@@ -385,6 +431,7 @@ struct SpeedPracticeView: View {
     }
 
     private var practice: some View {
+        GeometryReader { geometry in
         VStack(spacing: 0) {
             if questions.indices.contains(index) {
                 let question = questions[index]
@@ -392,7 +439,7 @@ struct SpeedPracticeView: View {
                     HStack {
                         Text("\(index + 1)/\(questions.count)")
                         Spacer()
-                        Button { showAnswer.toggle() } label: { Image(systemName: showAnswer ? "eye.slash" : "eye") }
+                        Image(systemName: "pencil.and.scribble")
                         Spacer()
                         Button("重开", action: start)
                         Spacer()
@@ -401,29 +448,27 @@ struct SpeedPracticeView: View {
                                 .monospacedDigit()
                         }
                     }
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(AppTheme.accent)
-                    .padding(.horizontal, 16)
-                    .frame(height: 34)
+                    .padding(.horizontal, 20)
+                    .frame(height: 52)
                     Divider()
 
-                    Spacer(minLength: 16)
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Spacer(minLength: 12)
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Text(question.expression)
-                        Text(currentInput.isEmpty ? "___" : currentInput)
-                            .foregroundStyle(currentInput.isEmpty ? Color.secondary.opacity(0.45) : AppTheme.accent)
+                        Text("=")
+                        Text(currentInput.isEmpty ? "" : currentInput)
+                            .foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.22))
+                            .frame(minWidth: 44)
+                            .overlay(alignment: .bottom) { Rectangle().fill(Color.secondary.opacity(0.45)).frame(height: 2.5).offset(y: 5) }
                     }
-                    .font(.system(size: 38, weight: .regular, design: .rounded).monospacedDigit())
+                    .font(.system(size: 42, weight: .regular).monospacedDigit())
                     .minimumScaleFactor(0.65)
                     .lineLimit(1)
-
-                    if showAnswer {
-                        Text("参考答案：\(SpeedQuestionEngine.answerText(question.answer))")
-                            .font(AppTheme.bodyFont).foregroundStyle(AppTheme.warning)
-                    }
-                    Spacer(minLength: 16)
+                    Spacer(minLength: 12)
                     if settings.useScreenKeyboard {
-                        numberPad
+                        numberPad(height: min(max(geometry.size.height * 0.42, 280), 340))
                     } else {
                         TextField("答案", text: $currentInput)
                             .keyboardType(.decimalPad)
@@ -435,37 +480,40 @@ struct SpeedPracticeView: View {
                 .frame(maxHeight: .infinity)
             }
         }
+        }
     }
 
-    private var numberPad: some View {
-        HStack(spacing: 2) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 3), spacing: 2) {
+    private func numberPad(height: CGFloat) -> some View {
+        HStack(spacing: 7) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 3), spacing: 7) {
                 ForEach(["1", "2", "3", "4", "5", "6", "7", "8", "9", "±", "0", "."], id: \.self) { key in
                     Button { key == "±" ? currentInput.toggleSign() : pressKey(key) } label: {
-                        Text(key).font(.system(size: 20, weight: .regular, design: .rounded))
-                            .frame(maxWidth: .infinity).frame(height: 56)
-                            .background(Color(uiColor: .secondarySystemGroupedBackground))
+                        Text(key).font(.system(size: 24, weight: .regular))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color(red: 0.953, green: 0.957, blue: 0.965), in: RoundedRectangle(cornerRadius: 14))
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(NativePressButtonStyle())
+                    .buttonStyle(SpeedKeyButtonStyle())
                 }
             }
-            VStack(spacing: 2) {
+            VStack(spacing: 7) {
                 keypadAction("C") { currentInput = "" }
                 keypadAction("delete.backward") { pressKey("⌫") }
                 Button(action: submit) {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 24, weight: .semibold))
+                        .font(.system(size: 24, weight: .bold))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .foregroundStyle(.white)
-                        .background(AppTheme.accent)
+                        .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 14))
                 }
-                .buttonStyle(NativePressButtonStyle())
+                .buttonStyle(SpeedKeyButtonStyle())
                 .disabled(Double(currentInput) == nil)
             }
-            .frame(width: 92)
+            .frame(width: max(82, UIScreen.main.bounds.width * 0.22))
         }
-        .frame(height: 230)
+        .padding(12)
+        .frame(height: height)
+        .background(Color.white)
     }
 
     private func keypadAction(_ value: String, action: @escaping () -> Void) -> some View {
@@ -473,59 +521,67 @@ struct SpeedPracticeView: View {
             Group {
                 if value.contains(".") { Image(systemName: value) } else { Text(value) }
             }
-            .font(.system(size: 18, weight: .medium))
-            .frame(maxWidth: .infinity, minHeight: 56)
+            .font(.system(size: 20, weight: .semibold))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .foregroundStyle(.white)
-            .background(AppTheme.accent)
+            .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 14))
         }
-        .buttonStyle(NativePressButtonStyle())
+        .buttonStyle(SpeedKeyButtonStyle())
     }
 
     private var result: some View {
         ScrollView {
-            VStack(spacing: 16) {
-                Image(systemName: "checkmark.seal.fill").font(.system(size: 54)).foregroundStyle(AppTheme.accent)
-                Text("本轮练习完成").font(AppTheme.pageTitleFont)
+            VStack(spacing: 14) {
                 Text(resultStandardText)
-                    .font(AppTheme.auxiliaryFont)
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                HStack(spacing: 10) {
-                    resultMetric("正确", value: "\(correctCount)/\(questions.count)")
-                    resultMetric("正确率", value: questions.isEmpty ? "0%" : "\(Int(Double(correctCount) / Double(questions.count) * 100))%")
-                    resultMetric("用时", value: timeText(totalTime))
-                }
-                VStack(spacing: 8) {
-                    ForEach(questions) { question in
-                        HStack {
-                            Image(systemName: question.isCorrect == true ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .foregroundStyle(question.isCorrect == true ? AppTheme.success : AppTheme.danger)
-                            Text(question.expression).font(AppTheme.bodyFont)
-                            Spacer()
-                            VStack(alignment: .trailing, spacing: 3) {
-                                Text("\(question.input) / \(SpeedQuestionEngine.answerText(question.answer))")
-                                    .font(AppTheme.auxiliaryFont.monospacedDigit()).foregroundStyle(.secondary)
-                                HStack(spacing: 7) {
-                                    Text(errorText(for: question))
-                                    Text(String(format: "%.1fs", question.timeUsed))
-                                    Text(rating(for: question).rawValue)
-                                        .foregroundStyle(ratingColor(for: question))
-                                }
-                                .font(AppTheme.auxiliaryFont.monospacedDigit())
-                            }
-                        }
-                        .padding(12)
-                        .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 12))
+                Text(activeTypes.count > 1 ? "自定义练习" : (questions.first?.type.name ?? "速算练习"))
+                    .font(.system(size: 24, weight: .semibold))
+                Text("本次练习用时：\(timeText(totalTime))")
+                    .font(.system(size: 14)).foregroundStyle(.secondary)
+                VStack(spacing: 0) {
+                    resultRow(number: "#", question: "题目", correct: "正确答案", input: "你的答案", error: "误差", time: "用时", header: true)
+                    ForEach(Array(questions.enumerated()), id: \.element.id) { offset, question in
+                        resultRow(
+                            number: "\(offset + 1)",
+                            question: question.expression,
+                            correct: SpeedQuestionEngine.answerText(question.answer),
+                            input: question.input,
+                            error: errorText(for: question).replacingOccurrences(of: "误差 ", with: ""),
+                            time: String(format: "%.1fs", question.timeUsed),
+                            header: false
+                        )
                     }
                 }
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+                .overlay { RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.06), lineWidth: 0.7) }
                 HStack(spacing: 10) {
-                    Button("再练一次") { start() }.buttonStyle(NativePrimaryButtonStyle())
-                    Button("返回题型") { screen = .home }.buttonStyle(NativeSecondaryButtonStyle())
+                    Button("重来") { start() }.buttonStyle(NativeSecondaryButtonStyle())
+                    Button("复练") { start() }.buttonStyle(NativeSecondaryButtonStyle())
+                    Button("返回") { screen = .home }.buttonStyle(NativePrimaryButtonStyle())
                 }
             }
-            .padding(20)
+            .padding(22)
+            .frame(maxWidth: 980)
+            .frame(maxWidth: .infinity)
         }
         .task { saveResultIfNeeded() }
+    }
+
+    private func resultRow(number: String, question: String, correct: String, input: String, error: String, time: String, header: Bool) -> some View {
+        HStack(spacing: 6) {
+            Text(number).frame(width: 34)
+            Text(question).frame(maxWidth: .infinity, alignment: .leading)
+            Text(correct).frame(width: 100)
+            Text(input).frame(width: 92).foregroundStyle(header ? Color.primary : AppTheme.accent)
+            Text(error).frame(width: 72).foregroundStyle(header ? Color.primary : AppTheme.success)
+            Text(time).frame(width: 58)
+        }
+        .font(.system(size: header ? 13 : 14, weight: header ? .medium : .regular).monospacedDigit())
+        .padding(.horizontal, 12)
+        .frame(minHeight: header ? 44 : 54)
+        .background(header ? Color(uiColor: .secondarySystemGroupedBackground) : Color.white)
+        .overlay(alignment: .bottom) { Divider() }
     }
 
     private var historyView: some View {
@@ -653,19 +709,19 @@ struct SpeedPracticeView: View {
 
     private var activeTypes: [SpeedTypeKey] {
         let custom = settings.customTypes.filter(\.isAvailable)
-        return custom.count > 1 ? custom : (settings.selectedType.isAvailable ? [settings.selectedType] : [])
+        return settings.useCustomPractice == true ? custom : (settings.selectedType.isAvailable ? [settings.selectedType] : [])
     }
 
     private var canStart: Bool {
-        guard settings.selectedType != .dataReal, !activeTypes.isEmpty else { return false }
+        guard (settings.useCustomPractice == true || settings.selectedType != .dataReal), !activeTypes.isEmpty else { return false }
         if settings.customNumberMode == .fixed { return !selectedFixedNumbers.isEmpty }
         return true
     }
 
     private var startButtonTitle: String {
-        if settings.selectedType == .dataReal { return "该题型尚未开放" }
+        if settings.useCustomPractice != true, settings.selectedType == .dataReal { return "该题型尚未开放" }
         if settings.customNumberMode == .fixed, selectedFixedNumbers.isEmpty { return "请先选择固定数字" }
-        return "开始练习"
+        return settings.useCustomPractice == true ? "开始自定义练习" : "开始练习"
     }
 
     private var memoBinding: Binding<String> {
@@ -846,6 +902,16 @@ struct SpeedPracticeView: View {
 
     private func timeText(_ seconds: Double) -> String {
         String(format: "%02d:%02d", Int(seconds) / 60, Int(seconds) % 60)
+    }
+}
+
+private struct SpeedKeyButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.93 : 1)
+            .offset(y: configuration.isPressed ? 1 : 0)
+            .brightness(configuration.isPressed ? 0.04 : 0)
+            .animation(.spring(response: 0.18, dampingFraction: 0.68), value: configuration.isPressed)
     }
 }
 

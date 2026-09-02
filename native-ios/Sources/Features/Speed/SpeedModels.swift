@@ -89,6 +89,7 @@ struct SpeedSettings: Codable, Equatable {
     var soundEnabled: Bool? = true
     var selectedType: SpeedTypeKey = .addsub2
     var customTypes: [SpeedTypeKey] = [.addsub2]
+    var useCustomPractice: Bool?
     var customNumberMode: SpeedCustomNumberMode?
     var customFixedNumbers: [Int]?
     var customRangeMinimum: Int?

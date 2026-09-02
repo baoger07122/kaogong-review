@@ -8,26 +8,34 @@ private struct PencilAction { let id = UUID(); let kind: PencilActionKind }
 struct NativePencilDrawingEditor: View {
     @Binding var encodedData: String
     var legacyPreviewDataURL = ""
+    var transparentBackground = false
+    var toolbarAtTop = false
+    var onClose: (() -> Void)?
     @State private var color = UIColor.black
     @State private var width: CGFloat = 4
     @State private var eraser = false
+    @State private var previousPenColor = UIColor.black
+    @State private var previousPenWidth: CGFloat = 4
     @State private var action: PencilAction?
     @State private var showClearConfirmation = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            ZStack {
-                Color.white
-                if let legacyImage {
-                    Image(uiImage: legacyImage)
-                        .resizable()
-                        .scaledToFit()
-                        .padding(8)
-                        .accessibilityLabel("Web 旧涂鸦底图")
-                }
-                PencilCanvasRepresentable(encodedData: $encodedData, color: color, width: width, eraser: eraser, action: $action)
+        Group {
+            if #available(iOS 17.5, *) {
+                editorContent
+                    .onPencilSqueeze { phase in
+                        if case .ended(_) = phase { toggleEraser() }
+                    }
+            } else {
+                editorContent
             }
-            .frame(minHeight: 260)
+        }
+    }
+
+    private var editorContent: some View {
+        VStack(spacing: 0) {
+            if toolbarAtTop { toolStrip; Divider() }
+            canvas
             if legacyImage != nil {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
@@ -40,28 +48,14 @@ struct NativePencilDrawingEditor: View {
                 .padding(.vertical, 7)
                 .background(Color.primary.opacity(0.035))
             }
-            Divider()
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach([UIColor.black, .systemRed, .systemBlue, .systemGreen], id: \.description) { value in
-                        Button { color = value; eraser = false } label: {
-                            Circle().fill(Color(uiColor: value)).frame(width: 23, height: 23)
-                                .overlay(Circle().stroke(!eraser && color == value ? AppTheme.accent : .clear, lineWidth: 2.5).padding(-3))
-                        }.buttonStyle(.plain)
-                    }
-                    Picker("粗细", selection: $width) {
-                        Text("细").tag(CGFloat(2)); Text("中").tag(CGFloat(4)); Text("粗").tag(CGFloat(8))
-                    }.pickerStyle(.segmented).frame(width: 120)
-                    toolButton(eraser ? "eraser.fill" : "eraser") { eraser.toggle() }
-                    toolButton("arrow.uturn.backward") { action = PencilAction(kind: .undo) }
-                    toolButton("arrow.uturn.forward") { action = PencilAction(kind: .redo) }
-                    toolButton("scope") { action = PencilAction(kind: .resetViewport) }
-                    toolButton("trash") { showClearConfirmation = true }
-                }.padding(8)
+            if !toolbarAtTop { Divider(); toolStrip }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: transparentBackground ? 0 : AppTheme.controlRadius))
+        .overlay {
+            if !transparentBackground {
+                RoundedRectangle(cornerRadius: AppTheme.controlRadius).stroke(Color.primary.opacity(0.08), lineWidth: 0.7)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: AppTheme.controlRadius))
-        .overlay(RoundedRectangle(cornerRadius: AppTheme.controlRadius).stroke(Color.primary.opacity(0.08), lineWidth: 0.7))
         .overlay {
             if showClearConfirmation {
                 NativeDeleteDialog(
@@ -77,6 +71,44 @@ struct NativePencilDrawingEditor: View {
         }
     }
 
+    private var canvas: some View {
+        ZStack {
+            if !transparentBackground { Color.white }
+            if let legacyImage {
+                Image(uiImage: legacyImage)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(8)
+                    .accessibilityLabel("Web 旧涂鸦底图")
+            }
+            PencilCanvasRepresentable(encodedData: $encodedData, color: color, width: width, eraser: eraser, action: $action)
+        }
+        .frame(minHeight: 260)
+    }
+
+    private var toolStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if let onClose { toolButton("xmark", active: false, action: onClose) }
+                ForEach([UIColor.black, .systemRed, .systemBlue, .systemGreen], id: \.description) { value in
+                    Button { selectPen(color: value) } label: {
+                        Circle().fill(Color(uiColor: value)).frame(width: 23, height: 23)
+                            .overlay(Circle().stroke(!eraser && color == value ? AppTheme.accent : .clear, lineWidth: 2.5).padding(-3))
+                    }.buttonStyle(.plain)
+                }
+                Picker("粗细", selection: penWidthBinding) {
+                    Text("细").tag(CGFloat(2)); Text("中").tag(CGFloat(4)); Text("粗").tag(CGFloat(8))
+                }.pickerStyle(.segmented).frame(width: 120)
+                toolButton(eraser ? "eraser.fill" : "eraser", active: eraser) { toggleEraser() }
+                toolButton("arrow.uturn.backward", active: false) { action = PencilAction(kind: .undo) }
+                toolButton("arrow.uturn.forward", active: false) { action = PencilAction(kind: .redo) }
+                toolButton("scope", active: false) { action = PencilAction(kind: .resetViewport) }
+                toolButton("trash", active: false) { showClearConfirmation = true }
+            }.padding(8)
+        }
+        .background(.ultraThinMaterial)
+    }
+
     private var legacyImage: UIImage? {
         guard let marker = legacyPreviewDataURL.range(of: "base64,") else { return nil }
         let encoded = String(legacyPreviewDataURL[marker.upperBound...])
@@ -84,8 +116,38 @@ struct NativePencilDrawingEditor: View {
         return UIImage(data: data)
     }
 
-    private func toolButton(_ image: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: image).font(.system(size: 13, weight: .semibold)).frame(width: 32, height: 29).background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8)) }.buttonStyle(.plain)
+    private var penWidthBinding: Binding<CGFloat> {
+        Binding(get: { width }, set: { value in width = value; previousPenWidth = value; eraser = false })
+    }
+
+    private func selectPen(color value: UIColor) {
+        color = value
+        previousPenColor = value
+        previousPenWidth = width
+        eraser = false
+    }
+
+    private func toggleEraser() {
+        if eraser {
+            color = previousPenColor
+            width = previousPenWidth
+            eraser = false
+        } else {
+            previousPenColor = color
+            previousPenWidth = width
+            eraser = true
+        }
+    }
+
+    private func toolButton(_ image: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: image)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(active ? Color.white : Color.primary)
+                .frame(width: 36, height: 34)
+                .background(active ? AppTheme.accent : Color.primary.opacity(0.07), in: Circle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

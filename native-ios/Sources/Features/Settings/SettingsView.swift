@@ -133,14 +133,12 @@ struct SettingsView: View {
                 )
             }
         }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json, .plainText, .data], allowsMultipleSelection: false) { result in
-            switch result {
-            case .success(let urls):
-                guard let url = urls.first else { return }
-                stageImportFile(from: url)
-            case .failure(let error):
-                importer.reportError(error)
-            }
+        .sheet(isPresented: $showImporter) {
+            BackupDocumentPicker(
+                onPick: { url in showImporter = false; stageImportFile(from: url) },
+                onCancel: { showImporter = false }
+            )
+            .ignoresSafeArea()
         }
         .fileExporter(
             isPresented: $showExporter,
