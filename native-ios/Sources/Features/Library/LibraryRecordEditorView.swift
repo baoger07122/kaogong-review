@@ -989,7 +989,7 @@ private enum ErrorQuestionParser {
         let specificLabels = labels.filter { $0 != "答案" }
         if !specificLabels.isEmpty {
             let labelPattern = specificLabels.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|")
-            let pattern = "(?:\(labelPattern\))\\s*[：:]?\\s*([A-D])"
+            let pattern = "(?:\(labelPattern))\\s*[：:]?\\s*([A-D])"
             if let expression = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
                let match = expression.firstMatch(in: source, range: range), match.numberOfRanges > 1 {
                 return nsSource.substring(with: match.range(at: 1)).uppercased()
