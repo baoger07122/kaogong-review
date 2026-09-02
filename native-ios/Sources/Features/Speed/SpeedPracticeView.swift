@@ -524,7 +524,7 @@ struct SpeedPracticeView: View {
         let contentWidth = max(width - 24, 280)
         let actionWidth = max(contentWidth * 0.22, 76)
         let numberWidth = max(contentWidth - actionWidth - 7, 190)
-        HStack(spacing: 7) {
+        return HStack(spacing: 7) {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 3), spacing: 7) {
                 ForEach(["1", "2", "3", "4", "5", "6", "7", "8", "9", "±", "0", "."], id: \.self) { key in
                     Button { key == "±" ? currentInput.toggleSign() : pressKey(key) } label: {
