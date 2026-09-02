@@ -257,8 +257,7 @@ struct SpeedPracticeView: View {
 
     private var customPracticeCard: some View {
         Button {
-            settings.useCustomPractice = true
-            persistSettings()
+            if settings.customNumberMode == nil || settings.customNumberMode == .none { settings.customNumberMode = .range }
             showCustomSettings = true
         } label: {
             HStack(spacing: 9) {
@@ -286,96 +285,131 @@ struct SpeedPracticeView: View {
     }
 
     private var customPracticeSheet: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("选择题型（可多选）").font(.system(size: 14, weight: .medium))
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 7)], spacing: 7) {
-                ForEach(SpeedTypeKey.allCases.filter(\.isAvailable)) { type in
-                    Button {
-                        if settings.customTypes.contains(type) {
-                            settings.customTypes.removeAll { $0 == type }
-                        } else {
-                            settings.customTypes.append(type)
-                        }
-                        persistSettings()
-                    } label: {
-                        Label(type.name, systemImage: settings.customTypes.contains(type) ? "checkmark.circle.fill" : "circle")
-                            .font(AppTheme.auxiliaryFont)
-                            .foregroundStyle(settings.customTypes.contains(type) ? AppTheme.accent : Color.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-                    .padding(.top, 4)
-
-            Divider().padding(.vertical, 8)
+        VStack(spacing: 0) {
+            Capsule().fill(Color.secondary.opacity(0.28)).frame(width: 38, height: 5).padding(.top, 8)
             HStack {
-                Text("数字设置").font(AppTheme.bodyFont)
+                Text("自定义练习").font(.system(size: 18, weight: .semibold))
                 Spacer()
-                Picker("数字设置", selection: customNumberModeBinding) {
-                    ForEach(SpeedCustomNumberMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
+                Button { showCustomSettings = false } label: {
+                    Image(systemName: "xmark").font(.system(size: 13, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                        .background(Color.primary.opacity(0.06), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("题型选择").font(.system(size: 16, weight: .semibold))
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                        ForEach(SpeedTypeKey.allCases.filter(\.isAvailable)) { type in
+                            Button {
+                                settings.customTypes = settings.customTypes == [type] ? [] : [type]
+                            } label: {
+                                Text(type.name)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(settings.customTypes == [type] ? Color.white : Color.primary)
+                                    .frame(maxWidth: .infinity).frame(height: 40)
+                                    .background(settings.customTypes == [type] ? AppTheme.accent : Color.white, in: RoundedRectangle(cornerRadius: 10))
+                                    .overlay { RoundedRectangle(cornerRadius: 10).stroke(settings.customTypes == [type] ? AppTheme.accent : Color.primary.opacity(0.09), lineWidth: 0.7) }
+                            }
+                            .buttonStyle(SpeedKeyButtonStyle())
+                        }
+                    }
+
+                    Text("数字设置").font(.system(size: 16, weight: .semibold))
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(spacing: 3) {
+                            customModeButton("数字范围", mode: .range)
+                            customModeButton("固定数字", mode: .fixed)
+                        }
+                        .padding(3)
+                        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+
+                        if settings.customNumberMode == .fixed {
+                            Text("选择一个或多个固定数字").font(.system(size: 13)).foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                ForEach(2...9, id: \.self) { number in
+                                    Button { toggleFixedNumber(number) } label: {
+                                        Text("\(number)").font(.system(size: 16, weight: .medium).monospacedDigit())
+                                            .foregroundStyle(selectedFixedNumbers.contains(number) ? Color.white : Color.primary)
+                                            .frame(maxWidth: .infinity).frame(height: 44)
+                                            .background(selectedFixedNumbers.contains(number) ? AppTheme.accent : Color.white, in: RoundedRectangle(cornerRadius: 10))
+                                            .overlay { RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.09), lineWidth: 0.7) }
+                                    }.buttonStyle(SpeedKeyButtonStyle())
+                                }
+                            }
+                        } else {
+                            Text("在范围内随机出题").font(.system(size: 13)).foregroundStyle(.secondary)
+                            HStack(spacing: 10) {
+                                customRangeField("最小值", value: customRangeMinimumBinding)
+                                Text("～").foregroundStyle(.secondary)
+                                customRangeField("最大值", value: customRangeMaximumBinding)
+                            }
+                        }
+                    }
+                    .padding(16)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+
+                    Text("最近使用").font(.system(size: 16, weight: .semibold))
+                    if let selected = settings.customTypes.first {
+                        Text("\(selected.name) · \(customSettingSummary)")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundStyle(.secondary)
+                            .padding(13)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
                     }
                 }
-                .pickerStyle(.menu)
+                .padding(.horizontal, 16).padding(.bottom, 18)
             }
 
-            switch settings.customNumberMode ?? .none {
-            case .none:
-                Text("保持题型原有数字规则")
-                    .font(AppTheme.auxiliaryFont)
-                    .foregroundStyle(.secondary)
-            case .fixed:
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 9), spacing: 7) {
-                    ForEach(1...9, id: \.self) { number in
-                        Button {
-                            toggleFixedNumber(number)
-                        } label: {
-                            Text("\(number)")
-                                .font(AppTheme.inputFont.monospacedDigit())
-                                .frame(maxWidth: .infinity, minHeight: 32)
-                                .background(
-                                    selectedFixedNumbers.contains(number) ? AppTheme.accent.opacity(0.14) : AppTheme.secondaryBackground,
-                                    in: RoundedRectangle(cornerRadius: 8)
-                                )
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(selectedFixedNumbers.contains(number) ? AppTheme.accent : Color.clear, lineWidth: 1)
-                                }
-                        }
-                        .buttonStyle(.plain)
-                    }
+            HStack(spacing: 12) {
+                Button("取消") { showCustomSettings = false }
+                    .buttonStyle(NativeSecondaryButtonStyle())
+                Button("确定") {
+                    settings.useCustomPractice = true
+                    if settings.customNumberMode == nil || settings.customNumberMode == .none { settings.customNumberMode = .range }
+                    persistSettings()
+                    showCustomSettings = false
                 }
-            case .range:
-                HStack(spacing: 8) {
-                    TextField("最小值", value: customRangeMinimumBinding, format: .number)
-                        .keyboardType(.numberPad)
-                        .textFieldStyle(NativeTextFieldStyle())
-                    Text("至").font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
-                    TextField("最大值", value: customRangeMaximumBinding, format: .number)
-                        .keyboardType(.numberPad)
-                        .textFieldStyle(NativeTextFieldStyle())
-                }
-                Text("范围限制为 1–999；只替换纯四则运算的第二个数字。")
-                    .font(AppTheme.auxiliaryFont)
-                    .foregroundStyle(.secondary)
+                .buttonStyle(NativePrimaryButtonStyle())
+                .disabled(settings.customTypes.isEmpty || (settings.customNumberMode == .fixed && selectedFixedNumbers.isEmpty))
             }
-                }
-                .font(AppTheme.bodyFont)
-                .padding(16)
-            }
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("自定义练习")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { settings.useCustomPractice = true; persistSettings(); showCustomSettings = false }
-                }
-            }
+            .padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 12)
+            .background(.ultraThinMaterial)
         }
-        .presentationDetents([.medium, .large])
+        .background(Color(red: 0.961, green: 0.961, blue: 0.98))
+        .presentationDetents([.large])
+    }
+
+    private func customModeButton(_ title: String, mode: SpeedCustomNumberMode) -> some View {
+        Button {
+            settings.customNumberMode = mode
+        } label: {
+            Text(title).font(.system(size: 14, weight: .medium))
+                .foregroundStyle(settings.customNumberMode == mode ? Color.white : Color.secondary)
+                .padding(.horizontal, 22).frame(height: 34)
+                .background(settings.customNumberMode == mode ? AppTheme.accent : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+        }.buttonStyle(.plain)
+    }
+
+    private func customRangeField(_ title: String, value: Binding<Int>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.system(size: 12)).foregroundStyle(.secondary)
+            TextField(title, value: value, format: .number)
+                .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                .keyboardType(.numberPad).multilineTextAlignment(.center)
+                .frame(height: 44)
+                .background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 10))
+                .overlay { RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.10), lineWidth: 0.8) }
+        }
+    }
+
+    private var customSettingSummary: String {
+        if settings.customNumberMode == .fixed { return "固定数字 \(selectedFixedNumbers.map(String.init).joined(separator: "、"))" }
+        return "数字范围 \(settings.customRangeMinimum ?? 1)–\(settings.customRangeMaximum ?? 99)"
     }
 
     private var settingsCard: some View {
@@ -468,7 +502,10 @@ struct SpeedPracticeView: View {
                     .lineLimit(1)
                     Spacer(minLength: 12)
                     if settings.useScreenKeyboard {
-                        numberPad(height: min(max(geometry.size.height * 0.42, 280), 340))
+                        numberPad(
+                            width: geometry.size.width,
+                            height: min(max(geometry.size.height * 0.42, 280), 340)
+                        )
                     } else {
                         TextField("答案", text: $currentInput)
                             .keyboardType(.decimalPad)
@@ -483,7 +520,10 @@ struct SpeedPracticeView: View {
         }
     }
 
-    private func numberPad(height: CGFloat) -> some View {
+    private func numberPad(width: CGFloat, height: CGFloat) -> some View {
+        let contentWidth = max(width - 24, 280)
+        let actionWidth = max(contentWidth * 0.22, 76)
+        let numberWidth = max(contentWidth - actionWidth - 7, 190)
         HStack(spacing: 7) {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 3), spacing: 7) {
                 ForEach(["1", "2", "3", "4", "5", "6", "7", "8", "9", "±", "0", "."], id: \.self) { key in
@@ -496,6 +536,7 @@ struct SpeedPracticeView: View {
                     .buttonStyle(SpeedKeyButtonStyle())
                 }
             }
+            .frame(width: numberWidth)
             VStack(spacing: 7) {
                 keypadAction("C") { currentInput = "" }
                 keypadAction("delete.backward") { pressKey("⌫") }
@@ -509,10 +550,10 @@ struct SpeedPracticeView: View {
                 .buttonStyle(SpeedKeyButtonStyle())
                 .disabled(Double(currentInput) == nil)
             }
-            .frame(width: max(82, UIScreen.main.bounds.width * 0.22))
+            .frame(width: actionWidth)
         }
         .padding(12)
-        .frame(height: height)
+        .frame(width: width, height: height, alignment: .center)
         .background(Color.white)
     }
 

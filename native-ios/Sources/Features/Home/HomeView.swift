@@ -9,7 +9,12 @@ struct HomeView: View {
     }
 
     @Environment(\.modelContext) private var modelContext
-    @Query private var records: [StoredRecord]
+    @Query(filter: #Predicate<StoredRecord> { record in
+        record.collection == "todos"
+            || record.collection == "stickies"
+            || record.collection == "errors"
+            || record.collection == "keyvalue"
+    }) private var records: [StoredRecord]
 
     @State private var editor: Editor?
     @State private var inlineStickyID: String?

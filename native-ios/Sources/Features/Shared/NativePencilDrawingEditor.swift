@@ -34,7 +34,6 @@ struct NativePencilDrawingEditor: View {
 
     private var editorContent: some View {
         VStack(spacing: 0) {
-            if toolbarAtTop { toolStrip; Divider() }
             canvas
             if legacyImage != nil {
                 HStack(spacing: 6) {
@@ -48,7 +47,8 @@ struct NativePencilDrawingEditor: View {
                 .padding(.vertical, 7)
                 .background(Color.primary.opacity(0.035))
             }
-            if !toolbarAtTop { Divider(); toolStrip }
+            Divider()
+            toolStrip
         }
         .clipShape(RoundedRectangle(cornerRadius: transparentBackground ? 0 : AppTheme.controlRadius))
         .overlay {
@@ -73,7 +73,8 @@ struct NativePencilDrawingEditor: View {
 
     private var canvas: some View {
         ZStack {
-            if !transparentBackground { Color.white }
+            (transparentBackground ? Color.clear : Color.white)
+                .contentShape(Rectangle())
             if let legacyImage {
                 Image(uiImage: legacyImage)
                     .resizable()
@@ -81,15 +82,23 @@ struct NativePencilDrawingEditor: View {
                     .padding(8)
                     .accessibilityLabel("Web 旧涂鸦底图")
             }
-            PencilCanvasRepresentable(encodedData: $encodedData, color: color, width: width, eraser: eraser, action: $action)
+            PencilCanvasRepresentable(
+                encodedData: $encodedData,
+                color: color,
+                width: width,
+                eraser: eraser,
+                scrollEnabled: !transparentBackground,
+                action: $action
+            )
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(minHeight: 260)
     }
 
     private var toolStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                if let onClose { toolButton("xmark", active: false, action: onClose) }
+        HStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
                 ForEach([UIColor.black, .systemRed, .systemBlue, .systemGreen], id: \.description) { value in
                     Button { selectPen(color: value) } label: {
                         Circle().fill(Color(uiColor: value)).frame(width: 23, height: 23)
@@ -99,13 +108,18 @@ struct NativePencilDrawingEditor: View {
                 Picker("粗细", selection: penWidthBinding) {
                     Text("细").tag(CGFloat(2)); Text("中").tag(CGFloat(4)); Text("粗").tag(CGFloat(8))
                 }.pickerStyle(.segmented).frame(width: 120)
-                toolButton(eraser ? "eraser.fill" : "eraser", active: eraser) { toggleEraser() }
-                toolButton("arrow.uturn.backward", active: false) { action = PencilAction(kind: .undo) }
-                toolButton("arrow.uturn.forward", active: false) { action = PencilAction(kind: .redo) }
-                toolButton("scope", active: false) { action = PencilAction(kind: .resetViewport) }
-                toolButton("trash", active: false) { showClearConfirmation = true }
-            }.padding(8)
+                }
+            }
+            Spacer(minLength: 4)
+            if let onClose { toolButton("xmark", active: false, action: onClose) }
+            toolButton(eraser ? "eraser.fill" : "eraser", active: eraser) { toggleEraser() }
+            toolButton("arrow.uturn.backward", active: false) { action = PencilAction(kind: .undo) }
+            toolButton("trash", active: false) { showClearConfirmation = true }
+            toolButton("scope", active: false) { action = PencilAction(kind: .resetViewport) }
         }
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
         .background(.ultraThinMaterial)
     }
 
@@ -156,6 +170,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
     let color: UIColor
     let width: CGFloat
     let eraser: Bool
+    let scrollEnabled: Bool
     @Binding var action: PencilAction?
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -168,8 +183,9 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         canvas.minimumZoomScale = 0.5
         canvas.maximumZoomScale = 3
         canvas.bouncesZoom = true
-        canvas.alwaysBounceHorizontal = true
-        canvas.alwaysBounceVertical = true
+        canvas.isScrollEnabled = scrollEnabled
+        canvas.alwaysBounceHorizontal = scrollEnabled
+        canvas.alwaysBounceVertical = scrollEnabled
         if let data = Data(base64Encoded: encodedData), let drawing = try? PKDrawing(data: data) { canvas.drawing = drawing }
         context.coordinator.lastEncoded = encodedData
         updateTool(canvas)
@@ -177,7 +193,9 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         return canvas
     }
     func updateUIView(_ canvas: PKCanvasView, context: Context) {
+        context.coordinator.parent = self
         updateTool(canvas)
+        canvas.isScrollEnabled = scrollEnabled
         updateViewport(canvas)
         if let action, context.coordinator.lastActionID != action.id {
             context.coordinator.lastActionID = action.id

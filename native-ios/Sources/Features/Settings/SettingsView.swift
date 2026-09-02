@@ -269,7 +269,7 @@ struct SettingsView: View {
     private func stageImportFile(from sourceURL: URL) {
         isStagingImport = true
         importer.clearMessages()
-        Task { @MainActor in
+        Task {
             let hasAccess = sourceURL.startAccessingSecurityScopedResource()
             defer {
                 if hasAccess { sourceURL.stopAccessingSecurityScopedResource() }
@@ -279,14 +279,17 @@ struct SettingsView: View {
                 if sourceURL.isFileURL {
                     try? FileManager.default.startDownloadingUbiquitousItem(at: sourceURL)
                 }
-                var coordinatedError: NSError?
-                var readResult: Result<Data, Error>?
-                NSFileCoordinator().coordinate(readingItemAt: sourceURL, options: .withoutChanges, error: &coordinatedError) { coordinatedURL in
-                    readResult = Result { try Data(contentsOf: coordinatedURL) }
-                }
-                if let coordinatedError { throw coordinatedError }
-                guard let readResult else { throw CocoaError(.fileReadUnknown) }
-                importer.importBackup(data: try readResult.get(), into: modelContext)
+                let data = try await Task.detached(priority: .userInitiated) {
+                    var coordinatedError: NSError?
+                    var readResult: Result<Data, Error>?
+                    NSFileCoordinator().coordinate(readingItemAt: sourceURL, options: .withoutChanges, error: &coordinatedError) { coordinatedURL in
+                        readResult = Result { try Data(contentsOf: coordinatedURL, options: [.mappedIfSafe]) }
+                    }
+                    if let coordinatedError { throw coordinatedError }
+                    guard let readResult else { throw CocoaError(.fileReadUnknown) }
+                    return try readResult.get()
+                }.value
+                importer.importBackup(data: data, container: modelContext.container)
             } catch {
                 importer.reportError(error)
             }

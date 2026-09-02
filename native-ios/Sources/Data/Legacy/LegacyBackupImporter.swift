@@ -2,7 +2,7 @@ import Combine
 import Foundation
 import SwiftData
 
-struct LegacyRecordDraft {
+struct LegacyRecordDraft: @unchecked Sendable {
     let collection: String
     let recordID: String
     let payload: Data
@@ -14,7 +14,7 @@ struct LegacyRecordDraft {
     var compoundID: String { "\(collection):\(recordID)" }
 }
 
-struct LegacyImportPackage {
+struct LegacyImportPackage: @unchecked Sendable {
     let version: Int
     let records: [LegacyRecordDraft]
     let counts: [String: Int]
@@ -158,7 +158,6 @@ enum LegacyBackupImporter {
     }
 }
 
-@MainActor
 enum LegacyBackupRestorer {
     static func replace(
         with package: LegacyImportPackage,
@@ -221,19 +220,26 @@ final class LegacyBackupImportCoordinator: ObservableObject {
         }
     }
 
-    func importBackup(data: Data, into context: ModelContext) {
+    func importBackup(data: Data, container: ModelContainer) {
         isImporting = true
         summary = nil
         errorMessage = nil
-        defer { isImporting = false }
 
-        do {
-            let package = try LegacyBackupImporter.parse(data: data)
-            try LegacyBackupRestorer.replace(with: package, in: context)
-            summary = LegacyImportSummary(version: package.version, total: package.records.count, counts: package.counts)
-        } catch {
-            context.rollback()
-            errorMessage = error.localizedDescription
+        Task {
+            do {
+                let package = try await Task.detached(priority: .userInitiated) {
+                    try LegacyBackupImporter.parse(data: data)
+                }.value
+                try await Task.detached(priority: .userInitiated) {
+                    let importContext = ModelContext(container)
+                    importContext.autosaveEnabled = false
+                    try LegacyBackupRestorer.replace(with: package, in: importContext)
+                }.value
+                summary = LegacyImportSummary(version: package.version, total: package.records.count, counts: package.counts)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isImporting = false
         }
     }
 }

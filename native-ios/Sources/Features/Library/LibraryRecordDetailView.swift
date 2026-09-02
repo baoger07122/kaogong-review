@@ -45,6 +45,7 @@ struct LibraryRecordDetailView: View {
                     toolbarAtTop: true,
                     onClose: closeDoodle
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea(edges: .bottom)
                 .transition(.opacity)
             }

@@ -40,15 +40,7 @@ struct RootTabView: View {
     @State private var hidesBottomBar = false
 
     var body: some View {
-        ZStack {
-            ForEach(RootTab.allCases) { tab in
-                tabContent(tab)
-                    .opacity(selection == tab ? 1 : 0)
-                    .allowsHitTesting(selection == tab)
-                    .accessibilityHidden(selection != tab)
-                    .zIndex(selection == tab ? 1 : 0)
-            }
-        }
+        tabContent(selection)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !hidesBottomBar { NativeBottomTabBar(selection: $selection) }
         }
