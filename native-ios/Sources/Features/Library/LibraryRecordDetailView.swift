@@ -63,7 +63,7 @@ struct LibraryRecordDetailView: View {
         .toolbar(showDoodle ? .hidden : .visible, for: .navigationBar)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button(openDoodle) { Image(systemName: "pencil.and.scribble") }
+                Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
                     .accessibilityLabel("涂鸦")
                 Menu {
                     Button { showEditor = true } label: { Label("编辑错题", systemImage: "pencil") }
