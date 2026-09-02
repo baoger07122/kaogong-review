@@ -4,6 +4,7 @@ import UIKit
 
 private enum PencilActionKind { case undo, redo, clear }
 private struct PencilAction { let id = UUID(); let kind: PencilActionKind }
+private let pencilBitmapEraserWidth: CGFloat = 28
 
 final class PencilDrawingController: ObservableObject {
     @Published var color = UIColor.black
@@ -317,7 +318,7 @@ struct NativePencilDrawingEditor: View {
         })
     }
 
-    private var eraserCursorDiameter: CGFloat { max(28, controller.width * 5) }
+    private var eraserCursorDiameter: CGFloat { pencilBitmapEraserWidth }
 
     private func toolButton(
         _ image: String,
@@ -426,7 +427,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
 
     private func updateTool(_ canvas: PKCanvasView) {
         canvas.tool = eraser
-            ? PKEraserTool(.vector)
+            ? PKEraserTool(.bitmap, width: pencilBitmapEraserWidth)
             : PKInkingTool(.pen, color: color, width: width)
     }
 
