@@ -343,7 +343,9 @@ App.Pages.SpeedCalc = {
         del.className = 'sc-esttable-row__del';
         del.textContent = '✕';
         del.addEventListener('click', () => {
-          const rows2 = self.loadEstTable().filter((_, j) => j !== i);
+          // 页面按起始数字排序展示，删除时必须使用相同顺序，否则会删掉另一行。
+          const rows2 = self.loadEstTable().slice().sort((a, b) => (a.min || 0) - (b.min || 0));
+          rows2.splice(i, 1);
           self.saveEstTable(rows2);
           renderRows();
         });
@@ -541,6 +543,8 @@ App.Pages.SpeedCalc = {
       b.className = 'sc-numpad__btn' + (k.cls ? ' sc-numpad__btn--' + k.cls : '') + (extraCls || '');
       b.textContent = k.label || k.k;
       b.addEventListener('click', () => press(k.k));
+      // 与普通速算键盘一致：保留按键音效，触感由全局 App.Haptics 统一处理。
+      b.addEventListener('pointerdown', () => this._tapKeySound());
       return b;
     };
     NUM_ROWS.forEach(row => row.forEach(k => grid.appendChild(mkBtn({ k: k, label: k }))));
