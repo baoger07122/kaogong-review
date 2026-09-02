@@ -7,7 +7,9 @@ struct KaogongReviewNativeApp: App {
 
     init() {
         do {
-            modelContainer = try ModelContainer(for: StoredRecord.self)
+            let container = try ModelContainer(for: StoredRecord.self)
+            try OneTimeLocalDataReset.runIfNeeded(in: container)
+            modelContainer = container
         } catch {
             fatalError("无法初始化原生数据库：\(error.localizedDescription)")
         }
