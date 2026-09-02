@@ -34,6 +34,10 @@ struct NativePencilDrawingEditor: View {
 
     private var editorContent: some View {
         VStack(spacing: 0) {
+            if toolbarAtTop {
+                toolStrip
+                Divider()
+            }
             canvas
             if legacyImage != nil {
                 HStack(spacing: 6) {
@@ -47,8 +51,10 @@ struct NativePencilDrawingEditor: View {
                 .padding(.vertical, 7)
                 .background(Color.primary.opacity(0.035))
             }
-            Divider()
-            toolStrip
+            if !toolbarAtTop {
+                Divider()
+                toolStrip
+            }
         }
         .clipShape(RoundedRectangle(cornerRadius: transparentBackground ? 0 : AppTheme.controlRadius))
         .overlay {
@@ -90,6 +96,9 @@ struct NativePencilDrawingEditor: View {
                 scrollEnabled: !transparentBackground,
                 action: $action
             )
+            .contentShape(Rectangle())
+            .allowsHitTesting(true)
+            .zIndex(1)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(minHeight: 260)
@@ -178,30 +187,46 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         let canvas = PKCanvasView()
         canvas.delegate = context.coordinator
         canvas.drawingPolicy = .anyInput
+        canvas.isUserInteractionEnabled = true
+        canvas.drawingGestureRecognizer.isEnabled = true
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
-        canvas.minimumZoomScale = 0.5
-        canvas.maximumZoomScale = 3
+        canvas.contentInsetAdjustmentBehavior = .never
+        canvas.minimumZoomScale = scrollEnabled ? 0.5 : 1
+        canvas.maximumZoomScale = scrollEnabled ? 3 : 1
         canvas.bouncesZoom = true
-        canvas.isScrollEnabled = scrollEnabled
+        canvas.isScrollEnabled = true
+        canvas.panGestureRecognizer.minimumNumberOfTouches = 2
+        canvas.panGestureRecognizer.maximumNumberOfTouches = 2
         canvas.alwaysBounceHorizontal = scrollEnabled
         canvas.alwaysBounceVertical = scrollEnabled
         if let data = Data(base64Encoded: encodedData), let drawing = try? PKDrawing(data: data) { canvas.drawing = drawing }
         context.coordinator.lastEncoded = encodedData
         updateTool(canvas)
         updateViewport(canvas)
+        DispatchQueue.main.async { canvas.becomeFirstResponder() }
         return canvas
     }
     func updateUIView(_ canvas: PKCanvasView, context: Context) {
         context.coordinator.parent = self
         updateTool(canvas)
-        canvas.isScrollEnabled = scrollEnabled
+        canvas.isUserInteractionEnabled = true
+        canvas.drawingGestureRecognizer.isEnabled = true
+        canvas.isScrollEnabled = true
+        canvas.minimumZoomScale = scrollEnabled ? 0.5 : 1
+        canvas.maximumZoomScale = scrollEnabled ? 3 : 1
+        canvas.panGestureRecognizer.minimumNumberOfTouches = 2
+        canvas.panGestureRecognizer.maximumNumberOfTouches = 2
         updateViewport(canvas)
         if let action, context.coordinator.lastActionID != action.id {
             context.coordinator.lastActionID = action.id
             switch action.kind {
-            case .undo: canvas.undoManager?.undo()
-            case .redo: canvas.undoManager?.redo()
+            case .undo:
+                canvas.undoManager?.undo()
+                context.coordinator.publish(canvas)
+            case .redo:
+                canvas.undoManager?.redo()
+                context.coordinator.publish(canvas)
             case .clear: canvas.drawing = PKDrawing(); context.coordinator.publish(canvas)
             case .resetViewport:
                 canvas.setZoomScale(1, animated: true)

@@ -187,6 +187,7 @@ enum LibraryRecordRepository {
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
             object["question"] = draft.title
+            object["type"] = draft.type.isEmpty ? "错题" : draft.type
             object["note"] = draft.content
             object["knowledgePoints"] = knowledgePoints
             object["knowledgePoint"] = knowledgePoints.first ?? ""
@@ -197,6 +198,10 @@ enum LibraryRecordRepository {
             object["userOption"] = draft.userOption
             object["pitfall"] = draft.pitfall
             object["questionSource"] = draft.questionSource
+            let sourceMetadata = QuestionSourceMetadata.parse(draft.questionSource)
+            object["sourceYear"] = sourceMetadata.year.map { $0 as Any } ?? NSNull()
+            object["sourceExamType"] = sourceMetadata.examType.map { $0 as Any } ?? NSNull()
+            object["sourceRegion"] = sourceMetadata.region.map { $0 as Any } ?? NSNull()
             object["accuracy"] = Double(draft.accuracy.replacingOccurrences(of: "%", with: "")) ?? 0
             object["images"] = draft.images
             object["compareGroups"] = draft.compareGroups
@@ -401,4 +406,30 @@ enum LibraryRecordRepository {
     }
 
     private static func iso(_ date: Date) -> String { ISO8601DateFormatter().string(from: date) }
+}
+
+private struct QuestionSourceMetadata {
+    let year: String?
+    let examType: String?
+    let region: String?
+
+    static func parse(_ rawValue: String) -> QuestionSourceMetadata {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let year = firstCapture(#"(20\d{2})"#, in: value)
+        let examType = ["国考", "省考", "联考", "事业单位", "选调生", "三支一扶"]
+            .first(where: value.contains)
+        var region: String?
+        if examType == "省考" {
+            region = firstCapture(#"([\p{Han}]{2,8}?)(?:省)?省考"#, in: value)
+        }
+        return QuestionSourceMetadata(year: year, examType: examType, region: region)
+    }
+
+    private static func firstCapture(_ pattern: String, in value: String) -> String? {
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let nsValue = value as NSString
+        let range = NSRange(location: 0, length: nsValue.length)
+        guard let match = expression.firstMatch(in: value, range: range), match.numberOfRanges > 1 else { return nil }
+        return nsValue.substring(with: match.range(at: 1))
+    }
 }

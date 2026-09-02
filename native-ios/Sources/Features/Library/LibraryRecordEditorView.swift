@@ -24,6 +24,8 @@ struct LibraryRecordEditorView: View {
     @State private var restoredDraft = false
     @State private var linkedEditorTarget: LinkedRecordEditorTarget?
     @State private var splitMessage: String?
+    @State private var showSmartSplit = false
+    @State private var smartSplitDraft = ""
 
     init(kind: LibraryContentKind, scope: LibraryScope, record: StoredRecord? = nil, preferredType: String = "") {
         self.kind = kind
@@ -35,6 +37,9 @@ struct LibraryRecordEditorView: View {
             _restoredDraft = State(initialValue: true)
         } else if record == nil, (kind == .notes || kind == .stickies), !preferredType.isEmpty {
             initialDraft.type = preferredType
+        }
+        if kind == .errors, !["错题", "不确定题"].contains(initialDraft.type) {
+            initialDraft.type = "错题"
         }
         _draft = State(initialValue: initialDraft)
     }
@@ -61,21 +66,14 @@ struct LibraryRecordEditorView: View {
         .background(AppTheme.groupedBackground)
         .navigationTitle(recordID == nil ? "新增\(kind.rawValue)" : "编辑\(kind.rawValue)")
         .navigationBarTitleDisplayMode(.inline)
+        .preference(key: RootBottomBarHiddenPreferenceKey.self, value: true)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("保存", action: save).disabled(!canSave)
             }
-            if recordID != nil {
+            if recordID != nil, kind != .errors {
                 ToolbarItemGroup(placement: .bottomBar) {
-                    if kind == .errors {
-                        Menu {
-                            Button("复制错题", systemImage: "doc.on.doc") { copyError(similar: false) }
-                            Button("新建相似题", systemImage: "plus.square.on.square") { copyError(similar: true) }
-                        } label: {
-                            Label("更多", systemImage: "ellipsis.circle")
-                        }
-                    }
                     Spacer()
                     Button("删除", role: .destructive) { showDelete = true }
                 }
@@ -110,10 +108,15 @@ struct LibraryRecordEditorView: View {
                     .padding(24)
             }
         }
+        .overlay {
+            if showSmartSplit {
+                smartSplitDialog
+            }
+        }
     }
 
     private var contextCard: some View {
-        VStack(spacing: 10) {
+        HStack(spacing: 10) {
             Menu {
                 ForEach(SubjectDefinition.all) { subject in
                     Button(subject.name) {
@@ -122,19 +125,41 @@ struct LibraryRecordEditorView: View {
                     }
                 }
             } label: {
-                NativePropertyRow(title: "科目", value: draft.subject, systemImage: "books.vertical") {}
-                    .allowsHitTesting(false)
+                compactProperty(title: "科目", value: draft.subject, image: "books.vertical")
             }
             if let subject = SubjectDefinition.all.first(where: { $0.name == draft.subject }), !subject.modules.isEmpty {
                 Menu {
                     ForEach(subject.modules, id: \.self) { module in Button(module) { draft.module = module } }
                 } label: {
-                    NativePropertyRow(title: "模块", value: draft.module, systemImage: "square.stack.3d.up") {}
-                        .allowsHitTesting(false)
+                    compactProperty(title: "模块", value: draft.module, image: "square.stack.3d.up")
                 }
             }
         }
-        .nativeCard()
+        .padding(10)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func compactProperty(title: String, value: String, image: String) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: image)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(AppTheme.accent)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.system(size: 10, weight: .regular)).foregroundStyle(.secondary)
+                Text(value.isEmpty ? "未设置" : value)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 2)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, minHeight: 42)
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
+        .contentShape(Rectangle())
     }
 
     private var errorFields: some View {
@@ -148,63 +173,72 @@ struct LibraryRecordEditorView: View {
 
     private var graphErrorPriorityFields: some View {
         VStack(alignment: .leading, spacing: 12) {
-            NativeFieldLabel(title: "1. 题干")
-            editor(text: $draft.title, height: 90)
-            NativeFieldLabel(title: "2. 题目与选项图片")
+            recordTypePicker
+            NativeFieldLabel(title: "题目图片")
             imagePicker
-            NativeFieldLabel(title: "3. 选项与答案")
+            HStack {
+                NativeFieldLabel(title: "题干")
+                Spacer()
+                Button(action: openSmartSplit) {
+                    Label("智能拆分", systemImage: "sparkles")
+                        .font(AppTheme.auxiliaryFont.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+            }
+            editor(text: $draft.title, height: 90)
+            NativeFieldLabel(title: "选项与答案")
             ForEach(draft.options.indices, id: \.self) { index in
                 TextField("选项 \(index + 1)", text: $draft.options[index]).textFieldStyle(NativeTextFieldStyle())
             }
-            HStack {
-                TextField("正确答案", text: $draft.correctOption).textFieldStyle(NativeTextFieldStyle())
-                TextField("我的答案", text: $draft.userOption).textFieldStyle(NativeTextFieldStyle())
+            HStack(spacing: 9) {
+                answerPicker(title: "正确选项", selection: $draft.correctOption)
+                answerPicker(title: "我的选项", selection: $draft.userOption)
             }
-            NativeFieldLabel(title: "4. 规律与识别思路")
+            NativeFieldLabel(title: "规律与识别思路")
             TextField("图形规律", text: $draft.graphRule).textFieldStyle(NativeTextFieldStyle())
             TextField("识别思路", text: $draft.recognition).textFieldStyle(NativeTextFieldStyle())
-            NativeFieldLabel(title: "5. 错因与复盘")
-            TextField("考点（多个用顿号或逗号分隔）", text: $draft.knowledgePoint).textFieldStyle(NativeTextFieldStyle())
-            TextField("错因", text: $draft.errorCause).textFieldStyle(NativeTextFieldStyle())
-            TextField("易错点", text: $draft.pitfall).textFieldStyle(NativeTextFieldStyle())
+            NativeFieldLabel(title: "分析与复盘")
+            tagInput(
+                title: "考点（可选）",
+                text: $draft.knowledgePoint,
+                suggestions: TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records),
+                allowsMultiple: true
+            )
+            tagInput(
+                title: "错因（可选）",
+                text: $draft.errorCause,
+                suggestions: TagLibraryRepository.tags(kind: .errorCause, module: draft.module, records: records)
+            )
+            tagInput(
+                title: "思维误区（可选）",
+                text: $draft.pitfall,
+                suggestions: TagLibraryRepository.tags(kind: .thinkingTrap, module: draft.module, records: records)
+            )
             TextField("题目来源", text: $draft.questionSource).textFieldStyle(NativeTextFieldStyle())
             TextField("全站正确率（%）", text: $draft.accuracy).keyboardType(.decimalPad).textFieldStyle(NativeTextFieldStyle())
-            Picker("掌握状态", selection: $draft.status) {
-                Text("未掌握").tag("未掌握")
-                Text("已掌握").tag("已掌握")
-            }
-            .pickerStyle(.segmented)
+            NativeFieldLabel(title: "错题笔记")
             richEditor(text: $draft.content, height: 110)
-            DisclosureGroup("涂鸦与手写") {
-                NativePencilDrawingEditor(
-                    encodedData: $draft.pencilKitData,
-                    legacyPreviewDataURL: draft.legacyDrawingPreview
-                )
-                .padding(.top, 8)
-            }
         }
-        .nativeCard()
+        .padding(15)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
     }
 
     private var regularErrorFields: some View {
-        Group {
-            errorSection("考点与错因", image: "tag") {
-                TextField("考点（多个用顿号或逗号分隔）", text: $draft.knowledgePoint).textFieldStyle(NativeTextFieldStyle())
-                TextField("错因", text: $draft.errorCause).textFieldStyle(NativeTextFieldStyle())
-                TextField("思维误区 / 易错点", text: $draft.pitfall, axis: .vertical)
-                    .textFieldStyle(NativeTextFieldStyle()).lineLimit(2...4)
-            }
+        VStack(alignment: .leading, spacing: 13) {
+            recordTypePicker
 
-            errorSection("题目图片", image: "photo.on.rectangle.angled") {
+            compactFormSection("题目图片", image: "photo.on.rectangle.angled") {
                 imagePicker
             }
 
-            errorSection("题目与选项", image: "list.bullet.rectangle") {
+            Divider()
+
+            compactFormSection("题目与选项", image: "list.bullet.rectangle") {
                 HStack {
                     NativeFieldLabel(title: "题干")
                     Spacer()
-                    Button(action: splitQuestionAndOptions) {
-                        Label("AI 拆解题干与选项", systemImage: "sparkles")
+                    Button(action: openSmartSplit) {
+                        Label("智能拆分", systemImage: "sparkles")
                             .font(AppTheme.auxiliaryFont.weight(.semibold))
                     }
                     .buttonStyle(.plain)
@@ -227,36 +261,188 @@ struct LibraryRecordEditorView: View {
                 }
             }
 
-            errorSection("答案与来源", image: "checkmark.circle") {
+            Divider()
+
+            compactFormSection("答案与来源", image: "checkmark.circle") {
                 HStack(spacing: 9) {
-                    TextField("正确选项", text: $draft.correctOption).textFieldStyle(NativeTextFieldStyle())
-                    TextField("我的选项", text: $draft.userOption).textFieldStyle(NativeTextFieldStyle())
+                    answerPicker(title: "正确选项", selection: $draft.correctOption)
+                    answerPicker(title: "我的选项", selection: $draft.userOption)
                 }
                 HStack(spacing: 9) {
                     TextField("全站正确率（%）", text: $draft.accuracy)
                         .keyboardType(.decimalPad).textFieldStyle(NativeTextFieldStyle())
-                    TextField("题目来源", text: $draft.questionSource).textFieldStyle(NativeTextFieldStyle())
+                    TextField("题目来源，例如：2024国考", text: $draft.questionSource)
+                        .textFieldStyle(NativeTextFieldStyle())
                 }
-                Picker("掌握状态", selection: $draft.status) {
-                    Text("未掌握").tag("未掌握")
-                    Text("已掌握").tag("已掌握")
-                }.pickerStyle(.segmented)
             }
 
-            errorSection("错题笔记", image: "note.text") {
+            Divider()
+
+            compactFormSection("考点与错因", image: "tag") {
+                tagInput(
+                    title: "考点（可选）",
+                    text: $draft.knowledgePoint,
+                    suggestions: TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records),
+                    allowsMultiple: true
+                )
+                tagInput(
+                    title: "错因（可选）",
+                    text: $draft.errorCause,
+                    suggestions: TagLibraryRepository.tags(kind: .errorCause, module: draft.module, records: records)
+                )
+                tagInput(
+                    title: "思维误区（可选）",
+                    text: $draft.pitfall,
+                    suggestions: TagLibraryRepository.tags(kind: .thinkingTrap, module: draft.module, records: records)
+                )
+            }
+
+            Divider()
+
+            compactFormSection("错题笔记", image: "note.text") {
                 Text("个人复盘心得、解析与方法总结").font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
                 richEditor(text: $draft.content, height: 130)
-                DisclosureGroup("涂鸦与手写") {
-                    NativePencilDrawingEditor(
-                        encodedData: $draft.pencilKitData,
-                        legacyPreviewDataURL: draft.legacyDrawingPreview
-                    )
-                    .padding(.top, 8)
-                }
             }
 
             if draft.subject == "言语理解", draft.module == "逻辑填空" {
-                errorSection("词语辨析", image: "arrow.left.arrow.right") { comparisonGroups }
+                Divider()
+                compactFormSection("词语辨析", image: "arrow.left.arrow.right") { comparisonGroups }
+            }
+        }
+        .padding(15)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private var recordTypePicker: some View {
+        Picker("题目类型", selection: $draft.type) {
+            Text("错题").tag("错题")
+            Text("不确定题").tag("不确定题")
+        }
+        .pickerStyle(.segmented)
+        .frame(maxWidth: 300)
+    }
+
+    private func answerPicker(title: String, selection: Binding<String>) -> some View {
+        Menu {
+            ForEach(["A", "B", "C", "D"], id: \.self) { value in
+                Button(value) { selection.wrappedValue = value }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text(selection.wrappedValue.isEmpty ? "请选择" : selection.wrappedValue)
+                        .font(AppTheme.inputFont)
+                        .foregroundStyle(selection.wrappedValue.isEmpty ? Color.secondary : Color.primary)
+                }
+                Spacer()
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, minHeight: 42)
+            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func compactFormSection<Content: View>(
+        _ title: String,
+        image: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: image)
+                .font(.system(size: 13, weight: .medium))
+            content()
+        }
+    }
+
+    private func tagInput(
+        title: String,
+        text: Binding<String>,
+        suggestions: [String],
+        allowsMultiple: Bool = false
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            TextField(title, text: text)
+                .textFieldStyle(NativeTextFieldStyle())
+            if !suggestions.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(suggestions, id: \.self) { value in
+                            let selected = tagSelection(text.wrappedValue, contains: value, allowsMultiple: allowsMultiple)
+                            Button {
+                                text.wrappedValue = updatedTagSelection(
+                                    text.wrappedValue,
+                                    value: value,
+                                    selected: selected,
+                                    allowsMultiple: allowsMultiple
+                                )
+                            } label: {
+                                Text(value)
+                                    .font(.system(size: 11, weight: .regular))
+                                    .foregroundStyle(selected ? AppTheme.accent : Color.secondary)
+                                    .padding(.horizontal, 8)
+                                    .frame(height: 26)
+                                    .background(selected ? AppTheme.accent.opacity(0.09) : Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func tagSelection(_ rawValue: String, contains value: String, allowsMultiple: Bool) -> Bool {
+        if !allowsMultiple { return rawValue.trimmingCharacters(in: .whitespacesAndNewlines) == value }
+        return splitTags(rawValue).contains(value)
+    }
+
+    private func updatedTagSelection(
+        _ rawValue: String,
+        value: String,
+        selected: Bool,
+        allowsMultiple: Bool
+    ) -> String {
+        guard allowsMultiple else { return selected ? "" : value }
+        var values = splitTags(rawValue)
+        if selected { values.removeAll { $0 == value } }
+        else { values.append(value) }
+        return values.joined(separator: "、")
+    }
+
+    private func splitTags(_ rawValue: String) -> [String] {
+        rawValue
+            .split(whereSeparator: { "、,，".contains($0) })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private var smartSplitDialog: some View {
+        NativeEditorDialog(
+            title: "智能拆分题目",
+            canSave: !smartSplitDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            actionTitle: "识别并填入",
+            onClose: {
+                showSmartSplit = false
+                splitMessage = nil
+            },
+            onSave: applySmartSplit
+        ) {
+            Text("粘贴完整题干、A/B/C/D 选项和答案。识别成功后会分别填入表单，原内容不会在识别失败时被覆盖。")
+                .font(AppTheme.auxiliaryFont)
+                .foregroundStyle(.secondary)
+            TextEditor(text: $smartSplitDraft)
+                .font(AppTheme.inputFont)
+                .frame(minHeight: 220)
+                .padding(8)
+                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
+            if let splitMessage, !splitMessage.hasPrefix("已") {
+                Text(splitMessage)
+                    .font(AppTheme.auxiliaryFont)
+                    .foregroundStyle(AppTheme.warning)
             }
         }
     }
@@ -649,6 +835,29 @@ struct LibraryRecordEditorView: View {
     }
 
     private func save() {
+        if kind == .errors {
+            try? TagLibraryRepository.add(
+                splitTags(draft.knowledgePoint),
+                kind: .knowledgePoint,
+                module: draft.module,
+                records: records,
+                context: modelContext
+            )
+            try? TagLibraryRepository.add(
+                [draft.errorCause],
+                kind: .errorCause,
+                module: draft.module,
+                records: records,
+                context: modelContext
+            )
+            try? TagLibraryRepository.add(
+                [draft.pitfall],
+                kind: .thinkingTrap,
+                module: draft.module,
+                records: records,
+                context: modelContext
+            )
+        }
         try? LibraryRecordRepository.save(kind: kind, draft: draft, records: records, context: modelContext)
         if recordID == nil { LibraryDraftStore.clear(kind: kind, scope: scope) }
         dismiss()
@@ -660,57 +869,24 @@ struct LibraryRecordEditorView: View {
         dismiss()
     }
 
-    private func copyError(similar: Bool) {
-        guard kind == .errors else { return }
-        var copy = draft
-        copy.id = ""
-        copy.original.removeValue(forKey: "id")
-        copy.original.removeValue(forKey: "createdAt")
-        copy.original.removeValue(forKey: "updatedAt")
-        copy.userOption = ""
-        copy.status = "未掌握"
-        if similar {
-            copy.title = "\(draft.title)（相似题）"
-            copy.content = ""
-            copy.pencilKitData = ""
-            copy.legacyDrawingPreview = ""
-        }
-        try? LibraryRecordRepository.save(kind: .errors, draft: copy, records: records, context: modelContext)
-        dismiss()
+    private func openSmartSplit() {
+        smartSplitDraft = ""
+        splitMessage = nil
+        showSmartSplit = true
     }
 
-    private func splitQuestionAndOptions() {
-        let source = draft.title
-            .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
-            .replacingOccurrences(of: "&nbsp;", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let expression = try? NSRegularExpression(pattern: "(?m)(?:^|\\s)([A-H])[\\.、．:：]\\s*"), !source.isEmpty else {
-            splitMessage = "请先把包含选项的完整题目粘贴到题干中"
-            return
+    private func applySmartSplit() {
+        switch ErrorQuestionParser.parse(smartSplitDraft) {
+        case .success(let result):
+            draft.title = result.question
+            draft.options = result.options + Array(repeating: "", count: max(0, 4 - result.options.count))
+            if let correct = result.correctOption { draft.correctOption = correct }
+            if let selected = result.userOption { draft.userOption = selected }
+            splitMessage = "已拆分题干和 \(result.options.count) 个选项，请核对后保存"
+            showSmartSplit = false
+        case .failure(let error):
+            splitMessage = error.localizedDescription
         }
-        let nsSource = source as NSString
-        let matches = expression.matches(in: source, range: NSRange(location: 0, length: nsSource.length))
-        guard matches.count >= 2, let first = matches.first else {
-            splitMessage = "未识别到连续的 A、B、C、D 选项，请检查选项标记"
-            return
-        }
-        let question = nsSource.substring(with: NSRange(location: 0, length: first.range.location))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        var parsed: [String] = []
-        for (index, match) in matches.enumerated() {
-            let start = match.range.location + match.range.length
-            let end = index + 1 < matches.count ? matches[index + 1].range.location : nsSource.length
-            let value = nsSource.substring(with: NSRange(location: start, length: max(0, end - start)))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !value.isEmpty { parsed.append(value) }
-        }
-        guard !question.isEmpty, parsed.count >= 2 else {
-            splitMessage = "题干或选项内容不完整，暂未改动"
-            return
-        }
-        draft.title = question
-        draft.options = parsed
-        splitMessage = "已拆分题干和 \(parsed.count) 个选项，请核对后保存"
     }
 
     @MainActor
@@ -725,5 +901,104 @@ struct LibraryRecordEditorView: View {
     private func image(from value: String) -> UIImage? {
         guard value.hasPrefix("data:"), let comma = value.firstIndex(of: ",") else { return nil }
         return Data(base64Encoded: String(value[value.index(after: comma)...])).flatMap(UIImage.init(data:))
+    }
+}
+
+private struct ParsedErrorQuestion {
+    let question: String
+    let options: [String]
+    let correctOption: String?
+    let userOption: String?
+}
+
+private enum ErrorQuestionParser {
+    private struct ParseFailure: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    static func parse(_ rawValue: String) -> Result<ParsedErrorQuestion, Error> {
+        let source = normalized(rawValue)
+        guard !source.isEmpty else {
+            return .failure(ParseFailure(message: "请先粘贴完整题目。"))
+        }
+        guard let expression = try? NSRegularExpression(
+            pattern: "(?m)(?:^|\\s)([A-H])[\\.、．:：\\)）]\\s*"
+        ) else {
+            return .failure(ParseFailure(message: "拆分规则初始化失败。"))
+        }
+
+        let sourceNSString = source as NSString
+        let answerStart = firstAnswerRange(in: source)?.location ?? sourceNSString.length
+        let optionRange = NSRange(location: 0, length: answerStart)
+        let matches = expression.matches(in: source, range: optionRange)
+        guard matches.count >= 2, let first = matches.first else {
+            return .failure(ParseFailure(message: "没有识别到连续选项，请确认选项使用 A.、B.、C.、D. 等标记。"))
+        }
+
+        let question = sourceNSString.substring(with: NSRange(location: 0, length: first.range.location))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var options: [String] = []
+        for (index, match) in matches.enumerated() {
+            let start = match.range.location + match.range.length
+            let end = index + 1 < matches.count ? matches[index + 1].range.location : answerStart
+            let value = sourceNSString.substring(with: NSRange(location: start, length: max(0, end - start)))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty { options.append(value) }
+        }
+        guard !question.isEmpty, options.count >= 2 else {
+            return .failure(ParseFailure(message: "题干或选项内容不完整，当前表单没有被修改。"))
+        }
+
+        return .success(
+            ParsedErrorQuestion(
+                question: question,
+                options: options,
+                correctOption: answerLetter(in: source, labels: ["正确答案", "参考答案", "答案"]),
+                userOption: answerLetter(in: source, labels: ["我的答案", "你的答案", "用户答案"])
+            )
+        )
+    }
+
+    private static func normalized(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: "</p>", with: "\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "\\r\\n?", with: "\n", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func firstAnswerRange(in source: String) -> NSRange? {
+        let patterns = ["(?:正确答案|参考答案|我的答案|你的答案|用户答案|答案)\\s*[：:]", "(?m)^\\s*解析\\s*[：:]"]
+        let fullRange = NSRange(location: 0, length: (source as NSString).length)
+        var ranges: [NSRange] = []
+        for pattern in patterns {
+            guard let expression = try? NSRegularExpression(pattern: pattern),
+                  let match = expression.firstMatch(in: source, range: fullRange)
+            else { continue }
+            ranges.append(match.range)
+        }
+        return ranges.min { $0.location < $1.location }
+    }
+
+    private static func answerLetter(in source: String, labels: [String]) -> String? {
+        let nsSource = source as NSString
+        let range = NSRange(location: 0, length: nsSource.length)
+        let specificLabels = labels.filter { $0 != "答案" }
+        if !specificLabels.isEmpty {
+            let labelPattern = specificLabels.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|")
+            let pattern = "(?:\(labelPattern\))\\s*[：:]?\\s*([A-D])"
+            if let expression = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+               let match = expression.firstMatch(in: source, range: range), match.numberOfRanges > 1 {
+                return nsSource.substring(with: match.range(at: 1)).uppercased()
+            }
+        }
+        guard labels.contains("答案"),
+              let expression = try? NSRegularExpression(pattern: "(?m)^\\s*答案\\s*[：:]?\\s*([A-D])", options: .caseInsensitive),
+              let match = expression.firstMatch(in: source, range: range), match.numberOfRanges > 1
+        else { return nil }
+        return nsSource.substring(with: match.range(at: 1)).uppercased()
     }
 }

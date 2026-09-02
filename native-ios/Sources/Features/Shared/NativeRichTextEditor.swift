@@ -247,6 +247,45 @@ struct NativeRichTextEditor: View {
     }
 }
 
+struct NativeRichTextDisplay: UIViewRepresentable {
+    let html: String
+    var minHeight: CGFloat = 0
+
+    final class Coordinator {
+        var lastHTML = ""
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView(usingTextLayoutManager: true)
+        view.backgroundColor = .clear
+        view.isEditable = false
+        view.isSelectable = false
+        view.isScrollEnabled = false
+        view.isUserInteractionEnabled = false
+        view.textContainerInset = .zero
+        view.textContainer.lineFragmentPadding = 0
+        view.adjustsFontForContentSizeCategory = false
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.attributedText = RichTextTextView.attributed(from: html)
+        context.coordinator.lastHTML = html
+        return view
+    }
+
+    func updateUIView(_ view: UITextView, context: Context) {
+        guard context.coordinator.lastHTML != html else { return }
+        view.attributedText = RichTextTextView.attributed(from: html)
+        context.coordinator.lastHTML = html
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        guard let width = proposal.width else { return nil }
+        let fitting = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: max(minHeight, ceil(fitting.height)))
+    }
+}
+
 private struct RichTextTextView: UIViewRepresentable {
     @Binding var html: String
     @Binding var command: RichTextCommand?
@@ -613,7 +652,7 @@ private struct RichTextTextView: UIViewRepresentable {
         }
     }
 
-    private static func attributed(from value: String) -> NSAttributedString {
+    fileprivate static func attributed(from value: String) -> NSAttributedString {
         let source = !value.contains("<") && MarkdownRichTextConverter.isMarkdown(value) ? MarkdownRichTextConverter.html(from: value) : value
         if source.contains("<"), let data = source.data(using: .utf8), let result = try? NSMutableAttributedString(
             data: data, options: [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue], documentAttributes: nil

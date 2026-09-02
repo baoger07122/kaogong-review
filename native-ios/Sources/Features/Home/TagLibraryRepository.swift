@@ -4,22 +4,38 @@ import SwiftData
 enum ManagedTagKind: String, CaseIterable, Identifiable {
     case knowledgePoint = "考点"
     case errorCause = "错因"
+    case thinkingTrap = "思维误区"
     var id: String { rawValue }
-    var recordID: String { self == .knowledgePoint ? "kp_library" : "kp_ec_library" }
+    var recordID: String {
+        switch self {
+        case .knowledgePoint: "kp_library"
+        case .errorCause: "kp_ec_library"
+        case .thinkingTrap: "kp_trap_library"
+        }
+    }
 }
 
 enum TagLibraryRepository {
     static func tags(kind: ManagedTagKind, module: String, records: [StoredRecord]) -> [String] {
         let library = load(kind: kind, records: records)
         if let values = library[module], !values.isEmpty { return values }
-        return kind == .knowledgePoint ? (defaults[module] ?? ["待复盘"]) : ["待复盘"]
+        if kind == .knowledgePoint { return defaults[module] ?? ["待复盘"] }
+        return []
     }
 
     static func add(_ name: String, kind: ManagedTagKind, module: String, records: [StoredRecord], context: ModelContext) throws {
+        try add([name], kind: kind, module: module, records: records, context: context)
+    }
+
+    static func add(_ names: [String], kind: ManagedTagKind, module: String, records: [StoredRecord], context: ModelContext) throws {
         var library = loadWithDefaults(kind: kind, records: records)
-        let value = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, !(library[module] ?? []).contains(value) else { return }
-        library[module, default: []].append(value)
+        let values = names
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !values.isEmpty else { return }
+        for value in values where !(library[module] ?? []).contains(value) {
+            library[module, default: []].append(value)
+        }
         try save(library, kind: kind, records: records, context: context)
     }
 
@@ -50,7 +66,12 @@ enum TagLibraryRepository {
     }
 
     private static func loadWithDefaults(kind: ManagedTagKind, records: [StoredRecord]) -> [String: [String]] {
-        var result = kind == .knowledgePoint ? defaults : errorDefaults
+        var result: [String: [String]]
+        switch kind {
+        case .knowledgePoint: result = defaults
+        case .errorCause: result = errorDefaults
+        case .thinkingTrap: result = [:]
+        }
         load(kind: kind, records: records).forEach { result[$0.key] = $0.value }
         return result
     }
@@ -98,8 +119,11 @@ enum TagLibraryRepository {
                     object["knowledgePoint"] = newName ?? ""
                     changed = true
                 }
-            } else if object["errorCause"] as? String == oldName {
+            } else if kind == .errorCause, object["errorCause"] as? String == oldName {
                 object["errorCause"] = newName ?? ""
+                changed = true
+            } else if kind == .thinkingTrap, object["pitfall"] as? String == oldName {
+                object["pitfall"] = newName ?? ""
                 changed = true
             }
             if changed {

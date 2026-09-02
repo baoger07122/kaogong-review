@@ -21,7 +21,7 @@ struct KnowledgePointManagerView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("考点按科目与模块分级管理；错因只属于当前模块，不与其他模块共用。")
+                Text("考点、错因和思维误区按当前科目与模块统一管理；录入错题时输入的新内容会自动加入这里。")
                     .font(AppTheme.auxiliaryFont)
                     .foregroundStyle(.secondary)
 
@@ -78,7 +78,7 @@ struct KnowledgePointManagerView: View {
             .padding(20)
         }
         .background(Color.white)
-        .navigationTitle("考点 / 错因管理")
+        .navigationTitle("错题标签管理")
         .navigationBarTitleDisplayMode(.inline)
         .overlay {
             if editor != nil { editorDialog }

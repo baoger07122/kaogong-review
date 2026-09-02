@@ -64,7 +64,8 @@ final class StoredRecord {
             keys = [
                 "id", "subject", "module", "knowledgePoints", "knowledgePoint", "errorCause", "status",
                 "question", "title", "type", "category", "createdAt", "updatedAt", "lastReviewDate",
-                "questionSource", "accuracy", "reviewCount", "sourceExamId"
+                "questionSource", "sourceYear", "sourceExamType", "sourceRegion",
+                "accuracy", "reviewCount", "sourceExamId"
             ]
         case "notes":
             keys = ["id", "subject", "module", "title", "content", "type", "category", "createdAt", "updatedAt"]

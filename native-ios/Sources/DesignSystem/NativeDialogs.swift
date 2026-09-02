@@ -28,6 +28,7 @@ struct NativeModalContainer<Content: View>: View {
 struct NativeEditorDialog<Content: View>: View {
     let title: String
     let canSave: Bool
+    let actionTitle: String
     let onClose: () -> Void
     let onSave: () -> Void
     let content: Content
@@ -35,12 +36,14 @@ struct NativeEditorDialog<Content: View>: View {
     init(
         title: String,
         canSave: Bool,
+        actionTitle: String = "保存",
         onClose: @escaping () -> Void,
         onSave: @escaping () -> Void,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
         self.canSave = canSave
+        self.actionTitle = actionTitle
         self.onClose = onClose
         self.onSave = onSave
         self.content = content()
@@ -64,7 +67,7 @@ struct NativeEditorDialog<Content: View>: View {
 
                 content
 
-                Button("保存", action: onSave)
+                Button(actionTitle, action: onSave)
                     .buttonStyle(NativePrimaryButtonStyle())
                     .frame(maxWidth: 210)
                     .frame(maxWidth: .infinity)
