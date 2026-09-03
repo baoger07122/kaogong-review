@@ -24,11 +24,14 @@ final class SpeedTextAnimationTests: XCTestCase {
         defer { window.isHidden = true }
         update(view, "", 0)
         CATransaction.flush()
+        // Let the test-only window present its initial frame before simulating a tap.
+        try await Task.sleep(for: .milliseconds(150))
         update(view, "2", 1)
         let layer = view.subviews[0].layer
         let group = try XCTUnwrap(layer.animation(forKey: "web-text-motion") as? CAAnimationGroup)
         XCTAssertEqual(group.duration, 0.15)
         XCTAssertEqual(group.animations?.map(\.duration), [0.15, 0.15])
+        XCTAssertTrue(group.isRemovedOnCompletion)
         CATransaction.flush()
         try await Task.sleep(for: .milliseconds(35))
         let presentation = try XCTUnwrap(layer.presentation())
@@ -36,7 +39,10 @@ final class SpeedTextAnimationTests: XCTestCase {
         XCTAssertLessThan(presentation.transform.m11, 0.999)
         XCTAssertLessThan(presentation.opacity, 1)
         try await Task.sleep(for: .milliseconds(180))
-        XCTAssertNil(layer.animation(forKey: "web-text-motion"))
+        // Test visible completion, not render-server animation-object cleanup timing.
+        CATransaction.flush()
+        XCTAssertEqual(layer.presentation()?.transform.m11 ?? layer.transform.m11, 1, accuracy: 0.01)
+        XCTAssertEqual(layer.presentation()?.opacity ?? layer.opacity, 1, accuracy: 0.01)
         XCTAssertEqual(layer.transform.m11, 1)
         XCTAssertEqual(layer.opacity, 1)
     }
