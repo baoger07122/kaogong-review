@@ -12,6 +12,7 @@ private enum SpeedKeypadPalette {
 struct SpeedNumberPad: View {
     let metrics: SpeedKeypadMetrics
     let canSubmit: Bool
+    let onPress: () -> Void
     let onKey: (String) -> Void
     let onClear: () -> Void
     let onBackspace: () -> Void
@@ -29,29 +30,28 @@ struct SpeedNumberPad: View {
                                 Text(key).font(.system(size: 24, weight: .regular))
                                     .frame(width: metrics.numberWidth, height: metrics.rowHeight)
                             }
-                            .buttonStyle(SpeedNumberPadButtonStyle(isAction: false))
+                            .buttonStyle(SpeedNumberPadButtonStyle(isAction: false, onPress: onPress))
                             .accessibilityLabel(key == "+/-" ? "切换正负号" : key)
                         }
                     }
                 }
             }
             VStack(spacing: SpeedKeypadMetrics.gap) {
-                Button(action: onClear) {
+                Button(action: onBackspace) {
                     Text("C").font(.system(size: 20, weight: .semibold))
                         .frame(width: metrics.actionWidth, height: metrics.rowHeight)
-                }.accessibilityLabel("清空答案")
-                Button(action: onBackspace) {
+                }.accessibilityLabel("删除上一位")
+                Button(action: onClear) {
                     Image(systemName: "delete.backward").font(.system(size: 20, weight: .semibold))
                         .frame(width: metrics.actionWidth, height: metrics.rowHeight)
-                }.accessibilityLabel("删除上一位")
-                Button(action: onSubmit) {
+                }.accessibilityLabel("清空答案")
+                Button { if canSubmit { onSubmit() } } label: {
                     Image(systemName: "checkmark").font(.system(size: 24, weight: .bold))
                         .frame(width: metrics.actionWidth, height: metrics.confirmHeight)
                 }
-                .disabled(!canSubmit)
                 .accessibilityLabel("提交答案")
             }
-            .buttonStyle(SpeedNumberPadButtonStyle(isAction: true))
+            .buttonStyle(SpeedNumberPadButtonStyle(isAction: true, onPress: onPress))
         }
         .padding(.horizontal, SpeedKeypadMetrics.sideInset)
         .padding(.top, SpeedKeypadMetrics.sideInset)
@@ -66,6 +66,7 @@ struct SpeedNumberPad: View {
 
 private struct SpeedNumberPadButtonStyle: ButtonStyle {
     let isAction: Bool
+    let onPress: () -> Void
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(isAction ? Color.white : SpeedKeypadPalette.ink)
@@ -76,9 +77,16 @@ private struct SpeedNumberPadButtonStyle: ButtonStyle {
                 in: RoundedRectangle(cornerRadius: 14)
             )
             .contentShape(Rectangle())
-            .scaleEffect(configuration.isPressed ? 0.93 : 1)
-            .offset(y: configuration.isPressed ? 1 : 0)
-            .brightness(configuration.isPressed ? -0.14 : 0)
-            .animation(.spring(response: 0.15, dampingFraction: 0.68), value: configuration.isPressed)
+            // Web changes the background immediately; only filter and transform animate.
+            .animation(.easeOut(duration: 0.06)) { view in
+                view.colorMultiply(Color(white: configuration.isPressed ? 0.86 : 1))
+            }
+            .animation(.timingCurve(0.34, 1.56, 0.64, 1, duration: 0.15)) { view in
+                view.scaleEffect(configuration.isPressed ? 0.93 : 1)
+                    .offset(y: configuration.isPressed ? 1 : 0)
+            }
+            .onChange(of: configuration.isPressed) { _, pressed in
+                if pressed { onPress() }
+            }
     }
 }

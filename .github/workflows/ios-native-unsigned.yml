@@ -74,6 +74,8 @@ jobs:
         run: |
           swiftc native-ios/Sources/Features/Speed/SpeedKeypadMetrics.swift native-ios/Tests/SpeedKeypadMetricsTests.swift -o "$RUNNER_TEMP/keypad-geometry-tests"
           "$RUNNER_TEMP/keypad-geometry-tests"
+          swiftc native-ios/Sources/Features/Speed/SpeedKeyInput.swift native-ios/Tests/SpeedKeyInputTests.swift -o "$RUNNER_TEMP/keypad-input-tests"
+          "$RUNNER_TEMP/keypad-input-tests"
 
       - name: Archive native App
         run: |

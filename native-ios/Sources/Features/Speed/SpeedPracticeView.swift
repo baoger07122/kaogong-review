@@ -1,10 +1,11 @@
-import AudioToolbox
 import SwiftData
 import SwiftUI
 import UIKit
 
 struct SpeedPracticeView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var keySound = SpeedKeySound()
     @Query private var records: [StoredRecord]
     @State private var screen: SpeedScreen = .home
     @State private var settings = SpeedSettings()
@@ -12,6 +13,7 @@ struct SpeedPracticeView: View {
     @State private var questions: [SpeedQuestion] = []
     @State private var index = 0
     @State private var currentInput = ""
+    @State private var inputRevision = 0
     @State private var startedAt = Date()
     @State private var questionStartedAt = Date()
     @State private var selectedHistory: SpeedRecord?
@@ -75,6 +77,13 @@ struct SpeedPracticeView: View {
         }
         .sheet(isPresented: $showSettings) { practiceSettingsSheet }
         .sheet(isPresented: $showCustomSettings) { customPracticeSheet }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, screen == .practice, settings.soundEnabled != false {
+                keySound.prepare()
+            } else {
+                keySound.stop()
+            }
+        }
         .task {
             guard !didLoad else { return }
             didLoad = true
@@ -493,28 +502,17 @@ struct SpeedPracticeView: View {
                     Divider()
 
                     Spacer(minLength: 12)
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text(question.expression)
-                        Text("=")
-                        Text(currentInput.isEmpty ? "" : currentInput)
-                            .foregroundStyle(Color(red: 0.12, green: 0.16, blue: 0.22))
-                            .frame(minWidth: 44)
-                            .overlay(alignment: .bottom) { Rectangle().fill(Color.secondary.opacity(0.45)).frame(height: 2.5).offset(y: 5) }
-                    }
-                    .font(.system(size: 42, weight: .regular).monospacedDigit())
-                    .minimumScaleFactor(0.65)
-                    .lineLimit(1)
+                    SpeedAnswerRow(expression: question.expression, input: currentInput, inputRevision: inputRevision, nightMode: settings.nightMode)
                     Spacer(minLength: 12)
                     if settings.useScreenKeyboard {
                         SpeedNumberPad(
                             metrics: SpeedKeypadMetrics(width: geometry.size.width, height: sizing.keyboard,
                                 bottomInset: geometry.safeAreaInsets.bottom),
                             canSubmit: Double(currentInput) != nil,
-                            onKey: { key in
-                                if key == "+/-" { currentInput.toggleSign() } else { pressKey(key) }
-                            },
-                            onClear: { currentInput = "" },
-                            onBackspace: { pressKey("⌫") },
+                            onPress: { if settings.soundEnabled != false { keySound.play() } },
+                            onKey: pressKey,
+                            onClear: { pressKey("⌫") },
+                            onBackspace: { pressKey("C") },
                             onSubmit: submit
                         )
                         Color.clear.frame(height: sizing.footer)
@@ -530,6 +528,8 @@ struct SpeedPracticeView: View {
             }
         }
         }
+        .onAppear { if settings.soundEnabled != false { keySound.prepare() } }
+        .onDisappear { keySound.stop() }
     }
 
     private var result: some View {
@@ -832,11 +832,8 @@ struct SpeedPracticeView: View {
     }
 
     private func pressKey(_ key: String) {
-        if settings.soundEnabled != false { AudioServicesPlaySystemSound(1104) }
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        if key == "⌫" { if !currentInput.isEmpty { currentInput.removeLast() } }
-        else if key == "." { if !currentInput.contains(".") { currentInput += currentInput.isEmpty ? "0." : "." } }
-        else if currentInput.count < 12 { currentInput += key }
+        currentInput = SpeedKeyInput.applying(key, to: currentInput)
+        inputRevision &+= 1
     }
 
     private func persistSettings() {
