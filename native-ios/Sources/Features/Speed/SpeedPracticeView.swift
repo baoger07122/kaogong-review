@@ -466,6 +466,10 @@ struct SpeedPracticeView: View {
 
     private var practice: some View {
         GeometryReader { geometry in
+        let sizing = SpeedKeypadMetrics.practiceSizing(
+            contentHeight: geometry.size.height,
+            viewportHeight: geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom
+        )
         VStack(spacing: 0) {
             if questions.indices.contains(index) {
                 let question = questions[index]
@@ -502,10 +506,18 @@ struct SpeedPracticeView: View {
                     .lineLimit(1)
                     Spacer(minLength: 12)
                     if settings.useScreenKeyboard {
-                        numberPad(
-                            width: geometry.size.width,
-                            height: min(max(geometry.size.height * 0.42, 280), 340)
+                        SpeedNumberPad(
+                            metrics: SpeedKeypadMetrics(width: geometry.size.width, height: sizing.keyboard,
+                                bottomInset: geometry.safeAreaInsets.bottom),
+                            canSubmit: Double(currentInput) != nil,
+                            onKey: { key in
+                                if key == "+/-" { currentInput.toggleSign() } else { pressKey(key) }
+                            },
+                            onClear: { currentInput = "" },
+                            onBackspace: { pressKey("⌫") },
+                            onSubmit: submit
                         )
+                        Color.clear.frame(height: sizing.footer)
                     } else {
                         TextField("答案", text: $currentInput)
                             .keyboardType(.decimalPad)
@@ -518,56 +530,6 @@ struct SpeedPracticeView: View {
             }
         }
         }
-    }
-
-    private func numberPad(width: CGFloat, height: CGFloat) -> some View {
-        let contentWidth = max(width - 24, 280)
-        let actionWidth = max(contentWidth * 0.22, 76)
-        let numberWidth = max(contentWidth - actionWidth - 7, 190)
-        return HStack(spacing: 7) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 3), spacing: 7) {
-                ForEach(["1", "2", "3", "4", "5", "6", "7", "8", "9", "±", "0", "."], id: \.self) { key in
-                    Button { key == "±" ? currentInput.toggleSign() : pressKey(key) } label: {
-                        Text(key).font(.system(size: 24, weight: .regular))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Color(red: 0.953, green: 0.957, blue: 0.965), in: RoundedRectangle(cornerRadius: 14))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(SpeedKeyButtonStyle())
-                }
-            }
-            .frame(width: numberWidth)
-            VStack(spacing: 7) {
-                keypadAction("C") { currentInput = "" }
-                keypadAction("delete.backward") { pressKey("⌫") }
-                Button(action: submit) {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 24, weight: .bold))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .foregroundStyle(.white)
-                        .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 14))
-                }
-                .buttonStyle(SpeedKeyButtonStyle())
-                .disabled(Double(currentInput) == nil)
-            }
-            .frame(width: actionWidth)
-        }
-        .padding(12)
-        .frame(width: width, height: height, alignment: .center)
-        .background(Color.white)
-    }
-
-    private func keypadAction(_ value: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Group {
-                if value.contains(".") { Image(systemName: value) } else { Text(value) }
-            }
-            .font(.system(size: 20, weight: .semibold))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .foregroundStyle(.white)
-            .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 14))
-        }
-        .buttonStyle(SpeedKeyButtonStyle())
     }
 
     private var result: some View {
