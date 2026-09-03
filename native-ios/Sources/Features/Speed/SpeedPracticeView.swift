@@ -114,40 +114,46 @@ struct SpeedPracticeView: View {
 
     @ToolbarContentBuilder
     private var speedToolbar: some ToolbarContent {
-            if screen != .home {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(action: navigateBack) {
-                        Image(systemName: "chevron.left")
-                            .frame(width: 44, height: 44).contentShape(Rectangle())
-                    }
-                        .accessibilityLabel("返回")
-                        .accessibilityIdentifier("speed-back")
-                        .disabled(isSubmitting)
-                }
+        ToolbarItem(placement: .topBarLeading) { backControl }
+        ToolbarItem(placement: .topBarTrailing) { trailingControls }
+            .documentToolbarBackground()
+    }
+
+    @ViewBuilder
+    private var backControl: some View {
+        if screen != .home {
+            Button(action: navigateBack) {
+                Image(systemName: "chevron.left")
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
             }
+            .accessibilityLabel("返回")
+            .accessibilityIdentifier("speed-back")
+            .disabled(isSubmitting)
+        }
+    }
+
+    private var isEstimateQuestion: Bool {
+        screen == .practice && questions.indices.contains(index) && questions[index].type == .est05
+    }
+
+    private var trailingControls: some View {
+        HStack(spacing: 8) {
             if showDoodle {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    doodleButton("xmark", "退出涂鸦") { showDoodle = false }
-                    doodleButton(doodleController.eraser ? "eraser.fill" : "eraser", "橡皮擦", active: doodleController.eraser, action: doodleController.toggleEraser)
-                    doodleButton("arrow.uturn.backward", "撤销", action: doodleController.undo)
-                    doodleButton("trash", "清空涂鸦", action: doodleController.requestClear)
-                    doodleButton("paintpalette", "画笔调节", active: doodleController.showSettings) { doodleController.showSettings.toggle() }
-                }
-                .documentToolbarBackground()
-            } else if screen == .practice, questions.indices.contains(index), questions[index].type == .est05 {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showEstimateInput.toggle() } label: {
-                        Image(systemName: showEstimateInput ? "eye" : "eye.slash")
-                            .frame(width: 44, height: 44).contentShape(Rectangle())
-                    }.accessibilityLabel("显示或隐藏估算输入")
-                }
+                doodleButton("xmark", "退出涂鸦") { showDoodle = false }
+                doodleButton(doodleController.eraser ? "eraser.fill" : "eraser", "橡皮擦", active: doodleController.eraser, action: doodleController.toggleEraser)
+                doodleButton("arrow.uturn.backward", "撤销", action: doodleController.undo)
+                doodleButton("trash", "清空涂鸦", action: doodleController.requestClear)
+                doodleButton("paintpalette", "画笔调节", active: doodleController.showSettings) { doodleController.showSettings.toggle() }
+            } else if isEstimateQuestion {
+                Button { showEstimateInput.toggle() } label: {
+                    Image(systemName: showEstimateInput ? "eye" : "eye.slash")
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                }.accessibilityLabel("显示或隐藏估算输入")
             } else if screen == .result {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }.accessibilityLabel("涂鸦")
-                }
-                .documentToolbarBackground()
+                Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }.accessibilityLabel("涂鸦")
             }
         }
+    }
 
     var body: some View {
         presentedContent
