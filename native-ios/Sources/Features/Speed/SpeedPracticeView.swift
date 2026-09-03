@@ -70,7 +70,7 @@ struct SpeedPracticeView: View {
         }
     }
 
-    var body: some View {
+    private var presentedContent: some View {
         ZStack {
             switch screen {
             case .home: home
@@ -110,10 +110,10 @@ struct SpeedPracticeView: View {
         }
         .preference(key: RootBottomBarHiddenPreferenceKey.self, value: true)
         .foregroundStyle(settings.nightMode ? Color.white : Color.primary)
-        .navigationTitle(screenTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(screen != .home)
-        .toolbar {
+    }
+
+    @ToolbarContentBuilder
+    private var speedToolbar: some ToolbarContent {
             if screen != .home {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(action: navigateBack) {
@@ -148,6 +148,13 @@ struct SpeedPracticeView: View {
                 .documentToolbarBackground()
             }
         }
+
+    var body: some View {
+        presentedContent
+        .navigationTitle(screenTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(screen != .home)
+        .toolbar { speedToolbar }
         .alert("退出练习", isPresented: $showLegacyExitConfirmation) {
             Button("退出", role: .destructive, action: abandon)
             Button("继续", role: .cancel) { }
