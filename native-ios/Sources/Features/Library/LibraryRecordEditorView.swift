@@ -26,6 +26,8 @@ struct LibraryRecordEditorView: View {
     @State private var splitMessage: String?
     @State private var showSmartSplit = false
     @State private var smartSplitDraft = ""
+    @State private var activeTags: ManagedTagKind?
+    @State private var activeRelation: String?
 
     init(kind: LibraryContentKind, scope: LibraryScope, record: StoredRecord? = nil, preferredType: String = "") {
         self.kind = kind
@@ -47,6 +49,7 @@ struct LibraryRecordEditorView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                if kind == .errors { recordTypePicker }
                 contextCard
                 if restoredDraft {
                     Label("已恢复上次未保存的草稿", systemImage: "clock.arrow.circlepath")
@@ -61,9 +64,13 @@ struct LibraryRecordEditorView: View {
                 case .words: wordFields
                 }
             }
-            .padding(20)
+            .padding(.horizontal, kind == .errors ? 16 : 20)
+            .padding(.top, kind == .errors ? 5 : 20)
+            .padding(.bottom, 20)
+            .frame(maxWidth: kind == .errors ? 920 : .infinity)
+            .frame(maxWidth: .infinity)
         }
-        .background(AppTheme.groupedBackground)
+        .background(kind == .errors ? Color.white : AppTheme.groupedBackground)
         .navigationTitle(recordID == nil ? "新增\(kind.rawValue)" : "编辑\(kind.rawValue)")
         .navigationBarTitleDisplayMode(.inline)
         .preference(key: RootBottomBarHiddenPreferenceKey.self, value: true)
@@ -112,6 +119,16 @@ struct LibraryRecordEditorView: View {
             if showSmartSplit {
                 smartSplitDialog
             }
+            if let activeTags {
+                LibraryTagSelectionDialog(kind: activeTags, module: draft.module,
+                    selection: activeTags == .knowledgePoint ? $draft.knowledgePoint : $draft.errorCause,
+                    onClose: { self.activeTags = nil })
+            }
+            if let activeRelation {
+                LibraryRelationSelectionDialog(collection: activeRelation,
+                    candidates: relationCandidates(collection: activeRelation),
+                    selection: relationBinding(activeRelation), onClose: { self.activeRelation = nil })
+            }
         }
     }
 
@@ -135,8 +152,8 @@ struct LibraryRecordEditorView: View {
                 }
             }
         }
-        .padding(10)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+        .padding(kind == .errors ? 0 : 10)
+        .background(Color.white)
     }
 
     private func compactProperty(title: String, value: String, image: String) -> some View {
@@ -158,7 +175,7 @@ struct LibraryRecordEditorView: View {
         }
         .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, minHeight: 42)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
+        .background(Color.primary.opacity(kind == .errors ? 0 : 0.035), in: RoundedRectangle(cornerRadius: 9))
         .contentShape(Rectangle())
     }
 
@@ -173,8 +190,6 @@ struct LibraryRecordEditorView: View {
 
     private var graphErrorPriorityFields: some View {
         VStack(alignment: .leading, spacing: 12) {
-            recordTypePicker
-            NativeFieldLabel(title: "题目图片")
             imagePicker
             HStack {
                 NativeFieldLabel(title: "题干")
@@ -219,17 +234,13 @@ struct LibraryRecordEditorView: View {
             NativeFieldLabel(title: "错题笔记")
             richEditor(text: $draft.content, height: 110)
         }
-        .padding(15)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+        .background(Color.white)
     }
 
     private var regularErrorFields: some View {
         VStack(alignment: .leading, spacing: 13) {
-            recordTypePicker
 
-            compactFormSection("题目图片", image: "photo.on.rectangle.angled") {
-                imagePicker
-            }
+            imagePicker
 
             Divider()
 
@@ -309,8 +320,7 @@ struct LibraryRecordEditorView: View {
                 compactFormSection("词语辨析", image: "arrow.left.arrow.right") { comparisonGroups }
             }
         }
-        .padding(15)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+        .background(Color.white)
     }
 
     private var recordTypePicker: some View {
@@ -340,7 +350,7 @@ struct LibraryRecordEditorView: View {
             }
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, minHeight: 42)
-            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
+            .background(Color.clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -364,53 +374,43 @@ struct LibraryRecordEditorView: View {
         suggestions: [String],
         allowsMultiple: Bool = false
     ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            TextField(title, text: text)
-                .textFieldStyle(NativeTextFieldStyle())
-            if !suggestions.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(suggestions, id: \.self) { value in
-                            let selected = tagSelection(text.wrappedValue, contains: value, allowsMultiple: allowsMultiple)
-                            Button {
-                                text.wrappedValue = updatedTagSelection(
-                                    text.wrappedValue,
-                                    value: value,
-                                    selected: selected,
-                                    allowsMultiple: allowsMultiple
-                                )
-                            } label: {
-                                Text(value)
-                                    .font(.system(size: 11, weight: .regular))
-                                    .foregroundStyle(selected ? AppTheme.accent : Color.secondary)
-                                    .padding(.horizontal, 8)
-                                    .frame(height: 26)
-                                    .background(selected ? AppTheme.accent.opacity(0.09) : Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+        Group {
+            if title.hasPrefix("思维误区") {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("思维误区").font(.system(size: 11)).foregroundStyle(.secondary)
+                        .frame(width: 66, alignment: .leading)
+                    TextField("可留空", text: text, axis: .vertical)
+                        .font(AppTheme.inputFont).lineLimit(1...5)
                 }
+                .frame(minHeight: 44)
+            } else {
+                Button {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    activeTags = allowsMultiple ? .knowledgePoint : .errorCause
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(allowsMultiple ? "考点" : "错因")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                            .frame(width: 66, alignment: .leading)
+                        if text.wrappedValue.isEmpty {
+                            Text("选择或新增").font(.system(size: 12)).foregroundStyle(.tertiary)
+                            Spacer()
+                        } else {
+                            NativeTagFlow {
+                                ForEach(allowsMultiple ? splitTags(text.wrappedValue) : [text.wrappedValue], id: \.self) { value in
+                                    Text(value).font(.system(size: 11)).foregroundStyle(AppTheme.accent)
+                                        .padding(.horizontal, 7).padding(.vertical, 4)
+                                        .background(AppTheme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 4))
+                                }
+                            }
+                        }
+                        Image(systemName: "chevron.down").font(.system(size: 9)).foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
+                }.buttonStyle(.plain)
             }
         }
-    }
-
-    private func tagSelection(_ rawValue: String, contains value: String, allowsMultiple: Bool) -> Bool {
-        if !allowsMultiple { return rawValue.trimmingCharacters(in: .whitespacesAndNewlines) == value }
-        return splitTags(rawValue).contains(value)
-    }
-
-    private func updatedTagSelection(
-        _ rawValue: String,
-        value: String,
-        selected: Bool,
-        allowsMultiple: Bool
-    ) -> String {
-        guard allowsMultiple else { return selected ? "" : value }
-        var values = splitTags(rawValue)
-        if selected { values.removeAll { $0 == value } }
-        else { values.append(value) }
-        return values.joined(separator: "、")
     }
 
     private func splitTags(_ rawValue: String) -> [String] {
@@ -552,7 +552,7 @@ struct LibraryRecordEditorView: View {
             NativeFieldLabel(title: "复盘笔记")
             richEditor(text: $draft.content, height: 110)
         }
-        .nativeCard()
+        .background(Color.white)
     }
 
     private func stringList(title: String, values: Binding<[String]>) -> some View {
@@ -722,25 +722,33 @@ struct LibraryRecordEditorView: View {
     }
 
     private var errorRelations: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            NativeFieldLabel(title: "内容关联")
-            Menu {
-                Button("不关联套卷") { draft.sourceExamID = "" }
-                ForEach(relationCandidates(collection: "exams"), id: \.recordID) { record in
-                    Button(record.title) { draft.sourceExamID = record.recordID }
-                }
-            } label: {
-                NativePropertyRow(
-                    title: "来源套卷",
-                    value: relationTitle(collection: "exams", id: draft.sourceExamID),
-                    systemImage: "doc.text"
-                ) {}
-                .allowsHitTesting(false)
+        VStack(alignment: .leading, spacing: 0) {
+            Text("内容关联").font(.system(size: 11)).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ForEach(["exams", "notes", "words"], id: \.self) { collection in
+                Button {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    activeRelation = collection
+                } label: {
+                    NativeDocumentProperty(title: collection == "exams" ? "来源套卷" : (collection == "notes" ? "关联笔记" : "关联词语"),
+                        value: relationSummary(collection))
+                }.buttonStyle(.plain)
             }
-            multiRelationSection(title: "关联笔记", candidates: relationCandidates(collection: "notes"), selection: $draft.linkedNoteIDs)
-            multiRelationSection(title: "关联词语", candidates: relationCandidates(collection: "words"), selection: $draft.linkedWordIDs)
         }
-        .nativeCard()
+    }
+
+    private func relationSummary(_ collection: String) -> String {
+        if collection == "exams" { return relationTitle(collection: collection, id: draft.sourceExamID) }
+        let count = collection == "notes" ? draft.linkedNoteIDs.count : draft.linkedWordIDs.count
+        return count == 0 ? "未关联" : "已关联 \(count) 项"
+    }
+
+    private func relationBinding(_ collection: String) -> Binding<[String]> {
+        switch collection {
+        case "exams": return Binding(get: { draft.sourceExamID.isEmpty ? [] : [draft.sourceExamID] }, set: { draft.sourceExamID = $0.first ?? "" })
+        case "notes": return $draft.linkedNoteIDs
+        default: return $draft.linkedWordIDs
+        }
     }
 
     private func multiRelationSection(
@@ -790,6 +798,7 @@ struct LibraryRecordEditorView: View {
     private func editor(text: Binding<String>, height: CGFloat) -> some View {
         TextEditor(text: text)
             .font(AppTheme.inputFont)
+            .scrollContentBackground(.hidden)
             .frame(minHeight: height)
             .padding(8)
             .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
@@ -799,6 +808,7 @@ struct LibraryRecordEditorView: View {
         NativeRichTextEditor(
             html: text,
             minHeight: height,
+            documentStyle: kind == .errors,
             internalLinks: internalLinkCandidates,
             onOpenInternalLink: { link in
                 linkedEditorTarget = LinkedRecordEditorTarget(collection: link.collection, recordID: link.recordID)
@@ -850,13 +860,7 @@ struct LibraryRecordEditorView: View {
                 records: records,
                 context: modelContext
             )
-            try? TagLibraryRepository.add(
-                [draft.pitfall],
-                kind: .thinkingTrap,
-                module: draft.module,
-                records: records,
-                context: modelContext
-            )
+            // 思维误区是普通文字，不写入标签库。
         }
         try? LibraryRecordRepository.save(kind: kind, draft: draft, records: records, context: modelContext)
         if recordID == nil { LibraryDraftStore.clear(kind: kind, scope: scope) }

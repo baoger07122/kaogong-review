@@ -14,6 +14,7 @@ struct LibraryRecordDetailView: View {
     @State private var showDoodle = false
     @State private var drawingData = ""
     @StateObject private var doodleController = PencilDrawingController()
+    @StateObject private var noteSession = LibraryInlineNoteSession()
 
     private var object: [String: Any] { record.jsonObject ?? [:] }
     private var snapshot: LibraryRecordSnapshot { LibraryRecordSnapshot(record: record) }
@@ -33,7 +34,8 @@ struct LibraryRecordDetailView: View {
                     reviewInfo
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.top, 5)
+                .padding(.bottom, 14)
                 .frame(maxWidth: 920, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
@@ -93,20 +95,23 @@ struct LibraryRecordDetailView: View {
                         }
                     }
                 }
+                .documentToolbarBackground()
             } else {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
                         .accessibilityLabel("涂鸦")
                     Menu {
-                        Button { showEditor = true } label: { Label("编辑错题", systemImage: "pencil") }
+                        Button { if noteSession.finish() { showEditor = true } } label: { Label("编辑错题", systemImage: "pencil") }
                         Button(role: .destructive) { showDelete = true } label: { Label("删除错题", systemImage: "trash") }
                     } label: { Image(systemName: "ellipsis") }
                 }
+                .documentToolbarBackground()
             }
         }
         .navigationDestination(isPresented: $showEditor) {
             LibraryRecordEditorView(kind: kind, scope: scope, record: record)
         }
+
     }
 
     private var metadata: some View {
@@ -134,9 +139,9 @@ struct LibraryRecordDetailView: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(active ? Color.white : Color.primary)
-                .frame(width: 32, height: 32)
-                .background(active ? AppTheme.accent : Color.primary.opacity(0.08), in: Circle())
+                .foregroundStyle(active ? AppTheme.accent : Color.primary)
+                .frame(width: 32, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
@@ -166,8 +171,8 @@ struct LibraryRecordDetailView: View {
     @ViewBuilder private var questionBlock: some View {
         if !clean(snapshot.title).isEmpty {
             Text(cleanMultiline(snapshot.title))
-                .font(.system(size: 14, weight: .regular))
-                .lineSpacing(9.8)
+                .font(.system(size: 13.5, weight: .regular))
+                .lineSpacing(5)
                 .textSelection(.enabled)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -244,24 +249,9 @@ struct LibraryRecordDetailView: View {
         }
     }
 
-    @ViewBuilder private var noteBlock: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("错题笔记", systemImage: "note.text")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
-            if let note = firstText(["content", "note", "errorNote", "analysis"]), !clean(note).isEmpty {
-                NativeRichTextDisplay(html: note, minHeight: 42)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Text("点击添加错题笔记")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, minHeight: 42, alignment: .topLeading)
-            }
-        }
-        .padding(.top, 6)
-        .contentShape(Rectangle())
-        .onTapGesture { showEditor = true }
+    private var noteBlock: some View {
+        LibraryInlineNoteView(record: record, session: noteSession)
+            .padding(.top, 6)
     }
 
     @ViewBuilder private var reviewBlock: some View {
@@ -288,7 +278,7 @@ struct LibraryRecordDetailView: View {
 
     @ViewBuilder private func metadataLine(_ label: String, values: [String]) -> some View {
         let text = values.map(clean).filter { !$0.isEmpty }.joined(separator: "、")
-        if !text.isEmpty {
+        Group {
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Text("\(label)：")
                     .fontWeight(.medium)
@@ -410,6 +400,7 @@ struct LibraryRecordDetailView: View {
     }
 
     private func openDoodle() {
+        guard noteSession.finish() else { return }
         drawingData = firstText(["pencilKitData", "drawingData"]) ?? ""
         doodleController.prepareForPresentation()
         withAnimation(.easeInOut(duration: 0.18)) { showDoodle = true }

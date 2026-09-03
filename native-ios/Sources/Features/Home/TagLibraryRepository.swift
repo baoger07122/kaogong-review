@@ -18,7 +18,7 @@ enum ManagedTagKind: String, CaseIterable, Identifiable {
 enum TagLibraryRepository {
     static func tags(kind: ManagedTagKind, module: String, records: [StoredRecord]) -> [String] {
         let library = load(kind: kind, records: records)
-        if let values = library[module], !values.isEmpty { return values }
+        if let values = library[module] { return values }
         if kind == .knowledgePoint { return defaults[module] ?? ["待复盘"] }
         return []
     }

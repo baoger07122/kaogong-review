@@ -97,6 +97,8 @@ struct NativeRichTextEditor: View {
     @Binding var html: String
     let minHeight: CGFloat
     var mode: RichTextToolbarMode = .full
+    var documentStyle = false
+    var focusOnAppear = false
     var internalLinks: [RichTextInternalLink] = []
     var onOpenInternalLink: ((RichTextInternalLink) -> Void)?
     @State private var command: RichTextCommand?
@@ -119,17 +121,19 @@ struct NativeRichTextEditor: View {
                 selectedFormula: $selectedFormula,
                 isEditing: $isEditing,
                 internalLinks: internalLinks,
-                onOpenInternalLink: onOpenInternalLink
+                onOpenInternalLink: onOpenInternalLink,
+                growsWithContent: documentStyle,
+                focusOnAppear: focusOnAppear
             )
                 .frame(minHeight: minHeight)
-                .padding(.horizontal, 5)
-            if !isEditing {
+                .padding(.horizontal, documentStyle ? 0 : 5)
+            if !isEditing && !documentStyle {
                 Divider()
                 toolbarStrip
             }
         }
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
-        .overlay(RoundedRectangle(cornerRadius: AppTheme.controlRadius).stroke(Color.primary.opacity(0.07), lineWidth: 0.7))
+        .background(Color.primary.opacity(documentStyle ? 0 : 0.035), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
+        .overlay(RoundedRectangle(cornerRadius: AppTheme.controlRadius).stroke(Color.primary.opacity(documentStyle ? 0 : 0.07), lineWidth: 0.7))
         .alert("添加链接", isPresented: $showLinkPrompt) {
             TextField("https://example.com", text: $linkTarget)
                 .textInputAutocapitalization(.never)
@@ -294,6 +298,8 @@ private struct RichTextTextView: UIViewRepresentable {
     @Binding var isEditing: Bool
     let internalLinks: [RichTextInternalLink]
     let onOpenInternalLink: ((RichTextInternalLink) -> Void)?
+    var growsWithContent = false
+    var focusOnAppear = false
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -304,12 +310,27 @@ private struct RichTextTextView: UIViewRepresentable {
         view.font = .systemFont(ofSize: 13)
         view.adjustsFontForContentSizeCategory = false
         view.textContainerInset = UIEdgeInsets(top: 10, left: 8, bottom: 10, right: 8)
+        if growsWithContent {
+            view.isScrollEnabled = false
+            view.textContainerInset = .zero
+            view.textContainer.lineFragmentPadding = 0
+            view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        }
         view.allowsEditingTextAttributes = true
         view.keyboardDismissMode = .interactive
         view.linkTextAttributes = [.foregroundColor: UIColor.systemBlue, .underlineStyle: NSUnderlineStyle.single.rawValue]
         view.attributedText = Self.attributed(from: html)
         context.coordinator.lastHTML = html
+        if focusOnAppear {
+            DispatchQueue.main.async { view.becomeFirstResponder() }
+        }
         return view
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        guard growsWithContent, let width = proposal.width, width > 0 else { return nil }
+        let size = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: max(42, ceil(size.height)))
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
@@ -647,6 +668,7 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         private func publish(_ view: UITextView) {
+            view.invalidateIntrinsicContentSize()
             let html = RichTextTextView.html(from: view.attributedText)
             lastHTML = html; parent.html = html
         }
