@@ -1,38 +1,6 @@
 import SwiftUI
 import UIKit
 
-/// This view belongs behind the practice content, never above text or the keyboard.
-struct SpeedCorrectFlash: UIViewRepresentable {
-    let trigger: Int
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeUIView(context: Context) -> SpeedFlashSurface { SpeedFlashSurface() }
-    func updateUIView(_ view: SpeedFlashSurface, context: Context) { view.update(trigger: trigger, reduceMotion: reduceMotion) }
-}
-
-final class SpeedFlashSurface: UIView {
-    private var previousTrigger = 0
-    init() {
-        super.init(frame: .zero)
-        isUserInteractionEnabled = false
-        backgroundColor = UIColor(red: 16 / 255.0, green: 185 / 255.0, blue: 129 / 255.0, alpha: 1)
-        layer.opacity = 0
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func update(trigger: Int, reduceMotion: Bool) {
-        guard trigger != previousTrigger || reduceMotion else { return }
-        previousTrigger = trigger
-        layer.removeAnimation(forKey: "correct-background")
-        guard trigger > 0, !reduceMotion else { return }
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 0.18
-        fade.toValue = 0
-        fade.duration = 0.28
-        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        layer.add(fade, forKey: "correct-background")
-    }
-}
-
 struct SpeedFeedbackToast: UIViewRepresentable {
     let message: SpeedFeedbackMessage
     let nightMode: Bool

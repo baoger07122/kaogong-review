@@ -57,7 +57,11 @@ const tests = {
     assert.match(answer, /transaction \{ \$0.animation = nil; \$0.disablesAnimations = true \}/);
     assert.match(answer, /motion: \.answer\(inputRevision\)/);
     assert.match(answer, /motion: \.expression\(questionID\)/);
-    assert.match(animatedText, /group.duration = answer \? 0.15 : 0.32/);
+    assert.match(animatedText, /let duration = answer \? 0.15 : 0.32/);
+    for (const component of ['fade', 'movement', 'group']) assert.ok(animatedText.includes(`${component}.duration = duration`));
+    assert.match(animatedText, /guard window != nil, bounds.width > 0, bounds.height > 0/);
+    assert.match(animatedText, /CATransaction.commit\(\)\s+startPendingMotion\(\)/);
+    assert.doesNotMatch(animatedText, /surface.frame =/);
     assert.match(animatedText, /movement.fromValue = answer \? 0.8 : 10/);
     assert.match(animatedText, /fade.fromValue = answer \? 0.4 : 0/);
     assert.match(animatedText, /surface.addSubview\(underline\)/);
@@ -65,11 +69,9 @@ const tests = {
     assert.match(animatedText, /previousMotion != motion/);
     assert.doesNotMatch(animatedText, /Task|asyncAfter|\.task\(/);
   },
-  'correct flash stays below practice content, never tints the keypad': () => {
-    assert.match(page, /\.background \{[\s\S]*if screen == \.practice \{[\s\S]*SpeedCorrectFlash/);
-    assert.doesNotMatch(page, /\.overlay \{ SpeedCorrectFlash/);
-    assert.match(feedback, /fade.fromValue = 0.18/);
-    assert.match(feedback, /fade.duration = 0.28/);
+  'correct answers never flash the page background': () => {
+    assert.doesNotMatch(page + feedback, /SpeedCorrectFlash|SpeedFlashSurface|correctRevision|correct-background/);
+    assert.match(page, /settings.nightMode \? Color.black : Color.white/);
     assert.match(feedback, /isUserInteractionEnabled = false/);
   },
   'web toast colors, small symbols and independent lifetime': () => {

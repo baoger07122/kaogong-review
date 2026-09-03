@@ -26,7 +26,6 @@ struct SpeedPracticeView: View {
     @State private var showRestartConfirmation = false
     @State private var isSubmitting = false
     @State private var feedback: SpeedFeedbackMessage?
-    @State private var correctRevision = 0
     @State private var finishedDuration: Double?
     @State private var showDoodle = false
     @State private var drawingData = ""
@@ -80,12 +79,7 @@ struct SpeedPracticeView: View {
         .allowsHitTesting(!showDoodle)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
-            ZStack {
-                settings.nightMode ? Color.black : Color.white
-                if screen == .practice {
-                    SpeedCorrectFlash(trigger: correctRevision).allowsHitTesting(false)
-                }
-            }.ignoresSafeArea()
+            (settings.nightMode ? Color.black : Color.white).ignoresSafeArea()
         }
         .overlay(alignment: .top) {
             if let feedback {
@@ -849,7 +843,6 @@ struct SpeedPracticeView: View {
             ? (success ? rating(for: questions[index]).rawValue + "！" : "✗ ") + String(format: "%.1fs", questions[index].timeUsed)
             : (success ? "✓" : "✗")
         feedback = SpeedFeedbackMessage(text: message, success: success)
-        if success { correctRevision &+= 1 }
         UINotificationFeedbackGenerator().notificationOccurred(success ? .success : .error)
         // Grade and advance in the same event. Feedback is a separate non-blocking overlay.
         // The graded-question guard and cleared next answer prevent a second grading.
@@ -894,7 +887,6 @@ struct SpeedPracticeView: View {
         showDoodle = false
         drawingData = ""
         savedResultID = nil
-        correctRevision = 0
     }
 
     private func retryWrong() {

@@ -35,6 +35,7 @@ final class SpeedTextSurface: UIView {
     private var previousText = ""
     private var answer = false
     private var scrollToEnd = false
+    private var pendingMotion: SpeedTextMotion?
 
     init() {
         super.init(frame: .zero)
@@ -55,6 +56,10 @@ final class SpeedTextSurface: UIView {
                 kerning: CGFloat, reduceMotion: Bool) {
         let changed = previousMotion != motion
         let textChanged = previousText != text
+        if changed || textChanged || reduceMotion {
+            cancelMotion()
+            pendingMotion = changed && motion.shouldAnimate && !reduceMotion ? motion : nil
+        }
         answer = motion.isAnswer
         let color = nightMode ? UIColor(white: 245 / 255.0, alpha: 1)
             : UIColor(red: 31 / 255.0, green: 41 / 255.0, blue: 55 / 255.0, alpha: 1)
@@ -68,33 +73,44 @@ final class SpeedTextSurface: UIView {
             underline.backgroundColor = color.withAlphaComponent(nightMode ? 0.4 : 0.32)
             scroll.isScrollEnabled = answer
             scrollToEnd = scrollToEnd || textChanged
-            setNeedsLayout()
-            layoutIfNeeded()
-        }
-        if changed || textChanged || reduceMotion {
-            cancelMotion()
-            if changed && motion.shouldAnimate && !reduceMotion {
-                let fade = CABasicAnimation(keyPath: "opacity")
-                fade.fromValue = answer ? 0.4 : 0
-                fade.toValue = 1
-                let movement = CABasicAnimation(keyPath: answer ? "transform.scale" : "transform.translation.y")
-                movement.fromValue = answer ? 0.8 : 10
-                movement.toValue = answer ? 1 : 0
-                let group = CAAnimationGroup()
-                group.animations = [fade, movement]
-                group.duration = answer ? 0.15 : 0.32
-                group.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                // One key replaces any previous pulse, including rapid repeated taps.
-                surface.layer.add(group, forKey: "web-text-motion")
-            }
         }
         previousMotion = motion
         previousText = text
+        setNeedsLayout()
+        layoutIfNeeded()
+    }
+
+    private func startPendingMotion() {
+        // A first input may arrive before SwiftUI has assigned the new answer bounds.
+        // Start only after text, underline and the animation pivot have real geometry.
+        guard window != nil, bounds.width > 0, bounds.height > 0,
+              let motion = pendingMotion else { return }
+        pendingMotion = nil
+        let answer = motion.isAnswer
+        let duration = answer ? 0.15 : 0.32
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = answer ? 0.4 : 0
+        fade.toValue = 1
+        fade.duration = duration
+        let movement = CABasicAnimation(keyPath: answer ? "transform.scale" : "transform.translation.y")
+        movement.fromValue = answer ? 0.8 : 10
+        movement.toValue = answer ? 1 : 0
+        movement.duration = duration
+        let group = CAAnimationGroup()
+        group.animations = [fade, movement]
+        group.duration = duration
+        group.timingFunction = CAMediaTimingFunction(controlPoints: 0, 0, 0.58, 1)
+        // One key replaces any previous pulse, including rapid repeated taps.
+        surface.layer.add(group, forKey: "web-text-motion")
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        surface.frame = bounds
+        // Keep layout separate from the animated transform; never set its frame.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        surface.bounds = CGRect(origin: .zero, size: bounds.size)
+        surface.center = CGPoint(x: bounds.midX, y: bounds.midY)
         scroll.frame = surface.bounds
         let textWidth = ceil(label.attributedText?.size().width ?? 0)
         let width = max(max(0, bounds.width - (answer ? 4 : 0)), textWidth)
@@ -105,7 +121,17 @@ final class SpeedTextSurface: UIView {
             scroll.setContentOffset(CGPoint(x: max(0, scroll.contentSize.width - bounds.width), y: 0), animated: false)
             scrollToEnd = false
         }
+        CATransaction.commit()
+        startPendingMotion()
     }
 
-    func cancelMotion() { surface.layer.removeAnimation(forKey: "web-text-motion") }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { setNeedsLayout() } else { cancelMotion() }
+    }
+
+    func cancelMotion() {
+        pendingMotion = nil
+        surface.layer.removeAnimation(forKey: "web-text-motion")
+    }
 }

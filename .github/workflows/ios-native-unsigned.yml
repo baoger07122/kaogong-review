@@ -95,6 +95,7 @@ jobs:
             -parallel-testing-enabled NO \
             -resultBundlePath build/SpeedInteraction.xcresult \
             -only-testing:SpeedInteractionUITests \
+            -only-testing:SpeedAnimationTests \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
             xcrun xcresulttool get test-results summary --path build/SpeedInteraction.xcresult || true
             exit 1
