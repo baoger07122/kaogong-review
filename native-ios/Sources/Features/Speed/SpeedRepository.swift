@@ -15,16 +15,7 @@ enum SpeedRepository {
     }
 
     static func estimateRows(from records: [StoredRecord]) -> [SpeedEstimateRow] {
-        decode([SpeedEstimateRow].self, key: estimateKey, records: records) ?? [
-            .init(id: UUID().uuidString, minimum: 101, maximum: 149, value: 100),
-            .init(id: UUID().uuidString, minimum: 150, maximum: 179, value: 143),
-            .init(id: UUID().uuidString, minimum: 180, maximum: 199, value: 188),
-            .init(id: UUID().uuidString, minimum: 200, maximum: 249, value: 200),
-            .init(id: UUID().uuidString, minimum: 250, maximum: 299, value: 250),
-            .init(id: UUID().uuidString, minimum: 300, maximum: 399, value: 300),
-            .init(id: UUID().uuidString, minimum: 400, maximum: 499, value: 400),
-            .init(id: UUID().uuidString, minimum: 500, maximum: 599, value: 500)
-        ]
+        SpeedEstimateRules.sorted(decode([SpeedEstimateRow].self, key: estimateKey, records: records) ?? [])
     }
 
     static func save<T: Encodable>(_ value: T, key: String, records: [StoredRecord], context: ModelContext) throws {

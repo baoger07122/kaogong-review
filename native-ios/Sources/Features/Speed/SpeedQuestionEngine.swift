@@ -55,9 +55,7 @@ enum SpeedQuestionEngine {
             let item = pool.randomElement() ?? pool[0], n = random(40...400)
             expression = "\(n) × \(item.1)"; answer = Double(Int((Double(n) * item.0 / 100).rounded()))
         case .est05:
-            let row = estimates.randomElement() ?? .init(id: "default", minimum: 101, maximum: 149, value: 100)
-            let source = random(row.minimum...max(row.minimum, row.maximum)), target = random(10...999)
-            expression = "\(source)→\(row.value)，\(target)→?"; answer = rounded(Double(target * row.value) / Double(source))
+            return SpeedEstimateRules.question(source: random(101...999), rows: estimates)
         case .base:
             let base = random(100...9999), rate = random(2...30), current = Int((Double(base) * Double(100 + rate) / 100).rounded())
             expression = "现期 \(current)，同比 +\(rate)%，求基期"; answer = Double(Int((Double(current) * 100 / Double(100 + rate)).rounded()))
@@ -94,6 +92,19 @@ enum SpeedQuestionEngine {
         rangeMaximum: Int
     ) -> SpeedQuestion {
         guard let mode, mode != .none else { return question }
+        // A three-digit / one-digit exercise must remain that type in every custom mode.
+        if question.type == .div3x1 {
+            let valid: [Int]
+            switch mode {
+            case .fixed: valid = fixedNumbers.filter { (2...9).contains($0) }
+            case .range: valid = (2...9).filter { $0 >= rangeMinimum && $0 <= rangeMaximum }
+            case .none: return question
+            }
+            guard let divisor = valid.randomElement(),
+                  let numerator = question.expression.components(separatedBy: " ÷ ").first.flatMap(Double.init) else { return question }
+            return SpeedQuestion(id: question.id, type: question.type,
+                expression: "\(Int(numerator)) ÷ \(divisor)", answer: rounded(numerator / Double(divisor)))
+        }
         let replacement: Int
         switch mode {
         case .none:

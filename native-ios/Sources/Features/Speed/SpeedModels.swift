@@ -108,6 +108,7 @@ struct SpeedQuestion: Codable, Identifiable, Equatable {
     var isCorrect: Bool?
     var timeUsed: Double = 0
     var memo = ""
+    var estimate: SpeedEstimateProblem? = nil
 }
 
 struct SpeedRecord: Codable, Identifiable, Equatable {

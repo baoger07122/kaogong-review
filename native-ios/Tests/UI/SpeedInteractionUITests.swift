@@ -11,6 +11,7 @@ final class SpeedInteractionUITests: XCTestCase {
         shortcut.tap()
         let start = app.buttons["speed-start"]
         XCTAssertTrue(start.waitForExistence(timeout: 10))
+        app.buttons["speed-type-addsub2"].tap()
         if !start.isHittable { app.swipeUp() }
         // Far from centered text, but inside the intended full-width button.
         start.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
@@ -44,5 +45,73 @@ final class SpeedInteractionUITests: XCTestCase {
         expect("")
         two.tap()
         expect("2")
+    }
+
+    @MainActor
+    func testExitBaselineAndInlineConfirmation() throws {
+        continueAfterFailure = false
+        for systemAlert in [true, false] {
+            let app = XCUIApplication()
+            app.launchArguments = ["-speed-exit-diagnostics"] + (systemAlert ? ["-speed-exit-system-alert"] : [])
+            app.launch()
+            let shortcut = app.buttons["速算练习"].firstMatch
+            XCTAssertTrue(shortcut.waitForExistence(timeout: 15))
+            shortcut.tap()
+            let start = app.buttons["speed-start"]
+            XCTAssertTrue(start.waitForExistence(timeout: 10))
+            app.buttons["speed-type-addsub2"].tap()
+            for attempt in 0..<2 {
+                start.tap()
+                let key = app.buttons["speed-key-2"]
+                XCTAssertTrue(key.waitForExistence(timeout: 5))
+                key.tap()
+                let back = app.buttons["speed-back"]
+                XCTAssertTrue(back.waitForExistence(timeout: 5))
+                XCTAssertGreaterThanOrEqual(back.frame.width, 44)
+                back.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).tap()
+                if attempt == 0 {
+                    let cancel = systemAlert ? app.alerts.buttons["继续"] : app.buttons["speed-exit-continue"]
+                    XCTAssertTrue(cancel.waitForExistence(timeout: 3))
+                    cancel.tap()
+                    XCTAssertEqual(app.descendants(matching: .any)["speed-answer"].firstMatch.value as? String, "2")
+                    back.tap()
+                }
+                let exit = systemAlert ? app.alerts.buttons["退出"] : app.buttons["speed-exit-confirm"]
+                XCTAssertTrue(exit.waitForExistence(timeout: 3))
+                exit.tap()
+                XCTAssertTrue(start.waitForExistence(timeout: 3))
+                let metrics = app.staticTexts["speed-exit-metrics"]
+                XCTAssertTrue(metrics.waitForExistence(timeout: 3))
+                print("MEASURED \(metrics.label)")
+            }
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testEstimateTwoRowsAndTableEditor() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launch()
+        let shortcut = app.buttons["速算练习"].firstMatch
+        XCTAssertTrue(shortcut.waitForExistence(timeout: 15))
+        shortcut.tap()
+        let type = app.buttons["speed-type-est05"]
+        XCTAssertTrue(type.waitForExistence(timeout: 10))
+        type.tap()
+        app.buttons["speed-start"].tap()
+        let answer = app.descendants(matching: .any)["speed-estimate-answer"].firstMatch
+        XCTAssertTrue(answer.waitForExistence(timeout: 5))
+        app.buttons["speed-key-2"].tap()
+        XCTAssertEqual(answer.value as? String, "2")
+        app.buttons["speed-back"].tap()
+        app.buttons["speed-exit-confirm"].tap()
+        app.buttons["估算表"].tap()
+        let add = app.buttons["estimate-add"]
+        XCTAssertTrue(add.waitForExistence(timeout: 5))
+        add.tap()
+        for identifier in ["estimate-minimum", "estimate-maximum", "estimate-value"] {
+            XCTAssertTrue(app.textFields[identifier].waitForExistence(timeout: 3))
+        }
     }
 }

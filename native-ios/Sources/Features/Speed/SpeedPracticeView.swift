@@ -23,6 +23,9 @@ struct SpeedPracticeView: View {
     @State private var showSettings = false
     @State private var showCustomSettings = false
     @State private var showExitConfirmation = false
+    @State private var showLegacyExitConfirmation = false
+    @State private var showEstimateInput = true
+    @State private var exitMeasurements = ""
     @State private var showRestartConfirmation = false
     @State private var isSubmitting = false
     @State private var feedback: SpeedFeedbackMessage?
@@ -59,7 +62,9 @@ struct SpeedPracticeView: View {
         if screen == .history, selectedHistory != nil {
             selectedHistory = nil
         } else if screen == .practice {
-            showExitConfirmation = true
+            SpeedExitDiagnostics.begin()
+            if SpeedExitDiagnostics.useSystemAlert { showLegacyExitConfirmation = true }
+            else { showExitConfirmation = true }
         } else {
             screen = .home
         }
@@ -88,6 +93,13 @@ struct SpeedPracticeView: View {
             }
         }
         .overlay {
+            if showExitConfirmation {
+                SpeedExitConfirmation(onContinue: { showExitConfirmation = false }, onExit: abandon)
+                    .onAppear { SpeedExitDiagnostics.mark("dialog") }
+            }
+        }
+        .background { SpeedExitTouchProbe() }
+        .overlay {
             if showDoodle {
                 ZStack {
                     Color.gray.opacity(0.30).ignoresSafeArea().allowsHitTesting(false)
@@ -104,8 +116,12 @@ struct SpeedPracticeView: View {
         .toolbar {
             if screen != .home {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(action: navigateBack) { Image(systemName: "chevron.left") }
+                    Button(action: navigateBack) {
+                        Image(systemName: "chevron.left")
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
                         .accessibilityLabel("返回")
+                        .accessibilityIdentifier("speed-back")
                         .disabled(isSubmitting)
                 }
             }
@@ -118,6 +134,13 @@ struct SpeedPracticeView: View {
                     doodleButton("paintpalette", "画笔调节", active: doodleController.showSettings) { doodleController.showSettings.toggle() }
                 }
                 .documentToolbarBackground()
+            } else if screen == .practice, questions.indices.contains(index), questions[index].type == .est05 {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showEstimateInput.toggle() } label: {
+                        Image(systemName: showEstimateInput ? "eye" : "eye.slash")
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }.accessibilityLabel("显示或隐藏估算输入")
+                }
             } else if screen == .result {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }.accessibilityLabel("涂鸦")
@@ -125,7 +148,7 @@ struct SpeedPracticeView: View {
                 .documentToolbarBackground()
             }
         }
-        .alert("退出练习", isPresented: $showExitConfirmation) {
+        .alert("退出练习", isPresented: $showLegacyExitConfirmation) {
             Button("退出", role: .destructive, action: abandon)
             Button("继续", role: .cancel) { }
         } message: { Text("当前练习进度将丢失，确定退出吗？") }
@@ -219,6 +242,15 @@ struct SpeedPracticeView: View {
             .padding(.bottom, 12)
         }
         .background(Color.white)
+        .background {
+            SpeedExitFrameProbe { exitMeasurements = SpeedExitDiagnostics.finish() }
+        }
+        .overlay(alignment: .bottomLeading) {
+            if SpeedExitDiagnostics.enabled, !exitMeasurements.isEmpty {
+                Text(exitMeasurements).font(.system(size: 8))
+                    .accessibilityIdentifier("speed-exit-metrics").allowsHitTesting(false)
+            }
+        }
     }
 
     private func typeGrid(_ values: [SpeedTypeKey], includesCustomPractice: Bool = false) -> some View {
@@ -260,6 +292,7 @@ struct SpeedPracticeView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!type.isAvailable)
+                .accessibilityIdentifier("speed-type-\(type.rawValue)")
             }
             if includesCustomPractice { customPracticeCard }
         }
@@ -553,11 +586,13 @@ struct SpeedPracticeView: View {
                         Text("\(index + 1)/\(questions.count)")
                             .foregroundStyle(settings.nightMode ? Color.white : Color.primary)
                         Spacer()
-                        Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }.accessibilityLabel("草稿涂鸦")
-                        Spacer()
-                        Button("重开") { showRestartConfirmation = true }
-                            .disabled(isSubmitting)
-                        Spacer()
+                        if question.type != .est05 {
+                            Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }.accessibilityLabel("草稿涂鸦")
+                            Spacer()
+                            Button("重开") { showRestartConfirmation = true }
+                                .disabled(isSubmitting)
+                            Spacer()
+                        }
                         TimelineView(.periodic(from: .now, by: 0.1)) { context in
                             Text(String(format: "%d:%04.1f", Int(context.date.timeIntervalSince(startedAt)) / 60, context.date.timeIntervalSince(startedAt).truncatingRemainder(dividingBy: 60)))
                                 .monospacedDigit()
@@ -570,8 +605,13 @@ struct SpeedPracticeView: View {
                     Divider()
 
                     Spacer(minLength: 12)
-                    SpeedAnswerRow(expression: question.expression, input: currentInput,
-                                   questionID: question.id, inputRevision: inputRevision, nightMode: settings.nightMode)
+                    if let estimate = question.estimate {
+                        SpeedEstimateExercise(problem: estimate, input: currentInput,
+                            showInput: showEstimateInput, nightMode: settings.nightMode)
+                    } else {
+                        SpeedAnswerRow(expression: question.expression, input: currentInput,
+                                       questionID: question.id, inputRevision: inputRevision, nightMode: settings.nightMode)
+                    }
                     Spacer(minLength: 12)
                     if settings.useScreenKeyboard {
                         SpeedNumberPad(
@@ -605,7 +645,11 @@ struct SpeedPracticeView: View {
         }
         }
         .onAppear { if settings.soundEnabled != false { keySound.prepare() } }
-        .onDisappear { keySound.stop() }
+        .onDisappear {
+            SpeedExitDiagnostics.mark("audioStart")
+            keySound.stop()
+            SpeedExitDiagnostics.mark("audioEnd")
+        }
     }
 
     private var result: some View {
@@ -710,29 +754,9 @@ struct SpeedPracticeView: View {
     }
 
     private var estimateTable: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("范围 → 估算值").font(AppTheme.sectionTitleFont)
-                    Spacer()
-                    Button { estimateRows.append(.init(id: UUID().uuidString, minimum: 100, maximum: 199, value: 100)) } label: { Label("新增", systemImage: "plus") }
-                }
-                ForEach($estimateRows) { $row in
-                    HStack(spacing: 8) {
-                        TextField("最小", value: $row.minimum, format: .number).textFieldStyle(NativeTextFieldStyle())
-                        Text("—")
-                        TextField("最大", value: $row.maximum, format: .number).textFieldStyle(NativeTextFieldStyle())
-                        Image(systemName: "arrow.right")
-                        TextField("估算值", value: $row.value, format: .number).textFieldStyle(NativeTextFieldStyle())
-                        Button(role: .destructive) { estimateRows.removeAll { $0.id == row.id } } label: { Image(systemName: "trash") }
-                    }
-                }
-                Button("保存估算表") {
-                    try? SpeedRepository.saveEstimateRows(estimateRows, records: records, context: modelContext)
-                }
-                .buttonStyle(NativePrimaryButtonStyle())
-            }
-            .padding(20)
+        SpeedEstimateTableView(rows: estimateRows) { updated in
+            try SpeedRepository.saveEstimateRows(updated, records: records, context: modelContext)
+            estimateRows = updated
         }
     }
 
@@ -743,13 +767,17 @@ struct SpeedPracticeView: View {
 
     private var canStart: Bool {
         guard (settings.useCustomPractice == true || settings.selectedType != .dataReal), !activeTypes.isEmpty else { return false }
+        guard settings.useCustomPractice == true else { return true }
         if settings.customNumberMode == .fixed { return !selectedFixedNumbers.isEmpty }
+        if settings.customNumberMode == .range, activeTypes.contains(.div3x1) {
+            return max(2, settings.customRangeMinimum ?? 1) <= min(9, settings.customRangeMaximum ?? 99)
+        }
         return true
     }
 
     private var startButtonTitle: String {
         if settings.useCustomPractice != true, settings.selectedType == .dataReal { return "该题型尚未开放" }
-        if settings.customNumberMode == .fixed, selectedFixedNumbers.isEmpty { return "请先选择固定数字" }
+        if settings.useCustomPractice == true, !canStart { return "请选择有效数字（三位数除一位数：2–9）" }
         return settings.useCustomPractice == true ? "开始自定义练习" : "开始练习"
     }
 
@@ -786,7 +814,7 @@ struct SpeedPracticeView: View {
     }
 
     private var selectedFixedNumbers: [Int] {
-        (settings.customFixedNumbers ?? []).filter { (1...9).contains($0) }
+        (settings.customFixedNumbers ?? []).filter { (activeTypes.contains(.div3x1) ? 2...9 : 1...9).contains($0) }
     }
 
     private var correctCount: Int { questions.filter { $0.isCorrect == true }.count }
@@ -805,12 +833,14 @@ struct SpeedPracticeView: View {
     }
 
     private func start() {
+        guard canStart else { return }
+        exitMeasurements = ""
         let generated = SpeedQuestionEngine.questions(
             types: activeTypes,
             count: settings.questionCount,
             sequential: settings.sequential,
             estimates: estimateRows,
-            customMode: settings.customNumberMode,
+            customMode: settings.useCustomPractice == true ? settings.customNumberMode : nil,
             fixedNumbers: selectedFixedNumbers,
             rangeMinimum: settings.customRangeMinimum ?? 1,
             rangeMaximum: settings.customRangeMaximum ?? 99
@@ -867,10 +897,17 @@ struct SpeedPracticeView: View {
     }
 
     private func abandon() {
-        resetAttemptState()
-        questions = []
-        currentInput = ""
-        screen = .home
+        SpeedExitDiagnostics.mark("exit")
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            showExitConfirmation = false
+            resetAttemptState()
+            questions = []
+            currentInput = ""
+            screen = .home
+        }
+        SpeedExitDiagnostics.mark("state")
     }
 
     private func pressKey(_ key: String) {

@@ -78,11 +78,13 @@ jobs:
           "$RUNNER_TEMP/keypad-geometry-tests"
           swiftc native-ios/Sources/Features/Speed/SpeedKeyInput.swift native-ios/Tests/SpeedKeyInputTests.swift -o "$RUNNER_TEMP/keypad-input-tests"
           "$RUNNER_TEMP/keypad-input-tests"
-          swiftc native-ios/Sources/Features/Speed/SpeedModels.swift native-ios/Sources/Features/Speed/SpeedPracticeFlow.swift native-ios/Tests/SpeedPracticeFlowTests.swift -o "$RUNNER_TEMP/practice-flow-tests"
+          swiftc native-ios/Sources/Features/Speed/SpeedModels.swift native-ios/Sources/Features/Speed/SpeedEstimateRules.swift native-ios/Sources/Features/Speed/SpeedPracticeFlow.swift native-ios/Tests/SpeedPracticeFlowTests.swift -o "$RUNNER_TEMP/practice-flow-tests"
           "$RUNNER_TEMP/practice-flow-tests"
+          swiftc native-ios/Sources/Features/Speed/SpeedModels.swift native-ios/Sources/Features/Speed/SpeedEstimateRules.swift native-ios/Sources/Features/Speed/SpeedQuestionEngine.swift native-ios/Tests/SpeedEstimateRulesTests.swift -o "$RUNNER_TEMP/estimate-rules-tests"
+          "$RUNNER_TEMP/estimate-rules-tests"
 
       - name: Test speed controls with real simulator taps
-        timeout-minutes: 12
+        timeout-minutes: 16
         shell: bash
         run: |
           SIMULATOR_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next(d["udid"] for runtime,devices in sorted(data["devices"].items(), reverse=True) if "iOS" in runtime for d in devices if "iPad" in d["name"]))')

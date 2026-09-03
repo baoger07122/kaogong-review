@@ -29,6 +29,20 @@ const tests = {
     assert.match(page, /alert\("退出练习"/);
     assert.match(page, /alert\("重新开始"/);
     assert.match(page, /Button\("继续", role: \.cancel\) \{ \}/);
+    assert.match(page, /SpeedExitConfirmation\(onContinue: \{ showExitConfirmation = false \}, onExit: abandon\)/);
+    const exit = page.split('private func abandon()')[1].split('private func pressKey')[0];
+    assert.match(exit, /transaction.disablesAnimations = true/);
+    assert.match(exit, /showExitConfirmation = false/);
+    assert.match(exit, /screen = \.home/);
+    assert.doesNotMatch(exit, /sleep|saveHistory|asyncAfter/);
+    assert.match(page, /frame\(width: 44, height: 44\).contentShape\(Rectangle\(\)\)/);
+  },
+  'estimate uses structured rows and custom settings never affect ordinary practice': () => {
+    assert.match(page, /SpeedEstimateExercise\(problem: estimate/);
+    assert.match(page, /SpeedEstimateTableView\(rows: estimateRows\)/);
+    assert.match(page, /customMode: settings.useCustomPractice == true \? settings.customNumberMode : nil/);
+    assert.match(read('SpeedQuestionEngine'), /question\(source: random\(101\.\.\.999\)/);
+    assert.match(read('SpeedEstimateRules'), /Double\(initial\) \* Double\(match.value\) \/ Double\(source\)/);
   },
   'direct touch press and immediate release, medium digits, white surround': () => {
     assert.match(pad, /static let panel = Color.white/);
