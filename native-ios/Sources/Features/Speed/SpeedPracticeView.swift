@@ -13,6 +13,7 @@ struct SpeedPracticeView: View {
     @State private var questions: [SpeedQuestion] = []
     @State private var index = 0
     @State private var currentInput = ""
+    @State private var inputRevision = 0
     @State private var startedAt = Date()
     @State private var questionStartedAt = Date()
     @State private var selectedHistory: SpeedRecord?
@@ -78,13 +79,17 @@ struct SpeedPracticeView: View {
         }
         .allowsHitTesting(!showDoodle)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background { (settings.nightMode ? Color.black : Color.white).ignoresSafeArea() }
-        .overlay { SpeedCorrectFlash(trigger: correctRevision) }
+        .background {
+            ZStack {
+                settings.nightMode ? Color.black : Color.white
+                if screen == .practice {
+                    SpeedCorrectFlash(trigger: correctRevision).allowsHitTesting(false)
+                }
+            }.ignoresSafeArea()
+        }
         .overlay(alignment: .top) {
             if let feedback {
-                Text(feedback.text).font(.system(size: 14, weight: .medium)).foregroundStyle(.white)
-                    .padding(.horizontal, 20).padding(.vertical, 10)
-                    .background(feedback.success == true ? AppTheme.success : feedback.success == false ? Color.red : Color.black.opacity(0.82), in: Capsule())
+                SpeedFeedbackToast(message: feedback, nightMode: settings.nightMode)
                     .padding(.top, 16).allowsHitTesting(false)
             }
         }
@@ -136,7 +141,7 @@ struct SpeedPracticeView: View {
         } message: { Text("确定重新开始本轮练习？") }
         .task(id: feedback?.id) {
             guard feedback != nil else { return }
-            do { try await Task.sleep(for: .milliseconds(900)) } catch { return }
+            do { try await Task.sleep(for: .milliseconds(2500)) } catch { return }
             guard !Task.isCancelled else { return }
             feedback = nil
         }
@@ -571,7 +576,8 @@ struct SpeedPracticeView: View {
                     Divider()
 
                     Spacer(minLength: 12)
-                    SpeedAnswerRow(expression: question.expression, input: currentInput, nightMode: settings.nightMode)
+                    SpeedAnswerRow(expression: question.expression, input: currentInput,
+                                   questionID: question.id, inputRevision: inputRevision, nightMode: settings.nightMode)
                     Spacer(minLength: 12)
                     if settings.useScreenKeyboard {
                         SpeedNumberPad(
@@ -877,11 +883,13 @@ struct SpeedPracticeView: View {
     private func pressKey(_ key: String) {
         guard screen == .practice, !isSubmitting else { return }
         currentInput = SpeedKeyInput.applying(key, to: currentInput)
+        inputRevision &+= 1
     }
 
     private func resetAttemptState() {
         isSubmitting = false
         feedback = nil
+        inputRevision = 0
         finishedDuration = nil
         showDoodle = false
         drawingData = ""

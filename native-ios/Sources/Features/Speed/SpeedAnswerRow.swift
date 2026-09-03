@@ -5,6 +5,8 @@ import UIKit
 struct SpeedAnswerRow: View {
     let expression: String
     let input: String
+    let questionID: String
+    let inputRevision: Int
     var nightMode = false
 
     var body: some View {
@@ -21,34 +23,20 @@ struct SpeedAnswerRow: View {
             let answerWidth = min(max(40, textWidth), min(geometry.size.width * 0.64, available - fixedWidth - 16))
 
             HStack(spacing: 8) {
-                Text(expression).kerning(scale)
-                    .frame(width: expressionWidth * scale)
+                SpeedAnimatedText(text: expression, fontSize: fontSize, nightMode: nightMode,
+                                  motion: .expression(questionID), kerning: scale)
+                    .frame(width: expressionWidth * scale, height: 56)
                 Text("=").kerning(scale)
                     .frame(width: equalsWidth * scale)
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 0) {
-                            Text(input)
-                                .font(.system(size: fontSize, weight: .regular, design: .monospaced))
-                                .fixedSize()
-                            Color.clear.frame(width: 0, height: 1).id("answer-end")
-                        }
-                        .frame(minWidth: max(0, answerWidth - 4), minHeight: 56)
-                        .padding(.horizontal, 2)
-                    }
-                    .scrollIndicators(.hidden)
-                    .onChange(of: input) { _, _ in proxy.scrollTo("answer-end", anchor: .trailing) }
-                }
+                SpeedAnimatedText(text: input, fontSize: fontSize, nightMode: nightMode,
+                                  motion: .answer(inputRevision))
                 .frame(width: answerWidth, height: 56)
-                .overlay(alignment: .bottom) {
-                    Rectangle().fill(nightMode ? Color.white.opacity(0.4) : Color(red: 31 / 255.0, green: 41 / 255.0, blue: 55 / 255.0).opacity(0.32)).frame(height: 2.5)
-                }
             }
             .font(.system(size: fontSize, weight: .regular))
             .foregroundStyle(nightMode ? Color(white: 245 / 255.0) : Color(red: 31 / 255.0, green: 41 / 255.0, blue: 55 / 255.0))
             .lineLimit(1)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // Recenter as digits grow, without inherited scale, fade or layout animations.
+            // Layout stays stable; the two native text surfaces animate independently.
             .transaction { $0.animation = nil; $0.disablesAnimations = true }
         }
         .frame(height: 56)

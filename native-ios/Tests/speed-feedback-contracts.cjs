@@ -8,6 +8,7 @@ const pad = read('SpeedNumberPad');
 const result = read('SpeedResultView');
 const feedback = read('SpeedFeedback');
 const answer = read('SpeedAnswerRow');
+const animatedText = read('SpeedAnimatedText');
 const tests = {
   'manual confirmation regardless of legacy setting': () => {
     assert.doesNotMatch(page, /settings\.confirmAuto|settingBinding\(\\\.confirmAuto\)/);
@@ -51,14 +52,34 @@ const tests = {
     assert.doesNotMatch(start, /background|RoundedRectangle|Capsule/);
     assert.match(start, /disabled\(!canStart\)/);
   },
-  'stable answer and next question, feedback remains independent': () => {
+  'web input motion is scoped to answer and commits synchronously': () => {
     assert.doesNotMatch(answer, /SpeedInputPulse|scaleEffect|^\s*\.opacity\(|withAnimation/m);
     assert.match(answer, /transaction \{ \$0.animation = nil; \$0.disablesAnimations = true \}/);
-    assert.doesNotMatch(page + feedback, /SpeedInputPulse|SpeedQuestionEntrance|inputRevision/);
-    assert.match(feedback, /task\(id: trigger\)/);
-    assert.match(feedback, /Task.isCancelled/);
-    assert.match(feedback, /allowsHitTesting\(false\)/);
-    assert.match(page, /SpeedCorrectFlash/);
+    assert.match(answer, /motion: \.answer\(inputRevision\)/);
+    assert.match(answer, /motion: \.expression\(questionID\)/);
+    assert.match(animatedText, /group.duration = answer \? 0.15 : 0.32/);
+    assert.match(animatedText, /movement.fromValue = answer \? 0.8 : 10/);
+    assert.match(animatedText, /fade.fromValue = answer \? 0.4 : 0/);
+    assert.match(animatedText, /surface.addSubview\(underline\)/);
+    assert.match(animatedText, /removeAnimation\(forKey: "web-text-motion"\)/);
+    assert.match(animatedText, /previousMotion != motion/);
+    assert.doesNotMatch(animatedText, /Task|asyncAfter|\.task\(/);
+  },
+  'correct flash stays below practice content, never tints the keypad': () => {
+    assert.match(page, /\.background \{[\s\S]*if screen == \.practice \{[\s\S]*SpeedCorrectFlash/);
+    assert.doesNotMatch(page, /\.overlay \{ SpeedCorrectFlash/);
+    assert.match(feedback, /fade.fromValue = 0.18/);
+    assert.match(feedback, /fade.duration = 0.28/);
+    assert.match(feedback, /isUserInteractionEnabled = false/);
+  },
+  'web toast colors, small symbols and independent lifetime': () => {
+    assert.match(feedback, /ofSize: 12, weight: \.medium/);
+    assert.match(feedback, /52 \/ 255.0, green: 199 \/ 255.0, blue: 89 \/ 255.0/);
+    assert.match(feedback, /dark \? 69 : 59/);
+    assert.match(feedback, /dark \? 58 : 48/);
+    assert.match(feedback, /opacity.keyTimes = \[0, 0.12, 0.8, 0.92, 1\]/);
+    assert.match(page, /milliseconds\(2500\)/);
+    assert.match(page, /SpeedFeedbackToast[\s\S]*padding\(\.top, 16\).allowsHitTesting\(false\)/);
   },
   'result retry keeps wrong questions, footer stays fixed': () => {
     assert.match(page, /SpeedPracticeFlow.retryQuestions/);

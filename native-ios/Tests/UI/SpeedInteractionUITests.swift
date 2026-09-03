@@ -24,6 +24,12 @@ final class SpeedInteractionUITests: XCTestCase {
         }
         two.tap()
         expect("2")
+        two.tap(withNumberOfTaps: 2, numberOfTouches: 1)
+        expect("222")
+        app.buttons["speed-key-delete.backward"].tap()
+        expect("")
+        two.tap()
+        expect("2")
         two.tap()
         expect("22")
         app.buttons["speed-key-3"].tap()
