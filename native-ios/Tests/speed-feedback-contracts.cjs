@@ -12,6 +12,7 @@ const tests = {
     assert.doesNotMatch(page, /settings\.confirmAuto|settingBinding\(\\\.confirmAuto\)/);
     const input = page.split('private func pressKey')[1].split('private func resetAttemptState')[0];
     assert.doesNotMatch(input, /submit\(\)|advance\(\)/);
+    assert.match(page, /Button\("确认答案", action: submit\)/);
   },
   'single cancellable submission, no unguarded delayed advance': () => {
     assert.match(page, /!isSubmitting/);

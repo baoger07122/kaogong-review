@@ -589,7 +589,14 @@ struct SpeedPracticeView: View {
                     } else {
                         TextField("答案", text: $currentInput)
                             .keyboardType(.decimalPad)
+                            .submitLabel(.done)
+                            .onSubmit(submit)
+                            .disabled(isSubmitting)
                             .textFieldStyle(NativeTextFieldStyle())
+                        Button("确认答案", action: submit)
+                            .buttonStyle(NativePrimaryButtonStyle())
+                            .disabled(isSubmitting)
+                            .padding(12)
                     }
 
                 }
