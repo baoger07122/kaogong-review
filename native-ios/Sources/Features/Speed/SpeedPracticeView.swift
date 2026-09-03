@@ -203,14 +203,17 @@ struct SpeedPracticeView: View {
                 }
                 .frame(maxWidth: .infinity)
 
-                Button(startButtonTitle) { start() }
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(canStart ? Color.white : Color.secondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 40)
-                    .background(canStart ? AppTheme.accent : Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
-                    .buttonStyle(NativePressButtonStyle())
-                    .disabled(!canStart)
+                Button(action: start) {
+                    Text(startButtonTitle)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(canStart ? AppTheme.accent : Color.secondary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!canStart)
+                .accessibilityIdentifier("speed-start")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

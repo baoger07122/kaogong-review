@@ -37,11 +37,19 @@ const tests = {
     assert.match(pad, /override func beginTracking[\s\S]*?setPressed\(true\)/);
     assert.match(pad, /override func endTracking[\s\S]*?setPressed\(false\)/);
     assert.match(pad, /override func cancelTracking[^\n]*setPressed\(false\)/);
-    assert.match(pad, /if inside && isEnabled/);
+    assert.doesNotMatch(pad, /sendActions\(for:/);
+    assert.equal((pad.match(/addTarget\(/g) || []).length, 1);
     assert.match(pad, /override func accessibilityActivate/);
     assert.doesNotMatch(pad, /\.animation\(|withAnimation|UIView.animate|Task.sleep|asyncAfter/);
     assert.match(pad, /label: "删除上一位"[\s\S]*?action: onBackspace/);
     assert.match(pad, /label: "清空答案"[\s\S]*?action: onClear/);
+  },
+  'start is a full-width 48pt text button without a capsule': () => {
+    const start = page.split('Button(action: start) {')[1].split('.accessibilityIdentifier("speed-start")')[0];
+    assert.match(start, /Text\(startButtonTitle\)[\s\S]*frame\(maxWidth: \.infinity\)[\s\S]*frame\(height: 48\)[\s\S]*contentShape\(Rectangle\(\)\)/);
+    assert.match(start, /size: 15, weight: \.semibold/);
+    assert.doesNotMatch(start, /background|RoundedRectangle|Capsule/);
+    assert.match(start, /disabled\(!canStart\)/);
   },
   'stable answer and next question, feedback remains independent': () => {
     assert.doesNotMatch(answer, /SpeedInputPulse|scaleEffect|^\s*\.opacity\(|withAnimation/m);

@@ -77,6 +77,7 @@ private struct SpeedTouchKey: UIViewRepresentable {
         control.isEnabled = isEnabled
         control.reduceMotion = reduceMotion
         control.accessibilityLabel = label
+        control.accessibilityIdentifier = "speed-key-" + (title ?? symbol ?? label)
         control.configure(title: title, symbol: symbol, font: .systemFont(ofSize: fontSize, weight: weight),
                           isAction: isAction)
     }
@@ -169,9 +170,9 @@ private final class SpeedKeyControl: UIControl {
     }
 
     override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
-        let inside = touch.map { bounds.contains($0.location(in: self)) } ?? false
+        // UIControl dispatches touchUpInside itself. Tracking only updates the visual state;
+        // manually sending the event here would call the registered action a second time.
         setPressed(false)
-        if inside && isEnabled { sendActions(for: .touchUpInside) }
     }
 
     override func cancelTracking(with event: UIEvent?) { setPressed(false) }

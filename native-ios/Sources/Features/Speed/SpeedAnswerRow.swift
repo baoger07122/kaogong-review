@@ -53,6 +53,8 @@ struct SpeedAnswerRow: View {
         }
         .frame(height: 56)
         .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier("speed-answer")
+        .accessibilityValue(input)
         .accessibilityLabel("\(expression) 等于 \(input.isEmpty ? "空" : input)")
     }
 }
