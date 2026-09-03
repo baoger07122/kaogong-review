@@ -47,49 +47,7 @@ struct LibraryRecordEditorView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                if kind == .errors { recordTypePicker }
-                contextCard
-                if restoredDraft {
-                    Label("已恢复上次未保存的草稿", systemImage: "clock.arrow.circlepath")
-                        .font(AppTheme.auxiliaryFont.weight(.semibold))
-                        .foregroundStyle(AppTheme.accent)
-                        .padding(.horizontal, 4)
-                }
-                switch kind {
-                case .errors: errorFields
-                case .notes: noteFields
-                case .stickies: stickyFields
-                case .words: wordFields
-                }
-            }
-            .padding(.horizontal, kind == .errors ? 16 : 20)
-            .padding(.top, kind == .errors ? 5 : 20)
-            .padding(.bottom, 20)
-            .frame(maxWidth: kind == .errors ? 920 : .infinity)
-            .frame(maxWidth: .infinity)
-        }
-        .background(kind == .errors ? Color.white : AppTheme.groupedBackground)
-        .navigationTitle(recordID == nil ? "新增\(kind.rawValue)" : "编辑\(kind.rawValue)")
-        .navigationBarTitleDisplayMode(.inline)
-        .preference(key: RootBottomBarHiddenPreferenceKey.self, value: true)
-        .toolbar(.visible, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("保存", action: save).disabled(!canSave)
-            }
-            if recordID != nil, kind != .errors {
-                ToolbarItemGroup(placement: .bottomBar) {
-                    Spacer()
-                    Button("删除", role: .destructive) { showDelete = true }
-                }
-            }
-        }
-        .confirmationDialog("删除\(kind.rawValue)", isPresented: $showDelete, titleVisibility: .visible) {
-            Button("删除", role: .destructive, action: remove)
-            Button("取消", role: .cancel) {}
-        } message: { Text("删除后无法在 App 内恢复。") }
+        configuredEditor
         .onChange(of: selectedPhotos) { _, items in
             Task { await appendImages(items) }
         }
@@ -115,7 +73,60 @@ struct LibraryRecordEditorView: View {
                     .padding(24)
             }
         }
-        .overlay {
+        .overlay { editorDialogs }
+    }
+
+    private var editorContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if kind == .errors { recordTypePicker }
+                contextCard
+                if restoredDraft {
+                    Label("已恢复上次未保存的草稿", systemImage: "clock.arrow.circlepath")
+                        .font(AppTheme.auxiliaryFont.weight(.semibold))
+                        .foregroundStyle(AppTheme.accent)
+                        .padding(.horizontal, 4)
+                }
+                switch kind {
+                case .errors: errorFields
+                case .notes: noteFields
+                case .stickies: stickyFields
+                case .words: wordFields
+                }
+            }
+            .padding(.horizontal, kind == .errors ? 16 : 20)
+            .padding(.top, kind == .errors ? 5 : 20)
+            .padding(.bottom, 20)
+            .frame(maxWidth: kind == .errors ? 920 : .infinity)
+            .frame(maxWidth: .infinity)
+        }
+        .background(kind == .errors ? Color.white : AppTheme.groupedBackground)
+    }
+
+    private var configuredEditor: some View {
+        editorContent
+        .navigationTitle(recordID == nil ? "新增\(kind.rawValue)" : "编辑\(kind.rawValue)")
+        .navigationBarTitleDisplayMode(.inline)
+        .preference(key: RootBottomBarHiddenPreferenceKey.self, value: true)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("保存", action: save).disabled(!canSave)
+            }
+            if recordID != nil, kind != .errors {
+                ToolbarItemGroup(placement: .bottomBar) {
+                    Spacer()
+                    Button("删除", role: .destructive) { showDelete = true }
+                }
+            }
+        }
+        .confirmationDialog("删除\(kind.rawValue)", isPresented: $showDelete, titleVisibility: .visible) {
+            Button("删除", role: .destructive, action: remove)
+            Button("取消", role: .cancel) {}
+        } message: { Text("删除后无法在 App 内恢复。") }
+    }
+
+    @ViewBuilder private var editorDialogs: some View {
             if showSmartSplit {
                 smartSplitDialog
             }
@@ -129,9 +140,7 @@ struct LibraryRecordEditorView: View {
                     candidates: relationCandidates(collection: activeRelation),
                     selection: relationBinding(activeRelation), onClose: { self.activeRelation = nil })
             }
-        }
     }
-
     private var contextCard: some View {
         HStack(spacing: 10) {
             Menu {

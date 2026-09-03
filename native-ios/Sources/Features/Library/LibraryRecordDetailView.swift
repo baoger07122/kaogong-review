@@ -102,7 +102,7 @@ struct LibraryRecordDetailView: View {
                         .accessibilityLabel("涂鸦")
                     Menu {
                         Button { if noteSession.finish() { showEditor = true } } label: { Label("编辑错题", systemImage: "pencil") }
-                        Button(role: .destructive) { showDelete = true } label: { Label("删除错题", systemImage: "trash") }
+                        Button(role: .destructive) { if noteSession.finish() { showDelete = true } } label: { Label("删除错题", systemImage: "trash") }
                     } label: { Image(systemName: "ellipsis") }
                 }
                 .documentToolbarBackground()
