@@ -12,7 +12,7 @@ struct SpeedInputPulse: ViewModifier {
     func body(content: Content) -> some View {
         content.scaleEffect(scale).opacity(opacity)
             .task(id: trigger) {
-                guard trigger > 0, !reduceMotion else { return }
+                guard trigger > 0, !reduceMotion else { scale = 1; opacity = 1; return }
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) { scale = initialScale; opacity = 0.4 }
@@ -51,7 +51,7 @@ struct SpeedCorrectFlash: View {
         Color(red: 16 / 255.0, green: 185 / 255.0, blue: 129 / 255.0)
             .opacity(opacity).ignoresSafeArea().allowsHitTesting(false)
             .task(id: trigger) {
-                guard trigger > 0, !reduceMotion else { return }
+                guard trigger > 0, !reduceMotion else { opacity = 0; return }
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) { opacity = 0.18 }
