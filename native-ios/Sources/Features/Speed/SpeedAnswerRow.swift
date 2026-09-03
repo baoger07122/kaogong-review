@@ -5,7 +5,6 @@ import UIKit
 struct SpeedAnswerRow: View {
     let expression: String
     let input: String
-    let inputRevision: Int
     var nightMode = false
 
     var body: some View {
@@ -44,12 +43,13 @@ struct SpeedAnswerRow: View {
                 .overlay(alignment: .bottom) {
                     Rectangle().fill(nightMode ? Color.white.opacity(0.4) : Color(red: 31 / 255.0, green: 41 / 255.0, blue: 55 / 255.0).opacity(0.32)).frame(height: 2.5)
                 }
-                .modifier(SpeedInputPulse(trigger: inputRevision))
             }
             .font(.system(size: fontSize, weight: .regular))
             .foregroundStyle(nightMode ? Color(white: 245 / 255.0) : Color(red: 31 / 255.0, green: 41 / 255.0, blue: 55 / 255.0))
             .lineLimit(1)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Recenter as digits grow, without inherited scale, fade or layout animations.
+            .transaction { $0.animation = nil; $0.disablesAnimations = true }
         }
         .frame(height: 56)
         .accessibilityElement(children: .ignore)

@@ -72,6 +72,8 @@ jobs:
 
       - name: Test native keypad geometry
         run: |
+          node native-ios/Tests/speed-feedback-contracts.cjs
+          node native-ios/Tests/document-form-contracts.cjs
           swiftc native-ios/Sources/Features/Speed/SpeedKeypadMetrics.swift native-ios/Tests/SpeedKeypadMetricsTests.swift -o "$RUNNER_TEMP/keypad-geometry-tests"
           "$RUNNER_TEMP/keypad-geometry-tests"
           swiftc native-ios/Sources/Features/Speed/SpeedKeyInput.swift native-ios/Tests/SpeedKeyInputTests.swift -o "$RUNNER_TEMP/keypad-input-tests"

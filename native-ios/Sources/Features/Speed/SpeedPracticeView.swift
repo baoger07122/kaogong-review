@@ -13,7 +13,6 @@ struct SpeedPracticeView: View {
     @State private var questions: [SpeedQuestion] = []
     @State private var index = 0
     @State private var currentInput = ""
-    @State private var inputRevision = 0
     @State private var startedAt = Date()
     @State private var questionStartedAt = Date()
     @State private var selectedHistory: SpeedRecord?
@@ -25,7 +24,6 @@ struct SpeedPracticeView: View {
     @State private var showExitConfirmation = false
     @State private var showRestartConfirmation = false
     @State private var isSubmitting = false
-    @State private var advanceTask: Task<Void, Never>?
     @State private var feedback: SpeedFeedbackMessage?
     @State private var correctRevision = 0
     @State private var finishedDuration: Double?
@@ -142,7 +140,7 @@ struct SpeedPracticeView: View {
             guard !Task.isCancelled else { return }
             feedback = nil
         }
-        .onDisappear { advanceTask?.cancel(); keySound.stop() }
+        .onDisappear { keySound.stop() }
         .sheet(isPresented: $showSettings) { practiceSettingsSheet }
         .sheet(isPresented: $showCustomSettings) { customPracticeSheet }
         .onChange(of: scenePhase) { _, phase in
@@ -552,7 +550,6 @@ struct SpeedPracticeView: View {
                     HStack {
                         Text("\(index + 1)/\(questions.count)")
                             .foregroundStyle(settings.nightMode ? Color.white : Color.primary)
-                            .modifier(SpeedInputPulse(trigger: correctRevision, duration: 0.20, initialScale: 0.7))
                         Spacer()
                         Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }.accessibilityLabel("草稿涂鸦")
                         Spacer()
@@ -571,8 +568,7 @@ struct SpeedPracticeView: View {
                     Divider()
 
                     Spacer(minLength: 12)
-                    SpeedAnswerRow(expression: question.expression, input: currentInput, inputRevision: inputRevision, nightMode: settings.nightMode)
-                        .modifier(SpeedQuestionEntrance(questionID: question.id))
+                    SpeedAnswerRow(expression: question.expression, input: currentInput, nightMode: settings.nightMode)
                     Spacer(minLength: 12)
                     if settings.useScreenKeyboard {
                         SpeedNumberPad(
@@ -846,15 +842,11 @@ struct SpeedPracticeView: View {
         feedback = SpeedFeedbackMessage(text: message, success: success)
         if success { correctRevision &+= 1 }
         UINotificationFeedbackGenerator().notificationOccurred(success ? .success : .error)
-        // Manual confirmation only. One cancellable transition prevents duplicate submissions.
-        let submittedID = questions[index].id
-        advanceTask?.cancel()
-        advanceTask = Task { @MainActor in
-            do { try await Task.sleep(for: .milliseconds(220)) } catch { return }
-            guard !Task.isCancelled, screen == .practice, isSubmitting,
-                  questions.indices.contains(index), questions[index].id == submittedID else { return }
-            advance()
-        }
+        // Grade and advance in the same event. Feedback is a separate non-blocking overlay.
+        // The graded-question guard and cleared next answer prevent a second grading.
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { advance() }
     }
 
     private func advance() {
@@ -882,19 +874,15 @@ struct SpeedPracticeView: View {
     private func pressKey(_ key: String) {
         guard screen == .practice, !isSubmitting else { return }
         currentInput = SpeedKeyInput.applying(key, to: currentInput)
-        inputRevision &+= 1
     }
 
     private func resetAttemptState() {
-        advanceTask?.cancel()
-        advanceTask = nil
         isSubmitting = false
         feedback = nil
         finishedDuration = nil
         showDoodle = false
         drawingData = ""
         savedResultID = nil
-        inputRevision = 0
         correctRevision = 0
     }
 

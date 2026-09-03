@@ -7,6 +7,7 @@ const page = read('SpeedPracticeView');
 const pad = read('SpeedNumberPad');
 const result = read('SpeedResultView');
 const feedback = read('SpeedFeedback');
+const answer = read('SpeedAnswerRow');
 const tests = {
   'manual confirmation regardless of legacy setting': () => {
     assert.doesNotMatch(page, /settings\.confirmAuto|settingBinding\(\\\.confirmAuto\)/);
@@ -14,29 +15,42 @@ const tests = {
     assert.doesNotMatch(input, /submit\(\)|advance\(\)/);
     assert.match(page, /Button\("确认答案", action: submit\)/);
   },
-  'single cancellable submission, no unguarded delayed advance': () => {
+  'manual submission advances synchronously without feedback wait': () => {
     assert.match(page, /!isSubmitting/);
-    assert.match(page, /questions\[index\]\.id == submittedID/);
-    assert.match(page, /advanceTask\?\.cancel\(\)/);
-    assert.doesNotMatch(page, /DispatchQueue\.main\.asyncAfter/);
+    assert.match(page, /questions\[index\]\.isCorrect == nil/);
+    const submit = page.split('private func submit()')[1].split('private func advance()')[0];
+    assert.match(submit, /withTransaction\(transaction\) \{ advance\(\) \}/);
+    assert.doesNotMatch(submit, /Task|sleep|asyncAfter/);
+    assert.doesNotMatch(page, /advanceTask|DispatchQueue\.main\.asyncAfter/);
+    assert.match(page.split('private func advance()')[1].split('private func abandon()')[0], /currentInput = ""/);
   },
   'exit and restart confirmations preserve cancel path': () => {
     assert.match(page, /alert\("退出练习"/);
     assert.match(page, /alert\("重新开始"/);
     assert.match(page, /Button\("继续", role: \.cancel\) \{ \}/);
   },
-  'short press, medium digits, white keypad surround': () => {
+  'direct touch press and immediate release, medium digits, white surround': () => {
     assert.match(pad, /static let panel = Color.white/);
-    assert.match(pad, /size: 24, weight: \.medium/);
-    assert.match(pad, /configuration.isPressed \? nil : \.easeOut\(duration: 0.07\)/);
-    assert.doesNotMatch(pad, /spring|timingCurve/);
+    assert.match(pad, /fontSize: CGFloat = 24/);
+    assert.match(pad, /weight: UIFont.Weight = \.medium/);
+    assert.match(pad, /UIView.performWithoutAnimation/);
+    assert.match(pad, /override func beginTracking[\s\S]*?setPressed\(true\)/);
+    assert.match(pad, /override func endTracking[\s\S]*?setPressed\(false\)/);
+    assert.match(pad, /override func cancelTracking[^\n]*setPressed\(false\)/);
+    assert.match(pad, /if inside && isEnabled/);
+    assert.match(pad, /override func accessibilityActivate/);
+    assert.doesNotMatch(pad, /\.animation\(|withAnimation|UIView.animate|Task.sleep|asyncAfter/);
+    assert.match(pad, /label: "删除上一位"[\s\S]*?action: onBackspace/);
+    assert.match(pad, /label: "清空答案"[\s\S]*?action: onClear/);
   },
-  'first input and question entrance use restartable tasks': () => {
+  'stable answer and next question, feedback remains independent': () => {
+    assert.doesNotMatch(answer, /SpeedInputPulse|scaleEffect|^\s*\.opacity\(|withAnimation/m);
+    assert.match(answer, /transaction \{ \$0.animation = nil; \$0.disablesAnimations = true \}/);
+    assert.doesNotMatch(page + feedback, /SpeedInputPulse|SpeedQuestionEntrance|inputRevision/);
     assert.match(feedback, /task\(id: trigger\)/);
-    assert.match(feedback, /task\(id: questionID\)/);
     assert.match(feedback, /Task.isCancelled/);
+    assert.match(feedback, /allowsHitTesting\(false\)/);
     assert.match(page, /SpeedCorrectFlash/);
-    assert.match(page, /SpeedQuestionEntrance/);
   },
   'result retry keeps wrong questions, footer stays fixed': () => {
     assert.match(page, /SpeedPracticeFlow.retryQuestions/);

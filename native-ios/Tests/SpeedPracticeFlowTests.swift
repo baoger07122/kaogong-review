@@ -15,6 +15,11 @@ struct SpeedPracticeFlowTests {
         var wrong = SpeedQuestion(id: "b", type: .sub3, expression: "200 - 100", answer: 100)
         wrong.input = "50"; wrong.isCorrect = false; wrong.timeUsed = 2.3
         precondition(!SpeedPracticeFlow.canSubmit(right, input: "301"))
+        precondition(!SpeedPracticeFlow.canSubmit(wrong, input: "100"))
+        // Advancing clears input synchronously: a second confirm cannot grade the next item.
+        let next = SpeedQuestion(id: "next", type: .add3, expression: "200 + 300", answer: 500)
+        precondition(!SpeedPracticeFlow.canSubmit(next, input: ""))
+        precondition(SpeedPracticeFlow.canSubmit(next, input: "500"))
         let retries = SpeedPracticeFlow.retryQuestions(from: [right, wrong, fresh])
         precondition(retries.count == 1 && retries[0].id == wrong.id)
         precondition(retries[0].expression == wrong.expression && retries[0].answer == wrong.answer)
