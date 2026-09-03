@@ -80,6 +80,7 @@ enum SpeedRating: String {
 }
 
 struct SpeedSettings: Codable, Equatable {
+    // Legacy backup field only: current practice always requires manual confirmation.
     var confirmAuto = true
     var useScreenKeyboard = true
     var sequential = false

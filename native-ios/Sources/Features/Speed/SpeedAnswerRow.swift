@@ -44,11 +44,7 @@ struct SpeedAnswerRow: View {
                 .overlay(alignment: .bottom) {
                     Rectangle().fill(nightMode ? Color.white.opacity(0.4) : Color(red: 31 / 255.0, green: 41 / 255.0, blue: 55 / 255.0).opacity(0.32)).frame(height: 2.5)
                 }
-                .phaseAnimator([false, true], trigger: inputRevision) { view, small in
-                    view.scaleEffect(small ? 0.8 : 1).opacity(small ? 0.4 : 1)
-                } animation: { small in
-                    small ? nil : .easeOut(duration: 0.15)
-                }
+                .modifier(SpeedInputPulse(trigger: inputRevision))
             }
             .font(.system(size: fontSize, weight: .regular))
             .foregroundStyle(nightMode ? Color(white: 245 / 255.0) : Color(red: 31 / 255.0, green: 41 / 255.0, blue: 55 / 255.0))

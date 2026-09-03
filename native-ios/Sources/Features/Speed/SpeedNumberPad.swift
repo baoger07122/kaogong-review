@@ -1,7 +1,7 @@
 import SwiftUI
 
 private enum SpeedKeypadPalette {
-    static let panel = Color(red: 248 / 255.0, green: 250 / 255.0, blue: 252 / 255.0) // #F8FAFC
+    static let panel = Color.white
     static let number = Color(red: 243 / 255.0, green: 244 / 255.0, blue: 246 / 255.0) // #F3F4F6
     static let ink = Color(red: 31 / 255.0, green: 41 / 255.0, blue: 55 / 255.0) // #1F2937
     static let action = Color(red: 74 / 255.0, green: 144 / 255.0, blue: 226 / 255.0) // #4A90E2
@@ -11,7 +11,6 @@ private enum SpeedKeypadPalette {
 
 struct SpeedNumberPad: View {
     let metrics: SpeedKeypadMetrics
-    let canSubmit: Bool
     let onPress: () -> Void
     let onKey: (String) -> Void
     let onClear: () -> Void
@@ -27,7 +26,7 @@ struct SpeedNumberPad: View {
                     HStack(spacing: SpeedKeypadMetrics.gap) {
                         ForEach(rows[row], id: \.self) { key in
                             Button { onKey(key) } label: {
-                                Text(key).font(.system(size: 24, weight: .regular))
+                                Text(key).font(.system(size: 24, weight: .medium))
                                     .frame(width: metrics.numberWidth, height: metrics.rowHeight)
                             }
                             .buttonStyle(SpeedNumberPadButtonStyle(isAction: false, onPress: onPress))
@@ -45,7 +44,7 @@ struct SpeedNumberPad: View {
                     Image(systemName: "delete.backward").font(.system(size: 20, weight: .semibold))
                         .frame(width: metrics.actionWidth, height: metrics.rowHeight)
                 }.accessibilityLabel("清空答案")
-                Button { if canSubmit { onSubmit() } } label: {
+                Button(action: onSubmit) {
                     Image(systemName: "checkmark").font(.system(size: 24, weight: .bold))
                         .frame(width: metrics.actionWidth, height: metrics.confirmHeight)
                 }
@@ -77,11 +76,9 @@ private struct SpeedNumberPadButtonStyle: ButtonStyle {
                 in: RoundedRectangle(cornerRadius: 14)
             )
             .contentShape(Rectangle())
-            // Web changes the background immediately; only filter and transform animate.
-            .animation(.easeOut(duration: 0.06)) { view in
-                view.colorMultiply(Color(white: configuration.isPressed ? 0.86 : 1))
-            }
-            .animation(.timingCurve(0.34, 1.56, 0.64, 1, duration: 0.15)) { view in
+            // Immediate, deep touch-down feedback. Only release animates (70ms), no bounce.
+            .colorMultiply(Color(white: configuration.isPressed ? 0.82 : 1))
+            .animation(configuration.isPressed ? nil : .easeOut(duration: 0.07)) { view in
                 view.scaleEffect(configuration.isPressed ? 0.93 : 1)
                     .offset(y: configuration.isPressed ? 1 : 0)
             }

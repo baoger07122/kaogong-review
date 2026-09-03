@@ -22,6 +22,20 @@ struct SpeedPracticeView: View {
     @State private var didLoad = false
     @State private var showSettings = false
     @State private var showCustomSettings = false
+    @State private var showExitConfirmation = false
+    @State private var showRestartConfirmation = false
+    @State private var isSubmitting = false
+    @State private var advanceTask: Task<Void, Never>?
+    @State private var feedback: SpeedFeedbackMessage?
+    @State private var correctRevision = 0
+    @State private var finishedDuration: Double?
+    @State private var showDoodle = false
+    @State private var drawingData = ""
+    @StateObject private var doodleController = PencilDrawingController()
+
+    private var practiceTitle: String {
+        settings.useCustomPractice == true || activeTypes.count > 1 ? "自定义练习" : (questions.first?.type.name ?? settings.selectedType.name)
+    }
 
     private var history: [SpeedRecord] { SpeedRepository.history(from: records).sorted { $0.date > $1.date } }
     private var historyGroups: [(date: Date, records: [SpeedRecord])] {
@@ -33,7 +47,8 @@ struct SpeedPracticeView: View {
 
     private var screenTitle: String {
         switch screen {
-        case .home, .practice, .result: "速算练习"
+        case .home: "速算练习"
+        case .practice, .result: practiceTitle
         case .history: selectedHistory == nil ? "历史记录" : "练习回看"
         case .statistics: "速算统计"
         case .estimateTable: "估算表"
@@ -41,17 +56,19 @@ struct SpeedPracticeView: View {
     }
 
     private func navigateBack() {
+        guard !isSubmitting else { return }
+        if showDoodle { showDoodle = false; return }
         if screen == .history, selectedHistory != nil {
             selectedHistory = nil
         } else if screen == .practice {
-            abandon()
+            showExitConfirmation = true
         } else {
             screen = .home
         }
     }
 
     var body: some View {
-        Group {
+        ZStack {
             switch screen {
             case .home: home
             case .practice: practice
@@ -61,7 +78,27 @@ struct SpeedPracticeView: View {
             case .estimateTable: estimateTable
             }
         }
-        .background(settings.nightMode ? Color.black : Color.white)
+        .allowsHitTesting(!showDoodle)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background { (settings.nightMode ? Color.black : Color.white).ignoresSafeArea() }
+        .overlay { SpeedCorrectFlash(trigger: correctRevision) }
+        .overlay(alignment: .top) {
+            if let feedback {
+                Text(feedback.text).font(.system(size: 14, weight: .medium)).foregroundStyle(.white)
+                    .padding(.horizontal, 20).padding(.vertical, 10)
+                    .background(feedback.success == true ? AppTheme.success : feedback.success == false ? Color.red : Color.black.opacity(0.82), in: Capsule())
+                    .padding(.top, 16).allowsHitTesting(false)
+            }
+        }
+        .overlay {
+            if showDoodle {
+                ZStack {
+                    Color.gray.opacity(0.30).ignoresSafeArea().allowsHitTesting(false)
+                    NativePencilDrawingEditor(encodedData: $drawingData, transparentBackground: true, controller: doodleController, onClose: { showDoodle = false })
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+        }
         .preference(key: RootBottomBarHiddenPreferenceKey.self, value: true)
         .foregroundStyle(settings.nightMode ? Color.white : Color.primary)
         .navigationTitle(screenTitle)
@@ -72,9 +109,40 @@ struct SpeedPracticeView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(action: navigateBack) { Image(systemName: "chevron.left") }
                         .accessibilityLabel("返回")
+                        .disabled(isSubmitting)
                 }
             }
+            if showDoodle {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    doodleButton("xmark", "退出涂鸦") { showDoodle = false }
+                    doodleButton(doodleController.eraser ? "eraser.fill" : "eraser", "橡皮擦", active: doodleController.eraser, action: doodleController.toggleEraser)
+                    doodleButton("arrow.uturn.backward", "撤销", action: doodleController.undo)
+                    doodleButton("trash", "清空涂鸦", action: doodleController.requestClear)
+                    doodleButton("paintpalette", "画笔调节", active: doodleController.showSettings) { doodleController.showSettings.toggle() }
+                }
+                .documentToolbarBackground()
+            } else if screen == .result {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }.accessibilityLabel("涂鸦")
+                }
+                .documentToolbarBackground()
+            }
         }
+        .alert("退出练习", isPresented: $showExitConfirmation) {
+            Button("退出", role: .destructive, action: abandon)
+            Button("继续", role: .cancel) { }
+        } message: { Text("当前练习进度将丢失，确定退出吗？") }
+        .alert("重新开始", isPresented: $showRestartConfirmation) {
+            Button("重开", role: .destructive, action: start)
+            Button("取消", role: .cancel) { }
+        } message: { Text("确定重新开始本轮练习？") }
+        .task(id: feedback?.id) {
+            guard feedback != nil else { return }
+            do { try await Task.sleep(for: .milliseconds(900)) } catch { return }
+            guard !Task.isCancelled else { return }
+            feedback = nil
+        }
+        .onDisappear { advanceTask?.cancel(); keySound.stop() }
         .sheet(isPresented: $showSettings) { practiceSettingsSheet }
         .sheet(isPresented: $showCustomSettings) { customPracticeSheet }
         .onChange(of: scenePhase) { _, phase in
@@ -150,7 +218,7 @@ struct SpeedPracticeView: View {
             .padding(.vertical, 6)
             .padding(.bottom, 12)
         }
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(Color.white)
     }
 
     private func typeGrid(_ values: [SpeedTypeKey], includesCustomPractice: Bool = false) -> some View {
@@ -438,10 +506,8 @@ struct SpeedPracticeView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Toggle("答题后需要点击确定", isOn: settingBinding(\.confirmAuto))
-                        .font(AppTheme.inputFont)
-                        .padding(15)
-                        .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
+                    Text("手动确认：输入答案后，点击键盘 ✓ 提交。")
+                        .font(AppTheme.inputFont).foregroundStyle(.secondary)
                     HStack {
                         Text("题目数量")
                         Spacer()
@@ -485,13 +551,16 @@ struct SpeedPracticeView: View {
                 VStack(spacing: 0) {
                     HStack {
                         Text("\(index + 1)/\(questions.count)")
+                            .foregroundStyle(settings.nightMode ? Color.white : Color.primary)
+                            .modifier(SpeedInputPulse(trigger: correctRevision, duration: 0.20, initialScale: 0.7))
                         Spacer()
-                        Image(systemName: "pencil.and.scribble")
+                        Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }.accessibilityLabel("草稿涂鸦")
                         Spacer()
-                        Button("重开", action: start)
+                        Button("重开") { showRestartConfirmation = true }
+                            .disabled(isSubmitting)
                         Spacer()
                         TimelineView(.periodic(from: .now, by: 0.1)) { context in
-                            Text(timeText(context.date.timeIntervalSince(startedAt)))
+                            Text(String(format: "%d:%04.1f", Int(context.date.timeIntervalSince(startedAt)) / 60, context.date.timeIntervalSince(startedAt).truncatingRemainder(dividingBy: 60)))
                                 .monospacedDigit()
                         }
                     }
@@ -503,18 +572,19 @@ struct SpeedPracticeView: View {
 
                     Spacer(minLength: 12)
                     SpeedAnswerRow(expression: question.expression, input: currentInput, inputRevision: inputRevision, nightMode: settings.nightMode)
+                        .modifier(SpeedQuestionEntrance(questionID: question.id))
                     Spacer(minLength: 12)
                     if settings.useScreenKeyboard {
                         SpeedNumberPad(
                             metrics: SpeedKeypadMetrics(width: geometry.size.width, height: sizing.keyboard,
                                 bottomInset: geometry.safeAreaInsets.bottom),
-                            canSubmit: Double(currentInput) != nil,
                             onPress: { if settings.soundEnabled != false { keySound.play() } },
                             onKey: pressKey,
                             onClear: { pressKey("⌫") },
                             onBackspace: { pressKey("C") },
                             onSubmit: submit
                         )
+                        .allowsHitTesting(!isSubmitting)
                         Color.clear.frame(height: sizing.footer)
                     } else {
                         TextField("答案", text: $currentInput)
@@ -533,58 +603,8 @@ struct SpeedPracticeView: View {
     }
 
     private var result: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                Text(resultStandardText)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(.secondary)
-                Text(activeTypes.count > 1 ? "自定义练习" : (questions.first?.type.name ?? "速算练习"))
-                    .font(.system(size: 24, weight: .semibold))
-                Text("本次练习用时：\(timeText(totalTime))")
-                    .font(.system(size: 14)).foregroundStyle(.secondary)
-                VStack(spacing: 0) {
-                    resultRow(number: "#", question: "题目", correct: "正确答案", input: "你的答案", error: "误差", time: "用时", header: true)
-                    ForEach(Array(questions.enumerated()), id: \.element.id) { offset, question in
-                        resultRow(
-                            number: "\(offset + 1)",
-                            question: question.expression,
-                            correct: SpeedQuestionEngine.answerText(question.answer),
-                            input: question.input,
-                            error: errorText(for: question).replacingOccurrences(of: "误差 ", with: ""),
-                            time: String(format: "%.1fs", question.timeUsed),
-                            header: false
-                        )
-                    }
-                }
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
-                .overlay { RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.06), lineWidth: 0.7) }
-                HStack(spacing: 10) {
-                    Button("重来") { start() }.buttonStyle(NativeSecondaryButtonStyle())
-                    Button("复练") { start() }.buttonStyle(NativeSecondaryButtonStyle())
-                    Button("返回") { screen = .home }.buttonStyle(NativePrimaryButtonStyle())
-                }
-            }
-            .padding(22)
-            .frame(maxWidth: 980)
-            .frame(maxWidth: .infinity)
-        }
+        SpeedResultView(questions: questions, title: practiceTitle, totalTime: totalTime, standard: resultStandardText, onRestart: start, onRetry: retryWrong, onReturn: { screen = .home })
         .task { saveResultIfNeeded() }
-    }
-
-    private func resultRow(number: String, question: String, correct: String, input: String, error: String, time: String, header: Bool) -> some View {
-        HStack(spacing: 6) {
-            Text(number).frame(width: 34)
-            Text(question).frame(maxWidth: .infinity, alignment: .leading)
-            Text(correct).frame(width: 100)
-            Text(input).frame(width: 92).foregroundStyle(header ? Color.primary : AppTheme.accent)
-            Text(error).frame(width: 72).foregroundStyle(header ? Color.primary : AppTheme.success)
-            Text(time).frame(width: 58)
-        }
-        .font(.system(size: header ? 13 : 14, weight: header ? .medium : .regular).monospacedDigit())
-        .padding(.horizontal, 12)
-        .frame(minHeight: header ? 44 : 54)
-        .background(header ? Color(uiColor: .secondarySystemGroupedBackground) : Color.white)
-        .overlay(alignment: .bottom) { Divider() }
     }
 
     private var historyView: some View {
@@ -764,13 +784,13 @@ struct SpeedPracticeView: View {
     }
 
     private var correctCount: Int { questions.filter { $0.isCorrect == true }.count }
-    private var totalTime: Double { questions.reduce(0) { $0 + $1.timeUsed } }
+    private var totalTime: Double { finishedDuration ?? questions.reduce(0) { $0 + $1.timeUsed } }
 
     private var resultStandardText: String {
         let fallback = SpeedRatingThresholds(excellent: 18, good: 22, pass: 28)
         let firstType = questions.first?.type
         let usesSingleType = firstType.map { type in questions.allSatisfy { $0.type == type } } ?? false
-        let thresholds = usesSingleType ? firstType?.ratingThresholds ?? fallback : fallback
+        let thresholds = usesSingleType && settings.useCustomPractice != true ? firstType?.ratingThresholds ?? fallback : fallback
         return "误差 ±3%　合格 ≤ \(Int(thresholds.pass))s　良好 ≤ \(Int(thresholds.good))s　优秀 ≤ \(Int(thresholds.excellent))s"
     }
 
@@ -790,6 +810,7 @@ struct SpeedPracticeView: View {
             rangeMaximum: settings.customRangeMaximum ?? 99
         )
         guard !generated.isEmpty else { return }
+        resetAttemptState()
         questions = generated
         index = 0
         currentInput = ""
@@ -801,39 +822,99 @@ struct SpeedPracticeView: View {
     }
 
     private func submit() {
-        guard questions.indices.contains(index), !currentInput.isEmpty else { return }
+        guard screen == .practice, !isSubmitting, questions.indices.contains(index), questions[index].isCorrect == nil else { return }
+        guard SpeedPracticeFlow.canSubmit(questions[index], input: currentInput) else {
+            feedback = SpeedFeedbackMessage(text: "请输入有效答案", success: nil)
+            return
+        }
+        isSubmitting = true
         questions[index].input = currentInput
         questions[index].timeUsed = Date.now.timeIntervalSince(questionStartedAt)
         questions[index].isCorrect = SpeedQuestionEngine.isCorrect(input: currentInput, answer: questions[index].answer, type: questions[index].type)
         let success = questions[index].isCorrect == true
+        if index == questions.count - 1 { finishedDuration = Date.now.timeIntervalSince(startedAt) }
+        let message = questions[index].type == .div3x1 && settings.useCustomPractice != true
+            ? (success ? rating(for: questions[index]).rawValue + "！" : "✗ ") + String(format: "%.1fs", questions[index].timeUsed)
+            : (success ? "✓" : "✗")
+        feedback = SpeedFeedbackMessage(text: message, success: success)
+        if success { correctRevision &+= 1 }
         UINotificationFeedbackGenerator().notificationOccurred(success ? .success : .error)
-        if settings.confirmAuto {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { advance() }
-        } else {
+        // Manual confirmation only. One cancellable transition prevents duplicate submissions.
+        let submittedID = questions[index].id
+        advanceTask?.cancel()
+        advanceTask = Task { @MainActor in
+            do { try await Task.sleep(for: .milliseconds(220)) } catch { return }
+            guard !Task.isCancelled, screen == .practice, isSubmitting,
+                  questions.indices.contains(index), questions[index].id == submittedID else { return }
             advance()
         }
     }
 
     private func advance() {
+        isSubmitting = false
+        showDoodle = false
+        currentInput = ""
         if index + 1 >= questions.count {
+            saveResultIfNeeded()
             screen = .result
         } else {
             index += 1
-            currentInput = ""
+            drawingData = ""
             questionStartedAt = .now
             showAnswer = false
         }
     }
 
     private func abandon() {
+        resetAttemptState()
         questions = []
         currentInput = ""
         screen = .home
     }
 
     private func pressKey(_ key: String) {
+        guard screen == .practice, !isSubmitting else { return }
         currentInput = SpeedKeyInput.applying(key, to: currentInput)
         inputRevision &+= 1
+    }
+
+    private func resetAttemptState() {
+        advanceTask?.cancel()
+        advanceTask = nil
+        isSubmitting = false
+        feedback = nil
+        finishedDuration = nil
+        showDoodle = false
+        drawingData = ""
+        savedResultID = nil
+        inputRevision = 0
+        correctRevision = 0
+    }
+
+    private func retryWrong() {
+        let retry = SpeedPracticeFlow.retryQuestions(from: questions)
+        guard !retry.isEmpty else {
+            feedback = SpeedFeedbackMessage(text: "本次全对，无需复练", success: nil)
+            return
+        }
+        resetAttemptState()
+        questions = retry
+        index = 0
+        currentInput = ""
+        startedAt = .now
+        questionStartedAt = .now
+        screen = .practice
+    }
+
+    private func openDoodle() {
+        guard !isSubmitting else { return }
+        doodleController.prepareForPresentation()
+        showDoodle = true
+    }
+
+    private func doodleButton(_ symbol: String, _ label: String, active: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: symbol).foregroundStyle(active ? AppTheme.accent : Color.primary) }
+            .accessibilityLabel(label)
     }
 
     private func persistSettings() {
@@ -855,7 +936,7 @@ struct SpeedPracticeView: View {
     private func saveResultIfNeeded() {
         guard savedResultID == nil, !questions.isEmpty else { return }
         let id = UUID().uuidString
-        let name = activeTypes.count > 1 ? "自定义练习" : (questions.first?.type.name ?? "速算练习")
+        let name = practiceTitle
         let record = SpeedRecord(id: id, date: .now, name: name, mode: settings.mode, totalTime: totalTime, correctCount: correctCount, totalCount: questions.count, details: questions)
         try? SpeedRepository.saveHistory([record] + history, records: records, context: modelContext)
         savedResultID = id
