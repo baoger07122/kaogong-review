@@ -5,6 +5,7 @@ import UIKit
 final class SpeedTextAnimationTests: XCTestCase {
     private func mount(_ view: SpeedTextSurface) -> UIWindow {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        window.windowScene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
         window.rootViewController = UIViewController()
         window.rootViewController?.view.addSubview(view)
         window.makeKeyAndVisible()
