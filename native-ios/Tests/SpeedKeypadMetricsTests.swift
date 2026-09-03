@@ -30,6 +30,13 @@ struct SpeedKeypadMetricsTests {
             precondition(m.rowHeight >= 44)
             cases += 1
         }
+        for content: CGFloat in [540, 600, 724, 940] {
+            let sizing = SpeedKeypadMetrics.practiceSizing(contentHeight: content, viewportHeight: content + 96, questionHeight: 244)
+            precondition(sizing.keyboard + sizing.footer + 52 + 244 <= content + 0.001)
+            let m = SpeedKeypadMetrics(width: 570, height: sizing.keyboard, bottomInset: 34)
+            precondition(m.rowHeight >= 44)
+            cases += 1
+        }
         print("PASS \(cases) keypad geometry cases: row alignment, two-row confirm, 22% column, full-width fit and compact-height bounds")
     }
 }

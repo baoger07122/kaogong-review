@@ -576,7 +576,8 @@ struct SpeedPracticeView: View {
         GeometryReader { geometry in
         let sizing = SpeedKeypadMetrics.practiceSizing(
             contentHeight: geometry.size.height,
-            viewportHeight: geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom
+            viewportHeight: geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom,
+            questionHeight: questions.indices.contains(index) && questions[index].type == .est05 ? 244 : 88
         )
         VStack(spacing: 0) {
             if questions.indices.contains(index) {
