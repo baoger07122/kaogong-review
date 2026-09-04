@@ -130,12 +130,7 @@ struct SpeedPracticeView: View {
     @ViewBuilder
     private var backControl: some View {
         if screen != .home {
-            Button(action: navigateBack) {
-                Image(systemName: "chevron.left")
-                    .contentShape(.interaction, Rectangle().inset(by: -12))
-            }
-            .buttonStyle(SpeedBackButtonStyle())
-            .accessibilityLabel("返回")
+            NativeToolbarBackButton(action: navigateBack)
             .accessibilityIdentifier("speed-back")
             .disabled(isSubmitting)
             .allowsHitTesting(!showDoodle)
@@ -1077,14 +1072,6 @@ private struct SpeedKeyButtonStyle: ButtonStyle {
             .offset(y: configuration.isPressed ? 1 : 0)
             .brightness(configuration.isPressed ? 0.04 : 0)
             .animation(.spring(response: 0.18, dampingFraction: 0.68), value: configuration.isPressed)
-    }
-}
-
-/// Keeps the toolbar back affordance visually static while preserving Button
-/// semantics and the enlarged interaction shape declared by the label.
-private struct SpeedBackButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
     }
 }
 

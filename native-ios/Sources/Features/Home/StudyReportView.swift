@@ -116,7 +116,7 @@ struct StudyReportView: View {
                 Text("本期暂无笔记").font(AppTheme.bodyFont).foregroundStyle(.secondary)
             } else {
                 ForEach(notes.prefix(3), id: \.compoundID) { note in
-                    NavigationLink { RecordJSONDetailView(record: note) } label: {
+                    NavigationLink { RecordJSONDetailView(record: note).nativeToolbarBackButton() } label: {
                         HStack {
                             Image(systemName: "note.text").foregroundStyle(AppTheme.accent)
                             Text(note.title).font(AppTheme.bodyFont).lineLimit(1)

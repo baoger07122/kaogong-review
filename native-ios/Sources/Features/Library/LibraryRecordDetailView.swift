@@ -77,11 +77,11 @@ struct LibraryRecordDetailView: View {
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button { dismiss() } label: { Image(systemName: "chevron.left") }
-                    .accessibilityLabel("返回")
+                NativeToolbarBackButton { dismiss() }
                     .allowsHitTesting(!showDoodle)
                     .accessibilityHidden(showDoodle)
             }
+            .documentToolbarBackground()
             ToolbarItem(placement: .topBarTrailing) {
                 Group {
                     if showDoodle {

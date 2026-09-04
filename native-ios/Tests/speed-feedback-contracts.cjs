@@ -11,6 +11,12 @@ const answer = read('SpeedAnswerRow');
 const animatedText = read('SpeedAnimatedText');
 const exitConfirmation = read('SpeedExitConfirmation');
 const dialogs = fs.readFileSync(path.join(__dirname, '../Sources/DesignSystem/NativeDialogs.swift'), 'utf8');
+const documentStyle = fs.readFileSync(path.join(__dirname, '../Sources/DesignSystem/NativeDocumentStyle.swift'), 'utf8');
+const homeShortcuts = fs.readFileSync(path.join(__dirname, '../Sources/Features/Home/HomeShortcutViews.swift'), 'utf8');
+const studyReport = fs.readFileSync(path.join(__dirname, '../Sources/Features/Home/StudyReportView.swift'), 'utf8');
+const detail = fs.readFileSync(path.join(__dirname, '../Sources/Features/Library/LibraryRecordDetailView.swift'), 'utf8');
+const editor = fs.readFileSync(path.join(__dirname, '../Sources/Features/Library/LibraryRecordEditorView.swift'), 'utf8');
+const settingsView = fs.readFileSync(path.join(__dirname, '../Sources/Features/Settings/SettingsView.swift'), 'utf8');
 const tests = {
   'manual confirmation regardless of legacy setting': () => {
     assert.doesNotMatch(page, /settings\.confirmAuto|settingBinding\(\\\.confirmAuto\)/);
@@ -47,13 +53,14 @@ const tests = {
     assert.doesNotMatch(exit, /sleep|saveHistory|asyncAfter/);
     const back = page.split('private var backControl')[1].split('private var isEstimateQuestion')[0];
     assert.doesNotMatch(back, /frame\(width: 44, height: 44\)/);
-    assert.match(back, /contentShape\(\.interaction, Rectangle\(\)\.inset\(by: -12\)\)/);
-    assert.match(back, /buttonStyle\(SpeedBackButtonStyle\(\)\)/);
+    assert.match(back, /NativeToolbarBackButton\(action: navigateBack\)/);
     assert.match(back, /allowsHitTesting\(!showDoodle\)/);
     assert.match(back, /accessibilityHidden\(showDoodle\)/);
     assert.doesNotMatch(back, /showDoodle \? 164/);
     assert.match(page, /ToolbarItem\(placement: \.topBarLeading\) \{ backControl \}\s*\.documentToolbarBackground\(\)/);
-    const backStyle = page.split('private struct SpeedBackButtonStyle')[1];
+    assert.match(documentStyle, /struct NativeToolbarBackButton/);
+    assert.match(documentStyle, /contentShape\(\.interaction, Rectangle\(\)\.inset\(by: -12\)\)/);
+    const backStyle = documentStyle.split('private struct NativeStaticToolbarButtonStyle')[1].split('private struct NativeDismissToolbarBackModifier')[0];
     assert.match(backStyle, /configuration\.label/);
     assert.doesNotMatch(backStyle, /configuration\.isPressed|animation|opacity|scaleEffect|background/);
   },
@@ -78,6 +85,14 @@ const tests = {
     assert.doesNotMatch(pad, /\.animation\(|withAnimation|UIView.animate|Task.sleep|asyncAfter/);
     assert.match(pad, /label: "删除上一位"[\s\S]*?action: onBackspace/);
     assert.match(pad, /label: "清空答案"[\s\S]*?action: onClear/);
+  },
+  'all pushed navigation destinations use the static global back control': () => {
+    assert.match(documentStyle, /struct NativeToolbarBackButton/);
+    assert.match(documentStyle, /ToolbarItem\(placement: \.topBarLeading\)[\s\S]*?\.documentToolbarBackground\(\)/);
+    for (const source of [homeShortcuts, studyReport, editor, settingsView]) {
+      assert.match(source, /nativeToolbarBackButton\(\)/);
+    }
+    assert.match(detail, /NativeToolbarBackButton \{ dismiss\(\) \}[\s\S]*?\.documentToolbarBackground\(\)/);
   },
   'start is a full-width 48pt text button without a capsule': () => {
     const start = page.split('Button(action: start) {')[1].split('.accessibilityIdentifier("speed-start")')[0];

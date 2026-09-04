@@ -7,15 +7,15 @@ struct HomeShortcutView: View {
     var body: some View {
         switch route {
         case .todoStats:
-            TodoStatsView()
+            TodoStatsView().nativeToolbarBackButton()
         case .studyReport:
-            StudyReportView()
+            StudyReportView().nativeToolbarBackButton()
         case .speedPractice:
             SpeedPracticeView()
         case .currentAffairs:
-            CurrentAffairsView()
+            CurrentAffairsView().nativeToolbarBackButton()
         case .knowledgePoints:
-            KnowledgePointManagerView()
+            KnowledgePointManagerView().nativeToolbarBackButton()
         default:
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
@@ -29,6 +29,7 @@ struct HomeShortcutView: View {
             .background(Color.white)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
+            .nativeToolbarBackButton()
         }
     }
 
