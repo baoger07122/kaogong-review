@@ -48,9 +48,14 @@ const tests = {
     const back = page.split('private var backControl')[1].split('private var isEstimateQuestion')[0];
     assert.doesNotMatch(back, /frame\(width: 44, height: 44\)/);
     assert.match(back, /contentShape\(\.interaction, Rectangle\(\)\.inset\(by: -12\)\)/);
+    assert.match(back, /buttonStyle\(SpeedBackButtonStyle\(\)\)/);
     assert.match(back, /allowsHitTesting\(!showDoodle\)/);
     assert.match(back, /accessibilityHidden\(showDoodle\)/);
     assert.doesNotMatch(back, /showDoodle \? 164/);
+    assert.match(page, /ToolbarItem\(placement: \.topBarLeading\) \{ backControl \}\s*\.documentToolbarBackground\(\)/);
+    const backStyle = page.split('private struct SpeedBackButtonStyle')[1];
+    assert.match(backStyle, /configuration\.label/);
+    assert.doesNotMatch(backStyle, /configuration\.isPressed|animation|opacity|scaleEffect|background/);
   },
   'estimate uses structured rows and custom settings never affect ordinary practice': () => {
     assert.match(page, /SpeedEstimateExercise\(problem: estimate/);
