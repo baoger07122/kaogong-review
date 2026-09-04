@@ -100,10 +100,11 @@ final class SpeedInteractionUITests: XCTestCase {
         XCTAssertTrue(type.waitForExistence(timeout: 10))
         type.tap()
         app.buttons["speed-start"].tap()
-        let answer = app.descendants(matching: .any)["speed-estimate-answer"].firstMatch
-        XCTAssertTrue(answer.waitForExistence(timeout: 5))
+        let exercise = app.descendants(matching: .any)["speed-estimate-exercise"].firstMatch
+        XCTAssertTrue(exercise.waitForExistence(timeout: 5))
         app.buttons["speed-key-2"].tap()
-        XCTAssertEqual(answer.value as? String, "2")
+        let inputUpdated = NSPredicate(format: "value == %@", "2")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: inputUpdated, object: exercise)], timeout: 3), .completed)
         app.buttons["speed-back"].tap()
         app.buttons["speed-exit-confirm"].tap()
         app.buttons["估算表"].tap()

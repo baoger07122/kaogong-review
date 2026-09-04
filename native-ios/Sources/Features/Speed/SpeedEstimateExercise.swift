@@ -39,6 +39,8 @@ struct SpeedEstimateExercise: View {
         }
         .frame(height: 220)
         .accessibilityIdentifier("speed-estimate-exercise")
+        .accessibilityLabel("估算练习题")
+        .accessibilityValue(input)
     }
 
     private func row<Content: View>(left: Int, scale: CGFloat, @ViewBuilder content: () -> Content) -> some View {
