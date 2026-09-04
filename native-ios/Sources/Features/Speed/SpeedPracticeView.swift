@@ -72,16 +72,18 @@ struct SpeedPracticeView: View {
 
     private var presentedContent: some View {
         ZStack {
-            switch screen {
-            case .home: home
-            case .practice: practice
-            case .result: result
-            case .history: historyView
-            case .statistics: statistics
-            case .estimateTable: estimateTable
+            Group {
+                switch screen {
+                case .home: home
+                case .practice: practice
+                case .result: result
+                case .history: historyView
+                case .statistics: statistics
+                case .estimateTable: estimateTable
+                }
             }
+            .allowsHitTesting(!showDoodle)
         }
-        .allowsHitTesting(!showDoodle)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             (settings.nightMode ? Color.black : Color.white).ignoresSafeArea()
@@ -103,7 +105,7 @@ struct SpeedPracticeView: View {
             if showDoodle {
                 ZStack {
                     Color.gray.opacity(0.30).ignoresSafeArea().allowsHitTesting(false)
-                    NativePencilDrawingEditor(encodedData: $drawingData, transparentBackground: true, controller: doodleController, onClose: { showDoodle = false })
+                    NativePencilDrawingEditor(encodedData: $drawingData, transparentBackground: true, controller: doodleController, onClose: closeDoodle)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -114,14 +116,8 @@ struct SpeedPracticeView: View {
 
     @ToolbarContentBuilder
     private var speedToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            backControl
-                .frame(width: showDoodle ? 164 : nil, alignment: .leading)
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            trailingControls
-                .frame(width: showDoodle ? 164 : nil, alignment: .trailing)
-        }
+        ToolbarItem(placement: .topBarLeading) { backControl }
+        ToolbarItem(placement: .topBarTrailing) { trailingControls }
             .documentToolbarBackground()
     }
 
@@ -143,21 +139,27 @@ struct SpeedPracticeView: View {
         screen == .practice && questions.indices.contains(index) && questions[index].type == .est05
     }
 
+    @ViewBuilder
     private var trailingControls: some View {
-        HStack(spacing: 3) {
-            if showDoodle {
-                doodleButton("xmark", "退出涂鸦") { showDoodle = false }
+        if showDoodle {
+            NativeDoodleToolbarCapsule {
+                doodleButton("xmark", "退出涂鸦", action: closeDoodle)
+                    .accessibilityIdentifier("speed-doodle-close")
                 doodleButton(doodleController.eraser ? "eraser.fill" : "eraser", "橡皮擦", active: doodleController.eraser, action: doodleController.toggleEraser)
                 doodleButton("arrow.uturn.backward", "撤销", action: doodleController.undo)
                 doodleButton("trash", "清空涂鸦", action: doodleController.requestClear)
                 doodleButton("paintpalette", "画笔调节", active: doodleController.showSettings) { doodleController.showSettings.toggle() }
-            } else if isEstimateQuestion {
-                Button { showEstimateInput.toggle() } label: {
-                    Image(systemName: showEstimateInput ? "eye" : "eye.slash")
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
-                }.accessibilityLabel("显示或隐藏估算输入")
-            } else if screen == .result {
-                Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }.accessibilityLabel("涂鸦")
+            }
+        } else {
+            HStack(spacing: 3) {
+                if isEstimateQuestion {
+                    Button { showEstimateInput.toggle() } label: {
+                        Image(systemName: showEstimateInput ? "eye" : "eye.slash")
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }.accessibilityLabel("显示或隐藏估算输入")
+                } else if screen == .result {
+                    Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }.accessibilityLabel("涂鸦")
+                }
             }
         }
     }
@@ -965,12 +967,30 @@ struct SpeedPracticeView: View {
     private func openDoodle() {
         guard !isSubmitting else { return }
         doodleController.prepareForPresentation()
-        showDoodle = true
+        setDoodleVisible(true)
+    }
+
+    private func closeDoodle() {
+        doodleController.showSettings = false
+        setDoodleVisible(false)
+    }
+
+    private func setDoodleVisible(_ visible: Bool) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { showDoodle = visible }
     }
 
     private func doodleButton(_ symbol: String, _ label: String, active: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: symbol).foregroundStyle(active ? AppTheme.accent : Color.primary) }
-            .accessibilityLabel(label)
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(active ? AppTheme.accent : Color.primary)
+                .frame(width: 32, height: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     private func persistSettings() {

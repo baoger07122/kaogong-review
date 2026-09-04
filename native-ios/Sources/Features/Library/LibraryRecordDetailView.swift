@@ -41,6 +41,7 @@ struct LibraryRecordDetailView: View {
                 .frame(maxWidth: .infinity)
             }
             .background(Color.white)
+            .allowsHitTesting(!showDoodle)
 
             if showDoodle {
                 Color.gray.opacity(0.30)
@@ -58,7 +59,6 @@ struct LibraryRecordDetailView: View {
                 .contentShape(Rectangle())
                 .allowsHitTesting(true)
                 .zIndex(1)
-                .transition(.opacity)
             }
 
             if showDelete {
@@ -81,13 +81,13 @@ struct LibraryRecordDetailView: View {
                     .accessibilityLabel("返回")
                     .allowsHitTesting(!showDoodle)
                     .accessibilityHidden(showDoodle)
-                    .frame(width: showDoodle ? 164 : nil, alignment: .leading)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Group {
                     if showDoodle {
-                        HStack(spacing: 3) {
+                        NativeDoodleToolbarCapsule {
                             doodleToolbarButton("xmark", label: "退出涂鸦", action: closeDoodle)
+                                .accessibilityIdentifier("library-doodle-close")
                             doodleToolbarButton(
                                 doodleController.eraser ? "eraser.fill" : "eraser",
                                 label: "橡皮擦",
@@ -117,7 +117,6 @@ struct LibraryRecordDetailView: View {
                         }
                     }
                 }
-                .frame(width: showDoodle ? 164 : nil, alignment: .trailing)
             }
             .documentToolbarBackground()
         }

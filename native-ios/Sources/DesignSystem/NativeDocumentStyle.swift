@@ -11,6 +11,25 @@ extension ToolbarContent {
     }
 }
 
+struct NativeDoodleToolbarCapsule<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        HStack(spacing: 2) { content }
+            .padding(.horizontal, 6)
+            .frame(height: 40)
+            .background(.regularMaterial, in: Capsule())
+            .overlay {
+                Capsule().stroke(Color.primary.opacity(0.10), lineWidth: 0.7)
+            }
+            .shadow(color: Color.black.opacity(0.08), radius: 5, y: 2)
+    }
+}
+
 /// Tags wrap at their natural width; the row itself remains a full-width tap target.
 struct NativeTagFlow: Layout {
     var spacing: CGFloat = 6

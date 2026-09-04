@@ -39,6 +39,7 @@ const tests = {
     assert.doesNotMatch(back, /frame\(width: 44, height: 44\)/);
     assert.match(back, /allowsHitTesting\(!showDoodle\)/);
     assert.match(back, /accessibilityHidden\(showDoodle\)/);
+    assert.doesNotMatch(back, /showDoodle \? 164/);
   },
   'estimate uses structured rows and custom settings never affect ordinary practice': () => {
     assert.match(page, /SpeedEstimateExercise\(problem: estimate/);
@@ -106,6 +107,9 @@ const tests = {
     assert.match(result, /correct \? "✓" : "✗"/);
     assert.match(result, /correct \? green : red/);
     assert.match(page, /NativePencilDrawingEditor/);
+    assert.match(page, /NativeDoodleToolbarCapsule/);
+    assert.match(page, /accessibilityIdentifier\("speed-doodle-close"\)/);
+    assert.match(page, /Group \{[\s\S]*?switch screen[\s\S]*?allowsHitTesting\(!showDoodle\)/);
     assert.match(page, /误差 ±3%   合格:/);
     assert.match(result, /frame\(height: 38\)/);
     assert.match(result, /frame\(height: 47\)/);

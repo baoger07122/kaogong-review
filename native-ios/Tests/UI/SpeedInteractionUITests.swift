@@ -17,6 +17,15 @@ final class SpeedInteractionUITests: XCTestCase {
         start.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
         let two = app.buttons["speed-key-2"]
         XCTAssertTrue(two.waitForExistence(timeout: 10))
+        let doodle = app.buttons["草稿涂鸦"]
+        XCTAssertTrue(doodle.waitForExistence(timeout: 5))
+        doodle.tap()
+        let closeDoodle = app.buttons["speed-doodle-close"]
+        XCTAssertTrue(closeDoodle.waitForExistence(timeout: 5))
+        XCTAssertTrue(closeDoodle.isHittable)
+        closeDoodle.tap()
+        XCTAssertTrue(two.waitForExistence(timeout: 5))
+        XCTAssertTrue(two.isHittable)
         let answer = app.descendants(matching: .any)["speed-answer"].firstMatch
         func expect(_ value: String, file: StaticString = #filePath, line: UInt = #line) {
             let predicate = NSPredicate(format: "value == %@", value)
