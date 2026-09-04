@@ -122,7 +122,6 @@ struct SpeedPracticeView: View {
     @ToolbarContentBuilder
     private var speedToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) { backControl }
-            .documentToolbarBackground()
         ToolbarItem(placement: .topBarTrailing) { trailingControls }
             .documentToolbarBackground()
     }
@@ -130,7 +129,10 @@ struct SpeedPracticeView: View {
     @ViewBuilder
     private var backControl: some View {
         if screen != .home {
-            NativeToolbarBackButton(action: navigateBack)
+            Button(action: navigateBack) {
+                Image(systemName: "chevron.left")
+            }
+            .accessibilityLabel("返回")
             .accessibilityIdentifier("speed-back")
             .disabled(isSubmitting)
             .allowsHitTesting(!showDoodle)

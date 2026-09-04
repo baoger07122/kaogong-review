@@ -53,9 +53,8 @@ const tests = {
     assert.match(pencil, /PKEraserTool\(\.bitmap, width: pencilBitmapEraserWidth\)/);
   },
   'drawing blocks the underlying back control without expanding it': () => {
-    assert.match(detail, /navigationBarBackButtonHidden\(true\)/);
-    assert.match(detail, /allowsHitTesting\(!showDoodle\)/);
-    assert.match(detail, /accessibilityHidden\(showDoodle\)/);
+    assert.match(detail, /navigationBarBackButtonHidden\(showDoodle\)/);
+    assert.doesNotMatch(detail, /ToolbarItem\(placement: \.topBarLeading\)/);
     assert.doesNotMatch(detail, /frame\(width: showDoodle \? 164/);
     const open = detail.split('private func openDoodle()')[1].split('private func closeDoodle()')[0];
     const close = detail.split('private func closeDoodle()')[1].split('private func saveDrawing()')[0];

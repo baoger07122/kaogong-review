@@ -77,17 +77,17 @@ struct SettingsView: View {
                     settingsDivider
                     settingsValueRow("连接状态", value: healthMessage, image: "wave.3.right")
                     settingsDivider
-                    NavigationLink { CloudSyncView().nativeToolbarBackButton() } label: {
+                    NavigationLink { CloudSyncView() } label: {
                         settingsNavigationRow("登录与手动同步", image: "icloud")
                     }.buttonStyle(.plain)
                 }
 
                 settingsSection("笔记与便签") {
-                    NavigationLink { NoteTypeManagerView().nativeToolbarBackButton() } label: {
+                    NavigationLink { NoteTypeManagerView() } label: {
                         settingsNavigationRow("笔记类型", image: "tag")
                     }.buttonStyle(.plain)
                     settingsDivider
-                    NavigationLink { StickyTagManagerView().nativeToolbarBackButton() } label: {
+                    NavigationLink { StickyTagManagerView() } label: {
                         settingsNavigationRow("便签标签", image: "tag.square")
                     }.buttonStyle(.plain)
                 }

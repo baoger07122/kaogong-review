@@ -72,16 +72,10 @@ struct LibraryRecordDetailView: View {
         }
         .navigationTitle("错题详情")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true)
+        .navigationBarBackButtonHidden(showDoodle)
         .preference(key: RootBottomBarHiddenPreferenceKey.self, value: true)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                NativeToolbarBackButton { dismiss() }
-                    .allowsHitTesting(!showDoodle)
-                    .accessibilityHidden(showDoodle)
-            }
-            .documentToolbarBackground()
             ToolbarItem(placement: .topBarTrailing) {
                 Group {
                     if showDoodle {

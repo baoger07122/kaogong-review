@@ -124,7 +124,6 @@ struct LibraryRecordEditorView: View {
             Button("删除", role: .destructive, action: remove)
             Button("取消", role: .cancel) {}
         } message: { Text("删除后无法在 App 内恢复。") }
-        .nativeToolbarBackButton()
     }
 
     @ViewBuilder private var editorDialogs: some View {

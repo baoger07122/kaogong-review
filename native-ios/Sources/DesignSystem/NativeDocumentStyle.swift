@@ -11,49 +11,6 @@ extension ToolbarContent {
     }
 }
 
-/// Global navigation-bar back control. It keeps the system toolbar placement so
-/// iPadOS can avoid window controls, while opting out of Liquid Glass grouping
-/// and pressed-state decoration.
-struct NativeToolbarBackButton: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "chevron.left")
-                .contentShape(.interaction, Rectangle().inset(by: -12))
-        }
-        .buttonStyle(NativeStaticToolbarButtonStyle())
-        .accessibilityLabel("返回")
-    }
-}
-
-private struct NativeStaticToolbarButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-    }
-}
-
-private struct NativeDismissToolbarBackModifier: ViewModifier {
-    @Environment(\.dismiss) private var dismiss
-
-    func body(content: Content) -> some View {
-        content
-            .navigationBarBackButtonHidden(true)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    NativeToolbarBackButton { dismiss() }
-                }
-                .documentToolbarBackground()
-            }
-    }
-}
-
-extension View {
-    func nativeToolbarBackButton() -> some View {
-        modifier(NativeDismissToolbarBackModifier())
-    }
-}
-
 struct NativeDoodleToolbarCapsule<Content: View>: View {
     let content: Content
 
