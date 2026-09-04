@@ -35,7 +35,10 @@ const tests = {
     assert.match(exit, /showExitConfirmation = false/);
     assert.match(exit, /screen = \.home/);
     assert.doesNotMatch(exit, /sleep|saveHistory|asyncAfter/);
-    assert.match(page, /frame\(width: 44, height: 44\).contentShape\(Rectangle\(\)\)/);
+    const back = page.split('private var backControl')[1].split('private var isEstimateQuestion')[0];
+    assert.doesNotMatch(back, /frame\(width: 44, height: 44\)/);
+    assert.match(back, /allowsHitTesting\(!showDoodle\)/);
+    assert.match(back, /accessibilityHidden\(showDoodle\)/);
   },
   'estimate uses structured rows and custom settings never affect ordinary practice': () => {
     assert.match(page, /SpeedEstimateExercise\(problem: estimate/);
@@ -103,6 +106,10 @@ const tests = {
     assert.match(result, /correct \? "✓" : "✗"/);
     assert.match(result, /correct \? green : red/);
     assert.match(page, /NativePencilDrawingEditor/);
+    assert.match(page, /误差 ±3%   合格:/);
+    assert.match(result, /frame\(height: 38\)/);
+    assert.match(result, /frame\(height: 47\)/);
+    assert.match(result, /frame\(height: 49\)/);
   }
 };
 for (const [name, test] of Object.entries(tests)) { test(); console.log('PASS ' + name); }

@@ -3,6 +3,7 @@ import SwiftUI
 import UIKit
 
 struct LibraryRecordDetailView: View {
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     let kind: LibraryContentKind
     let scope: LibraryScope
@@ -71,42 +72,54 @@ struct LibraryRecordDetailView: View {
         }
         .navigationTitle("错题详情")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .preference(key: RootBottomBarHiddenPreferenceKey.self, value: true)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
-            if showDoodle {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    doodleToolbarButton("xmark", label: "退出涂鸦", action: closeDoodle)
-                    doodleToolbarButton(
-                        doodleController.eraser ? "eraser.fill" : "eraser",
-                        label: "橡皮擦",
-                        active: doodleController.eraser,
-                        action: doodleController.toggleEraser
-                    )
-                    doodleToolbarButton("arrow.uturn.backward", label: "撤销", action: doodleController.undo)
-                    doodleToolbarButton("trash", label: "清空涂鸦", action: doodleController.requestClear)
-                    doodleToolbarButton(
-                        "paintpalette",
-                        label: doodleController.showSettings ? "收起画笔调节" : "展开画笔调节",
-                        active: doodleController.showSettings
-                    ) {
-                        withAnimation(.easeInOut(duration: 0.20)) {
-                            doodleController.showSettings.toggle()
+            ToolbarItem(placement: .topBarLeading) {
+                Button { dismiss() } label: { Image(systemName: "chevron.left") }
+                    .accessibilityLabel("返回")
+                    .allowsHitTesting(!showDoodle)
+                    .accessibilityHidden(showDoodle)
+                    .frame(width: showDoodle ? 164 : nil, alignment: .leading)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Group {
+                    if showDoodle {
+                        HStack(spacing: 3) {
+                            doodleToolbarButton("xmark", label: "退出涂鸦", action: closeDoodle)
+                            doodleToolbarButton(
+                                doodleController.eraser ? "eraser.fill" : "eraser",
+                                label: "橡皮擦",
+                                active: doodleController.eraser,
+                                action: doodleController.toggleEraser
+                            )
+                            doodleToolbarButton("arrow.uturn.backward", label: "撤销", action: doodleController.undo)
+                            doodleToolbarButton("trash", label: "清空涂鸦", action: doodleController.requestClear)
+                            doodleToolbarButton(
+                                "paintpalette",
+                                label: doodleController.showSettings ? "收起画笔调节" : "展开画笔调节",
+                                active: doodleController.showSettings
+                            ) {
+                                withAnimation(.easeInOut(duration: 0.20)) {
+                                    doodleController.showSettings.toggle()
+                                }
+                            }
+                        }
+                    } else {
+                        HStack(spacing: 8) {
+                            Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
+                                .accessibilityLabel("涂鸦")
+                            Menu {
+                                Button { if noteSession.finish() { showEditor = true } } label: { Label("编辑错题", systemImage: "pencil") }
+                                Button(role: .destructive) { if noteSession.finish() { showDelete = true } } label: { Label("删除错题", systemImage: "trash") }
+                            } label: { Image(systemName: "ellipsis") }
                         }
                     }
                 }
-                .documentToolbarBackground()
-            } else {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
-                        .accessibilityLabel("涂鸦")
-                    Menu {
-                        Button { if noteSession.finish() { showEditor = true } } label: { Label("编辑错题", systemImage: "pencil") }
-                        Button(role: .destructive) { if noteSession.finish() { showDelete = true } } label: { Label("删除错题", systemImage: "trash") }
-                    } label: { Image(systemName: "ellipsis") }
-                }
-                .documentToolbarBackground()
+                .frame(width: showDoodle ? 164 : nil, alignment: .trailing)
             }
+            .documentToolbarBackground()
         }
         .navigationDestination(isPresented: $showEditor) {
             LibraryRecordEditorView(kind: kind, scope: scope, record: record)
@@ -403,12 +416,16 @@ struct LibraryRecordDetailView: View {
         guard noteSession.finish() else { return }
         drawingData = firstText(["pencilKitData", "drawingData"]) ?? ""
         doodleController.prepareForPresentation()
-        withAnimation(.easeInOut(duration: 0.18)) { showDoodle = true }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { showDoodle = true }
     }
     private func closeDoodle() {
         saveDrawing()
         doodleController.showSettings = false
-        withAnimation(.easeInOut(duration: 0.18)) { showDoodle = false }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { showDoodle = false }
     }
     private func saveDrawing() {
         var updated = object

@@ -58,7 +58,7 @@ struct SpeedPracticeView: View {
 
     private func navigateBack() {
         guard !isSubmitting else { return }
-        if showDoodle { showDoodle = false; return }
+        guard !showDoodle else { return }
         if screen == .history, selectedHistory != nil {
             selectedHistory = nil
         } else if screen == .practice {
@@ -114,8 +114,14 @@ struct SpeedPracticeView: View {
 
     @ToolbarContentBuilder
     private var speedToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) { backControl }
-        ToolbarItem(placement: .topBarTrailing) { trailingControls }
+        ToolbarItem(placement: .topBarLeading) {
+            backControl
+                .frame(width: showDoodle ? 164 : nil, alignment: .leading)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            trailingControls
+                .frame(width: showDoodle ? 164 : nil, alignment: .trailing)
+        }
             .documentToolbarBackground()
     }
 
@@ -124,11 +130,12 @@ struct SpeedPracticeView: View {
         if screen != .home {
             Button(action: navigateBack) {
                 Image(systemName: "chevron.left")
-                    .frame(width: 44, height: 44).contentShape(Rectangle())
             }
             .accessibilityLabel("返回")
             .accessibilityIdentifier("speed-back")
             .disabled(isSubmitting)
+            .allowsHitTesting(!showDoodle)
+            .accessibilityHidden(showDoodle)
         }
     }
 
@@ -137,7 +144,7 @@ struct SpeedPracticeView: View {
     }
 
     private var trailingControls: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 3) {
             if showDoodle {
                 doodleButton("xmark", "退出涂鸦") { showDoodle = false }
                 doodleButton(doodleController.eraser ? "eraser.fill" : "eraser", "橡皮擦", active: doodleController.eraser, action: doodleController.toggleEraser)
@@ -839,7 +846,7 @@ struct SpeedPracticeView: View {
         let firstType = questions.first?.type
         let usesSingleType = firstType.map { type in questions.allSatisfy { $0.type == type } } ?? false
         let thresholds = usesSingleType && settings.useCustomPractice != true ? firstType?.ratingThresholds ?? fallback : fallback
-        return "误差 ±3%　合格 ≤ \(Int(thresholds.pass))s　良好 ≤ \(Int(thresholds.good))s　优秀 ≤ \(Int(thresholds.excellent))s"
+        return "误差 ±3%   合格: \(Int(thresholds.pass))s  良好: \(Int(thresholds.good))s  优秀: \(Int(thresholds.excellent))s"
     }
 
     private func settingBinding<Value>(_ keyPath: WritableKeyPath<SpeedSettings, Value>) -> Binding<Value> {

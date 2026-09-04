@@ -67,8 +67,7 @@ final class SpeedInteractionUITests: XCTestCase {
                 key.tap()
                 let back = app.buttons["speed-back"]
                 XCTAssertTrue(back.waitForExistence(timeout: 5))
-                XCTAssertGreaterThanOrEqual(back.frame.width, 44)
-                back.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).tap()
+                back.tap()
                 if attempt == 0 {
                     let cancel = systemAlert ? app.alerts.buttons["继续"] : app.buttons["speed-exit-continue"]
                     XCTAssertTrue(cancel.waitForExistence(timeout: 3))

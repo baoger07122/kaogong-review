@@ -51,6 +51,18 @@ const tests = {
   'no toolbar background and bitmap eraser preserved': () => {
     assert.match(read('DesignSystem/NativeDocumentStyle.swift'), /sharedBackgroundVisibility\(\.hidden\)/);
     assert.match(pencil, /PKEraserTool\(\.bitmap, width: pencilBitmapEraserWidth\)/);
+  },
+  'drawing keeps title stable and blocks the underlying back control': () => {
+    assert.match(detail, /navigationBarBackButtonHidden\(true\)/);
+    assert.match(detail, /allowsHitTesting\(!showDoodle\)/);
+    assert.match(detail, /accessibilityHidden\(showDoodle\)/);
+    assert.match(detail, /frame\(width: showDoodle \? 164 : nil, alignment: \.leading\)/);
+    assert.match(detail, /frame\(width: showDoodle \? 164 : nil, alignment: \.trailing\)/);
+    const open = detail.split('private func openDoodle()')[1].split('private func closeDoodle()')[0];
+    const close = detail.split('private func closeDoodle()')[1].split('private func saveDrawing()')[0];
+    assert.match(open, /transaction\.disablesAnimations = true/);
+    assert.match(close, /transaction\.disablesAnimations = true/);
+    assert.match(detail, /HStack\(spacing: 3\)/);
   }
 };
 for (const [name, test] of Object.entries(tests)) { test(); console.log(`PASS ${name}`); }
