@@ -9,6 +9,8 @@ const result = read('SpeedResultView');
 const feedback = read('SpeedFeedback');
 const answer = read('SpeedAnswerRow');
 const animatedText = read('SpeedAnimatedText');
+const exitConfirmation = read('SpeedExitConfirmation');
+const dialogs = fs.readFileSync(path.join(__dirname, '../Sources/DesignSystem/NativeDialogs.swift'), 'utf8');
 const tests = {
   'manual confirmation regardless of legacy setting': () => {
     assert.doesNotMatch(page, /settings\.confirmAuto|settingBinding\(\\\.confirmAuto\)/);
@@ -30,6 +32,14 @@ const tests = {
     assert.match(page, /alert\("重新开始"/);
     assert.match(page, /Button\("继续", role: \.cancel\) \{ \}/);
     assert.match(page, /SpeedExitConfirmation\(onContinue: \{ showExitConfirmation = false \}, onExit: abandon\)/);
+    assert.match(page, /withTransaction\(transaction\) \{ showExitConfirmation = true \}/);
+    assert.match(exitConfirmation, /NativeConfirmationDialog\(/);
+    assert.doesNotMatch(exitConfirmation, /NativeModalContainer|regularMaterial|buttonStyle\(\.plain\)/);
+    assert.match(dialogs, /struct NativeConfirmationDialog/);
+    const confirmation = dialogs.split('struct NativeConfirmationDialog')[1].split('private struct NativeConfirmationButtonStyle')[0];
+    assert.match(confirmation, /systemBackground/);
+    assert.match(confirmation, /transaction\.disablesAnimations = true/);
+    assert.doesNotMatch(confirmation, /regularMaterial|\.transition\(/);
     const exit = page.split('private func abandon()')[1].split('private func pressKey')[0];
     assert.match(exit, /transaction.disablesAnimations = true/);
     assert.match(exit, /showExitConfirmation = false/);
@@ -37,6 +47,7 @@ const tests = {
     assert.doesNotMatch(exit, /sleep|saveHistory|asyncAfter/);
     const back = page.split('private var backControl')[1].split('private var isEstimateQuestion')[0];
     assert.doesNotMatch(back, /frame\(width: 44, height: 44\)/);
+    assert.match(back, /contentShape\(\.interaction, Rectangle\(\)\.inset\(by: -12\)\)/);
     assert.match(back, /allowsHitTesting\(!showDoodle\)/);
     assert.match(back, /accessibilityHidden\(showDoodle\)/);
     assert.doesNotMatch(back, /showDoodle \? 164/);
@@ -75,6 +86,7 @@ const tests = {
     assert.match(answer, /transaction \{ \$0.animation = nil; \$0.disablesAnimations = true \}/);
     assert.match(answer, /motion: \.answer\(inputRevision\)/);
     assert.match(answer, /motion: \.expression\(questionID\)/);
+    assert.match(answer, /let equals = " ="/);
     assert.match(animatedText, /let duration = answer \? 0.15 : 0.32/);
     for (const component of ['fade', 'movement', 'group']) assert.ok(animatedText.includes(`${component}.duration = duration`));
     assert.match(animatedText, /guard window != nil, bounds.width > 0, bounds.height > 0/);

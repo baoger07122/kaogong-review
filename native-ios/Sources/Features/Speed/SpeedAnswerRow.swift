@@ -14,7 +14,10 @@ struct SpeedAnswerRow: View {
             let available = max(1, geometry.size.width - 24)
             let baseFont = UIFont.systemFont(ofSize: 42, weight: .regular)
             let expressionWidth = (expression as NSString).size(withAttributes: [.font: baseFont, .kern: 1]).width
-            let equalsWidth = ("=" as NSString).size(withAttributes: [.font: baseFont, .kern: 1]).width
+            // The preserved Web implementation renders a leading space inside the
+            // equals span (" =") in addition to the 8pt flex gap.
+            let equals = " ="
+            let equalsWidth = (equals as NSString).size(withAttributes: [.font: baseFont, .kern: 1]).width
             // Narrow-window fallback depends only on the question, never the entered digits.
             let scale = min(1, max(0.1, (available - 56) / (expressionWidth + equalsWidth)))
             let fontSize = 42 * scale
@@ -26,7 +29,7 @@ struct SpeedAnswerRow: View {
                 SpeedAnimatedText(text: expression, fontSize: fontSize, nightMode: nightMode,
                                   motion: .expression(questionID), kerning: scale)
                     .frame(width: expressionWidth * scale, height: 56)
-                Text("=").kerning(scale)
+                Text(equals).kerning(scale)
                     .frame(width: equalsWidth * scale)
                 SpeedAnimatedText(text: input, fontSize: fontSize, nightMode: nightMode,
                                   motion: .answer(inputRevision))

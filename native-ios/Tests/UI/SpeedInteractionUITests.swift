@@ -79,13 +79,13 @@ final class SpeedInteractionUITests: XCTestCase {
                 back.tap()
                 if attempt == 0 {
                     let cancel = systemAlert ? app.alerts.buttons["继续"] : app.buttons["speed-exit-continue"]
-                    XCTAssertTrue(cancel.waitForExistence(timeout: 3))
+                    XCTAssertTrue(cancel.waitForExistence(timeout: 1))
                     cancel.tap()
                     XCTAssertEqual(app.descendants(matching: .any)["speed-answer"].firstMatch.value as? String, "2")
                     back.tap()
                 }
                 let exit = systemAlert ? app.alerts.buttons["退出"] : app.buttons["speed-exit-confirm"]
-                XCTAssertTrue(exit.waitForExistence(timeout: 3))
+                XCTAssertTrue(exit.waitForExistence(timeout: 1))
                 exit.tap()
                 XCTAssertTrue(start.waitForExistence(timeout: 3))
                 let metrics = app.staticTexts["speed-exit-metrics"]

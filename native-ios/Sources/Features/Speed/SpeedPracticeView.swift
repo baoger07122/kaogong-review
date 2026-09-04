@@ -64,7 +64,12 @@ struct SpeedPracticeView: View {
         } else if screen == .practice {
             SpeedExitDiagnostics.begin()
             if SpeedExitDiagnostics.useSystemAlert { showLegacyExitConfirmation = true }
-            else { showExitConfirmation = true }
+            else {
+                var transaction = Transaction()
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { showExitConfirmation = true }
+            }
         } else {
             screen = .home
         }
@@ -126,6 +131,7 @@ struct SpeedPracticeView: View {
         if screen != .home {
             Button(action: navigateBack) {
                 Image(systemName: "chevron.left")
+                    .contentShape(.interaction, Rectangle().inset(by: -12))
             }
             .accessibilityLabel("返回")
             .accessibilityIdentifier("speed-back")

@@ -102,3 +102,97 @@ struct NativeDeleteDialog: View {
         }
     }
 }
+
+/// Shared, immediate confirmation surface for short destructive decisions.
+///
+/// Unlike editor sheets, confirmation dialogs use an opaque card and no material
+/// transition so the dimming layer and dialog become visible in the same frame.
+struct NativeConfirmationDialog: View {
+    let title: String
+    let message: String
+    let confirmTitle: String
+    let cancelTitle: String
+    let confirmIdentifier: String
+    let cancelIdentifier: String
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+    var isDanger = false
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.30)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                VStack(spacing: 8) {
+                    Text(title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text(message)
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                .padding(.bottom, 18)
+
+                Divider()
+
+                HStack(spacing: 0) {
+                    confirmationButton(
+                        cancelTitle,
+                        color: .secondary,
+                        identifier: cancelIdentifier,
+                        action: onCancel
+                    )
+
+                    Divider().frame(height: 48)
+
+                    confirmationButton(
+                        confirmTitle,
+                        color: isDanger ? AppTheme.danger : AppTheme.accent,
+                        identifier: confirmIdentifier,
+                        action: onConfirm
+                    )
+                }
+                .frame(height: 48)
+            }
+            .frame(maxWidth: 320)
+            .background(Color(uiColor: .systemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .shadow(color: Color(red: 0.13, green: 0.19, blue: 0.35).opacity(0.18), radius: 24, y: 12)
+            .padding(.horizontal, 32)
+        }
+        .transaction { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
+        .accessibilityAddTraits(.isModal)
+        .accessibilityAction(.escape, onCancel)
+    }
+
+    private func confirmationButton(
+        _ title: String,
+        color: Color,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(color)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(NativeConfirmationButtonStyle())
+        .accessibilityIdentifier(identifier)
+    }
+}
+
+private struct NativeConfirmationButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(Color.primary.opacity(configuration.isPressed ? 0.07 : 0))
+    }
+}
