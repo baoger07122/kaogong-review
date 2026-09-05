@@ -113,7 +113,6 @@ private final class SpeedKeyControl: UIControl {
         surface.addSubview(shade)
         titleLabel.textAlignment = .center
         icon.contentMode = .center
-        addTarget(self, action: #selector(activate), for: .touchUpInside)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -170,14 +169,15 @@ private final class SpeedKeyControl: UIControl {
     }
 
     override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
-        // UIControl dispatches touchUpInside itself. Tracking only updates the visual state;
-        // manually sending the event here would call the registered action a second time.
+        // Commit in the same touch-up callback instead of waiting for a second
+        // target/action dispatch. This keeps rapid keypad entry close to WebAudio's
+        // pointerdown + click path while still dispatching every key exactly once.
+        let shouldActivate = touch.map { bounds.contains($0.location(in: self)) } ?? false
+        if shouldActivate { action() }
         setPressed(false)
     }
 
     override func cancelTracking(with event: UIEvent?) { setPressed(false) }
-
-    @objc private func activate() { action() }
 
     override func accessibilityActivate() -> Bool {
         guard isEnabled else { return false }

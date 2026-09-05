@@ -9,6 +9,7 @@ const result = read('SpeedResultView');
 const feedback = read('SpeedFeedback');
 const answer = read('SpeedAnswerRow');
 const animatedText = read('SpeedAnimatedText');
+const keySound = read('SpeedKeySound');
 const exitConfirmation = read('SpeedExitConfirmation');
 const dialogs = fs.readFileSync(path.join(__dirname, '../Sources/DesignSystem/NativeDialogs.swift'), 'utf8');
 const documentStyle = fs.readFileSync(path.join(__dirname, '../Sources/DesignSystem/NativeDocumentStyle.swift'), 'utf8');
@@ -76,14 +77,23 @@ const tests = {
     assert.match(pad, /weight: UIFont.Weight = \.medium/);
     assert.match(pad, /UIView.performWithoutAnimation/);
     assert.match(pad, /override func beginTracking[\s\S]*?setPressed\(true\)/);
-    assert.match(pad, /override func endTracking[\s\S]*?setPressed\(false\)/);
+    assert.match(pad, /override func endTracking[\s\S]*?if shouldActivate \{ action\(\) \}[\s\S]*?setPressed\(false\)/);
     assert.match(pad, /override func cancelTracking[^\n]*setPressed\(false\)/);
     assert.doesNotMatch(pad, /sendActions\(for:/);
-    assert.equal((pad.match(/addTarget\(/g) || []).length, 1);
+    assert.equal((pad.match(/addTarget\(/g) || []).length, 0);
     assert.match(pad, /override func accessibilityActivate/);
     assert.doesNotMatch(pad, /\.animation\(|withAnimation|UIView.animate|Task.sleep|asyncAfter/);
     assert.match(pad, /label: "删除上一位"[\s\S]*?action: onBackspace/);
     assert.match(pad, /label: "清空答案"[\s\S]*?action: onClear/);
+  },
+  'key sound uses a prestarted low-latency engine': () => {
+    assert.match(keySound, /AVAudioEngine\(\)/);
+    assert.match(keySound, /AVAudioPlayerNode/);
+    assert.match(keySound, /setPreferredIOBufferDuration\(0\.0029\)/);
+    assert.match(keySound, /engine\.prepare\(\)/);
+    assert.match(keySound, /engine\.start\(\)/);
+    assert.match(keySound, /scheduleBuffer\(tone, at: nil, options: \[\.interrupts\]\)/);
+    assert.doesNotMatch(keySound, /AVAudioPlayer\(|currentTime\s*=|prepareToPlay/);
   },
   'all pushed navigation destinations use system back controls': () => {
     assert.doesNotMatch(documentStyle, /NativeToolbarBackButton|NativeDismissToolbarBackModifier/);
@@ -141,6 +151,7 @@ const tests = {
     assert.match(page, /NativePencilDrawingEditor/);
     assert.match(page, /NativeDoodleToolbarCapsule/);
     assert.match(page, /accessibilityIdentifier\("speed-doodle-close"\)/);
+    assert.match(page, /accessibilityIdentifier\("speed-doodle-open"\)/);
     assert.match(page, /Group \{[\s\S]*?switch screen[\s\S]*?allowsHitTesting\(!showDoodle\)/);
     assert.match(page, /误差 ±3%   合格:/);
     assert.match(result, /frame\(height: 38\)/);

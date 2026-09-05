@@ -159,6 +159,7 @@ struct SpeedPracticeView: View {
                     .contentShape(Circle())
             }
             .accessibilityLabel("涂鸦")
+            .accessibilityIdentifier("speed-doodle-open")
         }
     }
 
@@ -182,7 +183,7 @@ struct SpeedPracticeView: View {
         .sheet(isPresented: $showSettings) { practiceSettingsSheet }
         .sheet(isPresented: $showCustomSettings) { customPracticeSheet }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active, screen == .practice, settings.soundEnabled != false {
+            if phase == .active, settings.soundEnabled != false {
                 keySound.prepare()
             } else {
                 keySound.stop()
@@ -197,6 +198,7 @@ struct SpeedPracticeView: View {
                 persistSettings()
             }
             estimateRows = SpeedRepository.estimateRows(from: records)
+            if settings.soundEnabled != false { keySound.prepare() }
         }
     }
 
@@ -654,11 +656,6 @@ struct SpeedPracticeView: View {
         }
         }
         .onAppear { if settings.soundEnabled != false { keySound.prepare() } }
-        .onDisappear {
-            SpeedExitDiagnostics.mark("audioStart")
-            keySound.stop()
-            SpeedExitDiagnostics.mark("audioEnd")
-        }
     }
 
     private var result: some View {

@@ -17,7 +17,7 @@ final class SpeedInteractionUITests: XCTestCase {
         start.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
         let two = app.buttons["speed-key-2"]
         XCTAssertTrue(two.waitForExistence(timeout: 10))
-        let doodle = app.buttons["草稿涂鸦"]
+        let doodle = app.buttons["speed-doodle-open"]
         XCTAssertTrue(doodle.waitForExistence(timeout: 5))
         doodle.tap()
         let closeDoodle = app.buttons["speed-doodle-close"]
