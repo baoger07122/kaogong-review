@@ -8,6 +8,8 @@ struct SpeedEstimateProblem: Codable, Equatable {
 }
 
 enum SpeedEstimateRules {
+    static let minimumCorrectionRatio = 0.015
+
     static func isValid(_ row: SpeedEstimateRow) -> Bool {
         (101...999).contains(row.minimum) && (row.minimum...999).contains(row.maximum)
             && (100...999).contains(row.value)
@@ -53,6 +55,27 @@ enum SpeedEstimateRules {
         let lower = max(100, Int(ceil(100 * Double(source) / Double(approximate))))
         let upper = min(999, Int(floor(999 * Double(source) / Double(approximate))))
         return lower...max(lower, upper)
+    }
+
+    static func correctionRatio(source: Int, approximate: Int) -> Double {
+        guard source != 0 else { return 0 }
+        return abs(Double(source - approximate)) / Double(source)
+    }
+
+    static func isUseful(source: Int, approximate: Int) -> Bool {
+        correctionRatio(source: source, approximate: approximate) >= minimumCorrectionRatio
+    }
+
+    /// Select only questions where rounding changes the source by at least 1.5%.
+    /// If a fully user-defined table leaves no useful source, return nil instead of
+    /// silently weakening the training threshold.
+    static func question(rows: [SpeedEstimateRow]) -> SpeedQuestion? {
+        let candidates = (101...999).filter { source in
+            let match = approximation(for: source, rows: rows)
+            return isUseful(source: source, approximate: match.value)
+        }
+        guard let source = candidates.randomElement() else { return nil }
+        return question(source: source, rows: rows)
     }
 
     static func question(source: Int, rows: [SpeedEstimateRow]) -> SpeedQuestion {

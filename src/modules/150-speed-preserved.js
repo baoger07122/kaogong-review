@@ -27,7 +27,7 @@ App.Pages.SpeedCalc = {
     // ===== 基础计算（10）=====
     addsub2:  { name: '两位数加减',     s: { excellent: 18, good: 22, pass: 28 }, gen: () => { const a = randInt(10, 99), b = randInt(10, 99); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } },
     add3:     { name: '三位数加法',     s: { excellent: 35, good: 45, pass: 60 }, gen: () => { const a = randInt(100, 999), b = randInt(100, 999); return makeQ(a + ' + ' + b, a + b); } },
-    sub3:     { name: '三位数减法',     s: { excellent: 35, good: 45, pass: 60 }, gen: () => { const a = randInt(300, 999), b = randInt(100, a - 1); return makeQ(a + ' - ' + b, a - b); } },
+    sub3:     { name: '三位数减法',     s: { excellent: 24, good: 30, pass: 38 }, gen: () => { const a = randInt(300, 999), b = randInt(100, a - 1); return makeQ(a + ' - ' + b, a - b); } },
     addsub3:  { name: '三位数加减',     s: { excellent: 40, good: 50, pass: 70 }, gen: () => { const a = randInt(100, 999), b = randInt(100, 999); return Math.random() < 0.5 ? makeQ(a + ' + ' + b, a + b) : makeQ((a + b) + ' - ' + b, a); } },
     mul2x1:   { name: '两位数乘一位数', s: { excellent: 20, good: 28, pass: 40 }, gen: () => { const a = randInt(10, 99), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },
     mul3x1:   { name: '三位数乘一位数', s: { excellent: 35, good: 45, pass: 60 }, gen: () => { const a = randInt(100, 999), b = randInt(2, 9); return makeQ(a + ' × ' + b, a * b); } },

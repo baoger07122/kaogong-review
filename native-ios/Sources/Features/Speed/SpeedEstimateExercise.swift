@@ -4,7 +4,6 @@ import SwiftUI
 struct SpeedEstimateExercise: View {
     let problem: SpeedEstimateProblem
     let input: String
-    let showInput: Bool
     var nightMode = false
 
     private let blue = Color(red: 33 / 255.0, green: 98 / 255.0, blue: 216 / 255.0)
@@ -20,7 +19,7 @@ struct SpeedEstimateExercise: View {
                 }
                 .padding(.bottom, 16 * scale)
                 row(left: problem.initialResult, scale: scale) {
-                    Text(showInput ? (input.isEmpty ? "答案" : input) : "···")
+                    Text(input.isEmpty ? "答案" : input)
                         .font(.system(size: 32 * scale, weight: .semibold))
                         .foregroundStyle(input.isEmpty ? Color(red: 184 / 255.0, green: 184 / 255.0, blue: 192 / 255.0) : (nightMode ? .white : Color(red: 29 / 255.0, green: 29 / 255.0, blue: 31 / 255.0)))
                         .lineLimit(1).minimumScaleFactor(0.45)

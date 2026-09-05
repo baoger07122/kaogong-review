@@ -45,7 +45,8 @@ enum SpeedTypeKey: String, Codable, CaseIterable, Identifiable {
     var ratingThresholds: SpeedRatingThresholds? {
         switch self {
         case .addsub2: .init(excellent: 18, good: 22, pass: 28)
-        case .add3, .sub3, .mul3x1: .init(excellent: 35, good: 45, pass: 60)
+        case .add3, .mul3x1: .init(excellent: 35, good: 45, pass: 60)
+        case .sub3: .init(excellent: 24, good: 30, pass: 38)
         case .addsub3: .init(excellent: 40, good: 50, pass: 70)
         case .mul2x1: .init(excellent: 20, good: 28, pass: 40)
         case .div3x1: .init(excellent: 24, good: 30, pass: 38)

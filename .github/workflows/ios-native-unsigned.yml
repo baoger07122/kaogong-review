@@ -82,6 +82,8 @@ jobs:
           "$RUNNER_TEMP/practice-flow-tests"
           swiftc native-ios/Sources/Features/Speed/SpeedModels.swift native-ios/Sources/Features/Speed/SpeedEstimateRules.swift native-ios/Sources/Features/Speed/SpeedQuestionEngine.swift native-ios/Tests/SpeedEstimateRulesTests.swift -o "$RUNNER_TEMP/estimate-rules-tests"
           "$RUNNER_TEMP/estimate-rules-tests"
+          swiftc native-ios/Sources/Features/Speed/SpeedModels.swift native-ios/Sources/Features/Speed/SpeedEstimateRules.swift native-ios/Sources/Features/Speed/SpeedHistoryModels.swift native-ios/Tests/SpeedHistoryModelsTests.swift -o "$RUNNER_TEMP/history-model-tests"
+          "$RUNNER_TEMP/history-model-tests"
 
       - name: Test speed controls with real simulator taps
         timeout-minutes: 16

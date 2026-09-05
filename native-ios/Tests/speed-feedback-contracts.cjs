@@ -33,9 +33,9 @@ const tests = {
     assert.doesNotMatch(page, /advanceTask|DispatchQueue\.main\.asyncAfter/);
     assert.match(page.split('private func advance()')[1].split('private func abandon()')[0], /currentInput = ""/);
   },
-  'exit and restart confirmations preserve cancel path': () => {
+  'exit confirmation preserves cancel path and practice restart is removed': () => {
     assert.match(page, /alert\("退出练习"/);
-    assert.match(page, /alert\("重新开始"/);
+    assert.doesNotMatch(page, /alert\("重新开始"|showRestartConfirmation|Button\("重开"\)/);
     assert.match(page, /Button\("继续", role: \.cancel\) \{ \}/);
     assert.match(page, /SpeedExitConfirmation\(onContinue: \{ showExitConfirmation = false \}, onExit: abandon\)/);
     assert.match(page, /withTransaction\(transaction\) \{ showExitConfirmation = true \}/);
@@ -52,7 +52,7 @@ const tests = {
     assert.match(exit, /screen = \.home/);
     assert.doesNotMatch(exit, /sleep|saveHistory|asyncAfter/);
     const back = page.split('private var backControl')[1].split('private var isEstimateQuestion')[0];
-    assert.doesNotMatch(back, /frame\(width: 44, height: 44\)/);
+    assert.match(back, /frame\(width: 36, height: 36\)[\s\S]*contentShape\(Circle\(\)\)/);
     assert.match(back, /Button\(action: navigateBack\)/);
     assert.match(back, /allowsHitTesting\(!showDoodle\)/);
     assert.match(back, /accessibilityHidden\(showDoodle\)/);
@@ -65,7 +65,9 @@ const tests = {
     assert.match(page, /SpeedEstimateExercise\(problem: estimate/);
     assert.match(page, /SpeedEstimateTableView\(rows: estimateRows\)/);
     assert.match(page, /customMode: settings.useCustomPractice == true \? settings.customNumberMode : nil/);
-    assert.match(read('SpeedQuestionEngine'), /question\(source: random\(101\.\.\.999\)/);
+    assert.match(read('SpeedQuestionEngine'), /question\(rows: estimates\)/);
+    assert.match(read('SpeedEstimateRules'), /minimumCorrectionRatio = 0\.015/);
+    assert.match(read('SpeedEstimateRules'), /guard let source = candidates\.randomElement\(\) else \{ return nil \}/);
     assert.match(read('SpeedEstimateRules'), /Double\(initial\) \* Double\(match.value\) \/ Double\(source\)/);
   },
   'direct touch press and immediate release, medium digits, white surround': () => {
@@ -144,6 +146,24 @@ const tests = {
     assert.match(result, /frame\(height: 38\)/);
     assert.match(result, /frame\(height: 47\)/);
     assert.match(result, /frame\(height: 49\)/);
+  },
+  'home alone shows the global tab bar and practice tools are consistent': () => {
+    assert.match(page, /RootBottomBarHiddenPreferenceKey\.self, value: screen != \.home/);
+    assert.doesNotMatch(page, /eye\.slash|显示或隐藏估算输入|showEstimateInput/);
+    assert.match(page, /screen == \.practice \|\| screen == \.result \|\| \(screen == \.history && selectedHistory != nil\)/);
+    const practice = page.split('private var practice: some View')[1].split('private var result: some View')[0];
+    assert.doesNotMatch(practice, /pencil\.and\.scribble|重开/);
+  },
+  'web-shaped history grouping and statistics are present': () => {
+    const historyModels = read('SpeedHistoryModels');
+    assert.match(historyModels, /runs\.last\?\.name == record\.name/);
+    assert.match(historyModels, /runs\.reversed\(\)/);
+    assert.match(historyModels, /longestFour[\s\S]*totalTime/);
+    assert.match(page, /expandedHistoryBlocks/);
+    assert.match(page, /showsStandard: false/);
+    assert.match(page, /showsFooter: false/);
+    assert.match(page, /近 7 天正确率/);
+    assert.match(page, /练习类型用时/);
   }
 };
 for (const [name, test] of Object.entries(tests)) { test(); console.log('PASS ' + name); }

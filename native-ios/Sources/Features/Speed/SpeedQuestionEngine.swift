@@ -55,7 +55,7 @@ enum SpeedQuestionEngine {
             let item = pool.randomElement() ?? pool[0], n = random(40...400)
             expression = "\(n) × \(item.1)"; answer = Double(Int((Double(n) * item.0 / 100).rounded()))
         case .est05:
-            return SpeedEstimateRules.question(source: random(101...999), rows: estimates)
+            return SpeedEstimateRules.question(rows: estimates)
         case .base:
             let base = random(100...9999), rate = random(2...30), current = Int((Double(base) * Double(100 + rate) / 100).rounded())
             expression = "现期 \(current)，同比 +\(rate)%，求基期"; answer = Double(Int((Double(current) * 100 / Double(100 + rate)).rounded()))

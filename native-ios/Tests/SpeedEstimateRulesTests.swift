@@ -20,6 +20,13 @@ struct SpeedEstimateRulesTests {
         precondition(SpeedEstimateRules.approximation(for: 589, rows: rows).value == 600)
         precondition(SpeedEstimateRules.approximation(for: 589, rows: rows).userDefined)
         precondition(!SpeedEstimateRules.approximation(for: 500, rows: rows).userDefined)
+        precondition(!SpeedEstimateRules.isUseful(source: 251, approximate: 250))
+        precondition(SpeedEstimateRules.isUseful(source: 589, approximate: 600))
+        for _ in 0..<500 {
+            let generated = SpeedEstimateRules.question(rows: rows)!
+            let problem = generated.estimate!
+            precondition(SpeedEstimateRules.correctionRatio(source: problem.source, approximate: problem.approximate) >= 0.015)
+        }
         for a in 101...999 {
             for b in [100, 125, 600, 999] {
                 let q = SpeedEstimateRules.question(source: a, rows: [row(a, a, b)])
@@ -51,6 +58,7 @@ struct SpeedEstimateRulesTests {
         let estimate = SpeedEstimateRules.question(source: 589, rows: rows)
         let restored = try JSONDecoder().decode(SpeedQuestion.self, from: JSONEncoder().encode(estimate))
         precondition(restored == estimate)
-        print("PASS all 899 sources, 4 scale extremes, interval boundaries/coverage/sorting/overlap, fallback, 1200 divisor cases, old/new history coding")
+        precondition(SpeedTypeKey.sub3.ratingThresholds == .init(excellent: 24, good: 30, pass: 38))
+        print("PASS all 899 sources, useful estimate threshold, subtraction rating, interval coverage, fallback, divisor cases, old/new history coding")
     }
 }

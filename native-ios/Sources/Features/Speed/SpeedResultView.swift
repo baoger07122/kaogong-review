@@ -8,6 +8,8 @@ struct SpeedResultView: View {
     let onRestart: () -> Void
     let onRetry: () -> Void
     let onReturn: () -> Void
+    var showsStandard = true
+    var showsFooter = true
 
     private let ink = Color(red: 31 / 255.0, green: 41 / 255.0, blue: 55 / 255.0)
     private let headerInk = Color(red: 55 / 255.0, green: 65 / 255.0, blue: 81 / 255.0)
@@ -23,9 +25,11 @@ struct SpeedResultView: View {
             let tableWidth = max(420, geometry.size.width - 32)
             ScrollView {
                 VStack(spacing: 0) {
-                    Text(standard).font(.system(size: 12)).foregroundStyle(secondaryInk)
-                        .frame(height: 18)
-                        .padding(.top, 8)
+                    if showsStandard {
+                        Text(standard).font(.system(size: 12)).foregroundStyle(secondaryInk)
+                            .frame(height: 18)
+                            .padding(.top, 8)
+                    }
                     VStack(spacing: 4) {
                         Text(title).font(.system(size: 20, weight: .bold)).foregroundStyle(ink)
                             .frame(height: 30)
@@ -54,14 +58,16 @@ struct SpeedResultView: View {
         }
         .background(Color.white)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            HStack(spacing: 10) {
-                footerButton("重来", color: Color(red: 243 / 255.0, green: 244 / 255.0, blue: 246 / 255.0), ink: headerInk, action: onRestart)
-                footerButton("复练", color: Color(red: 239 / 255.0, green: 246 / 255.0, blue: 255 / 255.0), ink: linkBlue, action: onRetry)
-                footerButton("返回", color: blue, ink: .white, bold: true, action: onReturn)
+            if showsFooter {
+                HStack(spacing: 10) {
+                    footerButton("重来", color: Color(red: 243 / 255.0, green: 244 / 255.0, blue: 246 / 255.0), ink: headerInk, action: onRestart)
+                    footerButton("复练", color: Color(red: 239 / 255.0, green: 246 / 255.0, blue: 255 / 255.0), ink: linkBlue, action: onRetry)
+                    footerButton("返回", color: blue, ink: .white, bold: true, action: onReturn)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .background(Color.white)
+                .overlay(alignment: .top) { Color.black.opacity(0.045).frame(height: 0.5) }
             }
-            .padding(.horizontal, 16).padding(.vertical, 12)
-            .background(Color.white)
-            .overlay(alignment: .top) { Color.black.opacity(0.045).frame(height: 0.5) }
         }
     }
 
