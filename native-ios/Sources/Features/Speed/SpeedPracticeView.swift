@@ -780,7 +780,7 @@ struct SpeedPracticeView: View {
 
     private var statistics: some View {
         let snapshot = SpeedStatisticsSnapshot(records: history)
-        ScrollView {
+        return ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if let hot = snapshot.hottest {
                     HStack(spacing: 12) {
