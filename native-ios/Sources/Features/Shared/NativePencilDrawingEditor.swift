@@ -10,6 +10,7 @@ final class PencilDrawingController: ObservableObject {
     @Published var color = UIColor.black
     @Published var width: CGFloat = 4
     @Published var eraser = false
+    @Published var fingerDrawingEnabled = false
     @Published var showSettings = false
     @Published fileprivate var action: PencilAction?
     @Published fileprivate var showClearConfirmation = false
@@ -52,6 +53,7 @@ final class PencilDrawingController: ObservableObject {
 
     func prepareForPresentation() {
         showSettings = false
+        fingerDrawingEnabled = false
     }
 }
 
@@ -167,6 +169,7 @@ struct NativePencilDrawingEditor: View {
                 color: controller.color,
                 width: controller.width,
                 eraser: controller.eraser,
+                fingerDrawingEnabled: controller.fingerDrawingEnabled,
                 scrollEnabled: !transparentBackground,
                 eraserLocation: $eraserLocation,
                 action: $controller.action
@@ -343,6 +346,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
     let color: UIColor
     let width: CGFloat
     let eraser: Bool
+    let fingerDrawingEnabled: Bool
     let scrollEnabled: Bool
     @Binding var eraserLocation: CGPoint?
     @Binding var action: PencilAction?
@@ -352,7 +356,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> PKCanvasView {
         let canvas = InteractivePencilCanvasView()
         canvas.delegate = context.coordinator
-        canvas.drawingPolicy = .anyInput
+        canvas.drawingPolicy = fingerDrawingEnabled ? .anyInput : .pencilOnly
         canvas.isUserInteractionEnabled = true
         if #available(iOS 18.0, *) { canvas.isDrawingEnabled = true }
         canvas.backgroundColor = .clear
@@ -389,7 +393,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
     func updateUIView(_ canvas: PKCanvasView, context: Context) {
         context.coordinator.parent = self
         updateTool(canvas)
-        canvas.drawingPolicy = .anyInput
+        canvas.drawingPolicy = fingerDrawingEnabled ? .anyInput : .pencilOnly
         canvas.isUserInteractionEnabled = true
         if #available(iOS 18.0, *) { canvas.isDrawingEnabled = true }
         canvas.isScrollEnabled = true
@@ -476,7 +480,6 @@ private final class InteractivePencilCanvasView: PKCanvasView {
         super.didMoveToWindow()
         guard window != nil else { return }
         isUserInteractionEnabled = true
-        drawingPolicy = .anyInput
         if #available(iOS 18.0, *) { isDrawingEnabled = true }
         DispatchQueue.main.async { [weak self] in self?.becomeFirstResponder() }
     }

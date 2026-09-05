@@ -89,7 +89,8 @@ const tests = {
       assert.doesNotMatch(source, /nativeToolbarBackButton\(\)|navigationBarBackButtonHidden\(true\)/);
     }
     assert.match(detail, /navigationBarBackButtonHidden\(showDoodle\)/);
-    assert.doesNotMatch(detail, /ToolbarItem\(placement: \.topBarLeading\)|NativeToolbarBackButton/);
+    assert.match(detail, /ToolbarItem\(placement: \.topBarLeading\)[\s\S]*?if showDoodle[\s\S]*?\.disabled\(true\)/);
+    assert.doesNotMatch(detail, /NativeToolbarBackButton/);
   },
   'start is a full-width 48pt text button without a capsule': () => {
     const start = page.split('Button(action: start) {')[1].split('.accessibilityIdentifier("speed-start")')[0];

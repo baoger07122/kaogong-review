@@ -109,7 +109,7 @@ struct SpeedPracticeView: View {
         .overlay {
             if showDoodle {
                 ZStack {
-                    Color.gray.opacity(0.30).ignoresSafeArea().allowsHitTesting(false)
+                    Color.black.opacity(0.18).ignoresSafeArea().allowsHitTesting(false)
                     NativePencilDrawingEditor(encodedData: $drawingData, transparentBackground: true, controller: doodleController, onClose: closeDoodle)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -137,6 +137,7 @@ struct SpeedPracticeView: View {
             .disabled(isSubmitting)
             .allowsHitTesting(!showDoodle)
             .accessibilityHidden(showDoodle)
+            .opacity(showDoodle ? 0.32 : 1)
         }
     }
 
@@ -154,6 +155,11 @@ struct SpeedPracticeView: View {
                 doodleButton("arrow.uturn.backward", "撤销", action: doodleController.undo)
                 doodleButton("trash", "清空涂鸦", action: doodleController.requestClear)
                 doodleButton("paintpalette", "画笔调节", active: doodleController.showSettings) { doodleController.showSettings.toggle() }
+                doodleButton(
+                    "hand.draw",
+                    doodleController.fingerDrawingEnabled ? "关闭手指涂鸦" : "开启手指涂鸦",
+                    active: doodleController.fingerDrawingEnabled
+                ) { doodleController.fingerDrawingEnabled.toggle() }
             }
         } else {
             HStack(spacing: 3) {

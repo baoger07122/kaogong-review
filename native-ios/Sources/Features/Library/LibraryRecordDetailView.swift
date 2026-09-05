@@ -44,7 +44,8 @@ struct LibraryRecordDetailView: View {
             .allowsHitTesting(!showDoodle)
 
             if showDoodle {
-                Color.gray.opacity(0.30)
+                // Match the Web overlay exactly: rgba(0, 0, 0, 0.18).
+                Color.black.opacity(0.18)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
                 NativePencilDrawingEditor(
@@ -76,6 +77,14 @@ struct LibraryRecordDetailView: View {
         .preference(key: RootBottomBarHiddenPreferenceKey.self, value: true)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                if showDoodle {
+                    Button(action: {}) { Image(systemName: "chevron.left") }
+                        .disabled(true)
+                        .foregroundStyle(Color.primary.opacity(0.32))
+                        .accessibilityHidden(true)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Group {
                     if showDoodle {
@@ -98,6 +107,13 @@ struct LibraryRecordDetailView: View {
                                 withAnimation(.easeInOut(duration: 0.20)) {
                                     doodleController.showSettings.toggle()
                                 }
+                            }
+                            doodleToolbarButton(
+                                "hand.draw",
+                                label: doodleController.fingerDrawingEnabled ? "关闭手指涂鸦" : "开启手指涂鸦",
+                                active: doodleController.fingerDrawingEnabled
+                            ) {
+                                doodleController.fingerDrawingEnabled.toggle()
                             }
                         }
                     } else {
@@ -201,12 +217,12 @@ struct LibraryRecordDetailView: View {
                             .lineSpacing(5.5)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                     .background(optionBackground(correct: correct, chosen: chosen), in: RoundedRectangle(cornerRadius: 8))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8)
-                            .stroke(correct ? AppTheme.success : (chosen ? AppTheme.danger : Color.primary.opacity(0.10)), lineWidth: 0.8)
+                            .stroke(correct ? webSuccess : (chosen ? AppTheme.danger : webBorder), lineWidth: 1)
                     }
                 }
             }
@@ -318,11 +334,11 @@ struct LibraryRecordDetailView: View {
         if correct, chosen {
             text = text + Text("  ✓ 正确答案 · 你的选择")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(AppTheme.success)
+                .foregroundColor(webSuccess)
         } else if correct {
             text = text + Text("  ✓ 正确答案")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(AppTheme.success)
+                .foregroundColor(webSuccess)
         } else if chosen {
             text = text + Text("  ✕ 你的选择")
                 .font(.system(size: 12, weight: .medium))
@@ -337,10 +353,13 @@ struct LibraryRecordDetailView: View {
         Set((value ?? "").uppercased().filter { "ABCD".contains($0) }.map(String.init))
     }
     private func optionBackground(correct: Bool, chosen: Bool) -> Color {
-        if correct { return AppTheme.success.opacity(0.09) }
-        if chosen { return AppTheme.danger.opacity(0.08) }
+        if correct { return Color(red: 232.0 / 255.0, green: 245.0 / 255.0, blue: 233.0 / 255.0) }
+        if chosen { return Color(red: 255.0 / 255.0, green: 235.0 / 255.0, blue: 238.0 / 255.0) }
         return Color.white
     }
+
+    private var webSuccess: Color { Color(red: 52.0 / 255.0, green: 199.0 / 255.0, blue: 89.0 / 255.0) }
+    private var webBorder: Color { Color(red: 240.0 / 255.0, green: 240.0 / 255.0, blue: 242.0 / 255.0) }
 
     private var detailBackground: Color { Color(red: 245.0 / 255.0, green: 245.0 / 255.0, blue: 247.0 / 255.0) }
 

@@ -51,10 +51,11 @@ const tests = {
   'no toolbar background and bitmap eraser preserved': () => {
     assert.match(read('DesignSystem/NativeDocumentStyle.swift'), /sharedBackgroundVisibility\(\.hidden\)/);
     assert.match(pencil, /PKEraserTool\(\.bitmap, width: pencilBitmapEraserWidth\)/);
+    assert.match(pencil, /fingerDrawingEnabled \? \.anyInput : \.pencilOnly/);
   },
   'drawing blocks the underlying back control without expanding it': () => {
     assert.match(detail, /navigationBarBackButtonHidden\(showDoodle\)/);
-    assert.doesNotMatch(detail, /ToolbarItem\(placement: \.topBarLeading\)/);
+    assert.match(detail, /ToolbarItem\(placement: \.topBarLeading\)[\s\S]*?if showDoodle[\s\S]*?\.disabled\(true\)/);
     assert.doesNotMatch(detail, /frame\(width: showDoodle \? 164/);
     const open = detail.split('private func openDoodle()')[1].split('private func closeDoodle()')[0];
     const close = detail.split('private func closeDoodle()')[1].split('private func saveDrawing()')[0];
