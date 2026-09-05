@@ -83,6 +83,22 @@ enum LibraryCardSize: String, CaseIterable, Identifiable {
         case .large: 1
         }
     }
+
+    var questionLineLimit: Int {
+        switch self {
+        case .small: 2
+        case .medium: 3
+        case .large: 5
+        }
+    }
+
+    var imageMaximumHeight: CGFloat {
+        switch self {
+        case .small: 150
+        case .medium: 220
+        case .large: 320
+        }
+    }
 }
 
 struct LibraryScope: Equatable {
@@ -122,13 +138,21 @@ struct LibraryRecordSnapshot: Identifiable {
     let searchableText: String
     let category: String
     let sentiment: String
+    let knowledgePoints: [String]
+    let errorCause: String
+    let pitfall: String
+    let imageValues: [String]
+    let comparisonWords: [String]
 
     var id: String { record.compoundID }
 
     init(record: StoredRecord) {
         self.record = record
         let object = record.indexObject ?? [:]
-        title = Self.firstText(in: object, keys: ["title", "question", "name", "words", "text", "content"])
+        let titleKeys = record.collection == "errors"
+            ? ["question", "title", "name", "text", "content"]
+            : ["title", "question", "name", "words", "text", "content"]
+        title = Self.firstText(in: object, keys: titleKeys)
             .map(Self.plainText) ?? "未命名记录"
         summary = Self.firstText(
             in: object,
@@ -140,6 +164,33 @@ struct LibraryRecordSnapshot: Identifiable {
         createdAt = record.createdAt ?? Self.date(in: object, keys: ["createdAt", "date", "updatedAt"])
         category = Self.firstText(in: object, keys: ["category", "type"]) ?? WordCategory.idiomDefinition.rawValue
         sentiment = Self.firstText(in: object, keys: ["sentiment"]) ?? ""
+
+        if let points = object["knowledgePoints"] as? [String] {
+            knowledgePoints = points.map(Self.plainText).filter { !$0.isEmpty }
+        } else if let point = Self.firstText(in: object, keys: ["knowledgePoint", "point", "topic"]) {
+            knowledgePoints = point
+                .split(whereSeparator: { "、,，".contains($0) })
+                .map { Self.plainText(String($0)) }
+                .filter { !$0.isEmpty }
+        } else {
+            knowledgePoints = []
+        }
+        errorCause = Self.firstText(in: object, keys: ["errorCause", "cause", "reason"])
+            .map(Self.plainText) ?? ""
+        pitfall = Self.firstText(in: object, keys: ["pitfall", "misconception", "thinkingTrap"])
+            .map(Self.plainText) ?? ""
+        if let images = object["images"] as? [String], !images.isEmpty {
+            imageValues = images
+        } else {
+            imageValues = Self.firstText(in: object, keys: ["image"]).map { [$0] } ?? []
+        }
+        if let groups = object["compareGroups"] as? [[String: Any]] {
+            comparisonWords = groups.compactMap { group in
+                (group["words"] as? String).map(Self.plainText)
+            }.filter { !$0.isEmpty }
+        } else {
+            comparisonWords = []
+        }
 
         var values: [String] = []
         if let type = Self.firstText(in: object, keys: ["type", "category", "errorCause"]) { values.append(type) }

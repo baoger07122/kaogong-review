@@ -1,4 +1,6 @@
+import ImageIO
 import SwiftUI
+import UIKit
 
 struct LibrarySidebar: View {
     let records: [StoredRecord]
@@ -285,22 +287,192 @@ struct LibraryRecordCard: View {
     }
 }
 
+private struct LibraryErrorRecordCard: View {
+    let snapshot: LibraryRecordSnapshot
+    let size: LibraryCardSize
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            images
+
+            Text(snapshot.title)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(Color.primary)
+                .lineSpacing(2.5)
+                .lineLimit(size.questionLineLimit)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if !snapshot.comparisonWords.isEmpty {
+                NativeTagFlow(spacing: 6) {
+                    ForEach(Array(snapshot.comparisonWords.enumerated()), id: \.offset) { _, words in
+                        tag(words, foreground: AppTheme.accent, background: AppTheme.accent.opacity(0.09), weight: .semibold)
+                    }
+                }
+            }
+
+            if !snapshot.knowledgePoints.isEmpty || !snapshot.errorCause.isEmpty {
+                NativeTagFlow(spacing: 6) {
+                    ForEach(Array(snapshot.knowledgePoints.prefix(4).enumerated()), id: \.offset) { _, point in
+                        tag(point, foreground: .secondary, background: Color.primary.opacity(0.045))
+                    }
+                    if !snapshot.errorCause.isEmpty {
+                        tag(snapshot.errorCause, foreground: AppTheme.accent, background: AppTheme.accent.opacity(0.09))
+                    }
+                }
+            }
+
+            if !snapshot.pitfall.isEmpty {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Image(systemName: "lightbulb.min")
+                        .font(.system(size: 10, weight: .regular))
+                    Text(snapshot.pitfall)
+                        .lineLimit(size == .small ? 2 : 3)
+                }
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(.tertiary)
+                .lineSpacing(1.5)
+            }
+
+            if let createdAt = snapshot.createdAt {
+                Text(Self.dateFormatter.string(from: createdAt))
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 2)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 110, alignment: .leading)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.primary.opacity(0.065), lineWidth: 0.7)
+        }
+        .shadow(color: Color.black.opacity(0.04), radius: 6, y: 3)
+    }
+
+    @ViewBuilder
+    private var images: some View {
+        if !snapshot.imageValues.isEmpty {
+            VStack(spacing: 8) {
+                ForEach(Array(snapshot.imageValues.prefix(3).enumerated()), id: \.offset) { index, source in
+                    LibraryCardThumbnail(
+                        source: source,
+                        cacheKey: "\(snapshot.id)-\(index)-\(source.count)",
+                        maximumHeight: size.imageMaximumHeight
+                    )
+                }
+                if snapshot.imageValues.count > 3 {
+                    Text("+\(snapshot.imageValues.count - 3) 张图片")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 4)
+                }
+            }
+        }
+    }
+
+    private func tag(
+        _ value: String,
+        foreground: Color,
+        background: Color,
+        weight: Font.Weight = .regular
+    ) -> some View {
+        Text(value)
+            .font(.system(size: 11, weight: weight))
+            .foregroundStyle(foreground)
+            .lineLimit(2)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(background, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+}
+
+private struct LibraryCardThumbnail: View {
+    let source: String
+    let cacheKey: String
+    let maximumHeight: CGFloat
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Color(uiColor: .tertiarySystemGroupedBackground)
+                    .overlay { ProgressView().controlSize(.small) }
+                    .frame(height: min(110, maximumHeight))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: maximumHeight)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 0.7)
+        }
+        .task(id: cacheKey) {
+            image = await Self.thumbnail(from: source, cacheKey: cacheKey)
+        }
+    }
+
+    private static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 60
+        cache.totalCostLimit = 80 * 1_024 * 1_024
+        return cache
+    }()
+
+    private static func thumbnail(from source: String, cacheKey: String) async -> UIImage? {
+        let key = NSString(string: cacheKey)
+        if let cached = cache.object(forKey: key) { return cached }
+        let image = await Task.detached(priority: .utility) { () -> UIImage? in
+            let encoded: String
+            if let marker = source.range(of: "base64,") {
+                encoded = String(source[marker.upperBound...])
+            } else {
+                encoded = source
+            }
+            guard let data = Data(base64Encoded: encoded, options: .ignoreUnknownCharacters),
+                  let imageSource = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: 900,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true
+            ]
+            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else { return nil }
+            return UIImage(cgImage: cgImage)
+        }.value
+        if let image {
+            let cost = Int(image.size.width * image.scale * image.size.height * image.scale * 4)
+            cache.setObject(image, forKey: key, cost: cost)
+        }
+        return image
+    }
+}
+
 struct LibraryMasonryGrid: View {
     let records: [LibraryRecordSnapshot]
     let kind: LibraryContentKind
-    let columnCount: Int
+    let cardSize: LibraryCardSize
     let onOpen: (LibraryRecordSnapshot) -> Void
     let onDelete: (LibraryRecordSnapshot) -> Void
     var hiddenTags: Set<String> = []
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            ForEach(0..<max(1, columnCount), id: \.self) { column in
-                VStack(spacing: 10) {
-                    ForEach(
-                        Array(records.enumerated()).filter { $0.offset % max(1, columnCount) == column },
-                        id: \.element.id
-                    ) { _, record in
+        HStack(alignment: .top, spacing: 12) {
+            ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
+                LazyVStack(spacing: 12) {
+                    ForEach(column) { record in
                         cardLink(record)
                     }
                 }
@@ -323,9 +495,46 @@ struct LibraryMasonryGrid: View {
 
     private func openButton(_ record: LibraryRecordSnapshot) -> some View {
         Button { onOpen(record) } label: {
-            LibraryRecordCard(snapshot: record, kind: kind, hiddenTags: hiddenTags)
+            if kind == .errors {
+                LibraryErrorRecordCard(snapshot: record, size: cardSize)
+            } else {
+                LibraryRecordCard(snapshot: record, kind: kind, hiddenTags: hiddenTags)
+            }
         }
-            .buttonStyle(.plain)
+        .buttonStyle(LibraryCardPressStyle(animated: kind == .errors))
+    }
+
+    private var columns: [[LibraryRecordSnapshot]] {
+        let count = max(1, cardSize.columnCount)
+        var result = Array(repeating: [LibraryRecordSnapshot](), count: count)
+        var heights = Array(repeating: CGFloat.zero, count: count)
+        for record in records {
+            let index = heights.enumerated().min(by: { $0.element < $1.element })?.offset ?? 0
+            result[index].append(record)
+            heights[index] += estimatedHeight(of: record)
+        }
+        return result
+    }
+
+    private func estimatedHeight(of record: LibraryRecordSnapshot) -> CGFloat {
+        guard kind == .errors else { return 145 }
+        let textLines = min(cardSize.questionLineLimit, max(1, Int(ceil(Double(record.title.count) / 24.0))))
+        let imageHeight = record.imageValues.isEmpty
+            ? CGFloat.zero
+            : CGFloat(min(3, record.imageValues.count)) * (cardSize.imageMaximumHeight * 0.72 + 8)
+        let tagRows = record.knowledgePoints.isEmpty && record.errorCause.isEmpty ? 0 : max(1, Int(ceil(Double(record.knowledgePoints.count + (record.errorCause.isEmpty ? 0 : 1)) / 2.0)))
+        return 54 + CGFloat(textLines * 20) + imageHeight + CGFloat(tagRows * 27) + (record.pitfall.isEmpty ? 0 : 40)
+    }
+}
+
+private struct LibraryCardPressStyle: ButtonStyle {
+    let animated: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(animated && configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.10), value: configuration.isPressed)
+            .contentShape(Rectangle())
     }
 }
 

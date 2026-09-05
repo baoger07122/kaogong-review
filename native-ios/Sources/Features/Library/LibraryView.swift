@@ -118,7 +118,7 @@ struct LibraryView: View {
                         LibraryMasonryGrid(
                             records: displayedRecords,
                             kind: kind,
-                            columnCount: cardSize.columnCount,
+                            cardSize: cardSize,
                             onOpen: { open($0) },
                             onDelete: { deleteTarget = LibraryDeleteTarget(kind: kind, recordID: $0.record.recordID) },
                             hiddenTags: kind == .notes && !selectedTag.isEmpty ? [selectedTag] : []
