@@ -69,7 +69,9 @@ struct HomeView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("首页").font(AppTheme.pageTitleFont)
+            Text("首页")
+                .font(AppTheme.pageTitleFont)
+                .accessibilityIdentifier("home-page-title")
             Text("\(greeting) · \(HomeRecordRepository.chineseDate(.now))")
                 .font(AppTheme.auxiliaryFont)
                 .foregroundStyle(.secondary)

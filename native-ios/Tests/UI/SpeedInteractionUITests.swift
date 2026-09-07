@@ -8,7 +8,8 @@ final class SpeedInteractionUITests: XCTestCase {
         app.launch()
         let shortcut = app.buttons["速算练习"].firstMatch
         XCTAssertTrue(shortcut.waitForExistence(timeout: 15))
-        let heading = app.staticTexts["首页"].firstMatch
+        let heading = app.staticTexts["home-page-title"]
+        XCTAssertTrue(heading.waitForExistence(timeout: 5))
         XCTAssertLessThan(heading.frame.minY, 90, "Root must not reserve an empty navigation bar")
         shortcut.tap()
         let start = app.buttons["speed-start"]
