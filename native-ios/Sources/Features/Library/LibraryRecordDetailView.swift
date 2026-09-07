@@ -3,8 +3,8 @@ import SwiftUI
 import UIKit
 
 struct LibraryRecordDetailView: View {
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var doodleSession: LibraryDoodleSession
     let kind: LibraryContentKind
     let scope: LibraryScope
     let record: StoredRecord
@@ -12,9 +12,6 @@ struct LibraryRecordDetailView: View {
 
     @State private var showEditor = false
     @State private var showDelete = false
-    @State private var showDoodle = false
-    @State private var drawingData = ""
-    @StateObject private var doodleController = PencilDrawingController()
     @StateObject private var noteSession = LibraryInlineNoteSession()
 
     private var object: [String: Any] { record.jsonObject ?? [:] }
@@ -41,26 +38,6 @@ struct LibraryRecordDetailView: View {
                 .frame(maxWidth: .infinity)
             }
             .background(Color.white)
-            .allowsHitTesting(!showDoodle)
-
-            if showDoodle {
-                // Match the Web overlay exactly: rgba(0, 0, 0, 0.18).
-                Color.black.opacity(0.18)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-                NativePencilDrawingEditor(
-                    encodedData: $drawingData,
-                    legacyPreviewDataURL: drawingData.isEmpty ? (firstText(["drawingPreview", "doodle", "drawingDataURL"]) ?? "") : "",
-                    transparentBackground: true,
-                    toolbarAtTop: false,
-                    controller: doodleController,
-                    onClose: closeDoodle
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .allowsHitTesting(true)
-                .zIndex(1)
-            }
 
             if showDelete {
                 NativeDeleteDialog(
@@ -73,58 +50,18 @@ struct LibraryRecordDetailView: View {
         }
         .navigationTitle("错题详情")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(showDoodle)
         .preference(key: RootBottomBarHiddenPreferenceKey.self, value: true)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                if showDoodle {
-                    Button(action: {}) { Image(systemName: "chevron.left") }
-                        .disabled(true)
-                        .foregroundStyle(Color.primary.opacity(0.32))
-                        .accessibilityHidden(true)
-                }
-            }
             ToolbarItem(placement: .topBarTrailing) {
-                Group {
-                    if showDoodle {
-                        NativeDoodleToolbarCapsule {
-                            doodleToolbarButton("xmark", label: "退出涂鸦", action: closeDoodle)
-                                .accessibilityIdentifier("library-doodle-close")
-                            doodleToolbarButton(
-                                doodleController.eraser ? "eraser.fill" : "eraser",
-                                label: "橡皮擦",
-                                active: doodleController.eraser,
-                                action: doodleController.toggleEraser
-                            )
-                            doodleToolbarButton("arrow.uturn.backward", label: "撤销", action: doodleController.undo)
-                            doodleToolbarButton("trash", label: "清空涂鸦", action: doodleController.requestClear)
-                            doodleToolbarButton(
-                                "paintpalette",
-                                label: doodleController.showSettings ? "收起画笔调节" : "展开画笔调节",
-                                active: doodleController.showSettings
-                            ) {
-                                withAnimation(.easeInOut(duration: 0.20)) {
-                                    doodleController.showSettings.toggle()
-                                }
-                            }
-                            doodleToolbarButton(
-                                "hand.draw",
-                                label: doodleController.fingerDrawingEnabled ? "关闭手指涂鸦" : "开启手指涂鸦",
-                                active: doodleController.fingerDrawingEnabled
-                            ) {
-                                doodleController.fingerDrawingEnabled.toggle()
-                            }
-                        }
-                    } else {
-                        HStack(spacing: 8) {
-                            Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
-                                .accessibilityLabel("涂鸦")
-                            Menu {
-                                Button { if noteSession.finish() { showEditor = true } } label: { Label("编辑错题", systemImage: "pencil") }
-                                Button(role: .destructive) { if noteSession.finish() { showDelete = true } } label: { Label("删除错题", systemImage: "trash") }
-                            } label: { Image(systemName: "ellipsis") }
-                        }
+                if !doodleSession.isPresented {
+                    HStack(spacing: 8) {
+                        Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
+                            .accessibilityLabel("涂鸦")
+                        Menu {
+                            Button { if noteSession.finish() { showEditor = true } } label: { Label("编辑错题", systemImage: "pencil") }
+                            Button(role: .destructive) { if noteSession.finish() { showDelete = true } } label: { Label("删除错题", systemImage: "trash") }
+                        } label: { Image(systemName: "ellipsis") }
                     }
                 }
             }
@@ -150,23 +87,6 @@ struct LibraryRecordDetailView: View {
             metadataLine("错因", values: textValues(["errorCause", "cause", "reason"]))
             metadataLine("思维误区", values: textValues(["pitfall", "misconception", "thinkingTrap"]))
         }
-    }
-
-    private func doodleToolbarButton(
-        _ systemImage: String,
-        label: String,
-        active: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(active ? AppTheme.accent : Color.primary)
-                .frame(width: 32, height: 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
     }
 
     @ViewBuilder private var imagesBlock: some View {
@@ -426,20 +346,14 @@ struct LibraryRecordDetailView: View {
 
     private func openDoodle() {
         guard noteSession.finish() else { return }
-        drawingData = firstText(["pencilKitData", "drawingData"]) ?? ""
-        doodleController.prepareForPresentation()
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { showDoodle = true }
+        let drawingData = firstText(["pencilKitData", "drawingData"]) ?? ""
+        doodleSession.present(
+            drawingData: drawingData,
+            legacyPreviewDataURL: drawingData.isEmpty ? (firstText(["drawingPreview", "doodle", "drawingDataURL"]) ?? "") : "",
+            onSave: saveDrawing
+        )
     }
-    private func closeDoodle() {
-        saveDrawing()
-        doodleController.showSettings = false
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { showDoodle = false }
-    }
-    private func saveDrawing() {
+    private func saveDrawing(_ drawingData: String) {
         var updated = object
         updated["pencilKitData"] = drawingData
         let preview = PencilDrawingCompatibility.previewDataURL(encodedData: drawingData)

@@ -16,6 +16,7 @@ const documentStyle = fs.readFileSync(path.join(__dirname, '../Sources/DesignSys
 const homeShortcuts = fs.readFileSync(path.join(__dirname, '../Sources/Features/Home/HomeShortcutViews.swift'), 'utf8');
 const studyReport = fs.readFileSync(path.join(__dirname, '../Sources/Features/Home/StudyReportView.swift'), 'utf8');
 const detail = fs.readFileSync(path.join(__dirname, '../Sources/Features/Library/LibraryRecordDetailView.swift'), 'utf8');
+const libraryDoodle = fs.readFileSync(path.join(__dirname, '../Sources/Features/Library/LibraryDoodleSession.swift'), 'utf8');
 const editor = fs.readFileSync(path.join(__dirname, '../Sources/Features/Library/LibraryRecordEditorView.swift'), 'utf8');
 const settingsView = fs.readFileSync(path.join(__dirname, '../Sources/Features/Settings/SettingsView.swift'), 'utf8');
 const tests = {
@@ -100,8 +101,8 @@ const tests = {
     for (const source of [homeShortcuts, studyReport, editor, settingsView]) {
       assert.doesNotMatch(source, /nativeToolbarBackButton\(\)|navigationBarBackButtonHidden\(true\)/);
     }
-    assert.match(detail, /navigationBarBackButtonHidden\(showDoodle\)/);
-    assert.match(detail, /ToolbarItem\(placement: \.topBarLeading\)[\s\S]*?if showDoodle[\s\S]*?\.disabled\(true\)/);
+    assert.doesNotMatch(detail, /navigationBarBackButtonHidden|ToolbarItem\(placement: \.topBarLeading\)/);
+    assert.match(libraryDoodle, /LibraryDoodleOverlay/);
     assert.doesNotMatch(detail, /NativeToolbarBackButton/);
   },
   'start is a full-width 48pt text button without a capsule': () => {

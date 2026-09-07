@@ -38,6 +38,7 @@ enum RootTab: String, CaseIterable, Identifiable {
 struct RootTabView: View {
     @State private var selection: RootTab = .home
     @State private var hidesBottomBar = false
+    @StateObject private var libraryDoodleSession = LibraryDoodleSession()
 
     var body: some View {
         tabContent(selection)
@@ -47,6 +48,11 @@ struct RootTabView: View {
         .onPreferenceChange(RootBottomBarHiddenPreferenceKey.self) { hidesBottomBar = $0 }
         .tint(AppTheme.accent)
         .sensoryFeedback(.selection, trigger: selection)
+        .overlay {
+            if libraryDoodleSession.isPresented {
+                LibraryDoodleOverlay(session: libraryDoodleSession)
+            }
+        }
     }
 
     @ViewBuilder
@@ -56,6 +62,7 @@ struct RootTabView: View {
             NavigationStack { HomeView() }
         case .library:
             NavigationStack { LibraryView() }
+                .environmentObject(libraryDoodleSession)
         case .review:
             NavigationStack { ReviewView() }
         case .exams:

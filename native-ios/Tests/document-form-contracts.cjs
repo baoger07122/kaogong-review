@@ -9,6 +9,8 @@ const note = read('Features/Library/LibraryInlineNoteView.swift');
 const rich = read('Features/Shared/NativeRichTextEditor.swift');
 const picker = read('Features/Library/LibrarySelectionDialogs.swift');
 const pencil = read('Features/Shared/NativePencilDrawingEditor.swift');
+const root = read('App/RootTabView.swift');
+const doodle = read('Features/Library/LibraryDoodleSession.swift');
 const tests = {
   'compact detail typography': () => {
     assert.match(detail, /size: 13\.5, weight: \.regular/);
@@ -54,15 +56,17 @@ const tests = {
     assert.match(pencil, /fingerDrawingEnabled \? \.anyInput : \.pencilOnly/);
   },
   'drawing blocks the underlying back control without expanding it': () => {
-    assert.match(detail, /navigationBarBackButtonHidden\(showDoodle\)/);
-    assert.match(detail, /ToolbarItem\(placement: \.topBarLeading\)[\s\S]*?if showDoodle[\s\S]*?\.disabled\(true\)/);
-    assert.doesNotMatch(detail, /frame\(width: showDoodle \? 164/);
-    const open = detail.split('private func openDoodle()')[1].split('private func closeDoodle()')[0];
-    const close = detail.split('private func closeDoodle()')[1].split('private func saveDrawing()')[0];
-    assert.match(open, /transaction\.disablesAnimations = true/);
-    assert.match(close, /transaction\.disablesAnimations = true/);
-    assert.match(detail, /NativeDoodleToolbarCapsule/);
-    assert.match(detail, /accessibilityIdentifier\("library-doodle-close"\)/);
+    assert.doesNotMatch(detail, /navigationBarBackButtonHidden|ToolbarItem\(placement: \.topBarLeading\)/);
+    assert.match(root, /NavigationStack \{ LibraryView\(\) \}[\s\S]*?environmentObject\(libraryDoodleSession\)/);
+    assert.match(root, /\.overlay \{[\s\S]*?LibraryDoodleOverlay\(session: libraryDoodleSession\)/);
+    assert.match(doodle, /above the complete NavigationStack/);
+    assert.match(doodle, /Color\.black\.opacity\(0\.18\)/);
+    assert.match(doodle, /NativePencilDrawingEditor/);
+    const open = detail.split('private func openDoodle()')[1].split('private func saveDrawing')[0];
+    assert.match(open, /doodleSession\.present/);
+    assert.match(doodle, /transaction\.disablesAnimations = true/);
+    assert.match(doodle, /NativeDoodleToolbarCapsule/);
+    assert.match(doodle, /accessibilityIdentifier\("library-doodle-close"\)/);
     assert.match(read('DesignSystem/NativeDocumentStyle.swift'), /background\(\.regularMaterial, in: Capsule\(\)\)/);
   }
 };
