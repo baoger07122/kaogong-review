@@ -108,7 +108,6 @@ struct SpeedPracticeView: View {
                 }
             }
         }
-        .preference(key: RootBottomBarHiddenPreferenceKey.self, value: screen != .home)
         .foregroundStyle(settings.nightMode ? Color.white : Color.primary)
     }
 
@@ -169,6 +168,10 @@ struct SpeedPracticeView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(screen != .home)
         .toolbar { speedToolbar }
+        .background(NativeNavigationInteraction(
+            blocked: showDoodle || isSubmitting || showExitConfirmation || showLegacyExitConfirmation,
+            localBack: screen == .home ? nil : navigateBack
+        ))
         .alert("退出练习", isPresented: $showLegacyExitConfirmation) {
             Button("退出", role: .destructive, action: abandon)
             Button("继续", role: .cancel) { }

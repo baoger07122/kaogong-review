@@ -66,6 +66,7 @@ struct NativeBottomTabBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(tab.title)
+        .accessibilityIdentifier("root-tab-\(tab.rawValue)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

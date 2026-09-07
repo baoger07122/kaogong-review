@@ -2,6 +2,42 @@ import XCTest
 
 final class SpeedInteractionUITests: XCTestCase {
     @MainActor
+    func testNavigationEdgeAndPageOwnedTabBar() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launch()
+        let shortcut = app.buttons["速算练习"].firstMatch
+        XCTAssertTrue(shortcut.waitForExistence(timeout: 15))
+        let heading = app.staticTexts["首页"].firstMatch
+        XCTAssertLessThan(heading.frame.minY, 90, "Root must not reserve an empty navigation bar")
+        shortcut.tap()
+        let start = app.buttons["speed-start"]
+        XCTAssertTrue(start.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["root-tab-library"].isHittable)
+        // A genuine navigation destination retains UIKit's edge-pop gesture.
+        let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.002, dy: 0.45))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.45))
+        edge.press(forDuration: 0.05, thenDragTo: end)
+        XCTAssertTrue(shortcut.waitForExistence(timeout: 5))
+        shortcut.tap()
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        app.buttons["speed-type-addsub2"].tap()
+        start.tap()
+        XCTAssertTrue(app.buttons["speed-key-2"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["root-tab-library"].exists)
+        // Internal practice states must confirm, not pop the whole destination.
+        edge.press(forDuration: 0.05, thenDragTo: end)
+        let keepGoing = app.buttons["speed-exit-continue"]
+        XCTAssertTrue(keepGoing.waitForExistence(timeout: 3))
+        keepGoing.tap()
+        XCTAssertTrue(app.buttons["speed-key-2"].isHittable)
+        app.buttons["speed-back"].tap()
+        app.buttons["speed-exit-confirm"].tap()
+        XCTAssertTrue(start.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["root-tab-library"].isHittable)
+    }
+
+    @MainActor
     func testBlankStartAreaAndSingleDispatchForKeys() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

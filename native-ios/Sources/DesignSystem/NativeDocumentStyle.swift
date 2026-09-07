@@ -15,19 +15,36 @@ extension View {
     /// Keeps the system navigation bar mounted on root pages so pushes only
     /// replace its title/items instead of creating and removing the whole bar.
     func stableRootNavigationBar() -> some View {
-        navigationTitle("")
+        modifier(RootPageTopLayout())
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
             .toolbarBackground(.hidden, for: .navigationBar)
     }
 
-    /// Root content reserves the space occupied by the always-mounted custom tab bar.
+    /// The bar belongs to this page, so it travels with the page during a pop.
     func rootTabBarContentInset() -> some View {
-        safeAreaInset(edge: .bottom, spacing: 0) {
-            Color.clear
-                .frame(height: NativeBottomTabBar.contentHeight)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+        modifier(PageTabBar())
+    }
+}
+
+private struct RootPageTopLayout: ViewModifier {
+    @Environment(\.rootWindowTopInset) private var windowTop
+    func body(content: Content) -> some View {
+        // Keep the window/status inset, but let root content occupy the empty
+        // transparent navigation-bar region. No assumed 44pt compensation.
+        content
+            .padding(.top, windowTop)
+            .ignoresSafeArea(.container, edges: .top)
+            .background(NativeNavigationInteraction(rootPage: true))
+    }
+}
+
+private struct PageTabBar: ViewModifier {
+    @Environment(\.rootTabSelection) private var selection
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .bottom, spacing: 0) {
+            NativeBottomTabBar(selection: selection)
         }
     }
 }

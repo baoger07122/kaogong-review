@@ -160,7 +160,9 @@ const tests = {
     assert.match(result, /frame\(height: 49\)/);
   },
   'home alone shows the global tab bar and practice tools are consistent': () => {
-    assert.match(page, /RootBottomBarHiddenPreferenceKey\.self, value: screen != \.home/);
+    assert.doesNotMatch(page, /RootBottomBarHiddenPreferenceKey/);
+    assert.match(page, /rootTabBarContentInset\(\)/);
+    assert.match(page, /localBack: screen == \.home \? nil : navigateBack/);
     assert.doesNotMatch(page, /eye\.slash|显示或隐藏估算输入|showEstimateInput/);
     assert.match(page, /screen == \.practice \|\| screen == \.result \|\| \(screen == \.history && selectedHistory != nil\)/);
     const practice = page.split('private var practice: some View')[1].split('private var result: some View')[0];

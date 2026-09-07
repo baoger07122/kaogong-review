@@ -1,8 +1,20 @@
 import SwiftUI
 
-struct RootBottomBarHiddenPreferenceKey: PreferenceKey {
-    static var defaultValue = false
-    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+private struct RootTabSelectionKey: EnvironmentKey {
+    static let defaultValue: Binding<RootTab> = .constant(.home)
+}
+private struct RootWindowTopInsetKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+extension EnvironmentValues {
+    var rootTabSelection: Binding<RootTab> {
+        get { self[RootTabSelectionKey.self] }
+        set { self[RootTabSelectionKey.self] = newValue }
+    }
+    var rootWindowTopInset: CGFloat {
+        get { self[RootWindowTopInsetKey.self] }
+        set { self[RootWindowTopInsetKey.self] = newValue }
+    }
 }
 
 enum RootTab: String, CaseIterable, Identifiable {
@@ -37,22 +49,14 @@ enum RootTab: String, CaseIterable, Identifiable {
 
 struct RootTabView: View {
     @State private var selection: RootTab = .home
-    @State private var hidesBottomBar = false
     @StateObject private var libraryDoodleSession = LibraryDoodleSession()
 
     var body: some View {
-        tabContent(selection)
-        .overlay(alignment: .bottom) {
-            NativeBottomTabBar(selection: $selection)
-                .opacity(hidesBottomBar ? 0 : 1)
-                .allowsHitTesting(!hidesBottomBar)
-                .accessibilityHidden(hidesBottomBar)
-                .transaction { transaction in
-                    transaction.animation = nil
-                    transaction.disablesAnimations = true
-                }
+        GeometryReader { window in
+            tabContent(selection)
+                .environment(\.rootWindowTopInset, window.safeAreaInsets.top)
+                .environment(\.rootTabSelection, $selection)
         }
-        .onPreferenceChange(RootBottomBarHiddenPreferenceKey.self) { hidesBottomBar = $0 }
         .tint(AppTheme.accent)
         .sensoryFeedback(.selection, trigger: selection)
         .overlay {

@@ -50,7 +50,7 @@ struct LibraryRecordDetailView: View {
         }
         .navigationTitle("错题详情")
         .navigationBarTitleDisplayMode(.inline)
-        .preference(key: RootBottomBarHiddenPreferenceKey.self, value: true)
+        .background(NativeNavigationInteraction(blocked: doodleSession.isPresented))
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

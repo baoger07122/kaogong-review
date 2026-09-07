@@ -107,7 +107,6 @@ struct LibraryRecordEditorView: View {
         editorContent
         .navigationTitle(recordID == nil ? "新增\(kind.rawValue)" : "编辑\(kind.rawValue)")
         .navigationBarTitleDisplayMode(.inline)
-        .preference(key: RootBottomBarHiddenPreferenceKey.self, value: true)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
