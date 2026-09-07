@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct NativeBottomTabBar: View {
+    static let contentHeight: CGFloat = 50
+
     @Binding var selection: RootTab
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var selectionBackground
@@ -22,6 +24,7 @@ struct NativeBottomTabBar: View {
             Divider().opacity(0.45)
         }
         .shadow(color: .black.opacity(0.06), radius: 12, y: -3)
+        .frame(height: Self.contentHeight)
     }
 
     private func tabButton(_ tab: RootTab) -> some View {

@@ -3,10 +3,7 @@ import SwiftUI
 @MainActor
 final class LibraryDoodleSession: ObservableObject {
     @Published var isPresented = false
-    @Published var drawingData = ""
-    @Published var legacyPreviewDataURL = ""
-
-    let controller = PencilDrawingController()
+    let canvas = LibraryDoodleCanvasState()
     private var saveHandler: ((String) -> Void)?
 
     func present(
@@ -15,10 +12,10 @@ final class LibraryDoodleSession: ObservableObject {
         onSave: @escaping (String) -> Void
     ) {
         guard !isPresented else { return }
-        self.drawingData = drawingData
-        self.legacyPreviewDataURL = legacyPreviewDataURL
+        canvas.drawingData = drawingData
+        canvas.legacyPreviewDataURL = legacyPreviewDataURL
         saveHandler = onSave
-        controller.prepareForPresentation()
+        canvas.controller.prepareForPresentation()
 
         var transaction = Transaction()
         transaction.disablesAnimations = true
@@ -27,24 +24,33 @@ final class LibraryDoodleSession: ObservableObject {
 
     func dismiss() {
         guard isPresented else { return }
-        saveHandler?(drawingData)
-        controller.showSettings = false
+        saveHandler?(canvas.drawingData)
+        canvas.controller.showSettings = false
 
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { isPresented = false }
         saveHandler = nil
-        legacyPreviewDataURL = ""
+        canvas.legacyPreviewDataURL = ""
     }
+}
+
+@MainActor
+final class LibraryDoodleCanvasState: ObservableObject {
+    @Published var drawingData = ""
+    @Published var legacyPreviewDataURL = ""
+    let controller = PencilDrawingController()
 }
 
 struct LibraryDoodleOverlay: View {
     @ObservedObject var session: LibraryDoodleSession
+    @ObservedObject private var canvas: LibraryDoodleCanvasState
     @ObservedObject private var controller: PencilDrawingController
 
     init(session: LibraryDoodleSession) {
         self.session = session
-        _controller = ObservedObject(wrappedValue: session.controller)
+        _canvas = ObservedObject(wrappedValue: session.canvas)
+        _controller = ObservedObject(wrappedValue: session.canvas.controller)
     }
 
     var body: some View {
@@ -56,8 +62,8 @@ struct LibraryDoodleOverlay: View {
                     .contentShape(Rectangle())
 
                 NativePencilDrawingEditor(
-                    encodedData: $session.drawingData,
-                    legacyPreviewDataURL: session.legacyPreviewDataURL,
+                    encodedData: $canvas.drawingData,
+                    legacyPreviewDataURL: canvas.legacyPreviewDataURL,
                     transparentBackground: true,
                     toolbarAtTop: false,
                     controller: controller,

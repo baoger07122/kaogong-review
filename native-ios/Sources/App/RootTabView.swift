@@ -42,8 +42,15 @@ struct RootTabView: View {
 
     var body: some View {
         tabContent(selection)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !hidesBottomBar { NativeBottomTabBar(selection: $selection) }
+        .overlay(alignment: .bottom) {
+            NativeBottomTabBar(selection: $selection)
+                .opacity(hidesBottomBar ? 0 : 1)
+                .allowsHitTesting(!hidesBottomBar)
+                .accessibilityHidden(hidesBottomBar)
+                .transaction { transaction in
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
+                }
         }
         .onPreferenceChange(RootBottomBarHiddenPreferenceKey.self) { hidesBottomBar = $0 }
         .tint(AppTheme.accent)

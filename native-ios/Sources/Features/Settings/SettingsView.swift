@@ -121,7 +121,8 @@ struct SettingsView: View {
             .padding(.bottom, 40)
         }
         .background(AppTheme.groupedBackground)
-        .toolbar(.hidden, for: .navigationBar)
+        .stableRootNavigationBar()
+        .rootTabBarContentInset()
         .task { refreshRecordCount() }
         .onChange(of: importer.summary) { _, _ in refreshRecordCount() }
         .overlay {

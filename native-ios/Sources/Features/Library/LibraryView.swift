@@ -44,7 +44,8 @@ struct LibraryView: View {
             }
         }
         .background(AppTheme.groupedBackground)
-        .toolbar(.hidden, for: .navigationBar)
+        .stableRootNavigationBar()
+        .rootTabBarContentInset()
         .navigationDestination(item: $editorTarget) { target in
             LibraryRecordEditorView(
                 kind: target.kind,

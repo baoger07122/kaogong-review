@@ -51,7 +51,8 @@ struct HomeView: View {
             .padding(.bottom, 42)
         }
         .background(Color.white)
-        .toolbar(.hidden, for: .navigationBar)
+        .stableRootNavigationBar()
+        .rootTabBarContentInset()
         .task { await loadErrorStatsIfNeeded() }
         .navigationDestination(for: AppRoute.self) { route in
             HomeShortcutView(route: route)

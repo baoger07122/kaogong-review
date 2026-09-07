@@ -260,6 +260,7 @@ struct SpeedPracticeView: View {
             .padding(.bottom, 12)
         }
         .background(Color.white)
+        .rootTabBarContentInset()
         .background {
             SpeedExitFrameProbe { exitMeasurements = SpeedExitDiagnostics.finish() }
         }

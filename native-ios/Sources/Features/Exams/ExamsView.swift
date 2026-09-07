@@ -67,6 +67,7 @@ struct ExamsView: View {
         .background(AppTheme.groupedBackground)
         .navigationTitle("套卷")
         .navigationBarTitleDisplayMode(.inline)
+        .rootTabBarContentInset()
         .sheet(item: $editorTarget) { target in
             NavigationStack { ExamEditorView(record: records.first { $0.collection == "exams" && $0.recordID == target.recordID }) }
         }

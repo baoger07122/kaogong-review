@@ -11,6 +11,27 @@ extension ToolbarContent {
     }
 }
 
+extension View {
+    /// Keeps the system navigation bar mounted on root pages so pushes only
+    /// replace its title/items instead of creating and removing the whole bar.
+    func stableRootNavigationBar() -> some View {
+        navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.visible, for: .navigationBar)
+            .toolbarBackground(.hidden, for: .navigationBar)
+    }
+
+    /// Root content reserves the space occupied by the always-mounted custom tab bar.
+    func rootTabBarContentInset() -> some View {
+        safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear
+                .frame(height: NativeBottomTabBar.contentHeight)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
 struct NativeDoodleToolbarCapsule<Content: View>: View {
     let content: Content
 

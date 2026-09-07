@@ -11,6 +11,7 @@ const picker = read('Features/Library/LibrarySelectionDialogs.swift');
 const pencil = read('Features/Shared/NativePencilDrawingEditor.swift');
 const root = read('App/RootTabView.swift');
 const doodle = read('Features/Library/LibraryDoodleSession.swift');
+const navigationStyle = read('DesignSystem/NativeDocumentStyle.swift');
 const tests = {
   'compact detail typography': () => {
     assert.match(detail, /size: 13\.5, weight: \.regular/);
@@ -68,6 +69,23 @@ const tests = {
     assert.match(doodle, /NativeDoodleToolbarCapsule/);
     assert.match(doodle, /accessibilityIdentifier\("library-doodle-close"\)/);
     assert.match(read('DesignSystem/NativeDocumentStyle.swift'), /background\(\.regularMaterial, in: Capsule\(\)\)/);
+  },
+  'root chrome stays mounted across navigation transitions': () => {
+    assert.match(root, /NativeBottomTabBar\(selection: \$selection\)[\s\S]*?opacity\(hidesBottomBar \? 0 : 1\)/);
+    assert.doesNotMatch(root, /if !hidesBottomBar/);
+    assert.doesNotMatch(root, /safeAreaInset\(edge: \.bottom/);
+    assert.match(navigationStyle, /func stableRootNavigationBar\(\)/);
+    assert.match(navigationStyle, /toolbar\(\.visible, for: \.navigationBar\)/);
+    for (const source of [
+      read('Features/Home/HomeView.swift'),
+      read('Features/Library/LibraryView.swift'),
+      read('Features/Settings/SettingsView.swift')
+    ]) {
+      assert.match(source, /stableRootNavigationBar\(\)/);
+      assert.doesNotMatch(source, /toolbar\(\.hidden, for: \.navigationBar\)/);
+    }
+    assert.doesNotMatch(detail, /if !doodleSession\.isPresented/);
+    assert.match(doodle, /LibraryDoodleCanvasState/);
   }
 };
 for (const [name, test] of Object.entries(tests)) { test(); console.log(`PASS ${name}`); }
