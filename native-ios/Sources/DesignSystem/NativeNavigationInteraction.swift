@@ -1,8 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// Leaves UIKit's interactive pop untouched for ordinary destinations. Local
-/// practice states and unsaved forms must resolve their own exit first.
+/// Ordinary pushed pages deliberately use UIKit's own interactive-pop gesture.
+/// This bridge only intervenes for an in-place subpage or a blocking overlay.
 struct NativeNavigationInteraction: UIViewControllerRepresentable {
     var rootPage = false
     var blocked = false
@@ -10,88 +10,67 @@ struct NativeNavigationInteraction: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> Probe { Probe() }
     func updateUIViewController(_ probe: Probe, context: Context) {
-        probe.configuration = self
-        probe.installIfVisible()
+        probe.blocked = blocked
+        probe.localBack = localBack
+        probe.synchronize()
     }
 
-    final class Probe: UIViewController, UIGestureRecognizerDelegate {
-        var configuration = NativeNavigationInteraction()
+    final class Probe: UIViewController {
+        var blocked = false
+        var localBack: (() -> Void)?
         private weak var installedNavigation: UINavigationController?
-        private weak var previousDelegate: UIGestureRecognizerDelegate?
-        private var edge: UIScreenEdgePanGestureRecognizer?
-        private var active = false
+        private var edgeGesture: UIScreenEdgePanGestureRecognizer?
 
         override func loadView() {
             view = UIView()
             view.isUserInteractionEnabled = false
         }
-        override func viewWillAppear(_ animated: Bool) {
-            super.viewWillAppear(animated)
-            active = true
-            installIfVisible()
-        }
         override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
-            active = true
-            installIfVisible()
+            synchronize()
         }
         override func viewWillDisappear(_ animated: Bool) {
             super.viewWillDisappear(animated)
-            active = false
-            uninstall()
+            restoreSystemGesture()
         }
         override func didMove(toParent parent: UIViewController?) {
             super.didMove(toParent: parent)
-            if parent == nil { uninstall() }
+            if parent == nil { restoreSystemGesture() }
         }
 
-        func installIfVisible() {
-            guard active, let nav = navigationController else { return }
-            var owner: UIViewController = self
-            while let parent = owner.parent, parent !== nav { owner = parent }
-            guard nav.topViewController === owner else { return }
-            if installedNavigation !== nav {
-                uninstall()
-                installedNavigation = nav
-                previousDelegate = nav.interactivePopGestureRecognizer?.delegate
-                nav.interactivePopGestureRecognizer?.delegate = self
+        func synchronize() {
+            guard isViewLoaded, view.window != nil, let nav = navigationController else { return }
+            installedNavigation = nav
+            let needsLocalHandling = blocked || localBack != nil
+            if nav.interactivePopGestureRecognizer?.isEnabled == needsLocalHandling {
+                nav.interactivePopGestureRecognizer?.isEnabled = !needsLocalHandling
+            }
+            if localBack != nil, edgeGesture == nil {
                 let recognizer = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(localEdge(_:)))
                 recognizer.edges = .left
-                recognizer.delegate = self
                 nav.view.addGestureRecognizer(recognizer)
-                edge = recognizer
+                edgeGesture = recognizer
+            } else if localBack == nil, let edgeGesture {
+                nav.view.removeGestureRecognizer(edgeGesture)
+                self.edgeGesture = nil
             }
-            // Empty root chrome remains laid out, but cannot swallow taps on
-            // content occupying that region. Restore before pushing a child.
-            nav.navigationBar.isUserInteractionEnabled = !configuration.rootPage
-            edge?.isEnabled = configuration.localBack != nil && !configuration.blocked
+            edgeGesture?.isEnabled = !blocked
         }
 
-        private func uninstall() {
+        private func restoreSystemGesture() {
             guard let nav = installedNavigation else { return }
-            if nav.interactivePopGestureRecognizer?.delegate === self {
-                nav.interactivePopGestureRecognizer?.delegate = previousDelegate
-            }
-            nav.navigationBar.isUserInteractionEnabled = true
-            if let edge { nav.view.removeGestureRecognizer(edge) }
-            edge = nil
+            nav.interactivePopGestureRecognizer?.isEnabled = true
+            if let edgeGesture { nav.view.removeGestureRecognizer(edgeGesture) }
+            edgeGesture = nil
             installedNavigation = nil
         }
 
-        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            guard active, !configuration.blocked, let nav = installedNavigation,
-                  nav.transitionCoordinator == nil else { return false }
-            if gestureRecognizer === edge { return configuration.localBack != nil }
-            guard configuration.localBack == nil, nav.viewControllers.count > 1 else { return false }
-            return previousDelegate?.gestureRecognizerShouldBegin?(gestureRecognizer) ?? true
-        }
-
         @objc private func localEdge(_ gesture: UIScreenEdgePanGestureRecognizer) {
-            guard gesture.state == .ended, !configuration.blocked else { return }
+            guard gesture.state == .ended, !blocked else { return }
             let distance = gesture.translation(in: gesture.view).x
             let velocity = gesture.velocity(in: gesture.view).x
             if distance > 60 || (distance > 15 && velocity > 350) {
-                configuration.localBack?()
+                localBack?()
             }
         }
     }

@@ -98,7 +98,7 @@ jobs:
           echo "SIMULATOR_ID=$SIMULATOR_ID" >> "$GITHUB_ENV"
 
       - name: Compile native App and focused tests
-        timeout-minutes: 8
+        timeout-minutes: 15
         shell: bash
         run: |
           xcodebuild build-for-testing \

@@ -36,7 +36,6 @@ private struct RootPageTopLayout: ViewModifier {
         content
             .padding(.top, windowTop)
             .ignoresSafeArea(.container, edges: .top)
-            .background(NativeNavigationInteraction(rootPage: true))
     }
 }
 
