@@ -4,31 +4,77 @@ import UIKit
 
 private enum PencilActionKind { case undo, redo, clear }
 private struct PencilAction { let id = UUID(); let kind: PencilActionKind }
-private let pencilBitmapEraserWidth: CGFloat = 28
+
+private enum PencilToolMemory {
+    static let color = "nativePencil.color"
+    static let width = "nativePencil.width"
+    static let eraserWidth = "nativePencil.eraserWidth"
+    static let activeTool = "nativePencil.activeTool"
+
+    static func colorName(_ color: UIColor) -> String {
+        if color.isEqual(UIColor.systemRed) { return "red" }
+        if color.isEqual(UIColor.systemBlue) { return "blue" }
+        if color.isEqual(UIColor.systemGreen) { return "green" }
+        return "black"
+    }
+
+    static func color(_ name: String?) -> UIColor {
+        switch name {
+        case "red": .systemRed
+        case "blue": .systemBlue
+        case "green": .systemGreen
+        default: .black
+        }
+    }
+}
 
 final class PencilDrawingController: ObservableObject {
-    @Published var color = UIColor.black
-    @Published var width: CGFloat = 4
-    @Published var eraser = false
+    @Published var color: UIColor
+    @Published var width: CGFloat
+    @Published var eraserWidth: CGFloat
+    @Published var eraser: Bool
     @Published var fingerDrawingEnabled = false
     @Published var showSettings = false
+    @Published var legacyPreviewCleared = false
     @Published fileprivate var action: PencilAction?
-    @Published fileprivate var showClearConfirmation = false
 
-    private var previousPenColor = UIColor.black
-    private var previousPenWidth: CGFloat = 4
+    private let defaults: UserDefaults
+    private var previousPenColor: UIColor
+    private var previousPenWidth: CGFloat
+    private var restoreLegacyOnNextUndo = false
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let savedColor = PencilToolMemory.color(defaults.string(forKey: PencilToolMemory.color))
+        let savedWidth = (defaults.object(forKey: PencilToolMemory.width) as? NSNumber)?.doubleValue ?? 4
+        let savedEraserWidth = (defaults.object(forKey: PencilToolMemory.eraserWidth) as? NSNumber)?.doubleValue ?? 28
+        color = savedColor
+        width = CGFloat(savedWidth)
+        eraserWidth = CGFloat(savedEraserWidth)
+        eraser = defaults.string(forKey: PencilToolMemory.activeTool) == "eraser"
+        previousPenColor = savedColor
+        previousPenWidth = CGFloat(savedWidth)
+    }
 
     func selectPen(color value: UIColor) {
         color = value
         previousPenColor = value
         previousPenWidth = width
         eraser = false
+        persist()
     }
 
     func selectWidth(_ value: CGFloat) {
         width = value
         previousPenWidth = value
         eraser = false
+        persist()
+    }
+
+    func selectEraserWidth(_ value: CGFloat) {
+        eraserWidth = value
+        eraser = true
+        persist()
     }
 
     func toggleEraser() {
@@ -41,19 +87,36 @@ final class PencilDrawingController: ObservableObject {
             previousPenWidth = width
             eraser = true
         }
+        persist()
     }
 
     func undo() {
+        if restoreLegacyOnNextUndo {
+            legacyPreviewCleared = false
+            restoreLegacyOnNextUndo = false
+        }
         action = PencilAction(kind: .undo)
     }
 
     func requestClear() {
-        showClearConfirmation = true
+        restoreLegacyOnNextUndo = !legacyPreviewCleared
+        legacyPreviewCleared = true
+        action = PencilAction(kind: .clear)
     }
 
     func prepareForPresentation() {
         showSettings = false
         fingerDrawingEnabled = false
+        legacyPreviewCleared = false
+        restoreLegacyOnNextUndo = false
+    }
+
+    private func persist() {
+        defaults.set(PencilToolMemory.colorName(previousPenColor), forKey: PencilToolMemory.color)
+        defaults.set(Double(previousPenWidth), forKey: PencilToolMemory.width)
+        defaults.set(Double(eraserWidth), forKey: PencilToolMemory.eraserWidth)
+        defaults.set(eraser ? "eraser" : "pen", forKey: PencilToolMemory.activeTool)
+        defaults.synchronize()
     }
 }
 
@@ -118,7 +181,6 @@ struct NativePencilDrawingEditor: View {
                 }
             }
             .animation(.easeInOut(duration: 0.20), value: controller.showSettings)
-            .overlay { clearConfirmation }
     }
 
     private var classicEditor: some View {
@@ -128,7 +190,7 @@ struct NativePencilDrawingEditor: View {
                 Divider()
             }
             canvas
-            if legacyImage != nil {
+            if legacyImage != nil, !controller.legacyPreviewCleared {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
                     Text("已载入 Web 旧涂鸦，可在底图上继续标注")
@@ -150,14 +212,13 @@ struct NativePencilDrawingEditor: View {
             RoundedRectangle(cornerRadius: AppTheme.controlRadius)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 0.7)
         }
-        .overlay { clearConfirmation }
     }
 
     private var canvas: some View {
         ZStack {
             (transparentBackground ? Color.clear : Color.white)
                 .contentShape(Rectangle())
-            if let legacyImage {
+            if let legacyImage, !controller.legacyPreviewCleared {
                 Image(uiImage: legacyImage)
                     .resizable()
                     .scaledToFit()
@@ -169,6 +230,7 @@ struct NativePencilDrawingEditor: View {
                 color: controller.color,
                 width: controller.width,
                 eraser: controller.eraser,
+                eraserWidth: controller.eraserWidth,
                 fingerDrawingEnabled: controller.fingerDrawingEnabled,
                 scrollEnabled: !transparentBackground,
                 eraserLocation: $eraserLocation,
@@ -229,12 +291,23 @@ struct NativePencilDrawingEditor: View {
                 }
             }
 
-            Picker("粗细", selection: penWidthBinding) {
-                Text("细").tag(CGFloat(2))
-                Text("中").tag(CGFloat(4))
-                Text("粗").tag(CGFloat(8))
+            VStack(alignment: .leading, spacing: 7) {
+                Text("画笔粗细").font(AppTheme.fieldLabelFont).foregroundStyle(.secondary)
+                Picker("画笔粗细", selection: penWidthBinding) {
+                    Text("细").tag(CGFloat(2))
+                    Text("中").tag(CGFloat(4))
+                    Text("粗").tag(CGFloat(8))
+                }
+                .pickerStyle(.segmented)
+
+                Text("橡皮擦大小").font(AppTheme.fieldLabelFont).foregroundStyle(.secondary)
+                Picker("橡皮擦大小", selection: eraserWidthBinding) {
+                    Text("小").tag(CGFloat(14))
+                    Text("中").tag(CGFloat(28))
+                    Text("大").tag(CGFloat(44))
+                }
+                .pickerStyle(.segmented)
             }
-            .pickerStyle(.segmented)
             .frame(maxWidth: 310)
         }
         .padding(.horizontal, 28)
@@ -270,6 +343,13 @@ struct NativePencilDrawingEditor: View {
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 120)
+                    Picker("橡皮擦", selection: eraserWidthBinding) {
+                        Text("小").tag(CGFloat(14))
+                        Text("中").tag(CGFloat(28))
+                        Text("大").tag(CGFloat(44))
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 120)
                 }
             }
             Spacer(minLength: 4)
@@ -293,20 +373,6 @@ struct NativePencilDrawingEditor: View {
         .background(.ultraThinMaterial)
     }
 
-    @ViewBuilder private var clearConfirmation: some View {
-        if controller.showClearConfirmation {
-            NativeDeleteDialog(
-                title: "清空涂鸦",
-                message: "确定清空当前全部笔迹？保存后将无法恢复。",
-                onDelete: {
-                    controller.action = PencilAction(kind: .clear)
-                    controller.showClearConfirmation = false
-                },
-                onCancel: { controller.showClearConfirmation = false }
-            )
-        }
-    }
-
     private var legacyImage: UIImage? {
         guard let marker = legacyPreviewDataURL.range(of: "base64,") else { return nil }
         let encoded = String(legacyPreviewDataURL[marker.upperBound...])
@@ -321,7 +387,14 @@ struct NativePencilDrawingEditor: View {
         })
     }
 
-    private var eraserCursorDiameter: CGFloat { pencilBitmapEraserWidth }
+    private var eraserWidthBinding: Binding<CGFloat> {
+        Binding(get: { controller.eraserWidth }, set: { value in
+            controller.selectEraserWidth(value)
+            eraserLocation = nil
+        })
+    }
+
+    private var eraserCursorDiameter: CGFloat { controller.eraserWidth }
 
     private func toolButton(
         _ image: String,
@@ -346,6 +419,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
     let color: UIColor
     let width: CGFloat
     let eraser: Bool
+    let eraserWidth: CGFloat
     let fingerDrawingEnabled: Bool
     let scrollEnabled: Bool
     @Binding var eraserLocation: CGPoint?
@@ -415,6 +489,11 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
                 canvas.undoManager?.redo()
                 context.coordinator.publish(canvas)
             case .clear:
+                let previousDrawing = canvas.drawing
+                canvas.undoManager?.registerUndo(withTarget: context.coordinator) { coordinator in
+                    coordinator.restore(previousDrawing, on: canvas)
+                }
+                canvas.undoManager?.setActionName("清空涂鸦")
                 canvas.drawing = PKDrawing()
                 context.coordinator.publish(canvas)
             }
@@ -431,7 +510,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
 
     private func updateTool(_ canvas: PKCanvasView) {
         canvas.tool = eraser
-            ? PKEraserTool(.bitmap, width: pencilBitmapEraserWidth)
+            ? PKEraserTool(.bitmap, width: eraserWidth)
             : PKInkingTool(.pen, color: color, width: width)
     }
 
@@ -471,6 +550,11 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             let value = canvas.drawing.dataRepresentation().base64EncodedString()
             lastEncoded = value
             parent.encodedData = value
+        }
+
+        func restore(_ drawing: PKDrawing, on canvas: PKCanvasView) {
+            canvas.drawing = drawing
+            publish(canvas)
         }
     }
 }

@@ -443,8 +443,9 @@ struct LibraryRecordEditorView: View {
                 .font(AppTheme.auxiliaryFont)
                 .foregroundStyle(.secondary)
             TextEditor(text: $smartSplitDraft)
-                .font(AppTheme.inputFont)
-                .frame(minHeight: 220)
+                .font(AppTheme.questionTextFont)
+                .lineSpacing(AppTheme.questionLineSpacing)
+                .frame(height: 180)
                 .padding(8)
                 .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
             if let splitMessage, !splitMessage.hasPrefix("已") {
@@ -948,8 +949,9 @@ private enum ErrorQuestionParser {
             return .failure(ParseFailure(message: "没有识别到连续选项，请确认选项使用 A.、B.、C.、D. 等标记。"))
         }
 
-        let question = sourceNSString.substring(with: NSRange(location: 0, length: first.range.location))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let question = cleanedQuestion(
+            sourceNSString.substring(with: NSRange(location: 0, length: first.range.location))
+        )
         var options: [String] = []
         for (index, match) in matches.enumerated() {
             let start = match.range.location + match.range.length
@@ -980,6 +982,64 @@ private enum ErrorQuestionParser {
             .replacingOccurrences(of: "&nbsp;", with: " ")
             .replacingOccurrences(of: "\\r\\n?", with: "\n", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Removes copy/paste wrapping while preserving one intentional break
+    /// before the final question sentence.
+    private static func cleanedQuestion(_ value: String) -> String {
+        let lines = value
+            .components(separatedBy: .newlines)
+            .map(compactLine)
+            .filter { !$0.isEmpty }
+        guard !lines.isEmpty else { return "" }
+
+        if let promptIndex = lines.indices.last(where: { isQuestionLead(lines[$0]) }), promptIndex > 0 {
+            let body = lines[..<promptIndex].joined()
+            let prompt = lines[promptIndex...].joined()
+            return body.isEmpty ? prompt : "\(body)\n\(prompt)"
+        }
+        if lines.count > 1, let last = lines.last,
+           last.hasSuffix("？") || last.hasSuffix("?") {
+            let body = lines.dropLast().joined()
+            return body.isEmpty ? last : "\(body)\n\(last)"
+        }
+
+        let merged = lines.joined()
+        let nsMerged = merged as NSString
+        let pattern = "(?<=[。；;])(?:以下|下列|根据上述|由此|据此|请问|上述)"
+        if let expression = try? NSRegularExpression(pattern: pattern),
+           let match = expression.firstMatch(
+               in: merged,
+               range: NSRange(location: 0, length: nsMerged.length)
+           ), match.range.location > 0 {
+            let body = nsMerged.substring(to: match.range.location)
+            let prompt = nsMerged.substring(from: match.range.location)
+            return "\(body)\n\(prompt)"
+        }
+        return merged
+    }
+
+    private static func compactLine(_ value: String) -> String {
+        var result = value
+            .replacingOccurrences(of: "[\\t\\u00A0 ]+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let cjkAndPunctuation = "\\p{Han}，。！？；：、‘’“”（）《》"
+        result = result.replacingOccurrences(
+            of: "([\(cjkAndPunctuation)])\\s+",
+            with: "$1",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: "\\s+([\(cjkAndPunctuation)])",
+            with: "$1",
+            options: .regularExpression
+        )
+        return result
+    }
+
+    private static func isQuestionLead(_ value: String) -> Bool {
+        ["以下", "下列", "根据上述", "由此", "据此", "请问", "上述"]
+            .contains { value.hasPrefix($0) }
     }
 
     private static func firstAnswerRange(in source: String) -> NSRange? {

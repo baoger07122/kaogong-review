@@ -111,8 +111,8 @@ struct LibraryRecordDetailView: View {
     @ViewBuilder private var questionBlock: some View {
         if !clean(snapshot.title).isEmpty {
             Text(cleanMultiline(snapshot.title))
-                .font(.system(size: 13.5, weight: .regular))
-                .lineSpacing(5)
+                .font(AppTheme.questionTextFont)
+                .lineSpacing(AppTheme.questionLineSpacing)
                 .textSelection(.enabled)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -351,13 +351,20 @@ struct LibraryRecordDetailView: View {
             onSave: saveDrawing
         )
     }
-    private func saveDrawing(_ drawingData: String) {
+    private func saveDrawing(_ drawingData: String, legacyPreviewCleared: Bool) {
         var updated = object
         updated["pencilKitData"] = drawingData
         let preview = PencilDrawingCompatibility.previewDataURL(encodedData: drawingData)
         if !drawingData.isEmpty {
             updated["drawingPreview"] = preview
             updated["doodle"] = preview
+            updated.removeValue(forKey: "drawingData")
+            updated.removeValue(forKey: "drawingDataURL")
+        } else if legacyPreviewCleared {
+            updated.removeValue(forKey: "drawingPreview")
+            updated.removeValue(forKey: "doodle")
+            updated.removeValue(forKey: "drawingData")
+            updated.removeValue(forKey: "drawingDataURL")
         }
         updated["updatedAt"] = ISO8601DateFormatter().string(from: .now)
         guard let payload = try? JSONSerialization.data(withJSONObject: updated, options: [.sortedKeys]) else { return }

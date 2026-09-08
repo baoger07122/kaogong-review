@@ -12,10 +12,13 @@ const pencil = read('Features/Shared/NativePencilDrawingEditor.swift');
 const root = read('App/RootTabView.swift');
 const doodle = read('Features/Library/LibraryDoodleSession.swift');
 const navigationStyle = read('DesignSystem/NativeDocumentStyle.swift');
+const theme = read('DesignSystem/AppTheme.swift');
 const tests = {
   'compact detail typography': () => {
-    assert.match(detail, /size: 13\.5, weight: \.regular/);
-    assert.match(detail, /\.lineSpacing\(5\)/);
+    assert.match(theme, /questionTextFont = Font\.system\(size: 13\.5, weight: \.regular\)/);
+    assert.match(theme, /questionLineSpacing: CGFloat = 5/);
+    assert.match(detail, /\.font\(AppTheme\.questionTextFont\)/);
+    assert.match(detail, /\.lineSpacing\(AppTheme\.questionLineSpacing\)/);
     assert.match(detail, /\.padding\(\.top, 5\)/);
   },
   'empty metadata keeps its label': () => {
@@ -53,8 +56,24 @@ const tests = {
   },
   'no toolbar background and bitmap eraser preserved': () => {
     assert.match(read('DesignSystem/NativeDocumentStyle.swift'), /sharedBackgroundVisibility\(\.hidden\)/);
-    assert.match(pencil, /PKEraserTool\(\.bitmap, width: pencilBitmapEraserWidth\)/);
+    assert.match(pencil, /PKEraserTool\(\.bitmap, width: eraserWidth\)/);
     assert.match(pencil, /fingerDrawingEnabled \? \.anyInput : \.pencilOnly/);
+  },
+  'smart split is compact and preserves the final question paragraph': () => {
+    const dialog = form.split('private var smartSplitDialog')[1].split('private func errorSection')[0];
+    assert.match(dialog, /frame\(height: 180\)/);
+    assert.match(dialog, /font\(AppTheme\.questionTextFont\)/);
+    assert.match(form, /private static func cleanedQuestion/);
+    assert.match(form, /"\\\(body\)\\n\\\(prompt\)"/);
+  },
+  'drawing tools persist and clear without confirmation': () => {
+    assert.match(pencil, /nativePencil\.eraserWidth/);
+    assert.match(pencil, /defaults\.set\(Double\(eraserWidth\)/);
+    assert.match(pencil, /Text\("小"\)\.tag\(CGFloat\(14\)\)/);
+    assert.match(pencil, /Text\("大"\)\.tag\(CGFloat\(44\)\)/);
+    assert.match(pencil, /func requestClear\(\) \{[\s\S]*?action = PencilAction\(kind: \.clear\)/);
+    assert.doesNotMatch(pencil, /showClearConfirmation|NativeDeleteDialog/);
+    assert.match(detail, /else if legacyPreviewCleared/);
   },
   'drawing blocks the underlying back control without expanding it': () => {
     assert.doesNotMatch(detail, /navigationBarBackButtonHidden|ToolbarItem\(placement: \.topBarLeading\)/);

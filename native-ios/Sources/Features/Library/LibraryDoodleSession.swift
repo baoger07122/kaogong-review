@@ -4,12 +4,12 @@ import SwiftUI
 final class LibraryDoodleSession: ObservableObject {
     @Published var isPresented = false
     let canvas = LibraryDoodleCanvasState()
-    private var saveHandler: ((String) -> Void)?
+    private var saveHandler: ((String, Bool) -> Void)?
 
     func present(
         drawingData: String,
         legacyPreviewDataURL: String,
-        onSave: @escaping (String) -> Void
+        onSave: @escaping (String, Bool) -> Void
     ) {
         guard !isPresented else { return }
         canvas.drawingData = drawingData
@@ -24,7 +24,7 @@ final class LibraryDoodleSession: ObservableObject {
 
     func dismiss() {
         guard isPresented else { return }
-        saveHandler?(canvas.drawingData)
+        saveHandler?(canvas.drawingData, canvas.controller.legacyPreviewCleared)
         canvas.controller.showSettings = false
 
         var transaction = Transaction()

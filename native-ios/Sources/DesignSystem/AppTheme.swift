@@ -21,6 +21,8 @@ enum AppTheme {
     static let cardTitleFont = Font.system(size: 14, weight: .medium)
     static let bodyFont = Font.system(size: 13, weight: .regular)
     static let inputFont = Font.system(size: 13, weight: .regular)
+    static let questionTextFont = Font.system(size: 13.5, weight: .regular)
+    static let questionLineSpacing: CGFloat = 5
     static let fieldLabelFont = Font.system(size: 11, weight: .medium)
     static let auxiliaryFont = Font.system(size: 11, weight: .regular)
     static let actionFont = Font.system(size: 13, weight: .semibold)
