@@ -22,6 +22,7 @@ struct LibraryRecordEditorView: View {
     let kind: LibraryContentKind
     let scope: LibraryScope
     let recordID: String?
+    let onSaved: ((String) -> Void)?
     @State private var draft: LibraryRecordDraft
     @State private var showDelete = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
@@ -33,16 +34,25 @@ struct LibraryRecordEditorView: View {
     @State private var activeTags: ManagedTagKind?
     @State private var activeRelation: String?
     @State private var expandedAnswerField: ErrorAnswerField?
+    @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
+    @State private var linkedWordCreationCategory: WordCategory?
 
-    init(kind: LibraryContentKind, scope: LibraryScope, record: StoredRecord? = nil, preferredType: String = "") {
+    init(
+        kind: LibraryContentKind,
+        scope: LibraryScope,
+        record: StoredRecord? = nil,
+        preferredType: String = "",
+        onSaved: ((String) -> Void)? = nil
+    ) {
         self.kind = kind
         self.scope = scope
+        self.onSaved = onSaved
         recordID = record?.recordID
         var initialDraft = LibraryRecordDraft(kind: kind, scope: scope, record: record)
-        if record == nil, let saved = LibraryDraftStore.load(kind: kind, scope: scope) {
+        if record == nil, kind != .words, let saved = LibraryDraftStore.load(kind: kind, scope: scope) {
             saved.applying(to: &initialDraft)
             _restoredDraft = State(initialValue: true)
-        } else if record == nil, (kind == .notes || kind == .stickies), !preferredType.isEmpty {
+        } else if record == nil, !preferredType.isEmpty {
             initialDraft.type = preferredType
         }
         if kind == .errors, !["错题", "不确定题"].contains(initialDraft.type) {
@@ -78,6 +88,24 @@ struct LibraryRecordEditorView: View {
                     .padding(24)
             }
         }
+        .sheet(item: $linkedWordCreationCategory) { category in
+            NavigationStack {
+                LibraryRecordEditorView(
+                    kind: .words,
+                    scope: LibraryScope(subject: "言语理解", module: "逻辑填空"),
+                    preferredType: category.rawValue,
+                    onSaved: { id in
+                        if !draft.linkedWordIDs.contains(id) { draft.linkedWordIDs.append(id) }
+                        linkedWordCreationCategory = nil
+                    }
+                )
+            }
+        }
+        .navigationDestination(item: $linkedWordDetailTarget) { target in
+            if let word = records.first(where: { $0.collection == "words" && $0.recordID == target.recordID }) {
+                WordLibraryRecordDetailView(record: word)
+            }
+        }
         .overlay { editorDialogs }
     }
 
@@ -85,7 +113,7 @@ struct LibraryRecordEditorView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if kind == .errors { recordTypePicker }
-                contextCard
+                if kind != .words { contextCard }
                 if restoredDraft {
                     Label("已恢复上次未保存的草稿", systemImage: "clock.arrow.circlepath")
                         .font(AppTheme.auxiliaryFont.weight(.semibold))
@@ -142,7 +170,12 @@ struct LibraryRecordEditorView: View {
             if let activeRelation {
                 LibraryRelationSelectionDialog(collection: activeRelation,
                     candidates: relationCandidates(collection: activeRelation),
-                    selection: relationBinding(activeRelation), onClose: { self.activeRelation = nil })
+                    selection: relationBinding(activeRelation),
+                    onClose: { self.activeRelation = nil },
+                    onCreateWord: activeRelation == "words" ? { category in
+                        self.activeRelation = nil
+                        linkedWordCreationCategory = category
+                    } : nil)
             }
     }
     private var contextCard: some View {
@@ -365,11 +398,6 @@ struct LibraryRecordEditorView: View {
             }
             }
 
-            if draft.subject == "言语理解", draft.module == "逻辑填空" {
-                errorFormCard {
-                    compactFormSection("词语辨析", image: "arrow.left.arrow.right") { comparisonGroups }
-                }
-            }
         }
         .background(Color.white)
     }
@@ -594,29 +622,6 @@ struct LibraryRecordEditorView: View {
         }
     }
 
-    private var comparisonGroups: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                NativeFieldLabel(title: "词语辨析组")
-                Spacer()
-                Button { draft.compareGroups.append(.init()) } label: { Label("新增一组", systemImage: "plus") }
-                    .font(AppTheme.inputFont.weight(.semibold))
-            }
-            ForEach($draft.compareGroups) { $group in
-                VStack(spacing: 8) {
-                    HStack {
-                        TextField("词语，例如：推脱 / 推托", text: $group.words).textFieldStyle(NativeTextFieldStyle())
-                        Button { draft.compareGroups.removeAll { $0.id == group.id } } label: {
-                            Image(systemName: "trash").foregroundStyle(AppTheme.danger)
-                        }.buttonStyle(.plain)
-                    }
-                    TextField("关系与区别", text: $group.relation).textFieldStyle(NativeTextFieldStyle())
-                }
-                .padding(10).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
-            }
-        }
-    }
-
     private var shenlunFields: some View {
         VStack(alignment: .leading, spacing: 12) {
             NativeFieldLabel(title: "题目信息")
@@ -724,24 +729,16 @@ struct LibraryRecordEditorView: View {
 
     private var wordFields: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Menu {
-                ForEach(WordCategory.allCases) { category in
-                    Button(category.title) {
-                        draft.type = category.rawValue
-                        ensureComparisonTerms()
-                    }
-                }
-            } label: {
-                NativePropertyRow(title: "词语类型", value: wordCategory.title, systemImage: wordCategory.systemImage) {}
-                    .allowsHitTesting(false)
-            }
+            NativePropertyRow(title: "当前模块", value: wordCategory.title, systemImage: wordCategory.systemImage) {}
+                .allowsHitTesting(false)
 
             if wordCategory.isComparison {
                 NativeFieldLabel(title: "辨析词语")
                 ForEach($draft.wordCompareTerms) { $term in
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            TextField("词语名称", text: $term.name).textFieldStyle(NativeTextFieldStyle())
+                            wordEntryKindPicker(selection: $term.entryKind)
+                            TextField("词语 / 常见搭配", text: $term.name).textFieldStyle(NativeTextFieldStyle())
                             if draft.wordCompareTerms.count > 2 {
                                 Button(role: .destructive) {
                                     draft.wordCompareTerms.removeAll { $0.id == term.id }
@@ -764,12 +761,18 @@ struct LibraryRecordEditorView: View {
                     Label("增加词语", systemImage: "plus.circle")
                         .font(AppTheme.inputFont.weight(.semibold))
                 }
+                TextField("共同语义（可选）", text: $draft.commonMeaning, axis: .vertical)
+                    .textFieldStyle(NativeTextFieldStyle())
+                    .lineLimit(2...4)
                 TextField("核心区别", text: $draft.compareNote, axis: .vertical)
                     .textFieldStyle(NativeTextFieldStyle())
                     .lineLimit(2...5)
             } else {
-                TextField(wordCategory == .idiomDefinition ? "成语" : "实词", text: $draft.title)
-                    .textFieldStyle(NativeTextFieldStyle())
+                HStack(spacing: 8) {
+                    wordEntryKindPicker(selection: $draft.wordEntryKind)
+                    TextField("词语 / 常见搭配", text: $draft.title)
+                        .textFieldStyle(NativeTextFieldStyle())
+                }
                 TextField("拼音（可选）", text: $draft.pinyin).textFieldStyle(NativeTextFieldStyle())
             }
 
@@ -783,7 +786,7 @@ struct LibraryRecordEditorView: View {
             if wordCategory == .wordDefinition {
                 TextField("词性（例如：动词）", text: $draft.partOfSpeech).textFieldStyle(NativeTextFieldStyle())
             }
-            NativeFieldLabel(title: wordCategory.isComparison ? "整体释义" : "释义")
+            NativeFieldLabel(title: wordCategory.isComparison ? "判断提示" : "释义")
             richEditor(text: $draft.content, height: 145)
             TextField("例句（可选）", text: $draft.example, axis: .vertical)
                 .textFieldStyle(NativeTextFieldStyle())
@@ -806,6 +809,25 @@ struct LibraryRecordEditorView: View {
         WordCategory(rawValue: draft.type) ?? .idiomDefinition
     }
 
+    private func wordEntryKindPicker(selection: Binding<String>) -> some View {
+        Menu {
+            ForEach(WordEntryKind.allCases) { kind in
+                Button(kind.title) { selection.wrappedValue = kind.rawValue }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(WordEntryKind(rawValue: selection.wrappedValue)?.title ?? WordEntryKind.word.title)
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+            }
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 9)
+            .frame(height: 38)
+            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
     private func ensureComparisonTerms() {
         guard wordCategory.isComparison else { return }
         while draft.wordCompareTerms.count < 2 { draft.wordCompareTerms.append(.init()) }
@@ -822,7 +844,7 @@ struct LibraryRecordEditorView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("内容关联").font(.system(size: 11)).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            ForEach(["exams", "notes", "words"], id: \.self) { collection in
+            ForEach(["exams", "notes"], id: \.self) { collection in
                 Button {
                     UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                     activeRelation = collection
@@ -831,7 +853,60 @@ struct LibraryRecordEditorView: View {
                         value: relationSummary(collection))
                 }.buttonStyle(.plain)
             }
+            if draft.subject == "言语理解", draft.module == "逻辑填空" {
+                linkedWordSection
+            }
         }
+    }
+
+    private var linkedWordSection: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("关联词语库").font(.system(size: 12, weight: .medium))
+                Spacer()
+                Button {
+                    activeRelation = "words"
+                } label: {
+                    Label("筛选关联", systemImage: "plus")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+            }
+            if linkedWordRecords.isEmpty {
+                Text("尚未关联，可从词语库筛选或直接新建")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(linkedWordRecords, id: \.compoundID) { record in
+                    Button {
+                        linkedWordDetailTarget = LinkedWordDetailTarget(recordID: record.recordID)
+                    } label: {
+                        let snapshot = LibraryRecordSnapshot(record: record)
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(snapshot.title).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.primary).lineLimit(1)
+                                if !snapshot.summary.isEmpty {
+                                    Text(snapshot.summary).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 40)
+                        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.vertical, 7)
+    }
+
+    private var linkedWordRecords: [StoredRecord] {
+        let ids = Set(draft.linkedWordIDs)
+        return records.filter { $0.collection == "words" && ids.contains($0.recordID) }
     }
 
     private func relationSummary(_ collection: String) -> String {
@@ -959,8 +1034,9 @@ struct LibraryRecordEditorView: View {
             )
             // 思维误区是普通文字，不写入标签库。
         }
-        try? LibraryRecordRepository.save(kind: kind, draft: draft, records: records, context: modelContext)
+        guard let savedID = try? LibraryRecordRepository.save(kind: kind, draft: draft, records: records, context: modelContext) else { return }
         if recordID == nil { LibraryDraftStore.clear(kind: kind, scope: scope) }
+        onSaved?(savedID)
         dismiss()
     }
 

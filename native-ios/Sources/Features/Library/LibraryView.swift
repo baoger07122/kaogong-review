@@ -27,6 +27,7 @@ struct LibraryView: View {
     @State private var showSearch = false
     @State private var wordCategory: WordCategory = .idiomDefinition
     @State private var wordSentiment = ""
+    @State private var wordEntryKind = ""
     @State private var renderLimit = 40
 
     var body: some View {
@@ -56,9 +57,16 @@ struct LibraryView: View {
         }
         .navigationDestination(item: $detailTarget) { target in
             if let record = records.first(where: { $0.collection == target.kind.collection && $0.recordID == target.recordID }) {
-                LibraryRecordDetailView(kind: target.kind, scope: scope, record: record) {
-                    remove(LibraryDeleteTarget(kind: target.kind, recordID: target.recordID))
-                    detailTarget = nil
+                if target.kind == .words {
+                    WordLibraryRecordDetailView(record: record) {
+                        remove(LibraryDeleteTarget(kind: target.kind, recordID: target.recordID))
+                        detailTarget = nil
+                    }
+                } else {
+                    LibraryRecordDetailView(kind: target.kind, scope: scope, record: record) {
+                        remove(LibraryDeleteTarget(kind: target.kind, recordID: target.recordID))
+                        detailTarget = nil
+                    }
                 }
             }
         }
@@ -224,6 +232,14 @@ struct LibraryView: View {
 
             if kind == .words {
                 Menu {
+                    Button("全部内容类型") { wordEntryKind = "" }
+                    ForEach(WordEntryKind.allCases) { value in
+                        Button(value.title) { wordEntryKind = value.rawValue }
+                    }
+                } label: {
+                    filterLabel(WordEntryKind(rawValue: wordEntryKind)?.title ?? "词语/搭配")
+                }
+                Menu {
                     Button("全部感情色彩") { wordSentiment = "" }
                     ForEach(["褒义", "贬义", "中性"], id: \.self) { value in
                         Button(value) { wordSentiment = value }
@@ -288,7 +304,7 @@ struct LibraryView: View {
     }
 
     private var snapshots: [LibraryRecordSnapshot] {
-        Array(sortedScopedRecords.prefix(renderLimit)).map(LibraryRecordSnapshot.init)
+        Array(sortedScopedRecords.prefix(renderLimit)).map { LibraryRecordSnapshot(record: $0, allRecords: records) }
     }
 
     private var sortedScopedRecords: [StoredRecord] {
@@ -310,7 +326,8 @@ struct LibraryView: View {
             let matchesTag = selectedTag.isEmpty || snapshot.tags.contains(selectedTag)
             let matchesWordCategory = kind != .words || snapshot.category == wordCategory.rawValue
             let matchesWordSentiment = kind != .words || wordSentiment.isEmpty || snapshot.sentiment == wordSentiment
-            return matchesSearch && matchesStatus && matchesTag && matchesWordCategory && matchesWordSentiment
+            let matchesWordEntryKind = kind != .words || wordEntryKind.isEmpty || snapshot.wordEntryKinds.contains(wordEntryKind)
+            return matchesSearch && matchesStatus && matchesTag && matchesWordCategory && matchesWordSentiment && matchesWordEntryKind
         }
     }
 
@@ -327,6 +344,7 @@ struct LibraryView: View {
                     Button {
                         wordCategory = category
                         wordSentiment = ""
+                        wordEntryKind = ""
                     } label: {
                         Label(category.shortTitle, systemImage: category.systemImage)
                             .font(AppTheme.auxiliaryFont.weight(.semibold))
@@ -481,6 +499,7 @@ struct LibraryView: View {
         selectedStatus = ""
         selectedTag = ""
         wordSentiment = ""
+        wordEntryKind = ""
         detailTarget = nil
         renderLimit = 40
         if kind == .words && !scope.isLogicFill { kind = .notes }
@@ -503,7 +522,7 @@ struct LibraryView: View {
     }
 
     private func open(_ snapshot: LibraryRecordSnapshot) {
-        if kind == .errors {
+        if kind == .errors || kind == .words {
             detailTarget = LibraryDetailTarget(kind: kind, recordID: snapshot.record.recordID)
         } else {
             editorTarget = LibraryEditorTarget(kind: kind, recordID: snapshot.record.recordID)

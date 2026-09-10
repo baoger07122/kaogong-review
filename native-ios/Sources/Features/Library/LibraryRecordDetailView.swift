@@ -5,6 +5,7 @@ import UIKit
 struct LibraryRecordDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var doodleSession: LibraryDoodleSession
+    @Query(filter: #Predicate<StoredRecord> { record in record.collection == "words" }) private var records: [StoredRecord]
     let kind: LibraryContentKind
     let scope: LibraryScope
     let record: StoredRecord
@@ -13,6 +14,7 @@ struct LibraryRecordDetailView: View {
     @State private var showEditor = false
     @State private var showDelete = false
     @StateObject private var noteSession = LibraryInlineNoteSession()
+    @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
 
     private var object: [String: Any] { record.jsonObject ?? [:] }
     private var snapshot: LibraryRecordSnapshot { LibraryRecordSnapshot(record: record) }
@@ -67,6 +69,11 @@ struct LibraryRecordDetailView: View {
         }
         .navigationDestination(isPresented: $showEditor) {
             LibraryRecordEditorView(kind: kind, scope: scope, record: record)
+        }
+        .navigationDestination(item: $linkedWordDetailTarget) { target in
+            if let word = records.first(where: { $0.collection == "words" && $0.recordID == target.recordID }) {
+                WordLibraryRecordDetailView(record: word)
+            }
         }
 
     }
@@ -161,28 +168,30 @@ struct LibraryRecordDetailView: View {
     }
 
     @ViewBuilder private var comparisonBlock: some View {
-        let groups = comparisonGroups
-        if !groups.isEmpty {
+        let words = linkedWordRecords
+        if !words.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text("词语辨析")
+                Text("关联词语库")
                     .font(.system(size: 13, weight: .medium))
-                ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("第\(index + 1)组")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
-                        if let words = group["words"], !clean(words).isEmpty {
-                            Text(clean(words)).font(.system(size: 14, weight: .medium))
+                ForEach(words, id: \.compoundID) { word in
+                    Button {
+                        linkedWordDetailTarget = LinkedWordDetailTarget(recordID: word.recordID)
+                    } label: {
+                        let wordSnapshot = LibraryRecordSnapshot(record: word)
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(wordSnapshot.title).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary)
+                                if !wordSnapshot.summary.isEmpty {
+                                    Text(wordSnapshot.summary).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
+                                }
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
                         }
-                        if let relation = group["relation"], !clean(relation).isEmpty {
-                            Text(cleanMultiline(relation))
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundStyle(.secondary)
-                                .lineSpacing(4)
-                        }
+                        .padding(.vertical, 5)
+                        .contentShape(Rectangle())
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    if index < groups.count - 1 { Divider() }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.top, 4)
@@ -297,14 +306,9 @@ struct LibraryRecordDetailView: View {
         return firstText(["image"]).map { [$0] } ?? []
     }
 
-    private var comparisonGroups: [[String: String]] {
-        guard let values = object["compareGroups"] as? [[String: Any]] else { return [] }
-        return values.compactMap { value in
-            let words = value["words"] as? String ?? ""
-            let relation = value["relation"] as? String ?? ""
-            guard !clean(words).isEmpty || !clean(relation).isEmpty else { return nil }
-            return ["words": words, "relation": relation]
-        }
+    private var linkedWordRecords: [StoredRecord] {
+        let ids = Set(object["linkedWordIds"] as? [String] ?? [])
+        return records.filter { $0.collection == "words" && ids.contains($0.recordID) }
     }
 
     private var reviewInfoParts: [String] {

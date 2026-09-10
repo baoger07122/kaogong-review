@@ -101,6 +101,24 @@ enum LibraryCardSize: String, CaseIterable, Identifiable {
     }
 }
 
+enum WordEntryKind: String, CaseIterable, Identifiable, Codable {
+    case word = "word"
+    case collocation = "collocation"
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .word: "词语"
+        case .collocation: "常见搭配"
+        }
+    }
+}
+
+struct LinkedWordDetailTarget: Identifiable, Hashable {
+    let recordID: String
+    var id: String { recordID }
+}
+
 struct LibraryScope: Equatable {
     var subject: String?
     var module: String?
@@ -138,6 +156,7 @@ struct LibraryRecordSnapshot: Identifiable {
     let searchableText: String
     let category: String
     let sentiment: String
+    let wordEntryKinds: [String]
     let knowledgePoints: [String]
     let errorCause: String
     let pitfall: String
@@ -146,7 +165,7 @@ struct LibraryRecordSnapshot: Identifiable {
 
     var id: String { record.compoundID }
 
-    init(record: StoredRecord) {
+    init(record: StoredRecord, allRecords: [StoredRecord] = []) {
         self.record = record
         let object = record.indexObject ?? [:]
         let titleKeys = record.collection == "errors"
@@ -156,7 +175,7 @@ struct LibraryRecordSnapshot: Identifiable {
             .map(Self.plainText) ?? "未命名记录"
         summary = Self.firstText(
             in: object,
-            keys: ["content", "note", "errorNote", "meaning", "myUnderstanding", "relation", "coreDifference", "question"]
+            keys: ["judgmentHint", "commonMeaning", "compareNote", "content", "note", "errorNote", "meaning", "myUnderstanding", "relation", "coreDifference", "question"]
         ).map(Self.plainText) ?? ""
         status = Self.firstText(in: object, keys: ["status", "masteryStatus"])
         colorHex = Self.firstText(in: object, keys: ["color", "colorHex"])
@@ -164,6 +183,12 @@ struct LibraryRecordSnapshot: Identifiable {
         createdAt = record.createdAt ?? Self.date(in: object, keys: ["createdAt", "date", "updatedAt"])
         category = Self.firstText(in: object, keys: ["category", "type"]) ?? WordCategory.idiomDefinition.rawValue
         sentiment = Self.firstText(in: object, keys: ["sentiment"]) ?? ""
+        var entryKinds: [String] = []
+        if let value = object["entryKind"] as? String, !value.isEmpty { entryKinds.append(value) }
+        if let terms = object["compareWords"] as? [[String: Any]] {
+            entryKinds.append(contentsOf: terms.compactMap { $0["entryKind"] as? String })
+        }
+        wordEntryKinds = Array(Set(entryKinds))
 
         if let points = object["knowledgePoints"] as? [String] {
             knowledgePoints = points.map(Self.plainText).filter { !$0.isEmpty }
@@ -184,16 +209,22 @@ struct LibraryRecordSnapshot: Identifiable {
         } else {
             imageValues = Self.firstText(in: object, keys: ["image"]).map { [$0] } ?? []
         }
-        if let groups = object["compareGroups"] as? [[String: Any]] {
-            comparisonWords = groups.compactMap { group in
-                (group["words"] as? String).map(Self.plainText)
-            }.filter { !$0.isEmpty }
-        } else {
-            comparisonWords = []
-        }
+        let linkedWordIDs = Set(object["linkedWordIds"] as? [String] ?? [])
+        comparisonWords = allRecords
+            .filter { $0.collection == "words" && linkedWordIDs.contains($0.recordID) }
+            .map { linkedRecord in
+                let linkedObject = linkedRecord.indexObject ?? [:]
+                return Self.firstText(in: linkedObject, keys: ["name", "words", "title", "text"])
+                    .map(Self.plainText) ?? "未命名词语"
+            }
 
         var values: [String] = []
-        if let type = Self.firstText(in: object, keys: ["type", "category", "errorCause"]) { values.append(type) }
+        if record.collection == "words" {
+            if let category = WordCategory(rawValue: category) { values.append(category.shortTitle) }
+            values.append(contentsOf: wordEntryKinds.compactMap { WordEntryKind(rawValue: $0)?.title })
+        } else if let type = Self.firstText(in: object, keys: ["type", "category", "errorCause"]) {
+            values.append(type)
+        }
         if let points = object["knowledgePoints"] as? [String] { values.append(contentsOf: points) }
         if let point = Self.firstText(in: object, keys: ["knowledgePoint"]) { values.append(point) }
         var seen = Set<String>()
@@ -201,7 +232,7 @@ struct LibraryRecordSnapshot: Identifiable {
 
         var searchValues = [title, summary]
         searchValues.append(contentsOf: tags)
-        searchValues.append(contentsOf: ["pinyin", "meaning", "example", "compareNote", "myUnderstanding", "collocations", "pos"]
+        searchValues.append(contentsOf: ["pinyin", "meaning", "judgmentHint", "commonMeaning", "example", "compareNote", "myUnderstanding", "collocations", "pos"]
             .compactMap { object[$0] as? String })
         if let terms = object["compareWords"] as? [[String: Any]] {
             searchValues.append(contentsOf: terms.flatMap {

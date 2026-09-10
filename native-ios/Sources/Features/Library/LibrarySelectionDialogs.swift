@@ -128,39 +128,108 @@ struct LibraryRelationSelectionDialog: View {
     let candidates: [StoredRecord]
     @Binding var selection: [String]
     let onClose: () -> Void
+    var onCreateWord: ((WordCategory) -> Void)? = nil
     @State private var selected: [String] = []
     @State private var search = ""
+    @State private var wordCategoryFilter = ""
+    @State private var wordEntryKindFilter = ""
 
     var body: some View {
         NativeEditorDialog(title: collection == "exams" ? "来源套卷" : (collection == "notes" ? "关联笔记" : "关联词语"),
             canSave: true, actionTitle: "确定", onClose: onClose, onSave: { selection = selected; onClose() }) {
             VStack(spacing: 8) {
-                TextField("搜索", text: $search).textFieldStyle(NativeTextFieldStyle())
+                HStack(spacing: 8) {
+                    TextField("搜索", text: $search).textFieldStyle(NativeTextFieldStyle())
+                    if collection == "words", let onCreateWord {
+                        Menu {
+                            ForEach(WordCategory.allCases) { category in
+                                Button(category.title) { onCreateWord(category) }
+                            }
+                        } label: {
+                            Label("新建", systemImage: "plus")
+                                .font(.system(size: 12, weight: .semibold))
+                                .padding(.horizontal, 10)
+                                .frame(height: 38)
+                                .background(AppTheme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
                 HStack {
                     Text("已选 \(selected.count) 项")
                     Spacer()
                     Button("清空关联") { selected = [] }
                 }.font(.system(size: 11))
+                if collection == "words" {
+                    HStack(spacing: 7) {
+                        Menu {
+                            Button("全部模块") { wordCategoryFilter = "" }
+                            ForEach(WordCategory.allCases) { category in
+                                Button(category.title) { wordCategoryFilter = category.rawValue }
+                            }
+                        } label: {
+                            relationFilterLabel(WordCategory(rawValue: wordCategoryFilter)?.shortTitle ?? "模块")
+                        }
+                        Menu {
+                            Button("全部类型") { wordEntryKindFilter = "" }
+                            ForEach(WordEntryKind.allCases) { kind in
+                                Button(kind.title) { wordEntryKindFilter = kind.rawValue }
+                            }
+                        } label: {
+                            relationFilterLabel(WordEntryKind(rawValue: wordEntryKindFilter)?.title ?? "词语/搭配")
+                        }
+                        Spacer()
+                    }
+                }
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(candidates.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) }, id: \.compoundID) { record in
+                        ForEach(filteredCandidates, id: \.compoundID) { record in
                             Button {
                                 if selected.contains(record.recordID) { selected.removeAll { $0 == record.recordID } }
                                 else if collection == "exams" { selected = [record.recordID] }
                                 else { selected.append(record.recordID) }
                             } label: {
                                 HStack {
-                                    Text(record.title).font(.system(size: 13)).lineLimit(2)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(record.title).font(.system(size: 13)).foregroundStyle(.primary).lineLimit(2)
+                                        if collection == "words" {
+                                            let snapshot = LibraryRecordSnapshot(record: record)
+                                            Text(snapshot.tags.joined(separator: " · "))
+                                                .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                                        }
+                                    }
                                     Spacer()
                                     Image(systemName: selected.contains(record.recordID) ? "checkmark.circle.fill" : "circle")
                                         .foregroundStyle(AppTheme.accent)
                                 }.frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
                             }.buttonStyle(.plain)
                         }
-                        if candidates.isEmpty { Text("暂无可关联内容").font(.system(size: 12)).foregroundStyle(.secondary) }
+                        if filteredCandidates.isEmpty { Text("暂无符合条件的关联内容").font(.system(size: 12)).foregroundStyle(.secondary) }
                     }
                 }.frame(maxHeight: 280)
             }
         }.onAppear { selected = selection }
+    }
+
+    private var filteredCandidates: [StoredRecord] {
+        candidates.filter { record in
+            let snapshot = LibraryRecordSnapshot(record: record)
+            let matchesSearch = search.isEmpty || snapshot.searchableText.localizedCaseInsensitiveContains(search)
+            let matchesCategory = collection != "words" || wordCategoryFilter.isEmpty || snapshot.category == wordCategoryFilter
+            let matchesKind = collection != "words" || wordEntryKindFilter.isEmpty || snapshot.wordEntryKinds.contains(wordEntryKindFilter)
+            return matchesSearch && matchesCategory && matchesKind
+        }
+    }
+
+    private func relationFilterLabel(_ value: String) -> some View {
+        HStack(spacing: 4) {
+            Text(value)
+            Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 9)
+        .frame(height: 31)
+        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }

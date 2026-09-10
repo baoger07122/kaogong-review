@@ -18,6 +18,7 @@ struct WordComparisonTermDraft: Identifiable, Codable, Equatable {
     var name = ""
     var meaning = ""
     var wordID = ""
+    var entryKind = WordEntryKind.word.rawValue
 }
 
 struct LibraryRecordDraft {
@@ -66,6 +67,8 @@ struct LibraryRecordDraft {
     var collocations = ""
     var wordSource = ""
     var compareNote = ""
+    var commonMeaning = ""
+    var wordEntryKind = WordEntryKind.word.rawValue
     var wordCompareTerms: [WordComparisonTermDraft] = []
 
     init(kind: LibraryContentKind, scope: LibraryScope, record: StoredRecord? = nil) {
@@ -75,7 +78,7 @@ struct LibraryRecordDraft {
         let defaultModules = SubjectDefinition.all.first { $0.name == subject }?.modules ?? []
         module = (original["module"] as? String) ?? scope.module ?? defaultModules.first ?? ""
         title = LibraryRecordDraft.text(original, keys: ["title", "question", "name", "words", "text"])
-        content = LibraryRecordDraft.text(original, keys: ["content", "note", "meaning", "myUnderstanding"])
+        content = LibraryRecordDraft.text(original, keys: ["judgmentHint", "content", "note", "meaning", "myUnderstanding"])
         if kind == .errors, let note = original["note"] as? String { content = note }
         if content.isEmpty, !(kind == .errors && original["note"] is String), let legacyContent = original["content"] {
             content = LegacyRichTextConverter.html(from: legacyContent)
@@ -128,12 +131,16 @@ struct LibraryRecordDraft {
         collocations = LibraryRecordDraft.text(original, keys: ["collocations"])
         wordSource = LibraryRecordDraft.text(original, keys: ["source"])
         compareNote = LibraryRecordDraft.text(original, keys: ["compareNote", "coreDifference"])
+        commonMeaning = LibraryRecordDraft.text(original, keys: ["commonMeaning"])
+        wordEntryKind = LibraryRecordDraft.text(original, keys: ["entryKind"])
+        if wordEntryKind.isEmpty { wordEntryKind = WordEntryKind.word.rawValue }
         if let terms = original["compareWords"] as? [[String: Any]] {
             wordCompareTerms = terms.map {
                 .init(
                     name: $0["name"] as? String ?? "",
                     meaning: $0["meaning"] as? String ?? "",
-                    wordID: ($0["wordId"] as? String) ?? ($0["id"] as? String) ?? ""
+                    wordID: ($0["wordId"] as? String) ?? ($0["id"] as? String) ?? "",
+                    entryKind: ($0["entryKind"] as? String) ?? WordEntryKind.word.rawValue
                 )
             }
         } else if type.contains("compare") {
@@ -161,12 +168,12 @@ struct LibraryRecordDraft {
 }
 
 enum LibraryRecordRepository {
-    static func save(
+    @discardableResult static func save(
         kind: LibraryContentKind,
         draft: LibraryRecordDraft,
         records: [StoredRecord],
         context: ModelContext
-    ) throws {
+    ) throws -> String {
         let now = Date()
         let id = draft.id.isEmpty ? makeID(kind: kind) : draft.id
         let existing = records.first { $0.collection == kind.collection && $0.recordID == id }
@@ -205,9 +212,7 @@ enum LibraryRecordRepository {
             object["sourceRegion"] = sourceMetadata.region.map { $0 as Any } ?? NSNull()
             object["accuracy"] = Double(draft.accuracy.replacingOccurrences(of: "%", with: "")) ?? 0
             object["images"] = draft.images
-            object["compareGroups"] = draft.compareGroups
-                .filter { !$0.words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !$0.relation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                .map { ["words": $0.words, "relation": $0.relation] }
+            object.removeValue(forKey: "compareGroups")
             object["graphRule"] = draft.graphRule
             object["recognition"] = draft.recognition
             object["sourceExamId"] = draft.sourceExamID.isEmpty ? NSNull() : draft.sourceExamID
@@ -262,11 +267,16 @@ enum LibraryRecordRepository {
             object["color"] = draft.colorHex
             object["pinned"] = draft.pinned
         case .words:
+            let category = wordCategory(from: draft.type)
             object["name"] = draft.title
             object["words"] = draft.title
-            object["meaning"] = draft.content
+            object["meaning"] = category.isComparison ? "" : draft.content
+            object["judgmentHint"] = category.isComparison ? draft.content : ""
             object["category"] = draft.type
             object["type"] = draft.type
+            if category.isComparison { object.removeValue(forKey: "entryKind") }
+            else { object["entryKind"] = draft.wordEntryKind }
+            object["commonMeaning"] = draft.commonMeaning
             object["linkedErrors"] = draft.linkedErrorIDs
             object["relatedErrorIds"] = draft.linkedErrorIDs
             object["pinyin"] = draft.pinyin
@@ -279,7 +289,7 @@ enum LibraryRecordRepository {
             object["compareNote"] = draft.compareNote
             object["compareWords"] = draft.wordCompareTerms
                 .filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                .map { ["name": $0.name, "meaning": $0.meaning, "wordId": $0.wordID] }
+                .map { ["name": $0.name, "meaning": $0.meaning, "wordId": $0.wordID, "entryKind": $0.entryKind] }
         }
 
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
@@ -313,6 +323,11 @@ enum LibraryRecordRepository {
             break
         }
         try context.save()
+        return id
+    }
+
+    private static func wordCategory(from value: String) -> WordCategory {
+        WordCategory(rawValue: value) ?? .idiomDefinition
     }
 
     static func remove(kind: LibraryContentKind, id: String, records: [StoredRecord], context: ModelContext) throws {

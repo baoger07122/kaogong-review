@@ -44,6 +44,8 @@ struct LibraryDraftSnapshot: Codable, Equatable {
     var collocations: String?
     var wordSource: String?
     var compareNote: String?
+    var commonMeaning: String?
+    var wordEntryKind: String?
     var wordCompareTerms: [WordComparisonTermDraft]?
 
     init(_ draft: LibraryRecordDraft) {
@@ -90,6 +92,8 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         collocations = draft.collocations
         wordSource = draft.wordSource
         compareNote = draft.compareNote
+        commonMeaning = draft.commonMeaning
+        wordEntryKind = draft.wordEntryKind
         wordCompareTerms = draft.wordCompareTerms
     }
 
@@ -137,6 +141,8 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         draft.collocations = collocations ?? ""
         draft.wordSource = wordSource ?? ""
         draft.compareNote = compareNote ?? ""
+        draft.commonMeaning = commonMeaning ?? ""
+        draft.wordEntryKind = wordEntryKind ?? WordEntryKind.word.rawValue
         draft.wordCompareTerms = wordCompareTerms ?? []
     }
 
