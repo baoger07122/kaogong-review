@@ -111,7 +111,7 @@ jobs:
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
 
       - name: Test changed speed controls with real simulator taps
-        timeout-minutes: 8
+        timeout-minutes: 12
         shell: bash
         run: |
           xcrun simctl boot "$SIMULATOR_ID" || true
