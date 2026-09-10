@@ -17,7 +17,13 @@ struct LibraryRecordEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
-    @Query private var records: [StoredRecord]
+    @Query(filter: #Predicate<StoredRecord> { record in
+        record.collection == "errors"
+            || record.collection == "notes"
+            || record.collection == "words"
+            || record.collection == "exams"
+            || record.collection == "keyvalue"
+    }) private var records: [StoredRecord]
 
     let kind: LibraryContentKind
     let scope: LibraryScope
@@ -62,13 +68,18 @@ struct LibraryRecordEditorView: View {
     }
 
     var body: some View {
-        configuredEditor
+        Group {
+            if recordID == nil {
+                configuredEditor
+                    .onChange(of: draftSnapshot) { _, snapshot in
+                        LibraryDraftStore.save(snapshot, kind: kind, scope: scope)
+                    }
+            } else {
+                configuredEditor
+            }
+        }
         .onChange(of: selectedPhotos) { _, items in
             Task { await appendImages(items) }
-        }
-        .onChange(of: draftSnapshot) { _, snapshot in
-            guard recordID == nil else { return }
-            LibraryDraftStore.save(snapshot, kind: kind, scope: scope)
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase != .active, recordID == nil else { return }
@@ -989,6 +1000,9 @@ struct LibraryRecordEditorView: View {
     }
 
     private var internalLinkCandidates: [RichTextInternalLink] {
+        // Error and word editors do not expose the internal-link workflow. Avoid
+        // sorting and mapping the complete library during their first render.
+        guard kind == .notes else { return [] }
         records
             .filter { ($0.collection == "errors" || $0.collection == "notes") && $0.recordID != recordID }
             .sorted { ($0.updatedAt ?? $0.createdAt ?? .distantPast) > ($1.updatedAt ?? $1.createdAt ?? .distantPast) }
@@ -1076,9 +1090,14 @@ struct LibraryRecordEditorView: View {
     }
 
     private func image(from value: String) -> UIImage? {
+        if let cached = Self.imageCache.object(forKey: value as NSString) { return cached }
         guard value.hasPrefix("data:"), let comma = value.firstIndex(of: ",") else { return nil }
-        return Data(base64Encoded: String(value[value.index(after: comma)...])).flatMap(UIImage.init(data:))
+        guard let image = Data(base64Encoded: String(value[value.index(after: comma)...])).flatMap(UIImage.init(data:)) else { return nil }
+        Self.imageCache.setObject(image, forKey: value as NSString)
+        return image
     }
+
+    private static let imageCache = NSCache<NSString, UIImage>()
 }
 
 private struct ErrorFormTextFieldStyle: TextFieldStyle {
