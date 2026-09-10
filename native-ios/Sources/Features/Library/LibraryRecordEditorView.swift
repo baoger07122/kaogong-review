@@ -9,6 +9,10 @@ private struct LinkedRecordEditorTarget: Identifiable {
     var id: String { "\(collection):\(recordID)" }
 }
 
+private enum ErrorAnswerField: Hashable {
+    case correct, selected
+}
+
 struct LibraryRecordEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -28,6 +32,7 @@ struct LibraryRecordEditorView: View {
     @State private var smartSplitDraft = ""
     @State private var activeTags: ManagedTagKind?
     @State private var activeRelation: String?
+    @State private var expandedAnswerField: ErrorAnswerField?
 
     init(kind: LibraryContentKind, scope: LibraryScope, record: StoredRecord? = nil, preferredType: String = "") {
         self.kind = kind
@@ -160,8 +165,14 @@ struct LibraryRecordEditorView: View {
                 }
             }
         }
-        .padding(kind == .errors ? 0 : 10)
-        .background(Color.white)
+        .padding(kind == .errors ? 12 : 10)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: kind == .errors ? 16 : 9, style: .continuous))
+        .overlay {
+            if kind == .errors {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.8)
+            }
+        }
     }
 
     private func compactProperty(title: String, value: String, image: String) -> some View {
@@ -197,62 +208,92 @@ struct LibraryRecordEditorView: View {
     }
 
     private var graphErrorPriorityFields: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            imagePicker
-            HStack {
-                NativeFieldLabel(title: "题干")
-                Spacer()
-                Button(action: openSmartSplit) {
-                    Label("智能拆分", systemImage: "sparkles")
-                        .font(AppTheme.auxiliaryFont.weight(.semibold))
+        VStack(alignment: .leading, spacing: 10) {
+            errorFormCard {
+                imagePicker
+            }
+            errorFormCard {
+                compactFormSection("题目与选项", image: "list.bullet.rectangle") {
+                    HStack {
+                        NativeFieldLabel(title: "题干")
+                        Spacer()
+                        Button(action: openSmartSplit) {
+                            Label("智能拆分", systemImage: "sparkles")
+                                .font(AppTheme.auxiliaryFont.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    errorQuestionEditor(text: $draft.title)
+                    NativeFieldLabel(title: "选项")
+                    ForEach(draft.options.indices, id: \.self) { index in
+                        HStack(spacing: 7) {
+                            Text(String(UnicodeScalar(65 + index)!))
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .frame(width: 21)
+                            TextField("选项内容", text: $draft.options[index])
+                                .textFieldStyle(ErrorFormTextFieldStyle())
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
             }
-            editor(text: $draft.title, height: 90)
-            NativeFieldLabel(title: "选项与答案")
-            ForEach(draft.options.indices, id: \.self) { index in
-                TextField("选项 \(index + 1)", text: $draft.options[index]).textFieldStyle(NativeTextFieldStyle())
+            errorFormCard {
+                compactFormSection("答案与来源", image: "checkmark.circle") {
+                    HStack(alignment: .top, spacing: 8) {
+                        answerPicker(title: "正确选项", field: .correct, selection: $draft.correctOption)
+                        answerPicker(title: "我的选项", field: .selected, selection: $draft.userOption)
+                    }
+                    HStack(spacing: 8) {
+                        TextField("全站正确率（%）", text: $draft.accuracy)
+                            .keyboardType(.decimalPad).textFieldStyle(ErrorFormTextFieldStyle())
+                        TextField("题目来源", text: $draft.questionSource)
+                            .textFieldStyle(ErrorFormTextFieldStyle())
+                    }
+                }
             }
-            HStack(spacing: 9) {
-                answerPicker(title: "正确选项", selection: $draft.correctOption)
-                answerPicker(title: "我的选项", selection: $draft.userOption)
+            errorFormCard {
+                compactFormSection("规律与识别思路", image: "eye") {
+                    TextField("图形规律", text: $draft.graphRule).textFieldStyle(ErrorFormTextFieldStyle())
+                    TextField("识别思路", text: $draft.recognition).textFieldStyle(ErrorFormTextFieldStyle())
+                }
             }
-            NativeFieldLabel(title: "规律与识别思路")
-            TextField("图形规律", text: $draft.graphRule).textFieldStyle(NativeTextFieldStyle())
-            TextField("识别思路", text: $draft.recognition).textFieldStyle(NativeTextFieldStyle())
-            NativeFieldLabel(title: "分析与复盘")
-            tagInput(
-                title: "考点（可选）",
-                text: $draft.knowledgePoint,
-                suggestions: TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records),
-                allowsMultiple: true
-            )
-            tagInput(
-                title: "错因（可选）",
-                text: $draft.errorCause,
-                suggestions: TagLibraryRepository.tags(kind: .errorCause, module: draft.module, records: records)
-            )
-            tagInput(
-                title: "思维误区（可选）",
-                text: $draft.pitfall,
-                suggestions: TagLibraryRepository.tags(kind: .thinkingTrap, module: draft.module, records: records)
-            )
-            TextField("题目来源", text: $draft.questionSource).textFieldStyle(NativeTextFieldStyle())
-            TextField("全站正确率（%）", text: $draft.accuracy).keyboardType(.decimalPad).textFieldStyle(NativeTextFieldStyle())
-            NativeFieldLabel(title: "错题笔记")
-            richEditor(text: $draft.content, height: 110)
+            errorFormCard {
+                compactFormSection("考点与错因", image: "tag") {
+                    tagInput(
+                        title: "考点（可选）",
+                        text: $draft.knowledgePoint,
+                        suggestions: TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records),
+                        allowsMultiple: true
+                    )
+                    tagInput(
+                        title: "错因（可选）",
+                        text: $draft.errorCause,
+                        suggestions: TagLibraryRepository.tags(kind: .errorCause, module: draft.module, records: records)
+                    )
+                    tagInput(
+                        title: "思维误区（可选）",
+                        text: $draft.pitfall,
+                        suggestions: TagLibraryRepository.tags(kind: .thinkingTrap, module: draft.module, records: records)
+                    )
+                }
+            }
+            errorFormCard {
+                compactFormSection("错题笔记", image: "note.text") {
+                    richEditor(text: $draft.content, height: 110)
+                }
+            }
         }
         .background(Color.white)
     }
 
     private var regularErrorFields: some View {
-        VStack(alignment: .leading, spacing: 13) {
+        VStack(alignment: .leading, spacing: 10) {
+            errorFormCard {
+                imagePicker
+            }
 
-            imagePicker
-
-            Divider()
-
-            compactFormSection("题目与选项", image: "list.bullet.rectangle") {
+            errorFormCard {
+                compactFormSection("题目与选项", image: "list.bullet.rectangle") {
                 HStack {
                     NativeFieldLabel(title: "题干")
                     Spacer()
@@ -266,38 +307,38 @@ struct LibraryRecordEditorView: View {
                     Text(splitMessage).font(AppTheme.auxiliaryFont)
                         .foregroundStyle(splitMessage.hasPrefix("已") ? AppTheme.success : AppTheme.warning)
                 }
-                editor(text: $draft.title, height: 100)
+                errorQuestionEditor(text: $draft.title)
                 NativeFieldLabel(title: "选项")
                 ForEach(draft.options.indices, id: \.self) { index in
-                    HStack(spacing: 9) {
+                    HStack(spacing: 7) {
                         Text(String(UnicodeScalar(65 + index)!))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(AppTheme.accent)
-                            .frame(width: 25, height: 25)
-                            .background(AppTheme.accent.opacity(0.09), in: Circle())
-                        TextField("选项内容", text: $draft.options[index]).textFieldStyle(NativeTextFieldStyle())
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .frame(width: 21)
+                        TextField("选项内容", text: $draft.options[index])
+                            .textFieldStyle(ErrorFormTextFieldStyle())
                     }
                 }
             }
-
-            Divider()
-
-            compactFormSection("答案与来源", image: "checkmark.circle") {
-                HStack(spacing: 9) {
-                    answerPicker(title: "正确选项", selection: $draft.correctOption)
-                    answerPicker(title: "我的选项", selection: $draft.userOption)
-                }
-                HStack(spacing: 9) {
-                    TextField("全站正确率（%）", text: $draft.accuracy)
-                        .keyboardType(.decimalPad).textFieldStyle(NativeTextFieldStyle())
-                    TextField("题目来源，例如：2024国考", text: $draft.questionSource)
-                        .textFieldStyle(NativeTextFieldStyle())
-                }
             }
 
-            Divider()
+            errorFormCard {
+                compactFormSection("答案与来源", image: "checkmark.circle") {
+                HStack(alignment: .top, spacing: 8) {
+                    answerPicker(title: "正确选项", field: .correct, selection: $draft.correctOption)
+                    answerPicker(title: "我的选项", field: .selected, selection: $draft.userOption)
+                }
+                HStack(spacing: 8) {
+                    TextField("全站正确率（%）", text: $draft.accuracy)
+                        .keyboardType(.decimalPad).textFieldStyle(ErrorFormTextFieldStyle())
+                    TextField("题目来源，例如：2024国考", text: $draft.questionSource)
+                        .textFieldStyle(ErrorFormTextFieldStyle())
+                }
+            }
+            }
 
-            compactFormSection("考点与错因", image: "tag") {
+            errorFormCard {
+                compactFormSection("考点与错因", image: "tag") {
                 tagInput(
                     title: "考点（可选）",
                     text: $draft.knowledgePoint,
@@ -315,17 +356,19 @@ struct LibraryRecordEditorView: View {
                     suggestions: TagLibraryRepository.tags(kind: .thinkingTrap, module: draft.module, records: records)
                 )
             }
+            }
 
-            Divider()
-
-            compactFormSection("错题笔记", image: "note.text") {
+            errorFormCard {
+                compactFormSection("错题笔记", image: "note.text") {
                 Text("个人复盘心得、解析与方法总结").font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
                 richEditor(text: $draft.content, height: 130)
             }
+            }
 
             if draft.subject == "言语理解", draft.module == "逻辑填空" {
-                Divider()
-                compactFormSection("词语辨析", image: "arrow.left.arrow.right") { comparisonGroups }
+                errorFormCard {
+                    compactFormSection("词语辨析", image: "arrow.left.arrow.right") { comparisonGroups }
+                }
             }
         }
         .background(Color.white)
@@ -340,28 +383,58 @@ struct LibraryRecordEditorView: View {
         .frame(maxWidth: 300)
     }
 
-    private func answerPicker(title: String, selection: Binding<String>) -> some View {
-        Menu {
-            ForEach(["A", "B", "C", "D"], id: \.self) { value in
-                Button(value) { selection.wrappedValue = value }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.system(size: 10)).foregroundStyle(.secondary)
+    private func answerPicker(title: String, field: ErrorAnswerField, selection: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+            Button {
+                withoutAnimation { expandedAnswerField = expandedAnswerField == field ? nil : field }
+            } label: {
+                HStack(spacing: 6) {
                     Text(selection.wrappedValue.isEmpty ? "请选择" : selection.wrappedValue)
-                        .font(AppTheme.inputFont)
+                        .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(selection.wrappedValue.isEmpty ? Color.secondary : Color.primary)
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
                 }
-                Spacer()
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
+                .padding(.horizontal, 11)
+                .frame(maxWidth: .infinity, minHeight: 38)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.12), lineWidth: 0.8))
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity, minHeight: 42)
-            .background(Color.clear)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            if expandedAnswerField == field {
+                HStack(spacing: 5) {
+                    ForEach(["A", "B", "C", "D"], id: \.self) { value in
+                        Button {
+                            selection.wrappedValue = value
+                            withoutAnimation { expandedAnswerField = nil }
+                        } label: {
+                            Text(value)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(selection.wrappedValue == value ? AppTheme.accent : Color.primary)
+                                .frame(maxWidth: .infinity, minHeight: 27)
+                                .background(selection.wrappedValue == value ? AppTheme.accent.opacity(0.09) : Color.white,
+                                            in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .stroke(selection.wrappedValue == value ? AppTheme.accent.opacity(0.55) : Color.primary.opacity(0.1), lineWidth: 0.8))
+                        }.buttonStyle(.plain)
+                    }
+                }
+                .padding(4)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Color.primary.opacity(0.1), lineWidth: 0.7))
+            }
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func withoutAnimation(_ changes: () -> Void) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction, changes)
     }
 
     private func compactFormSection<Content: View>(
@@ -369,11 +442,35 @@ struct LibraryRecordEditorView: View {
         image: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 7) {
             Label(title, systemImage: image)
                 .font(.system(size: 13, weight: .medium))
             content()
         }
+    }
+
+    private func errorFormCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            content()
+        }
+        .padding(14)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.8)
+        }
+    }
+
+    private func errorQuestionEditor(text: Binding<String>) -> some View {
+        TextEditor(text: text)
+            .font(.system(size: 12.5, weight: .regular))
+            .lineSpacing(3)
+            .scrollContentBackground(.hidden)
+            .frame(minHeight: 70)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 5)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
     }
 
     private func tagInput(
@@ -388,9 +485,12 @@ struct LibraryRecordEditorView: View {
                     Text("思维误区").font(.system(size: 11)).foregroundStyle(.secondary)
                         .frame(width: 66, alignment: .leading)
                     TextField("可留空", text: text, axis: .vertical)
-                        .font(AppTheme.inputFont).lineLimit(1...5)
+                        .font(.system(size: 12.5, weight: .regular)).lineLimit(1...5)
                 }
-                .frame(minHeight: 44)
+                .padding(.horizontal, 10)
+                .frame(minHeight: 38)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.1), lineWidth: 0.7))
             } else {
                 Button {
                     UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
@@ -414,7 +514,10 @@ struct LibraryRecordEditorView: View {
                         }
                         Image(systemName: "chevron.down").font(.system(size: 9)).foregroundStyle(.tertiary)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.1), lineWidth: 0.7))
                     .contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
@@ -429,31 +532,16 @@ struct LibraryRecordEditorView: View {
     }
 
     private var smartSplitDialog: some View {
-        NativeEditorDialog(
-            title: "智能拆分题目",
-            canSave: !smartSplitDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            actionTitle: "识别并填入",
-            onClose: {
+        ErrorSmartSplitDialog(
+            text: $smartSplitDraft,
+            errorMessage: splitMessage?.hasPrefix("已") == false ? splitMessage : nil,
+            canApply: !smartSplitDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            onCancel: {
                 showSmartSplit = false
                 splitMessage = nil
             },
-            onSave: applySmartSplit
-        ) {
-            Text("粘贴完整题干、A/B/C/D 选项和答案。识别成功后会分别填入表单，原内容不会在识别失败时被覆盖。")
-                .font(AppTheme.auxiliaryFont)
-                .foregroundStyle(.secondary)
-            TextEditor(text: $smartSplitDraft)
-                .font(AppTheme.questionTextFont)
-                .lineSpacing(AppTheme.questionLineSpacing)
-                .frame(height: 180)
-                .padding(8)
-                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
-            if let splitMessage, !splitMessage.hasPrefix("已") {
-                Text(splitMessage)
-                    .font(AppTheme.auxiliaryFont)
-                    .foregroundStyle(AppTheme.warning)
-            }
-        }
+            onApply: applySmartSplit
+        )
     }
 
     private func errorSection<Content: View>(
@@ -917,6 +1005,77 @@ struct LibraryRecordEditorView: View {
     }
 }
 
+private struct ErrorFormTextFieldStyle: TextFieldStyle {
+    func _body(configuration: TextField<Self._Label>) -> some View {
+        configuration
+            .font(.system(size: 12.5, weight: .regular))
+            .padding(.horizontal, 11)
+            .frame(height: 38)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
+    }
+}
+
+private struct ErrorSmartSplitDialog: View {
+    @Binding var text: String
+    let errorMessage: String?
+    let canApply: Bool
+    let onCancel: () -> Void
+    let onApply: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.24).ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 13) {
+                HStack {
+                    Text("智能拆分题目")
+                        .font(.system(size: 17, weight: .semibold))
+                    Spacer()
+                    Button(action: onCancel) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .bold))
+                            .frame(width: 30, height: 30)
+                            .background(Color.primary.opacity(0.06), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                TextEditor(text: $text)
+                    .font(.system(size: 12.5, weight: .regular))
+                    .lineSpacing(3)
+                    .scrollContentBackground(.hidden)
+                    .frame(height: 148)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Color.primary.opacity(0.13), lineWidth: 0.8))
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(AppTheme.warning)
+                }
+
+                HStack(spacing: 10) {
+                    Button("取消", action: onCancel)
+                        .buttonStyle(NativeSecondaryButtonStyle())
+                    Button("识别并填入", action: onApply)
+                        .buttonStyle(NativePrimaryButtonStyle())
+                        .disabled(!canApply)
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: 560)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 0.7))
+            .shadow(color: .black.opacity(0.17), radius: 24, y: 10)
+            .padding(24)
+        }
+        .transition(.opacity)
+    }
+}
+
 private struct ParsedErrorQuestion {
     let question: String
     let options: [String]
@@ -925,6 +1084,11 @@ private struct ParsedErrorQuestion {
 }
 
 private enum ErrorQuestionParser {
+    private struct OptionMarker {
+        let code: Int
+        let range: NSRange
+    }
+
     private struct ParseFailure: LocalizedError {
         let message: String
         var errorDescription: String? { message }
@@ -936,7 +1100,8 @@ private enum ErrorQuestionParser {
             return .failure(ParseFailure(message: "请先粘贴完整题目。"))
         }
         guard let expression = try? NSRegularExpression(
-            pattern: "(?m)(?:^|\\s)([A-H])[\\.、．:：\\)）]\\s*"
+            pattern: "(?m)^[\\t \\u3000]*(?:[（(【\\[][\\t \\u3000]*)?([A-H])(?:(?:[\\t \\u3000]*[）)】\\]]|[\\t \\u3000]*[\\.、。:：)）])[\\t \\u3000]*|[\\t \\u3000]+|(?=[\\p{Han}])|[\\t \\u3000]*(?=\\n))",
+            options: .caseInsensitive
         ) else {
             return .failure(ParseFailure(message: "拆分规则初始化失败。"))
         }
@@ -944,20 +1109,39 @@ private enum ErrorQuestionParser {
         let sourceNSString = source as NSString
         let answerStart = firstAnswerRange(in: source)?.location ?? sourceNSString.length
         let optionRange = NSRange(location: 0, length: answerStart)
-        let matches = expression.matches(in: source, range: optionRange)
-        guard matches.count >= 2, let first = matches.first else {
-            return .failure(ParseFailure(message: "没有识别到连续选项，请确认选项使用 A.、B.、C.、D. 等标记。"))
+        let markers = expression.matches(in: source, range: optionRange).compactMap { match -> OptionMarker? in
+            guard match.numberOfRanges > 1, match.range(at: 1).location != NSNotFound else { return nil }
+            let letter = sourceNSString.substring(with: match.range(at: 1)).uppercased()
+            guard let scalar = letter.unicodeScalars.first else { return nil }
+            return OptionMarker(code: Int(scalar.value), range: match.range)
+        }
+        var best: [OptionMarker] = []
+        for start in markers.indices where markers[start].code == 65 {
+            var chain = [markers[start]]
+            var expected = 66
+            for marker in markers[(start + 1)...] where marker.range.location >= chain.last!.range.location + chain.last!.range.length {
+                if marker.code == expected {
+                    chain.append(marker)
+                    expected += 1
+                }
+            }
+            if chain.count >= 2,
+               chain.count > best.count || (chain.count == best.count && chain[0].range.location > (best.first?.range.location ?? -1)) {
+                best = chain
+            }
+        }
+        guard let first = best.first else {
+            return .failure(ParseFailure(message: "没有识别到连续选项。请将 A、B、C、D 分行放在各选项开头。"))
         }
 
         let question = cleanedQuestion(
             sourceNSString.substring(with: NSRange(location: 0, length: first.range.location))
         )
         var options: [String] = []
-        for (index, match) in matches.enumerated() {
-            let start = match.range.location + match.range.length
-            let end = index + 1 < matches.count ? matches[index + 1].range.location : answerStart
-            let value = sourceNSString.substring(with: NSRange(location: start, length: max(0, end - start)))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        for (index, marker) in best.enumerated() {
+            let start = marker.range.location + marker.range.length
+            let end = index + 1 < best.count ? best[index + 1].range.location : answerStart
+            let value = cleanedOption(sourceNSString.substring(with: NSRange(location: start, length: max(0, end - start))))
             if !value.isEmpty { options.append(value) }
         }
         guard !question.isEmpty, options.count >= 2 else {
@@ -975,13 +1159,28 @@ private enum ErrorQuestionParser {
     }
 
     private static func normalized(_ value: String) -> String {
-        value
+        let halfwidth = String(value.unicodeScalars.map { scalar -> Character in
+            if (0xFF21...0xFF28).contains(scalar.value) || (0xFF41...0xFF48).contains(scalar.value),
+               let converted = UnicodeScalar(scalar.value - 0xFEE0) {
+                return Character(converted)
+            }
+            return Character(scalar)
+        })
+        return halfwidth
             .replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: "</p>", with: "\n", options: .caseInsensitive)
             .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
             .replacingOccurrences(of: "&nbsp;", with: " ")
             .replacingOccurrences(of: "\\r\\n?", with: "\n", options: .regularExpression)
+            .replacingOccurrences(of: "[．﹒]", with: ".", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func cleanedOption(_ value: String) -> String {
+        value.components(separatedBy: .newlines)
+            .map(compactLine)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     /// Removes copy/paste wrapping while preserving one intentional break

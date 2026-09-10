@@ -62,8 +62,11 @@ const tests = {
   },
   'smart split is compact and preserves the final question paragraph': () => {
     const dialog = form.split('private var smartSplitDialog')[1].split('private func errorSection')[0];
-    assert.match(dialog, /frame\(height: 180\)/);
-    assert.match(dialog, /font\(AppTheme\.questionTextFont\)/);
+    assert.match(dialog, /ErrorSmartSplitDialog/);
+    assert.match(form, /frame\(height: 148\)/);
+    assert.doesNotMatch(form, /粘贴完整题干、A\/B\/C\/D 选项和答案/);
+    assert.match(form, /private struct OptionMarker/);
+    assert.match(form, /请将 A、B、C、D 分行放在各选项开头/);
     assert.match(form, /private static func cleanedQuestion/);
     assert.match(form, /"\\\(body\)\\n\\\(prompt\)"/);
   },
