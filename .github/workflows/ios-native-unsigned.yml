@@ -76,6 +76,23 @@ jobs:
         working-directory: native-ios
         run: xcodegen generate
 
+      - name: Detect simulator test scope
+        id: simulator_scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          RUN_SIMULATOR=false
+          if [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && [[ ! "$BEFORE_SHA" =~ ^0+$ ]]; then
+            CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")
+            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/Features/Speed/|Sources/App/RootTabView\.swift|Tests/(Animation|UI)/)'; then
+              RUN_SIMULATOR=true
+            fi
+          fi
+          echo "run=$RUN_SIMULATOR" >> "$GITHUB_OUTPUT"
+          echo "Run focused simulator tests: $RUN_SIMULATOR"
+
       - name: Test native keypad geometry
         run: |
           node native-ios/Tests/speed-feedback-contracts.cjs
@@ -93,12 +110,14 @@ jobs:
           "$RUNNER_TEMP/history-model-tests"
 
       - name: Resolve native test simulator
+        if: steps.simulator_scope.outputs.run == 'true'
         shell: bash
         run: |
           SIMULATOR_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next(d["udid"] for runtime,devices in sorted(data["devices"].items(), reverse=True) if "iOS" in runtime for d in devices if "iPad" in d["name"]))')
           echo "SIMULATOR_ID=$SIMULATOR_ID" >> "$GITHUB_ENV"
 
       - name: Compile native App and focused tests
+        if: steps.simulator_scope.outputs.run == 'true'
         timeout-minutes: 15
         shell: bash
         run: |
@@ -111,6 +130,7 @@ jobs:
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
 
       - name: Test changed speed controls with real simulator taps
+        if: steps.simulator_scope.outputs.run == 'true'
         timeout-minutes: 12
         shell: bash
         run: |
@@ -132,7 +152,7 @@ jobs:
           fi
 
       - name: Save failed simulator test diagnostics
-        if: failure()
+        if: failure() && steps.simulator_scope.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: speed-interaction-test-diagnostics

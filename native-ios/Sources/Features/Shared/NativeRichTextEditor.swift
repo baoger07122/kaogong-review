@@ -88,6 +88,24 @@ private enum RichTextColor: String, CaseIterable, Identifiable {
     }
 }
 
+private enum RichTextToolbarPage: Equatable {
+    case main, format, paragraph, insert
+}
+
+private struct RichTextSelectionState: Equatable {
+    var isBold = false
+    var isItalic = false
+    var isUnderlined = false
+    var isStruckThrough = false
+    var isHighlighted = false
+    var isQuoted = false
+    var isCode = false
+    var heading: RichTextHeading = .body
+    var foreground: RichTextColor = .primary
+    var canUndo = false
+    var canRedo = false
+}
+
 private struct RichTextCommand: Equatable {
     let id = UUID()
     let kind: RichTextCommandKind
@@ -111,6 +129,8 @@ struct NativeRichTextEditor: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var internalLinkPicker: InternalLinkPickerRequest?
     @State private var isEditing = false
+    @State private var toolbarPage: RichTextToolbarPage = .main
+    @State private var selectionState = RichTextSelectionState()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -120,9 +140,11 @@ struct NativeRichTextEditor: View {
                 selectedTable: $selectedTable,
                 selectedFormula: $selectedFormula,
                 isEditing: $isEditing,
+                selectionState: $selectionState,
                 internalLinks: internalLinks,
                 onOpenInternalLink: onOpenInternalLink,
                 keyboardAccessory: AnyView(keyboardToolbar),
+                keyboardAccessoryHeight: keyboardAccessoryHeight,
                 growsWithContent: documentStyle,
                 focusOnAppear: focusOnAppear
             )
@@ -174,96 +196,209 @@ struct NativeRichTextEditor: View {
                 command = RichTextCommand(kind: .image("data:image/jpeg;base64,\(compressed.base64EncodedString())"))
             }
         }
+        .onChange(of: isEditing) { _, active in
+            if !active { toolbarPage = .main }
+        }
+    }
+
+    private var keyboardAccessoryHeight: CGFloat {
+        toolbarPage == .insert || toolbarPage == .paragraph ? 250 : 58
     }
 
     private var keyboardToolbar: some View {
-        HStack(spacing: 0) {
-            toolbarStrip
-            Divider()
-                .frame(height: 24)
-            Button {
-                UIApplication.shared.sendAction(
-                    #selector(UIResponder.resignFirstResponder),
-                    to: nil,
-                    from: nil,
-                    for: nil
-                )
-            } label: {
-                Image(systemName: "keyboard.chevron.compact.down")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 42, height: 36)
-                    .contentShape(Rectangle())
+        VStack(spacing: 8) {
+            if toolbarPage == .insert {
+                insertPanel
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            } else if toolbarPage == .paragraph {
+                paragraphPanel
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("收起键盘")
+            HStack(spacing: 3) {
+                toolbarStrip
+                toolbarDivider
+                toolbarButton("keyboard.chevron.compact.down", label: "收起键盘") {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil,
+                        from: nil,
+                        for: nil
+                    )
+                }
+            }
+            .padding(.horizontal, 7)
+            .frame(height: 44)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.primary.opacity(0.07), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.13), radius: 10, y: 4)
+            .frame(maxWidth: 570)
         }
-        .frame(height: 44)
-        .background(Color(uiColor: .secondarySystemBackground))
+        .padding(.horizontal, 14)
+        .padding(.top, 3)
+        .padding(.bottom, 7)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .background(Color.clear)
+        .animation(.easeOut(duration: 0.14), value: toolbarPage)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("笔记格式栏")
     }
 
-    private var toolbarStrip: some View {
+    @ViewBuilder private var toolbarStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 5) {
-                if mode == .full {
-                    Menu {
-                        ForEach(RichTextHeading.allCases) { heading in
-                            Button(heading.rawValue) { command = RichTextCommand(kind: .heading(heading)) }
-                        }
-                    } label: { toolbarImage("textformat.size") }
-                    Menu {
-                        ForEach(RichTextColor.allCases) { color in
-                            Button(color.rawValue) { command = RichTextCommand(kind: .foreground(color)) }
-                        }
-                    } label: { toolbarImage("paintpalette") }
-                    formatButton(.highlight, "highlighter")
-                }
-                formatButton(.bold, "bold")
-                if mode == .full {
-                    formatButton(.italic, "italic")
-                    formatButton(.underline, "underline")
-                    formatButton(.strike, "strikethrough")
-                    formatButton(.quote, "text.quote")
-                    formatButton(.code, "chevron.left.forwardslash.chevron.right")
-                    formatButton(.divider, "minus")
-                    Button { tableEditor = selectedTable ?? RichTextTable() } label: { toolbarImage("tablecells") }
-                        .buttonStyle(.plain)
-                    Button { formulaEditor = selectedFormula ?? RichTextFormula() } label: { toolbarImage("function") }
-                        .buttonStyle(.plain)
-                    PhotosPicker(selection: $photoItem, matching: .images) { toolbarImage("photo.badge.plus") }
-                        .buttonStyle(.plain)
-                    if !internalLinks.isEmpty {
-                        Button { internalLinkPicker = InternalLinkPickerRequest() } label: { toolbarImage("link.circle") }
-                            .buttonStyle(.plain)
+            HStack(spacing: 3) {
+                if toolbarPage == .format {
+                    toolbarButton("chevron.left", label: "返回") { toolbarPage = .main }
+                    toolbarDivider
+                    colorMenu
+                    formatButton(.bold, "bold", active: selectionState.isBold)
+                    formatButton(.italic, "italic", active: selectionState.isItalic)
+                    formatButton(.underline, "underline", active: selectionState.isUnderlined)
+                    formatButton(.strike, "strikethrough", active: selectionState.isStruckThrough)
+                    formatButton(.highlight, "highlighter", active: selectionState.isHighlighted)
+                    formatButton(.code, "chevron.left.forwardslash.chevron.right", active: selectionState.isCode)
+                    toolbarButton("link", label: "链接") { showLinkPrompt = true }
+                } else {
+                    if mode == .full {
+                        toolbarButton("plus", label: "插入") { togglePage(.insert) }
+                        toolbarButton("textformat", label: "文字格式") { toolbarPage = .format }
+                        toolbarButton("list.bullet.rectangle", label: "段落格式") { togglePage(.paragraph) }
+                        toolbarDivider
+                    }
+                    formatButton(.undo, "arrow.uturn.backward", disabled: !selectionState.canUndo)
+                    formatButton(.redo, "arrow.uturn.forward", disabled: !selectionState.canRedo)
+                    if mode == .compact {
+                        formatButton(.bold, "bold", active: selectionState.isBold)
+                        formatButton(.bullets, "list.bullet")
+                        formatButton(.todos, "checklist")
                     }
                 }
-                formatButton(.outdent, "decrease.indent")
-                formatButton(.indent, "increase.indent")
-                formatButton(.bullets, "list.bullet")
-                formatButton(.numbers, "list.number")
-                if mode == .full { formatButton(.todos, "checklist") }
-                if mode == .full {
-                    Button { showLinkPrompt = true } label: { toolbarImage("link.badge.plus") }
-                        .buttonStyle(.plain)
-                    formatButton(.undo, "arrow.uturn.backward")
-                    formatButton(.redo, "arrow.uturn.forward")
-                }
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
         }
     }
 
-    private func formatButton(_ kind: RichTextCommandKind, _ image: String) -> some View {
-        Button { command = RichTextCommand(kind: kind) } label: {
-            toolbarImage(image)
-        }.buttonStyle(.plain)
+    private var colorMenu: some View {
+        Menu {
+            ForEach(RichTextColor.allCases) { color in
+                Button {
+                    command = RichTextCommand(kind: .foreground(color))
+                } label: {
+                    if selectionState.foreground == color { Label(color.rawValue, systemImage: "checkmark") }
+                    else { Text(color.rawValue) }
+                }
+            }
+        } label: {
+            toolbarImage("paintpalette", active: selectionState.foreground != .primary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("文字颜色")
     }
 
-    private func toolbarImage(_ image: String) -> some View {
-        Image(systemName: image).font(.system(size: 13, weight: .semibold)).frame(width: 31, height: 29)
-            .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
+    private var insertPanel: some View {
+        toolbarPanel(title: "插入") {
+            LazyVGrid(columns: panelColumns, spacing: 5) {
+                PhotosPicker(selection: $photoItem, matching: .images) {
+                    panelItem("photo", "图片")
+                }
+                .buttonStyle(.plain)
+                panelButton("tablecells", "表格") { tableEditor = selectedTable ?? RichTextTable() }
+                panelButton("minus", "分割线") { run(.divider) }
+                panelButton("function", "公式") { formulaEditor = selectedFormula ?? RichTextFormula() }
+                panelButton("link", "网页链接") { showLinkPrompt = true }
+                if !internalLinks.isEmpty {
+                    panelButton("link.circle", "关联笔记") { internalLinkPicker = InternalLinkPickerRequest() }
+                }
+            }
+        }
+    }
+
+    private var paragraphPanel: some View {
+        toolbarPanel(title: "段落") {
+            LazyVGrid(columns: panelColumns, spacing: 5) {
+                ForEach(RichTextHeading.allCases) { heading in
+                    panelButton(heading == .body ? "text.alignleft" : "textformat.size", heading.rawValue, active: selectionState.heading == heading) {
+                        run(.heading(heading))
+                    }
+                }
+                panelButton("text.quote", "引用", active: selectionState.isQuoted) { run(.quote) }
+                panelButton("list.bullet", "项目列表") { run(.bullets) }
+                panelButton("list.number", "编号列表") { run(.numbers) }
+                panelButton("checklist", "待办列表") { run(.todos) }
+                panelButton("increase.indent", "增加缩进") { run(.indent) }
+                panelButton("decrease.indent", "减少缩进") { run(.outdent) }
+            }
+        }
+    }
+
+    private var panelColumns: [GridItem] {
+        [GridItem(.flexible(), spacing: 5), GridItem(.flexible(), spacing: 5)]
+    }
+
+    private func toolbarPanel<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text(title).font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Button { toolbarPage = .main } label: {
+                    Image(systemName: "xmark").font(.system(size: 12, weight: .semibold)).frame(width: 28, height: 28)
+                }.buttonStyle(.plain)
+            }
+            content()
+        }
+        .padding(10)
+        .frame(maxWidth: 570)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.primary.opacity(0.07), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+    }
+
+    private func panelButton(_ image: String, _ title: String, active: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) { panelItem(image, title, active: active) }.buttonStyle(.plain)
+    }
+
+    private func panelItem(_ image: String, _ title: String, active: Bool = false) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: image).font(.system(size: 14, weight: .medium)).frame(width: 22)
+            Text(title).font(.system(size: 13, weight: .regular))
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(active ? Color.accentColor : Color.primary)
+        .padding(.horizontal, 10)
+        .frame(height: 37)
+        .background(active ? Color.accentColor.opacity(0.11) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(Rectangle())
+    }
+
+    private var toolbarDivider: some View {
+        Divider().frame(height: 21).padding(.horizontal, 2)
+    }
+
+    private func togglePage(_ page: RichTextToolbarPage) {
+        toolbarPage = toolbarPage == page ? .main : page
+    }
+
+    private func run(_ kind: RichTextCommandKind) {
+        command = RichTextCommand(kind: kind)
+    }
+
+    private func formatButton(_ kind: RichTextCommandKind, _ image: String, active: Bool = false, disabled: Bool = false) -> some View {
+        toolbarButton(image, active: active, disabled: disabled, label: nil) { run(kind) }
+    }
+
+    private func toolbarButton(_ image: String, active: Bool = false, disabled: Bool = false, label: String?, action: @escaping () -> Void) -> some View {
+        Button(action: action) { toolbarImage(image, active: active) }
+            .buttonStyle(.plain)
+            .disabled(disabled)
+            .opacity(disabled ? 0.3 : 1)
+            .accessibilityLabel(label ?? image)
+    }
+
+    private func toolbarImage(_ image: String, active: Bool = false) -> some View {
+        Image(systemName: image)
+            .font(.system(size: 15, weight: active ? .semibold : .regular))
+            .foregroundStyle(active ? Color.accentColor : Color.primary.opacity(0.78))
+            .frame(width: 36, height: 34)
+            .background(active ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
     }
 }
 
@@ -307,12 +442,13 @@ struct NativeRichTextDisplay: UIViewRepresentable {
 }
 
 private final class RichTextKeyboardAccessoryView: UIView {
-    private let fixedHeight: CGFloat = 44
+    private(set) var preferredHeight: CGFloat
 
-    init(contentView: UIView) {
+    init(contentView: UIView, height: CGFloat) {
+        preferredHeight = height
         super.init(frame: .zero)
         autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        backgroundColor = .secondarySystemBackground
+        backgroundColor = .clear
         contentView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(contentView)
         NSLayoutConstraint.activate([
@@ -327,7 +463,15 @@ private final class RichTextKeyboardAccessoryView: UIView {
     required init?(coder: NSCoder) { nil }
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: fixedHeight)
+        CGSize(width: UIView.noIntrinsicMetric, height: preferredHeight)
+    }
+
+    func updateHeight(_ height: CGFloat) -> Bool {
+        guard abs(preferredHeight - height) > 0.5 else { return false }
+        preferredHeight = height
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+        return true
     }
 }
 
@@ -337,9 +481,11 @@ private struct RichTextTextView: UIViewRepresentable {
     @Binding var selectedTable: RichTextTable?
     @Binding var selectedFormula: RichTextFormula?
     @Binding var isEditing: Bool
+    @Binding var selectionState: RichTextSelectionState
     let internalLinks: [RichTextInternalLink]
     let onOpenInternalLink: ((RichTextInternalLink) -> Void)?
     let keyboardAccessory: AnyView
+    let keyboardAccessoryHeight: CGFloat
     var growsWithContent = false
     var focusOnAppear = false
 
@@ -363,7 +509,7 @@ private struct RichTextTextView: UIViewRepresentable {
         view.linkTextAttributes = [.foregroundColor: UIColor.systemBlue, .underlineStyle: NSUnderlineStyle.single.rawValue]
         view.attributedText = Self.attributed(from: html)
         context.coordinator.lastHTML = html
-        context.coordinator.installKeyboardAccessory(keyboardAccessory, on: view)
+        context.coordinator.installKeyboardAccessory(keyboardAccessory, height: keyboardAccessoryHeight, on: view)
         if focusOnAppear {
             DispatchQueue.main.async { view.becomeFirstResponder() }
         }
@@ -378,7 +524,7 @@ private struct RichTextTextView: UIViewRepresentable {
 
     func updateUIView(_ view: UITextView, context: Context) {
         context.coordinator.parent = self
-        context.coordinator.updateKeyboardAccessory(keyboardAccessory)
+        context.coordinator.updateKeyboardAccessory(keyboardAccessory, height: keyboardAccessoryHeight, on: view)
         if context.coordinator.lastHTML != html, !view.isFirstResponder {
             view.attributedText = Self.attributed(from: html)
             context.coordinator.lastHTML = html
@@ -395,23 +541,32 @@ private struct RichTextTextView: UIViewRepresentable {
         var lastHTML = ""
         var lastCommandID: UUID?
         private var accessoryController: UIHostingController<AnyView>?
+        private weak var accessoryContainer: RichTextKeyboardAccessoryView?
         init(parent: RichTextTextView) { self.parent = parent }
 
-        func installKeyboardAccessory(_ content: AnyView, on textView: UITextView) {
+        func installKeyboardAccessory(_ content: AnyView, height: CGFloat, on textView: UITextView) {
             let controller = UIHostingController(rootView: content)
             controller.view.backgroundColor = .clear
-            let container = RichTextKeyboardAccessoryView(contentView: controller.view)
+            let container = RichTextKeyboardAccessoryView(contentView: controller.view, height: height)
             accessoryController = controller
+            accessoryContainer = container
             textView.inputAccessoryView = container
         }
 
-        func updateKeyboardAccessory(_ content: AnyView) {
+        func updateKeyboardAccessory(_ content: AnyView, height: CGFloat, on textView: UITextView) {
             accessoryController?.rootView = content
+            if accessoryContainer?.updateHeight(height) == true, textView.isFirstResponder {
+                textView.reloadInputViews()
+            }
         }
 
-        func textViewDidChange(_ textView: UITextView) { publish(textView) }
+        func textViewDidChange(_ textView: UITextView) {
+            publish(textView)
+            publishSelectionState(textView)
+        }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
+            publishSelectionState(textView)
             DispatchQueue.main.async { self.parent.isEditing = true }
             keepSelectionVisible(in: textView)
         }
@@ -427,6 +582,7 @@ private struct RichTextTextView: UIViewRepresentable {
                 self.parent.selectedTable = table
                 self.parent.selectedFormula = formula
             }
+            publishSelectionState(textView)
             keepSelectionVisible(in: textView)
         }
 
@@ -513,6 +669,7 @@ private struct RichTextTextView: UIViewRepresentable {
             }
             if restoreSelection { view.selectedRange = range }
             publish(view)
+            publishSelectionState(view)
         }
 
         private func addLink(_ target: String, view: UITextView, range: NSRange) {
@@ -560,20 +717,31 @@ private struct RichTextTextView: UIViewRepresentable {
 
         private func toggleFontTrait(_ trait: UIFontDescriptor.SymbolicTraits, view: UITextView, range: NSRange) {
             let base = font(at: range.location, view: view)
-            let hasTrait = base.fontDescriptor.symbolicTraits.contains(trait)
-            var traits = base.fontDescriptor.symbolicTraits
-            if hasTrait { traits.remove(trait) } else { traits.insert(trait) }
-            let descriptor = base.fontDescriptor.withSymbolicTraits(traits) ?? base.fontDescriptor
-            applyAttribute(.font, value: UIFont(descriptor: descriptor, size: base.pointSize), view: view, range: range)
+            if range.length == 0 {
+                var traits = base.fontDescriptor.symbolicTraits
+                if traits.contains(trait) { traits.remove(trait) } else { traits.insert(trait) }
+                let descriptor = base.fontDescriptor.withSymbolicTraits(traits) ?? base.fontDescriptor
+                applyAttribute(.font, value: UIFont(descriptor: descriptor, size: base.pointSize), view: view, range: range)
+                return
+            }
+            let remove = allRuns(in: range, view: view) { attributes in
+                (attributes[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(trait) == true
+            }
+            view.textStorage.enumerateAttribute(.font, in: range) { value, subrange, _ in
+                let font = value as? UIFont ?? .systemFont(ofSize: 13)
+                var traits = font.fontDescriptor.symbolicTraits
+                if remove { traits.remove(trait) } else { traits.insert(trait) }
+                let descriptor = font.fontDescriptor.withSymbolicTraits(traits) ?? font.fontDescriptor
+                view.textStorage.addAttribute(.font, value: UIFont(descriptor: descriptor, size: font.pointSize), range: subrange)
+            }
         }
 
         private func toggleAttribute(_ key: NSAttributedString.Key, value: Any, view: UITextView, range: NSRange) {
-            let hasValue = range.length > 0 && view.attributedText.attribute(key, at: range.location, effectiveRange: nil) != nil
             if range.length == 0 {
                 var attributes = view.typingAttributes
                 if attributes[key] == nil { attributes[key] = value } else { attributes.removeValue(forKey: key) }
                 view.typingAttributes = attributes
-            } else if hasValue { view.textStorage.removeAttribute(key, range: range) }
+            } else if allRuns(in: range, view: view, predicate: { $0[key] != nil }) { view.textStorage.removeAttribute(key, range: range) }
             else { view.textStorage.addAttribute(key, value: value, range: range) }
         }
 
@@ -728,6 +896,67 @@ private struct RichTextTextView: UIViewRepresentable {
             view.invalidateIntrinsicContentSize()
             let html = RichTextTextView.html(from: view.attributedText)
             lastHTML = html; parent.html = html
+        }
+
+        private func publishSelectionState(_ view: UITextView) {
+            let range = view.selectedRange
+            let attributes = attributesForCaretOrSelection(range, view: view)
+            let font = attributes[.font] as? UIFont ?? .systemFont(ofSize: 13)
+            let paragraph = attributes[.paragraphStyle] as? NSParagraphStyle
+            let foreground = attributes[.foregroundColor] as? UIColor
+            let heading: RichTextHeading = if everyAttribute(in: range, view: view, predicate: { (($0[.font] as? UIFont)?.pointSize ?? 13) >= 17 }) {
+                .heading1
+            } else if everyAttribute(in: range, view: view, predicate: {
+                let size = ($0[.font] as? UIFont)?.pointSize ?? 13
+                return size >= 15 && size < 17
+            }) {
+                .heading2
+            } else {
+                .body
+            }
+            let state = RichTextSelectionState(
+                isBold: everyAttribute(in: range, view: view) { ($0[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitBold) == true },
+                isItalic: everyAttribute(in: range, view: view) { ($0[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true },
+                isUnderlined: everyAttribute(in: range, view: view) { ($0[.underlineStyle] as? Int ?? 0) != 0 },
+                isStruckThrough: everyAttribute(in: range, view: view) { ($0[.strikethroughStyle] as? Int ?? 0) != 0 },
+                isHighlighted: everyAttribute(in: range, view: view) { $0[.backgroundColor] != nil },
+                isQuoted: everyAttribute(in: range, view: view) { (($0[.paragraphStyle] as? NSParagraphStyle)?.headIndent ?? 0) >= 22 },
+                isCode: everyAttribute(in: range, view: view) { ($0[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitMonoSpace) == true },
+                heading: heading,
+                foreground: RichTextColor.allCases.first(where: { foreground?.isEqual($0.uiColor) == true }) ?? .primary,
+                canUndo: view.undoManager?.canUndo == true,
+                canRedo: view.undoManager?.canRedo == true
+            )
+            guard state != parent.selectionState else { return }
+            DispatchQueue.main.async { self.parent.selectionState = state }
+        }
+
+        private func attributesForCaretOrSelection(_ range: NSRange, view: UITextView) -> [NSAttributedString.Key: Any] {
+            if range.length == 0 { return view.typingAttributes }
+            guard view.attributedText.length > 0 else { return view.typingAttributes }
+            return view.attributedText.attributes(at: min(range.location, view.attributedText.length - 1), effectiveRange: nil)
+        }
+
+        private func everyAttribute(
+            in range: NSRange,
+            view: UITextView,
+            predicate: ([NSAttributedString.Key: Any]) -> Bool
+        ) -> Bool {
+            if range.length == 0 { return predicate(view.typingAttributes) }
+            return allRuns(in: range, view: view, predicate: predicate)
+        }
+
+        private func allRuns(
+            in range: NSRange,
+            view: UITextView,
+            predicate: ([NSAttributedString.Key: Any]) -> Bool
+        ) -> Bool {
+            guard range.length > 0 else { return predicate(view.typingAttributes) }
+            var matches = true
+            view.attributedText.enumerateAttributes(in: range) { attributes, _, stop in
+                if !predicate(attributes) { matches = false; stop.pointee = true }
+            }
+            return matches
         }
     }
 

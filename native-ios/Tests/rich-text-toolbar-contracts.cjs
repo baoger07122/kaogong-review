@@ -23,6 +23,15 @@ assert.doesNotMatch(
   "Do not rely on a navigation-level SwiftUI keyboard toolbar for UIKit text input.",
 );
 assert.match(source, /accessibilityLabel\("笔记格式栏"\)/);
-assert.match(source, /accessibilityLabel\("收起键盘"\)/);
+assert.match(source, /label:\s*"收起键盘"/);
+assert.match(source, /private enum RichTextToolbarPage:[\s\S]*case main, format, paragraph, insert/);
+assert.match(source, /keyboardAccessoryHeight:\s*keyboardAccessoryHeight/);
+assert.match(source, /textView\.reloadInputViews\(\)/);
+assert.match(source, /private struct RichTextSelectionState/);
+assert.doesNotMatch(
+  source,
+  /backgroundColor\s*=\s*\.secondarySystemBackground/,
+  "The accessory host must stay transparent so the centered floating card is not replaced by a full-width gray strip.",
+);
 
-console.log("PASS rich-text toolbar is owned by the active UITextView keyboard accessory");
+console.log("PASS rich-text toolbar is a focus-owned, dynamically sized floating keyboard accessory");
