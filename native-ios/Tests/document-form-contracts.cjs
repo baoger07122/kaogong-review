@@ -39,7 +39,8 @@ const tests = {
   },
   'document editor grows and keeps keyboard toolbar': () => {
     assert.match(rich, /if growsWithContent \{\s+view\.isScrollEnabled = false/);
-    assert.match(rich, /ToolbarItem\(placement: \.keyboard\)/);
+    assert.match(rich, /textView\.inputAccessoryView = container/);
+    assert.doesNotMatch(rich, /ToolbarItem\(placement: \.keyboard\)/);
     assert.match(rich, /focusOnAppear/);
   },
   'thinking trap is text, never auto-added to tag library': () => {

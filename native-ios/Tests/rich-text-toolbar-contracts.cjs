@@ -1,0 +1,28 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const source = fs.readFileSync(
+  path.join(__dirname, "..", "Sources", "Features", "Shared", "NativeRichTextEditor.swift"),
+  "utf8",
+);
+
+assert.match(
+  source,
+  /keyboardAccessory:\s*AnyView\(keyboardToolbar\)/,
+  "The shared rich-text editor must pass its toolbar to the active text view.",
+);
+assert.match(
+  source,
+  /textView\.inputAccessoryView\s*=\s*container/,
+  "The toolbar must be attached directly to UITextView.inputAccessoryView.",
+);
+assert.doesNotMatch(
+  source,
+  /ToolbarItem\(placement:\s*\.keyboard\)/,
+  "Do not rely on a navigation-level SwiftUI keyboard toolbar for UIKit text input.",
+);
+assert.match(source, /accessibilityLabel\("笔记格式栏"\)/);
+assert.match(source, /accessibilityLabel\("收起键盘"\)/);
+
+console.log("PASS rich-text toolbar is owned by the active UITextView keyboard accessory");

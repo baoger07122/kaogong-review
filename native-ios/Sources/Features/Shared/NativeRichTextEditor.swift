@@ -122,15 +122,12 @@ struct NativeRichTextEditor: View {
                 isEditing: $isEditing,
                 internalLinks: internalLinks,
                 onOpenInternalLink: onOpenInternalLink,
+                keyboardAccessory: AnyView(keyboardToolbar),
                 growsWithContent: documentStyle,
                 focusOnAppear: focusOnAppear
             )
                 .frame(minHeight: minHeight)
                 .padding(.horizontal, documentStyle ? 0 : 5)
-            if !isEditing && !documentStyle {
-                Divider()
-                toolbarStrip
-            }
         }
         .background(Color.primary.opacity(documentStyle ? 0 : 0.035), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
         .overlay(RoundedRectangle(cornerRadius: AppTheme.controlRadius).stroke(Color.primary.opacity(documentStyle ? 0 : 0.07), lineWidth: 0.7))
@@ -177,14 +174,33 @@ struct NativeRichTextEditor: View {
                 command = RichTextCommand(kind: .image("data:image/jpeg;base64,\(compressed.base64EncodedString())"))
             }
         }
-        .toolbar {
-            if isEditing {
-                ToolbarItem(placement: .keyboard) {
-                    toolbarStrip
-                        .frame(maxWidth: .infinity)
-                }
+    }
+
+    private var keyboardToolbar: some View {
+        HStack(spacing: 0) {
+            toolbarStrip
+            Divider()
+                .frame(height: 24)
+            Button {
+                UIApplication.shared.sendAction(
+                    #selector(UIResponder.resignFirstResponder),
+                    to: nil,
+                    from: nil,
+                    for: nil
+                )
+            } label: {
+                Image(systemName: "keyboard.chevron.compact.down")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 42, height: 36)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("收起键盘")
         }
+        .frame(height: 44)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("笔记格式栏")
     }
 
     private var toolbarStrip: some View {
@@ -290,6 +306,31 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     }
 }
 
+private final class RichTextKeyboardAccessoryView: UIView {
+    private let fixedHeight: CGFloat = 44
+
+    init(contentView: UIView) {
+        super.init(frame: .zero)
+        autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        backgroundColor = .secondarySystemBackground
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(contentView)
+        NSLayoutConstraint.activate([
+            contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentView.topAnchor.constraint(equalTo: topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: fixedHeight)
+    }
+}
+
 private struct RichTextTextView: UIViewRepresentable {
     @Binding var html: String
     @Binding var command: RichTextCommand?
@@ -298,6 +339,7 @@ private struct RichTextTextView: UIViewRepresentable {
     @Binding var isEditing: Bool
     let internalLinks: [RichTextInternalLink]
     let onOpenInternalLink: ((RichTextInternalLink) -> Void)?
+    let keyboardAccessory: AnyView
     var growsWithContent = false
     var focusOnAppear = false
 
@@ -321,6 +363,7 @@ private struct RichTextTextView: UIViewRepresentable {
         view.linkTextAttributes = [.foregroundColor: UIColor.systemBlue, .underlineStyle: NSUnderlineStyle.single.rawValue]
         view.attributedText = Self.attributed(from: html)
         context.coordinator.lastHTML = html
+        context.coordinator.installKeyboardAccessory(keyboardAccessory, on: view)
         if focusOnAppear {
             DispatchQueue.main.async { view.becomeFirstResponder() }
         }
@@ -335,6 +378,7 @@ private struct RichTextTextView: UIViewRepresentable {
 
     func updateUIView(_ view: UITextView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.updateKeyboardAccessory(keyboardAccessory)
         if context.coordinator.lastHTML != html, !view.isFirstResponder {
             view.attributedText = Self.attributed(from: html)
             context.coordinator.lastHTML = html
@@ -350,7 +394,20 @@ private struct RichTextTextView: UIViewRepresentable {
         var parent: RichTextTextView
         var lastHTML = ""
         var lastCommandID: UUID?
+        private var accessoryController: UIHostingController<AnyView>?
         init(parent: RichTextTextView) { self.parent = parent }
+
+        func installKeyboardAccessory(_ content: AnyView, on textView: UITextView) {
+            let controller = UIHostingController(rootView: content)
+            controller.view.backgroundColor = .clear
+            let container = RichTextKeyboardAccessoryView(contentView: controller.view)
+            accessoryController = controller
+            textView.inputAccessoryView = container
+        }
+
+        func updateKeyboardAccessory(_ content: AnyView) {
+            accessoryController?.rootView = content
+        }
 
         func textViewDidChange(_ textView: UITextView) { publish(textView) }
 
