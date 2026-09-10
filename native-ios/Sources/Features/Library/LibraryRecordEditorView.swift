@@ -1003,7 +1003,7 @@ struct LibraryRecordEditorView: View {
         // Error and word editors do not expose the internal-link workflow. Avoid
         // sorting and mapping the complete library during their first render.
         guard kind == .notes else { return [] }
-        records
+        return records
             .filter { ($0.collection == "errors" || $0.collection == "notes") && $0.recordID != recordID }
             .sorted { ($0.updatedAt ?? $0.createdAt ?? .distantPast) > ($1.updatedAt ?? $1.createdAt ?? .distantPast) }
             .map { RichTextInternalLink(collection: $0.collection, recordID: $0.recordID, title: $0.title) }
