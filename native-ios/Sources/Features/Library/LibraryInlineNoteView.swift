@@ -83,6 +83,7 @@ struct LibraryInlineNoteView: View {
     }
 
     @discardableResult private func finishEditing() -> Bool {
+        guard editing else { return true }
         saveTask?.cancel()
         guard save() else { return false }
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)

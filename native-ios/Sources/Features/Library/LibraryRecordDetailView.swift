@@ -60,7 +60,7 @@ struct LibraryRecordDetailView: View {
                     Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
                         .accessibilityLabel("涂鸦")
                     Menu {
-                        Button { if noteSession.finish() { showEditor = true } } label: { Label("编辑错题", systemImage: "pencil") }
+                        Button(action: requestEditor) { Label("编辑错题", systemImage: "pencil") }
                         Button(role: .destructive) { if noteSession.finish() { showDelete = true } } label: { Label("删除错题", systemImage: "trash") }
                     } label: { Image(systemName: "ellipsis") }
                 }
@@ -76,6 +76,16 @@ struct LibraryRecordDetailView: View {
             }
         }
 
+    }
+
+    private func requestEditor() {
+        guard noteSession.finish() else { return }
+        // Let the system menu finish dismissing before mutating the navigation path.
+        // Doing both synchronously can stall focus and navigation handling on iPadOS.
+        Task { @MainActor in
+            await Task.yield()
+            showEditor = true
+        }
     }
 
     private var metadata: some View {
