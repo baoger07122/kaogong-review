@@ -321,11 +321,6 @@ struct LibraryRecordEditorView: View {
                     )
                 }
             }
-            errorFormCard {
-                compactFormSection("错题笔记", image: "note.text") {
-                    richEditor(text: $draft.content, height: 110)
-                }
-            }
         }
         .background(Color.white)
     }
@@ -399,13 +394,6 @@ struct LibraryRecordEditorView: View {
                     text: $draft.pitfall,
                     suggestions: TagLibraryRepository.tags(kind: .thinkingTrap, module: draft.module, records: records)
                 )
-            }
-            }
-
-            errorFormCard {
-                compactFormSection("错题笔记", image: "note.text") {
-                Text("个人复盘心得、解析与方法总结").font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
-                richEditor(text: $draft.content, height: 130)
             }
             }
 

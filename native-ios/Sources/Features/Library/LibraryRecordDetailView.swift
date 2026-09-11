@@ -80,10 +80,11 @@ struct LibraryRecordDetailView: View {
 
     private func requestEditor() {
         guard noteSession.finish() else { return }
-        // Let the system menu finish dismissing before mutating the navigation path.
-        // Doing both synchronously can stall focus and navigation handling on iPadOS.
+        // Let the system menu fully dismiss before mutating the navigation path.
+        // A single run-loop yield can still overlap the iPadOS menu transition.
         Task { @MainActor in
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(140))
+            guard !Task.isCancelled else { return }
             showEditor = true
         }
     }
