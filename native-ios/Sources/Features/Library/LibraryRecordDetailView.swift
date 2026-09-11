@@ -9,9 +9,9 @@ struct LibraryRecordDetailView: View {
     let kind: LibraryContentKind
     let scope: LibraryScope
     let record: StoredRecord
+    let onEdit: () -> Void
     let onDelete: () -> Void
 
-    @State private var showEditor = false
     @State private var showDelete = false
     @StateObject private var noteSession = LibraryInlineNoteSession()
     @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
@@ -60,15 +60,16 @@ struct LibraryRecordDetailView: View {
                     Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
                         .accessibilityLabel("涂鸦")
                     Menu {
-                        Button(action: requestEditor) { Label("编辑错题", systemImage: "pencil") }
+                        Button {
+                            if noteSession.finish() { onEdit() }
+                        } label: {
+                            Label("编辑错题", systemImage: "pencil")
+                        }
                         Button(role: .destructive) { if noteSession.finish() { showDelete = true } } label: { Label("删除错题", systemImage: "trash") }
                     } label: { Image(systemName: "ellipsis") }
                 }
             }
             .documentToolbarBackground()
-        }
-        .navigationDestination(isPresented: $showEditor) {
-            LibraryRecordEditorView(kind: kind, scope: scope, record: record)
         }
         .navigationDestination(item: $linkedWordDetailTarget) { target in
             if let word = records.first(where: { $0.collection == "words" && $0.recordID == target.recordID }) {
@@ -76,16 +77,6 @@ struct LibraryRecordDetailView: View {
             }
         }
 
-    }
-
-    private func requestEditor() {
-        guard noteSession.finish() else { return }
-        // Let the system menu finish dismissing before mutating the navigation path.
-        // Doing both synchronously can stall focus and navigation handling on iPadOS.
-        Task { @MainActor in
-            await Task.yield()
-            showEditor = true
-        }
     }
 
     private var metadata: some View {

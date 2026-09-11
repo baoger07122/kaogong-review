@@ -63,10 +63,18 @@ struct LibraryView: View {
                         detailTarget = nil
                     }
                 } else {
-                    LibraryRecordDetailView(kind: target.kind, scope: scope, record: record) {
-                        remove(LibraryDeleteTarget(kind: target.kind, recordID: target.recordID))
-                        detailTarget = nil
-                    }
+                    LibraryRecordDetailView(
+                        kind: target.kind,
+                        scope: scope,
+                        record: record,
+                        onEdit: {
+                            editorTarget = LibraryEditorTarget(kind: target.kind, recordID: target.recordID)
+                        },
+                        onDelete: {
+                            remove(LibraryDeleteTarget(kind: target.kind, recordID: target.recordID))
+                            detailTarget = nil
+                        }
+                    )
                 }
             }
         }

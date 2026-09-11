@@ -321,11 +321,6 @@ struct LibraryRecordEditorView: View {
                     )
                 }
             }
-            errorFormCard {
-                compactFormSection("错题笔记", image: "note.text") {
-                    richEditor(text: $draft.content, height: 110)
-                }
-            }
         }
         .background(Color.white)
     }
@@ -399,13 +394,6 @@ struct LibraryRecordEditorView: View {
                     text: $draft.pitfall,
                     suggestions: TagLibraryRepository.tags(kind: .thinkingTrap, module: draft.module, records: records)
                 )
-            }
-            }
-
-            errorFormCard {
-                compactFormSection("错题笔记", image: "note.text") {
-                Text("个人复盘心得、解析与方法总结").font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
-                richEditor(text: $draft.content, height: 130)
             }
             }
 
@@ -1003,7 +991,7 @@ struct LibraryRecordEditorView: View {
         // Error and word editors do not expose the internal-link workflow. Avoid
         // sorting and mapping the complete library during their first render.
         guard kind == .notes else { return [] }
-        records
+        return records
             .filter { ($0.collection == "errors" || $0.collection == "notes") && $0.recordID != recordID }
             .sorted { ($0.updatedAt ?? $0.createdAt ?? .distantPast) > ($1.updatedAt ?? $1.createdAt ?? .distantPast) }
             .map { RichTextInternalLink(collection: $0.collection, recordID: $0.recordID, title: $0.title) }
