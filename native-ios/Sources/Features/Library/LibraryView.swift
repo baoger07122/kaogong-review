@@ -24,12 +24,13 @@ struct LibraryView: View {
     @State private var noteTypeColor = NoteTypeRepository.colors[0]
     @State private var deleteTarget: LibraryDeleteTarget?
     @State private var detailTarget: LibraryDetailTarget?
+    @State private var linkedWordTarget: LinkedWordDetailTarget?
     @State private var showSearch = false
     @State private var wordCategory: WordCategory = .idiomDefinition
     @State private var wordSentiment = ""
     @State private var wordEntryKind = ""
     @State private var renderLimit = 40
-    @State private var refreshedLegacyErrorIndexes = false
+    @State private var refreshedLegacyIndexes = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -48,20 +49,22 @@ struct LibraryView: View {
         .background(AppTheme.groupedBackground)
         .stableRootNavigationBar()
         .rootTabBarContentInset()
-        .task { refreshLegacyErrorIndexesIfNeeded() }
+        .task { refreshLegacyIndexesIfNeeded() }
         .navigationDestination(item: $editorTarget) { target in
             LibraryRecordEditorView(
                 kind: target.kind,
                 scope: scope,
                 record: records.first { $0.collection == target.kind.collection && $0.recordID == target.recordID },
                 preferredType: target.recordID == nil ? (target.kind == .words ? wordCategory.rawValue : selectedTag) : "",
-                dismissAfterSave: !(target.kind == .errors && target.recordID == nil),
+                dismissAfterSave: !(target.recordID == nil && (target.kind == .errors || target.kind == .words)),
                 onSaved: { savedID in
-                    guard target.kind == .errors, target.recordID == nil else { return }
+                    guard target.recordID == nil,
+                          target.kind == .errors || target.kind == .words
+                    else { return }
                     Task { @MainActor in
                         await Task.yield()
                         editorTarget = nil
-                        detailTarget = LibraryDetailTarget(kind: .errors, recordID: savedID)
+                        detailTarget = LibraryDetailTarget(kind: target.kind, recordID: savedID)
                     }
                 }
             )
@@ -69,10 +72,14 @@ struct LibraryView: View {
         .navigationDestination(item: $detailTarget) { target in
             if let record = records.first(where: { $0.collection == target.kind.collection && $0.recordID == target.recordID }) {
                 if target.kind == .words {
-                    WordLibraryRecordDetailView(record: record) {
-                        remove(LibraryDeleteTarget(kind: target.kind, recordID: target.recordID))
-                        detailTarget = nil
-                    }
+                    WordLibraryRecordDetailView(
+                        record: record,
+                        onEdit: { openEditorAfterMenuDismisses(kind: .words, recordID: target.recordID) },
+                        onDelete: {
+                            remove(LibraryDeleteTarget(kind: target.kind, recordID: target.recordID))
+                            detailTarget = nil
+                        }
+                    )
                 } else {
                     LibraryRecordDetailView(
                         kind: target.kind,
@@ -84,9 +91,18 @@ struct LibraryView: View {
                         onDelete: {
                             remove(LibraryDeleteTarget(kind: target.kind, recordID: target.recordID))
                             detailTarget = nil
-                        }
+                        },
+                        onOpenLinkedWord: { linkedWordTarget = LinkedWordDetailTarget(recordID: $0) }
                     )
                 }
+            }
+        }
+        .navigationDestination(item: $linkedWordTarget) { target in
+            if let word = records.first(where: { $0.collection == "words" && $0.recordID == target.recordID }) {
+                WordLibraryRecordDetailView(
+                    record: word,
+                    onEdit: { openEditorAfterMenuDismisses(kind: .words, recordID: target.recordID) }
+                )
             }
         }
         .overlay {
@@ -115,14 +131,20 @@ struct LibraryView: View {
         }
     }
 
-    private func refreshLegacyErrorIndexesIfNeeded() {
-        guard !refreshedLegacyErrorIndexes else { return }
-        refreshedLegacyErrorIndexes = true
+    private func refreshLegacyIndexesIfNeeded() {
+        guard !refreshedLegacyIndexes else { return }
+        refreshedLegacyIndexes = true
         var changed = false
-        for record in records where record.collection == "errors" && record.indexObject?["pitfall"] == nil {
-            guard record.jsonObject?["pitfall"] != nil else { continue }
-            record.replacePayload(record.payload)
-            changed = true
+        for record in records {
+            if record.collection == "errors", record.indexObject?["pitfall"] == nil,
+               record.jsonObject?["pitfall"] != nil {
+                record.replacePayload(record.payload)
+                changed = true
+            } else if record.collection == "words", record.indexObject?["entryKind"] == nil,
+                      record.jsonObject?["entryKind"] != nil {
+                record.replacePayload(record.payload)
+                changed = true
+            }
         }
         if changed { try? modelContext.save() }
     }
@@ -332,7 +354,7 @@ struct LibraryView: View {
 
     private var availableKinds: [LibraryContentKind] {
         var values: [LibraryContentKind] = [.errors, .notes]
-        if scope.isLogicFill && (kind == .notes || kind == .words) { values.append(.words) }
+        if scope.isLogicFill { values.append(.words) }
         values.append(.stickies)
         return values
     }

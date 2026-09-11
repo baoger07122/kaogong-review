@@ -2,7 +2,7 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
-enum RichTextToolbarMode { case full, compact }
+enum RichTextToolbarMode { case full, compact, minimal }
 
 private enum RichTextCommandKind: Equatable {
     case bold, italic, underline, strike, indent, outdent, bullets, numbers, todos, divider
@@ -270,6 +270,8 @@ struct NativeRichTextEditor: View {
                         formatButton(.bold, "bold", active: selectionState.isBold)
                         formatButton(.bullets, "list.bullet")
                         formatButton(.todos, "checklist")
+                    } else if mode == .minimal {
+                        formatButton(.bold, "bold", active: selectionState.isBold)
                     }
                 }
             }

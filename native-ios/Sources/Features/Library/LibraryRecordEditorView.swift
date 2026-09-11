@@ -67,12 +67,22 @@ struct LibraryRecordEditorView: View {
         if kind == .errors, !["错题", "不确定题"].contains(initialDraft.type) {
             initialDraft.type = "错题"
         }
+        if kind == .words,
+           WordCategory(rawValue: initialDraft.type)?.isComparison == true {
+            while initialDraft.wordCompareTerms.count < 2 {
+                initialDraft.wordCompareTerms.append(.init(entryKind: initialDraft.wordEntryKind))
+            }
+            let names = initialDraft.wordCompareTerms
+                .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            if !names.isEmpty { initialDraft.title = names.joined(separator: " vs ") }
+        }
         _draft = State(initialValue: initialDraft)
     }
 
     var body: some View {
         Group {
-            if recordID == nil {
+            if recordID == nil, kind != .words {
                 configuredEditor
                     .onChange(of: draftSnapshot) { _, snapshot in
                         LibraryDraftStore.save(snapshot, kind: kind, scope: scope)
@@ -147,7 +157,8 @@ struct LibraryRecordEditorView: View {
             .frame(maxWidth: kind == .errors ? 920 : .infinity)
             .frame(maxWidth: .infinity)
         }
-        .background(kind == .errors ? Color.white : AppTheme.groupedBackground)
+        .background(kind == .errors || kind == .words ? Color.white : AppTheme.groupedBackground)
+        .scrollDismissesKeyboard(.interactively)
     }
 
     private var configuredEditor: some View {
@@ -726,17 +737,26 @@ struct LibraryRecordEditorView: View {
     }
 
     private var wordFields: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            NativePropertyRow(title: "当前模块", value: wordCategory.title, systemImage: wordCategory.systemImage) {}
-                .allowsHitTesting(false)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                compactWordProperty(title: "当前模块", value: wordCategory.title, image: wordCategory.systemImage)
+                Spacer(minLength: 8)
+                if wordCategory.isComparison {
+                    wordEntryKindPicker(selection: $draft.wordEntryKind)
+                }
+            }
+
+            Divider().opacity(0.55)
 
             if wordCategory.isComparison {
+                NativeFieldLabel(title: "共同语义")
+                compactWordTextField("共同语义（可选）", text: $draft.commonMeaning, multiline: true)
+
                 NativeFieldLabel(title: "辨析词语")
                 ForEach($draft.wordCompareTerms) { $term in
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            wordEntryKindPicker(selection: $term.entryKind)
-                            TextField("词语 / 常见搭配", text: $term.name).textFieldStyle(NativeTextFieldStyle())
+                            compactWordTextField("词语 / 常见搭配", text: $term.name)
                             if draft.wordCompareTerms.count > 2 {
                                 Button(role: .destructive) {
                                     draft.wordCompareTerms.removeAll { $0.id == term.id }
@@ -745,12 +765,20 @@ struct LibraryRecordEditorView: View {
                                 .buttonStyle(.plain)
                             }
                         }
-                        TextField("该词的独立解释", text: $term.meaning, axis: .vertical)
-                            .textFieldStyle(NativeTextFieldStyle())
-                            .lineLimit(2...4)
+                        NativeRichTextEditor(
+                            html: $term.meaning,
+                            minHeight: 64,
+                            mode: .minimal,
+                            documentStyle: true
+                        )
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .stroke(Color.primary.opacity(0.10), lineWidth: 0.7)
+                        }
                     }
-                    .padding(10)
-                    .background(AppTheme.groupedBackground, in: RoundedRectangle(cornerRadius: 10))
+                    .padding(.vertical, 4)
                     .onChange(of: term.name) { _, _ in syncComparisonTitle() }
                 }
                 Button {
@@ -759,47 +787,38 @@ struct LibraryRecordEditorView: View {
                     Label("增加词语", systemImage: "plus.circle")
                         .font(AppTheme.inputFont.weight(.semibold))
                 }
-                TextField("共同语义（可选）", text: $draft.commonMeaning, axis: .vertical)
-                    .textFieldStyle(NativeTextFieldStyle())
-                    .lineLimit(2...4)
-                TextField("核心区别", text: $draft.compareNote, axis: .vertical)
-                    .textFieldStyle(NativeTextFieldStyle())
-                    .lineLimit(2...5)
+                compactWordTextField("核心区别", text: $draft.compareNote, multiline: true)
             } else {
                 HStack(spacing: 8) {
                     wordEntryKindPicker(selection: $draft.wordEntryKind)
-                    TextField("词语 / 常见搭配", text: $draft.title)
-                        .textFieldStyle(NativeTextFieldStyle())
+                    compactWordTextField("词语 / 常见搭配", text: $draft.title)
                 }
-                TextField("拼音（可选）", text: $draft.pinyin).textFieldStyle(NativeTextFieldStyle())
+                compactWordTextField("拼音（可选）", text: $draft.pinyin)
             }
 
             Menu {
                 Button("未设置") { draft.sentiment = "" }
                 ForEach(["褒义", "贬义", "中性"], id: \.self) { value in Button(value) { draft.sentiment = value } }
             } label: {
-                NativePropertyRow(title: "感情色彩", value: draft.sentiment.isEmpty ? "未设置" : draft.sentiment, systemImage: "face.smiling") {}
-                    .allowsHitTesting(false)
+                compactWordProperty(
+                    title: "感情色彩",
+                    value: draft.sentiment.isEmpty ? "未设置" : draft.sentiment,
+                    image: "face.smiling"
+                )
             }
+            .buttonStyle(.plain)
             if wordCategory == .wordDefinition {
-                TextField("词性（例如：动词）", text: $draft.partOfSpeech).textFieldStyle(NativeTextFieldStyle())
+                compactWordTextField("词性（例如：动词）", text: $draft.partOfSpeech)
             }
             NativeFieldLabel(title: wordCategory.isComparison ? "判断提示" : "释义")
             richEditor(text: $draft.content, height: 145)
-            TextField("例句（可选）", text: $draft.example, axis: .vertical)
-                .textFieldStyle(NativeTextFieldStyle())
-                .lineLimit(2...4)
+            compactWordTextField("例句（可选）", text: $draft.example, multiline: true)
             if wordCategory == .wordDefinition {
-                TextField("我的理解", text: $draft.myUnderstanding, axis: .vertical).textFieldStyle(NativeTextFieldStyle()).lineLimit(2...4)
-                TextField("常见搭配", text: $draft.collocations, axis: .vertical).textFieldStyle(NativeTextFieldStyle()).lineLimit(2...4)
-                TextField("来源", text: $draft.wordSource).textFieldStyle(NativeTextFieldStyle())
+                compactWordTextField("我的理解", text: $draft.myUnderstanding, multiline: true)
+                compactWordTextField("常见搭配", text: $draft.collocations, multiline: true)
+                compactWordTextField("来源", text: $draft.wordSource)
             }
             multiRelationSection(title: "关联错题", candidates: relationCandidates(collection: "errors"), selection: $draft.linkedErrorIDs)
-        }
-        .nativeCard()
-        .onAppear {
-            if draft.type.isEmpty { draft.type = WordCategory.idiomDefinition.rawValue }
-            ensureComparisonTerms()
         }
     }
 
@@ -818,12 +837,49 @@ struct LibraryRecordEditorView: View {
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
             }
             .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.primary)
             .padding(.horizontal, 9)
-            .frame(height: 38)
-            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .frame(height: 38, alignment: .center)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(Color.primary.opacity(0.10), lineWidth: 0.7)
+            }
         }
         .buttonStyle(.plain)
+    }
+
+    private func compactWordProperty(title: String, value: String, image: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: image).foregroundStyle(AppTheme.accent)
+            Text(title).foregroundStyle(.secondary)
+            Text(value).foregroundStyle(.primary)
+        }
+        .font(.system(size: 12, weight: .regular))
+        .padding(.horizontal, 10)
+        .frame(height: 38, alignment: .center)
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(Color.primary.opacity(0.10), lineWidth: 0.7)
+        }
+    }
+
+    private func compactWordTextField(
+        _ prompt: String,
+        text: Binding<String>,
+        multiline: Bool = false
+    ) -> some View {
+        TextField(prompt, text: text, axis: multiline ? .vertical : .horizontal)
+            .font(AppTheme.inputFont)
+            .lineLimit(multiline ? 2...5 : 1...1)
+            .padding(.horizontal, 11)
+            .padding(.vertical, multiline ? 10 : 0)
+            .frame(minHeight: 40, alignment: .center)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(Color.primary.opacity(0.10), lineWidth: 0.7)
+            }
     }
 
     private func ensureComparisonTerms() {
@@ -978,7 +1034,7 @@ struct LibraryRecordEditorView: View {
         NativeRichTextEditor(
             html: text,
             minHeight: height,
-            documentStyle: kind == .errors,
+            documentStyle: kind == .errors || kind == .words,
             internalLinks: internalLinkCandidates,
             onOpenInternalLink: { link in
                 linkedEditorTarget = LinkedRecordEditorTarget(collection: link.collection, recordID: link.recordID)

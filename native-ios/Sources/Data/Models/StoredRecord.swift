@@ -75,7 +75,7 @@ final class StoredRecord {
             keys = [
                 "id", "subject", "module", "title", "name", "words", "type", "category", "meaning", "pinyin",
                 "sentiment", "example", "compareNote", "myUnderstanding", "collocations", "pos", "compareWords",
-                "createdAt", "updatedAt"
+                "judgmentHint", "commonMeaning", "entryKind", "createdAt", "updatedAt"
             ]
         default:
             keys = Set(object.keys).subtracting([

@@ -132,8 +132,8 @@ struct LibraryRecordDraft {
         wordSource = LibraryRecordDraft.text(original, keys: ["source"])
         compareNote = LibraryRecordDraft.text(original, keys: ["compareNote", "coreDifference"])
         commonMeaning = LibraryRecordDraft.text(original, keys: ["commonMeaning"])
-        wordEntryKind = LibraryRecordDraft.text(original, keys: ["entryKind"])
-        if wordEntryKind.isEmpty { wordEntryKind = WordEntryKind.word.rawValue }
+        let storedWordEntryKind = LibraryRecordDraft.text(original, keys: ["entryKind"])
+        wordEntryKind = storedWordEntryKind.isEmpty ? WordEntryKind.word.rawValue : storedWordEntryKind
         if let terms = original["compareWords"] as? [[String: Any]] {
             wordCompareTerms = terms.map {
                 .init(
@@ -142,6 +142,9 @@ struct LibraryRecordDraft {
                     wordID: ($0["wordId"] as? String) ?? ($0["id"] as? String) ?? "",
                     entryKind: ($0["entryKind"] as? String) ?? WordEntryKind.word.rawValue
                 )
+            }
+            if storedWordEntryKind.isEmpty {
+                wordEntryKind = wordCompareTerms.first?.entryKind ?? WordEntryKind.word.rawValue
             }
         } else if type.contains("compare") {
             let names = title.components(separatedBy: " vs ").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
@@ -274,8 +277,7 @@ enum LibraryRecordRepository {
             object["judgmentHint"] = category.isComparison ? draft.content : ""
             object["category"] = draft.type
             object["type"] = draft.type
-            if category.isComparison { object.removeValue(forKey: "entryKind") }
-            else { object["entryKind"] = draft.wordEntryKind }
+            object["entryKind"] = draft.wordEntryKind
             object["commonMeaning"] = draft.commonMeaning
             object["linkedErrors"] = draft.linkedErrorIDs
             object["relatedErrorIds"] = draft.linkedErrorIDs
@@ -289,7 +291,7 @@ enum LibraryRecordRepository {
             object["compareNote"] = draft.compareNote
             object["compareWords"] = draft.wordCompareTerms
                 .filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                .map { ["name": $0.name, "meaning": $0.meaning, "wordId": $0.wordID, "entryKind": $0.entryKind] }
+                .map { ["name": $0.name, "meaning": $0.meaning, "wordId": $0.wordID, "entryKind": draft.wordEntryKind] }
         }
 
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])

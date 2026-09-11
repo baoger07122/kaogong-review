@@ -201,12 +201,35 @@ struct LibraryRelationSelectionDialog: View {
                                     Spacer()
                                     Image(systemName: selected.contains(record.recordID) ? "checkmark.circle.fill" : "circle")
                                         .foregroundStyle(AppTheme.accent)
-                                }.frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+                                }
+                                .padding(.horizontal, 7)
+                                .frame(maxWidth: .infinity, minHeight: 36)
+                                .contentShape(Rectangle())
                             }.buttonStyle(.plain)
                         }
-                        if filteredCandidates.isEmpty { Text("暂无符合条件的关联内容").font(.system(size: 12)).foregroundStyle(.secondary) }
+                        if filteredCandidates.isEmpty {
+                            VStack(spacing: 7) {
+                                Text("暂无符合条件的关联内容")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                                if collection == "words", let onCreateWord {
+                                    Menu {
+                                        ForEach(WordCategory.allCases) { category in
+                                            Button(category.title) { onCreateWord(category) }
+                                        }
+                                    } label: {
+                                        Label("直接新建词语", systemImage: "plus.circle")
+                                            .font(.system(size: 12, weight: .medium))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.vertical, 10)
+                        }
                     }
-                }.frame(maxHeight: 280)
+                }
+                .contentMargins(.trailing, 8, for: .scrollContent)
+                .frame(maxHeight: 320)
             }
         }.onAppear { selected = selection }
     }

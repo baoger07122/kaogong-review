@@ -220,7 +220,7 @@ struct LibraryRecordCard: View {
                 }
             }
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                if let firstTag = visibleTags.first {
+                if let firstTag = visibleTags.first, !(kind == .words && isComparisonRecord) {
                     Text(firstTag)
                         .font(AppTheme.auxiliaryFont.weight(.semibold))
                         .foregroundStyle(tint)
@@ -233,8 +233,8 @@ struct LibraryRecordCard: View {
                         .foregroundStyle(tint)
                 }
                 Spacer()
-                if let date = snapshot.createdAt {
-                    Text(date, format: .dateTime.month().day())
+                if let date = snapshot.createdAt, !(kind == .words && isComparisonRecord) {
+                    Text(Self.cardDateFormatter.string(from: date))
                         .font(AppTheme.auxiliaryFont)
                         .foregroundStyle(.tertiary)
                 }
@@ -272,6 +272,17 @@ struct LibraryRecordCard: View {
         snapshot.tags.filter { !hiddenTags.contains($0) }
     }
 
+    private var isComparisonRecord: Bool {
+        WordCategory(rawValue: snapshot.category)?.isComparison == true
+    }
+
+    private static let cardDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy年M月d日"
+        return formatter
+    }()
+
     private var tint: Color {
         switch kind {
         case .errors: AppTheme.danger
@@ -303,11 +314,14 @@ private struct LibraryErrorRecordCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if !snapshot.comparisonWords.isEmpty {
-                NativeTagFlow(spacing: 6) {
-                    ForEach(Array(snapshot.comparisonWords.enumerated()), id: \.offset) { _, words in
-                        tag(words, foreground: AppTheme.accent, background: AppTheme.accent.opacity(0.09), weight: .semibold)
-                    }
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text("辨析：")
+                        .fontWeight(.medium)
+                    Text(snapshot.comparisonWords.joined(separator: "、"))
                 }
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(.secondary)
+                .lineSpacing(1.5)
             }
 
             if !snapshot.knowledgePoints.isEmpty || !snapshot.errorCause.isEmpty {

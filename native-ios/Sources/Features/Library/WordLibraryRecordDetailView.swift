@@ -2,9 +2,9 @@ import SwiftUI
 
 struct WordLibraryRecordDetailView: View {
     let record: StoredRecord
+    var onEdit: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
 
-    @State private var showEditor = false
     @State private var showDelete = false
 
     private var object: [String: Any] { record.jsonObject ?? [:] }
@@ -29,8 +29,8 @@ struct WordLibraryRecordDetailView: View {
                         .font(.system(size: 22, weight: .semibold))
                         .textSelection(.enabled)
 
-                    if category.isComparison { comparisonTerms }
                     detailText("共同语义", value: text("commonMeaning"))
+                    if category.isComparison { comparisonTerms }
                     detailText("核心区别", value: text("compareNote", "coreDifference"))
 
                     let explanation = category.isComparison ? text("judgmentHint") : text("meaning")
@@ -73,8 +73,13 @@ struct WordLibraryRecordDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 10) {
-                    Button { showEditor = true } label: { Image(systemName: "pencil") }
+                    if let onEdit {
+                        Button(action: onEdit) {
+                            Label("编辑", systemImage: "pencil")
+                                .font(.system(size: 12, weight: .medium))
+                        }
                         .accessibilityLabel("编辑词语")
+                    }
                     if onDelete != nil {
                         Menu {
                             Button(role: .destructive) { showDelete = true } label: {
@@ -85,13 +90,6 @@ struct WordLibraryRecordDetailView: View {
                 }
             }
             .documentToolbarBackground()
-        }
-        .navigationDestination(isPresented: $showEditor) {
-            LibraryRecordEditorView(
-                kind: .words,
-                scope: LibraryScope(subject: "言语理解", module: "逻辑填空"),
-                record: record
-            )
         }
     }
 
@@ -105,7 +103,8 @@ struct WordLibraryRecordDetailView: View {
                         detailTag(term.kind.title, color: .secondary)
                     }
                     if !term.meaning.isEmpty {
-                        Text(term.meaning).font(.system(size: 14)).foregroundStyle(.secondary).lineSpacing(4)
+                        NativeRichTextDisplay(html: term.meaning, minHeight: 24)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

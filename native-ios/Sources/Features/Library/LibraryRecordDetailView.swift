@@ -11,11 +11,12 @@ struct LibraryRecordDetailView: View {
     let record: StoredRecord
     let onEdit: () -> Void
     let onDelete: () -> Void
+    var onOpenLinkedWord: ((String) -> Void)? = nil
 
     @State private var showDelete = false
     @StateObject private var noteSession = LibraryInlineNoteSession()
-    @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
     @State private var showWordSelection = false
+    @State private var linkedWordCreationCategory: WordCategory?
 
     private var object: [String: Any] { record.jsonObject ?? [:] }
     private var snapshot: LibraryRecordSnapshot { LibraryRecordSnapshot(record: record) }
@@ -54,7 +55,11 @@ struct LibraryRecordDetailView: View {
                     collection: "words",
                     candidates: records,
                     selection: linkedWordSelection,
-                    onClose: { showWordSelection = false }
+                    onClose: { showWordSelection = false },
+                    onCreateWord: { category in
+                        showWordSelection = false
+                        linkedWordCreationCategory = category
+                    }
                 )
             }
         }
@@ -79,9 +84,14 @@ struct LibraryRecordDetailView: View {
             }
             .documentToolbarBackground()
         }
-        .navigationDestination(item: $linkedWordDetailTarget) { target in
-            if let word = records.first(where: { $0.collection == "words" && $0.recordID == target.recordID }) {
-                WordLibraryRecordDetailView(record: word)
+        .sheet(item: $linkedWordCreationCategory) { category in
+            NavigationStack {
+                LibraryRecordEditorView(
+                    kind: .words,
+                    scope: LibraryScope(subject: "言语理解", module: "逻辑填空"),
+                    preferredType: category.rawValue,
+                    onSaved: linkNewWord
+                )
             }
         }
 
@@ -199,7 +209,7 @@ struct LibraryRecordDetailView: View {
                 }
                 ForEach(words, id: \.compoundID) { word in
                     Button {
-                        linkedWordDetailTarget = LinkedWordDetailTarget(recordID: word.recordID)
+                        onOpenLinkedWord?(word.recordID)
                     } label: {
                         let wordSnapshot = LibraryRecordSnapshot(record: word)
                         HStack(spacing: 8) {
@@ -350,6 +360,17 @@ struct LibraryRecordDetailView: View {
                     context: modelContext
                 )
             }
+        )
+    }
+
+    private func linkNewWord(_ id: String) {
+        var ids = object["linkedWordIds"] as? [String] ?? []
+        if !ids.contains(id) { ids.append(id) }
+        try? LibraryRecordRepository.updateLinkedWords(
+            error: record,
+            newIDs: ids,
+            wordRecords: records,
+            context: modelContext
         )
     }
 
