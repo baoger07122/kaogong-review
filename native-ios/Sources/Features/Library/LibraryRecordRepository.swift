@@ -330,6 +330,30 @@ enum LibraryRecordRepository {
         WordCategory(rawValue: value) ?? .idiomDefinition
     }
 
+    static func updateLinkedWords(
+        error: StoredRecord,
+        newIDs: [String],
+        wordRecords: [StoredRecord],
+        context: ModelContext
+    ) throws {
+        var object = error.jsonObject ?? [:]
+        let oldIDs = object["linkedWordIds"] as? [String] ?? []
+        let uniqueIDs = Array(NSOrderedSet(array: newIDs)).compactMap { $0 as? String }
+        object["linkedWordIds"] = uniqueIDs
+        object["updatedAt"] = iso(.now)
+        error.replacePayload(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
+        error.updatedAt = .now
+        try syncArrayRelations(
+            collection: "words", arrayKey: "linkedErrors",
+            oldIDs: oldIDs, newIDs: uniqueIDs, linkedID: error.recordID, records: wordRecords
+        )
+        try syncArrayRelations(
+            collection: "words", arrayKey: "relatedErrorIds",
+            oldIDs: oldIDs, newIDs: uniqueIDs, linkedID: error.recordID, records: wordRecords
+        )
+        try context.save()
+    }
+
     static func remove(kind: LibraryContentKind, id: String, records: [StoredRecord], context: ModelContext) throws {
         guard let record = records.first(where: { $0.collection == kind.collection && $0.recordID == id }) else { return }
         let object = record.jsonObject ?? [:]

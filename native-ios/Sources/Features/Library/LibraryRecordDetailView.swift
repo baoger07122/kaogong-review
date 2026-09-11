@@ -15,6 +15,7 @@ struct LibraryRecordDetailView: View {
     @State private var showDelete = false
     @StateObject private var noteSession = LibraryInlineNoteSession()
     @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
+    @State private var showWordSelection = false
 
     private var object: [String: Any] { record.jsonObject ?? [:] }
     private var snapshot: LibraryRecordSnapshot { LibraryRecordSnapshot(record: record) }
@@ -47,6 +48,13 @@ struct LibraryRecordDetailView: View {
                     message: "删除后无法在 App 内恢复。",
                     onDelete: { showDelete = false; onDelete() },
                     onCancel: { showDelete = false }
+                )
+            } else if showWordSelection {
+                LibraryRelationSelectionDialog(
+                    collection: "words",
+                    candidates: records,
+                    selection: linkedWordSelection,
+                    onClose: { showWordSelection = false }
                 )
             }
         }
@@ -117,8 +125,9 @@ struct LibraryRecordDetailView: View {
     }
 
     @ViewBuilder private var questionBlock: some View {
-        if !clean(snapshot.title).isEmpty {
-            Text(cleanMultiline(snapshot.title))
+        if let rawQuestion = firstText(["question", "title", "name", "text", "content"]),
+           !clean(rawQuestion).isEmpty {
+            Text(cleanMultiline(rawQuestion))
                 .font(AppTheme.questionTextFont)
                 .lineSpacing(AppTheme.questionLineSpacing)
                 .textSelection(.enabled)
@@ -170,10 +179,24 @@ struct LibraryRecordDetailView: View {
 
     @ViewBuilder private var comparisonBlock: some View {
         let words = linkedWordRecords
-        if !words.isEmpty {
+        if isLogicFillError || !words.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text("关联词语库")
-                    .font(.system(size: 13, weight: .medium))
+                HStack {
+                    Text("关联词语库")
+                        .font(.system(size: 13, weight: .medium))
+                    Spacer()
+                    if isLogicFillError {
+                        Button("选择关联") { showWordSelection = true }
+                            .font(.system(size: 12, weight: .medium))
+                            .buttonStyle(.plain)
+                            .foregroundStyle(AppTheme.accent)
+                    }
+                }
+                if words.isEmpty {
+                    Text("尚未关联词语，可在这里直接选择词语库内容")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(.tertiary)
+                }
                 ForEach(words, id: \.compoundID) { word in
                     Button {
                         linkedWordDetailTarget = LinkedWordDetailTarget(recordID: word.recordID)
@@ -310,6 +333,24 @@ struct LibraryRecordDetailView: View {
     private var linkedWordRecords: [StoredRecord] {
         let ids = Set(object["linkedWordIds"] as? [String] ?? [])
         return records.filter { $0.collection == "words" && ids.contains($0.recordID) }
+    }
+
+    private var isLogicFillError: Bool {
+        record.collection == "errors" && record.subject == "言语理解" && record.module == "逻辑填空"
+    }
+
+    private var linkedWordSelection: Binding<[String]> {
+        Binding(
+            get: { object["linkedWordIds"] as? [String] ?? [] },
+            set: { newIDs in
+                try? LibraryRecordRepository.updateLinkedWords(
+                    error: record,
+                    newIDs: newIDs,
+                    wordRecords: records,
+                    context: modelContext
+                )
+            }
+        )
     }
 
     private var reviewInfoParts: [String] {

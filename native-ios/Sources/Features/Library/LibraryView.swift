@@ -29,6 +29,7 @@ struct LibraryView: View {
     @State private var wordSentiment = ""
     @State private var wordEntryKind = ""
     @State private var renderLimit = 40
+    @State private var refreshedLegacyErrorIndexes = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -47,12 +48,22 @@ struct LibraryView: View {
         .background(AppTheme.groupedBackground)
         .stableRootNavigationBar()
         .rootTabBarContentInset()
+        .task { refreshLegacyErrorIndexesIfNeeded() }
         .navigationDestination(item: $editorTarget) { target in
             LibraryRecordEditorView(
                 kind: target.kind,
                 scope: scope,
                 record: records.first { $0.collection == target.kind.collection && $0.recordID == target.recordID },
-                preferredType: target.recordID == nil ? (target.kind == .words ? wordCategory.rawValue : selectedTag) : ""
+                preferredType: target.recordID == nil ? (target.kind == .words ? wordCategory.rawValue : selectedTag) : "",
+                dismissAfterSave: !(target.kind == .errors && target.recordID == nil),
+                onSaved: { savedID in
+                    guard target.kind == .errors, target.recordID == nil else { return }
+                    Task { @MainActor in
+                        await Task.yield()
+                        editorTarget = nil
+                        detailTarget = LibraryDetailTarget(kind: .errors, recordID: savedID)
+                    }
+                }
             )
         }
         .navigationDestination(item: $detailTarget) { target in
@@ -102,6 +113,18 @@ struct LibraryView: View {
                 editorTarget = target
             }
         }
+    }
+
+    private func refreshLegacyErrorIndexesIfNeeded() {
+        guard !refreshedLegacyErrorIndexes else { return }
+        refreshedLegacyErrorIndexes = true
+        var changed = false
+        for record in records where record.collection == "errors" && record.indexObject?["pitfall"] == nil {
+            guard record.jsonObject?["pitfall"] != nil else { continue }
+            record.replacePayload(record.payload)
+            changed = true
+        }
+        if changed { try? modelContext.save() }
     }
 
     private var content: some View {

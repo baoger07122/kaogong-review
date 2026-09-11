@@ -518,11 +518,18 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         var parent: PencilCanvasRepresentable
         var lastEncoded = ""
         var lastActionID: UUID?
+        var drawingChanged = false
         weak var eraserTracker: UILongPressGestureRecognizer?
 
         init(parent: PencilCanvasRepresentable) { self.parent = parent }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            drawingChanged = true
+        }
+
+        func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
+            guard drawingChanged else { return }
+            drawingChanged = false
             publish(canvasView)
         }
 
@@ -550,6 +557,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             let value = canvas.drawing.dataRepresentation().base64EncodedString()
             lastEncoded = value
             parent.encodedData = value
+            drawingChanged = false
         }
 
         func restore(_ drawing: PKDrawing, on canvas: PKCanvasView) {

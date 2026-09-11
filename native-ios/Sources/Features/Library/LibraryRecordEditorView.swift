@@ -29,6 +29,7 @@ struct LibraryRecordEditorView: View {
     let scope: LibraryScope
     let recordID: String?
     let onSaved: ((String) -> Void)?
+    let dismissAfterSave: Bool
     @State private var draft: LibraryRecordDraft
     @State private var showDelete = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
@@ -48,11 +49,13 @@ struct LibraryRecordEditorView: View {
         scope: LibraryScope,
         record: StoredRecord? = nil,
         preferredType: String = "",
+        dismissAfterSave: Bool = true,
         onSaved: ((String) -> Void)? = nil
     ) {
         self.kind = kind
         self.scope = scope
         self.onSaved = onSaved
+        self.dismissAfterSave = dismissAfterSave
         recordID = record?.recordID
         var initialDraft = LibraryRecordDraft(kind: kind, scope: scope, record: record)
         if record == nil, kind != .words, let saved = LibraryDraftStore.load(kind: kind, scope: scope) {
@@ -190,7 +193,7 @@ struct LibraryRecordEditorView: View {
             }
     }
     private var contextCard: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Menu {
                 ForEach(SubjectDefinition.all) { subject in
                     Button(subject.name) {
@@ -208,37 +211,33 @@ struct LibraryRecordEditorView: View {
                     compactProperty(title: "模块", value: draft.module, image: "square.stack.3d.up")
                 }
             }
-        }
-        .padding(kind == .errors ? 12 : 10)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: kind == .errors ? 16 : 9, style: .continuous))
-        .overlay {
-            if kind == .errors {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.8)
-            }
+            Spacer(minLength: 0)
         }
     }
 
     private func compactProperty(title: String, value: String, image: String) -> some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 6) {
             Image(systemName: image)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(AppTheme.accent)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 10, weight: .regular)).foregroundStyle(.secondary)
-                Text(value.isEmpty ? "未设置" : value)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 2)
+            Text(title)
+                .font(.system(size: 10.5, weight: .regular))
+                .foregroundStyle(.secondary)
+            Text(value.isEmpty ? "未设置" : value)
+                .font(.system(size: 12.5, weight: .regular))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
             Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 8, weight: .semibold))
                 .foregroundStyle(.tertiary)
         }
-        .padding(.horizontal, 10)
-        .frame(maxWidth: .infinity, minHeight: 42)
-        .background(Color.primary.opacity(kind == .errors ? 0 : 0.035), in: RoundedRectangle(cornerRadius: 9))
+        .padding(.horizontal, 9)
+        .frame(minHeight: 36)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.primary.opacity(0.09), lineWidth: 0.7)
+        }
         .contentShape(Rectangle())
     }
 
@@ -1039,7 +1038,7 @@ struct LibraryRecordEditorView: View {
         guard let savedID = try? LibraryRecordRepository.save(kind: kind, draft: draft, records: records, context: modelContext) else { return }
         if recordID == nil { LibraryDraftStore.clear(kind: kind, scope: scope) }
         onSaved?(savedID)
-        dismiss()
+        if dismissAfterSave { dismiss() }
     }
 
     private func remove() {
@@ -1261,9 +1260,13 @@ private enum ErrorQuestionParser {
 
     private static func cleanedOption(_ value: String) -> String {
         value.components(separatedBy: .newlines)
-            .map(compactLine)
+            .map {
+                $0.replacingOccurrences(of: "\t", with: " ")
+                    .replacingOccurrences(of: "\u{00A0}", with: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             .filter { !$0.isEmpty }
-            .joined(separator: " ")
+            .joined()
     }
 
     /// Removes copy/paste wrapping while preserving one intentional break
@@ -1275,13 +1278,7 @@ private enum ErrorQuestionParser {
             .filter { !$0.isEmpty }
         guard !lines.isEmpty else { return "" }
 
-        if let promptIndex = lines.indices.last(where: { isQuestionLead(lines[$0]) }), promptIndex > 0 {
-            let body = lines[..<promptIndex].joined()
-            let prompt = lines[promptIndex...].joined()
-            return body.isEmpty ? prompt : "\(body)\n\(prompt)"
-        }
-        if lines.count > 1, let last = lines.last,
-           last.hasSuffix("？") || last.hasSuffix("?") {
+        if lines.count > 1, let last = lines.last {
             let body = lines.dropLast().joined()
             return body.isEmpty ? last : "\(body)\n\(last)"
         }
