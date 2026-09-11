@@ -68,7 +68,7 @@ struct LibraryView: View {
                         scope: scope,
                         record: record,
                         onEdit: {
-                            editorTarget = LibraryEditorTarget(kind: target.kind, recordID: target.recordID)
+                            openEditorAfterMenuDismisses(kind: target.kind, recordID: target.recordID)
                         },
                         onDelete: {
                             remove(LibraryDeleteTarget(kind: target.kind, recordID: target.recordID))
@@ -88,6 +88,18 @@ struct LibraryView: View {
                     onDelete: { remove(deleteTarget); self.deleteTarget = nil },
                     onCancel: { self.deleteTarget = nil }
                 )
+            }
+        }
+    }
+
+    private func openEditorAfterMenuDismisses(kind: LibraryContentKind, recordID: String) {
+        let target = LibraryEditorTarget(kind: kind, recordID: recordID)
+        Task { @MainActor in
+            // Separate the menu dismissal from the navigation transaction without
+            // introducing a visible fixed delay.
+            await Task.yield()
+            withAnimation {
+                editorTarget = target
             }
         }
     }
