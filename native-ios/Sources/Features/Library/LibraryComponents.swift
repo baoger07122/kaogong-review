@@ -314,23 +314,26 @@ private struct LibraryErrorRecordCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if !snapshot.comparisonWords.isEmpty {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text("辨析：")
-                        .fontWeight(.medium)
-                    Text(snapshot.comparisonWords.joined(separator: "、"))
-                }
+                Text("辨析：\(snapshot.comparisonWords.joined(separator: "、"))")
                 .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppTheme.accent.opacity(0.82))
                 .lineSpacing(1.5)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(AppTheme.accent.opacity(0.055), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(AppTheme.accent.opacity(0.22), lineWidth: 0.7)
+                }
             }
 
             if !snapshot.knowledgePoints.isEmpty || !snapshot.errorCause.isEmpty {
                 NativeTagFlow(spacing: 6) {
                     ForEach(Array(snapshot.knowledgePoints.prefix(4).enumerated()), id: \.offset) { _, point in
-                        tag(point, foreground: .secondary, background: Color.primary.opacity(0.045))
+                        tag(point, foreground: AppTheme.accent, background: AppTheme.accent.opacity(0.09))
                     }
                     if !snapshot.errorCause.isEmpty {
-                        tag(snapshot.errorCause, foreground: AppTheme.accent, background: AppTheme.accent.opacity(0.09))
+                        tag(snapshot.errorCause, foreground: .secondary, background: Color.primary.opacity(0.045))
                     }
                 }
             }

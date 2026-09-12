@@ -34,7 +34,7 @@ enum WordCategory: String, CaseIterable, Identifiable {
     var isComparison: Bool { self == .idiomComparison || self == .wordComparison }
 }
 
-enum LibraryContentKind: String, CaseIterable, Identifiable {
+enum LibraryContentKind: String, CaseIterable, Identifiable, Hashable {
     case errors = "错题"
     case notes = "笔记"
     case stickies = "便签"
@@ -99,6 +99,12 @@ enum LibraryCardSize: String, CaseIterable, Identifiable {
         case .large: 320
         }
     }
+}
+
+enum LibraryRoute: Hashable {
+    case editor(kind: LibraryContentKind, recordID: String?)
+    case detail(kind: LibraryContentKind, recordID: String)
+    case linkedWord(recordID: String)
 }
 
 enum WordEntryKind: String, CaseIterable, Identifiable, Codable {

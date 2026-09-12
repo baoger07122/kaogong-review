@@ -49,6 +49,7 @@ enum RootTab: String, CaseIterable, Identifiable {
 
 struct RootTabView: View {
     @State private var selection: RootTab = .home
+    @State private var libraryPath: [LibraryRoute] = []
     @StateObject private var libraryDoodleSession = LibraryDoodleSession()
 
     var body: some View {
@@ -72,7 +73,9 @@ struct RootTabView: View {
         case .home:
             NavigationStack { HomeView() }
         case .library:
-            NavigationStack { LibraryView() }
+            NavigationStack(path: $libraryPath) {
+                LibraryView(navigationPath: $libraryPath)
+            }
                 .environmentObject(libraryDoodleSession)
         case .review:
             NavigationStack { ReviewView() }
