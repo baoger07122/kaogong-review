@@ -31,9 +31,8 @@ struct LibraryRecordDetailView: View {
                     optionsBlock
                     answerAndSource
                     comparisonBlock
-                    noteBlock
                     reviewBlock
-                    reviewInfo
+                    noteBlock
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 5)
@@ -249,16 +248,6 @@ struct LibraryRecordDetailView: View {
         }
     }
 
-    @ViewBuilder private var reviewInfo: some View {
-        let parts = reviewInfoParts
-        if !parts.isEmpty {
-            Text(parts.joined(separator: " · "))
-                .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(.tertiary)
-                .padding(.top, 5)
-        }
-    }
-
     @ViewBuilder private func metadataLine(_ label: String, values: [String]) -> some View {
         let text = values.map(clean).filter { !$0.isEmpty }.joined(separator: "、")
         Group {
@@ -373,27 +362,6 @@ struct LibraryRecordDetailView: View {
             context: modelContext
         )
     }
-
-    private var reviewInfoParts: [String] {
-        var values: [String] = []
-        if let createdAt = record.createdAt {
-            values.append("收录于 \(Self.dateFormatter.string(from: createdAt))")
-        }
-        if let count = firstText(["reviewCount"]), let number = Int(clean(count)), number > 0 {
-            values.append("复习 \(number) 次")
-        }
-        if let rawDate = firstText(["lastReviewDate"]), let date = ISO8601DateFormatter().date(from: rawDate) {
-            values.append("上次复习 \(Self.dateFormatter.string(from: date))")
-        }
-        return values
-    }
-
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy年M月d日"
-        return formatter
-    }()
 
     private var formattedAccuracy: String? {
         guard let raw = firstText(["accuracy", "correctRate"]), !clean(raw).isEmpty else { return nil }

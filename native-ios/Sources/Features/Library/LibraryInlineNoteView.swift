@@ -20,6 +20,8 @@ struct LibraryInlineNoteView: View {
     @State private var errorMessage: String?
     @State private var displayHeight: CGFloat = 42
 
+    private let noteCanvasMinimumHeight: CGFloat = 360
+
     private var storedNote: String {
         let object = record.jsonObject ?? [:]
         // An explicitly empty canonical field must not fall back to stale imported text.
@@ -36,7 +38,12 @@ struct LibraryInlineNoteView: View {
                 if editing { Button("完成") { finishEditing() }.font(.system(size: 12)) }
             }
             if editing {
-                NativeRichTextEditor(html: $draft, minHeight: displayHeight, documentStyle: true, focusOnAppear: true)
+                NativeRichTextEditor(
+                    html: $draft,
+                    minHeight: max(noteCanvasMinimumHeight, displayHeight),
+                    documentStyle: true,
+                    focusOnAppear: true
+                )
             } else {
                 noteDisplay
                     .contentShape(Rectangle())
@@ -63,17 +70,19 @@ struct LibraryInlineNoteView: View {
         .onChange(of: scenePhase) { _, phase in if phase != .active { save() } }
         .onDisappear {
             saveTask?.cancel()
-            save()
+            if editing { _ = finishEditing() }
             session.finishEditing = nil
         }
     }
 
     @ViewBuilder private var noteDisplay: some View {
         if storedNote.isEmpty {
-            Text("点击添加错题笔记").font(.system(size: 13)).foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity, minHeight: 42, alignment: .topLeading)
+            Text("点击添加错题笔记")
+                .font(AppTheme.noteBodyFont)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, minHeight: noteCanvasMinimumHeight, alignment: .topLeading)
         } else {
-            NativeRichTextDisplay(html: storedNote, minHeight: 42)
+            NativeRichTextDisplay(html: storedNote, minHeight: noteCanvasMinimumHeight)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(GeometryReader { proxy in
                     Color.clear.onAppear { displayHeight = max(42, proxy.size.height) }
@@ -85,8 +94,8 @@ struct LibraryInlineNoteView: View {
     @discardableResult private func finishEditing() -> Bool {
         guard editing else { return true }
         saveTask?.cancel()
-        guard save() else { return false }
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        guard save() else { return false }
         editing = false
         return true
     }

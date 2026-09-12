@@ -92,6 +92,13 @@ struct SettingsView: View {
                     }.buttonStyle(.plain)
                 }
 
+                settingsSection("界面与标准") {
+                    NavigationLink { NativeDesignSystemView().rootTabBarContentInset() } label: {
+                        settingsNavigationRow("全局 UI 标准", image: "paintpalette")
+                    }
+                    .buttonStyle(.plain)
+                }
+
                 settingsSection("版本与更新") {
                     settingsValueRow("当前版本", value: "v\(appVersion)", image: "iphone.gen3")
                     settingsDivider

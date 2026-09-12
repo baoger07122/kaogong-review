@@ -4,6 +4,12 @@ import UIKit
 
 enum RichTextToolbarMode { case full, compact, minimal }
 
+private enum RichTextMetrics {
+    static let bodySize: CGFloat = 16
+    static let heading2Size: CGFloat = 18
+    static let heading1Size: CGFloat = 21
+}
+
 private enum RichTextCommandKind: Equatable {
     case bold, italic, underline, strike, indent, outdent, bullets, numbers, todos, divider
     case heading(RichTextHeading)
@@ -71,7 +77,9 @@ private enum DataAnalysisFormulaPreset: String, Codable, CaseIterable, Identifia
 private enum RichTextHeading: String, CaseIterable, Identifiable {
     case body = "正文", heading1 = "一级标题", heading2 = "二级标题"
     var id: String { rawValue }
-    var size: CGFloat { self == .heading1 ? 18 : self == .heading2 ? 16 : 13 }
+    var size: CGFloat {
+        self == .heading1 ? RichTextMetrics.heading1Size : self == .heading2 ? RichTextMetrics.heading2Size : RichTextMetrics.bodySize
+    }
     var weight: UIFont.Weight { self == .body ? .regular : .semibold }
 }
 
@@ -214,7 +222,7 @@ struct NativeRichTextEditor: View {
                 paragraphPanel
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
-            HStack(spacing: 3) {
+            HStack(spacing: 2) {
                 toolbarStrip
                 toolbarDivider
                 toolbarButton("keyboard.chevron.compact.down", label: "收起键盘") {
@@ -226,12 +234,12 @@ struct NativeRichTextEditor: View {
                     )
                 }
             }
-            .padding(.horizontal, 7)
+            .padding(.horizontal, 6)
             .frame(height: 44)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.primary.opacity(0.07), lineWidth: 0.5))
-            .shadow(color: .black.opacity(0.13), radius: 10, y: 4)
-            .frame(maxWidth: 570)
+            .background(Color(uiColor: .secondarySystemBackground).opacity(0.96), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 0.6))
+            .shadow(color: .black.opacity(0.10), radius: 12, y: 4)
+            .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, 14)
         .padding(.top, 3)
@@ -244,35 +252,33 @@ struct NativeRichTextEditor: View {
     }
 
     @ViewBuilder private var toolbarStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 3) {
-                if toolbarPage == .format {
-                    toolbarButton("chevron.left", label: "返回") { toolbarPage = .main }
-                    toolbarDivider
-                    colorMenu
-                    formatButton(.bold, "bold", active: selectionState.isBold)
-                    formatButton(.italic, "italic", active: selectionState.isItalic)
-                    formatButton(.underline, "underline", active: selectionState.isUnderlined)
-                    formatButton(.strike, "strikethrough", active: selectionState.isStruckThrough)
-                    formatButton(.highlight, "highlighter", active: selectionState.isHighlighted)
-                    formatButton(.code, "chevron.left.forwardslash.chevron.right", active: selectionState.isCode)
-                    toolbarButton("link", label: "链接") { showLinkPrompt = true }
-                } else {
-                    if mode == .full {
-                        toolbarButton("plus", label: "插入") { togglePage(.insert) }
-                        toolbarButton("textformat", label: "文字格式") { toolbarPage = .format }
-                        toolbarButton("list.bullet.rectangle", label: "段落格式") { togglePage(.paragraph) }
-                        toolbarDivider
-                    }
-                    formatButton(.undo, "arrow.uturn.backward", disabled: !selectionState.canUndo)
-                    formatButton(.redo, "arrow.uturn.forward", disabled: !selectionState.canRedo)
-                    if mode == .compact {
-                        formatButton(.bold, "bold", active: selectionState.isBold)
-                        formatButton(.bullets, "list.bullet")
-                        formatButton(.todos, "checklist")
-                    } else if mode == .minimal {
-                        formatButton(.bold, "bold", active: selectionState.isBold)
-                    }
+        HStack(spacing: 2) {
+            if toolbarPage == .format {
+                toolbarButton("chevron.left", label: "返回") { toolbarPage = .main }
+                formatButton(.italic, "italic", active: selectionState.isItalic)
+                formatButton(.underline, "underline", active: selectionState.isUnderlined)
+                formatButton(.strike, "strikethrough", active: selectionState.isStruckThrough)
+                formatButton(.highlight, "highlighter", active: selectionState.isHighlighted)
+                formatButton(.code, "chevron.left.forwardslash.chevron.right", active: selectionState.isCode)
+                toolbarButton("link", label: "链接") { showLinkPrompt = true }
+                formatButton(.numbers, "list.number")
+                formatButton(.todos, "checklist")
+            } else if mode == .full {
+                toolbarButton("plus", label: "插入") { togglePage(.insert) }
+                toolbarButton("textformat", label: "标题与段落") { togglePage(.paragraph) }
+                formatButton(.bold, "bold", active: selectionState.isBold)
+                colorMenu
+                formatButton(.bullets, "list.bullet")
+                formatButton(.undo, "arrow.uturn.backward", disabled: !selectionState.canUndo)
+                formatButton(.redo, "arrow.uturn.forward", disabled: !selectionState.canRedo)
+                toolbarButton("ellipsis", label: "更多格式") { toolbarPage = .format }
+            } else {
+                formatButton(.undo, "arrow.uturn.backward", disabled: !selectionState.canUndo)
+                formatButton(.redo, "arrow.uturn.forward", disabled: !selectionState.canRedo)
+                formatButton(.bold, "bold", active: selectionState.isBold)
+                if mode == .compact {
+                    formatButton(.bullets, "list.bullet")
+                    formatButton(.todos, "checklist")
                 }
             }
         }
@@ -348,9 +354,9 @@ struct NativeRichTextEditor: View {
         }
         .padding(10)
         .frame(maxWidth: 570)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.primary.opacity(0.07), lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+        .background(Color(uiColor: .secondarySystemBackground).opacity(0.96), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 0.6))
+        .shadow(color: .black.opacity(0.10), radius: 12, y: 4)
     }
 
     private func panelButton(_ image: String, _ title: String, active: Bool = false, action: @escaping () -> Void) -> some View {
@@ -497,7 +503,7 @@ private struct RichTextTextView: UIViewRepresentable {
         let view = UITextView(usingTextLayoutManager: true)
         view.delegate = context.coordinator
         view.backgroundColor = .clear
-        view.font = .systemFont(ofSize: 13)
+        view.font = .systemFont(ofSize: RichTextMetrics.bodySize)
         view.adjustsFontForContentSizeCategory = false
         view.textContainerInset = UIEdgeInsets(top: 10, left: 8, bottom: 10, right: 8)
         if growsWithContent {
@@ -542,6 +548,7 @@ private struct RichTextTextView: UIViewRepresentable {
         var parent: RichTextTextView
         var lastHTML = ""
         var lastCommandID: UUID?
+        private var pendingPublish: DispatchWorkItem?
         private var accessoryController: UIHostingController<AnyView>?
         private weak var accessoryContainer: RichTextKeyboardAccessoryView?
         init(parent: RichTextTextView) { self.parent = parent }
@@ -563,7 +570,8 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
-            publish(textView)
+            textView.invalidateIntrinsicContentSize()
+            schedulePublish(textView)
             publishSelectionState(textView)
         }
 
@@ -574,6 +582,7 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
+            publishNow(textView)
             DispatchQueue.main.async { self.parent.isEditing = false }
         }
 
@@ -624,7 +633,8 @@ private struct RichTextTextView: UIViewRepresentable {
                 textView.textStorage.replaceCharacters(in: range, with: "\n" + prefix)
                 textView.selectedRange = NSRange(location: range.location + prefix.utf16.count + 1, length: 0)
             }
-            publish(textView)
+            textView.invalidateIntrinsicContentSize()
+            schedulePublish(textView)
             return false
         }
 
@@ -639,7 +649,8 @@ private struct RichTextTextView: UIViewRepresentable {
             }
             view.textStorage.replaceCharacters(in: range, with: replacement)
             view.selectedRange = NSRange(location: range.location + replacement.length, length: 0)
-            publish(view)
+            view.invalidateIntrinsicContentSize()
+            schedulePublish(view)
         }
 
         func apply(_ command: RichTextCommandKind, to view: UITextView) {
@@ -670,7 +681,8 @@ private struct RichTextTextView: UIViewRepresentable {
             case .redo: view.undoManager?.redo(); restoreSelection = false
             }
             if restoreSelection { view.selectedRange = range }
-            publish(view)
+            view.invalidateIntrinsicContentSize()
+            schedulePublish(view)
             publishSelectionState(view)
         }
 
@@ -679,7 +691,7 @@ private struct RichTextTextView: UIViewRepresentable {
             if range.length == 0 {
                 let insertion = NSAttributedString(
                     string: target,
-                    attributes: [.link: url, .font: UIFont.systemFont(ofSize: 13)]
+                    attributes: [.link: url, .font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]
                 )
                 view.textStorage.insert(insertion, at: range.location)
                 view.selectedRange = NSRange(location: range.location + insertion.length, length: 0)
@@ -694,7 +706,7 @@ private struct RichTextTextView: UIViewRepresentable {
                 string: link.title,
                 attributes: [
                     .link: url,
-                    .font: UIFont.systemFont(ofSize: 13, weight: .medium),
+                    .font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize, weight: .medium),
                     .foregroundColor: UIColor.systemBlue,
                     .underlineStyle: NSUnderlineStyle.single.rawValue
                 ]
@@ -730,7 +742,7 @@ private struct RichTextTextView: UIViewRepresentable {
                 (attributes[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(trait) == true
             }
             view.textStorage.enumerateAttribute(.font, in: range) { value, subrange, _ in
-                let font = value as? UIFont ?? .systemFont(ofSize: 13)
+                let font = value as? UIFont ?? .systemFont(ofSize: RichTextMetrics.bodySize)
                 var traits = font.fontDescriptor.symbolicTraits
                 if remove { traits.remove(trait) } else { traits.insert(trait) }
                 let descriptor = font.fontDescriptor.withSymbolicTraits(traits) ?? font.fontDescriptor
@@ -753,8 +765,8 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         private func font(at location: Int, view: UITextView) -> UIFont {
-            guard view.attributedText.length > 0 else { return .systemFont(ofSize: 13) }
-            return view.attributedText.attribute(.font, at: min(location, view.attributedText.length - 1), effectiveRange: nil) as? UIFont ?? .systemFont(ofSize: 13)
+            guard view.attributedText.length > 0 else { return .systemFont(ofSize: RichTextMetrics.bodySize) }
+            return view.attributedText.attribute(.font, at: min(location, view.attributedText.length - 1), effectiveRange: nil) as? UIFont ?? .systemFont(ofSize: RichTextMetrics.bodySize)
         }
 
         private func changeIndent(_ delta: CGFloat, view: UITextView, range: NSRange) {
@@ -801,7 +813,9 @@ private struct RichTextTextView: UIViewRepresentable {
             let target = range.length == 0 ? NSRange(location: range.location, length: 0) : range
             let current = font(at: range.location, view: view)
             let isMonospaced = current.fontDescriptor.symbolicTraits.contains(.traitMonoSpace)
-            let font = isMonospaced ? UIFont.systemFont(ofSize: 13) : UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+            let font = isMonospaced
+                ? UIFont.systemFont(ofSize: RichTextMetrics.bodySize)
+                : UIFont.monospacedSystemFont(ofSize: RichTextMetrics.bodySize, weight: .regular)
             applyAttribute(.font, value: font, view: view, range: target)
             if isMonospaced {
                 if target.length > 0 { view.textStorage.removeAttribute(.backgroundColor, range: target) }
@@ -838,7 +852,7 @@ private struct RichTextTextView: UIViewRepresentable {
             )
             view.textStorage.replaceCharacters(in: range, with: insertion)
             view.selectedRange = NSRange(location: range.location + insertion.length, length: 0)
-            view.typingAttributes = [.font: UIFont.systemFont(ofSize: 13), .foregroundColor: UIColor.label]
+            view.typingAttributes = [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize), .foregroundColor: UIColor.label]
         }
 
         private func upsertTable(_ table: RichTextTable, view: UITextView, range: NSRange) {
@@ -847,7 +861,7 @@ private struct RichTextTextView: UIViewRepresentable {
             if let existing = tableAttachment(near: range, view: view), existing.attachment.table.id == table.id {
                 replaceAttributed(replacement, in: existing.range, view: view)
             } else {
-                replacement.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 13)]))
+                replacement.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]))
                 replaceAttributed(replacement, in: range, view: view)
             }
             parent.selectedTable = table
@@ -856,7 +870,7 @@ private struct RichTextTextView: UIViewRepresentable {
         private func insertImage(_ dataURL: String, view: UITextView, range: NSRange) {
             guard let attachment = NativeImageAttachment(dataURL: dataURL) else { return }
             let replacement = NSMutableAttributedString(attributedString: NSAttributedString(attachment: attachment))
-            replacement.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: 13)]))
+            replacement.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]))
             replaceAttributed(replacement, in: range, view: view)
         }
 
@@ -866,7 +880,7 @@ private struct RichTextTextView: UIViewRepresentable {
                 replaceAttributed(replacement, in: existing.range, view: view)
             } else {
                 let value = NSMutableAttributedString(attributedString: replacement)
-                value.append(NSAttributedString(string: " ", attributes: [.font: UIFont.systemFont(ofSize: 13)]))
+                value.append(NSAttributedString(string: " ", attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]))
                 replaceAttributed(value, in: range, view: view)
             }
             parent.selectedFormula = formula
@@ -894,23 +908,36 @@ private struct RichTextTextView: UIViewRepresentable {
             return nil
         }
 
-        private func publish(_ view: UITextView) {
+        private func schedulePublish(_ view: UITextView) {
+            pendingPublish?.cancel()
+            let work = DispatchWorkItem { [weak self, weak view] in
+                guard let self, let view else { return }
+                self.publishNow(view)
+            }
+            pendingPublish = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
+        }
+
+        private func publishNow(_ view: UITextView) {
+            pendingPublish?.cancel()
+            pendingPublish = nil
             view.invalidateIntrinsicContentSize()
             let html = RichTextTextView.html(from: view.attributedText)
+            guard html != lastHTML else { return }
             lastHTML = html; parent.html = html
         }
 
         private func publishSelectionState(_ view: UITextView) {
             let range = view.selectedRange
             let attributes = attributesForCaretOrSelection(range, view: view)
-            let font = attributes[.font] as? UIFont ?? .systemFont(ofSize: 13)
+            let font = attributes[.font] as? UIFont ?? .systemFont(ofSize: RichTextMetrics.bodySize)
             let paragraph = attributes[.paragraphStyle] as? NSParagraphStyle
             let foreground = attributes[.foregroundColor] as? UIColor
-            let heading: RichTextHeading = if everyAttribute(in: range, view: view, predicate: { (($0[.font] as? UIFont)?.pointSize ?? 13) >= 17 }) {
+            let heading: RichTextHeading = if everyAttribute(in: range, view: view, predicate: { (($0[.font] as? UIFont)?.pointSize ?? RichTextMetrics.bodySize) >= 20 }) {
                 .heading1
             } else if everyAttribute(in: range, view: view, predicate: {
-                let size = ($0[.font] as? UIFont)?.pointSize ?? 13
-                return size >= 15 && size < 17
+                let size = ($0[.font] as? UIFont)?.pointSize ?? RichTextMetrics.bodySize
+                return size >= 17 && size < 20
             }) {
                 .heading2
             } else {
@@ -971,7 +998,7 @@ private struct RichTextTextView: UIViewRepresentable {
             normalizeFonts(in: result)
             return result
         }
-        return NSAttributedString(string: value, attributes: [.font: UIFont.systemFont(ofSize: 13)])
+        return NSAttributedString(string: value, attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)])
     }
 
     private static func html(from value: NSAttributedString) -> String {
@@ -1020,8 +1047,8 @@ private struct RichTextTextView: UIViewRepresentable {
     private static func normalizeFonts(in value: NSMutableAttributedString) {
         let fullRange = NSRange(location: 0, length: value.length)
         value.enumerateAttribute(.font, in: fullRange) { attribute, range, _ in
-            let source = attribute as? UIFont ?? .systemFont(ofSize: 13)
-            let size = source.pointSize <= 14 ? 13 : source.pointSize
+            let source = attribute as? UIFont ?? .systemFont(ofSize: RichTextMetrics.bodySize)
+            let size = source.pointSize <= RichTextMetrics.bodySize ? RichTextMetrics.bodySize : source.pointSize
             let descriptor = UIFont.systemFont(ofSize: size).fontDescriptor.withSymbolicTraits(source.fontDescriptor.symbolicTraits)
                 ?? UIFont.systemFont(ofSize: size).fontDescriptor
             value.addAttribute(.font, value: UIFont(descriptor: descriptor, size: size), range: range)
