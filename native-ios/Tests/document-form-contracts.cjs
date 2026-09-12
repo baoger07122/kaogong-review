@@ -81,7 +81,8 @@ const tests = {
   },
   'drawing blocks the underlying back control without expanding it': () => {
     assert.doesNotMatch(detail, /navigationBarBackButtonHidden|ToolbarItem\(placement: \.topBarLeading\)/);
-    assert.match(root, /NavigationStack \{ LibraryView\(\) \}[\s\S]*?environmentObject\(libraryDoodleSession\)/);
+    assert.match(root, /@State private var libraryPath: \[LibraryRoute\] = \[\]/);
+    assert.match(root, /NavigationStack\(path: \$libraryPath\) \{[\s\S]*?LibraryView\(navigationPath: \$libraryPath\)[\s\S]*?environmentObject\(libraryDoodleSession\)/);
     assert.match(root, /\.overlay \{[\s\S]*?LibraryDoodleOverlay\(session: libraryDoodleSession\)/);
     assert.match(doodle, /above the complete NavigationStack/);
     assert.match(doodle, /Color\.black\.opacity\(0\.18\)/);
