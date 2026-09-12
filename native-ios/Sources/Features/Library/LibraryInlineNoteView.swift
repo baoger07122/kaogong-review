@@ -44,8 +44,10 @@ struct LibraryInlineNoteView: View {
                     documentStyle: true,
                     focusOnAppear: true
                 )
+                .padding(.horizontal, 8)
             } else {
                 noteDisplay
+                    .padding(.horizontal, 8)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         draft = storedNote
@@ -63,7 +65,7 @@ struct LibraryInlineNoteView: View {
             guard editing else { return }
             saveTask?.cancel()
             saveTask = Task { @MainActor in
-                do { try await Task.sleep(for: .milliseconds(700)) } catch { return }
+                do { try await Task.sleep(for: .milliseconds(1_400)) } catch { return }
                 save()
             }
         }

@@ -97,7 +97,7 @@ private enum RichTextColor: String, CaseIterable, Identifiable {
 }
 
 private enum RichTextToolbarPage: Equatable {
-    case main, format, paragraph, insert
+    case main, format
 }
 
 private struct RichTextSelectionState: Equatable {
@@ -135,6 +135,7 @@ struct NativeRichTextEditor: View {
     @State private var selectedFormula: RichTextFormula?
     @State private var formulaEditor: RichTextFormula?
     @State private var photoItem: PhotosPickerItem?
+    @State private var showPhotoPicker = false
     @State private var internalLinkPicker: InternalLinkPickerRequest?
     @State private var isEditing = false
     @State private var toolbarPage: RichTextToolbarPage = .main
@@ -193,6 +194,7 @@ struct NativeRichTextEditor: View {
             }
             .presentationDetents([.medium, .large])
         }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
             Task {
@@ -210,18 +212,11 @@ struct NativeRichTextEditor: View {
     }
 
     private var keyboardAccessoryHeight: CGFloat {
-        toolbarPage == .insert || toolbarPage == .paragraph ? 250 : 58
+        58
     }
 
     private var keyboardToolbar: some View {
-        VStack(spacing: 8) {
-            if toolbarPage == .insert {
-                insertPanel
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            } else if toolbarPage == .paragraph {
-                paragraphPanel
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
+        VStack(spacing: 0) {
             HStack(spacing: 2) {
                 toolbarStrip
                 toolbarDivider
@@ -236,9 +231,10 @@ struct NativeRichTextEditor: View {
             }
             .padding(.horizontal, 6)
             .frame(height: 44)
-            .background(Color(uiColor: .secondarySystemBackground).opacity(0.96), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Color.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 0.6))
-            .shadow(color: .black.opacity(0.10), radius: 12, y: 4)
+            .shadow(color: .black.opacity(0.08), radius: 10, y: 3)
             .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, 14)
@@ -246,7 +242,6 @@ struct NativeRichTextEditor: View {
         .padding(.bottom, 7)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .background(Color.clear)
-        .animation(.easeOut(duration: 0.14), value: toolbarPage)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("笔记格式栏")
     }
@@ -264,8 +259,8 @@ struct NativeRichTextEditor: View {
                 formatButton(.numbers, "list.number")
                 formatButton(.todos, "checklist")
             } else if mode == .full {
-                toolbarButton("plus", label: "插入") { togglePage(.insert) }
-                toolbarButton("textformat", label: "标题与段落") { togglePage(.paragraph) }
+                insertMenu
+                paragraphMenu
                 formatButton(.bold, "bold", active: selectionState.isBold)
                 colorMenu
                 formatButton(.bullets, "list.bullet")
@@ -282,6 +277,45 @@ struct NativeRichTextEditor: View {
                 }
             }
         }
+    }
+
+    private var insertMenu: some View {
+        Menu {
+            Button { showPhotoPicker = true } label: { Label("图片", systemImage: "photo") }
+            Button { tableEditor = selectedTable ?? RichTextTable() } label: { Label("表格", systemImage: "tablecells") }
+            Button { run(.divider) } label: { Label("分割线", systemImage: "minus") }
+            Button { formulaEditor = selectedFormula ?? RichTextFormula() } label: { Label("公式", systemImage: "function") }
+            Button { showLinkPrompt = true } label: { Label("网页链接", systemImage: "link") }
+            if !internalLinks.isEmpty {
+                Button { internalLinkPicker = InternalLinkPickerRequest() } label: { Label("关联笔记", systemImage: "link.circle") }
+            }
+        } label: {
+            toolbarImage("plus")
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("插入")
+    }
+
+    private var paragraphMenu: some View {
+        Menu {
+            ForEach(RichTextHeading.allCases) { heading in
+                Button { run(.heading(heading)) } label: {
+                    if selectionState.heading == heading { Label(heading.rawValue, systemImage: "checkmark") }
+                    else { Text(heading.rawValue) }
+                }
+            }
+            Divider()
+            Button { run(.quote) } label: { Label("引用", systemImage: "text.quote") }
+            Button { run(.bullets) } label: { Label("项目列表", systemImage: "list.bullet") }
+            Button { run(.numbers) } label: { Label("编号列表", systemImage: "list.number") }
+            Button { run(.todos) } label: { Label("待办列表", systemImage: "checklist") }
+            Button { run(.indent) } label: { Label("增加缩进", systemImage: "increase.indent") }
+            Button { run(.outdent) } label: { Label("减少缩进", systemImage: "decrease.indent") }
+        } label: {
+            toolbarImage("textformat", active: selectionState.heading != .body || selectionState.isQuoted)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("标题与段落")
     }
 
     private var colorMenu: some View {
@@ -301,87 +335,8 @@ struct NativeRichTextEditor: View {
         .accessibilityLabel("文字颜色")
     }
 
-    private var insertPanel: some View {
-        toolbarPanel(title: "插入") {
-            LazyVGrid(columns: panelColumns, spacing: 5) {
-                PhotosPicker(selection: $photoItem, matching: .images) {
-                    panelItem("photo", "图片")
-                }
-                .buttonStyle(.plain)
-                panelButton("tablecells", "表格") { tableEditor = selectedTable ?? RichTextTable() }
-                panelButton("minus", "分割线") { run(.divider) }
-                panelButton("function", "公式") { formulaEditor = selectedFormula ?? RichTextFormula() }
-                panelButton("link", "网页链接") { showLinkPrompt = true }
-                if !internalLinks.isEmpty {
-                    panelButton("link.circle", "关联笔记") { internalLinkPicker = InternalLinkPickerRequest() }
-                }
-            }
-        }
-    }
-
-    private var paragraphPanel: some View {
-        toolbarPanel(title: "段落") {
-            LazyVGrid(columns: panelColumns, spacing: 5) {
-                ForEach(RichTextHeading.allCases) { heading in
-                    panelButton(heading == .body ? "text.alignleft" : "textformat.size", heading.rawValue, active: selectionState.heading == heading) {
-                        run(.heading(heading))
-                    }
-                }
-                panelButton("text.quote", "引用", active: selectionState.isQuoted) { run(.quote) }
-                panelButton("list.bullet", "项目列表") { run(.bullets) }
-                panelButton("list.number", "编号列表") { run(.numbers) }
-                panelButton("checklist", "待办列表") { run(.todos) }
-                panelButton("increase.indent", "增加缩进") { run(.indent) }
-                panelButton("decrease.indent", "减少缩进") { run(.outdent) }
-            }
-        }
-    }
-
-    private var panelColumns: [GridItem] {
-        [GridItem(.flexible(), spacing: 5), GridItem(.flexible(), spacing: 5)]
-    }
-
-    private func toolbarPanel<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text(title).font(.system(size: 13, weight: .semibold))
-                Spacer()
-                Button { toolbarPage = .main } label: {
-                    Image(systemName: "xmark").font(.system(size: 12, weight: .semibold)).frame(width: 28, height: 28)
-                }.buttonStyle(.plain)
-            }
-            content()
-        }
-        .padding(10)
-        .frame(maxWidth: 570)
-        .background(Color(uiColor: .secondarySystemBackground).opacity(0.96), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 0.6))
-        .shadow(color: .black.opacity(0.10), radius: 12, y: 4)
-    }
-
-    private func panelButton(_ image: String, _ title: String, active: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) { panelItem(image, title, active: active) }.buttonStyle(.plain)
-    }
-
-    private func panelItem(_ image: String, _ title: String, active: Bool = false) -> some View {
-        HStack(spacing: 9) {
-            Image(systemName: image).font(.system(size: 14, weight: .medium)).frame(width: 22)
-            Text(title).font(.system(size: 13, weight: .regular))
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(active ? Color.accentColor : Color.primary)
-        .padding(.horizontal, 10)
-        .frame(height: 37)
-        .background(active ? Color.accentColor.opacity(0.11) : Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
-        .contentShape(Rectangle())
-    }
-
     private var toolbarDivider: some View {
         Divider().frame(height: 21).padding(.horizontal, 2)
-    }
-
-    private func togglePage(_ page: RichTextToolbarPage) {
-        toolbarPage = toolbarPage == page ? .main : page
     }
 
     private func run(_ kind: RichTextCommandKind) {
@@ -519,6 +474,7 @@ private struct RichTextTextView: UIViewRepresentable {
         context.coordinator.lastHTML = html
         context.coordinator.installKeyboardAccessory(keyboardAccessory, height: keyboardAccessoryHeight, on: view)
         if focusOnAppear {
+            view.selectedRange = NSRange(location: 0, length: 0)
             DispatchQueue.main.async { view.becomeFirstResponder() }
         }
         return view
@@ -578,7 +534,6 @@ private struct RichTextTextView: UIViewRepresentable {
         func textViewDidBeginEditing(_ textView: UITextView) {
             publishSelectionState(textView)
             DispatchQueue.main.async { self.parent.isEditing = true }
-            keepSelectionVisible(in: textView)
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
@@ -594,17 +549,6 @@ private struct RichTextTextView: UIViewRepresentable {
                 self.parent.selectedFormula = formula
             }
             publishSelectionState(textView)
-            keepSelectionVisible(in: textView)
-        }
-
-        private func keepSelectionVisible(in textView: UITextView) {
-            guard textView.isFirstResponder else { return }
-            let selection = textView.selectedRange
-            DispatchQueue.main.async {
-                guard selection.location <= textView.attributedText.length else { return }
-                textView.layoutIfNeeded()
-                textView.scrollRangeToVisible(selection)
-            }
         }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
@@ -915,7 +859,7 @@ private struct RichTextTextView: UIViewRepresentable {
                 self.publishNow(view)
             }
             pendingPublish = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
         }
 
         private func publishNow(_ view: UITextView) {

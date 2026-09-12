@@ -9,6 +9,7 @@ struct LibraryTagSelectionDialog: View {
     let module: String
     @Binding var selection: String
     let onClose: () -> Void
+    var titleOverride: String? = nil
     @State private var selected: [String] = []
     @State private var search = ""
     @State private var message: String?
@@ -25,14 +26,14 @@ struct LibraryTagSelectionDialog: View {
     private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
-        NativeEditorDialog(title: "选择\(kind.rawValue)", canSave: selected.count <= maximum,
+        NativeEditorDialog(title: "选择\(titleOverride ?? kind.rawValue)", canSave: selected.count <= maximum,
             actionTitle: "确定", onClose: onClose, onSave: {
                 selection = selected.joined(separator: "、")
                 onClose()
             }) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    TextField("搜索或输入新\(kind.rawValue)", text: $search)
+                    TextField("搜索或输入新\(titleOverride ?? kind.rawValue)", text: $search)
                         .textFieldStyle(NativeTextFieldStyle()).onSubmit(addTag)
                     Button("新增", action: addTag).font(.system(size: 12))
                         .disabled(query.isEmpty || names.contains(query))

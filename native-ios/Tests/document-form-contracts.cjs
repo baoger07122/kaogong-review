@@ -22,14 +22,16 @@ const tests = {
     assert.match(detail, /\.padding\(\.top, 5\)/);
   },
   'empty metadata keeps its label': () => {
-    const metadata = detail.split('private func metadataLine')[1].split('private func supportingLine')[0];
-    assert.doesNotMatch(metadata, /if !text\.isEmpty/);
-    for (const label of ['考点', '错因', '思维误区']) assert.ok(detail.includes(`metadataLine("${label}"`));
+    const metadata = detail.split('private var metadata:')[1].split('@ViewBuilder private var imagesBlock')[0];
+    assert.doesNotMatch(metadata, /if !.*knowledgePoint|if !.*errorCause|if !.*pitfall/);
+    assert.match(metadata, /metadataTagLine\(knowledgePointLabel/);
+    assert.match(metadata, /metadataTagLine\(errorCauseLabel/);
+    assert.match(metadata, /metadataTextLine\("思维误区"/);
   },
   'inline note owns typing state and flushes before drawing': () => {
     assert.match(detail, /LibraryInlineNoteView/);
     assert.match(detail, /guard noteSession\.finish\(\) else/);
-    assert.match(note, /milliseconds\(700\)/);
+    assert.match(note, /milliseconds\(1_400\)/);
     assert.match(note, /\.onDisappear/);
     assert.doesNotMatch(note, /navigationDestination|\.sheet\(/);
   },

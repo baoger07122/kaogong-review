@@ -314,28 +314,32 @@ private struct LibraryErrorRecordCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if !snapshot.comparisonWords.isEmpty {
-                Text("辨析：\(snapshot.comparisonWords.joined(separator: "、"))")
-                .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(AppTheme.accent.opacity(0.82))
-                .lineSpacing(1.5)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(AppTheme.accent.opacity(0.055), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(AppTheme.accent.opacity(0.22), lineWidth: 0.7)
-                }
+                tagLine(
+                    label: "辨析",
+                    values: snapshot.comparisonWords,
+                    foreground: AppTheme.accent.opacity(0.82),
+                    background: AppTheme.accent.opacity(0.06)
+                )
             }
 
-            if !snapshot.knowledgePoints.isEmpty || !snapshot.errorCause.isEmpty {
-                NativeTagFlow(spacing: 6) {
-                    ForEach(Array(snapshot.knowledgePoints.prefix(4).enumerated()), id: \.offset) { _, point in
-                        tag(point, foreground: AppTheme.accent, background: AppTheme.accent.opacity(0.09))
-                    }
-                    if !snapshot.errorCause.isEmpty {
-                        tag(snapshot.errorCause, foreground: .secondary, background: Color.primary.opacity(0.045))
-                    }
-                }
+            if !snapshot.knowledgePoints.isEmpty {
+                tagLine(
+                    label: knowledgePointLabel,
+                    values: snapshot.knowledgePoints,
+                    foreground: AppTheme.accent,
+                    background: AppTheme.accent.opacity(0.10),
+                    weight: .medium
+                )
+            }
+
+            let causes = splitTags(snapshot.errorCause)
+            if !causes.isEmpty {
+                tagLine(
+                    label: errorCauseLabel,
+                    values: causes,
+                    foreground: .secondary,
+                    background: Color.primary.opacity(0.045)
+                )
             }
 
             if !snapshot.pitfall.isEmpty {
@@ -346,15 +350,8 @@ private struct LibraryErrorRecordCard: View {
                         .lineLimit(size == .small ? 2 : 3)
                 }
                 .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
                 .lineSpacing(1.5)
-            }
-
-            if let createdAt = snapshot.createdAt {
-                Text(Self.dateFormatter.string(from: createdAt))
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(.tertiary)
-                    .padding(.top, 2)
             }
         }
         .padding(14)
@@ -404,12 +401,38 @@ private struct LibraryErrorRecordCard: View {
             .background(background, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
+    private func tagLine(
+        label: String,
+        values: [String],
+        foreground: Color,
+        background: Color,
+        weight: Font.Weight = .regular
+    ) -> some View {
+        HStack(alignment: .top, spacing: 5) {
+            Text("\(label)：")
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(.secondary)
+                .padding(.top, 3)
+            NativeTagFlow(spacing: 5) {
+                ForEach(values, id: \.self) { value in
+                    tag(value, foreground: foreground, background: background, weight: weight)
+                }
+            }
+        }
+    }
+
+    private func splitTags(_ value: String) -> [String] {
+        value.split(whereSeparator: { "、,，".contains($0) })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private var isLogicJudgment: Bool {
+        snapshot.record.subject == "判断推理" && snapshot.record.module == "逻辑判断"
+    }
+
+    private var knowledgePointLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
+    private var errorCauseLabel: String { isLogicJudgment ? "选项逻辑作用" : "错因" }
 }
 
 private struct LibraryCardThumbnail: View {

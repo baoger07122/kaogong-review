@@ -33,6 +33,7 @@ struct LibraryRecordDetailView: View {
                     comparisonBlock
                     reviewBlock
                     noteBlock
+                    dateBlock
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 5)
@@ -106,9 +107,9 @@ struct LibraryRecordDetailView: View {
                     .frame(height: 24)
                     .background(statusColor(status).opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
             }
-            metadataLine("考点", values: knowledgePoints)
-            metadataLine("错因", values: textValues(["errorCause", "cause", "reason"]))
-            metadataLine("思维误区", values: textValues(["pitfall", "misconception", "thinkingTrap"]))
+            metadataTagLine(knowledgePointLabel, values: knowledgePoints, emphasis: .strong)
+            metadataTagLine(errorCauseLabel, values: splitTags(firstText(["errorCause", "cause", "reason"]) ?? ""), emphasis: .subtle)
+            metadataTextLine("思维误区", value: firstText(["pitfall", "misconception", "thinkingTrap"]) ?? "")
         }
     }
 
@@ -248,19 +249,38 @@ struct LibraryRecordDetailView: View {
         }
     }
 
-    @ViewBuilder private func metadataLine(_ label: String, values: [String]) -> some View {
-        let text = values.map(clean).filter { !$0.isEmpty }.joined(separator: "、")
-        Group {
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text("\(label)：")
-                    .fontWeight(.medium)
-                    .foregroundStyle(.secondary)
-                Text(text)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    private enum MetadataTagEmphasis: Equatable { case strong, subtle }
+
+    private func metadataTagLine(_ label: String, values: [String], emphasis: MetadataTagEmphasis) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Text("\(label)：")
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(.primary)
+                .padding(.top, 3)
+            NativeTagFlow(spacing: 5) {
+                ForEach(values.map(clean).filter { !$0.isEmpty }, id: \.self) { value in
+                    Text(value)
+                        .font(.system(size: 13, weight: emphasis == .strong ? .medium : .regular))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            Color.primary.opacity(emphasis == .strong ? 0.075 : 0.045),
+                            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        )
+                }
             }
-            .font(.system(size: 12, weight: .regular))
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func metadataTextLine(_ label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("\(label)：")
+            Text(clean(value)).frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(.system(size: 14, weight: .regular))
+        .foregroundStyle(.primary)
     }
 
     private func supportingLine(_ label: String, value: String, systemImage: String) -> some View {
@@ -282,17 +302,14 @@ struct LibraryRecordDetailView: View {
         var text = Text(cleanMultiline(option))
             .font(.system(size: 14, weight: .regular))
         if correct, chosen {
-            text = text + Text("  ✓ 正确答案 · 你的选择")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(webSuccess)
+            text = text + Text("  ✅")
+                .font(.system(size: 13, weight: .medium))
         } else if correct {
-            text = text + Text("  ✓ 正确答案")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(webSuccess)
+            text = text + Text("  ✅")
+                .font(.system(size: 13, weight: .medium))
         } else if chosen {
-            text = text + Text("  ✕ 你的选择")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(AppTheme.danger)
+            text = text + Text("  ❌")
+                .font(.system(size: 13, weight: .medium))
         }
         return text
     }
@@ -337,6 +354,40 @@ struct LibraryRecordDetailView: View {
     private var isLogicFillError: Bool {
         record.collection == "errors" && record.subject == "言语理解" && record.module == "逻辑填空"
     }
+
+    private var isLogicJudgment: Bool {
+        record.collection == "errors" && record.subject == "判断推理" && record.module == "逻辑判断"
+    }
+
+    private var knowledgePointLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
+    private var errorCauseLabel: String { isLogicJudgment ? "选项逻辑作用" : "错因" }
+
+    private func splitTags(_ value: String) -> [String] {
+        value.split(whereSeparator: { "、,，".contains($0) })
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private var dateBlock: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let createdAt = record.createdAt {
+                Text("收录于 \(Self.dateFormatter.string(from: createdAt))")
+            }
+            if let updatedAt = record.updatedAt {
+                Text("上次更新 \(Self.dateFormatter.string(from: updatedAt))")
+            }
+        }
+        .font(.system(size: 11, weight: .regular))
+        .foregroundStyle(.tertiary)
+        .padding(.top, 8)
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy年M月d日"
+        return formatter
+    }()
 
     private var linkedWordSelection: Binding<[String]> {
         Binding(

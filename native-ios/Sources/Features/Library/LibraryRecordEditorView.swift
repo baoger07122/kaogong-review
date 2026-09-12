@@ -190,7 +190,8 @@ struct LibraryRecordEditorView: View {
             if let activeTags {
                 LibraryTagSelectionDialog(kind: activeTags, module: draft.module,
                     selection: activeTags == .knowledgePoint ? $draft.knowledgePoint : $draft.errorCause,
-                    onClose: { self.activeTags = nil })
+                    onClose: { self.activeTags = nil },
+                    titleOverride: activeTags == .knowledgePoint ? knowledgePointLabel : errorCauseLabel)
             }
             if let activeRelation {
                 LibraryRelationSelectionDialog(collection: activeRelation,
@@ -223,6 +224,20 @@ struct LibraryRecordEditorView: View {
                 }
             }
             Spacer(minLength: 0)
+            if kind == .errors, draft.images.isEmpty {
+                PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 12, matching: .images) {
+                    ViewThatFits(in: .horizontal) {
+                        Label("添加图片", systemImage: "photo.badge.plus")
+                        Image(systemName: "photo.badge.plus")
+                    }
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(AppTheme.accent)
+                    .frame(minWidth: 36, minHeight: 36)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("添加题目与选项图片")
+            }
         }
     }
 
@@ -263,9 +278,8 @@ struct LibraryRecordEditorView: View {
 
     private var graphErrorPriorityFields: some View {
         VStack(alignment: .leading, spacing: 10) {
-            errorFormCard {
-                imagePicker
-            }
+            if recordID != nil { errorAnalysisCard }
+            errorImageCard
             errorFormCard {
                 compactFormSection("题目与选项", image: "list.bullet.rectangle") {
                     HStack {
@@ -311,35 +325,15 @@ struct LibraryRecordEditorView: View {
                     TextField("识别思路", text: $draft.recognition).textFieldStyle(ErrorFormTextFieldStyle())
                 }
             }
-            errorFormCard {
-                compactFormSection("考点与错因", image: "tag") {
-                    tagInput(
-                        title: "考点（可选）",
-                        text: $draft.knowledgePoint,
-                        suggestions: TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records),
-                        allowsMultiple: true
-                    )
-                    tagInput(
-                        title: "错因（可选）",
-                        text: $draft.errorCause,
-                        suggestions: TagLibraryRepository.tags(kind: .errorCause, module: draft.module, records: records)
-                    )
-                    tagInput(
-                        title: "思维误区（可选）",
-                        text: $draft.pitfall,
-                        suggestions: TagLibraryRepository.tags(kind: .thinkingTrap, module: draft.module, records: records)
-                    )
-                }
-            }
+            if recordID == nil { errorAnalysisCard }
         }
         .background(Color.white)
     }
 
     private var regularErrorFields: some View {
         VStack(alignment: .leading, spacing: 10) {
-            errorFormCard {
-                imagePicker
-            }
+            if recordID != nil { errorAnalysisCard }
+            errorImageCard
 
             errorFormCard {
                 compactFormSection("题目与选项", image: "list.bullet.rectangle") {
@@ -386,16 +380,29 @@ struct LibraryRecordEditorView: View {
             }
             }
 
-            errorFormCard {
-                compactFormSection("考点与错因", image: "tag") {
+            if recordID == nil { errorAnalysisCard }
+
+        }
+        .background(Color.white)
+    }
+
+    @ViewBuilder private var errorImageCard: some View {
+        if !draft.images.isEmpty {
+            errorFormCard { imagePicker }
+        }
+    }
+
+    private var errorAnalysisCard: some View {
+        errorFormCard {
+            compactFormSection("\(knowledgePointLabel)与\(errorCauseLabel)", image: "tag") {
                 tagInput(
-                    title: "考点（可选）",
+                    title: "\(knowledgePointLabel)（可选）",
                     text: $draft.knowledgePoint,
                     suggestions: TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records),
                     allowsMultiple: true
                 )
                 tagInput(
-                    title: "错因（可选）",
+                    title: "\(errorCauseLabel)（可选）",
                     text: $draft.errorCause,
                     suggestions: TagLibraryRepository.tags(kind: .errorCause, module: draft.module, records: records)
                 )
@@ -405,11 +412,12 @@ struct LibraryRecordEditorView: View {
                     suggestions: TagLibraryRepository.tags(kind: .thinkingTrap, module: draft.module, records: records)
                 )
             }
-            }
-
         }
-        .background(Color.white)
     }
+
+    private var isLogicJudgment: Bool { draft.subject == "判断推理" && draft.module == "逻辑判断" }
+    private var knowledgePointLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
+    private var errorCauseLabel: String { isLogicJudgment ? "选项逻辑作用" : "错因" }
 
     private var recordTypePicker: some View {
         Picker("题目类型", selection: $draft.type) {
@@ -534,7 +542,7 @@ struct LibraryRecordEditorView: View {
                     activeTags = allowsMultiple ? .knowledgePoint : .errorCause
                 } label: {
                     HStack(spacing: 8) {
-                        Text(allowsMultiple ? "考点" : "错因")
+                        Text(allowsMultiple ? knowledgePointLabel : errorCauseLabel)
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                             .frame(width: 66, alignment: .leading)
                         if text.wrappedValue.isEmpty {
