@@ -410,8 +410,8 @@ private struct LibraryErrorRecordCard: View {
     ) -> some View {
         HStack(alignment: .top, spacing: 5) {
             Text("\(label)：")
-                .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.primary)
                 .padding(.top, 3)
             NativeTagFlow(spacing: 5) {
                 ForEach(values, id: \.self) { value in
@@ -431,8 +431,8 @@ private struct LibraryErrorRecordCard: View {
         snapshot.record.subject == "判断推理" && snapshot.record.module == "逻辑判断"
     }
 
-    private var knowledgePointLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
-    private var errorCauseLabel: String { isLogicJudgment ? "选项逻辑作用" : "错因" }
+    private var knowledgePointLabel: String { isLogicJudgment ? "结构" : "考点" }
+    private var errorCauseLabel: String { isLogicJudgment ? "选项" : "错因" }
 }
 
 private struct LibraryCardThumbnail: View {

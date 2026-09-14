@@ -728,7 +728,7 @@ struct SpeedPracticeView: View {
                     VStack(alignment: .trailing, spacing: 1) {
                         Text("\(Int((block.accuracy * 100).rounded()))%")
                             .font(.system(size: 18, weight: .bold)).foregroundStyle(AppTheme.accent)
-                        Text("\(Int(block.totalTime.rounded()))秒")
+                        Text("平均 \(SpeedPracticeFlow.durationText(block.averageTime))")
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                     Image(systemName: expandedHistoryBlocks.contains(block.id) ? "chevron.up" : "chevron.down")
@@ -1040,7 +1040,7 @@ struct SpeedPracticeView: View {
 
     private func closeDoodle() {
         doodleController.showSettings = false
-        setDoodleVisible(false)
+        doodleController.commit { setDoodleVisible(false) }
     }
 
     private func setDoodleVisible(_ visible: Bool) {

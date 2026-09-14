@@ -18,6 +18,7 @@ struct SpeedHistoryModelsTests {
         precondition(groups[0].blocks.map(\.name) == ["A", "B", "A"])
         precondition(groups[0].blocks[2].records.map(\.id) == ["a2", "a1"])
         precondition(groups[0].blocks[2].totalCount == 20)
+        precondition(groups[0].blocks[2].averageTime == 30)
 
         let snapshot = SpeedStatisticsSnapshot(records: records, now: day, calendar: calendar)
         precondition(snapshot.hottest?.name == "A")

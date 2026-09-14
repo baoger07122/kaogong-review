@@ -14,6 +14,7 @@ struct SpeedHistoryBlock: Identifiable {
     var totalCount: Int { records.reduce(0) { $0 + $1.totalCount } }
     var correctCount: Int { records.reduce(0) { $0 + $1.correctCount } }
     var totalTime: Double { records.reduce(0) { $0 + $1.totalTime } }
+    var averageTime: Double { records.isEmpty ? 0 : totalTime / Double(records.count) }
     var accuracy: Double { totalCount == 0 ? 0 : Double(correctCount) / Double(totalCount) }
 }
 

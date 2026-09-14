@@ -2,8 +2,17 @@ import PencilKit
 import SwiftUI
 import UIKit
 
-private enum PencilActionKind { case undo, redo, clear }
-private struct PencilAction { let id = UUID(); let kind: PencilActionKind }
+private enum PencilActionKind { case undo, redo, clear, commit }
+private struct PencilAction {
+    let id = UUID()
+    let kind: PencilActionKind
+    let completion: (() -> Void)?
+
+    init(kind: PencilActionKind, completion: (() -> Void)? = nil) {
+        self.kind = kind
+        self.completion = completion
+    }
+}
 
 private enum PencilToolMemory {
     static let color = "nativePencil.color"
@@ -104,6 +113,16 @@ final class PencilDrawingController: ObservableObject {
         action = PencilAction(kind: .clear)
     }
 
+    func commit(_ completion: @escaping () -> Void) {
+        if action != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.commit(completion)
+            }
+            return
+        }
+        action = PencilAction(kind: .commit, completion: completion)
+    }
+
     func prepareForPresentation() {
         showSettings = false
         fingerDrawingEnabled = false
@@ -161,6 +180,13 @@ struct NativePencilDrawingEditor: View {
         }
         .onChange(of: controller.eraser) { _, enabled in
             if !enabled { eraserLocation = nil }
+        }
+        .onChange(of: controller.action?.id) { _, _ in
+            if case .clear? = controller.action?.kind {
+                // Keep the SwiftUI source of truth empty even if the UIKit delegate
+                // callback arrives after the drawing overlay has been dismissed.
+                encodedData = ""
+            }
         }
     }
 
@@ -496,8 +522,13 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
                 canvas.undoManager?.setActionName("清空涂鸦")
                 canvas.drawing = PKDrawing()
                 context.coordinator.publish(canvas)
+            case .commit:
+                context.coordinator.publish(canvas)
             }
-            DispatchQueue.main.async { self.action = nil }
+            DispatchQueue.main.async {
+                self.action = nil
+                action.completion?()
+            }
         }
         if context.coordinator.lastEncoded != encodedData,
            !canvas.isFirstResponder,
@@ -519,17 +550,25 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         var lastEncoded = ""
         var lastActionID: UUID?
         var drawingChanged = false
+        private var pendingPublish: DispatchWorkItem?
         weak var eraserTracker: UILongPressGestureRecognizer?
 
         init(parent: PencilCanvasRepresentable) { self.parent = parent }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             drawingChanged = true
+            pendingPublish?.cancel()
+            let work = DispatchWorkItem { [weak self, weak canvasView] in
+                guard let self, let canvasView, self.drawingChanged else { return }
+                self.publish(canvasView)
+            }
+            pendingPublish = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
         }
 
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
             guard drawingChanged else { return }
-            drawingChanged = false
+            pendingPublish?.cancel()
             publish(canvasView)
         }
 
@@ -554,6 +593,8 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         }
 
         func publish(_ canvas: PKCanvasView) {
+            pendingPublish?.cancel()
+            pendingPublish = nil
             let value = canvas.drawing.dataRepresentation().base64EncodedString()
             lastEncoded = value
             parent.encodedData = value
