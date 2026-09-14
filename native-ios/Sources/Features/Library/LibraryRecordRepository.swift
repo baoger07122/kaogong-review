@@ -84,6 +84,14 @@ struct LibraryRecordDraft {
             content = LegacyRichTextConverter.html(from: legacyContent)
         }
         type = LibraryRecordDraft.text(original, keys: ["type", "tag", "category"])
+        if kind == .words {
+            title = LibraryRecordDraft.firstNonEmptyText(original, keys: ["name", "words", "title", "text"])
+            type = LibraryRecordDraft.firstNonEmptyText(original, keys: ["category", "type", "tag"])
+            let category = WordCategory(rawValue: type) ?? .idiomDefinition
+            content = category.isComparison
+                ? LibraryRecordDraft.firstNonEmptyText(original, keys: ["judgmentHint", "content", "meaning"])
+                : LibraryRecordDraft.firstNonEmptyText(original, keys: ["meaning", "content", "judgmentHint"])
+        }
         knowledgePoint = LibraryRecordDraft.text(original, keys: ["knowledgePoint"])
         if let values = original["knowledgePoints"] as? [String], !values.isEmpty {
             knowledgePoint = values.joined(separator: "、")
@@ -151,6 +159,11 @@ struct LibraryRecordDraft {
             wordCompareTerms = names.map { .init(name: $0) }
         }
 
+        if kind == .words {
+            partOfSpeech = LibraryRecordDraft.firstNonEmptyText(original, keys: ["pos", "partOfSpeech"])
+            compareNote = LibraryRecordDraft.firstNonEmptyText(original, keys: ["compareNote", "coreDifference"])
+        }
+
         if kind == .stickies {
             content = LibraryRecordDraft.text(original, keys: ["content", "text"])
         }
@@ -161,6 +174,14 @@ struct LibraryRecordDraft {
 
     private static func text(_ object: [String: Any], keys: [String]) -> String {
         for key in keys where object[key] is String { return object[key] as? String ?? "" }
+        return ""
+    }
+
+    private static func firstNonEmptyText(_ object: [String: Any], keys: [String]) -> String {
+        for key in keys {
+            guard let value = object[key] as? String else { continue }
+            if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return value }
+        }
         return ""
     }
 

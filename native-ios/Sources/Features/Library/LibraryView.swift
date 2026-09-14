@@ -80,21 +80,7 @@ struct LibraryView: View {
     private func destination(for route: LibraryRoute) -> some View {
         switch route {
         case let .editor(kind, recordID):
-            LibraryRecordEditorView(
-                kind: kind,
-                scope: scope,
-                record: records.first { $0.collection == kind.collection && $0.recordID == recordID },
-                preferredType: recordID == nil ? (kind == .words ? wordCategory.rawValue : selectedTag) : "",
-                dismissAfterSave: !(recordID == nil && (kind == .errors || kind == .words)),
-                onSaved: { savedID in
-                    guard recordID == nil, kind == .errors || kind == .words else { return }
-                    Task { @MainActor in
-                        await Task.yield()
-                        guard !navigationPath.isEmpty else { return }
-                        navigationPath[navigationPath.count - 1] = .detail(kind: kind, recordID: savedID)
-                    }
-                }
-            )
+            editorDestination(kind: kind, recordID: recordID)
         case let .detail(kind, recordID):
             if let record = records.first(where: { $0.collection == kind.collection && $0.recordID == recordID }) {
                 if kind == .words {
@@ -116,24 +102,51 @@ struct LibraryView: View {
                             remove(LibraryDeleteTarget(kind: kind, recordID: recordID))
                             popCurrentRoute()
                         },
-                        onOpenLinkedWord: { navigationPath.append(.linkedWord(recordID: $0)) }
+                        onOpenLinkedWord: { navigationPath.append(.detail(kind: .words, recordID: $0)) }
                     )
                 }
             } else {
                 NativeStatusCard(title: "记录不存在", detail: "这条记录可能已经被删除", systemImage: "exclamationmark.triangle", color: .secondary)
                     .padding(20)
             }
-        case let .linkedWord(recordID):
-            if let word = records.first(where: { $0.collection == "words" && $0.recordID == recordID }) {
-                WordLibraryRecordDetailView(
-                    record: word,
-                    onEdit: { openEditorAfterMenuDismisses(kind: .words, recordID: recordID) }
-                )
-            } else {
-                NativeStatusCard(title: "词语记录不存在", detail: "这条记录可能已经被删除", systemImage: "exclamationmark.triangle", color: .secondary)
-                    .padding(20)
-            }
         }
+    }
+
+    @ViewBuilder
+    private func editorDestination(kind: LibraryContentKind, recordID: String?) -> some View {
+        if let recordID {
+            if let record = records.first(where: { $0.collection == kind.collection && $0.recordID == recordID }) {
+                recordEditor(kind: kind, recordID: recordID, record: record)
+            } else {
+                NativeStatusCard(
+                    title: "记录不存在",
+                    detail: "无法载入原记录，已阻止进入空白新建页面",
+                    systemImage: "exclamationmark.triangle",
+                    color: AppTheme.warning
+                )
+                .padding(20)
+            }
+        } else {
+            recordEditor(kind: kind, recordID: nil, record: nil)
+        }
+    }
+
+    private func recordEditor(kind: LibraryContentKind, recordID: String?, record: StoredRecord?) -> some View {
+        LibraryRecordEditorView(
+            kind: kind,
+            scope: scope,
+            record: record,
+            preferredType: recordID == nil ? (kind == .words ? wordCategory.rawValue : selectedTag) : "",
+            dismissAfterSave: !(recordID == nil && (kind == .errors || kind == .words)),
+            onSaved: { savedID in
+                guard recordID == nil, kind == .errors || kind == .words else { return }
+                Task { @MainActor in
+                    await Task.yield()
+                    guard !navigationPath.isEmpty else { return }
+                    navigationPath[navigationPath.count - 1] = .detail(kind: kind, recordID: savedID)
+                }
+            }
+        )
     }
 
     private func popCurrentRoute() {

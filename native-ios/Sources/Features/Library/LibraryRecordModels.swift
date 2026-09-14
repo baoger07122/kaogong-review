@@ -104,7 +104,6 @@ enum LibraryCardSize: String, CaseIterable, Identifiable {
 enum LibraryRoute: Hashable {
     case editor(kind: LibraryContentKind, recordID: String?)
     case detail(kind: LibraryContentKind, recordID: String)
-    case linkedWord(recordID: String)
 }
 
 enum WordEntryKind: String, CaseIterable, Identifiable, Codable {

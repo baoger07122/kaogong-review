@@ -72,21 +72,22 @@ struct WordLibraryRecordDetailView: View {
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 10) {
-                    if let onEdit {
-                        Button(action: onEdit) {
-                            Label("编辑", systemImage: "pencil")
-                                .font(.system(size: 12, weight: .medium))
+                if onEdit != nil || onDelete != nil {
+                    Menu {
+                        if let onEdit {
+                            Button(action: onEdit) {
+                                Label("编辑词语", systemImage: "pencil")
+                            }
                         }
-                        .accessibilityLabel("编辑词语")
-                    }
-                    if onDelete != nil {
-                        Menu {
+                        if onDelete != nil {
                             Button(role: .destructive) { showDelete = true } label: {
                                 Label("删除词语", systemImage: "trash")
                             }
-                        } label: { Image(systemName: "ellipsis") }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
                     }
+                    .accessibilityLabel("词语设置")
                 }
             }
             .documentToolbarBackground()
