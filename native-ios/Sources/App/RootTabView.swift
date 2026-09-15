@@ -35,6 +35,7 @@ extension EnvironmentValues {
 @MainActor @Observable
 final class RootTabBarVisibility {
     private var activePages: [RootTab: Set<UUID>] = [:]
+    private var hiddenPages: [RootTab: Set<UUID>] = [:]
 
     func set(_ active: Bool, pageID: UUID, tab: RootTab) {
         var pages = activePages[tab] ?? []
@@ -43,9 +44,18 @@ final class RootTabBarVisibility {
     }
 
     func isVisible(for tab: RootTab) -> Bool {
+        // NavigationStack may retain a root page while an internal screen is shown.
+        // A destination's explicit hide takes precedence over that root's opt-in.
+        if hiddenPages[tab]?.isEmpty == false { return false }
         // Show on first mount, then let each visible page opt in explicitly.
         guard let pages = activePages[tab] else { return true }
         return !pages.isEmpty
+    }
+
+    func setHidden(_ hidden: Bool, pageID: UUID, tab: RootTab) {
+        var pages = hiddenPages[tab] ?? []
+        if hidden { pages.insert(pageID) } else { pages.remove(pageID) }
+        hiddenPages[tab] = pages
     }
 }
 
