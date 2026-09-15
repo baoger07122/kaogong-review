@@ -18,7 +18,6 @@ struct LibraryInlineNoteView: View {
     @State private var saved = ""
     @State private var saveTask: Task<Void, Never>?
     @State private var errorMessage: String?
-    @State private var displayHeight: CGFloat = 42
 
     private let noteCanvasMinimumHeight: CGFloat = 360
 
@@ -40,7 +39,7 @@ struct LibraryInlineNoteView: View {
             if editing {
                 NativeRichTextEditor(
                     html: $draft,
-                    minHeight: max(noteCanvasMinimumHeight, displayHeight),
+                    minHeight: noteCanvasMinimumHeight,
                     documentStyle: true,
                     focusOnAppear: true
                 )
@@ -85,11 +84,7 @@ struct LibraryInlineNoteView: View {
                 .frame(maxWidth: .infinity, minHeight: noteCanvasMinimumHeight, alignment: .topLeading)
         } else {
             NativeRichTextDisplay(html: storedNote, minHeight: noteCanvasMinimumHeight)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(GeometryReader { proxy in
-                    Color.clear.onAppear { displayHeight = max(42, proxy.size.height) }
-                        .onChange(of: proxy.size.height) { _, height in displayHeight = max(42, height) }
-                })
+                .frame(maxWidth: .infinity, alignment: .topLeading)
         }
     }
 
@@ -98,7 +93,12 @@ struct LibraryInlineNoteView: View {
         saveTask?.cancel()
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         guard save() else { return false }
-        editing = false
+        // Avoid replacing the editor during the same synchronous call that saves
+        // SwiftData and ends the UIKit first-responder session.
+        Task { @MainActor in
+            await Task.yield()
+            editing = false
+        }
         return true
     }
 
@@ -107,7 +107,6 @@ struct LibraryInlineNoteView: View {
         do {
             var object = record.jsonObject ?? [:]
             object["note"] = draft
-            if object["content"] != nil { object["content"] = draft }
             object["updatedAt"] = ISO8601DateFormatter().string(from: .now)
             record.replacePayload(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
             record.updatedAt = .now

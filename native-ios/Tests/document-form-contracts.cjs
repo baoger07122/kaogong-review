@@ -96,14 +96,15 @@ const tests = {
     assert.match(doodle, /accessibilityIdentifier\("library-doodle-close"\)/);
     assert.match(read('DesignSystem/NativeDocumentStyle.swift'), /background\(\.regularMaterial, in: Capsule\(\)\)/);
   },
-  'root chrome stays mounted while content uses the empty bar region': () => {
+  'root owns one bottom bar while pages register visibility': () => {
     assert.doesNotMatch(root, /hidesBottomBar|onPreferenceChange/);
     assert.match(root, /window\.safeAreaInsets\.top/);
     assert.match(navigationStyle, /padding\(\.top, windowTop\)/);
     assert.match(navigationStyle, /ignoresSafeArea\(\.container, edges: \.top\)/);
-    assert.match(navigationStyle, /safeAreaInset\(edge: \.bottom, spacing: 0\)/);
-    assert.match(navigationStyle, /NativeBottomTabBar\(selection: selection\)/);
-    assert.doesNotMatch(root, /safeAreaInset\(edge: \.bottom/);
+    assert.match(root, /safeAreaInset\(edge: \.bottom, spacing: 0\)/);
+    assert.match(root, /NativeBottomTabBar\(selection: \$selection\)/);
+    assert.doesNotMatch(navigationStyle, /NativeBottomTabBar\(selection:/);
+    assert.match(navigationStyle, /visibility\?\.set\(true, pageID: pageID, tab: tab\)/);
     assert.match(navigationStyle, /func stableRootNavigationBar\(\)/);
     assert.match(navigationStyle, /toolbar\(\.visible, for: \.navigationBar\)/);
     for (const source of [
