@@ -22,7 +22,7 @@ extension View {
             .toolbarBackground(.hidden, for: .navigationBar)
     }
 
-    /// The bar belongs to this page, so it travels with the page during a pop.
+    /// A page opts into the single root-owned bar; it never creates another bar.
     func rootTabBarContentInset() -> some View {
         modifier(PageTabBar())
     }
@@ -40,11 +40,13 @@ private struct RootPageTopLayout: ViewModifier {
 }
 
 private struct PageTabBar: ViewModifier {
-    @Environment(\.rootTabSelection) private var selection
+    @Environment(\.rootTabContext) private var tab
+    @Environment(\.rootTabBarVisibility) private var visibility
+    @State private var pageID = UUID()
     func body(content: Content) -> some View {
-        content.safeAreaInset(edge: .bottom, spacing: 0) {
-            NativeBottomTabBar(selection: selection)
-        }
+        content
+            .onAppear { visibility?.set(true, pageID: pageID, tab: tab) }
+            .onDisappear { visibility?.set(false, pageID: pageID, tab: tab) }
     }
 }
 

@@ -129,7 +129,7 @@ jobs:
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
 
-      - name: Test changed speed controls with real simulator taps
+      - name: Test changed navigation, speed controls and inline note
         if: steps.simulator_scope.outputs.run == 'true'
         timeout-minutes: 12
         shell: bash
@@ -145,6 +145,7 @@ jobs:
             -resultBundlePath build/SpeedInteraction.xcresult \
             -only-testing:SpeedInteractionUITests/SpeedInteractionUITests/testBlankStartAreaAndSingleDispatchForKeys \
             -only-testing:SpeedInteractionUITests/SpeedInteractionUITests/testNavigationEdgeAndPageOwnedTabBar \
+            -only-testing:SpeedInteractionUITests/InlineNoteInteractionUITests/testOneCharacterDoneAndTopAlignedEditor \
             -only-testing:SpeedAnimationTests \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
             xcrun xcresulttool get test-results summary --path build/SpeedInteraction.xcresult || true

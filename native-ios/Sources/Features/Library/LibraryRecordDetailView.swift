@@ -254,13 +254,13 @@ struct LibraryRecordDetailView: View {
     private func metadataTagLine(_ label: String, values: [String], emphasis: MetadataTagEmphasis) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Text("\(label)：")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(.primary)
                 .padding(.top, 3)
             NativeTagFlow(spacing: 5) {
                 ForEach(values.map(clean).filter { !$0.isEmpty }, id: \.self) { value in
                     Text(value)
-                        .font(.system(size: 11, weight: emphasis == .strong ? .medium : .regular))
+                        .font(.system(size: 12.5, weight: emphasis == .strong ? .medium : .regular))
                         .foregroundStyle(emphasis == .strong ? AppTheme.accent : Color.secondary)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
@@ -279,7 +279,7 @@ struct LibraryRecordDetailView: View {
             Text("\(label)：")
             Text(clean(value)).frame(maxWidth: .infinity, alignment: .leading)
         }
-        .font(.system(size: 14, weight: .regular))
+        .font(.system(size: 12.5, weight: .regular))
         .foregroundStyle(.primary)
     }
 

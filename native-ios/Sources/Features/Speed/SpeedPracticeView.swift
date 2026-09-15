@@ -961,9 +961,7 @@ struct SpeedPracticeView: View {
         questions[index].isCorrect = SpeedQuestionEngine.isCorrect(input: currentInput, answer: questions[index].answer, type: questions[index].type)
         let success = questions[index].isCorrect == true
         if index == questions.count - 1 { finishedDuration = Date.now.timeIntervalSince(startedAt) }
-        let message = questions[index].type == .div3x1 && settings.useCustomPractice != true
-            ? (success ? rating(for: questions[index]).rawValue + "！" : "✗ ") + String(format: "%.1fs", questions[index].timeUsed)
-            : (success ? "✓" : "✗")
+        let message = success ? "✓" : "✗"
         feedback = SpeedFeedbackMessage(text: message, success: success)
         UINotificationFeedbackGenerator().notificationOccurred(success ? .success : .error)
         // Grade and advance in the same event. Feedback is a separate non-blocking overlay.

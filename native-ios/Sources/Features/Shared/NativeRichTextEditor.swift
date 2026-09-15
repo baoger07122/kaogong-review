@@ -155,9 +155,10 @@ struct NativeRichTextEditor: View {
                 keyboardAccessory: AnyView(keyboardToolbar),
                 keyboardAccessoryHeight: keyboardAccessoryHeight,
                 growsWithContent: documentStyle,
+                minimumContentHeight: documentStyle ? minHeight : 0,
                 focusOnAppear: focusOnAppear
             )
-                .frame(minHeight: minHeight)
+                .frame(minHeight: documentStyle ? nil : minHeight, alignment: .topLeading)
                 .padding(.horizontal, documentStyle ? 0 : 5)
         }
         .background(Color.primary.opacity(documentStyle ? 0 : 0.035), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
@@ -450,6 +451,7 @@ private struct RichTextTextView: UIViewRepresentable {
     let keyboardAccessory: AnyView
     let keyboardAccessoryHeight: CGFloat
     var growsWithContent = false
+    var minimumContentHeight: CGFloat = 0
     var focusOnAppear = false
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -468,6 +470,8 @@ private struct RichTextTextView: UIViewRepresentable {
             view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         }
         view.allowsEditingTextAttributes = true
+        view.inputAssistantItem.leadingBarButtonGroups = []
+        view.inputAssistantItem.trailingBarButtonGroups = []
         view.keyboardDismissMode = .interactive
         view.linkTextAttributes = [.foregroundColor: UIColor.systemBlue, .underlineStyle: NSUnderlineStyle.single.rawValue]
         view.attributedText = Self.attributed(from: html)
@@ -483,7 +487,7 @@ private struct RichTextTextView: UIViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
         guard growsWithContent, let width = proposal.width, width > 0 else { return nil }
         let size = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-        return CGSize(width: width, height: max(42, ceil(size.height)))
+        return CGSize(width: width, height: max(42, minimumContentHeight, ceil(size.height)))
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
