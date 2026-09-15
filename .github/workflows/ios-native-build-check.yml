@@ -64,7 +64,8 @@ jobs:
             -scheme KaogongReviewNative \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -configuration Debug \
-            -only-testing:SpeedInteractionUITests/InlineNoteCrashUITests/testOneCharacterThenDoneKeepsAppAlive \
+            -only-testing:SpeedInteractionUITests/InlineNoteInteractionUITests/testOneCharacterDoneAndTopAlignedEditor \
+            -only-testing:SpeedInteractionUITests/SpeedInteractionUITests/testNavigationEdgeAndPageOwnedTabBar \
             -resultBundlePath "$RUNNER_TEMP/InlineNoteCrash.xcresult" \
             -parallel-testing-enabled NO \
             test \
