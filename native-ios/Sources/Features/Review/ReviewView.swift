@@ -18,6 +18,25 @@ private struct ReviewModuleStat: Identifiable {
     var id: String { "\(subject)|\(module)" }
 }
 
+private struct ReviewModuleKey: Hashable {
+    let subject: String
+    let module: String
+}
+
+private struct ReviewModuleCounts {
+    var total = 0
+    var inPool = 0
+    var mastered = 0
+}
+
+private struct ReviewOverview {
+    let due: [StoredRecord]
+    let pool: [StoredRecord]
+    let mastered: Int
+    let subjectCounts: [String: Int]
+    let moduleStats: [ReviewModuleStat]
+}
+
 struct ReviewView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
@@ -28,18 +47,20 @@ struct ReviewView: View {
     @State private var isSession = false
     private let sessionKey = "native.review.activeSession"
 
-    private var errors: [StoredRecord] { records.filter { $0.collection == "errors" } }
+    private var errors: [StoredRecord] { records }
     private var due: [StoredRecord] {
-        errors.filter {
-            let object = $0.indexObject ?? [:]
-            guard (object["status"] as? String) == "未掌握" else { return false }
-            let date = parseDate(object["lastReviewDate"]) ?? $0.createdAt ?? .distantPast
-            return Calendar.current.dateComponents([.day], from: date, to: .now).day ?? 0 >= 3
-        }
-        .sorted { reviewDate($0) < reviewDate($1) }
+        let now = Date()
+        return errors.filter { isDue($0, now: now) }
+            .sorted { reviewDate($0) < reviewDate($1) }
     }
-    private var reviewPool: [StoredRecord] { due.isEmpty ? errors : due }
-    private var queue: [StoredRecord] { queueIDs.compactMap { id in errors.first { $0.recordID == id } } }
+    private var reviewPool: [StoredRecord] {
+        let dueRecords = due
+        return dueRecords.isEmpty ? errors : dueRecords
+    }
+    private var queue: [StoredRecord] {
+        let byID = Dictionary(errors.map { ($0.recordID, $0) }, uniquingKeysWith: { first, _ in first })
+        return queueIDs.compactMap { byID[$0] }
+    }
 
     var body: some View {
         Group { if isSession { sessionView } else { homeView } }
@@ -47,6 +68,7 @@ struct ReviewView: View {
             .navigationTitle(isSession ? "复习训练" : "复习")
             .navigationBarTitleDisplayMode(.inline)
             .rootTabBarContentInset()
+            .toolbar(isSession ? .hidden : .visible, for: .tabBar)
             .onAppear(perform: restoreSession)
             .onChange(of: queueIDs) { _, _ in persistSession() }
             .onChange(of: index) { _, _ in persistSession() }
@@ -57,7 +79,8 @@ struct ReviewView: View {
     }
 
     private var homeView: some View {
-        ScrollView {
+        let overview = makeOverview()
+        return ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("REVIEW MODE").font(AppTheme.auxiliaryFont.weight(.bold)).foregroundStyle(AppTheme.accent)
@@ -65,15 +88,15 @@ struct ReviewView: View {
                     Text("重新抽取历史错题，及时巩固薄弱知识点").font(AppTheme.bodyFont).foregroundStyle(.secondary)
                 }
                 HStack(spacing: 10) {
-                    overview("待复习", due.count, due.isEmpty ? "暂无到期错题" : "超过3天未复习")
-                    overview("本轮题量", reviewPool.count, "可按科目开始")
-                    overview("已掌握", errors.filter { ($0.indexObject?["status"] as? String) == "已掌握" }.count, "历史累计")
+                    overviewCard("待复习", overview.due.count, overview.due.isEmpty ? "暂无到期错题" : "超过3天未复习")
+                    overviewCard("本轮题量", overview.pool.count, "可按科目开始")
+                    overviewCard("已掌握", overview.mastered, "历史累计")
                 }
-                Text(due.isEmpty ? (errors.isEmpty ? "还没有可复习的错题" : "当前没有到期错题，先展示全部历史错题") : "优先显示超过3天未复习的错题")
+                Text(overview.due.isEmpty ? (errors.isEmpty ? "还没有可复习的错题" : "当前没有到期错题，先展示全部历史错题") : "优先显示超过3天未复习的错题")
                     .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
                 VStack(spacing: 9) {
                     ForEach(SubjectDefinition.all) { subject in
-                        let count = reviewPool.filter { $0.subject == subject.name }.count
+                        let count = overview.subjectCounts[subject.name] ?? 0
                         Button { start(subject: subject.name) } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: subject.systemImage).foregroundStyle(subject.color)
@@ -87,11 +110,11 @@ struct ReviewView: View {
                         }.buttonStyle(.plain).disabled(count == 0)
                     }
                 }
-                if !moduleStats.isEmpty {
+                if !overview.moduleStats.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("模块复习概览").font(AppTheme.sectionTitleFont)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
-                            ForEach(moduleStats) { stat in
+                            ForEach(overview.moduleStats) { stat in
                                 Button { start(subject: stat.subject, module: stat.module) } label: {
                                     VStack(alignment: .leading, spacing: 5) {
                                         Text(stat.module.isEmpty ? stat.subject : stat.module)
@@ -115,7 +138,7 @@ struct ReviewView: View {
                     }
                 }
                 Button("开始全部复习") { start(subject: nil) }
-                    .buttonStyle(NativePrimaryButtonStyle()).disabled(reviewPool.isEmpty)
+                    .buttonStyle(NativePrimaryButtonStyle()).disabled(overview.pool.isEmpty)
             }.padding(20)
         }
     }
@@ -124,23 +147,48 @@ struct ReviewView: View {
         Group { if index >= queue.count { finishedView } else { questionView(queue[index]) } }
     }
 
-    private var moduleStats: [ReviewModuleStat] {
-        let keys = Set(errors.map { "\($0.subject ?? "未分类")|\($0.module ?? "")" })
-        return keys.map { key in
-            let parts = key.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
-            let subject = parts.first ?? "未分类"
-            let module = parts.count > 1 ? parts[1] : ""
-            let all = errors.filter { ($0.subject ?? "未分类") == subject && ($0.module ?? "") == module }
-            let pool = reviewPool.filter { ($0.subject ?? "未分类") == subject && ($0.module ?? "") == module }
-            return ReviewModuleStat(
-                subject: subject,
-                module: module,
-                total: all.count,
-                inPool: pool.count,
-                mastered: all.filter { ($0.indexObject?["status"] as? String) == "已掌握" }.count
-            )
+    private func makeOverview() -> ReviewOverview {
+        let now = Date()
+        var dueRecords: [StoredRecord] = []
+        var counts: [ReviewModuleKey: ReviewModuleCounts] = [:]
+        var mastered = 0
+        for record in errors {
+            let key = ReviewModuleKey(subject: record.subject ?? "未分类", module: record.module ?? "")
+            var value = counts[key] ?? ReviewModuleCounts()
+            value.total += 1
+            if (record.indexObject?["status"] as? String) == "已掌握" {
+                mastered += 1
+                value.mastered += 1
+            }
+            counts[key] = value
+            if isDue(record, now: now) { dueRecords.append(record) }
+        }
+        dueRecords.sort { reviewDate($0) < reviewDate($1) }
+        let pool = dueRecords.isEmpty ? errors : dueRecords
+        var subjectCounts: [String: Int] = [:]
+        for record in pool {
+            let key = ReviewModuleKey(subject: record.subject ?? "未分类", module: record.module ?? "")
+            var value = counts[key] ?? ReviewModuleCounts()
+            value.inPool += 1
+            counts[key] = value
+            subjectCounts[key.subject, default: 0] += 1
+        }
+        let stats = counts.map { entry in
+            let key = entry.key
+            let value = entry.value
+            return ReviewModuleStat(subject: key.subject, module: key.module,
+                                    total: value.total, inPool: value.inPool, mastered: value.mastered)
         }
         .sorted { $0.subject == $1.subject ? $0.module < $1.module : $0.subject < $1.subject }
+        return ReviewOverview(due: dueRecords, pool: pool, mastered: mastered,
+                              subjectCounts: subjectCounts, moduleStats: stats)
+    }
+
+    private func isDue(_ record: StoredRecord, now: Date) -> Bool {
+        let object = record.indexObject ?? [:]
+        guard (object["status"] as? String) == "未掌握" else { return false }
+        let date = parseDate(object["lastReviewDate"]) ?? record.createdAt ?? .distantPast
+        return Calendar.current.dateComponents([.day], from: date, to: now).day ?? 0 >= 3
     }
 
     private func questionView(_ record: StoredRecord) -> some View {
@@ -190,7 +238,7 @@ struct ReviewView: View {
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func overview(_ title: String, _ value: Int, _ detail: String) -> some View {
+    private func overviewCard(_ title: String, _ value: Int, _ detail: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text("\(value)").font(.system(size: 23, weight: .semibold)).monospacedDigit(); Text(title).font(AppTheme.inputFont.weight(.semibold)); Text(detail).font(AppTheme.auxiliaryFont).foregroundStyle(.secondary).lineLimit(1)
         }.frame(maxWidth: .infinity, alignment: .leading).nativeCard()

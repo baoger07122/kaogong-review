@@ -96,15 +96,19 @@ const tests = {
     assert.match(doodle, /accessibilityIdentifier\("library-doodle-close"\)/);
     assert.match(read('DesignSystem/NativeDocumentStyle.swift'), /background\(\.regularMaterial, in: Capsule\(\)\)/);
   },
-  'root owns one bottom bar while pages register visibility': () => {
+  'root uses the official tab container with unchanged tab symbols': () => {
     assert.doesNotMatch(root, /hidesBottomBar|onPreferenceChange/);
     assert.match(root, /window\.safeAreaInsets\.top/);
     assert.match(navigationStyle, /padding\(\.top, windowTop\)/);
     assert.match(navigationStyle, /ignoresSafeArea\(\.container, edges: \.top\)/);
-    assert.match(root, /safeAreaInset\(edge: \.bottom, spacing: 0\)/);
-    assert.match(root, /NativeBottomTabBar\(selection: \$selection\)/);
-    assert.doesNotMatch(navigationStyle, /NativeBottomTabBar\(selection:/);
-    assert.match(navigationStyle, /visibility\?\.set\(true, pageID: pageID, tab: tab\)/);
+    assert.match(root, /TabView\(selection: \$selection\)/);
+    assert.match(root, /Label\(tab\.title, systemImage: tab\.systemImage\)/);
+    for (const symbol of ['house', 'square.stack.3d.up.fill', 'checkmark.seal.fill', 'doc.text', 'gearshape']) {
+      assert.match(root, new RegExp(`"${symbol.replaceAll('.', '\\.')}"`));
+    }
+    assert.doesNotMatch(root, /NativeBottomTabBar\(selection:/);
+    assert.doesNotMatch(root, /safeAreaInset\(edge: \.bottom/);
+    assert.match(navigationStyle, /toolbar\(\.visible, for: \.tabBar\)/);
     assert.match(navigationStyle, /func stableRootNavigationBar\(\)/);
     assert.match(navigationStyle, /toolbar\(\.visible, for: \.navigationBar\)/);
     for (const source of [

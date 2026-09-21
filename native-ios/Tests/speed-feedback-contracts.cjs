@@ -161,7 +161,7 @@ const tests = {
   },
   'home alone shows the global tab bar and practice tools are consistent': () => {
     assert.doesNotMatch(page, /RootBottomBarHiddenPreferenceKey/);
-    assert.match(page, /rootTabBarContentInset\(\)/);
+    assert.match(page, /toolbar\(screen == \.home \? \.visible : \.hidden, for: \.tabBar\)/);
     assert.match(page, /localBack: screen == \.home \? nil : navigateBack/);
     assert.doesNotMatch(page, /eye\.slash|显示或隐藏估算输入|showEstimateInput/);
     assert.match(page, /screen == \.practice \|\| screen == \.result \|\| \(screen == \.history && selectedHistory != nil\)/);

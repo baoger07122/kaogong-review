@@ -50,6 +50,7 @@ struct LibraryView: View {
         .task { refreshLegacyIndexesIfNeeded() }
         .navigationDestination(for: LibraryRoute.self) { route in
             destination(for: route)
+                .toolbar(.hidden, for: .tabBar)
         }
         .overlay {
             if showNewNoteType {

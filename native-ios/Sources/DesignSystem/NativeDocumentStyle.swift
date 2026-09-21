@@ -22,9 +22,9 @@ extension View {
             .toolbarBackground(.hidden, for: .navigationBar)
     }
 
-    /// A page opts into the single root-owned bar; it never creates another bar.
+    /// Keep the official tab bar visible on pages that previously opted in.
     func rootTabBarContentInset() -> some View {
-        modifier(PageTabBar())
+        toolbar(.visible, for: .tabBar)
     }
 }
 
@@ -36,17 +36,6 @@ private struct RootPageTopLayout: ViewModifier {
         content
             .padding(.top, windowTop)
             .ignoresSafeArea(.container, edges: .top)
-    }
-}
-
-private struct PageTabBar: ViewModifier {
-    @Environment(\.rootTabContext) private var tab
-    @Environment(\.rootTabBarVisibility) private var visibility
-    @State private var pageID = UUID()
-    func body(content: Content) -> some View {
-        content
-            .onAppear { visibility?.set(true, pageID: pageID, tab: tab) }
-            .onDisappear { visibility?.set(false, pageID: pageID, tab: tab) }
     }
 }
 
