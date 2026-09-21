@@ -173,13 +173,21 @@ struct ReviewView: View {
             counts[key] = value
             subjectCounts[key.subject, default: 0] += 1
         }
-        let stats = counts.map { entry in
-            let key = entry.key
-            let value = entry.value
-            return ReviewModuleStat(subject: key.subject, module: key.module,
-                                    total: value.total, inPool: value.inPool, mastered: value.mastered)
+        var stats: [ReviewModuleStat] = []
+        stats.reserveCapacity(counts.count)
+        for (key, value) in counts {
+            stats.append(ReviewModuleStat(
+                subject: key.subject,
+                module: key.module,
+                total: value.total,
+                inPool: value.inPool,
+                mastered: value.mastered
+            ))
         }
-        .sorted { $0.subject == $1.subject ? $0.module < $1.module : $0.subject < $1.subject }
+        stats.sort { lhs, rhs in
+            if lhs.subject != rhs.subject { return lhs.subject < rhs.subject }
+            return lhs.module < rhs.module
+        }
         return ReviewOverview(due: dueRecords, pool: pool, mastered: mastered,
                               subjectCounts: subjectCounts, moduleStats: stats)
     }
