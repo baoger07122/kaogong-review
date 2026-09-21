@@ -3,9 +3,6 @@ import SwiftUI
 import UIKit
 
 struct SpeedPracticeView: View {
-    @Environment(\.rootTabBarVisibility) private var rootTabBarVisibility
-    @Environment(\.rootTabContext) private var rootTabContext
-    @State private var tabBarHideID = UUID()
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var keySound = SpeedKeySound()
@@ -187,9 +184,6 @@ struct SpeedPracticeView: View {
             feedback = nil
         }
         .onDisappear { keySound.stop() }
-        .onAppear { updateTabBarVisibility() }
-        .onChange(of: screen) { _, _ in updateTabBarVisibility() }
-        .onDisappear { rootTabBarVisibility?.setHidden(false, pageID: tabBarHideID, tab: rootTabContext) }
         .sheet(isPresented: $showSettings) { practiceSettingsSheet }
         .sheet(isPresented: $showCustomSettings) { customPracticeSheet }
         .onChange(of: scenePhase) { _, phase in
@@ -210,10 +204,6 @@ struct SpeedPracticeView: View {
             estimateRows = SpeedRepository.estimateRows(from: records)
             if settings.soundEnabled != false { keySound.prepare() }
         }
-    }
-
-    private func updateTabBarVisibility() {
-        rootTabBarVisibility?.setHidden(screen != .home, pageID: tabBarHideID, tab: rootTabContext)
     }
 
     private var home: some View {
