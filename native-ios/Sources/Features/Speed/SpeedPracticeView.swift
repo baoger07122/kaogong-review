@@ -6,7 +6,7 @@ struct SpeedPracticeView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var keySound = SpeedKeySound()
-    @Query private var records: [StoredRecord]
+    @Query(filter: #Predicate<StoredRecord> { $0.collection == "keyvalue" }) private var records: [StoredRecord]
     @State private var screen: SpeedScreen = .home
     @State private var settings = SpeedSettings()
     @State private var estimateRows: [SpeedEstimateRow] = []
@@ -31,9 +31,27 @@ struct SpeedPracticeView: View {
     @State private var showDoodle = false
     @State private var drawingData = ""
     @StateObject private var doodleController = PencilDrawingController()
+    @State private var settingsSaveTask: Task<Void, Never>?
 
     private var practiceTitle: String {
-        settings.useCustomPractice == true || activeTypes.count > 1 ? "自定义练习" : (questions.first?.type.name ?? settings.selectedType.name)
+        settings.useCustomPractice == true || activeTypes.count > 1
+            ? customPracticeTitle
+            : (questions.first?.type.name ?? settings.selectedType.name)
+    }
+
+    private var customPracticeTitle: String {
+        let typeNames = activeTypes.map(\.name).joined(separator: "、")
+        let numberDescription: String
+        switch settings.customNumberMode ?? .none {
+        case .range:
+            numberDescription = "\(settings.customRangeMinimum ?? 1)-\(settings.customRangeMaximum ?? 99)"
+        case .fixed:
+            let values = selectedFixedNumbers.sorted().map(String.init).joined(separator: "、")
+            numberDescription = values.isEmpty ? "" : "固定\(values)"
+        case .none:
+            numberDescription = ""
+        }
+        return (["自定义练习", typeNames, numberDescription].filter { !$0.isEmpty }).joined(separator: " ")
     }
 
     private var history: [SpeedRecord] { SpeedRepository.history(from: records).sorted { $0.date > $1.date } }
@@ -167,7 +185,7 @@ struct SpeedPracticeView: View {
         .navigationTitle(screenTitle)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(screen != .home)
-        .toolbar(screen == .home ? .visible : .hidden, for: .tabBar)
+        .toolbar(.hidden, for: .tabBar)
         .toolbar { speedToolbar }
         .background(NativeNavigationInteraction(
             blocked: showDoodle || isSubmitting || showExitConfirmation || showLegacyExitConfirmation,
@@ -279,10 +297,7 @@ struct SpeedPracticeView: View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
             ForEach(values) { type in
                 Button {
-                    settings.selectedType = type
-                    settings.useCustomPractice = false
-                    if type.isAvailable { settings.customTypes = [type] }
-                    persistSettings()
+                    selectPracticeType(type)
                 } label: {
                     HStack(spacing: 9) {
                         Text(typeSymbol(type))
@@ -720,7 +735,7 @@ struct SpeedPracticeView: View {
                         .frame(width: 36, height: 36)
                         .background(Color(red: 231 / 255.0, green: 240 / 255.0, blue: 1), in: RoundedRectangle(cornerRadius: 10))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(block.name).font(.system(size: 14, weight: .semibold))
+                        customHistoryTitle(block.name)
                         Text("共 \(block.records.count) 次 · \(block.totalCount) 题")
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                     }
@@ -1060,7 +1075,44 @@ struct SpeedPracticeView: View {
     }
 
     private func persistSettings() {
-        try? SpeedRepository.saveSettings(settings, records: records, context: modelContext)
+        let snapshot = settings
+        settingsSaveTask?.cancel()
+        settingsSaveTask = Task { @MainActor in
+            do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+            guard !Task.isCancelled else { return }
+            persistSettingsImmediately(snapshot)
+            settingsSaveTask = nil
+        }
+    }
+
+    @ViewBuilder
+    private func customHistoryTitle(_ name: String) -> some View {
+        if name.hasPrefix("自定义练习"), name.count > "自定义练习".count {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("自定义练习").font(.system(size: 14, weight: .semibold))
+                Text(String(name.dropFirst("自定义练习".count)).trimmingCharacters(in: .whitespaces))
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        } else {
+            Text(name).font(.system(size: 14, weight: .semibold))
+        }
+    }
+
+    private func persistSettingsImmediately(_ snapshot: SpeedSettings) {
+        try? SpeedRepository.saveSettings(snapshot, records: records, context: modelContext)
+    }
+
+    private func selectPracticeType(_ type: SpeedTypeKey) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            settings.selectedType = type
+            settings.useCustomPractice = false
+            if type.isAvailable { settings.customTypes = [type] }
+        }
+        persistSettings()
     }
 
     private func toggleFixedNumber(_ number: Int) {

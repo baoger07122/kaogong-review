@@ -11,10 +11,13 @@ private enum RichTextMetrics {
 }
 
 private enum RichTextCommandKind: Equatable {
-    case bold, italic, underline, strike, indent, outdent, bullets, numbers, todos, divider
+    case bold, italic, underline, strike, indent, outdent, numbers, todos, divider
+    case bullets(RichTextBulletStyle)
     case heading(RichTextHeading)
     case foreground(RichTextColor)
     case highlight
+    case paragraphHighlight(RichTextColor)
+    case border
     case quote
     case code
     case table(RichTextTable)
@@ -23,6 +26,22 @@ private enum RichTextCommandKind: Equatable {
     case internalLink(RichTextInternalLink)
     case link(String)
     case undo, redo
+}
+
+private enum RichTextBulletStyle: String, CaseIterable, Identifiable {
+    case filled = "实心圆点"
+    case hollow = "空心圆点"
+    case square = "方块"
+    case dash = "短横线"
+    var id: String { rawValue }
+    var prefix: String {
+        switch self {
+        case .filled: "• "
+        case .hollow: "◦ "
+        case .square: "▪︎ "
+        case .dash: "– "
+        }
+    }
 }
 
 struct RichTextInternalLink: Equatable, Identifiable {
@@ -106,7 +125,11 @@ private struct RichTextSelectionState: Equatable {
     var isUnderlined = false
     var isStruckThrough = false
     var isHighlighted = false
+    var isParagraphHighlighted = false
     var isQuoted = false
+    var isBordered = false
+    var isBulleted = false
+    var isNumbered = false
     var isCode = false
     var heading: RichTextHeading = .body
     var foreground: RichTextColor = .primary
@@ -220,6 +243,7 @@ struct NativeRichTextEditor: View {
         VStack(spacing: 0) {
             HStack(spacing: 2) {
                 toolbarStrip
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 toolbarDivider
                 toolbarButton("keyboard.chevron.compact.down", label: "收起键盘") {
                     UIApplication.shared.sendAction(
@@ -236,7 +260,6 @@ struct NativeRichTextEditor: View {
             .background(Color.white.opacity(0.58), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 0.6))
             .shadow(color: .black.opacity(0.08), radius: 10, y: 3)
-            .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, 14)
         .padding(.top, 3)
@@ -248,33 +271,24 @@ struct NativeRichTextEditor: View {
     }
 
     @ViewBuilder private var toolbarStrip: some View {
-        HStack(spacing: 2) {
-            if toolbarPage == .format {
-                toolbarButton("chevron.left", label: "返回") { toolbarPage = .main }
-                formatButton(.italic, "italic", active: selectionState.isItalic)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                formatButton(.bold, "bold", active: selectionState.isBold)
                 formatButton(.underline, "underline", active: selectionState.isUnderlined)
-                formatButton(.strike, "strikethrough", active: selectionState.isStruckThrough)
-                formatButton(.highlight, "highlighter", active: selectionState.isHighlighted)
-                formatButton(.code, "chevron.left.forwardslash.chevron.right", active: selectionState.isCode)
-                toolbarButton("link", label: "链接") { showLinkPrompt = true }
-                formatButton(.numbers, "list.number")
-                formatButton(.todos, "checklist")
-            } else if mode == .full {
-                insertMenu
-                paragraphMenu
-                formatButton(.bold, "bold", active: selectionState.isBold)
-                colorMenu
-                formatButton(.bullets, "list.bullet")
+                if mode == .full {
+                    colorMenu
+                    formatButton(.numbers, "list.number", active: selectionState.isNumbered)
+                    bulletMenu
+                    formatButton(.quote, "text.quote", active: selectionState.isQuoted)
+                    formatButton(.border, "rectangle", active: selectionState.isBordered)
+                    formatButton(.indent, "increase.indent")
+                    formatButton(.outdent, "decrease.indent")
+                }
                 formatButton(.undo, "arrow.uturn.backward", disabled: !selectionState.canUndo)
                 formatButton(.redo, "arrow.uturn.forward", disabled: !selectionState.canRedo)
-                toolbarButton("ellipsis", label: "更多格式") { toolbarPage = .format }
-            } else {
-                formatButton(.undo, "arrow.uturn.backward", disabled: !selectionState.canUndo)
-                formatButton(.redo, "arrow.uturn.forward", disabled: !selectionState.canRedo)
-                formatButton(.bold, "bold", active: selectionState.isBold)
-                if mode == .compact {
-                    formatButton(.bullets, "list.bullet")
-                    formatButton(.todos, "checklist")
+                if mode == .full {
+                    paragraphMenu
+                    insertMenu
                 }
             }
         }
@@ -307,7 +321,7 @@ struct NativeRichTextEditor: View {
             }
             Divider()
             Button { run(.quote) } label: { Label("引用", systemImage: "text.quote") }
-            Button { run(.bullets) } label: { Label("项目列表", systemImage: "list.bullet") }
+            Button { run(.bullets(.filled)) } label: { Label("项目列表", systemImage: "list.bullet") }
             Button { run(.numbers) } label: { Label("编号列表", systemImage: "list.number") }
             Button { run(.todos) } label: { Label("待办列表", systemImage: "checklist") }
             Button { run(.indent) } label: { Label("增加缩进", systemImage: "increase.indent") }
@@ -321,6 +335,7 @@ struct NativeRichTextEditor: View {
 
     private var colorMenu: some View {
         Menu {
+            Section("文字颜色") {
             ForEach(RichTextColor.allCases) { color in
                 Button {
                     command = RichTextCommand(kind: .foreground(color))
@@ -329,11 +344,33 @@ struct NativeRichTextEditor: View {
                     else { Text(color.rawValue) }
                 }
             }
+            }
+            Section("文字背景") {
+                Button { run(.highlight) } label: { Label("黄色文字背景", systemImage: selectionState.isHighlighted ? "checkmark" : "highlighter") }
+            }
+            Section("整行背景") {
+                ForEach(RichTextColor.allCases.filter { $0 != .primary }) { color in
+                    Button { run(.paragraphHighlight(color)) } label: { Text(color.rawValue) }
+                }
+                Button("清除整行背景") { run(.paragraphHighlight(.primary)) }
+            }
         } label: {
-            toolbarImage("paintpalette", active: selectionState.foreground != .primary)
+            toolbarImage("paintpalette", active: selectionState.foreground != .primary || selectionState.isHighlighted || selectionState.isParagraphHighlighted)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("文字颜色")
+        .accessibilityLabel("颜色")
+    }
+
+    private var bulletMenu: some View {
+        Menu {
+            ForEach(RichTextBulletStyle.allCases) { style in
+                Button { run(.bullets(style)) } label: { Text("\(style.prefix)\(style.rawValue)") }
+            }
+        } label: {
+            toolbarImage("list.bullet", active: selectionState.isBulleted)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("无序列表")
     }
 
     private var toolbarDivider: some View {
@@ -561,19 +598,16 @@ private struct RichTextTextView: UIViewRepresentable {
                 replaceAttributed(replacement, in: range, view: textView)
                 return false
             }
+            if text.isEmpty, range.length == 1, removeEmptyListPrefixBeforeBackspace(in: textView, range: range) {
+                return false
+            }
             guard text == "\n" else { return true }
             let source = textView.text as NSString
             let lineRange = source.lineRange(for: NSRange(location: range.location, length: 0))
             let line = source.substring(with: lineRange).trimmingCharacters(in: .newlines)
-            let prefix: String?
-            if line.hasPrefix("• ") { prefix = "• " }
-            else if line.hasPrefix("☐ ") { prefix = "☐ " }
-            else if let match = line.range(of: #"^(\d+)\.\s"#, options: .regularExpression),
-                    let number = Int(line[match].dropLast(2)) {
-                prefix = "\(number + 1). "
-            } else { prefix = nil }
-            guard let prefix else { return true }
-            let content = line.replacingOccurrences(of: #"^(•|☐|\d+\.)\s"#, with: "", options: .regularExpression)
+            guard let list = listPrefix(in: line) else { return true }
+            let prefix = list.next
+            let content = String(line.dropFirst(list.current.count))
             if content.isEmpty {
                 textView.textStorage.replaceCharacters(in: lineRange, with: "\n")
                 textView.selectedRange = NSRange(location: lineRange.location + 1, length: 0)
@@ -584,6 +618,31 @@ private struct RichTextTextView: UIViewRepresentable {
             textView.invalidateIntrinsicContentSize()
             schedulePublish(textView)
             return false
+        }
+
+        private func listPrefix(in line: String) -> (current: String, next: String)? {
+            for style in RichTextBulletStyle.allCases where line.hasPrefix(style.prefix) {
+                return (style.prefix, style.prefix)
+            }
+            if line.hasPrefix("☐ ") { return ("☐ ", "☐ ") }
+            guard let match = line.range(of: #"^(\d+)\.\s"#, options: .regularExpression) else { return nil }
+            let current = String(line[match])
+            let digits = current.prefix { $0.isNumber }
+            guard let number = Int(digits) else { return nil }
+            return (current, "\(number + 1). ")
+        }
+
+        private func removeEmptyListPrefixBeforeBackspace(in view: UITextView, range: NSRange) -> Bool {
+            let source = view.text as NSString
+            let caret = range.location + range.length
+            let lineRange = source.lineRange(for: NSRange(location: caret, length: 0))
+            let line = source.substring(with: lineRange).trimmingCharacters(in: .newlines)
+            guard let list = listPrefix(in: line), line == list.current, caret == lineRange.location + list.current.utf16.count else { return false }
+            view.textStorage.replaceCharacters(in: NSRange(location: lineRange.location, length: list.current.utf16.count), with: "")
+            view.selectedRange = NSRange(location: lineRange.location, length: 0)
+            view.invalidateIntrinsicContentSize()
+            schedulePublish(view)
+            return true
         }
 
         private func replaceAttributed(_ replacement: NSAttributedString, in range: NSRange, view: UITextView) {
@@ -612,13 +671,15 @@ private struct RichTextTextView: UIViewRepresentable {
             case let .heading(level): applyHeading(level, view: view, range: range)
             case let .foreground(color): applyAttribute(.foregroundColor, value: color.uiColor, view: view, range: range)
             case .highlight: toggleAttribute(.backgroundColor, value: UIColor.systemYellow.withAlphaComponent(0.35), view: view, range: range)
+            case let .paragraphHighlight(color): toggleParagraphHighlight(color, view: view, range: range)
             case .quote: toggleQuote(view: view, range: range)
+            case .border: toggleBorder(view: view, range: range)
             case .code: toggleCode(view: view, range: range)
             case .indent: changeIndent(18, view: view, range: range)
             case .outdent: changeIndent(-18, view: view, range: range)
-            case .bullets: prefixParagraphs("• ", view: view, range: range)
-            case .numbers: numberParagraphs(view: view, range: range)
-            case .todos: prefixParagraphs("☐ ", view: view, range: range)
+            case let .bullets(style): toggleParagraphPrefixes(style.prefix, view: view, range: range); restoreSelection = false
+            case .numbers: numberParagraphs(view: view, range: range); restoreSelection = false
+            case .todos: toggleParagraphPrefixes("☐ ", view: view, range: range); restoreSelection = false
             case .divider: insertDivider(view: view, range: range); restoreSelection = false
             case let .table(table): upsertTable(table, view: view, range: range); restoreSelection = false
             case let .image(dataURL): insertImage(dataURL, view: view, range: range); restoreSelection = false
@@ -744,6 +805,15 @@ private struct RichTextTextView: UIViewRepresentable {
             style.headIndent = isQuoted ? 0 : 24
             style.firstLineHeadIndent = isQuoted ? 0 : 24
             style.paragraphSpacing = isQuoted ? 0 : 5
+            if isQuoted {
+                style.textBlocks = []
+            } else {
+                let block = NSTextBlock()
+                block.setBorderColor(UIColor.tertiaryLabel, for: .minX)
+                block.setValue(2, type: .absoluteValueType, for: .border, edge: .minX)
+                block.setValue(10, type: .absoluteValueType, for: .padding, edge: .minX)
+                style.textBlocks = [block]
+            }
             applyAttribute(.paragraphStyle, value: style, view: view, range: paragraphRange)
             if paragraphRange.length == 0 {
                 var attributes = view.typingAttributes
@@ -755,6 +825,46 @@ private struct RichTextTextView: UIViewRepresentable {
             } else {
                 view.textStorage.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: paragraphRange)
             }
+        }
+
+        private func toggleParagraphHighlight(_ color: RichTextColor, view: UITextView, range: NSRange) {
+            let paragraphRange = (view.text as NSString).paragraphRange(for: range)
+            if color == .primary {
+                if paragraphRange.length == 0 {
+                    var attributes = view.typingAttributes
+                    attributes.removeValue(forKey: .backgroundColor)
+                    view.typingAttributes = attributes
+                } else {
+                    view.textStorage.removeAttribute(.backgroundColor, range: paragraphRange)
+                }
+            } else {
+                applyAttribute(.backgroundColor, value: color.uiColor.withAlphaComponent(0.14), view: view, range: paragraphRange)
+            }
+        }
+
+        private func toggleBorder(view: UITextView, range: NSRange) {
+            let paragraphRange = (view.text as NSString).paragraphRange(for: range)
+            let current = paragraphStyle(at: paragraphRange.location, view: view)
+            let style = current.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            if style.textBlocks.isEmpty {
+                let block = NSTextBlock()
+                block.setBorderColor(UIColor.separator, for: .all)
+                block.setValue(0.7, type: .absoluteValueType, for: .border)
+                block.setValue(9, type: .absoluteValueType, for: .padding)
+                style.textBlocks = [block]
+                style.paragraphSpacing = max(style.paragraphSpacing, 6)
+            } else {
+                style.textBlocks = []
+            }
+            applyAttribute(.paragraphStyle, value: style, view: view, range: paragraphRange)
+        }
+
+        private func paragraphStyle(at location: Int, view: UITextView) -> NSParagraphStyle {
+            guard view.attributedText.length > 0 else {
+                return view.typingAttributes[.paragraphStyle] as? NSParagraphStyle ?? NSParagraphStyle.default
+            }
+            return view.attributedText.attribute(.paragraphStyle, at: min(location, view.attributedText.length - 1), effectiveRange: nil) as? NSParagraphStyle
+                ?? NSParagraphStyle.default
         }
 
         private func toggleCode(view: UITextView, range: NSRange) {
@@ -773,21 +883,42 @@ private struct RichTextTextView: UIViewRepresentable {
             }
         }
 
-        private func prefixParagraphs(_ prefix: String, view: UITextView, range: NSRange) {
+        private func toggleParagraphPrefixes(_ prefix: String, view: UITextView, range: NSRange) {
             let paragraphRange = (view.text as NSString).paragraphRange(for: range)
             let lines = (view.text as NSString).substring(with: paragraphRange).split(separator: "\n", omittingEmptySubsequences: false)
-            let replacement = lines.map { line in String(line).hasPrefix(prefix) ? String(line).dropFirst(prefix.count).description : prefix + line }.joined(separator: "\n")
-            view.textStorage.replaceCharacters(in: paragraphRange, with: replacement)
+            let allActive = lines.allSatisfy { String($0).hasPrefix(prefix) }
+            let replacement = lines.map { line -> String in
+                let raw = stripListPrefix(from: String(line))
+                return allActive ? raw : prefix + raw
+            }.joined(separator: "\n")
+            replaceParagraphs(replacement, originalRange: paragraphRange, selection: range, insertedPrefixLength: allActive ? 0 : prefix.utf16.count, view: view)
         }
 
         private func numberParagraphs(view: UITextView, range: NSRange) {
             let paragraphRange = (view.text as NSString).paragraphRange(for: range)
             let lines = (view.text as NSString).substring(with: paragraphRange).split(separator: "\n", omittingEmptySubsequences: false)
+            let allActive = lines.allSatisfy { String($0).range(of: #"^\d+\.\s"#, options: .regularExpression) != nil }
             let replacement = lines.enumerated().map { index, line in
-                let raw = String(line).replacingOccurrences(of: "^\\d+\\.\\s*", with: "", options: .regularExpression)
-                return "\(index + 1). \(raw)"
+                let raw = stripListPrefix(from: String(line))
+                return allActive ? raw : "\(index + 1). \(raw)"
             }.joined(separator: "\n")
-            view.textStorage.replaceCharacters(in: paragraphRange, with: replacement)
+            replaceParagraphs(replacement, originalRange: paragraphRange, selection: range, insertedPrefixLength: allActive ? 0 : 3, view: view)
+        }
+
+        private func stripListPrefix(from line: String) -> String {
+            if let prefix = listPrefix(in: line)?.current { return String(line.dropFirst(prefix.count)) }
+            return line
+        }
+
+        private func replaceParagraphs(_ replacement: String, originalRange: NSRange, selection: NSRange, insertedPrefixLength: Int, view: UITextView) {
+            let attributes = view.typingAttributes.merging([.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]) { current, _ in current }
+            replaceAttributed(NSAttributedString(string: replacement, attributes: attributes), in: originalRange, view: view)
+            if selection.length == 0 {
+                let relative = max(0, selection.location - originalRange.location)
+                view.selectedRange = NSRange(location: min(originalRange.location + relative + insertedPrefixLength, view.textStorage.length), length: 0)
+            } else {
+                view.selectedRange = NSRange(location: originalRange.location, length: replacement.utf16.count)
+            }
         }
 
         private func insertDivider(view: UITextView, range: NSRange) {
@@ -881,6 +1012,13 @@ private struct RichTextTextView: UIViewRepresentable {
             let font = attributes[.font] as? UIFont ?? .systemFont(ofSize: RichTextMetrics.bodySize)
             let paragraph = attributes[.paragraphStyle] as? NSParagraphStyle
             let foreground = attributes[.foregroundColor] as? UIColor
+            let currentLine: String = {
+                let source = view.text as NSString
+                guard source.length > 0 else { return "" }
+                let location = min(range.location, source.length)
+                let lineRange = source.lineRange(for: NSRange(location: location, length: 0))
+                return source.substring(with: lineRange).trimmingCharacters(in: .newlines)
+            }()
             let heading: RichTextHeading = if everyAttribute(in: range, view: view, predicate: { (($0[.font] as? UIFont)?.pointSize ?? RichTextMetrics.bodySize) >= 20 }) {
                 .heading1
             } else if everyAttribute(in: range, view: view, predicate: {
@@ -897,7 +1035,14 @@ private struct RichTextTextView: UIViewRepresentable {
                 isUnderlined: everyAttribute(in: range, view: view) { ($0[.underlineStyle] as? Int ?? 0) != 0 },
                 isStruckThrough: everyAttribute(in: range, view: view) { ($0[.strikethroughStyle] as? Int ?? 0) != 0 },
                 isHighlighted: everyAttribute(in: range, view: view) { $0[.backgroundColor] != nil },
+                isParagraphHighlighted: paragraph.map { _ in
+                    let paragraphRange = (view.text as NSString).paragraphRange(for: range)
+                    return paragraphRange.length > 0 && self.everyAttribute(in: paragraphRange, view: view) { $0[.backgroundColor] != nil }
+                } ?? false,
                 isQuoted: everyAttribute(in: range, view: view) { (($0[.paragraphStyle] as? NSParagraphStyle)?.headIndent ?? 0) >= 22 },
+                isBordered: !(paragraph?.textBlocks.isEmpty ?? true) && (paragraph?.headIndent ?? 0) < 22,
+                isBulleted: RichTextBulletStyle.allCases.contains { currentLine.hasPrefix($0.prefix) },
+                isNumbered: currentLine.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil,
                 isCode: everyAttribute(in: range, view: view) { ($0[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitMonoSpace) == true },
                 heading: heading,
                 foreground: RichTextColor.allCases.first(where: { foreground?.isEqual($0.uiColor) == true }) ?? .primary,

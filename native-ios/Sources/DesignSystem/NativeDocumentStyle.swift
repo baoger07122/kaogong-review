@@ -26,6 +26,13 @@ extension View {
     func rootTabBarContentInset() -> some View {
         toolbar(.visible, for: .tabBar)
     }
+
+    /// Push destinations never own the app tab bar. Keeping this rule on the
+    /// destination avoids an inherited root-level `.visible` winning during a
+    /// navigation transition.
+    func secondaryPageTabBarHidden() -> some View {
+        toolbar(.hidden, for: .tabBar)
+    }
 }
 
 private struct RootPageTopLayout: ViewModifier {

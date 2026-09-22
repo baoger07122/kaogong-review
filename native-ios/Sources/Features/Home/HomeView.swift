@@ -56,6 +56,7 @@ struct HomeView: View {
         .task { await loadErrorStatsIfNeeded() }
         .navigationDestination(for: AppRoute.self) { route in
             HomeShortcutView(route: route)
+                .secondaryPageTabBarHidden()
         }
         .overlay { editorOverlay }
         .overlay(alignment: .top) {
