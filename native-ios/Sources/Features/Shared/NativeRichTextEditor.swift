@@ -809,9 +809,15 @@ private struct RichTextTextView: UIViewRepresentable {
                 style.textBlocks = []
             } else {
                 let block = NSTextBlock()
-                block.setBorderColor(UIColor.tertiaryLabel, for: .minX)
-                block.setValue(2, type: .absoluteValueType, for: .border, edge: .minX)
-                block.setValue(10, type: .absoluteValueType, for: .padding, edge: .minX)
+                if #available(iOS 26.0, *) {
+                    block.setBorderColor(UIColor.tertiaryLabel, rectEdge: .minXEdge)
+                    block.setWidth(2, type: .absolute, for: .border, rectEdge: .minXEdge)
+                    block.setWidth(10, type: .absolute, for: .padding, rectEdge: .minXEdge)
+                } else {
+                    block.setBorderColor(UIColor.tertiaryLabel)
+                    block.setWidth(1, type: .absolute, for: .border)
+                    block.setWidth(10, type: .absolute, for: .padding)
+                }
                 style.textBlocks = [block]
             }
             applyAttribute(.paragraphStyle, value: style, view: view, range: paragraphRange)
@@ -848,9 +854,9 @@ private struct RichTextTextView: UIViewRepresentable {
             let style = current.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
             if style.textBlocks.isEmpty {
                 let block = NSTextBlock()
-                block.setBorderColor(UIColor.separator, for: .all)
-                block.setValue(0.7, type: .absoluteValueType, for: .border)
-                block.setValue(9, type: .absoluteValueType, for: .padding)
+                block.setBorderColor(UIColor.separator)
+                block.setWidth(0.7, type: .absolute, for: .border)
+                block.setWidth(9, type: .absolute, for: .padding)
                 style.textBlocks = [block]
                 style.paragraphSpacing = max(style.paragraphSpacing, 6)
             } else {
