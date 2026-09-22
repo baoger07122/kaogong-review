@@ -189,7 +189,7 @@ struct QuantityKnowledgePointSelectionDialog: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
                             ForEach(QuantityQuestionTypeCatalog.all.filter { $0 != currentType }, id: \.self) { type in
-                                Button(type) { browsingType = type; search = "" } label: {
+                                Button { browsingType = type; search = "" } label: {
                                     Text(type).font(.system(size: 11, weight: .medium))
                                         .foregroundStyle(activeType == type ? AppTheme.accent : .secondary)
                                         .padding(.horizontal, 9).frame(height: 28)

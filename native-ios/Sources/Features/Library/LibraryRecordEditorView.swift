@@ -267,7 +267,7 @@ struct LibraryRecordEditorView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(QuantityQuestionTypeCatalog.all, id: \.self) { type in
-                    Button(type) { draft.module = type } label: {
+                    Button { draft.module = type } label: {
                         Text(type)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(draft.module == type ? AppTheme.accent : Color.secondary)
