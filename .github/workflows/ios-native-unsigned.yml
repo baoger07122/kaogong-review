@@ -86,7 +86,9 @@ jobs:
           RUN_SIMULATOR=false
           if [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && [[ ! "$BEFORE_SHA" =~ ^0+$ ]]; then
             CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")
-            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/Features/Speed/|Sources/App/RootTabView\.swift|Tests/(Animation|UI)/)'; then
+            # Simulator interaction tests are opt-in by changing their focused test files.
+            # Source releases still receive the required generic-device compile/archive below.
+            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Tests/(Animation|UI)/'; then
               RUN_SIMULATOR=true
             fi
           fi

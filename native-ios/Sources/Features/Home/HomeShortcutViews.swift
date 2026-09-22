@@ -7,15 +7,15 @@ struct HomeShortcutView: View {
     var body: some View {
         switch route {
         case .todoStats:
-            TodoStatsView().secondaryPageTabBarHidden()
+            TodoStatsView()
         case .studyReport:
-            StudyReportView().secondaryPageTabBarHidden()
+            StudyReportView()
         case .speedPractice:
             SpeedPracticeView()
         case .currentAffairs:
-            CurrentAffairsView().secondaryPageTabBarHidden()
+            CurrentAffairsView()
         case .knowledgePoints:
-            KnowledgePointManagerView().secondaryPageTabBarHidden()
+            KnowledgePointManagerView()
         default:
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {

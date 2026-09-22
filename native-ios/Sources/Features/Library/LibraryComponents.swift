@@ -313,6 +313,18 @@ private struct LibraryErrorRecordCard: View {
                 .lineLimit(size.questionLineLimit)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+            if isAnalogyReasoning, !snapshot.options.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(snapshot.options.enumerated()), id: \.offset) { index, option in
+                        Text("\(String(UnicodeScalar(65 + index)!)).  \(option)")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(.primary)
+                            .lineSpacing(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+
             if !snapshot.comparisonWords.isEmpty {
                 tagLine(
                     label: "辨析",
@@ -334,12 +346,16 @@ private struct LibraryErrorRecordCard: View {
 
             let causes = splitTags(snapshot.errorCause)
             if !causes.isEmpty {
-                tagLine(
-                    label: errorCauseLabel,
-                    values: causes,
-                    foreground: .secondary,
-                    background: Color.primary.opacity(0.045)
-                )
+                if isAnalogyReasoning {
+                    plainField(label: errorCauseLabel, value: snapshot.errorCause)
+                } else {
+                    tagLine(
+                        label: errorCauseLabel,
+                        values: causes,
+                        foreground: .secondary,
+                        background: Color.primary.opacity(0.045)
+                    )
+                }
             }
 
             if !snapshot.pitfall.isEmpty {
@@ -427,12 +443,32 @@ private struct LibraryErrorRecordCard: View {
             .filter { !$0.isEmpty }
     }
 
+    private func plainField(label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 5) {
+            Text("\(label)：")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.primary)
+            Text(value)
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(.secondary)
+                .lineLimit(size == .small ? 2 : 3)
+        }
+    }
+
     private var isLogicJudgment: Bool {
         snapshot.record.subject == "判断推理" && snapshot.record.module == "逻辑判断"
     }
 
+    private var isAnalogyReasoning: Bool {
+        snapshot.record.subject == "判断推理" && snapshot.record.module == "类比推理"
+    }
+
     private var knowledgePointLabel: String { isLogicJudgment ? "结构" : "考点" }
-    private var errorCauseLabel: String { isLogicJudgment ? "选项" : "错因" }
+    private var errorCauseLabel: String {
+        if isLogicJudgment { return "选项" }
+        if isAnalogyReasoning { return "二级辨析" }
+        return "错因"
+    }
 }
 
 private struct LibraryCardThumbnail: View {
@@ -563,7 +599,10 @@ struct LibraryMasonryGrid: View {
             ? CGFloat.zero
             : CGFloat(min(3, record.imageValues.count)) * (cardSize.imageMaximumHeight * 0.72 + 8)
         let tagRows = record.knowledgePoints.isEmpty && record.errorCause.isEmpty ? 0 : max(1, Int(ceil(Double(record.knowledgePoints.count + (record.errorCause.isEmpty ? 0 : 1)) / 2.0)))
-        return 54 + CGFloat(textLines * 20) + imageHeight + CGFloat(tagRows * 27) + (record.pitfall.isEmpty ? 0 : 40)
+        let analogyOptionHeight = record.record.subject == "判断推理" && record.record.module == "类比推理"
+            ? CGFloat(record.options.count * 22 + (record.options.isEmpty ? 0 : 4))
+            : 0
+        return 54 + CGFloat(textLines * 20) + analogyOptionHeight + imageHeight + CGFloat(tagRows * 27) + (record.pitfall.isEmpty ? 0 : 40)
     }
 }
 

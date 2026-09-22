@@ -12,3 +12,10 @@ enum AppRoute: Hashable {
     case noteDetail(String)
     case examDetail(String)
 }
+
+enum SettingsRoute: Hashable {
+    case cloudSync
+    case noteTypes
+    case stickyTags
+    case designSystem
+}

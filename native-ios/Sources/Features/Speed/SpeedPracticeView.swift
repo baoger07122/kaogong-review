@@ -188,7 +188,6 @@ struct SpeedPracticeView: View {
         .navigationTitle(screenTitle)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(screen != .home)
-        .toolbar(.hidden, for: .tabBar)
         .toolbar { speedToolbar }
         .background(NativeNavigationInteraction(
             blocked: showDoodle || isSubmitting || showExitConfirmation || showLegacyExitConfirmation,

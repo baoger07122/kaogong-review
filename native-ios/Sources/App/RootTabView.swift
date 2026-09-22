@@ -56,7 +56,9 @@ enum RootTab: String, CaseIterable, Identifiable {
 
 struct RootTabView: View {
     @State private var selection: RootTab = .home
+    @State private var homePath: [AppRoute] = []
     @State private var libraryPath: [LibraryRoute] = []
+    @State private var settingsPath: [SettingsRoute] = []
     @StateObject private var libraryDoodleSession = LibraryDoodleSession()
 
     var body: some View {
@@ -86,12 +88,14 @@ struct RootTabView: View {
     private func tabContent(_ tab: RootTab) -> some View {
         switch tab {
         case .home:
-            NavigationStack { HomeView() }
+            NavigationStack(path: $homePath) { HomeView() }
+                .toolbar(homePath.isEmpty ? .visible : .hidden, for: .tabBar)
                 .environment(\.rootTabContext, .home)
         case .library:
             NavigationStack(path: $libraryPath) {
                 LibraryView(navigationPath: $libraryPath)
             }
+                .toolbar(libraryPath.isEmpty ? .visible : .hidden, for: .tabBar)
                 .environmentObject(libraryDoodleSession)
                 .environment(\.rootTabContext, .library)
         case .review:
@@ -101,7 +105,8 @@ struct RootTabView: View {
             NavigationStack { ExamsView() }
                 .environment(\.rootTabContext, .exams)
         case .settings:
-            NavigationStack { SettingsView() }
+            NavigationStack(path: $settingsPath) { SettingsView() }
+                .toolbar(settingsPath.isEmpty ? .visible : .hidden, for: .tabBar)
                 .environment(\.rootTabContext, .settings)
         }
     }

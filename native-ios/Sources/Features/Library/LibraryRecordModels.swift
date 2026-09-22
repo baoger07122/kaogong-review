@@ -165,6 +165,7 @@ struct LibraryRecordSnapshot: Identifiable {
     let knowledgePoints: [String]
     let errorCause: String
     let pitfall: String
+    let options: [String]
     let imageValues: [String]
     let comparisonWords: [String]
 
@@ -209,6 +210,9 @@ struct LibraryRecordSnapshot: Identifiable {
             .map(Self.plainText) ?? ""
         pitfall = Self.firstText(in: object, keys: ["pitfall", "misconception", "thinkingTrap"])
             .map(Self.plainText) ?? ""
+        options = (object["options"] as? [String] ?? [])
+            .map(Self.plainText)
+            .filter { !$0.isEmpty }
         if let images = object["images"] as? [String], !images.isEmpty {
             imageValues = images
         } else {

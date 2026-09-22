@@ -401,8 +401,8 @@ struct LibraryRecordEditorView: View {
                     suggestions: TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records),
                     allowsMultiple: true
                 )
-                if isDataAnalysis {
-                    plainTextInput(label: "错因", placeholder: "可留空", text: $draft.errorCause)
+                if isDataAnalysis || isAnalogyReasoning {
+                    plainTextInput(label: errorCauseLabel, placeholder: "可留空", text: $draft.errorCause)
                 } else {
                     tagInput(
                         title: "\(errorCauseLabel)（可选）",
@@ -420,9 +420,14 @@ struct LibraryRecordEditorView: View {
     }
 
     private var isLogicJudgment: Bool { draft.subject == "判断推理" && draft.module == "逻辑判断" }
+    private var isAnalogyReasoning: Bool { draft.subject == "判断推理" && draft.module == "类比推理" }
     private var isDataAnalysis: Bool { draft.subject == "资料分析" }
     private var knowledgePointLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
-    private var errorCauseLabel: String { isLogicJudgment ? "选项逻辑作用" : "错因" }
+    private var errorCauseLabel: String {
+        if isLogicJudgment { return "选项逻辑作用" }
+        if isAnalogyReasoning { return "二级辨析" }
+        return "错因"
+    }
 
     private var recordTypePicker: some View {
         Picker("题目类型", selection: $draft.type) {
@@ -1099,7 +1104,7 @@ struct LibraryRecordEditorView: View {
                 records: records,
                 context: modelContext
             )
-            if !isDataAnalysis {
+            if !isDataAnalysis && !isAnalogyReasoning {
                 try? TagLibraryRepository.add(
                     [draft.errorCause],
                     kind: .errorCause,

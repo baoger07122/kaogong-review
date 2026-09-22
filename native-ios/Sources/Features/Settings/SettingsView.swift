@@ -77,23 +77,23 @@ struct SettingsView: View {
                     settingsDivider
                     settingsValueRow("连接状态", value: healthMessage, image: "wave.3.right")
                     settingsDivider
-                    NavigationLink { CloudSyncView().secondaryPageTabBarHidden() } label: {
+                    NavigationLink(value: SettingsRoute.cloudSync) {
                         settingsNavigationRow("登录与手动同步", image: "icloud")
                     }.buttonStyle(.plain)
                 }
 
                 settingsSection("笔记与便签") {
-                    NavigationLink { NoteTypeManagerView().secondaryPageTabBarHidden() } label: {
+                    NavigationLink(value: SettingsRoute.noteTypes) {
                         settingsNavigationRow("笔记类型", image: "tag")
                     }.buttonStyle(.plain)
                     settingsDivider
-                    NavigationLink { StickyTagManagerView().secondaryPageTabBarHidden() } label: {
+                    NavigationLink(value: SettingsRoute.stickyTags) {
                         settingsNavigationRow("便签标签", image: "tag.square")
                     }.buttonStyle(.plain)
                 }
 
                 settingsSection("界面与标准") {
-                    NavigationLink { NativeDesignSystemView().secondaryPageTabBarHidden() } label: {
+                    NavigationLink(value: SettingsRoute.designSystem) {
                         settingsNavigationRow("全局 UI 标准", image: "paintpalette")
                     }
                     .buttonStyle(.plain)
@@ -130,6 +130,14 @@ struct SettingsView: View {
         .background(AppTheme.groupedBackground)
         .stableRootNavigationBar()
         .rootTabBarContentInset()
+        .navigationDestination(for: SettingsRoute.self) { route in
+            switch route {
+            case .cloudSync: CloudSyncView()
+            case .noteTypes: NoteTypeManagerView()
+            case .stickyTags: StickyTagManagerView()
+            case .designSystem: NativeDesignSystemView()
+            }
+        }
         .task { refreshRecordCount() }
         .onChange(of: importer.summary) { _, _ in refreshRecordCount() }
         .overlay {

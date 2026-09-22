@@ -26,8 +26,13 @@ struct LibraryRecordDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     metadata
-                    imagesBlock
-                    questionBlock
+                    if isDataAnalysis {
+                        questionBlock
+                        imagesBlock
+                    } else {
+                        imagesBlock
+                        questionBlock
+                    }
                     optionsBlock
                     answerAndSource
                     comparisonBlock
@@ -108,8 +113,8 @@ struct LibraryRecordDetailView: View {
                     .background(statusColor(status).opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
             }
             metadataTagLine(knowledgePointLabel, values: knowledgePoints, emphasis: .strong)
-            if isDataAnalysis {
-                metadataTextLine("错因", value: firstText(["errorCause", "cause", "reason"]) ?? "")
+            if isDataAnalysis || isAnalogyReasoning {
+                metadataTextLine(errorCauseLabel, value: firstText(["errorCause", "cause", "reason"]) ?? "")
             } else {
                 metadataTagLine(errorCauseLabel, values: splitTags(firstText(["errorCause", "cause", "reason"]) ?? ""), emphasis: .subtle)
             }
@@ -120,22 +125,36 @@ struct LibraryRecordDetailView: View {
     @ViewBuilder private var imagesBlock: some View {
         let images = imageValues.compactMap(dataURLImage)
         if !images.isEmpty {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
-                ForEach(Array(images.enumerated()), id: \.offset) { _, image in
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: 320)
-                        .background(detailBackground, in: RoundedRectangle(cornerRadius: 10))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
-                        }
+            if isDataAnalysis {
+                VStack(spacing: 10) {
+                    ForEach(Array(images.enumerated()), id: \.offset) { _, image in
+                        detailImage(image)
+                    }
                 }
+                .padding(.top, 3)
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
+                    ForEach(Array(images.enumerated()), id: \.offset) { _, image in
+                        detailImage(image)
+                            .frame(maxHeight: 320)
+                    }
+                }
+                .padding(.top, 3)
             }
-            .padding(.top, 3)
         }
+    }
+
+    private func detailImage(_ image: UIImage) -> some View {
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFit()
+            .frame(maxWidth: .infinity)
+            .background(detailBackground, in: RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
+            }
     }
 
     @ViewBuilder private var questionBlock: some View {
@@ -363,12 +382,20 @@ struct LibraryRecordDetailView: View {
         record.collection == "errors" && record.subject == "判断推理" && record.module == "逻辑判断"
     }
 
+    private var isAnalogyReasoning: Bool {
+        record.collection == "errors" && record.subject == "判断推理" && record.module == "类比推理"
+    }
+
     private var isDataAnalysis: Bool {
         record.collection == "errors" && record.subject == "资料分析"
     }
 
     private var knowledgePointLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
-    private var errorCauseLabel: String { isLogicJudgment ? "选项逻辑作用" : "错因" }
+    private var errorCauseLabel: String {
+        if isLogicJudgment { return "选项逻辑作用" }
+        if isAnalogyReasoning { return "二级辨析" }
+        return "错因"
+    }
 
     private func splitTags(_ value: String) -> [String] {
         value.split(whereSeparator: { "、,，".contains($0) })

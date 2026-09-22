@@ -14,6 +14,7 @@ const exitConfirmation = read('SpeedExitConfirmation');
 const dialogs = fs.readFileSync(path.join(__dirname, '../Sources/DesignSystem/NativeDialogs.swift'), 'utf8');
 const documentStyle = fs.readFileSync(path.join(__dirname, '../Sources/DesignSystem/NativeDocumentStyle.swift'), 'utf8');
 const homeShortcuts = fs.readFileSync(path.join(__dirname, '../Sources/Features/Home/HomeShortcutViews.swift'), 'utf8');
+const root = fs.readFileSync(path.join(__dirname, '../Sources/App/RootTabView.swift'), 'utf8');
 const studyReport = fs.readFileSync(path.join(__dirname, '../Sources/Features/Home/StudyReportView.swift'), 'utf8');
 const detail = fs.readFileSync(path.join(__dirname, '../Sources/Features/Library/LibraryRecordDetailView.swift'), 'utf8');
 const libraryDoodle = fs.readFileSync(path.join(__dirname, '../Sources/Features/Library/LibraryDoodleSession.swift'), 'utf8');
@@ -161,7 +162,9 @@ const tests = {
   },
   'the full speed module hides the global tab bar and practice tools are consistent': () => {
     assert.doesNotMatch(page, /RootBottomBarHiddenPreferenceKey/);
-    assert.match(page, /toolbar\(\.hidden, for: \.tabBar\)/);
+    assert.match(root, /toolbar\(homePath\.isEmpty \? \.visible : \.hidden, for: \.tabBar\)/);
+    assert.match(root, /NavigationStack\(path: \$homePath\)/);
+    assert.doesNotMatch(page, /toolbar\(\.hidden, for: \.tabBar\)/);
     assert.match(page, /localBack: screen == \.home \? nil : navigateBack/);
     assert.doesNotMatch(page, /eye\.slash|显示或隐藏估算输入|showEstimateInput/);
     assert.match(page, /screen == \.practice \|\| screen == \.result \|\| \(screen == \.history && selectedHistory != nil\)/);
