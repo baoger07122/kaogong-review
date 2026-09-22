@@ -43,10 +43,10 @@ struct SpeedEstimateRulesTests {
         for mode in modes {
             for range in [(1, 1), (2, 9), (40, 99), (1, 999)] {
                 let batch = SpeedQuestionEngine.questions(types: [.div3x1], count: 100, sequential: false,
-                    estimates: [], customMode: mode, fixedNumbers: [1, 2, 9, 40], rangeMinimum: range.0, rangeMaximum: range.1)
+                    estimates: [], customMode: mode, fixedNumbers: [1, 2, 9, 11, 19, 40], rangeMinimum: range.0, rangeMaximum: range.1)
                 for q in batch {
                     let divisor = Int(q.expression.components(separatedBy: " ÷ ")[1])!
-                    precondition((2...9).contains(divisor))
+                    precondition((mode == nil ? 2...9 : 2...19).contains(divisor))
                 }
             }
         }
