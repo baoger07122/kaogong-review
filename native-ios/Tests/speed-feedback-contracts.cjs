@@ -159,9 +159,9 @@ const tests = {
     assert.match(result, /frame\(height: 47\)/);
     assert.match(result, /frame\(height: 49\)/);
   },
-  'home alone shows the global tab bar and practice tools are consistent': () => {
+  'the full speed module hides the global tab bar and practice tools are consistent': () => {
     assert.doesNotMatch(page, /RootBottomBarHiddenPreferenceKey/);
-    assert.match(page, /toolbar\(screen == \.home \? \.visible : \.hidden, for: \.tabBar\)/);
+    assert.match(page, /toolbar\(\.hidden, for: \.tabBar\)/);
     assert.match(page, /localBack: screen == \.home \? nil : navigateBack/);
     assert.doesNotMatch(page, /eye\.slash|显示或隐藏估算输入|showEstimateInput/);
     assert.match(page, /screen == \.practice \|\| screen == \.result \|\| \(screen == \.history && selectedHistory != nil\)/);
