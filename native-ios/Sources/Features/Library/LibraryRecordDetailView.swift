@@ -112,13 +112,20 @@ struct LibraryRecordDetailView: View {
                     .frame(height: 24)
                     .background(statusColor(status).opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
             }
-            metadataTagLine(knowledgePointLabel, values: knowledgePoints, emphasis: .strong)
-            if isDataAnalysis || isAnalogyReasoning {
-                metadataTextLine(errorCauseLabel, value: firstText(["errorCause", "cause", "reason"]) ?? "")
+            if isQuantityRelations {
+                metadataTextLine("题型", value: QuantityQuestionTypeCatalog.displayName(for: record.module))
+                metadataTextLine("题目结构", value: firstText(["quantityStructure"]) ?? "")
+                metadataTagLine("考点", values: knowledgePoints, emphasis: .strong)
+                metadataTagLine("弱项标签", values: weaknessTags, emphasis: .subtle)
             } else {
-                metadataTagLine(errorCauseLabel, values: splitTags(firstText(["errorCause", "cause", "reason"]) ?? ""), emphasis: .subtle)
+                metadataTagLine(knowledgePointLabel, values: knowledgePoints, emphasis: .strong)
+                if isDataAnalysis || isAnalogyReasoning {
+                    metadataTextLine(errorCauseLabel, value: firstText(["errorCause", "cause", "reason"]) ?? "")
+                } else {
+                    metadataTagLine(errorCauseLabel, values: splitTags(firstText(["errorCause", "cause", "reason"]) ?? ""), emphasis: .subtle)
+                }
+                metadataTextLine(isDataAnalysis ? "提醒" : "思维误区", value: firstText(["pitfall", "misconception", "thinkingTrap"]) ?? "")
             }
-            metadataTextLine(isDataAnalysis ? "提醒" : "思维误区", value: firstText(["pitfall", "misconception", "thinkingTrap"]) ?? "")
         }
     }
 
@@ -374,6 +381,12 @@ struct LibraryRecordDetailView: View {
         return records.filter { $0.collection == "words" && ids.contains($0.recordID) }
     }
 
+    private var weaknessTags: [String] {
+        if let values = stringArray("weaknessTags"), !values.isEmpty { return values }
+        return textValues(["weaknessTags"])
+            .flatMap { $0.split(whereSeparator: { "、,，".contains($0) }).map(String.init) }
+    }
+
     private var isLogicFillError: Bool {
         record.collection == "errors" && record.subject == "言语理解" && record.module == "逻辑填空"
     }
@@ -388,6 +401,10 @@ struct LibraryRecordDetailView: View {
 
     private var isDataAnalysis: Bool {
         record.collection == "errors" && record.subject == "资料分析"
+    }
+
+    private var isQuantityRelations: Bool {
+        record.collection == "errors" && record.subject == "数量关系"
     }
 
     private var knowledgePointLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }

@@ -166,6 +166,8 @@ struct LibraryRecordSnapshot: Identifiable {
     let errorCause: String
     let pitfall: String
     let options: [String]
+    let quantityStructure: String
+    let weaknessTags: [String]
     let imageValues: [String]
     let comparisonWords: [String]
 
@@ -213,6 +215,11 @@ struct LibraryRecordSnapshot: Identifiable {
         options = (object["options"] as? [String] ?? [])
             .map(Self.plainText)
             .filter { !$0.isEmpty }
+        quantityStructure = Self.firstText(in: object, keys: ["quantityStructure"])
+            .map(Self.plainText) ?? ""
+        weaknessTags = (object["weaknessTags"] as? [String] ?? [])
+            .map(Self.plainText)
+            .filter { !$0.isEmpty }
         if let images = object["images"] as? [String], !images.isEmpty {
             imageValues = images
         } else {
@@ -239,8 +246,9 @@ struct LibraryRecordSnapshot: Identifiable {
         var seen = Set<String>()
         tags = Array(values.filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(3))
 
-        var searchValues = [title, summary]
+        var searchValues = [title, summary, quantityStructure]
         searchValues.append(contentsOf: tags)
+        searchValues.append(contentsOf: weaknessTags)
         searchValues.append(contentsOf: ["pinyin", "meaning", "judgmentHint", "commonMeaning", "example", "compareNote", "myUnderstanding", "collocations", "pos"]
             .compactMap { object[$0] as? String })
         if let terms = object["compareWords"] as? [[String: Any]] {

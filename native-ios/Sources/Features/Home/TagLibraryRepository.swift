@@ -106,7 +106,10 @@ enum TagLibraryRepository {
         records: [StoredRecord],
         context: ModelContext
     ) throws {
-        for record in records where record.module == module && (record.collection == "errors" || record.collection == "notes") {
+        for record in records where (record.collection == "errors" || record.collection == "notes") {
+            let matchesModule = record.module == module
+                || (kind == .thinkingTrap && module == "数量关系-弱项" && record.subject == "数量关系")
+            guard matchesModule else { continue }
             guard var object = record.jsonObject else { continue }
             var changed = false
             if kind == .knowledgePoint {
@@ -122,9 +125,15 @@ enum TagLibraryRepository {
             } else if kind == .errorCause, object["errorCause"] as? String == oldName {
                 object["errorCause"] = newName ?? ""
                 changed = true
-            } else if kind == .thinkingTrap, object["pitfall"] as? String == oldName {
-                object["pitfall"] = newName ?? ""
-                changed = true
+            } else if kind == .thinkingTrap {
+                if module == "数量关系-弱项", var values = object["weaknessTags"] as? [String], values.contains(oldName) {
+                    values = values.compactMap { $0 == oldName ? newName : $0 }
+                    object["weaknessTags"] = values
+                    changed = true
+                } else if object["pitfall"] as? String == oldName {
+                    object["pitfall"] = newName ?? ""
+                    changed = true
+                }
             }
             if changed {
                 record.replacePayload(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
@@ -146,8 +155,20 @@ enum TagLibraryRepository {
         "语句填入": ["待复盘", "居中填空", "段首填空", "段尾填空"],
         "语句排序": ["待复盘", "首句判定", "相邻句捆绑", "整体排序"],
         "细节判断题": ["待复盘", "细节理解", "细节查找", "是非判断"],
-        "数学运算": ["待复盘", "行程问题", "工程问题", "利润问题", "排列组合", "概率问题", "几何问题", "浓度问题", "容斥问题"],
-        "数字推理": ["待复盘", "等差数列", "等比数列", "递推数列", "多次方数列", "分数数列", "组合数列"],
+        "植树问题": ["待复盘", "两端植树", "两端不植树", "单端植树", "环形植树"],
+        "和差倍比": ["待复盘", "和差倍比", "比例关系", "鸡兔同笼", "盈亏问题"],
+        "工程问题": ["待复盘", "效率关系", "合作工程", "赋值法", "牛吃草"],
+        "行程问题": ["待复盘", "相遇追及", "流水行船", "环形运动", "平均速度"],
+        "排列组合": ["待复盘", "分类分步", "排列", "组合", "错位排列", "环形排列"],
+        "概率问题": ["待复盘", "古典概率", "分类分步概率", "条件概率"],
+        "几何问题": ["待复盘", "平面几何", "立体几何", "几何面积", "相似比例"],
+        "最值问题": ["待复盘", "定和求积最大", "定积求和最小", "极值与范围判断"],
+        "经济利润": ["待复盘", "利润率", "折扣", "分段计费"],
+        "容斥问题": ["待复盘", "两集合容斥", "三集合容斥", "画图法"],
+        "年龄问题": ["待复盘", "年龄差不变", "倍数关系"],
+        "浓度问题": ["待复盘", "溶液混合", "反复操作", "十字交叉"],
+        "计数问题": ["待复盘", "枚举", "捆绑插空", "隔板法"],
+        "综合题": ["待复盘"],
         "图形推理": ["待复盘", "位置规律", "样式规律", "数量规律", "空间重构", "平面拼合"],
         "定义判断": ["待复盘", "社会类", "经济类", "法律类", "管理类", "心理类"],
         "类比推理": ["待复盘", "逻辑关系", "语义关系", "语法关系", "常识关系"],

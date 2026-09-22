@@ -13,6 +13,8 @@ struct LibraryDraftSnapshot: Codable, Equatable {
     var correctOption: String
     var userOption: String
     var pitfall: String
+    var quantityStructure: String?
+    var weaknessTags: String?
     var questionSource: String
     var accuracy: String?
     var images: [String]
@@ -61,6 +63,8 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         correctOption = draft.correctOption
         userOption = draft.userOption
         pitfall = draft.pitfall
+        quantityStructure = draft.quantityStructure
+        weaknessTags = draft.weaknessTags
         questionSource = draft.questionSource
         accuracy = draft.accuracy
         images = draft.images
@@ -110,6 +114,8 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         draft.correctOption = correctOption
         draft.userOption = userOption
         draft.pitfall = pitfall
+        draft.quantityStructure = quantityStructure ?? ""
+        draft.weaknessTags = weaknessTags ?? ""
         draft.questionSource = questionSource
         draft.accuracy = accuracy ?? ""
         draft.images = images

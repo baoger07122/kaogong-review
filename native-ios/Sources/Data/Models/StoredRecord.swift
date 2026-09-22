@@ -65,10 +65,14 @@ final class StoredRecord {
                 "id", "subject", "module", "knowledgePoints", "knowledgePoint", "errorCause", "status",
                 "question", "title", "type", "category", "createdAt", "updatedAt", "lastReviewDate",
                 "questionSource", "sourceYear", "sourceExamType", "sourceRegion",
-                "accuracy", "reviewCount", "sourceExamId", "pitfall", "linkedWordIds"
+                "accuracy", "reviewCount", "sourceExamId", "pitfall", "linkedWordIds", "options",
+                "quantityStructure", "weaknessTags"
             ]
         case "notes":
-            keys = ["id", "subject", "module", "title", "content", "type", "category", "createdAt", "updatedAt"]
+            keys = [
+                "id", "subject", "module", "title", "content", "type", "category", "createdAt", "updatedAt",
+                "knowledgePoint", "knowledgePoints", "quantityStructure", "weaknessTags"
+            ]
         case "stickies":
             keys = ["id", "subject", "module", "content", "tag", "color", "colorHex", "pinned", "createdAt", "updatedAt"]
         case "words":

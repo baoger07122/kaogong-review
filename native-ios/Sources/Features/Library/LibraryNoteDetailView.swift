@@ -16,6 +16,9 @@ struct LibraryNoteDetailView: View {
     }
     private var type: String { object["type"] as? String ?? "" }
     private var knowledgePoint: String { object["knowledgePoint"] as? String ?? "" }
+    private var quantityStructure: String { object["quantityStructure"] as? String ?? "" }
+    private var weaknessTags: [String] { object["weaknessTags"] as? [String] ?? [] }
+    private var isQuantityRelations: Bool { record.subject == "数量关系" }
 
     var body: some View {
         ZStack {
@@ -24,11 +27,17 @@ struct LibraryNoteDetailView: View {
                     Text(title)
                         .font(.system(size: 24, weight: .semibold))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    if !type.isEmpty || !knowledgePoint.isEmpty {
+                    if !isQuantityRelations, !type.isEmpty || !knowledgePoint.isEmpty {
                         NativeTagFlow(spacing: 6) {
                             if !type.isEmpty { detailChip(type) }
                             if !knowledgePoint.isEmpty { detailChip(knowledgePoint) }
                         }
+                    }
+                    if isQuantityRelations {
+                        detailLine("题型", QuantityQuestionTypeCatalog.displayName(for: record.module))
+                        detailLine("题目结构", quantityStructure)
+                        detailTags("考点", splitTags(knowledgePoint))
+                        detailTags("弱项标签", weaknessTags)
                     }
                     if content.isEmpty {
                         Text("暂无正文")
@@ -75,5 +84,31 @@ struct LibraryNoteDetailView: View {
             .padding(.horizontal, 9)
             .frame(height: 27)
             .background(AppTheme.accent.opacity(0.08), in: Capsule())
+    }
+
+    @ViewBuilder private func detailLine(_ label: String, _ value: String) -> some View {
+        if !value.isEmpty {
+            HStack(alignment: .top, spacing: 6) {
+                Text("\(label)：").font(.system(size: 13, weight: .medium))
+                Text(value).font(.system(size: 13)).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder private func detailTags(_ label: String, _ values: [String]) -> some View {
+        if !values.isEmpty {
+            HStack(alignment: .top, spacing: 6) {
+                Text("\(label)：").font(.system(size: 13, weight: .medium)).padding(.top, 4)
+                NativeTagFlow(spacing: 5) {
+                    ForEach(values, id: \.self) { detailChip($0) }
+                }
+            }
+        }
+    }
+
+    private func splitTags(_ value: String) -> [String] {
+        value.split(whereSeparator: { "、,，".contains($0) })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 }

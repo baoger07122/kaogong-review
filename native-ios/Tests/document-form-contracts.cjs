@@ -13,6 +13,9 @@ const root = read('App/RootTabView.swift');
 const doodle = read('Features/Library/LibraryDoodleSession.swift');
 const navigationStyle = read('DesignSystem/NativeDocumentStyle.swift');
 const theme = read('DesignSystem/AppTheme.swift');
+const libraryView = read('Features/Library/LibraryView.swift');
+const cards = read('Features/Library/LibraryComponents.swift');
+const models = read('Data/Models/StoredRecord.swift');
 const tests = {
   'compact detail typography': () => {
     assert.match(theme, /questionTextFont = Font\.system\(size: 13\.5, weight: \.regular\)/);
@@ -122,6 +125,21 @@ const tests = {
     }
     assert.doesNotMatch(detail, /if !doodleSession\.isPresented/);
     assert.match(doodle, /LibraryDoodleCanvasState/);
+  },
+  'quantity relations uses four fields and on-demand cross-type points': () => {
+    assert.match(form, /题目结构/);
+    assert.match(form, /考点（可跨题型）/);
+    assert.match(form, /弱项标签（可选）/);
+    assert.match(picker, /＋ 跨题型选择/);
+    assert.match(libraryView, /quantityTypeBar/);
+    assert.match(libraryView, /quantityTypeChip\("未分类"/);
+    assert.match(cards, /plainField\(label: "结构", value: snapshot\.quantityStructure\)/);
+    assert.match(cards, /label: knowledgePointLabel/);
+  },
+  'analogy options are indexed for existing and new cards': () => {
+    assert.match(models, /"linkedWordIds", "options"/);
+    assert.match(libraryView, /record\.indexObject\?\["options"\] == nil/);
+    assert.match(cards, /if isAnalogyReasoning, !snapshot\.options\.isEmpty/);
   }
 };
 for (const [name, test] of Object.entries(tests)) { test(); console.log(`PASS ${name}`); }

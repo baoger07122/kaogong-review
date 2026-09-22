@@ -10,6 +10,7 @@ struct LibraryTagSelectionDialog: View {
     @Binding var selection: String
     let onClose: () -> Void
     var titleOverride: String? = nil
+    var maximumOverride: Int? = nil
     @State private var selected: [String] = []
     @State private var search = ""
     @State private var message: String?
@@ -17,7 +18,7 @@ struct LibraryTagSelectionDialog: View {
     @State private var newName = ""
     @State private var deleting: String?
 
-    private var maximum: Int { kind == .knowledgePoint ? 3 : 1 }
+    private var maximum: Int { maximumOverride ?? (kind == .knowledgePoint ? 3 : 1) }
     private var names: [String] {
         var values = TagLibraryRepository.tags(kind: kind, module: module, records: records)
         for value in selected where !values.contains(value) { values.append(value) }
@@ -82,14 +83,14 @@ struct LibraryTagSelectionDialog: View {
 
     private func split(_ value: String) -> [String] {
         guard !value.isEmpty else { return [] }
-        return kind == .knowledgePoint ? value.split(whereSeparator: { "、,，".contains($0) }).map(String.init) : [value]
+        return maximum > 1 ? value.split(whereSeparator: { "、,，".contains($0) }).map(String.init) : [value]
     }
     private func toggle(_ name: String) {
         message = nil
         if selected.contains(name) { selected.removeAll { $0 == name } }
         else if maximum == 1 { selected = [name] }
         else if selected.count < maximum { selected.append(name) }
-        else { message = "最多选择 \(maximum) 个考点" }
+        else { message = "最多选择 \(maximum) 个\(titleOverride ?? kind.rawValue)" }
     }
     private func addTag() {
         let value = query
@@ -121,6 +122,130 @@ struct LibraryTagSelectionDialog: View {
             selection = split(selection).filter { $0 != name }.joined(separator: "、")
             deleting = nil
         } catch { message = "删除失败，请重试" }
+    }
+}
+
+struct QuantityKnowledgePointSelectionDialog: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query private var records: [StoredRecord]
+    let currentType: String
+    @Binding var selection: String
+    let onClose: () -> Void
+
+    @State private var selected: [String] = []
+    @State private var browsingType = ""
+    @State private var showsCrossType = false
+    @State private var search = ""
+    @State private var message: String?
+
+    private var activeType: String { browsingType.isEmpty ? currentType : browsingType }
+    private var names: [String] {
+        TagLibraryRepository.tags(kind: .knowledgePoint, module: activeType, records: records)
+    }
+    private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        NativeEditorDialog(
+            title: "选择考点",
+            canSave: true,
+            actionTitle: "确定",
+            onClose: onClose,
+            onSave: { selection = selected.joined(separator: "、"); onClose() }
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                if !selected.isEmpty {
+                    Text("已选考点").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+                    NativeTagFlow(spacing: 6) {
+                        ForEach(selected, id: \.self) { name in
+                            Button { selected.removeAll { $0 == name } } label: {
+                                Label(name, systemImage: "xmark")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(AppTheme.accent)
+                                    .padding(.horizontal, 8).frame(height: 27)
+                                    .background(AppTheme.accent.opacity(0.09), in: Capsule())
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                HStack {
+                    Text(showsCrossType ? "跨题型 · \(activeType)" : "当前题型 · \(currentType)")
+                        .font(.system(size: 12, weight: .semibold))
+                    Spacer()
+                    Button(showsCrossType ? "返回当前题型" : "＋ 跨题型选择") {
+                        if showsCrossType {
+                            showsCrossType = false
+                            browsingType = currentType
+                        } else {
+                            showsCrossType = true
+                            browsingType = QuantityQuestionTypeCatalog.all.first(where: { $0 != currentType }) ?? currentType
+                        }
+                        search = ""
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                }
+
+                if showsCrossType {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(QuantityQuestionTypeCatalog.all.filter { $0 != currentType }, id: \.self) { type in
+                                Button(type) { browsingType = type; search = "" } label: {
+                                    Text(type).font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(activeType == type ? AppTheme.accent : .secondary)
+                                        .padding(.horizontal, 9).frame(height: 28)
+                                        .background(activeType == type ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045), in: Capsule())
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    TextField("搜索或新增考点", text: $search)
+                        .textFieldStyle(NativeTextFieldStyle())
+                        .onSubmit(addTag)
+                    Button("新增", action: addTag)
+                        .font(.system(size: 12, weight: .semibold))
+                        .disabled(query.isEmpty || activeType.isEmpty || names.contains(query))
+                }
+
+                ScrollView {
+                    NativeTagFlow(spacing: 6) {
+                        ForEach(names.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }, id: \.self) { name in
+                            Button { toggle(name) } label: {
+                                HStack(spacing: 4) {
+                                    Text(name)
+                                    if selected.contains(name) { Image(systemName: "checkmark") }
+                                }
+                                .font(.system(size: 12))
+                                .foregroundStyle(selected.contains(name) ? AppTheme.accent : Color.primary)
+                                .padding(.horizontal, 10).padding(.vertical, 8)
+                                .background(selected.contains(name) ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                }.frame(maxHeight: 220)
+                if let message { Text(message).font(.system(size: 11)).foregroundStyle(AppTheme.danger) }
+            }
+        }
+        .onAppear {
+            selected = selection.split(whereSeparator: { "、,，".contains($0) }).map(String.init)
+            browsingType = currentType
+        }
+    }
+
+    private func toggle(_ name: String) {
+        if selected.contains(name) { selected.removeAll { $0 == name } }
+        else { selected.append(name) }
+    }
+
+    private func addTag() {
+        guard !query.isEmpty, !activeType.isEmpty else { return }
+        do {
+            try TagLibraryRepository.add(query, kind: .knowledgePoint, module: activeType, records: records, context: modelContext)
+            if !selected.contains(query) { selected.append(query) }
+            search = ""
+        } catch { message = "考点保存失败，请重试" }
     }
 }
 

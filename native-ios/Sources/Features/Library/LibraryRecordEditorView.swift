@@ -43,6 +43,8 @@ struct LibraryRecordEditorView: View {
     @State private var expandedAnswerField: ErrorAnswerField?
     @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
     @State private var linkedWordCreationCategory: WordCategory?
+    @State private var showQuantityKnowledgePoints = false
+    @State private var showQuantityWeaknessTags = false
 
     init(
         kind: LibraryContentKind,
@@ -193,6 +195,23 @@ struct LibraryRecordEditorView: View {
                     onClose: { self.activeTags = nil },
                     titleOverride: activeTags == .knowledgePoint ? knowledgePointLabel : errorCauseLabel)
             }
+            if showQuantityKnowledgePoints {
+                QuantityKnowledgePointSelectionDialog(
+                    currentType: draft.module,
+                    selection: $draft.knowledgePoint,
+                    onClose: { showQuantityKnowledgePoints = false }
+                )
+            }
+            if showQuantityWeaknessTags {
+                LibraryTagSelectionDialog(
+                    kind: .thinkingTrap,
+                    module: "数量关系-弱项",
+                    selection: $draft.weaknessTags,
+                    onClose: { showQuantityWeaknessTags = false },
+                    titleOverride: "弱项标签",
+                    maximumOverride: 8
+                )
+            }
             if let activeRelation {
                 LibraryRelationSelectionDialog(collection: activeRelation,
                     candidates: relationCandidates(collection: activeRelation),
@@ -210,7 +229,9 @@ struct LibraryRecordEditorView: View {
                 ForEach(SubjectDefinition.all) { subject in
                     Button(subject.name) {
                         draft.subject = subject.name
-                        draft.module = subject.modules.first ?? ""
+                        draft.module = subject.name == "数量关系"
+                            ? (QuantityQuestionTypeCatalog.all.first ?? "")
+                            : (subject.modules.first ?? "")
                     }
                 }
             } label: {
@@ -223,6 +244,7 @@ struct LibraryRecordEditorView: View {
                     compactProperty(title: "模块", value: draft.module, image: "square.stack.3d.up")
                 }
             }
+            if isQuantityRelations { quantityTypeSelector }
             Spacer(minLength: 0)
             if kind == .errors, draft.images.isEmpty {
                 PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 12, matching: .images) {
@@ -239,6 +261,28 @@ struct LibraryRecordEditorView: View {
                 .accessibilityLabel("添加题目与选项图片")
             }
         }
+    }
+
+    private var quantityTypeSelector: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(QuantityQuestionTypeCatalog.all, id: \.self) { type in
+                    Button(type) { draft.module = type } label: {
+                        Text(type)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(draft.module == type ? AppTheme.accent : Color.secondary)
+                            .padding(.horizontal, 9)
+                            .frame(height: 32)
+                            .background(
+                                draft.module == type ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045),
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func compactProperty(title: String, value: String, image: String) -> some View {
@@ -332,7 +376,7 @@ struct LibraryRecordEditorView: View {
 
     private var regularErrorFields: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if recordID != nil { errorAnalysisCard }
+            if recordID != nil || isQuantityRelations { errorAnalysisCard }
             errorImageCard
 
             errorFormCard {
@@ -380,7 +424,7 @@ struct LibraryRecordEditorView: View {
             }
             }
 
-            if recordID == nil { errorAnalysisCard }
+            if recordID == nil && !isQuantityRelations { errorAnalysisCard }
 
         }
         .background(Color.white)
@@ -394,27 +438,39 @@ struct LibraryRecordEditorView: View {
 
     private var errorAnalysisCard: some View {
         errorFormCard {
-            compactFormSection("\(knowledgePointLabel)与\(errorCauseLabel)", image: "tag") {
-                tagInput(
-                    title: "\(knowledgePointLabel)（可选）",
-                    text: $draft.knowledgePoint,
-                    suggestions: TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records),
-                    allowsMultiple: true
-                )
-                if isDataAnalysis || isAnalogyReasoning {
-                    plainTextInput(label: errorCauseLabel, placeholder: "可留空", text: $draft.errorCause)
-                } else {
+            if isQuantityRelations {
+                compactFormSection("题型分析", image: "tag") {
+                    plainTextInput(label: "题目结构", placeholder: "例如：矩形边界植树", text: $draft.quantityStructure)
+                    quantityTagInput(title: "考点（可跨题型）", value: draft.knowledgePoint) {
+                        showQuantityKnowledgePoints = true
+                    }
+                    quantityTagInput(title: "弱项标签（可选）", value: draft.weaknessTags) {
+                        showQuantityWeaknessTags = true
+                    }
+                }
+            } else {
+                compactFormSection("\(knowledgePointLabel)与\(errorCauseLabel)", image: "tag") {
                     tagInput(
-                        title: "\(errorCauseLabel)（可选）",
-                        text: $draft.errorCause,
-                        suggestions: TagLibraryRepository.tags(kind: .errorCause, module: draft.module, records: records)
+                        title: "\(knowledgePointLabel)（可选）",
+                        text: $draft.knowledgePoint,
+                        suggestions: TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records),
+                        allowsMultiple: true
+                    )
+                    if isDataAnalysis || isAnalogyReasoning {
+                        plainTextInput(label: errorCauseLabel, placeholder: "可留空", text: $draft.errorCause)
+                    } else {
+                        tagInput(
+                            title: "\(errorCauseLabel)（可选）",
+                            text: $draft.errorCause,
+                            suggestions: TagLibraryRepository.tags(kind: .errorCause, module: draft.module, records: records)
+                        )
+                    }
+                    plainTextInput(
+                        label: isDataAnalysis ? "提醒" : "思维误区",
+                        placeholder: "可留空",
+                        text: $draft.pitfall
                     )
                 }
-                plainTextInput(
-                    label: isDataAnalysis ? "提醒" : "思维误区",
-                    placeholder: "可留空",
-                    text: $draft.pitfall
-                )
             }
         }
     }
@@ -422,6 +478,7 @@ struct LibraryRecordEditorView: View {
     private var isLogicJudgment: Bool { draft.subject == "判断推理" && draft.module == "逻辑判断" }
     private var isAnalogyReasoning: Bool { draft.subject == "判断推理" && draft.module == "类比推理" }
     private var isDataAnalysis: Bool { draft.subject == "资料分析" }
+    private var isQuantityRelations: Bool { draft.subject == "数量关系" }
     private var knowledgePointLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
     private var errorCauseLabel: String {
         if isLogicJudgment { return "选项逻辑作用" }
@@ -714,7 +771,17 @@ struct LibraryRecordEditorView: View {
                 NativePropertyRow(title: "笔记标签", value: draft.type.isEmpty ? "全部" : draft.type, systemImage: "tag") {}
                     .allowsHitTesting(false)
             }
-            TextField("考点（可选）", text: $draft.knowledgePoint).textFieldStyle(NativeTextFieldStyle())
+            if isQuantityRelations {
+                plainTextInput(label: "题目结构", placeholder: "例如：矩形边界植树", text: $draft.quantityStructure)
+                quantityTagInput(title: "考点（可跨题型）", value: draft.knowledgePoint) {
+                    showQuantityKnowledgePoints = true
+                }
+                quantityTagInput(title: "弱项标签（可选）", value: draft.weaknessTags) {
+                    showQuantityWeaknessTags = true
+                }
+            } else {
+                TextField("考点（可选）", text: $draft.knowledgePoint).textFieldStyle(NativeTextFieldStyle())
+            }
             NativeFieldLabel(title: "正文")
             richEditor(text: $draft.content, height: 240)
             DisclosureGroup("思维导图") {
@@ -732,6 +799,36 @@ struct LibraryRecordEditorView: View {
                 .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
         }
         .nativeCard()
+    }
+
+    private func quantityTagInput(title: String, value: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+                if value.isEmpty {
+                    Text("选择或新增")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.tertiary)
+                } else {
+                    NativeTagFlow(spacing: 5) {
+                        ForEach(splitTags(value), id: \.self) { tag in
+                            Text(tag)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(AppTheme.accent)
+                                .padding(.horizontal, 8)
+                                .frame(height: 25)
+                                .background(AppTheme.accent.opacity(0.09), in: Capsule())
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
+        }
+        .buttonStyle(.plain)
     }
 
     private var stickyFields: some View {
@@ -1096,7 +1193,7 @@ struct LibraryRecordEditorView: View {
     }
 
     private func save() {
-        if kind == .errors {
+        if kind == .errors || (kind == .notes && isQuantityRelations) {
             try? TagLibraryRepository.add(
                 splitTags(draft.knowledgePoint),
                 kind: .knowledgePoint,
@@ -1104,7 +1201,7 @@ struct LibraryRecordEditorView: View {
                 records: records,
                 context: modelContext
             )
-            if !isDataAnalysis && !isAnalogyReasoning {
+            if kind == .errors && !isDataAnalysis && !isAnalogyReasoning && !isQuantityRelations {
                 try? TagLibraryRepository.add(
                     [draft.errorCause],
                     kind: .errorCause,

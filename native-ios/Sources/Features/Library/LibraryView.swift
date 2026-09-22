@@ -29,6 +29,7 @@ struct LibraryView: View {
     @State private var wordEntryKind = ""
     @State private var renderLimit = 40
     @State private var refreshedLegacyIndexes = false
+    @State private var selectedQuantityType = ""
 
     var body: some View {
         GeometryReader { proxy in
@@ -143,7 +144,7 @@ struct LibraryView: View {
     private func recordEditor(kind: LibraryContentKind, recordID: String?, record: StoredRecord?) -> some View {
         LibraryRecordEditorView(
             kind: kind,
-            scope: scope,
+            scope: recordID == nil ? creationScope : scope,
             record: record,
             preferredType: recordID == nil ? (kind == .words ? wordCategory.rawValue : selectedTag) : "",
             dismissAfterSave: !(recordID == nil && (kind == .errors || kind == .words)),
@@ -158,6 +159,11 @@ struct LibraryView: View {
         )
     }
 
+    private var creationScope: LibraryScope {
+        guard scope.subject == "数量关系", QuantityQuestionTypeCatalog.contains(selectedQuantityType) else { return scope }
+        return LibraryScope(subject: "数量关系", module: selectedQuantityType)
+    }
+
     private func popCurrentRoute() {
         guard !navigationPath.isEmpty else { return }
         navigationPath.removeLast()
@@ -168,8 +174,9 @@ struct LibraryView: View {
         refreshedLegacyIndexes = true
         var changed = false
         for record in records {
-            if record.collection == "errors", record.indexObject?["pitfall"] == nil,
-               record.jsonObject?["pitfall"] != nil {
+            if record.collection == "errors",
+               (record.indexObject?["pitfall"] == nil && record.jsonObject?["pitfall"] != nil
+                || record.indexObject?["options"] == nil && record.jsonObject?["options"] != nil) {
                 record.replacePayload(record.payload)
                 changed = true
             } else if record.collection == "words", record.indexObject?["entryKind"] == nil,
@@ -196,6 +203,7 @@ struct LibraryView: View {
                         .padding(.horizontal, 10).frame(height: 36)
                         .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
                     }
+                    if isQuantityContext, kind == .errors || kind == .notes { quantityTypeBar }
                     filterBar
                     if kind == .words { wordCategoryBar }
                     if kind == .notes, noteContext != nil { noteTypeBar }
@@ -394,6 +402,13 @@ struct LibraryView: View {
     private var scopedRecords: [StoredRecord] {
         records.filter { record in
             guard record.collection == kind.collection, scope.contains(record) else { return false }
+            if isQuantityContext, kind == .errors || kind == .notes {
+                if selectedQuantityType == "未分类" {
+                    guard !QuantityQuestionTypeCatalog.contains(record.module) else { return false }
+                } else if !selectedQuantityType.isEmpty {
+                    guard record.module == selectedQuantityType else { return false }
+                }
+            }
             if kind == .stickies && !scope.hasModuleContext { return false }
             if kind == .words && !scope.isLogicFill { return false }
             return true
@@ -403,6 +418,8 @@ struct LibraryView: View {
     private var snapshots: [LibraryRecordSnapshot] {
         Array(sortedScopedRecords.prefix(renderLimit)).map { LibraryRecordSnapshot(record: $0, allRecords: records) }
     }
+
+    private var isQuantityContext: Bool { scope.subject == "数量关系" && scope.module == nil }
 
     private var sortedScopedRecords: [StoredRecord] {
         scopedRecords.sorted { left, right in
@@ -443,6 +460,34 @@ struct LibraryView: View {
             .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "zh_CN"))
     }
 
+    private var quantityTypeBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                quantityTypeChip("全部", value: "")
+                ForEach(QuantityQuestionTypeCatalog.all, id: \.self) { type in
+                    quantityTypeChip(type, value: type)
+                }
+                quantityTypeChip("未分类", value: "未分类")
+            }
+        }
+    }
+
+    private func quantityTypeChip(_ title: String, value: String) -> some View {
+        Button {
+            selectedQuantityType = value
+            selectedTag = ""
+            renderLimit = 40
+        } label: {
+            Text(title)
+                .font(AppTheme.auxiliaryFont.weight(.semibold))
+                .foregroundStyle(selectedQuantityType == value ? AppTheme.accent : Color.secondary)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(selectedQuantityType == value ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045), in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
     private var wordCategoryBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 7) {
@@ -479,6 +524,9 @@ struct LibraryView: View {
     }
 
     private var noteContext: (subject: String, module: String)? {
+        if isQuantityContext, QuantityQuestionTypeCatalog.contains(selectedQuantityType) {
+            return ("数量关系", selectedQuantityType)
+        }
         guard let subject = scope.subject, scope.hasModuleContext else { return nil }
         return (subject, subject == "资料分析" ? "" : (scope.module ?? ""))
     }
@@ -567,7 +615,12 @@ struct LibraryView: View {
     private var contextSummary: String {
         let values: [(String, LibraryContentKind)] = [("错题", .errors), ("笔记", .notes), ("便签", .stickies)]
         return values.map { label, value in
-            let count = records.lazy.filter { $0.collection == value.collection && scope.contains($0) }.count
+            let count = records.lazy.filter { record in
+                guard record.collection == value.collection, scope.contains(record) else { return false }
+                guard isQuantityContext, !selectedQuantityType.isEmpty else { return true }
+                if selectedQuantityType == "未分类" { return !QuantityQuestionTypeCatalog.contains(record.module) }
+                return record.module == selectedQuantityType
+            }.count
             return "\(count) \(label)"
         }.joined(separator: " · ")
     }
@@ -606,6 +659,7 @@ struct LibraryView: View {
         selectedTag = ""
         wordSentiment = ""
         wordEntryKind = ""
+        selectedQuantityType = ""
         renderLimit = 40
         if kind == .words && !scope.isLogicFill { kind = .notes }
     }

@@ -36,6 +36,8 @@ struct LibraryRecordDraft {
     var correctOption = ""
     var userOption = ""
     var pitfall = ""
+    var quantityStructure = ""
+    var weaknessTags = ""
     var questionSource = ""
     var accuracy = ""
     var images: [String] = []
@@ -76,7 +78,16 @@ struct LibraryRecordDraft {
         id = record?.recordID ?? ""
         subject = (original["subject"] as? String) ?? scope.subject ?? "言语理解"
         let defaultModules = SubjectDefinition.all.first { $0.name == subject }?.modules ?? []
-        module = (original["module"] as? String) ?? scope.module ?? defaultModules.first ?? ""
+        let storedModule = (original["module"] as? String) ?? scope.module
+        if subject == "数量关系" {
+            if QuantityQuestionTypeCatalog.contains(storedModule) {
+                module = storedModule ?? ""
+            } else {
+                module = record == nil ? (QuantityQuestionTypeCatalog.all.first ?? "") : ""
+            }
+        } else {
+            module = storedModule ?? defaultModules.first ?? ""
+        }
         title = LibraryRecordDraft.text(original, keys: ["title", "question", "name", "words", "text"])
         content = LibraryRecordDraft.text(original, keys: ["judgmentHint", "content", "note", "meaning", "myUnderstanding"])
         if kind == .errors, let note = original["note"] as? String { content = note }
@@ -104,6 +115,10 @@ struct LibraryRecordDraft {
         correctOption = LibraryRecordDraft.text(original, keys: ["correctOption"])
         userOption = LibraryRecordDraft.text(original, keys: ["userOption"])
         pitfall = LibraryRecordDraft.text(original, keys: ["pitfall"])
+        quantityStructure = LibraryRecordDraft.text(original, keys: ["quantityStructure"])
+        if let values = original["weaknessTags"] as? [String], !values.isEmpty {
+            weaknessTags = values.joined(separator: "、")
+        }
         questionSource = LibraryRecordDraft.text(original, keys: ["questionSource", "source"])
         accuracy = LibraryRecordDraft.numberText(original["accuracy"])
         images = (original["images"] as? [String]) ?? (original["image"] as? String).map { [$0] } ?? []
@@ -229,6 +244,8 @@ enum LibraryRecordRepository {
             object["correctOption"] = draft.correctOption
             object["userOption"] = draft.userOption
             object["pitfall"] = draft.pitfall
+            object["quantityStructure"] = draft.quantityStructure
+            object["weaknessTags"] = splitList(draft.weaknessTags)
             object["questionSource"] = draft.questionSource
             let sourceMetadata = QuestionSourceMetadata.parse(draft.questionSource)
             object["sourceYear"] = sourceMetadata.year.map { $0 as Any } ?? NSNull()
@@ -273,6 +290,9 @@ enum LibraryRecordRepository {
             object["content"] = draft.content
             object["type"] = draft.type
             object["knowledgePoint"] = draft.knowledgePoint
+            object["knowledgePoints"] = splitList(draft.knowledgePoint)
+            object["quantityStructure"] = draft.quantityStructure
+            object["weaknessTags"] = splitList(draft.weaknessTags)
             object["linkedErrors"] = draft.linkedErrorIDs
             object["linkedReviews"] = object["linkedReviews"] ?? []
             object["mindMap"] = draft.mindMapData
@@ -347,6 +367,12 @@ enum LibraryRecordRepository {
         }
         try context.save()
         return id
+    }
+
+    private static func splitList(_ value: String) -> [String] {
+        value.split(whereSeparator: { "、,，".contains($0) })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     private static func wordCategory(from value: String) -> WordCategory {

@@ -245,6 +245,13 @@ struct LibraryRecordCard: View {
                 .foregroundStyle(.primary)
                 .lineLimit(kind == .errors ? 5 : 3)
 
+            if isQuantityRelations, !snapshot.quantityStructure.isEmpty {
+                quantityPlainField(label: "结构", value: snapshot.quantityStructure)
+            }
+            if isQuantityRelations, !snapshot.knowledgePoints.isEmpty {
+                quantityTagLine(label: "考点", values: snapshot.knowledgePoints)
+            }
+
             if !snapshot.summary.isEmpty && snapshot.summary != snapshot.title {
                 Text(snapshot.summary)
                     .font(AppTheme.auxiliaryFont)
@@ -269,11 +276,37 @@ struct LibraryRecordCard: View {
     }
 
     private var visibleTags: [String] {
-        snapshot.tags.filter { !hiddenTags.contains($0) }
+        snapshot.tags.filter {
+            !hiddenTags.contains($0) && (!isQuantityRelations || !snapshot.knowledgePoints.contains($0))
+        }
     }
 
     private var isComparisonRecord: Bool {
         WordCategory(rawValue: snapshot.category)?.isComparison == true
+    }
+
+    private var isQuantityRelations: Bool { snapshot.record.subject == "数量关系" }
+
+    private func quantityPlainField(label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 5) {
+            Text("\(label)：").font(.system(size: 11, weight: .medium))
+            Text(value).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
+        }
+    }
+
+    private func quantityTagLine(label: String, values: [String]) -> some View {
+        HStack(alignment: .top, spacing: 5) {
+            Text("\(label)：").font(.system(size: 11, weight: .medium)).padding(.top, 3)
+            NativeTagFlow(spacing: 5) {
+                ForEach(values, id: \.self) { value in
+                    Text(value)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(AppTheme.accent)
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(AppTheme.accent.opacity(0.09), in: Capsule())
+                }
+            }
+        }
     }
 
     private static let cardDateFormatter: DateFormatter = {
@@ -325,6 +358,10 @@ private struct LibraryErrorRecordCard: View {
                 }
             }
 
+            if isQuantityRelations, !snapshot.quantityStructure.isEmpty {
+                plainField(label: "结构", value: snapshot.quantityStructure)
+            }
+
             if !snapshot.comparisonWords.isEmpty {
                 tagLine(
                     label: "辨析",
@@ -345,7 +382,7 @@ private struct LibraryErrorRecordCard: View {
             }
 
             let causes = splitTags(snapshot.errorCause)
-            if !causes.isEmpty {
+            if !isQuantityRelations, !causes.isEmpty {
                 if isAnalogyReasoning {
                     plainField(label: errorCauseLabel, value: snapshot.errorCause)
                 } else {
@@ -358,7 +395,7 @@ private struct LibraryErrorRecordCard: View {
                 }
             }
 
-            if !snapshot.pitfall.isEmpty {
+            if !isQuantityRelations, !snapshot.pitfall.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Image(systemName: "lightbulb.min")
                         .font(.system(size: 10, weight: .regular))
@@ -462,6 +499,8 @@ private struct LibraryErrorRecordCard: View {
     private var isAnalogyReasoning: Bool {
         snapshot.record.subject == "判断推理" && snapshot.record.module == "类比推理"
     }
+
+    private var isQuantityRelations: Bool { snapshot.record.subject == "数量关系" }
 
     private var knowledgePointLabel: String { isLogicJudgment ? "结构" : "考点" }
     private var errorCauseLabel: String {
