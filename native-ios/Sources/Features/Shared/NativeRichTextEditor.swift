@@ -805,22 +805,8 @@ private struct RichTextTextView: UIViewRepresentable {
             style.headIndent = isQuoted ? 0 : 24
             style.firstLineHeadIndent = isQuoted ? 0 : 24
             style.paragraphSpacing = isQuoted ? 0 : 5
-            if isQuoted {
-                style.textBlocks = []
-            } else {
-                let block = NSTextBlock()
-                if #available(iOS 26.0, *) {
-                    block.setBorderColor(UIColor.tertiaryLabel, rectEdge: .minXEdge)
-                    block.setWidth(2, type: .absolute, for: .border, rectEdge: .minXEdge)
-                    block.setWidth(10, type: .absolute, for: .padding, rectEdge: .minXEdge)
-                } else {
-                    block.setBorderColor(UIColor.tertiaryLabel)
-                    block.setWidth(1, type: .absolute, for: .border)
-                    block.setWidth(10, type: .absolute, for: .padding)
-                }
-                style.textBlocks = [block]
-            }
             applyAttribute(.paragraphStyle, value: style, view: view, range: paragraphRange)
+            updateQuoteMarkers(removing: isQuoted, style: style, view: view, paragraphRange: paragraphRange)
             if paragraphRange.length == 0 {
                 var attributes = view.typingAttributes
                 if isQuoted { attributes.removeValue(forKey: .foregroundColor) }
@@ -852,17 +838,51 @@ private struct RichTextTextView: UIViewRepresentable {
             let paragraphRange = (view.text as NSString).paragraphRange(for: range)
             let current = paragraphStyle(at: paragraphRange.location, view: view)
             let style = current.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
-            if style.textBlocks.isEmpty {
-                let block = NSTextBlock()
-                block.setBorderColor(UIColor.separator)
-                block.setWidth(0.7, type: .absolute, for: .border)
-                block.setWidth(9, type: .absolute, for: .padding)
-                style.textBlocks = [block]
-                style.paragraphSpacing = max(style.paragraphSpacing, 6)
+            let isBordered = abs(style.headIndent - 10) < 0.5 && abs(style.tailIndent + 10) < 0.5
+            if isBordered {
+                style.headIndent = 0
+                style.firstLineHeadIndent = 0
+                style.tailIndent = 0
+                view.textStorage.removeAttribute(.backgroundColor, range: paragraphRange)
             } else {
-                style.textBlocks = []
+                style.headIndent = 10
+                style.firstLineHeadIndent = 10
+                style.tailIndent = -10
+                style.paragraphSpacing = max(style.paragraphSpacing, 6)
+                view.textStorage.addAttribute(.backgroundColor, value: UIColor.secondarySystemBackground.withAlphaComponent(0.72), range: paragraphRange)
             }
             applyAttribute(.paragraphStyle, value: style, view: view, range: paragraphRange)
+        }
+
+        private func updateQuoteMarkers(removing: Bool, style: NSParagraphStyle, view: UITextView, paragraphRange: NSRange) {
+            let source = view.text as NSString
+            var lineRanges: [NSRange] = []
+            var cursor = paragraphRange.location
+            let upperBound = NSMaxRange(paragraphRange)
+            while cursor < upperBound {
+                let line = source.lineRange(for: NSRange(location: cursor, length: 0))
+                lineRanges.append(line)
+                cursor = max(cursor + 1, NSMaxRange(line))
+            }
+            let marker = "│ "
+            for lineRange in lineRanges.reversed() {
+                let line = source.substring(with: lineRange).trimmingCharacters(in: .newlines)
+                if removing, line.hasPrefix(marker) {
+                    view.textStorage.deleteCharacters(in: NSRange(location: lineRange.location, length: marker.utf16.count))
+                } else if !removing, !line.hasPrefix(marker) {
+                    view.textStorage.insert(
+                        NSAttributedString(
+                            string: marker,
+                            attributes: [
+                                .font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize),
+                                .foregroundColor: UIColor.tertiaryLabel,
+                                .paragraphStyle: style
+                            ]
+                        ),
+                        at: lineRange.location
+                    )
+                }
+            }
         }
 
         private func paragraphStyle(at location: Int, view: UITextView) -> NSParagraphStyle {
@@ -1046,7 +1066,7 @@ private struct RichTextTextView: UIViewRepresentable {
                     return paragraphRange.length > 0 && self.everyAttribute(in: paragraphRange, view: view) { $0[.backgroundColor] != nil }
                 } ?? false,
                 isQuoted: everyAttribute(in: range, view: view) { (($0[.paragraphStyle] as? NSParagraphStyle)?.headIndent ?? 0) >= 22 },
-                isBordered: !(paragraph?.textBlocks.isEmpty ?? true) && (paragraph?.headIndent ?? 0) < 22,
+                isBordered: abs((paragraph?.headIndent ?? 0) - 10) < 0.5 && abs((paragraph?.tailIndent ?? 0) + 10) < 0.5,
                 isBulleted: RichTextBulletStyle.allCases.contains { currentLine.hasPrefix($0.prefix) },
                 isNumbered: currentLine.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil,
                 isCode: everyAttribute(in: range, view: view) { ($0[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitMonoSpace) == true },
