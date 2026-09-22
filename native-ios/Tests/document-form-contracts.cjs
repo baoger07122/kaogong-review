@@ -26,7 +26,7 @@ const tests = {
     assert.doesNotMatch(metadata, /if !.*knowledgePoint|if !.*errorCause|if !.*pitfall/);
     assert.match(metadata, /metadataTagLine\(knowledgePointLabel/);
     assert.match(metadata, /metadataTagLine\(errorCauseLabel/);
-    assert.match(metadata, /metadataTextLine\("思维误区"/);
+    assert.match(metadata, /isDataAnalysis \? "提醒" : "思维误区"/);
   },
   'inline note owns typing state and flushes before drawing': () => {
     assert.match(detail, /LibraryInlineNoteView/);
@@ -46,7 +46,7 @@ const tests = {
     assert.match(rich, /focusOnAppear/);
   },
   'thinking trap is text, never auto-added to tag library': () => {
-    assert.match(form, /title\.hasPrefix\("思维误区"\)/);
+    assert.match(form, /plainTextInput\([\s\S]*isDataAnalysis \? "提醒" : "思维误区"/);
     const save = form.split('private func save()')[1].split('private func remove()')[0];
     assert.doesNotMatch(save, /kind: \.thinkingTrap/);
     assert.match(picker, /kind == \.knowledgePoint \? 3 : 1/);
@@ -108,7 +108,8 @@ const tests = {
     }
     assert.doesNotMatch(root, /NativeBottomTabBar\(selection:/);
     assert.doesNotMatch(root, /safeAreaInset\(edge: \.bottom/);
-    assert.match(navigationStyle, /toolbar\(\.visible, for: \.tabBar\)/);
+    const rootTabModifier = navigationStyle.split('func rootTabBarContentInset()')[1].split('func secondaryPageTabBarHidden()')[0];
+    assert.doesNotMatch(rootTabModifier, /toolbar\(\.visible, for: \.tabBar\)/);
     assert.match(navigationStyle, /func stableRootNavigationBar\(\)/);
     assert.match(navigationStyle, /toolbar\(\.visible, for: \.navigationBar\)/);
     for (const source of [

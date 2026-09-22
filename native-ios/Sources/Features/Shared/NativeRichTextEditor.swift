@@ -513,6 +513,7 @@ private struct RichTextTextView: UIViewRepresentable {
         view.linkTextAttributes = [.foregroundColor: UIColor.systemBlue, .underlineStyle: NSUnderlineStyle.single.rawValue]
         view.attributedText = Self.attributed(from: html)
         context.coordinator.lastHTML = html
+        context.coordinator.rememberSelection(view.selectedRange)
         context.coordinator.installKeyboardAccessory(keyboardAccessory, height: keyboardAccessoryHeight, on: view)
         if focusOnAppear {
             view.selectedRange = NSRange(location: 0, length: 0)
@@ -545,6 +546,7 @@ private struct RichTextTextView: UIViewRepresentable {
         var parent: RichTextTextView
         var lastHTML = ""
         var lastCommandID: UUID?
+        private var lastEditingSelection = NSRange(location: 0, length: 0)
         private var pendingPublish: DispatchWorkItem?
         private var accessoryController: UIHostingController<AnyView>?
         private weak var accessoryContainer: RichTextKeyboardAccessoryView?
@@ -573,6 +575,7 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
+            rememberSelection(textView.selectedRange)
             publishSelectionState(textView)
             DispatchQueue.main.async { self.parent.isEditing = true }
         }
@@ -583,6 +586,7 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            rememberSelection(textView.selectedRange)
             let table = tableAttachment(near: textView.selectedRange, view: textView)?.attachment.table
             let formula = formulaAttachment(near: textView.selectedRange, view: textView)?.attachment.formula
             DispatchQueue.main.async {
@@ -661,7 +665,9 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func apply(_ command: RichTextCommandKind, to view: UITextView) {
-            let range = view.selectedRange
+            let range = validSelection(lastEditingSelection, in: view) ? lastEditingSelection : view.selectedRange
+            if !view.isFirstResponder { view.becomeFirstResponder() }
+            view.selectedRange = range
             var restoreSelection = true
             switch command {
             case .bold: toggleFontTrait(.traitBold, view: view, range: range)
@@ -690,9 +696,18 @@ private struct RichTextTextView: UIViewRepresentable {
             case .redo: view.undoManager?.redo(); restoreSelection = false
             }
             if restoreSelection { view.selectedRange = range }
+            rememberSelection(view.selectedRange)
             view.invalidateIntrinsicContentSize()
             schedulePublish(view)
             publishSelectionState(view)
+        }
+
+        func rememberSelection(_ range: NSRange) {
+            lastEditingSelection = range
+        }
+
+        private func validSelection(_ range: NSRange, in view: UITextView) -> Bool {
+            range.location >= 0 && range.length >= 0 && NSMaxRange(range) <= view.textStorage.length
         }
 
         private func addLink(_ target: String, view: UITextView, range: NSRange) {

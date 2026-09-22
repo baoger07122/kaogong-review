@@ -30,6 +30,9 @@ struct SpeedPracticeView: View {
     @State private var finishedDuration: Double?
     @State private var showDoodle = false
     @State private var drawingData = ""
+    @State private var customRangeMinimumText = ""
+    @State private var customRangeMaximumText = ""
+    @State private var customFixedNumberText = ""
     @StateObject private var doodleController = PencilDrawingController()
     @State private var settingsSaveTask: Task<Void, Never>?
 
@@ -60,7 +63,7 @@ struct SpeedPracticeView: View {
     private var screenTitle: String {
         switch screen {
         case .home: "速算练习"
-        case .practice, .result: practiceTitle
+        case .practice, .result: "速算练习"
         case .history: selectedHistory?.name ?? "历史记录"
         case .statistics: "速算统计"
         case .estimateTable: "估算表"
@@ -203,7 +206,10 @@ struct SpeedPracticeView: View {
         }
         .onDisappear { keySound.stop() }
         .sheet(isPresented: $showSettings) { practiceSettingsSheet }
-        .sheet(isPresented: $showCustomSettings) { customPracticeSheet }
+        .sheet(isPresented: $showCustomSettings) {
+            customPracticeSheet
+                .onAppear { prepareCustomDraft() }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active, settings.soundEnabled != false {
                 keySound.prepare()
@@ -475,24 +481,33 @@ struct SpeedPracticeView: View {
                         .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
 
                         if settings.customNumberMode == .fixed {
-                            Text("选择一个或多个固定数字").font(.system(size: 13)).foregroundStyle(.secondary)
+                            Text("选择一个或多个固定数字（除数支持 2–19）").font(.system(size: 13)).foregroundStyle(.secondary)
                             HStack(spacing: 8) {
-                                ForEach(2...9, id: \.self) { number in
+                                TextField("输入数字", text: $customFixedNumberText)
+                                    .keyboardType(.numberPad)
+                                    .font(.system(size: 14, weight: .medium).monospacedDigit())
+                                    .textFieldStyle(NativeTextFieldStyle())
+                                Button("添加", action: addCustomFixedNumber)
+                                    .buttonStyle(NativeSecondaryButtonStyle())
+                                    .disabled(customFixedNumberValue == nil)
+                            }
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 6), spacing: 7) {
+                                ForEach(2...19, id: \.self) { number in
                                     Button { toggleFixedNumber(number) } label: {
-                                        Text("\(number)").font(.system(size: 16, weight: .medium).monospacedDigit())
+                                        Text("\(number)").font(.system(size: 14, weight: .medium).monospacedDigit())
                                             .foregroundStyle(selectedFixedNumbers.contains(number) ? Color.white : Color.primary)
-                                            .frame(maxWidth: .infinity).frame(height: 44)
-                                            .background(selectedFixedNumbers.contains(number) ? AppTheme.accent : Color.white, in: RoundedRectangle(cornerRadius: 10))
-                                            .overlay { RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.09), lineWidth: 0.7) }
+                                            .frame(maxWidth: .infinity).frame(height: 34)
+                                            .background(selectedFixedNumbers.contains(number) ? AppTheme.accent : Color.white, in: Capsule())
+                                            .overlay { Capsule().stroke(Color.primary.opacity(0.09), lineWidth: 0.7) }
                                     }.buttonStyle(SpeedKeyButtonStyle())
                                 }
                             }
                         } else {
                             Text("在范围内随机出题").font(.system(size: 13)).foregroundStyle(.secondary)
                             HStack(spacing: 10) {
-                                customRangeField("最小值", value: customRangeMinimumBinding)
+                                customRangeField("最小值", text: $customRangeMinimumText)
                                 Text("～").foregroundStyle(.secondary)
-                                customRangeField("最大值", value: customRangeMaximumBinding)
+                                customRangeField("最大值", text: $customRangeMaximumText)
                             }
                         }
                     }
@@ -500,13 +515,24 @@ struct SpeedPracticeView: View {
                     .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
 
                     Text("最近使用").font(.system(size: 16, weight: .semibold))
-                    if let selected = settings.customTypes.first {
-                        Text("\(selected.name) · \(customSettingSummary)")
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundStyle(.secondary)
-                            .padding(13)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+                    if recentCustomPresets.isEmpty {
+                        Text("完成一次设置后会显示在这里")
+                            .font(.system(size: 12)).foregroundStyle(.tertiary)
+                    } else {
+                        NativeTagFlow(spacing: 7) {
+                            ForEach(recentCustomPresets) { preset in
+                                Button { applyCustomPreset(preset) } label: {
+                                    Text(customPresetTitle(preset))
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundStyle(AppTheme.accent)
+                                        .padding(.horizontal, 11)
+                                        .frame(height: 31)
+                                        .background(AppTheme.accent.opacity(0.08), in: Capsule())
+                                        .overlay(Capsule().stroke(AppTheme.accent.opacity(0.18), lineWidth: 0.7))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 16).padding(.bottom, 18)
@@ -516,13 +542,15 @@ struct SpeedPracticeView: View {
                 Button("取消") { showCustomSettings = false }
                     .buttonStyle(NativeSecondaryButtonStyle())
                 Button("确定") {
+                    applyCustomNumberDraft()
                     settings.useCustomPractice = true
                     if settings.customNumberMode == nil || settings.customNumberMode == .none { settings.customNumberMode = .range }
+                    rememberCurrentCustomPreset()
                     persistSettings()
                     showCustomSettings = false
                 }
                 .buttonStyle(NativePrimaryButtonStyle())
-                .disabled(settings.customTypes.isEmpty || (settings.customNumberMode == .fixed && selectedFixedNumbers.isEmpty))
+                .disabled(!customDraftIsValid)
             }
             .padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 12)
             .background(.ultraThinMaterial)
@@ -542,10 +570,10 @@ struct SpeedPracticeView: View {
         }.buttonStyle(.plain)
     }
 
-    private func customRangeField(_ title: String, value: Binding<Int>) -> some View {
+    private func customRangeField(_ title: String, text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.system(size: 12)).foregroundStyle(.secondary)
-            TextField(title, value: value, format: .number)
+            TextField(title, text: text)
                 .font(.system(size: 15, weight: .semibold).monospacedDigit())
                 .keyboardType(.numberPad).multilineTextAlignment(.center)
                 .frame(height: 44)
@@ -878,14 +906,14 @@ struct SpeedPracticeView: View {
         guard settings.useCustomPractice == true else { return true }
         if settings.customNumberMode == .fixed { return !selectedFixedNumbers.isEmpty }
         if settings.customNumberMode == .range, activeTypes.contains(.div3x1) {
-            return max(2, settings.customRangeMinimum ?? 1) <= min(9, settings.customRangeMaximum ?? 99)
+            return max(2, settings.customRangeMinimum ?? 1) <= min(19, settings.customRangeMaximum ?? 99)
         }
         return true
     }
 
     private var startButtonTitle: String {
         if settings.useCustomPractice != true, settings.selectedType == .dataReal { return "该题型尚未开放" }
-        if settings.useCustomPractice == true, !canStart { return "请选择有效数字（三位数除一位数：2–9）" }
+        if settings.useCustomPractice == true, !canStart { return "请选择有效数字（三位数除法：2–19）" }
         return settings.useCustomPractice == true ? "开始自定义练习" : "开始练习"
     }
 
@@ -907,22 +935,28 @@ struct SpeedPracticeView: View {
         )
     }
 
-    private var customRangeMinimumBinding: Binding<Int> {
-        Binding(
-            get: { settings.customRangeMinimum ?? 1 },
-            set: { settings.customRangeMinimum = min(max(1, $0), 999); persistSettings() }
-        )
-    }
-
-    private var customRangeMaximumBinding: Binding<Int> {
-        Binding(
-            get: { settings.customRangeMaximum ?? 99 },
-            set: { settings.customRangeMaximum = min(max(1, $0), 999); persistSettings() }
-        )
-    }
-
     private var selectedFixedNumbers: [Int] {
-        (settings.customFixedNumbers ?? []).filter { (activeTypes.contains(.div3x1) ? 2...9 : 1...9).contains($0) }
+        (settings.customFixedNumbers ?? []).filter { customAllowedRange.contains($0) }
+    }
+
+    private var customAllowedRange: ClosedRange<Int> {
+        settings.customTypes.contains(.div3x1) ? 2...19 : 1...999
+    }
+
+    private var customFixedNumberValue: Int? {
+        guard let value = Int(customFixedNumberText), customAllowedRange.contains(value) else { return nil }
+        return value
+    }
+
+    private var customDraftIsValid: Bool {
+        guard !settings.customTypes.isEmpty else { return false }
+        if settings.customNumberMode == .fixed { return !selectedFixedNumbers.isEmpty }
+        guard let minimum = Int(customRangeMinimumText), let maximum = Int(customRangeMaximumText) else { return false }
+        return customAllowedRange.contains(minimum) && customAllowedRange.contains(maximum) && minimum <= maximum
+    }
+
+    private var recentCustomPresets: [SpeedCustomPreset] {
+        Array((settings.customRecentPresets ?? []).prefix(8))
     }
 
     private var correctCount: Int { questions.filter { $0.isCorrect == true }.count }
@@ -1088,12 +1122,12 @@ struct SpeedPracticeView: View {
     @ViewBuilder
     private func customHistoryTitle(_ name: String) -> some View {
         if name.hasPrefix("自定义练习"), name.count > "自定义练习".count {
-            VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 5) {
                 Text("自定义练习").font(.system(size: 14, weight: .semibold))
                 Text(String(name.dropFirst("自定义练习".count)).trimmingCharacters(in: .whitespaces))
                     .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(1)
             }
         } else {
             Text(name).font(.system(size: 14, weight: .semibold))
@@ -1125,6 +1159,62 @@ struct SpeedPracticeView: View {
         }
         settings.customFixedNumbers = values
         persistSettings()
+    }
+
+    private func prepareCustomDraft() {
+        if settings.customNumberMode == nil || settings.customNumberMode == .none {
+            settings.customNumberMode = .range
+        }
+        customRangeMinimumText = String(settings.customRangeMinimum ?? customAllowedRange.lowerBound)
+        customRangeMaximumText = String(settings.customRangeMaximum ?? customAllowedRange.upperBound)
+        customFixedNumberText = ""
+    }
+
+    private func applyCustomNumberDraft() {
+        guard settings.customNumberMode != .fixed,
+              let minimum = Int(customRangeMinimumText),
+              let maximum = Int(customRangeMaximumText)
+        else { return }
+        settings.customRangeMinimum = minimum
+        settings.customRangeMaximum = maximum
+    }
+
+    private func addCustomFixedNumber() {
+        guard let value = customFixedNumberValue else { return }
+        if !selectedFixedNumbers.contains(value) { toggleFixedNumber(value) }
+        customFixedNumberText = ""
+    }
+
+    private func rememberCurrentCustomPreset() {
+        let preset = SpeedCustomPreset(
+            types: settings.customTypes,
+            mode: settings.customNumberMode ?? .range,
+            fixedNumbers: selectedFixedNumbers,
+            rangeMinimum: settings.customRangeMinimum ?? customAllowedRange.lowerBound,
+            rangeMaximum: settings.customRangeMaximum ?? customAllowedRange.upperBound
+        )
+        var values = (settings.customRecentPresets ?? []).filter { $0.id != preset.id }
+        values.insert(preset, at: 0)
+        settings.customRecentPresets = Array(values.prefix(8))
+    }
+
+    private func applyCustomPreset(_ preset: SpeedCustomPreset) {
+        settings.customTypes = preset.types.filter(\.isAvailable)
+        settings.customNumberMode = preset.mode
+        settings.customFixedNumbers = preset.fixedNumbers
+        settings.customRangeMinimum = preset.rangeMinimum
+        settings.customRangeMaximum = preset.rangeMaximum
+        customRangeMinimumText = String(preset.rangeMinimum)
+        customRangeMaximumText = String(preset.rangeMaximum)
+        customFixedNumberText = ""
+    }
+
+    private func customPresetTitle(_ preset: SpeedCustomPreset) -> String {
+        let types = preset.types.map(\.name).joined(separator: "、")
+        let numbers = preset.mode == .fixed
+            ? "固定 " + preset.fixedNumbers.sorted().map(String.init).joined(separator: "、")
+            : "\(preset.rangeMinimum)–\(preset.rangeMaximum)"
+        return "\(types) · \(numbers)"
     }
 
     private func saveResultIfNeeded() {

@@ -22,9 +22,10 @@ extension View {
             .toolbarBackground(.hidden, for: .navigationBar)
     }
 
-    /// Keep the official tab bar visible on pages that previously opted in.
+    /// Root tabs use TabView's natural visibility. Forcing `.visible` here
+    /// overrides pushed destinations that correctly request a hidden tab bar.
     func rootTabBarContentInset() -> some View {
-        toolbar(.visible, for: .tabBar)
+        self
     }
 
     /// Push destinations never own the app tab bar. Keeping this rule on the

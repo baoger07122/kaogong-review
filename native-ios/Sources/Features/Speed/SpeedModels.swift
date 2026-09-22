@@ -96,8 +96,25 @@ struct SpeedSettings: Codable, Equatable {
     var customFixedNumbers: [Int]?
     var customRangeMinimum: Int?
     var customRangeMaximum: Int?
+    var customRecentPresets: [SpeedCustomPreset]?
     var questionCount = 10
     var mode: SpeedMode = .train
+}
+
+struct SpeedCustomPreset: Codable, Equatable, Identifiable {
+    var types: [SpeedTypeKey]
+    var mode: SpeedCustomNumberMode
+    var fixedNumbers: [Int]
+    var rangeMinimum: Int
+    var rangeMaximum: Int
+
+    var id: String {
+        let typeKey = types.map(\.rawValue).joined(separator: ",")
+        let numberKey = mode == .fixed
+            ? fixedNumbers.sorted().map(String.init).joined(separator: ",")
+            : "\(rangeMinimum)-\(rangeMaximum)"
+        return "\(typeKey)|\(mode.rawValue)|\(numberKey)"
+    }
 }
 
 struct SpeedQuestion: Codable, Identifiable, Equatable {

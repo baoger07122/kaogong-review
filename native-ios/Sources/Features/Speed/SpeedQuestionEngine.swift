@@ -92,12 +92,13 @@ enum SpeedQuestionEngine {
         rangeMaximum: Int
     ) -> SpeedQuestion {
         guard let mode, mode != .none else { return question }
-        // A three-digit / one-digit exercise must remain that type in every custom mode.
+        // Standard practice remains one-digit; custom practice intentionally
+        // supports divisors through 19 (for example, three-digit / 11).
         if question.type == .div3x1 {
             let valid: [Int]
             switch mode {
-            case .fixed: valid = fixedNumbers.filter { (2...9).contains($0) }
-            case .range: valid = (2...9).filter { $0 >= rangeMinimum && $0 <= rangeMaximum }
+            case .fixed: valid = fixedNumbers.filter { (2...19).contains($0) }
+            case .range: valid = (2...19).filter { $0 >= rangeMinimum && $0 <= rangeMaximum }
             case .none: return question
             }
             guard let divisor = valid.randomElement(),

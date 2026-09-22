@@ -108,8 +108,12 @@ struct LibraryRecordDetailView: View {
                     .background(statusColor(status).opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
             }
             metadataTagLine(knowledgePointLabel, values: knowledgePoints, emphasis: .strong)
-            metadataTagLine(errorCauseLabel, values: splitTags(firstText(["errorCause", "cause", "reason"]) ?? ""), emphasis: .subtle)
-            metadataTextLine("思维误区", value: firstText(["pitfall", "misconception", "thinkingTrap"]) ?? "")
+            if isDataAnalysis {
+                metadataTextLine("错因", value: firstText(["errorCause", "cause", "reason"]) ?? "")
+            } else {
+                metadataTagLine(errorCauseLabel, values: splitTags(firstText(["errorCause", "cause", "reason"]) ?? ""), emphasis: .subtle)
+            }
+            metadataTextLine(isDataAnalysis ? "提醒" : "思维误区", value: firstText(["pitfall", "misconception", "thinkingTrap"]) ?? "")
         }
     }
 
@@ -357,6 +361,10 @@ struct LibraryRecordDetailView: View {
 
     private var isLogicJudgment: Bool {
         record.collection == "errors" && record.subject == "判断推理" && record.module == "逻辑判断"
+    }
+
+    private var isDataAnalysis: Bool {
+        record.collection == "errors" && record.subject == "资料分析"
     }
 
     private var knowledgePointLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }

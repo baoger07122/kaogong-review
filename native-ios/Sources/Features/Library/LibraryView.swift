@@ -93,6 +93,15 @@ struct LibraryView: View {
                             popCurrentRoute()
                         }
                     )
+                } else if kind == .notes {
+                    LibraryNoteDetailView(
+                        record: record,
+                        onEdit: { openEditorAfterMenuDismisses(kind: .notes, recordID: recordID) },
+                        onDelete: {
+                            remove(LibraryDeleteTarget(kind: kind, recordID: recordID))
+                            popCurrentRoute()
+                        }
+                    )
                 } else {
                     LibraryRecordDetailView(
                         kind: kind,
@@ -619,7 +628,7 @@ struct LibraryView: View {
     }
 
     private func open(_ snapshot: LibraryRecordSnapshot) {
-        if kind == .errors || kind == .words {
+        if kind == .errors || kind == .words || kind == .notes {
             navigationPath.append(.detail(kind: kind, recordID: snapshot.record.recordID))
         } else {
             navigationPath.append(.editor(kind: kind, recordID: snapshot.record.recordID))

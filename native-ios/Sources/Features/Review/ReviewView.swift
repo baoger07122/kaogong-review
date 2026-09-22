@@ -68,7 +68,7 @@ struct ReviewView: View {
             .navigationTitle(isSession ? "复习训练" : "复习")
             .navigationBarTitleDisplayMode(.inline)
             .rootTabBarContentInset()
-            .toolbar(isSession ? .hidden : .visible, for: .tabBar)
+            .toolbar(isSession ? .hidden : .automatic, for: .tabBar)
             .onAppear(perform: restoreSession)
             .onChange(of: queueIDs) { _, _ in persistSession() }
             .onChange(of: index) { _, _ in persistSession() }

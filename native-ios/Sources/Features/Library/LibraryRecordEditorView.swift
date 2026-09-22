@@ -401,21 +401,26 @@ struct LibraryRecordEditorView: View {
                     suggestions: TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records),
                     allowsMultiple: true
                 )
-                tagInput(
-                    title: "\(errorCauseLabel)（可选）",
-                    text: $draft.errorCause,
-                    suggestions: TagLibraryRepository.tags(kind: .errorCause, module: draft.module, records: records)
-                )
-                tagInput(
-                    title: "思维误区（可选）",
-                    text: $draft.pitfall,
-                    suggestions: TagLibraryRepository.tags(kind: .thinkingTrap, module: draft.module, records: records)
+                if isDataAnalysis {
+                    plainTextInput(label: "错因", placeholder: "可留空", text: $draft.errorCause)
+                } else {
+                    tagInput(
+                        title: "\(errorCauseLabel)（可选）",
+                        text: $draft.errorCause,
+                        suggestions: TagLibraryRepository.tags(kind: .errorCause, module: draft.module, records: records)
+                    )
+                }
+                plainTextInput(
+                    label: isDataAnalysis ? "提醒" : "思维误区",
+                    placeholder: "可留空",
+                    text: $draft.pitfall
                 )
             }
         }
     }
 
     private var isLogicJudgment: Bool { draft.subject == "判断推理" && draft.module == "逻辑判断" }
+    private var isDataAnalysis: Bool { draft.subject == "资料分析" }
     private var knowledgePointLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
     private var errorCauseLabel: String { isLogicJudgment ? "选项逻辑作用" : "错因" }
 
@@ -524,49 +529,53 @@ struct LibraryRecordEditorView: View {
         suggestions: [String],
         allowsMultiple: Bool = false
     ) -> some View {
-        Group {
-            if title.hasPrefix("思维误区") {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("思维误区").font(.system(size: 11)).foregroundStyle(.secondary)
-                        .frame(width: 66, alignment: .leading)
-                    TextField("可留空", text: text, axis: .vertical)
-                        .font(.system(size: 12.5, weight: .regular)).lineLimit(1...5)
-                }
-                .padding(.horizontal, 10)
-                .frame(minHeight: 38)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.1), lineWidth: 0.7))
-            } else {
-                Button {
-                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                    activeTags = allowsMultiple ? .knowledgePoint : .errorCause
-                } label: {
-                    HStack(spacing: 8) {
-                        Text(allowsMultiple ? knowledgePointLabel : errorCauseLabel)
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
-                            .frame(width: 66, alignment: .leading)
-                        if text.wrappedValue.isEmpty {
-                            Text("选择或新增").font(.system(size: 12)).foregroundStyle(.tertiary)
-                            Spacer()
-                        } else {
-                            NativeTagFlow {
-                                ForEach(allowsMultiple ? splitTags(text.wrappedValue) : [text.wrappedValue], id: \.self) { value in
-                                    Text(value).font(.system(size: 11)).foregroundStyle(AppTheme.accent)
-                                        .padding(.horizontal, 7).padding(.vertical, 4)
-                                        .background(AppTheme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 4))
-                                }
-                            }
+        Button {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            activeTags = allowsMultiple ? .knowledgePoint : .errorCause
+        } label: {
+            HStack(spacing: 8) {
+                Text(allowsMultiple ? knowledgePointLabel : errorCauseLabel)
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .frame(width: 66, alignment: .leading)
+                if text.wrappedValue.isEmpty {
+                    Text("选择或新增").font(.system(size: 12)).foregroundStyle(.tertiary)
+                    Spacer()
+                } else {
+                    NativeTagFlow {
+                        ForEach(allowsMultiple ? splitTags(text.wrappedValue) : [text.wrappedValue], id: \.self) { value in
+                            Text(value).font(.system(size: 11)).foregroundStyle(AppTheme.accent)
+                                .padding(.horizontal, 7).padding(.vertical, 4)
+                                .background(AppTheme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 4))
                         }
-                        Image(systemName: "chevron.down").font(.system(size: 9)).foregroundStyle(.tertiary)
                     }
-                    .padding(.horizontal, 10)
-                    .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.1), lineWidth: 0.7))
-                    .contentShape(Rectangle())
-                }.buttonStyle(.plain)
+                }
+                Image(systemName: "chevron.down").font(.system(size: 9)).foregroundStyle(.tertiary)
             }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.1), lineWidth: 0.7))
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+    }
+
+    private func plainTextInput(label: String, placeholder: String, text: Binding<String>) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .frame(width: 66, alignment: .leading)
+            TextField(placeholder, text: text, axis: .vertical)
+                .font(.system(size: 12.5, weight: .regular))
+                .lineLimit(1...5)
+                .frame(minHeight: 22, alignment: .center)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(minHeight: 38, alignment: .center)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.1), lineWidth: 0.7))
     }
 
     private func splitTags(_ rawValue: String) -> [String] {
@@ -1090,13 +1099,15 @@ struct LibraryRecordEditorView: View {
                 records: records,
                 context: modelContext
             )
-            try? TagLibraryRepository.add(
-                [draft.errorCause],
-                kind: .errorCause,
-                module: draft.module,
-                records: records,
-                context: modelContext
-            )
+            if !isDataAnalysis {
+                try? TagLibraryRepository.add(
+                    [draft.errorCause],
+                    kind: .errorCause,
+                    module: draft.module,
+                    records: records,
+                    context: modelContext
+                )
+            }
             // 思维误区是普通文字，不写入标签库。
         }
         guard let savedID = try? LibraryRecordRepository.save(kind: kind, draft: draft, records: records, context: modelContext) else { return }
