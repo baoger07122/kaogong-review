@@ -164,8 +164,11 @@ jobs:
           retention-days: 7
 
       - name: Archive native App
+        shell: bash
         run: |
-          xcodebuild \
+          set -o pipefail
+          mkdir -p build/native-ios
+          if ! xcodebuild \
             -project native-ios/KaogongReviewNative.xcodeproj \
             -scheme KaogongReviewNative \
             -destination 'generic/platform=iOS' \
@@ -174,7 +177,12 @@ jobs:
             -configuration Release \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" 2>&1 | tee build/native-ios/archive.log; then
+            grep -E '(^|[[:space:]])error:|fatal error:' build/native-ios/archive.log \
+              | tail -20 \
+              | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g; s/^/::error title=Xcode archive::/' || true
+            exit 1
+          fi
 
       - name: Verify native App resources
         shell: bash
