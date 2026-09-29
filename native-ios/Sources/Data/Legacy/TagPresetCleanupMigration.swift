@@ -32,7 +32,7 @@ enum TagPresetCleanupMigration {
                 }
                 object["value"] = library
             } else if record.collection == "errors" || record.collection == "notes" {
-                let blocked = presets(for: record.module)
+                let blocked = presets(for: record.module ?? "")
                 if var values = object["knowledgePoints"] as? [String] {
                     let cleaned = values.filter { !blocked.contains($0) }
                     if cleaned != values {
