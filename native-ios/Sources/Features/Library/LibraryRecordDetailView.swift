@@ -13,13 +13,29 @@ struct LibraryRecordDetailView: View {
     let onDelete: () -> Void
     var onOpenLinkedWord: ((String) -> Void)? = nil
 
+    @State private var object: [String: Any]
+
     @State private var showDelete = false
     @StateObject private var noteSession = LibraryInlineNoteSession()
     @State private var showWordSelection = false
     @State private var linkedWordCreationCategory: WordCategory?
 
-    private var object: [String: Any] { record.jsonObject ?? [:] }
-    private var snapshot: LibraryRecordSnapshot { LibraryRecordSnapshot(record: record) }
+    init(
+        kind: LibraryContentKind,
+        scope: LibraryScope,
+        record: StoredRecord,
+        onEdit: @escaping () -> Void,
+        onDelete: @escaping () -> Void,
+        onOpenLinkedWord: ((String) -> Void)? = nil
+    ) {
+        self.kind = kind
+        self.scope = scope
+        self.record = record
+        self.onEdit = onEdit
+        self.onDelete = onDelete
+        self.onOpenLinkedWord = onOpenLinkedWord
+        _object = State(initialValue: record.jsonObject ?? [:])
+    }
 
     var body: some View {
         ZStack {
@@ -94,6 +110,9 @@ struct LibraryRecordDetailView: View {
                 )
             }
         }
+        .onChange(of: record.updatedAt) { _, _ in
+            object = record.jsonObject ?? [:]
+        }
 
     }
 
@@ -125,28 +144,17 @@ struct LibraryRecordDetailView: View {
     }
 
     @ViewBuilder private var imagesBlock: some View {
-        let images = imageValues.compactMap(dataURLImage)
-        if !images.isEmpty {
+        if !imageValues.isEmpty {
             VStack(spacing: 10) {
-                ForEach(Array(images.enumerated()), id: \.offset) { _, image in
-                    detailImage(image)
+                ForEach(Array(imageValues.enumerated()), id: \.offset) { index, source in
+                    LibraryDetailImage(
+                        source: source,
+                        cacheKey: "detail-\(record.compoundID)-\(index)-\(source.count)"
+                    )
                 }
             }
             .padding(.top, 3)
         }
-    }
-
-    private func detailImage(_ image: UIImage) -> some View {
-        Image(uiImage: image)
-            .resizable()
-            .scaledToFit()
-            .frame(maxWidth: .infinity)
-            .background(detailBackground, in: RoundedRectangle(cornerRadius: 10))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
-            }
     }
 
     @ViewBuilder private var questionBlock: some View {
@@ -528,10 +536,6 @@ struct LibraryRecordDetailView: View {
         if let values = object[key] as? [[String: Any]] { return values.compactMap { ($0["text"] ?? $0["content"] ?? $0["value"]) as? String } }
         return nil
     }
-    private func dataURLImage(_ value: String?) -> UIImage? {
-        guard let value, let marker = value.range(of: "base64,") else { return nil }
-        return Data(base64Encoded: String(value[marker.upperBound...])).flatMap(UIImage.init(data:))
-    }
     private func clean(_ value: String) -> String {
         value
             .replacingOccurrences(of: "<style[\\s\\S]*?</style>", with: " ", options: [.regularExpression, .caseInsensitive])
@@ -559,4 +563,37 @@ struct LibraryRecordDetailView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+}
+
+private struct LibraryDetailImage: View {
+    let source: String
+    let cacheKey: String
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Color(uiColor: .secondarySystemBackground)
+                    .frame(height: 120)
+                    .overlay { ProgressView().controlSize(.small) }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
+        }
+        .task(id: cacheKey) {
+            image = await LibraryImageLoader.image(
+                from: source,
+                cacheKey: cacheKey,
+                maximumPixelSize: 2_400
+            )
+        }
+    }
 }

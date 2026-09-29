@@ -445,7 +445,25 @@ struct LibraryView: View {
     }
 
     private var snapshots: [LibraryRecordSnapshot] {
-        Array(sortedScopedRecords.prefix(renderLimit)).map { LibraryRecordSnapshot(record: $0, allRecords: records) }
+        let wordNames = linkedWordNamesByID
+        return Array(sortedScopedRecords.prefix(renderLimit)).map {
+            LibraryRecordSnapshot(
+                record: $0,
+                linkedWordNamesByID: wordNames,
+                includeImages: isGraphReasoningContext
+            )
+        }
+    }
+
+    private var linkedWordNamesByID: [String: String] {
+        records.reduce(into: [:]) { result, record in
+            guard record.collection == "words" else { return }
+            let object = record.indexObject ?? [:]
+            let name = ["name", "words", "title", "text"]
+                .compactMap { object[$0] as? String }
+                .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            if let name { result[record.recordID] = name }
+        }
     }
 
     private var isQuantityContext: Bool { scope.subject == "数量关系" && scope.module == nil }

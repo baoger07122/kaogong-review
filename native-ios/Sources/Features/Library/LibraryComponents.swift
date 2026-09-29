@@ -552,10 +552,16 @@ private struct LibraryCardThumbnail: View {
                 .stroke(Color.primary.opacity(0.08), lineWidth: 0.7)
         }
         .task(id: cacheKey) {
-            image = await Self.thumbnail(from: source, cacheKey: cacheKey)
+            image = await LibraryImageLoader.image(
+                from: source,
+                cacheKey: cacheKey,
+                maximumPixelSize: 900
+            )
         }
     }
+}
 
+enum LibraryImageLoader {
     private static let cache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.countLimit = 60
@@ -563,8 +569,8 @@ private struct LibraryCardThumbnail: View {
         return cache
     }()
 
-    private static func thumbnail(from source: String, cacheKey: String) async -> UIImage? {
-        let key = NSString(string: cacheKey)
+    static func image(from source: String, cacheKey: String, maximumPixelSize: Int) async -> UIImage? {
+        let key = NSString(string: "\(cacheKey)-\(maximumPixelSize)")
         if let cached = cache.object(forKey: key) { return cached }
         let image = await Task.detached(priority: .utility) { () -> UIImage? in
             let encoded: String
@@ -577,7 +583,7 @@ private struct LibraryCardThumbnail: View {
                   let imageSource = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
             let options: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceThumbnailMaxPixelSize: 900,
+                kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
                 kCGImageSourceCreateThumbnailWithTransform: true,
                 kCGImageSourceShouldCacheImmediately: true
             ]

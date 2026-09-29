@@ -173,7 +173,11 @@ struct LibraryRecordSnapshot: Identifiable {
 
     var id: String { record.compoundID }
 
-    init(record: StoredRecord, allRecords: [StoredRecord] = []) {
+    init(
+        record: StoredRecord,
+        linkedWordNamesByID: [String: String] = [:],
+        includeImages: Bool = false
+    ) {
         self.record = record
         let object = record.indexObject ?? [:]
         let titleKeys = record.collection == "errors"
@@ -220,19 +224,16 @@ struct LibraryRecordSnapshot: Identifiable {
         weaknessTags = (object["weaknessTags"] as? [String] ?? [])
             .map(Self.plainText)
             .filter { !$0.isEmpty }
-        if let images = object["images"] as? [String], !images.isEmpty {
+        // Large image data is intentionally excluded from indexPayload. Only views
+        // that actually render images should open the full payload.
+        let imageObject = includeImages ? (record.jsonObject ?? object) : object
+        if let images = imageObject["images"] as? [String], !images.isEmpty {
             imageValues = images
         } else {
-            imageValues = Self.firstText(in: object, keys: ["image"]).map { [$0] } ?? []
+            imageValues = Self.firstText(in: imageObject, keys: ["image"]).map { [$0] } ?? []
         }
-        let linkedWordIDs = Set(object["linkedWordIds"] as? [String] ?? [])
-        comparisonWords = allRecords
-            .filter { $0.collection == "words" && linkedWordIDs.contains($0.recordID) }
-            .map { linkedRecord in
-                let linkedObject = linkedRecord.indexObject ?? [:]
-                return Self.firstText(in: linkedObject, keys: ["name", "words", "title", "text"])
-                    .map(Self.plainText) ?? "未命名词语"
-            }
+        let linkedWordIDs = object["linkedWordIds"] as? [String] ?? []
+        comparisonWords = linkedWordIDs.compactMap { linkedWordNamesByID[$0] }
 
         var values: [String] = []
         if record.collection == "words" {
