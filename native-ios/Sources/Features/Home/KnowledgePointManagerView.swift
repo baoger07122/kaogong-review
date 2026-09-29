@@ -18,7 +18,7 @@ struct KnowledgePointManagerView: View {
 
     private var tags: [String] { TagLibraryRepository.tags(kind: kind, module: module, records: records) }
     private var availableModules: [String] {
-        subject.name == "数量关系" ? QuantityQuestionTypeCatalog.all : subject.modules
+        subject.name == "数量关系" ? QuantityQuestionTypeRepository.types(records: records) : subject.modules
     }
 
     var body: some View {
@@ -34,7 +34,7 @@ struct KnowledgePointManagerView: View {
                             Button(value.name) {
                                 subject = value
                                 module = value.name == "数量关系"
-                                    ? (QuantityQuestionTypeCatalog.all.first ?? "")
+                                    ? (QuantityQuestionTypeRepository.types(records: records).first ?? "")
                                     : (value.modules.first ?? "")
                             }
                         }

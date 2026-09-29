@@ -91,8 +91,8 @@ struct SettingsView: View {
                         settingsNavigationRow("便签标签", image: "tag.square")
                     }.buttonStyle(.plain)
                     settingsDivider
-                    NavigationLink(value: SettingsRoute.quantityReminders) {
-                        settingsNavigationRow("数量提醒管理", image: "exclamationmark.bubble")
+                    NavigationLink(value: SettingsRoute.quantityQuestionTypes) {
+                        settingsNavigationRow("数量题型管理", image: "square.stack.3d.up")
                     }.buttonStyle(.plain)
                 }
 
@@ -139,7 +139,7 @@ struct SettingsView: View {
             case .cloudSync: CloudSyncView()
             case .noteTypes: NoteTypeManagerView()
             case .stickyTags: StickyTagManagerView()
-            case .quantityReminders: QuantityReminderManagerView()
+            case .quantityQuestionTypes: QuantityQuestionTypeManagerView()
             case .designSystem: NativeDesignSystemView()
             }
         }

@@ -17,6 +17,6 @@ enum SettingsRoute: Hashable {
     case cloudSync
     case noteTypes
     case stickyTags
-    case quantityReminders
+    case quantityQuestionTypes
     case designSystem
 }

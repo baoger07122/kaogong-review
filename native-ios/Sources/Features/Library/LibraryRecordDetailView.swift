@@ -26,13 +26,8 @@ struct LibraryRecordDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     metadata
-                    if isDataAnalysis {
-                        questionBlock
-                        imagesBlock
-                    } else {
-                        imagesBlock
-                        questionBlock
-                    }
+                    questionBlock
+                    imagesBlock
                     optionsBlock
                     answerAndSource
                     comparisonBlock
@@ -132,22 +127,12 @@ struct LibraryRecordDetailView: View {
     @ViewBuilder private var imagesBlock: some View {
         let images = imageValues.compactMap(dataURLImage)
         if !images.isEmpty {
-            if isDataAnalysis {
-                VStack(spacing: 10) {
-                    ForEach(Array(images.enumerated()), id: \.offset) { _, image in
-                        detailImage(image)
-                    }
+            VStack(spacing: 10) {
+                ForEach(Array(images.enumerated()), id: \.offset) { _, image in
+                    detailImage(image)
                 }
-                .padding(.top, 3)
-            } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
-                    ForEach(Array(images.enumerated()), id: \.offset) { _, image in
-                        detailImage(image)
-                            .frame(maxHeight: 320)
-                    }
-                }
-                .padding(.top, 3)
             }
+            .padding(.top, 3)
         }
     }
 

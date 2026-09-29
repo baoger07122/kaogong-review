@@ -26,20 +26,10 @@ struct SubjectDefinition: Identifiable, Hashable {
 }
 
 enum QuantityQuestionTypeCatalog {
-    static let all = [
-        "植树问题", "和差倍比", "工程问题", "行程问题", "排列组合", "概率问题",
-        "几何问题", "最值问题", "经济利润", "容斥问题", "年龄问题", "浓度问题",
-        "计数问题", "综合题"
-    ]
-
     static let legacyModules: Set<String> = ["数学运算", "数字推理"]
 
-    static func contains(_ value: String?) -> Bool {
-        guard let value else { return false }
-        return all.contains(value)
-    }
-
     static func displayName(for value: String?) -> String {
-        contains(value) ? (value ?? "") : "未分类"
+        let cleaned = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return cleaned.isEmpty || legacyModules.contains(cleaned) ? "未分类" : cleaned
     }
 }

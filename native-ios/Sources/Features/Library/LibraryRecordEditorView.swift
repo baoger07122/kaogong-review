@@ -45,6 +45,7 @@ struct LibraryRecordEditorView: View {
     @State private var linkedWordCreationCategory: WordCategory?
     @State private var showQuantityKnowledgePoints = false
     @State private var showQuantityWeaknessTags = false
+    @State private var showQuantityQuestionTypes = false
 
     init(
         kind: LibraryContentKind,
@@ -212,6 +213,12 @@ struct LibraryRecordEditorView: View {
                     maximumOverride: 8
                 )
             }
+            if showQuantityQuestionTypes {
+                QuantityQuestionTypeSelectionDialog(
+                    selection: $draft.module,
+                    onClose: { showQuantityQuestionTypes = false }
+                )
+            }
             if let activeRelation {
                 LibraryRelationSelectionDialog(collection: activeRelation,
                     candidates: relationCandidates(collection: activeRelation),
@@ -230,7 +237,7 @@ struct LibraryRecordEditorView: View {
                     Button(subject.name) {
                         draft.subject = subject.name
                         draft.module = subject.name == "数量关系"
-                            ? (QuantityQuestionTypeCatalog.all.first ?? "")
+                            ? ""
                             : (subject.modules.first ?? "")
                     }
                 }
@@ -238,13 +245,10 @@ struct LibraryRecordEditorView: View {
                 compactProperty(title: "科目", value: draft.subject, image: "books.vertical")
             }
             if isQuantityRelations {
-                Menu {
-                    ForEach(QuantityQuestionTypeCatalog.all, id: \.self) { type in
-                        Button(type) { draft.module = type }
-                    }
-                } label: {
+                Button { showQuantityQuestionTypes = true } label: {
                     compactProperty(title: "题型", value: draft.module, image: "square.stack.3d.up")
                 }
+                .buttonStyle(.plain)
             } else if let subject = SubjectDefinition.all.first(where: { $0.name == draft.subject }), !subject.modules.isEmpty {
                 Menu {
                     ForEach(subject.modules, id: \.self) { module in Button(module) { draft.module = module } }
@@ -354,7 +358,7 @@ struct LibraryRecordEditorView: View {
 
     private var regularErrorFields: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if recordID != nil || isQuantityRelations { errorAnalysisCard }
+            if recordID != nil { errorAnalysisCard }
             errorImageCard
 
             errorFormCard {
@@ -395,7 +399,7 @@ struct LibraryRecordEditorView: View {
             }
             }
 
-            if recordID == nil && !isQuantityRelations { errorAnalysisCard }
+            if recordID == nil { errorAnalysisCard }
 
         }
         .background(Color.white)

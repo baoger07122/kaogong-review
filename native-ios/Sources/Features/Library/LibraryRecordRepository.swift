@@ -81,11 +81,8 @@ struct LibraryRecordDraft {
         let defaultModules = SubjectDefinition.all.first { $0.name == subject }?.modules ?? []
         let storedModule = (original["module"] as? String) ?? scope.module
         if subject == "数量关系" {
-            if QuantityQuestionTypeCatalog.contains(storedModule) {
-                module = storedModule ?? ""
-            } else {
-                module = record == nil ? (QuantityQuestionTypeCatalog.all.first ?? "") : ""
-            }
+            let cleanedModule = storedModule?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            module = QuantityQuestionTypeCatalog.legacyModules.contains(cleanedModule) ? "" : cleanedModule
         } else {
             module = storedModule ?? defaultModules.first ?? ""
         }

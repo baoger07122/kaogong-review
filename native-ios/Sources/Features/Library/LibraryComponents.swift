@@ -358,6 +358,19 @@ private struct LibraryErrorRecordCard: View {
                 }
             }
 
+            if isQuantityRelations {
+                let type = QuantityQuestionTypeCatalog.displayName(for: snapshot.record.module)
+                if type != "未分类" {
+                    tagLine(
+                        label: "题型",
+                        values: [type],
+                        foreground: AppTheme.accent,
+                        background: AppTheme.accent.opacity(0.10),
+                        weight: .medium
+                    )
+                }
+            }
+
             if isQuantityRelations, !snapshot.quantityStructure.isEmpty {
                 plainField(label: "结构", value: snapshot.quantityStructure)
             }
@@ -425,7 +438,7 @@ private struct LibraryErrorRecordCard: View {
                     LibraryCardThumbnail(
                         source: source,
                         cacheKey: "\(snapshot.id)-\(index)-\(source.count)",
-                        maximumHeight: size.imageMaximumHeight
+                        maximumHeight: isGraphReasoning ? nil : size.imageMaximumHeight
                     )
                 }
                 if snapshot.imageValues.count > 3 {
@@ -500,6 +513,10 @@ private struct LibraryErrorRecordCard: View {
         snapshot.record.subject == "判断推理" && snapshot.record.module == "类比推理"
     }
 
+    private var isGraphReasoning: Bool {
+        snapshot.record.subject == "判断推理" && snapshot.record.module == "图形推理"
+    }
+
     private var isQuantityRelations: Bool { snapshot.record.subject == "数量关系" }
 
     private var knowledgePointLabel: String { isLogicJudgment ? "结构" : "考点" }
@@ -513,7 +530,7 @@ private struct LibraryErrorRecordCard: View {
 private struct LibraryCardThumbnail: View {
     let source: String
     let cacheKey: String
-    let maximumHeight: CGFloat
+    let maximumHeight: CGFloat?
     @State private var image: UIImage?
 
     var body: some View {
@@ -525,7 +542,7 @@ private struct LibraryCardThumbnail: View {
             } else {
                 Color(uiColor: .tertiarySystemGroupedBackground)
                     .overlay { ProgressView().controlSize(.small) }
-                    .frame(height: min(110, maximumHeight))
+                    .frame(height: min(110, maximumHeight ?? 110))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: maximumHeight)

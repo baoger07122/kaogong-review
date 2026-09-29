@@ -125,6 +125,63 @@ struct LibraryTagSelectionDialog: View {
     }
 }
 
+struct QuantityQuestionTypeSelectionDialog: View {
+    @Query private var records: [StoredRecord]
+    @Binding var selection: String
+    let onClose: () -> Void
+
+    private var questionTypes: [String] { QuantityQuestionTypeRepository.types(records: records) }
+
+    var body: some View {
+        NativeEditorDialog(
+            title: "选择题型",
+            canSave: true,
+            actionTitle: "完成",
+            onClose: onClose,
+            onSave: onClose
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("题型")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                if questionTypes.isEmpty {
+                    Text("暂无题型，请先前往设置 → 数量题型管理中新增。")
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(.secondary)
+                } else {
+                    NativeTagFlow(spacing: 7) {
+                        ForEach(questionTypes, id: \.self) { type in
+                            Button {
+                                selection = selection == type ? "" : type
+                                onClose()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(type)
+                                    if selection == type { Image(systemName: "checkmark") }
+                                }
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(selection == type ? AppTheme.accent : Color.primary)
+                                .padding(.horizontal, 10)
+                                .frame(height: 30)
+                                .background(
+                                    selection == type ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045),
+                                    in: Capsule()
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                if !selection.isEmpty {
+                    Button("清除题型") { selection = ""; onClose() }
+                        .font(AppTheme.auxiliaryFont.weight(.semibold))
+                        .foregroundStyle(AppTheme.danger)
+                }
+            }
+        }
+    }
+}
+
 struct QuantityKnowledgePointSelectionDialog: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var records: [StoredRecord]
@@ -142,6 +199,7 @@ struct QuantityKnowledgePointSelectionDialog: View {
     @State private var deleting: String?
 
     private var activeType: String { browsingType.isEmpty ? currentType : browsingType }
+    private var questionTypes: [String] { QuantityQuestionTypeRepository.types(records: records) }
     private var names: [String] {
         TagLibraryRepository.tags(kind: .knowledgePoint, module: activeType, records: records)
     }
@@ -181,7 +239,7 @@ struct QuantityKnowledgePointSelectionDialog: View {
                             browsingType = currentType
                         } else {
                             showsCrossType = true
-                            browsingType = QuantityQuestionTypeCatalog.all.first(where: { $0 != currentType }) ?? currentType
+                            browsingType = questionTypes.first(where: { $0 != currentType }) ?? currentType
                         }
                         search = ""
                     }
@@ -190,7 +248,7 @@ struct QuantityKnowledgePointSelectionDialog: View {
 
                 if showsCrossType {
                     NativeTagFlow(spacing: 6) {
-                        ForEach(QuantityQuestionTypeCatalog.all.filter { $0 != currentType }, id: \.self) { type in
+                        ForEach(questionTypes.filter { $0 != currentType }, id: \.self) { type in
                             Button { browsingType = type; search = "" } label: {
                                 Text(type).font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(activeType == type ? AppTheme.accent : Color.primary)

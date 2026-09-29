@@ -30,6 +30,7 @@ struct LibraryView: View {
     @State private var renderLimit = 40
     @State private var refreshedLegacyIndexes = false
     @State private var selectedQuantityType = ""
+    @AppStorage("native.library.graphDisplayMode") private var graphDisplayMode = "cards"
 
     var body: some View {
         GeometryReader { proxy in
@@ -49,6 +50,13 @@ struct LibraryView: View {
         .stableRootNavigationBar()
         .rootTabBarContentInset()
         .task { refreshLegacyIndexesIfNeeded() }
+        .onChange(of: quantityQuestionTypes) { _, values in
+            if !selectedQuantityType.isEmpty,
+               selectedQuantityType != "未分类",
+               !values.contains(selectedQuantityType) {
+                selectedQuantityType = ""
+            }
+        }
         .navigationDestination(for: LibraryRoute.self) { route in
             destination(for: route)
         }
@@ -160,8 +168,8 @@ struct LibraryView: View {
     }
 
     private var creationScope: LibraryScope {
-        guard scope.subject == "数量关系", QuantityQuestionTypeCatalog.contains(selectedQuantityType) else { return scope }
-        return LibraryScope(subject: "数量关系", module: selectedQuantityType)
+        guard scope.subject == "数量关系" else { return scope }
+        return LibraryScope(subject: "数量关系", module: nil)
     }
 
     private func popCurrentRoute() {
@@ -223,7 +231,7 @@ struct LibraryView: View {
                                 .buttonStyle(NativeSecondaryButtonStyle())
                             }
                         }
-                    } else if kind == .errors, scope.subject == "判断推理", scope.module == "图形推理" {
+                    } else if isGraphReasoningContext, graphDisplayMode == "flashcards" {
                         GraphReasoningFlashcardView(
                             records: displayedRecords,
                             onEdit: { navigationPath.append(.editor(kind: kind, recordID: $0.record.recordID)) }
@@ -377,7 +385,28 @@ struct LibraryView: View {
             }
             .padding(3)
             .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            if isGraphReasoningContext {
+                HStack(spacing: 1) {
+                    graphModeButton("卡片", value: "cards")
+                    graphModeButton("闪卡", value: "flashcards")
+                }
+                .padding(3)
+                .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
         }
+    }
+
+    private func graphModeButton(_ title: String, value: String) -> some View {
+        Button { graphDisplayMode = value } label: {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(graphDisplayMode == value ? AppTheme.accent : Color.secondary)
+                .frame(width: 38, height: 28)
+                .background(graphDisplayMode == value ? AppTheme.accent.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 
     private func filterLabel(_ value: String) -> some View {
@@ -404,7 +433,7 @@ struct LibraryView: View {
             guard record.collection == kind.collection, scope.contains(record) else { return false }
             if isQuantityContext, kind == .errors || kind == .notes {
                 if selectedQuantityType == "未分类" {
-                    guard !QuantityQuestionTypeCatalog.contains(record.module) else { return false }
+                    guard !quantityQuestionTypes.contains(record.module ?? "") else { return false }
                 } else if !selectedQuantityType.isEmpty {
                     guard record.module == selectedQuantityType else { return false }
                 }
@@ -420,6 +449,10 @@ struct LibraryView: View {
     }
 
     private var isQuantityContext: Bool { scope.subject == "数量关系" && scope.module == nil }
+    private var isGraphReasoningContext: Bool {
+        kind == .errors && scope.subject == "判断推理" && scope.module == "图形推理"
+    }
+    private var quantityQuestionTypes: [String] { QuantityQuestionTypeRepository.types(records: records) }
 
     private var sortedScopedRecords: [StoredRecord] {
         scopedRecords.sorted { left, right in
@@ -461,26 +494,23 @@ struct LibraryView: View {
     }
 
     private var quantityTypeBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 7) {
-                quantityTypeChip("全部", value: "")
-                ForEach(QuantityQuestionTypeCatalog.all, id: \.self) { type in
-                    quantityTypeChip(type, value: type)
-                }
-                quantityTypeChip("未分类", value: "未分类")
+        NativeTagFlow(spacing: 7) {
+            ForEach(quantityQuestionTypes, id: \.self) { type in
+                quantityTypeChip(type, value: type)
             }
+            quantityTypeChip("未分类", value: "未分类")
         }
     }
 
     private func quantityTypeChip(_ title: String, value: String) -> some View {
         Button {
-            selectedQuantityType = value
+            selectedQuantityType = selectedQuantityType == value ? "" : value
             selectedTag = ""
             renderLimit = 40
         } label: {
             Text(title)
                 .font(AppTheme.auxiliaryFont.weight(.semibold))
-                .foregroundStyle(selectedQuantityType == value ? AppTheme.accent : Color.secondary)
+                .foregroundStyle(selectedQuantityType == value ? AppTheme.accent : Color.primary)
                 .padding(.horizontal, 10)
                 .frame(height: 30)
                 .background(selectedQuantityType == value ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045), in: Capsule())
@@ -524,7 +554,7 @@ struct LibraryView: View {
     }
 
     private var noteContext: (subject: String, module: String)? {
-        if isQuantityContext, QuantityQuestionTypeCatalog.contains(selectedQuantityType) {
+        if isQuantityContext, quantityQuestionTypes.contains(selectedQuantityType) {
             return ("数量关系", selectedQuantityType)
         }
         guard let subject = scope.subject, scope.hasModuleContext else { return nil }
@@ -618,7 +648,7 @@ struct LibraryView: View {
             let count = records.lazy.filter { record in
                 guard record.collection == value.collection, scope.contains(record) else { return false }
                 guard isQuantityContext, !selectedQuantityType.isEmpty else { return true }
-                if selectedQuantityType == "未分类" { return !QuantityQuestionTypeCatalog.contains(record.module) }
+                if selectedQuantityType == "未分类" { return !quantityQuestionTypes.contains(record.module ?? "") }
                 return record.module == selectedQuantityType
             }.count
             return "\(count) \(label)"
