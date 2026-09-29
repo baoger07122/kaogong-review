@@ -10,6 +10,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
     var errorCause: String
     var status: String
     var options: [String]
+    var optionImages: [String]?
     var correctOption: String
     var userOption: String
     var pitfall: String
@@ -60,6 +61,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         errorCause = draft.errorCause
         status = draft.status
         options = draft.options
+        optionImages = draft.optionImages
         correctOption = draft.correctOption
         userOption = draft.userOption
         pitfall = draft.pitfall
@@ -111,6 +113,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         draft.errorCause = errorCause
         draft.status = status
         draft.options = options
+        draft.optionImages = optionImages ?? Array(repeating: "", count: max(4, options.count))
         draft.correctOption = correctOption
         draft.userOption = userOption
         draft.pitfall = pitfall
@@ -156,6 +159,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !images.isEmpty
+            || !(optionImages ?? []).allSatisfy(\.isEmpty)
             || !pencilKitData.isEmpty
             || !(legacyDrawingPreview ?? "").isEmpty
             || !mindMapData.isEmpty

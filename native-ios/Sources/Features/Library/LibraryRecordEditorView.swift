@@ -237,14 +237,21 @@ struct LibraryRecordEditorView: View {
             } label: {
                 compactProperty(title: "科目", value: draft.subject, image: "books.vertical")
             }
-            if let subject = SubjectDefinition.all.first(where: { $0.name == draft.subject }), !subject.modules.isEmpty {
+            if isQuantityRelations {
+                Menu {
+                    ForEach(QuantityQuestionTypeCatalog.all, id: \.self) { type in
+                        Button(type) { draft.module = type }
+                    }
+                } label: {
+                    compactProperty(title: "题型", value: draft.module, image: "square.stack.3d.up")
+                }
+            } else if let subject = SubjectDefinition.all.first(where: { $0.name == draft.subject }), !subject.modules.isEmpty {
                 Menu {
                     ForEach(subject.modules, id: \.self) { module in Button(module) { draft.module = module } }
                 } label: {
                     compactProperty(title: "模块", value: draft.module, image: "square.stack.3d.up")
                 }
             }
-            if isQuantityRelations { quantityTypeSelector }
             Spacer(minLength: 0)
             if kind == .errors, draft.images.isEmpty {
                 PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 12, matching: .images) {
@@ -261,28 +268,6 @@ struct LibraryRecordEditorView: View {
                 .accessibilityLabel("添加题目与选项图片")
             }
         }
-    }
-
-    private var quantityTypeSelector: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(QuantityQuestionTypeCatalog.all, id: \.self) { type in
-                    Button { draft.module = type } label: {
-                        Text(type)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(draft.module == type ? AppTheme.accent : Color.secondary)
-                            .padding(.horizontal, 9)
-                            .frame(height: 32)
-                            .background(
-                                draft.module == type ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045),
-                                in: Capsule()
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
     }
 
     private func compactProperty(title: String, value: String, image: String) -> some View {
@@ -338,14 +323,7 @@ struct LibraryRecordEditorView: View {
                     errorQuestionEditor(text: $draft.title)
                     NativeFieldLabel(title: "选项")
                     ForEach(draft.options.indices, id: \.self) { index in
-                        HStack(spacing: 7) {
-                            Text(String(UnicodeScalar(65 + index)!))
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(.primary)
-                                .frame(width: 21)
-                            TextField("选项内容", text: $draft.options[index])
-                                .textFieldStyle(ErrorFormTextFieldStyle())
-                        }
+                        optionEditorRow(index)
                     }
                 }
             }
@@ -397,14 +375,7 @@ struct LibraryRecordEditorView: View {
                 errorQuestionEditor(text: $draft.title)
                 NativeFieldLabel(title: "选项")
                 ForEach(draft.options.indices, id: \.self) { index in
-                    HStack(spacing: 7) {
-                        Text(String(UnicodeScalar(65 + index)!))
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.primary)
-                            .frame(width: 21)
-                        TextField("选项内容", text: $draft.options[index])
-                            .textFieldStyle(ErrorFormTextFieldStyle())
-                    }
+                    optionEditorRow(index)
                 }
             }
             }
@@ -440,11 +411,11 @@ struct LibraryRecordEditorView: View {
         errorFormCard {
             if isQuantityRelations {
                 compactFormSection("题型分析", image: "tag") {
-                    plainTextInput(label: "题目结构", placeholder: "例如：矩形边界植树", text: $draft.quantityStructure)
-                    quantityTagInput(title: "考点（可跨题型）", value: draft.knowledgePoint) {
+                    quantityTextInput(title: "题目结构", placeholder: "例如：矩形边界植树", text: $draft.quantityStructure)
+                    quantityTagInput(title: "考点", value: draft.knowledgePoint) {
                         showQuantityKnowledgePoints = true
                     }
-                    quantityTagInput(title: "弱项标签（可选）", value: draft.weaknessTags) {
+                    quantityTagInput(title: "弱项标签", value: draft.weaknessTags) {
                         showQuantityWeaknessTags = true
                     }
                 }
@@ -473,6 +444,53 @@ struct LibraryRecordEditorView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func optionEditorRow(_ index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
+                Text(String(UnicodeScalar(65 + index)!))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 21)
+                TextField(isDataAnalysis ? "选项文字（可留空）" : "选项内容", text: $draft.options[index])
+                    .textFieldStyle(ErrorFormTextFieldStyle())
+                if isDataAnalysis {
+                    DataAnalysisOptionImagePicker(hasImage: !optionImageBinding(index).wrappedValue.isEmpty) { value in
+                        optionImageBinding(index).wrappedValue = value
+                    }
+                }
+            }
+            if isDataAnalysis, let image = image(from: optionImageBinding(index).wrappedValue) {
+                HStack(alignment: .top, spacing: 8) {
+                    Color.clear.frame(width: 21, height: 1)
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: 190, alignment: .leading)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.09), lineWidth: 0.8))
+                    Button {
+                        optionImageBinding(index).wrappedValue = ""
+                    } label: {
+                        Image(systemName: "trash").foregroundStyle(AppTheme.danger)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("删除\(String(UnicodeScalar(65 + index)!))选项图片")
+                }
+            }
+        }
+    }
+
+    private func optionImageBinding(_ index: Int) -> Binding<String> {
+        Binding(
+            get: { index < draft.optionImages.count ? draft.optionImages[index] : "" },
+            set: { value in
+                while draft.optionImages.count <= index { draft.optionImages.append("") }
+                draft.optionImages[index] = value
+            }
+        )
     }
 
     private var isLogicJudgment: Bool { draft.subject == "判断推理" && draft.module == "逻辑判断" }
@@ -772,11 +790,11 @@ struct LibraryRecordEditorView: View {
                     .allowsHitTesting(false)
             }
             if isQuantityRelations {
-                plainTextInput(label: "题目结构", placeholder: "例如：矩形边界植树", text: $draft.quantityStructure)
-                quantityTagInput(title: "考点（可跨题型）", value: draft.knowledgePoint) {
+                quantityTextInput(title: "题目结构", placeholder: "例如：矩形边界植树", text: $draft.quantityStructure)
+                quantityTagInput(title: "考点", value: draft.knowledgePoint) {
                     showQuantityKnowledgePoints = true
                 }
-                quantityTagInput(title: "弱项标签（可选）", value: draft.weaknessTags) {
+                quantityTagInput(title: "弱项标签", value: draft.weaknessTags) {
                     showQuantityWeaknessTags = true
                 }
             } else {
@@ -803,32 +821,42 @@ struct LibraryRecordEditorView: View {
 
     private func quantityTagInput(title: String, value: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
-                if value.isEmpty {
-                    Text("选择或新增")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.tertiary)
-                } else {
-                    NativeTagFlow(spacing: 5) {
-                        ForEach(splitTags(value), id: \.self) { tag in
-                            Text(tag)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(AppTheme.accent)
-                                .padding(.horizontal, 8)
-                                .frame(height: 25)
-                                .background(AppTheme.accent.opacity(0.09), in: Capsule())
-                        }
-                    }
-                }
+            HStack(spacing: 9) {
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 58, alignment: .leading)
+                Text(value.isEmpty ? "选择或新增" : splitTags(value).joined(separator: "、"))
+                    .font(.system(size: 12.5, weight: .regular))
+                    .foregroundStyle(value.isEmpty ? Color.secondary : Color.primary)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.tertiary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .frame(minHeight: 38)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
         }
         .buttonStyle(.plain)
+    }
+
+    private func quantityTextInput(title: String, placeholder: String, text: Binding<String>) -> some View {
+        HStack(spacing: 9) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 58, alignment: .leading)
+            TextField(placeholder, text: text)
+                .font(.system(size: 12.5, weight: .regular))
+        }
+        .padding(.horizontal, 10)
+        .frame(minHeight: 38)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
     }
 
     private var stickyFields: some View {
@@ -1272,6 +1300,34 @@ private struct ErrorFormTextFieldStyle: TextFieldStyle {
             .frame(height: 38)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
+    }
+}
+
+private struct DataAnalysisOptionImagePicker: View {
+    let hasImage: Bool
+    let onPicked: (String) -> Void
+    @State private var item: PhotosPickerItem?
+
+    var body: some View {
+        PhotosPicker(selection: $item, matching: .images) {
+            Image(systemName: hasImage ? "photo.fill" : "photo.badge.plus")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(AppTheme.accent)
+                .frame(width: 38, height: 38)
+                .background(AppTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(hasImage ? "更换选项图片" : "添加选项图片")
+        .onChange(of: item) { _, newItem in
+            guard let newItem else { return }
+            Task {
+                guard let data = try? await newItem.loadTransferable(type: Data.self), !data.isEmpty else { return }
+                await MainActor.run {
+                    onPicked("data:image/jpeg;base64,\(data.base64EncodedString())")
+                    item = nil
+                }
+            }
+        }
     }
 }
 

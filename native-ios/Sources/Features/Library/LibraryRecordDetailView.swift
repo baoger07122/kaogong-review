@@ -178,9 +178,14 @@ struct LibraryRecordDetailView: View {
     }
 
     @ViewBuilder private var optionsBlock: some View {
-        if let options = stringArray("options"), !options.isEmpty {
+        let options = stringArray("options") ?? []
+        let optionImages = optionImageValues
+        let optionCount = max(options.count, optionImages.count)
+        if optionCount > 0 {
             VStack(spacing: 8) {
-                ForEach(Array(options.enumerated()), id: \.offset) { index, option in
+                ForEach(0..<optionCount, id: \.self) { index in
+                    let option = index < options.count ? options[index] : ""
+                    let optionImage = index < optionImages.count ? dataURLImage(optionImages[index]) : nil
                     let letter = String(UnicodeScalar(65 + index)!)
                     let correct = answerLetters.contains(letter)
                     let chosen = userAnswerLetters.contains(letter)
@@ -188,9 +193,20 @@ struct LibraryRecordDetailView: View {
                         Text("\(letter).")
                             .font(.system(size: 14, weight: .semibold))
                             .frame(width: 20, alignment: .leading)
-                        optionText(option, correct: correct, chosen: chosen)
-                            .lineSpacing(5.5)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 8) {
+                            if !clean(option).isEmpty {
+                                optionText(option, correct: correct, chosen: chosen)
+                                    .lineSpacing(5.5)
+                            }
+                            if let optionImage {
+                                Image(uiImage: optionImage)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
@@ -379,6 +395,10 @@ struct LibraryRecordDetailView: View {
     private var linkedWordRecords: [StoredRecord] {
         let ids = Set(object["linkedWordIds"] as? [String] ?? [])
         return records.filter { $0.collection == "words" && ids.contains($0.recordID) }
+    }
+
+    private var optionImageValues: [String] {
+        (object["optionImages"] as? [String]) ?? []
     }
 
     private var weaknessTags: [String] {

@@ -17,11 +17,14 @@ struct KnowledgePointManagerView: View {
     @State private var deletingName: String?
 
     private var tags: [String] { TagLibraryRepository.tags(kind: kind, module: module, records: records) }
+    private var availableModules: [String] {
+        subject.name == "数量关系" ? QuantityQuestionTypeCatalog.all : subject.modules
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("考点、错因和思维误区按当前科目与模块统一管理；录入错题时输入的新内容会自动加入这里。")
+                Text("考点、错因和思维误区按当前科目与模块统一管理；录入错题时输入的新内容会自动加入这里，不再自动创建预设标签。")
                     .font(AppTheme.auxiliaryFont)
                     .foregroundStyle(.secondary)
 
@@ -30,14 +33,16 @@ struct KnowledgePointManagerView: View {
                         ForEach(SubjectDefinition.all) { value in
                             Button(value.name) {
                                 subject = value
-                                module = value.modules[0]
+                                module = value.name == "数量关系"
+                                    ? (QuantityQuestionTypeCatalog.all.first ?? "")
+                                    : (value.modules.first ?? "")
                             }
                         }
                     } label: { selector(title: "科目", value: subject.name) }
 
                     Menu {
-                        ForEach(subject.modules, id: \.self) { value in Button(value) { module = value } }
-                    } label: { selector(title: "模块", value: module) }
+                        ForEach(availableModules, id: \.self) { value in Button(value) { module = value } }
+                    } label: { selector(title: subject.name == "数量关系" ? "题型" : "模块", value: module) }
                 }
 
                 Picker("标签类型", selection: $kind) {

@@ -202,7 +202,7 @@ enum LegacyBackupImporter {
             }
             object["knowledgePoints"] = Array(points.prefix(20))
             object["knowledgePoint"] = points.first ?? ""
-            object["errorCause"] = trimmedString(object["errorCause"]) ?? "待复盘"
+            object["errorCause"] = trimmedString(object["errorCause"]) ?? ""
             object["status"] = (object["status"] as? String) == "已掌握" ? "已掌握" : "未掌握"
             object["reviewCount"] = (object["reviewCount"] as? NSNumber)?.intValue ?? 0
         }

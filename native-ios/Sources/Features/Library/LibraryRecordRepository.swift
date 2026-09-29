@@ -33,6 +33,7 @@ struct LibraryRecordDraft {
     var errorCause = ""
     var status = "未掌握"
     var options = ["", "", "", ""]
+    var optionImages = ["", "", "", ""]
     var correctOption = ""
     var userOption = ""
     var pitfall = ""
@@ -111,6 +112,9 @@ struct LibraryRecordDraft {
         status = LibraryRecordDraft.text(original, keys: ["status", "masteryStatus"]).isEmpty ? "未掌握" : LibraryRecordDraft.text(original, keys: ["status", "masteryStatus"])
         if let values = original["options"] as? [String], !values.isEmpty {
             options = values + Array(repeating: "", count: max(0, 4 - values.count))
+        }
+        if let values = original["optionImages"] as? [String], !values.isEmpty {
+            optionImages = values + Array(repeating: "", count: max(0, 4 - values.count))
         }
         correctOption = LibraryRecordDraft.text(original, keys: ["correctOption"])
         userOption = LibraryRecordDraft.text(original, keys: ["userOption"])
@@ -240,7 +244,16 @@ enum LibraryRecordRepository {
             object["knowledgePoint"] = knowledgePoints.first ?? ""
             object["errorCause"] = draft.errorCause
             object["status"] = draft.status
-            object["options"] = draft.options.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            var optionCount = max(draft.options.count, draft.optionImages.count)
+            while optionCount > 0 {
+                let index = optionCount - 1
+                let text = index < draft.options.count ? draft.options[index].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+                let image = index < draft.optionImages.count ? draft.optionImages[index] : ""
+                if !text.isEmpty || !image.isEmpty { break }
+                optionCount -= 1
+            }
+            object["options"] = (0..<optionCount).map { $0 < draft.options.count ? draft.options[$0] : "" }
+            object["optionImages"] = (0..<optionCount).map { $0 < draft.optionImages.count ? draft.optionImages[$0] : "" }
             object["correctOption"] = draft.correctOption
             object["userOption"] = draft.userOption
             object["pitfall"] = draft.pitfall

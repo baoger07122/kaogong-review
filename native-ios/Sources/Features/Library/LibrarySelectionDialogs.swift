@@ -137,6 +137,9 @@ struct QuantityKnowledgePointSelectionDialog: View {
     @State private var showsCrossType = false
     @State private var search = ""
     @State private var message: String?
+    @State private var renaming: String?
+    @State private var newName = ""
+    @State private var deleting: String?
 
     private var activeType: String { browsingType.isEmpty ? currentType : browsingType }
     private var names: [String] {
@@ -186,16 +189,14 @@ struct QuantityKnowledgePointSelectionDialog: View {
                 }
 
                 if showsCrossType {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(QuantityQuestionTypeCatalog.all.filter { $0 != currentType }, id: \.self) { type in
-                                Button { browsingType = type; search = "" } label: {
-                                    Text(type).font(.system(size: 11, weight: .medium))
-                                        .foregroundStyle(activeType == type ? AppTheme.accent : .secondary)
-                                        .padding(.horizontal, 9).frame(height: 28)
-                                        .background(activeType == type ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045), in: Capsule())
-                                }.buttonStyle(.plain)
-                            }
+                    NativeTagFlow(spacing: 6) {
+                        ForEach(QuantityQuestionTypeCatalog.all.filter { $0 != currentType }, id: \.self) { type in
+                            Button { browsingType = type; search = "" } label: {
+                                Text(type).font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(activeType == type ? AppTheme.accent : Color.primary)
+                                    .padding(.horizontal, 9).frame(height: 28)
+                                    .background(activeType == type ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045), in: Capsule())
+                            }.buttonStyle(.plain)
                         }
                     }
                 }
@@ -221,7 +222,12 @@ struct QuantityKnowledgePointSelectionDialog: View {
                                 .foregroundStyle(selected.contains(name) ? AppTheme.accent : Color.primary)
                                 .padding(.horizontal, 10).padding(.vertical, 8)
                                 .background(selected.contains(name) ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
-                            }.buttonStyle(.plain)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("重命名") { renaming = name; newName = name }
+                                Button("删除标签", role: .destructive) { deleting = name }
+                            }
                         }
                     }
                 }.frame(maxHeight: 220)
@@ -232,6 +238,15 @@ struct QuantityKnowledgePointSelectionDialog: View {
             selected = selection.split(whereSeparator: { "、,，".contains($0) }).map(String.init)
             browsingType = currentType
         }
+        .alert("重命名考点", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("考点名称", text: $newName)
+            Button("保存") { renameTag() }
+            Button("取消", role: .cancel) { renaming = nil }
+        } message: { Text("当前题型已有记录中的该考点会同步更新。") }
+        .alert("删除考点？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+            Button("删除", role: .destructive) { deleteTag() }
+            Button("取消", role: .cancel) { deleting = nil }
+        } message: { Text("将从考点库及当前题型已有记录中移除此考点，不删除题目。") }
     }
 
     private func toggle(_ name: String) {
@@ -246,6 +261,31 @@ struct QuantityKnowledgePointSelectionDialog: View {
             if !selected.contains(query) { selected.append(query) }
             search = ""
         } catch { message = "考点保存失败，请重试" }
+    }
+
+    private func renameTag() {
+        guard let old = renaming else { return }
+        let value = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value != old, !names.contains(value) else {
+            message = "名称不能为空或与其他考点重复"
+            return
+        }
+        do {
+            try TagLibraryRepository.rename(old, to: value, kind: .knowledgePoint, module: activeType, records: records, context: modelContext)
+            selected = selected.map { $0 == old ? value : $0 }
+            selection = selected.joined(separator: "、")
+            renaming = nil
+        } catch { message = "重命名失败，请重试" }
+    }
+
+    private func deleteTag() {
+        guard let name = deleting else { return }
+        do {
+            try TagLibraryRepository.delete(name, kind: .knowledgePoint, module: activeType, records: records, context: modelContext)
+            selected.removeAll { $0 == name }
+            selection = selected.joined(separator: "、")
+            deleting = nil
+        } catch { message = "删除失败，请重试" }
     }
 }
 

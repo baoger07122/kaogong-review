@@ -16,6 +16,8 @@ const theme = read('DesignSystem/AppTheme.swift');
 const libraryView = read('Features/Library/LibraryView.swift');
 const cards = read('Features/Library/LibraryComponents.swift');
 const models = read('Data/Models/StoredRecord.swift');
+const tagLibrary = read('Features/Home/TagLibraryRepository.swift');
+const repository = read('Features/Library/LibraryRecordRepository.swift');
 const tests = {
   'compact detail typography': () => {
     assert.match(theme, /questionTextFont = Font\.system\(size: 13\.5, weight: \.regular\)/);
@@ -128,13 +130,23 @@ const tests = {
   },
   'quantity relations uses four fields and on-demand cross-type points': () => {
     assert.match(form, /题目结构/);
-    assert.match(form, /考点（可跨题型）/);
-    assert.match(form, /弱项标签（可选）/);
+    assert.match(form, /quantityTagInput\(title: "考点"/);
+    assert.match(form, /quantityTagInput\(title: "弱项标签"/);
+    assert.match(form, /compactProperty\(title: "题型"/);
+    assert.doesNotMatch(form, /quantityTypeSelector/);
     assert.match(picker, /＋ 跨题型选择/);
+    assert.match(picker, /NativeTagFlow\(spacing: 6\)/);
+    assert.match(picker, /contextMenu/);
     assert.match(libraryView, /quantityTypeBar/);
     assert.match(libraryView, /quantityTypeChip\("未分类"/);
     assert.match(cards, /plainField\(label: "结构", value: snapshot\.quantityStructure\)/);
     assert.match(cards, /label: knowledgePointLabel/);
+  },
+  'tag libraries have no built-in fallback and option images persist': () => {
+    assert.doesNotMatch(tagLibrary, /待复盘|private static let defaults|errorDefaults/);
+    assert.match(repository, /optionImages/);
+    assert.match(form, /DataAnalysisOptionImagePicker/);
+    assert.match(detail, /optionImageValues/);
   },
   'analogy options are indexed for existing and new cards': () => {
     assert.match(models, /"linkedWordIds", "options"/);

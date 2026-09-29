@@ -90,6 +90,10 @@ struct SettingsView: View {
                     NavigationLink(value: SettingsRoute.stickyTags) {
                         settingsNavigationRow("便签标签", image: "tag.square")
                     }.buttonStyle(.plain)
+                    settingsDivider
+                    NavigationLink(value: SettingsRoute.quantityReminders) {
+                        settingsNavigationRow("数量提醒管理", image: "exclamationmark.bubble")
+                    }.buttonStyle(.plain)
                 }
 
                 settingsSection("界面与标准") {
@@ -135,6 +139,7 @@ struct SettingsView: View {
             case .cloudSync: CloudSyncView()
             case .noteTypes: NoteTypeManagerView()
             case .stickyTags: StickyTagManagerView()
+            case .quantityReminders: QuantityReminderManagerView()
             case .designSystem: NativeDesignSystemView()
             }
         }
