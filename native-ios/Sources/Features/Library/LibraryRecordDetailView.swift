@@ -178,7 +178,7 @@ struct LibraryRecordDetailView: View {
             VStack(spacing: 8) {
                 ForEach(0..<optionCount, id: \.self) { index in
                     let option = index < options.count ? options[index] : ""
-                    let optionImage = index < optionImages.count ? dataURLImage(optionImages[index]) : nil
+                    let optionImage = index < optionImages.count ? optionImages[index] : ""
                     let letter = String(UnicodeScalar(65 + index)!)
                     let correct = answerLetters.contains(letter)
                     let chosen = userAnswerLetters.contains(letter)
@@ -191,12 +191,11 @@ struct LibraryRecordDetailView: View {
                                 optionText(option, correct: correct, chosen: chosen)
                                     .lineSpacing(5.5)
                             }
-                            if let optionImage {
-                                Image(uiImage: optionImage)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            if !optionImage.isEmpty {
+                                LibraryDetailImage(
+                                    source: optionImage,
+                                    cacheKey: "detail-option-\(record.compoundID)-\(index)-\(optionImage.count)"
+                                )
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
