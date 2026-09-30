@@ -1231,7 +1231,8 @@ struct LibraryRecordEditorView: View {
                 kind: .knowledgePoint,
                 module: draft.module,
                 records: records,
-                context: modelContext
+                context: modelContext,
+                persist: false
             )
             if kind == .errors && !isDataAnalysis && !isAnalogyReasoning && !isQuantityRelations {
                 try? TagLibraryRepository.add(
@@ -1239,7 +1240,8 @@ struct LibraryRecordEditorView: View {
                     kind: .errorCause,
                     module: draft.module,
                     records: records,
-                    context: modelContext
+                    context: modelContext,
+                    persist: false
                 )
             }
             // 思维误区是普通文字，不写入标签库。

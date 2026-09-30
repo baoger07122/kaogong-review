@@ -95,7 +95,6 @@ struct RootTabView: View {
             NavigationStack(path: $libraryPath) {
                 LibraryView(navigationPath: $libraryPath)
             }
-                .toolbar(libraryPath.isEmpty ? .visible : .hidden, for: .tabBar)
                 .environmentObject(libraryDoodleSession)
                 .environment(\.rootTabContext, .library)
         case .review:

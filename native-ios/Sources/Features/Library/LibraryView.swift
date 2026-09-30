@@ -30,6 +30,7 @@ struct LibraryView: View {
     @State private var renderLimit = 40
     @State private var refreshedLegacyIndexes = false
     @State private var selectedQuantityType = ""
+    @State private var snapshotCache = LibrarySnapshotCache()
     @AppStorage("native.library.graphDisplayMode") private var graphDisplayMode = "cards"
 
     var body: some View {
@@ -59,6 +60,7 @@ struct LibraryView: View {
         }
         .navigationDestination(for: LibraryRoute.self) { route in
             destination(for: route)
+                .secondaryPageTabBarHidden()
         }
         .overlay {
             if showNewNoteType {
@@ -76,12 +78,8 @@ struct LibraryView: View {
 
     private func openEditorAfterMenuDismisses(kind: LibraryContentKind, recordID: String) {
         Task { @MainActor in
-            // Separate the menu dismissal from the navigation transaction without
-            // introducing a visible fixed delay.
             await Task.yield()
-            withAnimation {
-                navigationPath.append(.editor(kind: kind, recordID: recordID))
-            }
+            navigationPath.append(.editor(kind: kind, recordID: recordID))
         }
     }
 
@@ -445,24 +443,13 @@ struct LibraryView: View {
     }
 
     private var snapshots: [LibraryRecordSnapshot] {
-        let wordNames = linkedWordNamesByID
+        let wordNames = snapshotCache.wordNames(in: records)
         return Array(sortedScopedRecords.prefix(renderLimit)).map {
-            LibraryRecordSnapshot(
+            snapshotCache.snapshot(
                 record: $0,
                 linkedWordNamesByID: wordNames,
                 includeImages: isGraphReasoningContext
             )
-        }
-    }
-
-    private var linkedWordNamesByID: [String: String] {
-        records.reduce(into: [:]) { result, record in
-            guard record.collection == "words" else { return }
-            let object = record.indexObject ?? [:]
-            let name = ["name", "words", "title", "text"]
-                .compactMap { object[$0] as? String }
-                .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            if let name { result[record.recordID] = name }
         }
     }
 

@@ -470,7 +470,7 @@ enum LibraryRecordRepository {
            let record = records.first(where: { $0.collection == collection && $0.recordID == oldID }) {
             try updateRelation(record: record, key: arrayKey, linkedID: linkedID, include: false)
         }
-        if !newID.isEmpty,
+        if !newID.isEmpty, oldID != newID,
            let record = records.first(where: { $0.collection == collection && $0.recordID == newID }) {
             try updateRelation(record: record, key: arrayKey, linkedID: linkedID, include: true)
         }
@@ -487,7 +487,7 @@ enum LibraryRecordRepository {
                 try updateRelation(record: record, key: arrayKey, linkedID: linkedID, include: false)
             }
         }
-        for relationID in newSet {
+        for relationID in newSet.subtracting(oldSet) {
             if let record = records.first(where: { $0.collection == collection && $0.recordID == relationID }) {
                 try updateRelation(record: record, key: arrayKey, linkedID: linkedID, include: true)
             }
@@ -497,6 +497,7 @@ enum LibraryRecordRepository {
     private static func updateRelation(record: StoredRecord, key: String, linkedID: String, include: Bool) throws {
         var object = record.jsonObject ?? [:]
         var values = Set(object[key] as? [String] ?? [])
+        guard values.contains(linkedID) != include else { return }
         if include { values.insert(linkedID) } else { values.remove(linkedID) }
         object[key] = Array(values).sorted()
         object["updatedAt"] = iso(.now)

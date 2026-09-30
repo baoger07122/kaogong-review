@@ -25,16 +25,22 @@ enum TagLibraryRepository {
         try add([name], kind: kind, module: module, records: records, context: context)
     }
 
-    static func add(_ names: [String], kind: ManagedTagKind, module: String, records: [StoredRecord], context: ModelContext) throws {
+    static func add(
+        _ names: [String], kind: ManagedTagKind, module: String,
+        records: [StoredRecord], context: ModelContext, persist: Bool = true
+    ) throws {
         var library = loadWithDefaults(kind: kind, records: records)
         let values = names
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         guard !values.isEmpty else { return }
+        var changed = false
         for value in values where !(library[module] ?? []).contains(value) {
             library[module, default: []].append(value)
+            changed = true
         }
-        try save(library, kind: kind, records: records, context: context)
+        guard changed else { return }
+        try save(library, kind: kind, records: records, context: context, persist: persist)
     }
 
     static func move(_ name: String, direction: Int, kind: ManagedTagKind, module: String, records: [StoredRecord], context: ModelContext) throws {
@@ -77,7 +83,10 @@ enum TagLibraryRepository {
         }
     }
 
-    private static func save(_ library: [String: [String]], kind: ManagedTagKind, records: [StoredRecord], context: ModelContext) throws {
+    private static func save(
+        _ library: [String: [String]], kind: ManagedTagKind,
+        records: [StoredRecord], context: ModelContext, persist: Bool = true
+    ) throws {
         let object: [String: Any] = ["key": kind.recordID, "value": library]
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         if let record = records.first(where: { $0.collection == "keyvalue" && $0.recordID == kind.recordID }) {
@@ -86,7 +95,7 @@ enum TagLibraryRepository {
         } else {
             context.insert(StoredRecord(collection: "keyvalue", recordID: kind.recordID, payload: payload, updatedAt: .now))
         }
-        try context.save()
+        if persist { try context.save() }
     }
 
     private static func updateReferences(
