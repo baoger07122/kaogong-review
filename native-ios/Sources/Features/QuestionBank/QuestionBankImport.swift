@@ -743,8 +743,10 @@ private enum XLSXTableReader {
         let entryByPath = Dictionary(uniqueKeysWithValues: entries.map { ($0.path, $0) })
         var extractedSize: UInt64 = 0
         func extractXML(_ path: String) throws -> URL {
+            // XLSX relationship manifests are XML documents but use the .rels extension.
+            let isXMLDocument = [".xml", ".rels"].contains { path.lowercased().hasSuffix($0) }
             guard !path.hasPrefix("/"), !path.split(separator: "/").contains(".."),
-                  path.hasPrefix("xl/"), path.lowercased().hasSuffix(".xml"),
+                  path.hasPrefix("xl/"), isXMLDocument,
                   let entry = entryByPath[path] else {
                 throw NSError(domain: "XLSX", code: 6, userInfo: [NSLocalizedDescriptionKey: "工作簿缺少必要结构文件：\(path)"])
             }
