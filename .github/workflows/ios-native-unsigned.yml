@@ -84,18 +84,29 @@ jobs:
           BEFORE_SHA: ${{ github.event.before }}
         run: |
           RUN_SIMULATOR=false
+          RUN_QUESTION_BANK=false
+          RUN_CONTRACTS=false
           if [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && [[ ! "$BEFORE_SHA" =~ ^0+$ ]]; then
             CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")
-            # Simulator interaction tests are opt-in by changing their focused test files.
-            # Source releases still receive the required generic-device compile/archive below.
-            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Tests/(Animation|UI)/'; then
+            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Tests/QuestionBank/'; then
               RUN_SIMULATOR=true
+              RUN_QUESTION_BANK=true
+            elif echo "$CHANGED_FILES" | grep -Eq '^native-ios/Tests/(Animation|UI)/'; then
+              RUN_SIMULATOR=true
+            fi
+            # These source-only contracts cover keypad, form, and rich-text changes;
+            # unrelated feature releases should not spend time running them.
+            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/Features/Speed/|Sources/Features/Library/LibraryRecordEditorView\.swift|Sources/Features/Shared/NativeRichTextEditor\.swift|Tests/(Animation|UI|Speed)|Tests/(speed-feedback-contracts|document-form-contracts|rich-text-toolbar-contracts)\.cjs)'; then
+              RUN_CONTRACTS=true
             fi
           fi
           echo "run=$RUN_SIMULATOR" >> "$GITHUB_OUTPUT"
+          echo "question_bank=$RUN_QUESTION_BANK" >> "$GITHUB_OUTPUT"
+          echo "contracts=$RUN_CONTRACTS" >> "$GITHUB_OUTPUT"
           echo "Run focused simulator tests: $RUN_SIMULATOR"
 
       - name: Test native keypad geometry
+        if: steps.simulator_scope.outputs.contracts == 'true'
         run: |
           node native-ios/Tests/speed-feedback-contracts.cjs
           node native-ios/Tests/document-form-contracts.cjs
@@ -122,10 +133,14 @@ jobs:
         if: steps.simulator_scope.outputs.run == 'true'
         timeout-minutes: 15
         shell: bash
+        env:
+          RUN_QUESTION_BANK: ${{ steps.simulator_scope.outputs.question_bank }}
         run: |
+          TEST_SCHEME=KaogongReviewNative
+          if [ "$RUN_QUESTION_BANK" = "true" ]; then TEST_SCHEME=QuestionBankImport; fi
           xcodebuild build-for-testing \
             -project native-ios/KaogongReviewNative.xcodeproj \
-            -scheme KaogongReviewNative \
+            -scheme "$TEST_SCHEME" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath build/NativeTestDerivedData \
             -parallel-testing-enabled NO \
@@ -135,22 +150,35 @@ jobs:
         if: steps.simulator_scope.outputs.run == 'true'
         timeout-minutes: 12
         shell: bash
+        env:
+          RUN_QUESTION_BANK: ${{ steps.simulator_scope.outputs.question_bank }}
         run: |
           xcrun simctl boot "$SIMULATOR_ID" || true
           xcrun simctl bootstatus "$SIMULATOR_ID" -b
+          TEST_SCHEME=KaogongReviewNative
+          RESULT_PATH=build/SpeedInteraction.xcresult
+          if [ "$RUN_QUESTION_BANK" = "true" ]; then
+            TEST_SCHEME=QuestionBankImport
+            RESULT_PATH=build/QuestionBankImport.xcresult
+            TEST_ARGS=(-only-testing:QuestionBankImportTests/QuestionBankImportTests/testValidationPackageImportsAtomicallyAndPersistsAcrossContainerReopen)
+          else
+            TEST_ARGS=(
+              -only-testing:SpeedInteractionUITests/SpeedInteractionUITests/testBlankStartAreaAndSingleDispatchForKeys
+              -only-testing:SpeedInteractionUITests/SpeedInteractionUITests/testNavigationEdgeAndPageOwnedTabBar
+              -only-testing:SpeedInteractionUITests/InlineNoteInteractionUITests/testOneCharacterDoneAndTopAlignedEditor
+              -only-testing:SpeedAnimationTests
+            )
+          fi
           if ! xcodebuild test-without-building \
             -project native-ios/KaogongReviewNative.xcodeproj \
-            -scheme KaogongReviewNative \
+            -scheme "$TEST_SCHEME" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath build/NativeTestDerivedData \
             -parallel-testing-enabled NO \
-            -resultBundlePath build/SpeedInteraction.xcresult \
-            -only-testing:SpeedInteractionUITests/SpeedInteractionUITests/testBlankStartAreaAndSingleDispatchForKeys \
-            -only-testing:SpeedInteractionUITests/SpeedInteractionUITests/testNavigationEdgeAndPageOwnedTabBar \
-            -only-testing:SpeedInteractionUITests/InlineNoteInteractionUITests/testOneCharacterDoneAndTopAlignedEditor \
-            -only-testing:SpeedAnimationTests \
+            -resultBundlePath "$RESULT_PATH" \
+            "${TEST_ARGS[@]}" \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
-            xcrun xcresulttool get test-results summary --path build/SpeedInteraction.xcresult || true
+            xcrun xcresulttool get test-results summary --path "$RESULT_PATH" || true
             exit 1
           fi
 
@@ -158,8 +186,8 @@ jobs:
         if: failure() && steps.simulator_scope.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: speed-interaction-test-diagnostics
-          path: build/SpeedInteraction.xcresult
+          name: native-focused-test-diagnostics
+          path: build/*.xcresult
           if-no-files-found: ignore
           retention-days: 7
 

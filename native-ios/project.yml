@@ -11,10 +11,14 @@ settings:
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     TARGETED_DEVICE_FAMILY: "2"
     SUPPORTS_MACCATALYST: NO
-    MARKETING_VERSION: "10.2.1"
-    CURRENT_PROJECT_VERSION: "70"
+    MARKETING_VERSION: "10.2.2"
+    CURRENT_PROJECT_VERSION: "71"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Manual
+packages:
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation.git
+    from: 0.9.20
 targets:
   KaogongReviewNative:
     type: application
@@ -23,6 +27,9 @@ targets:
       - Sources
       - path: Resources/Assets.xcassets
         buildPhase: resources
+    dependencies:
+      - package: ZIPFoundation
+        product: ZIPFoundation
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.baoger07122.kaogongreview.nativebeta
@@ -76,6 +83,18 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: KaogongReviewNative
+  QuestionBankImportTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests/QuestionBank
+    dependencies:
+      - target: KaogongReviewNative
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/KaogongReviewNative.app/KaogongReviewNative"
+        BUNDLE_LOADER: "$(TEST_HOST)"
 schemes:
   KaogongReviewNative:
     build:
@@ -87,3 +106,11 @@ schemes:
       targets:
         - SpeedInteractionUITests
         - SpeedAnimationTests
+  QuestionBankImport:
+    build:
+      targets:
+        KaogongReviewNative: all
+        QuestionBankImportTests: [test]
+    test:
+      targets:
+        - QuestionBankImportTests

@@ -29,6 +29,7 @@ enum RootTab: String, CaseIterable, Identifiable {
     case library
     case review
     case exams
+    case questionBank
     case settings
 
     var id: String { rawValue }
@@ -39,6 +40,7 @@ enum RootTab: String, CaseIterable, Identifiable {
         case .library: "学习库"
         case .review: "复习"
         case .exams: "套卷"
+        case .questionBank: "真题库"
         case .settings: "设置"
         }
     }
@@ -49,6 +51,7 @@ enum RootTab: String, CaseIterable, Identifiable {
         case .library: "square.stack.3d.up.fill"
         case .review: "checkmark.seal.fill"
         case .exams: "doc.text"
+        case .questionBank: "books.vertical.fill"
         case .settings: "gearshape"
         }
     }
@@ -103,6 +106,9 @@ struct RootTabView: View {
         case .exams:
             NavigationStack { ExamsView() }
                 .environment(\.rootTabContext, .exams)
+        case .questionBank:
+            NavigationStack { QuestionBankView() }
+                .environment(\.rootTabContext, .questionBank)
         case .settings:
             NavigationStack(path: $settingsPath) { SettingsView() }
                 .toolbar(settingsPath.isEmpty ? .visible : .hidden, for: .tabBar)

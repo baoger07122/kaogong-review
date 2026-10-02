@@ -8,7 +8,9 @@ struct KaogongReviewNativeApp: App {
 
     init() {
         do {
-            let container = try ModelContainer(for: StoredRecord.self)
+            // Add the question bank as a separate additive entity; existing records
+            // (including the legacy 套卷 score collection) remain unchanged.
+            let container = try ModelContainer(for: StoredRecord.self, QuestionBankRecord.self)
             try OneTimeLocalDataReset.runIfNeeded(in: container)
             try TagPresetCleanupMigration.runIfNeeded(in: container)
             modelContainer = container
