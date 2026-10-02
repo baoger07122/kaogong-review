@@ -599,12 +599,12 @@ struct LibraryRecordEditorView: View {
         }
     }
 
-    private func errorQuestionEditor(text: Binding<String>) -> some View {
+    private func errorQuestionEditor(text: Binding<String>, minHeight: CGFloat = 70) -> some View {
         TextEditor(text: text)
             .font(.system(size: 12.5, weight: .regular))
             .lineSpacing(3)
             .scrollContentBackground(.hidden)
-            .frame(minHeight: 70)
+            .frame(minHeight: minHeight)
             .padding(.horizontal, 7)
             .padding(.vertical, 5)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -737,14 +737,14 @@ struct LibraryRecordEditorView: View {
     }
 
     private var shenlunFields: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             errorFormCard {
                 compactFormSection("题型及来源", image: "doc.text.magnifyingglass") {
                     TextField("题目来源（可选，如：2025国考申论）", text: $draft.questionSource)
-                        .textFieldStyle(NativeTextFieldStyle())
+                        .textFieldStyle(ErrorFormTextFieldStyle())
                     HStack {
-                        TextField("得分（可选）", text: $draft.score).keyboardType(.numberPad).textFieldStyle(NativeTextFieldStyle())
-                        TextField("总分（可选）", text: $draft.totalScore).keyboardType(.numberPad).textFieldStyle(NativeTextFieldStyle())
+                        TextField("得分（可选）", text: $draft.score).keyboardType(.numberPad).textFieldStyle(ErrorFormTextFieldStyle())
+                        TextField("总分（可选）", text: $draft.totalScore).keyboardType(.numberPad).textFieldStyle(ErrorFormTextFieldStyle())
                     }
                 }
             }
@@ -767,13 +767,13 @@ struct LibraryRecordEditorView: View {
 
             errorFormCard {
                 compactFormSection("题干", image: "text.alignleft") {
-                    editor(text: $draft.title, height: 130)
+                    errorQuestionEditor(text: $draft.title, minHeight: 130)
                 }
             }
 
             errorFormCard {
                 DisclosureGroup(isExpanded: $isCurrentAffairsSupplementExpanded) {
-                    editor(text: $draft.currentAffairsSupplement, height: 130)
+                    errorQuestionEditor(text: $draft.currentAffairsSupplement, minHeight: 130)
                 } label: {
                     HStack {
                         Label("时政补充（可选）", systemImage: "text.book.closed")
@@ -789,23 +789,22 @@ struct LibraryRecordEditorView: View {
 
             errorFormCard {
                 compactFormSection("我的作答（可选）", image: "pencil.line") {
-                    editor(text: $draft.myAnswer, height: 150)
+                    errorQuestionEditor(text: $draft.myAnswer, minHeight: 150)
                 }
             }
 
             errorFormCard {
                 compactFormSection("参考答案（可选）", image: "checkmark.document") {
-                    editor(text: $draft.referenceAnswer, height: 150)
+                    errorQuestionEditor(text: $draft.referenceAnswer, minHeight: 150)
                 }
             }
 
             errorFormCard {
                 compactFormSection("复盘笔记（可选）", image: "note.text") {
-                    richEditor(text: $draft.content, height: 220)
+                    errorFormRichEditor(text: $draft.content, height: 220)
                 }
             }
         }
-        .background(Color.white)
     }
 
     private func shenlunMaterialEditor(_ material: ShenlunMaterialDraft) -> some View {
@@ -821,7 +820,7 @@ struct LibraryRecordEditorView: View {
                         .buttonStyle(.plain)
                 }
             }
-            editor(text: shenlunMaterialBinding(id: material.id), height: 150)
+            errorQuestionEditor(text: shenlunMaterialBinding(id: material.id), minHeight: 150)
         }
     }
 
@@ -1247,6 +1246,21 @@ struct LibraryRecordEditorView: View {
             .frame(minHeight: height)
             .padding(8)
             .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
+    }
+
+    private func errorFormRichEditor(text: Binding<String>, height: CGFloat) -> some View {
+        NativeRichTextEditor(
+            html: text,
+            minHeight: height,
+            documentStyle: true,
+            internalLinks: internalLinkCandidates,
+            onOpenInternalLink: { link in
+                linkedEditorTarget = LinkedRecordEditorTarget(collection: link.collection, recordID: link.recordID)
+            }
+        )
+        .padding(8)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
     }
 
     private func richEditor(text: Binding<String>, height: CGFloat) -> some View {

@@ -11,7 +11,7 @@ struct HomeFeature: Identifiable {
         .init(id: "todo", title: "待办统计", systemImage: "calendar", color: Color(red: 0.29, green: 0.56, blue: 0.89), route: .todoStats),
         .init(id: "report", title: "学习报告", systemImage: "chart.bar.fill", color: AppTheme.report, route: .studyReport),
         .init(id: "speed", title: "速算练习", systemImage: "number.square.fill", color: AppTheme.warning, route: .speedPractice),
-        .init(id: "affairs", title: "时政常识", systemImage: "doc.text.fill", color: Color(red: 0.96, green: 0.73, blue: 0.12), route: .currentAffairs),
+        .init(id: "exams", title: "套卷记录", systemImage: "doc.text.fill", color: Color(red: 0.96, green: 0.73, blue: 0.12), route: .exams),
         .init(id: "points", title: "考点管理", systemImage: "square.grid.2x2.fill", color: AppTheme.success, route: .knowledgePoints)
     ]
 }

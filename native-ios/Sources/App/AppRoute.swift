@@ -4,6 +4,7 @@ enum AppRoute: Hashable {
     case todoStats
     case studyReport
     case speedPractice
+    case exams
     case currentAffairs
     case knowledgePoints
     case subject(String)

@@ -68,57 +68,45 @@ struct QuestionBankView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                filterControls
+        ZStack(alignment: .bottomTrailing) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    filterControls
 
-                if visiblePapers.isEmpty {
-                    NativeStatusCard(
-                        title: paperRecords.isEmpty ? "还没有导入真题" : "没有符合条件的试卷",
-                        detail: paperRecords.isEmpty
-                            ? "导入包含标准 Excel 和图片资源的 ZIP 套卷，即可按模块查看题目。"
-                            : "调整年份、考试类型、模块、题号或搜索关键词后重试。",
-                        systemImage: "books.vertical",
-                        color: AppTheme.accent
-                    )
-                } else {
-                    LazyVStack(spacing: 10) {
-                        ForEach(visiblePapers, id: \.compoundID) { record in
-                            NavigationLink {
-                                QuestionBankPaperView(
-                                    paperID: record.paperID,
-                                    initialModuleTitle: selectedModuleTitle,
-                                    initialQuestionNumber: questionNumber
-                                )
-                            } label: {
-                                paperCard(record)
+                    if visiblePapers.isEmpty {
+                        NativeStatusCard(
+                            title: paperRecords.isEmpty ? "还没有导入真题" : "没有符合条件的试卷",
+                            detail: paperRecords.isEmpty
+                                ? "导入包含标准 Excel 和图片资源的 ZIP 套卷，即可按模块查看题目。"
+                                : "调整年份、考试类型、模块、题号或搜索关键词后重试。",
+                            systemImage: "books.vertical",
+                            color: AppTheme.accent
+                        )
+                    } else {
+                        LazyVStack(spacing: 10) {
+                            ForEach(visiblePapers, id: \.compoundID) { record in
+                                NavigationLink {
+                                    QuestionBankPaperView(
+                                        paperID: record.paperID,
+                                        initialModuleTitle: selectedModuleTitle,
+                                        initialQuestionNumber: questionNumber
+                                    )
+                                } label: {
+                                    paperCard(record)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                 }
+                .padding(20)
             }
-            .padding(20)
+            importButton
         }
         .background(AppTheme.groupedBackground)
         .navigationTitle("真题库")
         .navigationBarTitleDisplayMode(.inline)
         .rootTabBarContentInset()
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    presentsFilePicker = true
-                } label: {
-                    if isPreparingImport {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Label("导入 ZIP", systemImage: "square.and.arrow.down")
-                    }
-                }
-                .disabled(isPreparingImport || isCommittingImport)
-                .accessibilityIdentifier("question-bank-import")
-            }
-        }
         .fileImporter(isPresented: $presentsFilePicker, allowedContentTypes: [.zip], allowsMultipleSelection: false) { result in
             switch result {
             case .success(let urls):
@@ -150,6 +138,32 @@ struct QuestionBankView: View {
         } message: {
             Text(importAlertMessage)
         }
+    }
+
+    private var importButton: some View {
+        Button {
+            presentsFilePicker = true
+        } label: {
+            Group {
+                if isPreparingImport || isCommittingImport {
+                    ProgressView()
+                        .tint(.white)
+                } else {
+                    Image(systemName: "plus")
+                        .font(.system(size: 23, weight: .medium))
+                        .foregroundStyle(.white)
+                }
+            }
+            .frame(width: 54, height: 54)
+            .background(AppTheme.accent, in: Circle())
+            .shadow(color: AppTheme.accent.opacity(0.28), radius: 12, y: 5)
+        }
+        .buttonStyle(NativePressButtonStyle())
+        .disabled(isPreparingImport || isCommittingImport)
+        .accessibilityLabel("导入真题包")
+        .accessibilityIdentifier("question-bank-import")
+        .padding(.trailing, 18)
+        .padding(.bottom, 72)
     }
 
     private var filterControls: some View {

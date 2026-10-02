@@ -28,7 +28,6 @@ enum RootTab: String, CaseIterable, Identifiable {
     case home
     case library
     case review
-    case exams
     case questionBank
     case settings
 
@@ -39,8 +38,7 @@ enum RootTab: String, CaseIterable, Identifiable {
         case .home: "首页"
         case .library: "学习库"
         case .review: "复习"
-        case .exams: "套卷"
-        case .questionBank: "真题库"
+        case .questionBank: "真题"
         case .settings: "设置"
         }
     }
@@ -50,7 +48,6 @@ enum RootTab: String, CaseIterable, Identifiable {
         case .home: "house"
         case .library: "square.stack.3d.up.fill"
         case .review: "checkmark.seal.fill"
-        case .exams: "doc.text"
         case .questionBank: "books.vertical.fill"
         case .settings: "gearshape"
         }
@@ -103,9 +100,6 @@ struct RootTabView: View {
         case .review:
             NavigationStack { ReviewView() }
                 .environment(\.rootTabContext, .review)
-        case .exams:
-            NavigationStack { ExamsView() }
-                .environment(\.rootTabContext, .exams)
         case .questionBank:
             NavigationStack { QuestionBankView() }
                 .environment(\.rootTabContext, .questionBank)

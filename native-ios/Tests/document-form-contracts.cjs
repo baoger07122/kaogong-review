@@ -108,7 +108,7 @@ const tests = {
     assert.match(navigationStyle, /ignoresSafeArea\(\.container, edges: \.top\)/);
     assert.match(root, /TabView\(selection: \$selection\)/);
     assert.match(root, /Label\(tab\.title, systemImage: tab\.systemImage\)/);
-    for (const symbol of ['house', 'square.stack.3d.up.fill', 'checkmark.seal.fill', 'doc.text', 'gearshape']) {
+    for (const symbol of ['house', 'square.stack.3d.up.fill', 'checkmark.seal.fill', 'books.vertical.fill', 'gearshape']) {
       assert.match(root, new RegExp(`"${symbol.replaceAll('.', '\\.')}"`));
     }
     assert.doesNotMatch(root, /NativeBottomTabBar\(selection:/);

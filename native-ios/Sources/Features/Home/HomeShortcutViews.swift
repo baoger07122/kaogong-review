@@ -12,6 +12,8 @@ struct HomeShortcutView: View {
             StudyReportView()
         case .speedPractice:
             SpeedPracticeView()
+        case .exams:
+            ExamsView()
         case .currentAffairs:
             CurrentAffairsView()
         case .knowledgePoints:
@@ -37,6 +39,7 @@ struct HomeShortcutView: View {
         case .todoStats: "待办统计"
         case .studyReport: "学习报告"
         case .speedPractice: "速算练习"
+        case .exams: "套卷记录"
         case .currentAffairs: "时政常识"
         case .knowledgePoints: "考点管理"
         default: "功能"
