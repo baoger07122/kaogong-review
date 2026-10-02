@@ -153,7 +153,7 @@ struct ReviewView: View {
         var counts: [ReviewModuleKey: ReviewModuleCounts] = [:]
         var mastered = 0
         for record in errors {
-            let key = ReviewModuleKey(subject: record.subject ?? "未分类", module: record.module ?? "")
+            let key = ReviewModuleKey(subject: reviewSubject(record), module: record.module ?? "")
             var value = counts[key] ?? ReviewModuleCounts()
             value.total += 1
             if (record.indexObject?["status"] as? String) == "已掌握" {
@@ -167,7 +167,7 @@ struct ReviewView: View {
         let pool = dueRecords.isEmpty ? errors : dueRecords
         var subjectCounts: [String: Int] = [:]
         for record in pool {
-            let key = ReviewModuleKey(subject: record.subject ?? "未分类", module: record.module ?? "")
+            let key = ReviewModuleKey(subject: reviewSubject(record), module: record.module ?? "")
             var value = counts[key] ?? ReviewModuleCounts()
             value.inPool += 1
             counts[key] = value
@@ -194,12 +194,51 @@ struct ReviewView: View {
 
     private func isDue(_ record: StoredRecord, now: Date) -> Bool {
         let object = record.indexObject ?? [:]
-        guard (object["status"] as? String) == "未掌握" else { return false }
+        let status = object["status"] as? String ?? ""
+        let isShenlun = isShenlunRecord(record)
+        if isShenlun {
+            guard status != "已掌握" else { return false }
+        } else {
+            guard status == "未掌握" else { return false }
+        }
         let date = parseDate(object["lastReviewDate"]) ?? record.createdAt ?? .distantPast
         return Calendar.current.dateComponents([.day], from: date, to: now).day ?? 0 >= 3
     }
 
+    @ViewBuilder
     private func questionView(_ record: StoredRecord) -> some View {
+        if isShenlunRecord(record) {
+            shenlunReviewView(record)
+        } else {
+            choiceQuestionView(record)
+        }
+    }
+
+    private func shenlunReviewView(_ record: StoredRecord) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 15) {
+                HStack {
+                    Button { exitSession() } label: { Label("退出", systemImage: "chevron.left") }
+                    Spacer()
+                    Text("第 \(index + 1) / \(queue.count) 题")
+                        .font(AppTheme.inputFont.weight(.semibold))
+                }
+                ProgressView(value: Double(index + 1), total: Double(max(1, queue.count)))
+                    .tint(AppTheme.accent)
+                ShenlunRecordContent(record: record)
+                Button(index + 1 >= queue.count ? "完成本轮复盘" : "完成本题，下一题") {
+                    completeShenlunReview(record)
+                }
+                .buttonStyle(NativePrimaryButtonStyle())
+            }
+            .padding(20)
+            .frame(maxWidth: 920, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Color.white)
+    }
+
+    private func choiceQuestionView(_ record: StoredRecord) -> some View {
         let object = record.jsonObject ?? [:]
         let options = (object["options"] as? [String] ?? []).filter { !$0.isEmpty }
         let correctOption = object["correctOption"] as? String ?? ""
@@ -253,12 +292,26 @@ struct ReviewView: View {
     }
     private func start(subject: String?, module: String? = nil) {
         queueIDs = reviewPool.filter {
-            (subject == nil || $0.subject == subject) && (module == nil || ($0.module ?? "") == module)
+            (subject == nil || reviewSubject($0) == subject) && (module == nil || ($0.module ?? "") == module)
         }.map(\.recordID)
         index = 0
         answer = nil
         isSession = true
         persistSession()
+    }
+
+    private func reviewSubject(_ record: StoredRecord) -> String {
+        if let subject = record.subject?.trimmingCharacters(in: .whitespacesAndNewlines), !subject.isEmpty {
+            return subject
+        }
+        if let subject = (record.indexObject?["subject"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !subject.isEmpty {
+            return subject
+        }
+        return isShenlunRecord(record) ? "申论" : "未分类"
+    }
+
+    private func isShenlunRecord(_ record: StoredRecord) -> Bool {
+        record.isShenlunRecord
     }
     private func exitSession() { isSession = false; queueIDs = []; index = 0; answer = nil; UserDefaults.standard.removeObject(forKey: sessionKey) }
 
@@ -298,6 +351,23 @@ struct ReviewView: View {
         object["lastReviewDate"] = ISO8601DateFormatter().string(from: .now); object["updatedAt"] = ISO8601DateFormatter().string(from: .now); object["status"] = correct ? "已掌握" : "未掌握"
         if let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) { record.replacePayload(payload); record.updatedAt = .now; try? modelContext.save() }
         UINotificationFeedbackGenerator().notificationOccurred(correct ? .success : .error); answer = ReviewAnswer(selected: selected, correct: correct)
+    }
+
+    private func completeShenlunReview(_ record: StoredRecord) {
+        var object = record.jsonObject ?? [:]
+        let count = (object["reviewCount"] as? NSNumber)?.intValue ?? Int(object["reviewCount"] as? String ?? "") ?? 0
+        object["reviewCount"] = count + 1
+        object["lastReviewDate"] = ISO8601DateFormatter().string(from: .now)
+        object["updatedAt"] = ISO8601DateFormatter().string(from: .now)
+        // Keep the Shenlun workflow status unchanged; a review is not a correctness judgment.
+        if let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) {
+            record.replacePayload(payload)
+            record.updatedAt = .now
+            try? modelContext.save()
+        }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        answer = nil
+        index += 1
     }
     private func optionBackground(letter: String, correct: String) -> Color {
         guard let answer else { return AppTheme.secondaryBackground }; if letter == correct { return AppTheme.success.opacity(0.10) }; if letter == answer.selected { return AppTheme.danger.opacity(0.10) }; return AppTheme.secondaryBackground

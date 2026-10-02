@@ -13,6 +13,15 @@ struct ShenlunBiasDraft: Identifiable, Codable, Equatable {
     var right = ""
 }
 
+struct ShenlunMaterialDraft: Identifiable, Equatable {
+    let id = UUID()
+    var content: String
+
+    init(content: String = "") {
+        self.content = content
+    }
+}
+
 struct WordComparisonTermDraft: Identifiable, Codable, Equatable {
     var id = UUID()
     var name = ""
@@ -45,6 +54,10 @@ struct LibraryRecordDraft {
     var compareGroups: [LogicComparisonDraft] = []
     var score = ""
     var totalScore = ""
+    var materials: [ShenlunMaterialDraft] = [.init()]
+    var myAnswer = ""
+    var referenceAnswer = ""
+    var currentAffairsSupplement = ""
     var myFramework = ""
     var standardFramework = ""
     var paragraph = ""
@@ -77,7 +90,10 @@ struct LibraryRecordDraft {
     init(kind: LibraryContentKind, scope: LibraryScope, record: StoredRecord? = nil) {
         original = record?.jsonObject ?? [:]
         id = record?.recordID ?? ""
-        subject = (original["subject"] as? String) ?? scope.subject ?? "言语理解"
+        subject = (original["subject"] as? String)
+            ?? ((kind == .errors && (original["isShenlun"] as? Bool) == true) ? "申论" : nil)
+            ?? scope.subject
+            ?? "言语理解"
         let defaultModules = SubjectDefinition.all.first { $0.name == subject }?.modules ?? []
         let storedModule = (original["module"] as? String) ?? scope.module
         if subject == "数量关系" {
@@ -128,6 +144,12 @@ struct LibraryRecordDraft {
         }
         score = LibraryRecordDraft.numberText(original["score"])
         totalScore = LibraryRecordDraft.numberText(original["totalScore"])
+        if let storedMaterials = original["materials"] as? [String], !storedMaterials.isEmpty {
+            materials = storedMaterials.map { ShenlunMaterialDraft(content: $0) }
+        }
+        myAnswer = LibraryRecordDraft.text(original, keys: ["myAnswer"])
+        referenceAnswer = LibraryRecordDraft.text(original, keys: ["referenceAnswer"])
+        currentAffairsSupplement = LibraryRecordDraft.text(original, keys: ["currentAffairsSupplement"])
         myFramework = LibraryRecordDraft.text(original, keys: ["myFramework"])
         standardFramework = LibraryRecordDraft.text(original, keys: ["stdFramework"])
         paragraph = LibraryRecordDraft.text(original, keys: ["paragraph"])
@@ -282,9 +304,23 @@ enum LibraryRecordRepository {
             object["lastReviewDate"] = object["lastReviewDate"] ?? iso(now)
             if draft.subject == "申论" {
                 object["isShenlun"] = true
-                object["score"] = Int(draft.score) ?? 0
-                object["totalScore"] = Int(draft.totalScore) ?? 0
+                if let score = Int(draft.score.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    object["score"] = score
+                } else {
+                    object.removeValue(forKey: "score")
+                }
+                if let totalScore = Int(draft.totalScore.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    object["totalScore"] = totalScore
+                } else {
+                    object.removeValue(forKey: "totalScore")
+                }
                 object["source"] = draft.questionSource
+                object["materials"] = draft.materials
+                    .map(\.content)
+                    .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                object["myAnswer"] = draft.myAnswer
+                object["referenceAnswer"] = draft.referenceAnswer
+                object["currentAffairsSupplement"] = draft.currentAffairsSupplement
                 object["myFramework"] = draft.myFramework
                 object["stdFramework"] = draft.standardFramework
                 object["paragraph"] = draft.paragraph

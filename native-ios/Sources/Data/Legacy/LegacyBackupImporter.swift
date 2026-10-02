@@ -203,7 +203,14 @@ enum LegacyBackupImporter {
             object["knowledgePoints"] = Array(points.prefix(20))
             object["knowledgePoint"] = points.first ?? ""
             object["errorCause"] = trimmedString(object["errorCause"]) ?? ""
-            object["status"] = (object["status"] as? String) == "已掌握" ? "已掌握" : "未掌握"
+            let isShenlun = object["subject"] as? String == "申论" || (object["isShenlun"] as? Bool) == true
+            if isShenlun {
+                // Shenlun uses its own workflow states such as “待吸收”; preserve them verbatim.
+                if trimmedString(object["subject"]) == nil { object["subject"] = "申论" }
+                if (object["status"] as? String)?.isEmpty != false { object["status"] = "待吸收" }
+            } else {
+                object["status"] = (object["status"] as? String) == "已掌握" ? "已掌握" : "未掌握"
+            }
             object["reviewCount"] = (object["reviewCount"] as? NSNumber)?.intValue ?? 0
         }
 

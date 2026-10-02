@@ -46,6 +46,7 @@ struct LibraryRecordEditorView: View {
     @State private var showQuantityKnowledgePoints = false
     @State private var showQuantityWeaknessTags = false
     @State private var showQuantityQuestionTypes = false
+    @State private var isCurrentAffairsSupplementExpanded = false
 
     init(
         kind: LibraryContentKind,
@@ -80,6 +81,9 @@ struct LibraryRecordEditorView: View {
                 .filter { !$0.isEmpty }
             if !names.isEmpty { initialDraft.title = names.joined(separator: " vs ") }
         }
+        _isCurrentAffairsSupplementExpanded = State(
+            initialValue: !initialDraft.currentAffairsSupplement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        )
         _draft = State(initialValue: initialDraft)
     }
 
@@ -305,7 +309,7 @@ struct LibraryRecordEditorView: View {
             if draft.subject == "申论" { shenlunFields }
             else if draft.subject == "判断推理", draft.module == "图形推理" { graphErrorPriorityFields }
             else { regularErrorFields }
-            errorRelations
+            if draft.subject != "申论" { errorRelations }
         }
     }
 
@@ -734,37 +738,101 @@ struct LibraryRecordEditorView: View {
 
     private var shenlunFields: some View {
         VStack(alignment: .leading, spacing: 12) {
-            NativeFieldLabel(title: "题目信息")
-            editor(text: $draft.title, height: 110)
-            HStack {
-                TextField("得分", text: $draft.score).keyboardType(.numberPad).textFieldStyle(NativeTextFieldStyle())
-                TextField("总分", text: $draft.totalScore).keyboardType(.numberPad).textFieldStyle(NativeTextFieldStyle())
-            }
-            TextField("题目来源", text: $draft.questionSource).textFieldStyle(NativeTextFieldStyle())
-            NativeFieldLabel(title: "框架对比")
-            editor(text: $draft.myFramework, height: 110)
-            editor(text: $draft.standardFramework, height: 110)
-            NativeFieldLabel(title: "逐段分析差距")
-            editor(text: $draft.paragraph, height: 120)
-            HStack {
-                NativeFieldLabel(title: "核心思维偏差")
-                Spacer()
-                Button { draft.bias.append(.init()) } label: { Label("添加一行", systemImage: "plus") }
-                    .font(AppTheme.inputFont.weight(.semibold))
-            }
-            ForEach($draft.bias) { $row in
-                HStack {
-                    TextField("我的错误", text: $row.wrong).textFieldStyle(NativeTextFieldStyle())
-                    TextField("正确思维", text: $row.right).textFieldStyle(NativeTextFieldStyle())
-                    Button { draft.bias.removeAll { $0.id == row.id } } label: { Image(systemName: "trash").foregroundStyle(AppTheme.danger) }
+            errorFormCard {
+                compactFormSection("题型及来源", image: "doc.text.magnifyingglass") {
+                    TextField("题目来源（可选，如：2025国考申论）", text: $draft.questionSource)
+                        .textFieldStyle(NativeTextFieldStyle())
+                    HStack {
+                        TextField("得分（可选）", text: $draft.score).keyboardType(.numberPad).textFieldStyle(NativeTextFieldStyle())
+                        TextField("总分（可选）", text: $draft.totalScore).keyboardType(.numberPad).textFieldStyle(NativeTextFieldStyle())
+                    }
                 }
             }
-            stringList(title: "我错误的踩分点", values: $draft.wrongList)
-            stringList(title: "我遗漏的踩分点", values: $draft.missedList)
-            NativeFieldLabel(title: "复盘笔记")
-            richEditor(text: $draft.content, height: 110)
+
+            errorFormCard {
+                compactFormSection("材料（可选）", image: "doc.on.doc") {
+                    HStack {
+                        Spacer()
+                        Button { draft.materials.append(.init()) } label: {
+                            Label("增加材料", systemImage: "plus")
+                                .font(AppTheme.auxiliaryFont.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    ForEach(draft.materials) { material in
+                        shenlunMaterialEditor(material)
+                    }
+                }
+            }
+
+            errorFormCard {
+                compactFormSection("题干", image: "text.alignleft") {
+                    editor(text: $draft.title, height: 130)
+                }
+            }
+
+            errorFormCard {
+                DisclosureGroup(isExpanded: $isCurrentAffairsSupplementExpanded) {
+                    editor(text: $draft.currentAffairsSupplement, height: 130)
+                } label: {
+                    HStack {
+                        Label("时政补充（可选）", systemImage: "text.book.closed")
+                            .font(.system(size: 13, weight: .medium))
+                        Spacer()
+                        if !draft.currentAffairsSupplement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("已填写").font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.accent)
+                        }
+                    }
+                }
+                .tint(AppTheme.accent)
+            }
+
+            errorFormCard {
+                compactFormSection("我的作答（可选）", image: "pencil.line") {
+                    editor(text: $draft.myAnswer, height: 150)
+                }
+            }
+
+            errorFormCard {
+                compactFormSection("参考答案（可选）", image: "checkmark.document") {
+                    editor(text: $draft.referenceAnswer, height: 150)
+                }
+            }
+
+            errorFormCard {
+                compactFormSection("复盘笔记（可选）", image: "note.text") {
+                    richEditor(text: $draft.content, height: 220)
+                }
+            }
         }
         .background(Color.white)
+    }
+
+    private func shenlunMaterialEditor(_ material: ShenlunMaterialDraft) -> some View {
+        let materialIndex = draft.materials.firstIndex(where: { $0.id == material.id }) ?? 0
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                NativeFieldLabel(title: "材料 \(materialIndex + 1)")
+                Spacer()
+                if draft.materials.count > 1 {
+                    Button("删除") { draft.materials.removeAll { $0.id == material.id } }
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(AppTheme.danger)
+                        .buttonStyle(.plain)
+                }
+            }
+            editor(text: shenlunMaterialBinding(id: material.id), height: 150)
+        }
+    }
+
+    private func shenlunMaterialBinding(id: UUID) -> Binding<String> {
+        Binding(
+            get: { draft.materials.first(where: { $0.id == id })?.content ?? "" },
+            set: { value in
+                guard let index = draft.materials.firstIndex(where: { $0.id == id }) else { return }
+                draft.materials[index].content = value
+            }
+        )
     }
 
     private func stringList(title: String, values: Binding<[String]>) -> some View {

@@ -185,10 +185,12 @@ struct LibraryRecordSnapshot: Identifiable {
             : ["title", "question", "name", "words", "text", "content"]
         title = Self.firstText(in: object, keys: titleKeys)
             .map(Self.plainText) ?? "未命名记录"
-        summary = Self.firstText(
-            in: object,
-            keys: ["judgmentHint", "commonMeaning", "compareNote", "content", "note", "errorNote", "meaning", "myUnderstanding", "relation", "coreDifference", "question"]
-        ).map(Self.plainText) ?? ""
+        let isShenlun = record.collection == "errors"
+            && (record.subject == "申论" || object["subject"] as? String == "申论" || (object["isShenlun"] as? Bool) == true)
+        let summaryKeys = isShenlun
+            ? ["question", "title"]
+            : ["judgmentHint", "commonMeaning", "compareNote", "content", "note", "errorNote", "meaning", "myUnderstanding", "relation", "coreDifference", "question"]
+        summary = Self.firstText(in: object, keys: summaryKeys).map(Self.plainText) ?? ""
         status = Self.firstText(in: object, keys: ["status", "masteryStatus"])
         colorHex = Self.firstText(in: object, keys: ["color", "colorHex"])
         isPinned = (object["pinned"] as? Bool) ?? (object["pinned"] as? NSNumber)?.boolValue ?? false

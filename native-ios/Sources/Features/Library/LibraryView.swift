@@ -99,6 +99,15 @@ struct LibraryView: View {
                             popCurrentRoute()
                         }
                     )
+                } else if kind == .errors, record.isShenlunRecord {
+                    ShenlunRecordDetailView(
+                        record: record,
+                        onEdit: { openEditorAfterMenuDismisses(kind: kind, recordID: recordID) },
+                        onDelete: {
+                            remove(LibraryDeleteTarget(kind: kind, recordID: recordID))
+                            popCurrentRoute()
+                        }
+                    )
                 } else if kind == .notes {
                     LibraryNoteDetailView(
                         record: record,

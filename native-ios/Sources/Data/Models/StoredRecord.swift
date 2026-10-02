@@ -42,6 +42,19 @@ final class StoredRecord {
         return (try? JSONSerialization.jsonObject(with: indexPayload)) as? [String: Any]
     }
 
+    var isShenlunRecord: Bool {
+        if subject?.trimmingCharacters(in: .whitespacesAndNewlines) == "申论" { return true }
+        let object = indexObject
+        if (object?["subject"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) == "申论"
+            || (object?["isShenlun"] as? Bool) == true {
+            return true
+        }
+        let indexedSubject = (object?["subject"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (subject?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+              indexedSubject?.isEmpty ?? true else { return false }
+        return (jsonObject?["isShenlun"] as? Bool) == true
+    }
+
     func replacePayload(_ value: Data) {
         payload = value
         indexPayload = Self.makeIndexPayload(from: value, collection: collection)
@@ -63,7 +76,7 @@ final class StoredRecord {
         case "errors":
             keys = [
                 "id", "subject", "module", "knowledgePoints", "knowledgePoint", "errorCause", "status",
-                "question", "title", "type", "category", "createdAt", "updatedAt", "lastReviewDate",
+                "question", "title", "type", "category", "isShenlun", "createdAt", "updatedAt", "lastReviewDate",
                 "questionSource", "sourceYear", "sourceExamType", "sourceRegion",
                 "accuracy", "reviewCount", "sourceExamId", "pitfall", "linkedWordIds", "options",
                 "quantityStructure", "weaknessTags"

@@ -22,6 +22,10 @@ struct LibraryDraftSnapshot: Codable, Equatable {
     var compareGroups: [LogicComparisonDraft]
     var score: String
     var totalScore: String
+    var materials: [String]?
+    var myAnswer: String?
+    var referenceAnswer: String?
+    var currentAffairsSupplement: String?
     var myFramework: String
     var standardFramework: String
     var paragraph: String
@@ -73,6 +77,10 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         compareGroups = draft.compareGroups
         score = draft.score
         totalScore = draft.totalScore
+        materials = draft.materials.map(\.content)
+        myAnswer = draft.myAnswer
+        referenceAnswer = draft.referenceAnswer
+        currentAffairsSupplement = draft.currentAffairsSupplement
         myFramework = draft.myFramework
         standardFramework = draft.standardFramework
         paragraph = draft.paragraph
@@ -125,6 +133,11 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         draft.compareGroups = compareGroups
         draft.score = score
         draft.totalScore = totalScore
+        let restoredMaterials = (materials ?? []).map { ShenlunMaterialDraft(content: $0) }
+        draft.materials = restoredMaterials.isEmpty ? [.init()] : restoredMaterials
+        draft.myAnswer = myAnswer ?? ""
+        draft.referenceAnswer = referenceAnswer ?? ""
+        draft.currentAffairsSupplement = currentAffairsSupplement ?? ""
         draft.myFramework = myFramework
         draft.standardFramework = standardFramework
         draft.paragraph = paragraph
@@ -163,6 +176,13 @@ struct LibraryDraftSnapshot: Codable, Equatable {
             || !pencilKitData.isEmpty
             || !(legacyDrawingPreview ?? "").isEmpty
             || !mindMapData.isEmpty
+            || (materials ?? []).contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            || !(myAnswer ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(referenceAnswer ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(currentAffairsSupplement ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !questionSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !score.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !totalScore.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
