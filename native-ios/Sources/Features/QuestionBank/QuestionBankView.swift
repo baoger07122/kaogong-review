@@ -121,7 +121,12 @@ struct QuestionBankView: View {
         }
         .fileImporter(isPresented: $presentsFilePicker, allowedContentTypes: [.zip], allowsMultipleSelection: false) { result in
             switch result {
-            case .success(let url): prepareImport(from: url)
+            case .success(let urls):
+                guard let url = urls.first else {
+                    showImportError("没有选择 ZIP 文件。")
+                    return
+                }
+                prepareImport(from: url)
             case .failure(let error): showImportError(error.localizedDescription)
             }
         }

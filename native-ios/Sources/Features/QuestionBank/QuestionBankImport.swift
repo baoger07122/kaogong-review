@@ -357,10 +357,11 @@ enum QuestionBankPackageImporter {
         guard let archive = Archive(url: source, accessMode: .read) else {
             throw PackageError("无法读取 ZIP 文件。请确认文件完整且为标准 ZIP 包。")
         }
-        guard archive.count <= 800 else { throw PackageError("ZIP 包文件数量超过 800，已拒绝导入。") }
+        let archiveEntries = Array(archive)
+        guard archiveEntries.count <= 800 else { throw PackageError("ZIP 包文件数量超过 800，已拒绝导入。") }
         var totalSize: UInt64 = 0
         var extractedPaths = Set<String>()
-        for entry in archive {
+        for entry in archiveEntries {
             let path = entry.path.replacingOccurrences(of: "\\", with: "/")
             let components = path.split(separator: "/")
             guard !path.hasPrefix("/"), !components.isEmpty,
@@ -726,7 +727,8 @@ private enum XLSXTableReader {
         guard let archive = Archive(url: file, accessMode: .read) else {
             throw NSError(domain: "XLSX", code: 3, userInfo: [NSLocalizedDescriptionKey: "标准工作簿不是有效的 XLSX 文件。"])
         }
-        guard archive.count <= 4_000 else {
+        let entries = Array(archive)
+        guard entries.count <= 4_000 else {
             throw NSError(domain: "XLSX", code: 4, userInfo: [NSLocalizedDescriptionKey: "工作簿内部文件数量异常。"])
         }
         let temporaryRoot = FileManager.default.temporaryDirectory
@@ -734,7 +736,6 @@ private enum XLSXTableReader {
         try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporaryRoot) }
 
-        let entries = Array(archive)
         let duplicatePaths = Dictionary(grouping: entries, by: \.path).filter { $0.value.count > 1 }
         guard duplicatePaths.isEmpty else {
             throw NSError(domain: "XLSX", code: 5, userInfo: [NSLocalizedDescriptionKey: "工作簿中存在重复文件路径。"])
@@ -830,6 +831,10 @@ private enum XLSXTableReader {
 
 private extension String {
     var cleaned: String { trimmingCharacters(in: .whitespacesAndNewlines) }
+}
+
+private extension Optional where Wrapped == String {
+    var cleaned: String { (self ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
 }
 
 private extension Array {
