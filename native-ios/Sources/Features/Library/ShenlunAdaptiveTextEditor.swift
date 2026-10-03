@@ -15,13 +15,17 @@ struct ShenlunAdaptiveTextEditor: View {
     }
 
     var body: some View {
-        ShenlunTextView(
-            text: $text,
-            height: $measuredHeight,
-            minimumHeight: minimumHeight,
-            growsWithContent: growsWithContent
-        )
+        GeometryReader { proxy in
+            ShenlunTextView(
+                text: $text,
+                height: $measuredHeight,
+                minimumHeight: minimumHeight,
+                growsWithContent: growsWithContent,
+                availableWidth: proxy.size.width
+            )
+        }
         .frame(height: growsWithContent ? measuredHeight : minimumHeight)
+        .frame(maxWidth: .infinity)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -35,6 +39,7 @@ struct ShenlunTextView: UIViewRepresentable {
     @Binding var height: CGFloat
     let minimumHeight: CGFloat
     let growsWithContent: Bool
+    let availableWidth: CGFloat
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -43,12 +48,16 @@ struct ShenlunTextView: UIViewRepresentable {
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView()
         view.delegate = context.coordinator
-        view.font = .systemFont(ofSize: 15)
+        view.font = AppTheme.inputUIFont
         view.textColor = .label
         view.backgroundColor = .clear
         view.text = text
         view.textContainerInset = UIEdgeInsets(top: 9, left: 9, bottom: 9, right: 9)
         view.textContainer.lineFragmentPadding = 0
+        view.textContainer.widthTracksTextView = true
+        view.textContainer.lineBreakMode = .byCharWrapping
+        view.defaultTextAttributes = Self.typingAttributes
+        view.typingAttributes = Self.typingAttributes
         view.isScrollEnabled = !growsWithContent
         view.alwaysBounceVertical = false
         view.showsVerticalScrollIndicator = growsWithContent == false
@@ -58,6 +67,11 @@ struct ShenlunTextView: UIViewRepresentable {
 
     func updateUIView(_ view: UITextView, context: Context) {
         context.coordinator.parent = self
+        view.font = AppTheme.inputUIFont
+        view.textContainer.widthTracksTextView = true
+        view.textContainer.lineBreakMode = .byCharWrapping
+        view.defaultTextAttributes = Self.typingAttributes
+        view.typingAttributes = Self.typingAttributes
         if view.text != text {
             view.text = text
         }
@@ -67,9 +81,12 @@ struct ShenlunTextView: UIViewRepresentable {
     }
 
     private func updateHeight(_ view: UITextView) {
-        guard growsWithContent, view.bounds.width > 0 else { return }
+        guard growsWithContent else { return }
+        let width = max(1, availableWidth > 0 ? availableWidth : view.bounds.width)
+        guard width > 1 else { return }
+        view.layoutIfNeeded()
         let fitting = view.sizeThatFits(
-            CGSize(width: view.bounds.width, height: .greatestFiniteMagnitude)
+            CGSize(width: width, height: .greatestFiniteMagnitude)
         )
         let nextHeight = max(minimumHeight, ceil(fitting.height))
         guard abs(height - nextHeight) > 0.5 else { return }
@@ -78,6 +95,17 @@ struct ShenlunTextView: UIViewRepresentable {
                 self.height = nextHeight
             }
         }
+    }
+
+    private static var typingAttributes: [NSAttributedString.Key: Any] {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = AppTheme.inputLineSpacing
+        paragraph.lineBreakMode = .byCharWrapping
+        return [
+            .font: AppTheme.inputUIFont,
+            .foregroundColor: UIColor.label,
+            .paragraphStyle: paragraph
+        ]
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {

@@ -55,6 +55,19 @@ final class StoredRecord {
         return (jsonObject?["isShenlun"] as? Bool) == true
     }
 
+    var shenlunFormatVersion: Int? {
+        guard let value = jsonObject?["shenlunFormatVersion"] else { return nil }
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String { return Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        return nil
+    }
+
+    var requiresShenlunAdaptation: Bool {
+        guard isShenlunRecord else { return false }
+        guard let version = shenlunFormatVersion else { return true }
+        return version < ShenlunRecordFormat.currentVersion
+    }
+
     func replacePayload(_ value: Data) {
         payload = value
         indexPayload = Self.makeIndexPayload(from: value, collection: collection)
@@ -79,6 +92,7 @@ final class StoredRecord {
                 "question", "title", "type", "category", "isShenlun", "createdAt", "updatedAt", "lastReviewDate",
                 "questionSource", "questionNumber", "sourceYear", "sourceExamType", "sourceRegion",
                 "accuracy", "reviewCount", "sourceExamId", "pitfall", "linkedWordIds", "options",
+                "shenlunFormatVersion",
                 "quantityStructure", "weaknessTags"
             ]
         case "notes":

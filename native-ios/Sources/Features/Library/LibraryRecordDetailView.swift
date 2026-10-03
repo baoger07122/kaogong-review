@@ -56,6 +56,12 @@ struct LibraryRecordDetailView: View {
                 .padding(.bottom, 14)
                 .frame(maxWidth: 920, alignment: .leading)
                 .frame(maxWidth: .infinity)
+                .overlay {
+                    LibraryDoodleContentLayer(
+                        session: doodleSession,
+                        targetRecordID: record.compoundID
+                    )
+                }
             }
             .background(Color.white)
 
@@ -496,6 +502,7 @@ struct LibraryRecordDetailView: View {
         let openStart = ProcessInfo.processInfo.systemUptime
         let drawingData = firstText(["pencilKitData", "drawingData"]) ?? ""
         doodleSession.present(
+            targetRecordID: record.compoundID,
             drawingData: drawingData,
             legacyPreviewDataURL: drawingData.isEmpty ? (firstText(["drawingPreview", "doodle", "drawingDataURL"]) ?? "") : "",
             onSave: saveDrawing

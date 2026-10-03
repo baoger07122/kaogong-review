@@ -78,8 +78,9 @@ struct RootTabView: View {
         }
         .tint(AppTheme.accent)
         .overlay {
-            // Keep the PencilKit host mounted so opening the same record does not
-            // recreate and synchronously decode a full PKDrawing every time.
+            // Keep the fixed doodle toolbar and navigation guard above the pushed
+            // page. The PencilKit surface itself is mounted by each detail page's
+            // scroll content so strokes use the same coordinate system as text.
             LibraryDoodleOverlay(session: libraryDoodleSession)
                 .opacity(libraryDoodleSession.isPresented ? 1 : 0)
                 .allowsHitTesting(libraryDoodleSession.isPresented)

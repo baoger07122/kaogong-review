@@ -4,11 +4,13 @@ import SwiftUI
 final class LibraryDoodleSession: ObservableObject {
     @Published var isPresented = false
     @Published var saveError: String?
+    @Published private(set) var targetRecordID: String?
     let canvas = LibraryDoodleCanvasState()
     private var saveHandler: ((String, Bool) -> String?)?
     private var isDismissing = false
 
     func present(
+        targetRecordID: String,
         drawingData: String,
         legacyPreviewDataURL: String,
         onSave: @escaping (String, Bool) -> String?
@@ -16,6 +18,7 @@ final class LibraryDoodleSession: ObservableObject {
         guard !isPresented else { return }
         saveError = nil
         isDismissing = false
+        self.targetRecordID = targetRecordID
         canvas.drawingData = drawingData
         canvas.legacyPreviewDataURL = legacyPreviewDataURL
         saveHandler = onSave
@@ -92,56 +95,36 @@ final class LibraryDoodleCanvasState: ObservableObject {
 
 struct LibraryDoodleOverlay: View {
     @ObservedObject var session: LibraryDoodleSession
-    @ObservedObject private var canvas: LibraryDoodleCanvasState
     @ObservedObject private var controller: PencilDrawingController
 
     init(session: LibraryDoodleSession) {
         self.session = session
-        _canvas = ObservedObject(wrappedValue: session.canvas)
         _controller = ObservedObject(wrappedValue: session.canvas.controller)
     }
 
     var body: some View {
         GeometryReader { proxy in
-            ZStack {
-                // Lives above the complete NavigationStack. The genuine system back
-                // control remains unchanged underneath and cannot receive input.
+            ZStack(alignment: .topTrailing) {
+                // The dimmer and toolbar live above the complete NavigationStack,
+                // while the drawing surface is mounted inside the detail ScrollView
+                // so both content and strokes share the same coordinate space.
                 Color.black.opacity(0.18)
                     .contentShape(Rectangle())
+                    .allowsHitTesting(false)
 
-                NativePencilDrawingEditor(
-                    encodedData: $canvas.drawingData,
-                    legacyPreviewDataURL: canvas.legacyPreviewDataURL,
-                    transparentBackground: true,
-                    toolbarAtTop: false,
-                    isActive: session.isPresented,
-                    controller: controller,
-                    onClose: session.dismiss
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-
-                VStack(spacing: 0) {
-                    HStack {
-                        Spacer(minLength: 0)
-                        toolbar
-                    }
+                toolbar
                     .padding(.top, max(proxy.safeAreaInsets.top + 5, 28))
                     .padding(.trailing, proxy.safeAreaInsets.trailing + 12)
-                    Spacer(minLength: 0)
-                }
 
                 if let saveError = session.saveError {
-                    VStack {
-                        Spacer()
-                        Text(saveError)
-                            .font(AppTheme.auxiliaryFont)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(AppTheme.danger.opacity(0.9), in: Capsule())
-                            .padding(.bottom, proxy.safeAreaInsets.bottom + 18)
-                    }
+                    Text(saveError)
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(AppTheme.danger.opacity(0.9), in: Capsule())
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, proxy.safeAreaInsets.bottom + 18)
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
@@ -197,5 +180,44 @@ struct LibraryDoodleOverlay: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+    }
+}
+
+/// Mounts PencilKit in the detail page's content coordinate space. The view is
+/// attached to the scroll content instead of the window overlay; scrolling
+/// therefore moves the text, images, and strokes together without serializing
+/// the drawing on every offset change.
+struct LibraryDoodleContentLayer: View {
+    @ObservedObject var session: LibraryDoodleSession
+    let targetRecordID: String
+    @ObservedObject private var canvas: LibraryDoodleCanvasState
+    @ObservedObject private var controller: PencilDrawingController
+
+    init(session: LibraryDoodleSession, targetRecordID: String) {
+        self.session = session
+        self.targetRecordID = targetRecordID
+        _canvas = ObservedObject(wrappedValue: session.canvas)
+        _controller = ObservedObject(wrappedValue: session.canvas.controller)
+    }
+
+    var body: some View {
+        if session.targetRecordID == targetRecordID {
+            GeometryReader { proxy in
+                NativePencilDrawingEditor(
+                    encodedData: $canvas.drawingData,
+                    legacyPreviewDataURL: canvas.legacyPreviewDataURL,
+                    transparentBackground: true,
+                    toolbarAtTop: false,
+                    isActive: session.isPresented,
+                    controller: controller,
+                    onClose: session.dismiss
+                )
+                .frame(width: proxy.size.width, height: proxy.size.height)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .opacity(session.isPresented ? 1 : 0)
+            .allowsHitTesting(session.isPresented)
+        }
     }
 }

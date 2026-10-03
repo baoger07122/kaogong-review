@@ -14,12 +14,22 @@ struct ShenlunRecordDetailView: View {
     var body: some View {
         ZStack {
             ScrollView {
-                ShenlunRecordContent(record: record, noteSession: noteSession)
+                ShenlunRecordContent(
+                    record: record,
+                    noteSession: record.requiresShenlunAdaptation ? nil : noteSession,
+                    onAdaptation: onEdit
+                )
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
                     .padding(.bottom, 24)
                     .frame(maxWidth: 920, alignment: .leading)
                     .frame(maxWidth: .infinity)
+                    .overlay {
+                        LibraryDoodleContentLayer(
+                            session: doodleSession,
+                            targetRecordID: record.compoundID
+                        )
+                    }
             }
             .background(Color.white)
 
@@ -39,10 +49,10 @@ struct ShenlunRecordDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 8) {
-                    Button(action: openDoodle) {
+                    Button(action: record.requiresShenlunAdaptation ? onEdit : openDoodle) {
                         Image(systemName: "pencil.and.scribble")
                     }
-                    .accessibilityLabel("涂鸦")
+                    .accessibilityLabel(record.requiresShenlunAdaptation ? "先适配旧数据" : "涂鸦")
                     Menu {
                         Button {
                             if noteSession.finish() { onEdit() }
@@ -76,6 +86,7 @@ struct ShenlunRecordDetailView: View {
                 ?? "")
             : ""
         doodleSession.present(
+            targetRecordID: record.compoundID,
             drawingData: drawingData,
             legacyPreviewDataURL: legacyPreview,
             onSave: saveDrawing
@@ -100,16 +111,35 @@ struct ShenlunRecordDetailView: View {
 struct ShenlunRecordContent: View {
     let record: StoredRecord
     let noteSession: LibraryInlineNoteSession?
+    let onAdaptation: (() -> Void)?
 
-    init(record: StoredRecord, noteSession: LibraryInlineNoteSession? = nil) {
+    init(
+        record: StoredRecord,
+        noteSession: LibraryInlineNoteSession? = nil,
+        onAdaptation: (() -> Void)? = nil
+    ) {
         self.record = record
         self.noteSession = noteSession
+        self.onAdaptation = onAdaptation
     }
 
     private var object: [String: Any] { record.jsonObject ?? [:] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            if record.requiresShenlunAdaptation {
+                ShenlunDetailCard(title: "旧格式记录", systemImage: "arrow.triangle.2.circlepath") {
+                    Text("这条申论记录仍保留原始字段。编辑前请先逐项确认适配内容，查看不会修改原数据。")
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let onAdaptation {
+                        Button("适配旧数据", action: onAdaptation)
+                            .font(AppTheme.actionFont)
+                            .foregroundStyle(AppTheme.accent)
+                    }
+                }
+            }
             metadataSection
 
             if let supplement = nonEmptyText(object["currentAffairsSupplement"]) {

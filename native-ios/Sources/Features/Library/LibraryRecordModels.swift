@@ -103,7 +103,31 @@ enum LibraryCardSize: String, CaseIterable, Identifiable {
 
 enum LibraryRoute: Hashable {
     case editor(kind: LibraryContentKind, recordID: String?)
+    case shenlunAdaptation(recordID: String)
     case detail(kind: LibraryContentKind, recordID: String)
+}
+
+enum ShenlunRecordFormat {
+    /// The first explicitly versioned payload shape. Records without this key
+    /// are legacy data and must be adapted by the user before editing.
+    static let currentVersion = 1
+    static let backupCollection = "shenlun-adaptation-backup"
+}
+
+struct ShenlunAdaptationValues {
+    var questionType = ""
+    var questionSource = ""
+    var questionNumber = ""
+    var score = ""
+    var totalScore = ""
+    var currentAffairsSupplement = ""
+    var myAnswer = ""
+    var referenceAnswer = ""
+    var myAnswerIssues = ""
+    var materialsAnalysis = ""
+    var reviewNote = ""
+    var materials: [String] = []
+    var question = ""
 }
 
 enum WordEntryKind: String, CaseIterable, Identifiable, Codable {

@@ -79,13 +79,22 @@ struct LibraryView: View {
     private func openEditorAfterMenuDismisses(kind: LibraryContentKind, recordID: String) {
         Task { @MainActor in
             await Task.yield()
-            navigationPath.append(.editor(kind: kind, recordID: recordID))
+            if kind == .errors,
+               let record = records.first(where: { $0.collection == kind.collection && $0.recordID == recordID }),
+               record.isShenlunRecord,
+               record.requiresShenlunAdaptation {
+                navigationPath.append(.shenlunAdaptation(recordID: recordID))
+            } else {
+                navigationPath.append(.editor(kind: kind, recordID: recordID))
+            }
         }
     }
 
     @ViewBuilder
     private func destination(for route: LibraryRoute) -> some View {
         switch route {
+        case let .shenlunAdaptation(recordID):
+            shenlunAdaptationDestination(recordID: recordID)
         case let .editor(kind, recordID):
             editorDestination(kind: kind, recordID: recordID)
         case let .detail(kind, recordID):
@@ -138,10 +147,33 @@ struct LibraryView: View {
     }
 
     @ViewBuilder
+    private func shenlunAdaptationDestination(recordID: String) -> some View {
+        if let record = records.first(where: { $0.collection == "errors" && $0.recordID == recordID }) {
+            ShenlunAdaptationView(record: record) {
+                replaceCurrentRoute(with: .editor(kind: .errors, recordID: recordID))
+            }
+        } else {
+            NativeStatusCard(
+                title: "记录不存在",
+                detail: "无法载入需要适配的申论记录",
+                systemImage: "exclamationmark.triangle",
+                color: AppTheme.warning
+            )
+            .padding(20)
+        }
+    }
+
+    @ViewBuilder
     private func editorDestination(kind: LibraryContentKind, recordID: String?) -> some View {
         if let recordID {
             if let record = records.first(where: { $0.collection == kind.collection && $0.recordID == recordID }) {
-                recordEditor(kind: kind, recordID: recordID, record: record)
+                if kind == .errors, record.isShenlunRecord, record.requiresShenlunAdaptation {
+                    ShenlunAdaptationView(record: record) {
+                        replaceCurrentRoute(with: .editor(kind: .errors, recordID: recordID))
+                    }
+                } else {
+                    recordEditor(kind: kind, recordID: recordID, record: record)
+                }
             } else {
                 NativeStatusCard(
                     title: "记录不存在",
@@ -182,6 +214,11 @@ struct LibraryView: View {
     private func popCurrentRoute() {
         guard !navigationPath.isEmpty else { return }
         navigationPath.removeLast()
+    }
+
+    private func replaceCurrentRoute(with route: LibraryRoute) {
+        guard !navigationPath.isEmpty else { return }
+        navigationPath[navigationPath.count - 1] = route
     }
 
     private func refreshLegacyIndexesIfNeeded() {

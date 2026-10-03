@@ -477,9 +477,13 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         canvas.minimumZoomScale = scrollEnabled ? 0.5 : 1
         canvas.maximumZoomScale = scrollEnabled ? 3 : 1
         canvas.bouncesZoom = true
-        canvas.isScrollEnabled = true
+        // Library doodles are hosted inside the detail ScrollView. Keeping the
+        // PKCanvasView itself stationary avoids a second, independent content
+        // offset that would separate strokes from the question text.
+        canvas.isScrollEnabled = scrollEnabled
         canvas.alwaysBounceHorizontal = scrollEnabled
         canvas.alwaysBounceVertical = scrollEnabled
+        canvas.isMultipleTouchEnabled = true
 
         let eraserTracker = UILongPressGestureRecognizer(
             target: context.coordinator,
@@ -510,11 +514,12 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         updateTool(canvas)
         canvas.drawingPolicy = fingerDrawingEnabled ? .anyInput : .pencilOnly
         if #available(iOS 18.0, *) { canvas.isDrawingEnabled = true }
-        canvas.isScrollEnabled = true
+        canvas.isScrollEnabled = scrollEnabled
         canvas.minimumZoomScale = scrollEnabled ? 0.5 : 1
         canvas.maximumZoomScale = scrollEnabled ? 3 : 1
         canvas.alwaysBounceHorizontal = scrollEnabled
         canvas.alwaysBounceVertical = scrollEnabled
+        canvas.isMultipleTouchEnabled = true
         context.coordinator.eraserTracker?.isEnabled = eraser
         if canvas.window != nil, !canvas.isFirstResponder {
             DispatchQueue.main.async { canvas.becomeFirstResponder() }

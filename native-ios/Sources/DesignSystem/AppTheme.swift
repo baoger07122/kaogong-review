@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum AppTheme {
     static let accent = Color(red: 0.0, green: 0.478, blue: 1.0)
@@ -21,6 +22,8 @@ enum AppTheme {
     static let cardTitleFont = Font.system(size: 15, weight: .medium)
     static let bodyFont = Font.system(size: 14, weight: .regular)
     static let inputFont = Font.system(size: 14, weight: .regular)
+    static let inputUIFont = UIFont.systemFont(ofSize: 14, weight: .regular)
+    static let inputLineSpacing: CGFloat = 3
     static let questionTextFont = Font.system(size: 13.5, weight: .regular)
     static let questionLineSpacing: CGFloat = 5
     static let fieldLabelFont = Font.system(size: 12, weight: .medium)

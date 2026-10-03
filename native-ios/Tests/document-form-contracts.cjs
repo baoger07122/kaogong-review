@@ -36,7 +36,7 @@ const tests = {
   },
   'inline note owns typing state and flushes before drawing': () => {
     assert.match(detail, /LibraryInlineNoteView/);
-    assert.match(detail, /guard noteSession\.finish\(\) else/);
+    assert.match(detail, /(?:guard noteSession\.finish\(\) else|if noteSession\.finish\(\))/);
     assert.match(note, /milliseconds\(1_400\)/);
     assert.match(note, /\.onDisappear/);
     assert.doesNotMatch(note, /navigationDestination|\.sheet\(/);
@@ -92,9 +92,11 @@ const tests = {
     assert.match(root, /@State private var libraryPath: \[LibraryRoute\] = \[\]/);
     assert.match(root, /NavigationStack\(path: \$libraryPath\) \{[\s\S]*?LibraryView\(navigationPath: \$libraryPath\)[\s\S]*?environmentObject\(libraryDoodleSession\)/);
     assert.match(root, /\.overlay \{[\s\S]*?LibraryDoodleOverlay\(session: libraryDoodleSession\)/);
-    assert.match(doodle, /above the complete NavigationStack/);
+    assert.match(doodle, /drawing surface is mounted inside the detail ScrollView/);
     assert.match(doodle, /Color\.black\.opacity\(0\.18\)/);
     assert.match(doodle, /NativePencilDrawingEditor/);
+    assert.match(doodle, /targetRecordID/);
+    assert.match(pencil, /canvas\.isScrollEnabled = scrollEnabled/);
     const open = detail.split('private func openDoodle()')[1].split('private func saveDrawing')[0];
     assert.match(open, /doodleSession\.present/);
     assert.match(doodle, /transaction\.disablesAnimations = true/);

@@ -235,6 +235,21 @@ struct LibraryRecordDraft {
     }
 }
 
+enum ShenlunAdaptationError: LocalizedError {
+    case notShenlunRecord
+    case invalidNumber(field: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .notShenlunRecord:
+            return "这条记录不是申论记录，未执行适配。"
+        case let .invalidNumber(field):
+            let label = field == "score" ? "得分" : "总分"
+            return "\(label)必须是数字，或留空。"
+        }
+    }
+}
+
 enum LibraryRecordRepository {
     @discardableResult static func save(
         kind: LibraryContentKind,
@@ -314,6 +329,7 @@ enum LibraryRecordRepository {
             object["lastReviewDate"] = object["lastReviewDate"] ?? iso(now)
             if draft.subject == "申论" {
                 object["isShenlun"] = true
+                object["shenlunFormatVersion"] = ShenlunRecordFormat.currentVersion
                 if let score = Int(draft.score.trimmingCharacters(in: .whitespacesAndNewlines)) {
                     object["score"] = score
                 } else {
@@ -431,6 +447,99 @@ enum LibraryRecordRepository {
         LibraryPerformanceLog.mark("record.save.context", since: contextSaveStart)
         LibraryPerformanceLog.mark("record.save.total", since: performanceStart)
         return id
+    }
+
+    /// Converts one legacy 申论 payload after the user has reviewed every
+    /// destination field. The first payload is kept in a separate StoredRecord
+    /// backup and the backup is never overwritten on later edits.
+    static func adaptShenlunRecord(
+        record: StoredRecord,
+        values: ShenlunAdaptationValues,
+        context: ModelContext
+    ) throws {
+        guard record.isShenlunRecord else { throw ShenlunAdaptationError.notShenlunRecord }
+
+        let originalPayload = record.payload
+        let originalIndexPayload = record.indexPayload
+        let originalSubject = record.subject
+        let originalModule = record.module
+        let originalUpdatedAt = record.updatedAt
+        let backupID = record.recordID
+        let backup = try context.fetch(FetchDescriptor<StoredRecord>()).first {
+            $0.collection == ShenlunRecordFormat.backupCollection && $0.recordID == backupID
+        }
+        var insertedBackup: StoredRecord?
+        if backup == nil {
+            let snapshot = StoredRecord(
+                collection: ShenlunRecordFormat.backupCollection,
+                recordID: backupID,
+                payload: originalPayload,
+                subject: record.subject,
+                module: record.module,
+                createdAt: record.createdAt,
+                updatedAt: record.updatedAt
+            )
+            context.insert(snapshot)
+            insertedBackup = snapshot
+        }
+
+        do {
+            var object = record.jsonObject ?? [:]
+            let now = Date()
+            object["id"] = record.recordID
+            object["subject"] = "申论"
+            let module = values.questionType.trimmingCharacters(in: .whitespacesAndNewlines)
+            object["module"] = module.isEmpty ? (record.module ?? "") : module
+            object["isShenlun"] = true
+            object["shenlunFormatVersion"] = ShenlunRecordFormat.currentVersion
+            object["updatedAt"] = iso(now)
+            if object["createdAt"] == nil, let createdAt = record.createdAt {
+                object["createdAt"] = iso(createdAt)
+            }
+
+            setText(values.question, keys: ["question"], in: &object)
+            setText(values.questionSource, keys: ["questionSource", "source"], in: &object)
+            setText(values.questionNumber, keys: ["questionNumber"], in: &object)
+            try setInteger(values.score, key: "score", in: &object)
+            try setInteger(values.totalScore, key: "totalScore", in: &object)
+            setText(values.currentAffairsSupplement, keys: ["currentAffairsSupplement"], in: &object)
+            setText(values.myAnswer, keys: ["myAnswer"], in: &object)
+            setText(values.referenceAnswer, keys: ["referenceAnswer"], in: &object)
+            setText(values.myAnswerIssues, keys: ["myAnswerIssues"], in: &object)
+            setText(values.materialsAnalysis, keys: ["materialsAnalysis"], in: &object)
+            setText(values.reviewNote, keys: ["note"], in: &object)
+            object["materials"] = values.materials
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+            let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            record.replacePayload(payload)
+            record.subject = "申论"
+            record.module = object["module"] as? String
+            record.updatedAt = now
+            try context.save()
+        } catch {
+            record.payload = originalPayload
+            record.indexPayload = originalIndexPayload
+            record.subject = originalSubject
+            record.module = originalModule
+            record.updatedAt = originalUpdatedAt
+            if let insertedBackup { context.delete(insertedBackup) }
+            throw error
+        }
+    }
+
+    private static func setText(_ value: String, keys: [String], in object: inout [String: Any]) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        for key in keys { object.removeValue(forKey: key) }
+        if !trimmed.isEmpty { object[keys[0]] = value }
+    }
+
+    private static func setInteger(_ value: String, key: String, in object: inout [String: Any]) throws {
+        object.removeValue(forKey: key)
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard let number = Int(trimmed) else { throw ShenlunAdaptationError.invalidNumber(field: key) }
+        object[key] = number
     }
 
     private static func splitList(_ value: String) -> [String] {
