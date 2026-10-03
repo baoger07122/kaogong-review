@@ -45,6 +45,7 @@ final class PencilDrawingController: ObservableObject {
     @Published var fingerDrawingEnabled = false
     @Published var showSettings = false
     @Published var legacyPreviewCleared = false
+    @Published fileprivate(set) var hasPendingDrawingPublish = false
     @Published fileprivate var action: PencilAction?
 
     private let defaults: UserDefaults
@@ -128,6 +129,7 @@ final class PencilDrawingController: ObservableObject {
         fingerDrawingEnabled = false
         legacyPreviewCleared = false
         restoreLegacyOnNextUndo = false
+        hasPendingDrawingPublish = false
     }
 
     private func persist() {
@@ -144,6 +146,7 @@ struct NativePencilDrawingEditor: View {
     let legacyPreviewDataURL: String
     let transparentBackground: Bool
     let toolbarAtTop: Bool
+    let isActive: Bool
     let onClose: (() -> Void)?
     @StateObject private var controller: PencilDrawingController
     @State private var eraserLocation: CGPoint?
@@ -153,6 +156,7 @@ struct NativePencilDrawingEditor: View {
         legacyPreviewDataURL: String = "",
         transparentBackground: Bool = false,
         toolbarAtTop: Bool = false,
+        isActive: Bool = true,
         controller: PencilDrawingController? = nil,
         onClose: (() -> Void)? = nil
     ) {
@@ -160,6 +164,7 @@ struct NativePencilDrawingEditor: View {
         self.legacyPreviewDataURL = legacyPreviewDataURL
         self.transparentBackground = transparentBackground
         self.toolbarAtTop = toolbarAtTop
+        self.isActive = isActive
         self.onClose = onClose
         _controller = StateObject(wrappedValue: controller ?? PencilDrawingController())
     }
@@ -253,12 +258,14 @@ struct NativePencilDrawingEditor: View {
             }
             PencilCanvasRepresentable(
                 encodedData: $encodedData,
+                controller: controller,
                 color: controller.color,
                 width: controller.width,
                 eraser: controller.eraser,
                 eraserWidth: controller.eraserWidth,
                 fingerDrawingEnabled: controller.fingerDrawingEnabled,
                 scrollEnabled: !transparentBackground,
+                isActive: isActive,
                 eraserLocation: $eraserLocation,
                 action: $controller.action
             )
@@ -442,22 +449,27 @@ struct NativePencilDrawingEditor: View {
 
 private struct PencilCanvasRepresentable: UIViewRepresentable {
     @Binding var encodedData: String
+    let controller: PencilDrawingController
     let color: UIColor
     let width: CGFloat
     let eraser: Bool
     let eraserWidth: CGFloat
     let fingerDrawingEnabled: Bool
     let scrollEnabled: Bool
+    let isActive: Bool
     @Binding var eraserLocation: CGPoint?
     @Binding var action: PencilAction?
 
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self, controller: controller) }
 
     func makeUIView(context: Context) -> PKCanvasView {
+        let canvasStart = ProcessInfo.processInfo.systemUptime
         let canvas = InteractivePencilCanvasView()
+        canvas.shouldBecomeFirstResponder = isActive
+        canvas.isDrawingReady = false
         canvas.delegate = context.coordinator
         canvas.drawingPolicy = fingerDrawingEnabled ? .anyInput : .pencilOnly
-        canvas.isUserInteractionEnabled = true
+        canvas.isUserInteractionEnabled = isActive && context.coordinator.canvasReady
         if #available(iOS 18.0, *) { canvas.isDrawingEnabled = true }
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
@@ -481,22 +493,22 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         canvas.addGestureRecognizer(eraserTracker)
         context.coordinator.eraserTracker = eraserTracker
 
-        let decodeStart = ProcessInfo.processInfo.systemUptime
-        if let data = Data(base64Encoded: encodedData),
-           let drawing = try? PKDrawing(data: data) {
-            canvas.drawing = drawing
-        }
-        LibraryPerformanceLog.mark("doodle.canvas.decode", since: decodeStart)
-        context.coordinator.lastEncoded = encodedData
+        context.coordinator.loadDrawing(encodedData, on: canvas)
         updateTool(canvas)
+        LibraryPerformanceLog.mark("doodle.canvas-create", since: canvasStart)
         return canvas
     }
 
     func updateUIView(_ canvas: PKCanvasView, context: Context) {
         context.coordinator.parent = self
+        canvas.shouldBecomeFirstResponder = isActive
+        canvas.isUserInteractionEnabled = isActive && context.coordinator.canvasReady
+        if !isActive {
+            canvas.resignFirstResponder()
+            return
+        }
         updateTool(canvas)
         canvas.drawingPolicy = fingerDrawingEnabled ? .anyInput : .pencilOnly
-        canvas.isUserInteractionEnabled = true
         if #available(iOS 18.0, *) { canvas.isDrawingEnabled = true }
         canvas.isScrollEnabled = true
         canvas.minimumZoomScale = scrollEnabled ? 0.5 : 1
@@ -532,13 +544,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
                 action.completion?()
             }
         }
-        if context.coordinator.lastEncoded != encodedData,
-           !canvas.isFirstResponder,
-           let data = Data(base64Encoded: encodedData),
-           let drawing = try? PKDrawing(data: data) {
-            canvas.drawing = drawing
-            context.coordinator.lastEncoded = encodedData
-        }
+        context.coordinator.loadDrawing(encodedData, on: canvas)
     }
 
     private func updateTool(_ canvas: PKCanvasView) {
@@ -549,16 +555,72 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
 
     final class Coordinator: NSObject, PKCanvasViewDelegate, UIGestureRecognizerDelegate {
         var parent: PencilCanvasRepresentable
+        let controller: PencilDrawingController
         var lastEncoded = ""
         var lastActionID: UUID?
         var drawingChanged = false
+        private var requestedEncoded: String?
+        private var decodeToken = UUID()
+        var canvasReady = false
         private var pendingPublish: DispatchWorkItem?
         weak var eraserTracker: UILongPressGestureRecognizer?
 
-        init(parent: PencilCanvasRepresentable) { self.parent = parent }
+        init(parent: PencilCanvasRepresentable, controller: PencilDrawingController) {
+            self.parent = parent
+            self.controller = controller
+        }
+
+        func loadDrawing(_ encoded: String, on canvas: PKCanvasView) {
+            guard requestedEncoded != encoded else { return }
+            requestedEncoded = encoded
+            canvasReady = false
+            canvas.isUserInteractionEnabled = false
+            drawingChanged = false
+            controller.hasPendingDrawingPublish = false
+            let token = UUID()
+            decodeToken = token
+            let decodeStart = ProcessInfo.processInfo.systemUptime
+
+            if encoded.isEmpty {
+                DispatchQueue.main.async { [weak self, weak canvas] in
+                    guard let self, let canvas, self.decodeToken == token else { return }
+                    canvas.drawing = PKDrawing()
+                    self.lastEncoded = ""
+                    self.canvasReady = true
+                    canvas.isDrawingReady = true
+                    canvas.isUserInteractionEnabled = self.parent.isActive
+                    if self.parent.isActive {
+                        canvas.becomeFirstResponder()
+                    }
+                    self.controller.hasPendingDrawingPublish = false
+                    LibraryPerformanceLog.mark("doodle.canvas.decode.empty", since: decodeStart)
+                }
+                return
+            }
+
+            DispatchQueue.global(qos: .userInitiated).async { [weak self, weak canvas] in
+                let drawing = Data(base64Encoded: encoded).flatMap { try? PKDrawing(data: $0) }
+                LibraryPerformanceLog.mark("doodle.canvas.decode", since: decodeStart)
+                DispatchQueue.main.async {
+                    guard let self, let canvas, self.decodeToken == token else { return }
+                    guard let drawing else { return }
+                    canvas.drawing = drawing
+                    self.lastEncoded = encoded
+                    self.canvasReady = true
+                    canvas.isDrawingReady = true
+                    canvas.isUserInteractionEnabled = self.parent.isActive
+                    if self.parent.isActive {
+                        canvas.becomeFirstResponder()
+                    }
+                    self.controller.hasPendingDrawingPublish = false
+                    LibraryPerformanceLog.mark("doodle.canvas.attach", since: decodeStart)
+                }
+            }
+        }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             drawingChanged = true
+            controller.hasPendingDrawingPublish = true
             pendingPublish?.cancel()
             let work = DispatchWorkItem { [weak self, weak canvasView] in
                 guard let self, let canvasView, self.drawingChanged else { return }
@@ -599,8 +661,10 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             pendingPublish = nil
             let value = canvas.drawing.dataRepresentation().base64EncodedString()
             lastEncoded = value
+            requestedEncoded = value
             parent.encodedData = value
             drawingChanged = false
+            controller.hasPendingDrawingPublish = false
         }
 
         func restore(_ drawing: PKDrawing, on canvas: PKCanvasView) {
@@ -611,11 +675,15 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
 }
 
 private final class InteractivePencilCanvasView: PKCanvasView {
+    var shouldBecomeFirstResponder = false
+    var isDrawingReady = false
+
     override func didMoveToWindow() {
         super.didMoveToWindow()
         guard window != nil else { return }
-        isUserInteractionEnabled = true
+        isUserInteractionEnabled = isDrawingReady && shouldBecomeFirstResponder
         if #available(iOS 18.0, *) { isDrawingEnabled = true }
+        guard shouldBecomeFirstResponder else { return }
         DispatchQueue.main.async { [weak self] in self?.becomeFirstResponder() }
     }
 }

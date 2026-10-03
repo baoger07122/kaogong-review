@@ -78,9 +78,12 @@ struct RootTabView: View {
         }
         .tint(AppTheme.accent)
         .overlay {
-            if libraryDoodleSession.isPresented {
-                LibraryDoodleOverlay(session: libraryDoodleSession)
-            }
+            // Keep the PencilKit host mounted so opening the same record does not
+            // recreate and synchronously decode a full PKDrawing every time.
+            LibraryDoodleOverlay(session: libraryDoodleSession)
+                .opacity(libraryDoodleSession.isPresented ? 1 : 0)
+                .allowsHitTesting(libraryDoodleSession.isPresented)
+                .accessibilityHidden(!libraryDoodleSession.isPresented)
         }
     }
 

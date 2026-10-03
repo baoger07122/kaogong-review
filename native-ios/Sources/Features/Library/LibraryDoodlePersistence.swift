@@ -10,12 +10,16 @@ enum LibraryDoodlePersistence {
         drawingData: String,
         legacyPreviewCleared: Bool
     ) -> String? {
+        let totalStart = ProcessInfo.processInfo.systemUptime
         let current = record.jsonObject ?? [:]
         let previousDrawing = (current["pencilKitData"] as? String)
             ?? (current["drawingData"] as? String)
             ?? ""
         let changed = previousDrawing != drawingData || legacyPreviewCleared
-        guard changed else { return nil }
+        guard changed else {
+            LibraryPerformanceLog.mark("doodle.save.skipped-unchanged", since: totalStart)
+            return nil
+        }
 
         var updated = current
         updated["pencilKitData"] = drawingData
@@ -46,6 +50,7 @@ enum LibraryDoodlePersistence {
         } catch {
             return "涂鸦未保存：\(error.localizedDescription)"
         }
+        LibraryPerformanceLog.mark("doodle.save.total", since: totalStart)
 
         guard !drawingData.isEmpty else { return nil }
         Task { @MainActor in
@@ -53,7 +58,11 @@ enum LibraryDoodlePersistence {
             let current = record.jsonObject ?? [:]
             guard current["pencilKitData"] as? String == drawingData else { return }
             let previewStart = ProcessInfo.processInfo.systemUptime
-            let preview = PencilDrawingCompatibility.previewDataURL(encodedData: drawingData)
+            // Preview generation is compatibility/cache work. Keep it out of the
+            // main actor so it cannot compete with the detail page after closing.
+            let preview = await Task.detached(priority: .utility) {
+                PencilDrawingCompatibility.previewDataURL(encodedData: drawingData)
+            }.value
             LibraryPerformanceLog.mark("doodle.preview", since: previewStart)
             guard !preview.isEmpty else { return }
             var refreshed = current

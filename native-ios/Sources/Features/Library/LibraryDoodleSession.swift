@@ -26,6 +26,7 @@ final class LibraryDoodleSession: ObservableObject {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { isPresented = true }
+        LibraryPerformanceLog.mark("doodle.overlay-state", since: preparationStart)
     }
 
     func dismiss() {
@@ -33,14 +34,42 @@ final class LibraryDoodleSession: ObservableObject {
         isDismissing = true
         saveError = nil
         let handler = saveHandler
-        canvas.controller.commit { [weak self] in
+        let closeStart = ProcessInfo.processInfo.systemUptime
+        LibraryPerformanceLog.mark("doodle.close-tap", since: closeStart)
+        let completeSnapshot: () -> Void = { [weak self] in
             guard let self, self.isPresented else { return }
-            if let error = handler?(self.canvas.drawingData, self.canvas.controller.legacyPreviewCleared) {
-                self.saveError = error
-                self.isDismissing = false
-                return
-            }
+            let drawingData = self.canvas.drawingData
+            let legacyPreviewCleared = self.canvas.controller.legacyPreviewCleared
+            LibraryPerformanceLog.mark("doodle.drawing-snapshot", since: closeStart)
+
+            // The canvas can disappear as soon as the final snapshot exists. The
+            // record save is deliberately scheduled after the state change so a
+            // JSON/SwiftData write cannot block the visible close feedback.
             self.finishDismissal()
+            LibraryPerformanceLog.mark("doodle.overlay-hidden", since: closeStart)
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let saveStart = ProcessInfo.processInfo.systemUptime
+                if let error = handler?(drawingData, legacyPreviewCleared) {
+                    self.saveError = error
+                    self.saveHandler = handler
+                    self.isDismissing = false
+                    self.isPresented = true
+                    return
+                }
+                LibraryPerformanceLog.mark("doodle.save-handler", since: saveStart)
+                self.saveHandler = nil
+                self.isDismissing = false
+            }
+        }
+
+        if canvas.controller.hasPendingDrawingPublish {
+            canvas.controller.commit(completion: completeSnapshot)
+        } else {
+            // Every completed stroke already updates drawingData. Avoid a second
+            // full PKDrawing serialization when there is no pending stroke.
+            completeSnapshot()
         }
     }
 
@@ -50,9 +79,7 @@ final class LibraryDoodleSession: ObservableObject {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { isPresented = false }
-        saveHandler = nil
         canvas.legacyPreviewDataURL = ""
-        isDismissing = false
     }
 }
 
@@ -87,6 +114,7 @@ struct LibraryDoodleOverlay: View {
                     legacyPreviewDataURL: canvas.legacyPreviewDataURL,
                     transparentBackground: true,
                     toolbarAtTop: false,
+                    isActive: session.isPresented,
                     controller: controller,
                     onClose: session.dismiss
                 )
@@ -119,6 +147,7 @@ struct LibraryDoodleOverlay: View {
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .ignoresSafeArea()
+        .allowsHitTesting(session.isPresented)
         .accessibilityIdentifier("library-doodle-root-overlay")
     }
 

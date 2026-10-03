@@ -64,7 +64,7 @@ struct ShenlunRecordDetailView: View {
     }
 
     private func openDoodle() {
-        guard noteSession.finish() else { return }
+        let openStart = ProcessInfo.processInfo.systemUptime
         let object = record.jsonObject ?? [:]
         let drawingData = (object["pencilKitData"] as? String)
             ?? (object["drawingData"] as? String)
@@ -80,6 +80,11 @@ struct ShenlunRecordDetailView: View {
             legacyPreviewDataURL: legacyPreview,
             onSave: saveDrawing
         )
+        LibraryPerformanceLog.mark("doodle.tap-to-present", since: openStart)
+        Task { @MainActor in
+            await Task.yield()
+            _ = noteSession.finish()
+        }
     }
 
     private func saveDrawing(_ drawingData: String, legacyPreviewCleared: Bool) -> String? {

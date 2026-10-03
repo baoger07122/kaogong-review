@@ -493,13 +493,21 @@ struct LibraryRecordDetailView: View {
     }
 
     private func openDoodle() {
-        guard noteSession.finish() else { return }
+        let openStart = ProcessInfo.processInfo.systemUptime
         let drawingData = firstText(["pencilKitData", "drawingData"]) ?? ""
         doodleSession.present(
             drawingData: drawingData,
             legacyPreviewDataURL: drawingData.isEmpty ? (firstText(["drawingPreview", "doodle", "drawingDataURL"]) ?? "") : "",
             onSave: saveDrawing
         )
+        LibraryPerformanceLog.mark("doodle.tap-to-present", since: openStart)
+        // Let the overlay render first. Finishing an active rich-text note can
+        // serialize the whole record, so it must not sit in the tap's critical
+        // path before the drawing tools become visible.
+        Task { @MainActor in
+            await Task.yield()
+            _ = noteSession.finish()
+        }
     }
     private func saveDrawing(_ drawingData: String, legacyPreviewCleared: Bool) -> String? {
         LibraryDoodlePersistence.save(
