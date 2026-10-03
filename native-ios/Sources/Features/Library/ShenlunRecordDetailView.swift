@@ -19,9 +19,9 @@ struct ShenlunRecordDetailView: View {
                     noteSession: record.requiresShenlunAdaptation ? nil : noteSession,
                     onAdaptation: onEdit
                 )
-                    .padding(.horizontal, 20)
-                    .padding(.top, 12)
-                    .padding(.bottom, 24)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 5)
+                    .padding(.bottom, 14)
                     .frame(maxWidth: 920, alignment: .leading)
                     .frame(maxWidth: .infinity)
                     .overlay {
@@ -126,96 +126,225 @@ struct ShenlunRecordContent: View {
     private var object: [String: Any] { record.jsonObject ?? [:] }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            if record.requiresShenlunAdaptation {
-                ShenlunDetailCard(title: "旧格式记录", systemImage: "arrow.triangle.2.circlepath") {
-                    Text("这条申论记录仍保留原始字段。编辑前请先逐项确认适配内容，查看不会修改原数据。")
-                        .font(AppTheme.auxiliaryFont)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let onAdaptation {
-                        Button("适配旧数据", action: onAdaptation)
-                            .font(AppTheme.actionFont)
-                            .foregroundStyle(AppTheme.accent)
-                    }
-                }
-            }
-            metadataSection
+        VStack(alignment: .leading, spacing: 12) {
+            statusBadge
+            sourceRow
+            legacyAdaptationRow
+            materialsBlock
+            questionBlock
+            answerComparison
 
-            if let supplement = nonEmptyText(object["currentAffairsSupplement"]) {
-                ShenlunTextSection(title: "时政补充", text: supplement)
-            }
-            if let myAnswer = nonEmptyText(object["myAnswer"]) {
-                ShenlunTextSection(title: "我的作答", text: myAnswer)
-            }
-            if let referenceAnswer = nonEmptyText(object["referenceAnswer"]) {
-                ShenlunTextSection(title: "参考答案", text: referenceAnswer)
-            }
             if let issues = nonEmptyText(object["myAnswerIssues"]) {
-                ShenlunTextSection(title: "我的作答问题", text: issues)
+                plainSection(title: "我的作答问题", text: bulletized(issues))
             }
             if let analysis = nonEmptyText(object["materialsAnalysis"]) {
-                ShenlunTextSection(title: "材料分析", text: analysis)
+                plainSection(title: "材料分析", text: analysis)
             }
-
-            if let noteSession {
-                LibraryInlineNoteView(record: record, session: noteSession, title: "复盘笔记")
-                    .padding(14)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.primary.opacity(0.10), lineWidth: 0.8)
-                    }
-            } else if let note = nonEmptyText(object["note"]) {
-                ShenlunTextSection(title: "复盘笔记", text: note)
+            if let supplement = nonEmptyText(object["currentAffairsSupplement"]) {
+                plainSection(title: "时政补充", text: supplement)
             }
+            noteBlock
+            legacyBlock
+            dateBlock
+        }
+    }
 
-            ForEach(legacyFields) { field in
-                ShenlunTextSection(title: field.title, text: field.text, isLegacy: true)
+    @ViewBuilder private var statusBadge: some View {
+        Text("错题")
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(AppTheme.danger)
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(AppTheme.danger.opacity(0.08), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+
+    @ViewBuilder private var sourceRow: some View {
+        if let sourceText {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Image(systemName: "books.vertical.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+                Text("题目来源：")
+                    .foregroundStyle(.secondary)
+                Text(sourceText)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.secondary)
             }
+            .font(.system(size: 12, weight: .regular))
+        }
+    }
 
-            ForEach(Array(materials.enumerated()), id: \.offset) { index, material in
-                ShenlunTextSection(title: "材料 \(index + 1)", text: material)
+    @ViewBuilder private var legacyAdaptationRow: some View {
+        if record.requiresShenlunAdaptation {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("旧格式记录")
+                    .font(AppTheme.auxiliaryFont.weight(.medium))
+                Spacer(minLength: 8)
+                if let onAdaptation {
+                    Button("适配旧数据", action: onAdaptation)
+                        .font(AppTheme.auxiliaryFont.weight(.semibold))
+                        .foregroundStyle(AppTheme.accent)
+                }
             }
-
-            if let question = nonEmptyText(object["question"]) ?? nonEmptyText(object["title"]) {
-                ShenlunTextSection(title: "题干", text: question)
+            .padding(.vertical, 7)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.11))
+                    .frame(height: 0.7)
             }
         }
     }
 
-    private var metadataSection: some View {
-        ShenlunDetailCard(title: "题型及来源", systemImage: "doc.text") {
-            let subject = nonEmptyText(object["subject"]) ?? record.subject ?? "申论"
-            let module = nonEmptyText(object["module"])
-                ?? record.module.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
-            let classification = [subject, module].compactMap { $0 }.joined(separator: " · ")
-            if !classification.isEmpty {
-                Text(classification)
-                    .font(AppTheme.bodyFont.weight(.medium))
-                    .foregroundStyle(.primary)
-            }
+    @ViewBuilder private var materialsBlock: some View {
+        ForEach(Array(materials.enumerated()), id: \.offset) { index, material in
+            readingBlock(title: "材料 \(index + 1)", text: material)
+        }
+    }
 
-            let source = nonEmptyText(object["questionSource"]) ?? nonEmptyText(object["source"])
-            let questionNumber = nonEmptyText(object["questionNumber"])
-            if source != nil || questionNumber != nil {
-                Text([source, questionNumber].compactMap { $0 }.joined(separator: "-"))
-                    .font(AppTheme.bodyFont)
-                    .foregroundStyle(.secondary)
-            }
+    @ViewBuilder private var questionBlock: some View {
+        if let question = nonEmptyText(object["question"]) ?? nonEmptyText(object["title"]) {
+            readingBlock(title: "题干", text: question)
+        }
+    }
 
-            if let score = nonEmptyText(object["score"]) {
-                let total = nonEmptyText(object["totalScore"])
-                Text("得分：\(score)\(total.map { " / \($0)" } ?? "")")
-                    .font(AppTheme.bodyFont)
-                    .foregroundStyle(.secondary)
+    @ViewBuilder private var answerComparison: some View {
+        let myAnswer = nonEmptyText(object["myAnswer"])
+        let referenceAnswer = nonEmptyText(object["referenceAnswer"])
+        if myAnswer != nil || referenceAnswer != nil {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("作答对照")
+                    .font(AppTheme.sectionTitleFont)
+                if let myAnswer {
+                    accentTextBlock(title: "我的作答", text: myAnswer, color: AppTheme.accent)
+                }
+                if let referenceAnswer {
+                    accentTextBlock(title: "参考答案", text: referenceAnswer, color: AppTheme.success)
+                }
+            }
+            .padding(.top, 4)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.11))
+                    .frame(height: 0.7)
             }
         }
+    }
+
+    @ViewBuilder private var noteBlock: some View {
+        if let noteSession {
+            LibraryInlineNoteView(record: record, session: noteSession)
+                .padding(.top, 4)
+        } else if let note = nonEmptyText(object["note"]) {
+            plainSection(title: "错题笔记", text: note)
+        }
+    }
+
+    @ViewBuilder private var legacyBlock: some View {
+        ForEach(legacyFields) { field in
+            plainSection(title: field.title, text: field.text, isLegacy: true)
+        }
+    }
+
+    @ViewBuilder private var dateBlock: some View {
+        if record.createdAt != nil || record.updatedAt != nil {
+            VStack(alignment: .leading, spacing: 4) {
+                if let createdAt = record.createdAt {
+                    Text("收录于 \(Self.dateFormatter.string(from: createdAt))")
+                }
+                if let updatedAt = record.updatedAt {
+                    Text("上次更新 \(Self.dateFormatter.string(from: updatedAt))")
+                }
+            }
+            .font(.system(size: 11, weight: .regular))
+            .foregroundStyle(.tertiary)
+            .padding(.top, 8)
+        }
+    }
+
+    private func readingBlock(title: String, text: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(AppTheme.sectionTitleFont)
+            readableText(
+                text,
+                color: .primary,
+                font: AppTheme.questionTextFont,
+                lineSpacing: AppTheme.questionLineSpacing
+            )
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.primary.opacity(0.12), lineWidth: 0.8)
+                }
+        }
+    }
+
+    private func accentTextBlock(title: String, text: String, color: Color) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                .fill(color)
+                .frame(width: 3)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(AppTheme.cardTitleFont)
+                readableText(text, color: .primary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func plainSection(title: String, text: String, isLegacy: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(AppTheme.sectionTitleFont)
+            readableText(text, color: isLegacy ? .secondary : .primary)
+        }
+        .padding(.top, 4)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.11))
+                .frame(height: 0.7)
+        }
+    }
+
+    @ViewBuilder private func readableText(
+        _ value: String,
+        color: Color,
+        font: Font = AppTheme.bodyFont,
+        lineSpacing: CGFloat = AppTheme.questionLineSpacing
+    ) -> some View {
+        if value.range(of: "<[^>]+>", options: .regularExpression) != nil {
+            NativeRichTextDisplay(html: value, minHeight: 0)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Text(value)
+                .font(font)
+                .foregroundStyle(color)
+                .lineSpacing(lineSpacing)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+    }
+
+    private var sourceText: String? {
+        let source = nonEmptyText(object["questionSource"]) ?? nonEmptyText(object["source"])
+        guard let source else { return nil }
+        let questionNumber = nonEmptyText(object["questionNumber"])
+        let value = [source, questionNumber].compactMap { $0 }.joined(separator: "-")
+        return value.isEmpty ? nil : value
     }
 
     private var materials: [String] {
-        (object["materials"] as? [String] ?? [])
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if let values = object["materials"] as? [String] {
+            return values.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        }
+        if let values = object["materials"] as? [[String: Any]] {
+            return values.compactMap { nonEmptyText($0["text"] ?? $0["content"] ?? $0["value"]) }
+        }
+        return []
     }
 
     private var legacyFields: [ShenlunLegacyField] {
@@ -248,10 +377,28 @@ struct ShenlunRecordContent: View {
 
     private func appendLegacyList(_ title: String, key: String, to fields: inout [ShenlunLegacyField]) {
         guard let values = object[key] as? [String] else { return }
-        let text = values.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let text = values
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .map { "• \($0)" }
             .joined(separator: "\n")
         if !text.isEmpty { fields.append(.init(title: title, text: text)) }
+    }
+
+    private func bulletized(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line in
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return "" }
+                let clean = trimmed.replacingOccurrences(
+                    of: "^(?:[•●▪·*-]|\\d+[.、、])\\s*",
+                    with: "",
+                    options: .regularExpression
+                )
+                return "• \(clean)"
+            }
+            .joined(separator: "\n")
     }
 
     private func nonEmptyText(_ value: Any?) -> String? {
@@ -266,65 +413,17 @@ struct ShenlunRecordContent: View {
         }
         return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
     }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy年M月d日"
+        return formatter
+    }()
 }
 
 private struct ShenlunLegacyField: Identifiable {
     let title: String
     let text: String
     var id: String { title }
-}
-
-private struct ShenlunDetailCard<Content: View>: View {
-    let title: String
-    let systemImage: String?
-    let content: Content
-
-    init(
-        title: String,
-        systemImage: String? = nil,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.title = title
-        self.systemImage = systemImage
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let systemImage {
-                Label(title, systemImage: systemImage)
-                    .font(AppTheme.sectionTitleFont)
-                    .foregroundStyle(.primary)
-            } else {
-                Text(title)
-                    .font(AppTheme.sectionTitleFont)
-                    .foregroundStyle(.primary)
-            }
-            content
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.primary.opacity(0.10), lineWidth: 0.8)
-        }
-    }
-}
-
-private struct ShenlunTextSection: View {
-    let title: String
-    let text: String
-    var isLegacy = false
-
-    var body: some View {
-        ShenlunDetailCard(title: title) {
-            Text(text)
-                .font(AppTheme.bodyFont)
-                .foregroundStyle(isLegacy ? Color.secondary : Color.primary)
-                .lineSpacing(4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-        }
-    }
 }
