@@ -56,7 +56,6 @@ struct ShenlunTextView: UIViewRepresentable {
         view.textContainer.lineFragmentPadding = 0
         view.textContainer.widthTracksTextView = true
         view.textContainer.lineBreakMode = .byCharWrapping
-        view.defaultTextAttributes = Self.typingAttributes
         view.typingAttributes = Self.typingAttributes
         view.isScrollEnabled = !growsWithContent
         view.alwaysBounceVertical = false
@@ -70,7 +69,6 @@ struct ShenlunTextView: UIViewRepresentable {
         view.font = AppTheme.inputUIFont
         view.textContainer.widthTracksTextView = true
         view.textContainer.lineBreakMode = .byCharWrapping
-        view.defaultTextAttributes = Self.typingAttributes
         view.typingAttributes = Self.typingAttributes
         if view.text != text {
             view.text = text
