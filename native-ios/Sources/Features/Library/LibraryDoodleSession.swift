@@ -65,7 +65,7 @@ final class LibraryDoodleSession: ObservableObject {
         }
 
         if canvas.controller.hasPendingDrawingPublish {
-            canvas.controller.commit(completion: completeSnapshot)
+            canvas.controller.commit(completeSnapshot)
         } else {
             // Every completed stroke already updates drawingData. Avoid a second
             // full PKDrawing serialization when there is no pending stroke.

@@ -462,7 +462,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self, controller: controller) }
 
-    func makeUIView(context: Context) -> PKCanvasView {
+    func makeUIView(context: Context) -> InteractivePencilCanvasView {
         let canvasStart = ProcessInfo.processInfo.systemUptime
         let canvas = InteractivePencilCanvasView()
         canvas.shouldBecomeFirstResponder = isActive
@@ -499,7 +499,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         return canvas
     }
 
-    func updateUIView(_ canvas: PKCanvasView, context: Context) {
+    func updateUIView(_ canvas: InteractivePencilCanvasView, context: Context) {
         context.coordinator.parent = self
         canvas.shouldBecomeFirstResponder = isActive
         canvas.isUserInteractionEnabled = isActive && context.coordinator.canvasReady
@@ -570,7 +570,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             self.controller = controller
         }
 
-        func loadDrawing(_ encoded: String, on canvas: PKCanvasView) {
+        func loadDrawing(_ encoded: String, on canvas: InteractivePencilCanvasView) {
             guard requestedEncoded != encoded else { return }
             requestedEncoded = encoded
             canvasReady = false
