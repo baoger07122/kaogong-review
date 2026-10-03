@@ -47,6 +47,8 @@ struct LibraryRecordEditorView: View {
     @State private var showQuantityWeaknessTags = false
     @State private var showQuantityQuestionTypes = false
     @State private var isCurrentAffairsSupplementExpanded = false
+    @State private var isSaving = false
+    @State private var saveErrorMessage: String?
 
     init(
         kind: LibraryContentKind,
@@ -151,6 +153,12 @@ struct LibraryRecordEditorView: View {
                         .foregroundStyle(AppTheme.accent)
                         .padding(.horizontal, 4)
                 }
+                if let saveErrorMessage {
+                    Label(saveErrorMessage, systemImage: "exclamationmark.triangle")
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(AppTheme.danger)
+                        .padding(.horizontal, 4)
+                }
                 switch kind {
                 case .errors: errorFields
                 case .notes: noteFields
@@ -175,7 +183,8 @@ struct LibraryRecordEditorView: View {
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button("保存", action: save).disabled(!canSave)
+                Button(isSaving ? "保存中…" : "保存", action: save)
+                    .disabled(!canSave || isSaving)
             }
             if recordID != nil, kind != .errors {
                 ToolbarItemGroup(placement: .bottomBar) {
@@ -304,6 +313,17 @@ struct LibraryRecordEditorView: View {
         .contentShape(Rectangle())
     }
 
+    private var sourceAndQuestionNumberFields: some View {
+        HStack(spacing: 6) {
+            TextField("题目来源，例如：2024国考", text: $draft.questionSource)
+                .textFieldStyle(ErrorFormTextFieldStyle())
+            TextField("题号", text: $draft.questionNumber)
+                .keyboardType(.numberPad)
+                .frame(width: 72)
+                .textFieldStyle(ErrorFormTextFieldStyle())
+        }
+    }
+
     private var errorFields: some View {
         Group {
             if draft.subject == "申论" { shenlunFields }
@@ -344,8 +364,7 @@ struct LibraryRecordEditorView: View {
                     HStack(spacing: 8) {
                         TextField("全站正确率（%）", text: $draft.accuracy)
                             .keyboardType(.decimalPad).textFieldStyle(ErrorFormTextFieldStyle())
-                        TextField("题目来源", text: $draft.questionSource)
-                            .textFieldStyle(ErrorFormTextFieldStyle())
+                        sourceAndQuestionNumberFields
                     }
                 }
             }
@@ -397,8 +416,7 @@ struct LibraryRecordEditorView: View {
                 HStack(spacing: 8) {
                     TextField("全站正确率（%）", text: $draft.accuracy)
                         .keyboardType(.decimalPad).textFieldStyle(ErrorFormTextFieldStyle())
-                    TextField("题目来源，例如：2024国考", text: $draft.questionSource)
-                        .textFieldStyle(ErrorFormTextFieldStyle())
+                    sourceAndQuestionNumberFields
                 }
             }
             }
@@ -740,12 +758,64 @@ struct LibraryRecordEditorView: View {
         VStack(alignment: .leading, spacing: 10) {
             errorFormCard {
                 compactFormSection("题型及来源", image: "doc.text.magnifyingglass") {
-                    TextField("题目来源（可选，如：2025国考申论）", text: $draft.questionSource)
-                        .textFieldStyle(ErrorFormTextFieldStyle())
+                    HStack(spacing: 8) {
+                        TextField("题目来源（可选，如：2025国考申论）", text: $draft.questionSource)
+                            .textFieldStyle(ErrorFormTextFieldStyle())
+                        TextField("题号", text: $draft.questionNumber)
+                            .keyboardType(.numberPad)
+                            .frame(width: 72)
+                            .textFieldStyle(ErrorFormTextFieldStyle())
+                    }
                     HStack {
                         TextField("得分（可选）", text: $draft.score).keyboardType(.numberPad).textFieldStyle(ErrorFormTextFieldStyle())
                         TextField("总分（可选）", text: $draft.totalScore).keyboardType(.numberPad).textFieldStyle(ErrorFormTextFieldStyle())
                     }
+                }
+            }
+
+            errorFormCard {
+                compactFormSection("时政补充（可选）", image: "text.book.closed") {
+                    DisclosureGroup(isExpanded: $isCurrentAffairsSupplementExpanded) {
+                        shenlunGrowingEditor(text: $draft.currentAffairsSupplement)
+                    } label: {
+                        HStack {
+                            Text(draft.currentAffairsSupplement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "点击填写" : "已填写")
+                                .font(AppTheme.auxiliaryFont)
+                                .foregroundStyle(draft.currentAffairsSupplement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : AppTheme.accent)
+                            Spacer()
+                        }
+                    }
+                    .tint(AppTheme.accent)
+                }
+            }
+
+            errorFormCard {
+                compactFormSection("我的作答", image: "pencil.line") {
+                    shenlunGrowingEditor(text: $draft.myAnswer)
+                }
+            }
+
+            errorFormCard {
+                compactFormSection("参考答案", image: "checkmark.document") {
+                    shenlunGrowingEditor(text: $draft.referenceAnswer)
+                }
+            }
+
+            errorFormCard {
+                compactFormSection("我的作答问题（可选）", image: "exclamationmark.bubble") {
+                    shenlunGrowingEditor(text: $draft.myAnswerIssues)
+                }
+            }
+
+            errorFormCard {
+                compactFormSection("材料分析（可选）", image: "doc.text.magnifyingglass") {
+                    shenlunGrowingEditor(text: $draft.materialsAnalysis)
+                }
+            }
+
+            errorFormCard {
+                compactFormSection("复盘笔记（可选）", image: "note.text") {
+                    errorFormRichEditor(text: $draft.content, height: 220)
                 }
             }
 
@@ -767,41 +837,7 @@ struct LibraryRecordEditorView: View {
 
             errorFormCard {
                 compactFormSection("题干", image: "text.alignleft") {
-                    errorQuestionEditor(text: $draft.title, minHeight: 130)
-                }
-            }
-
-            errorFormCard {
-                DisclosureGroup(isExpanded: $isCurrentAffairsSupplementExpanded) {
-                    errorQuestionEditor(text: $draft.currentAffairsSupplement, minHeight: 130)
-                } label: {
-                    HStack {
-                        Label("时政补充（可选）", systemImage: "text.book.closed")
-                            .font(.system(size: 13, weight: .medium))
-                        Spacer()
-                        if !draft.currentAffairsSupplement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text("已填写").font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.accent)
-                        }
-                    }
-                }
-                .tint(AppTheme.accent)
-            }
-
-            errorFormCard {
-                compactFormSection("我的作答（可选）", image: "pencil.line") {
-                    errorQuestionEditor(text: $draft.myAnswer, minHeight: 150)
-                }
-            }
-
-            errorFormCard {
-                compactFormSection("参考答案（可选）", image: "checkmark.document") {
-                    errorQuestionEditor(text: $draft.referenceAnswer, minHeight: 150)
-                }
-            }
-
-            errorFormCard {
-                compactFormSection("复盘笔记（可选）", image: "note.text") {
-                    errorFormRichEditor(text: $draft.content, height: 220)
+                    shenlunGrowingEditor(text: $draft.title)
                 }
             }
         }
@@ -820,7 +856,7 @@ struct LibraryRecordEditorView: View {
                         .buttonStyle(.plain)
                 }
             }
-            errorQuestionEditor(text: shenlunMaterialBinding(id: material.id), minHeight: 150)
+            shenlunFixedEditor(text: shenlunMaterialBinding(id: material.id), height: 170)
         }
     }
 
@@ -1263,6 +1299,14 @@ struct LibraryRecordEditorView: View {
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
     }
 
+    private func shenlunGrowingEditor(text: Binding<String>) -> some View {
+        ShenlunAdaptiveTextEditor(text: text, minimumHeight: 82, growsWithContent: true)
+    }
+
+    private func shenlunFixedEditor(text: Binding<String>, height: CGFloat) -> some View {
+        ShenlunAdaptiveTextEditor(text: text, minimumHeight: height, growsWithContent: false)
+    }
+
     private func richEditor(text: Binding<String>, height: CGFloat) -> some View {
         NativeRichTextEditor(
             html: text,
@@ -1307,31 +1351,43 @@ struct LibraryRecordEditorView: View {
     }
 
     private func save() {
-        if kind == .errors || (kind == .notes && isQuantityRelations) {
-            try? TagLibraryRepository.add(
-                splitTags(draft.knowledgePoint),
-                kind: .knowledgePoint,
-                module: draft.module,
-                records: records,
-                context: modelContext,
-                persist: false
-            )
-            if kind == .errors && !isDataAnalysis && !isAnalogyReasoning && !isQuantityRelations {
-                try? TagLibraryRepository.add(
-                    [draft.errorCause],
-                    kind: .errorCause,
-                    module: draft.module,
-                    records: records,
-                    context: modelContext,
-                    persist: false
-                )
+        guard !isSaving else { return }
+        isSaving = true
+        saveErrorMessage = nil
+        Task { @MainActor in
+            await Task.yield()
+            do {
+                if kind == .errors || (kind == .notes && isQuantityRelations) {
+                    try TagLibraryRepository.add(
+                        splitTags(draft.knowledgePoint),
+                        kind: .knowledgePoint,
+                        module: draft.module,
+                        records: records,
+                        context: modelContext,
+                        persist: false
+                    )
+                    if kind == .errors && !isDataAnalysis && !isAnalogyReasoning && !isQuantityRelations {
+                        try TagLibraryRepository.add(
+                            [draft.errorCause],
+                            kind: .errorCause,
+                            module: draft.module,
+                            records: records,
+                            context: modelContext,
+                            persist: false
+                        )
+                    }
+                    // 思维误区是普通文字，不写入标签库。
+                }
+                let savedID = try LibraryRecordRepository.save(kind: kind, draft: draft, records: records, context: modelContext)
+                if recordID == nil { LibraryDraftStore.clear(kind: kind, scope: scope) }
+                isSaving = false
+                onSaved?(savedID)
+                if dismissAfterSave { dismiss() }
+            } catch {
+                isSaving = false
+                saveErrorMessage = "保存失败：\(error.localizedDescription)"
             }
-            // 思维误区是普通文字，不写入标签库。
         }
-        guard let savedID = try? LibraryRecordRepository.save(kind: kind, draft: draft, records: records, context: modelContext) else { return }
-        if recordID == nil { LibraryDraftStore.clear(kind: kind, scope: scope) }
-        onSaved?(savedID)
-        if dismissAfterSave { dismiss() }
     }
 
     private func remove() {

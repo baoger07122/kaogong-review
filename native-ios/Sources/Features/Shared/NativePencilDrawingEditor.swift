@@ -481,10 +481,12 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         canvas.addGestureRecognizer(eraserTracker)
         context.coordinator.eraserTracker = eraserTracker
 
+        let decodeStart = ProcessInfo.processInfo.systemUptime
         if let data = Data(base64Encoded: encodedData),
            let drawing = try? PKDrawing(data: data) {
             canvas.drawing = drawing
         }
+        LibraryPerformanceLog.mark("doodle.canvas.decode", since: decodeStart)
         context.coordinator.lastEncoded = encodedData
         updateTool(canvas)
         return canvas

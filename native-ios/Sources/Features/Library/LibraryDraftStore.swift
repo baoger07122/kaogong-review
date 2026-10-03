@@ -17,6 +17,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
     var quantityStructure: String?
     var weaknessTags: String?
     var questionSource: String
+    var questionNumber: String?
     var accuracy: String?
     var images: [String]
     var compareGroups: [LogicComparisonDraft]
@@ -25,6 +26,8 @@ struct LibraryDraftSnapshot: Codable, Equatable {
     var materials: [String]?
     var myAnswer: String?
     var referenceAnswer: String?
+    var myAnswerIssues: String?
+    var materialsAnalysis: String?
     var currentAffairsSupplement: String?
     var myFramework: String
     var standardFramework: String
@@ -72,6 +75,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         quantityStructure = draft.quantityStructure
         weaknessTags = draft.weaknessTags
         questionSource = draft.questionSource
+        questionNumber = draft.questionNumber
         accuracy = draft.accuracy
         images = draft.images
         compareGroups = draft.compareGroups
@@ -80,6 +84,8 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         materials = draft.materials.map(\.content)
         myAnswer = draft.myAnswer
         referenceAnswer = draft.referenceAnswer
+        myAnswerIssues = draft.myAnswerIssues
+        materialsAnalysis = draft.materialsAnalysis
         currentAffairsSupplement = draft.currentAffairsSupplement
         myFramework = draft.myFramework
         standardFramework = draft.standardFramework
@@ -128,6 +134,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         draft.quantityStructure = quantityStructure ?? ""
         draft.weaknessTags = weaknessTags ?? ""
         draft.questionSource = questionSource
+        draft.questionNumber = questionNumber ?? ""
         draft.accuracy = accuracy ?? ""
         draft.images = images
         draft.compareGroups = compareGroups
@@ -137,6 +144,8 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         draft.materials = restoredMaterials.isEmpty ? [.init()] : restoredMaterials
         draft.myAnswer = myAnswer ?? ""
         draft.referenceAnswer = referenceAnswer ?? ""
+        draft.myAnswerIssues = myAnswerIssues ?? ""
+        draft.materialsAnalysis = materialsAnalysis ?? ""
         draft.currentAffairsSupplement = currentAffairsSupplement ?? ""
         draft.myFramework = myFramework
         draft.standardFramework = standardFramework
@@ -179,6 +188,8 @@ struct LibraryDraftSnapshot: Codable, Equatable {
             || (materials ?? []).contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             || !(myAnswer ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !(referenceAnswer ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(myAnswerIssues ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(materialsAnalysis ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !(currentAffairsSupplement ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !questionSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !score.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

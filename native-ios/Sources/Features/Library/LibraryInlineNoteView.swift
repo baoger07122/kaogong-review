@@ -13,6 +13,7 @@ struct LibraryInlineNoteView: View {
     @Environment(\.scenePhase) private var scenePhase
     let record: StoredRecord
     let session: LibraryInlineNoteSession
+    let title: String
     @State private var editing = false
     @State private var draft = ""
     @State private var saved = ""
@@ -20,6 +21,12 @@ struct LibraryInlineNoteView: View {
     @State private var errorMessage: String?
 
     private let noteCanvasMinimumHeight: CGFloat = 360
+
+    init(record: StoredRecord, session: LibraryInlineNoteSession, title: String = "错题笔记") {
+        self.record = record
+        self.session = session
+        self.title = title
+    }
 
     private var storedNote: String {
         let object = record.jsonObject ?? [:]
@@ -31,7 +38,7 @@ struct LibraryInlineNoteView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label("错题笔记", systemImage: "note.text")
+                Label(title, systemImage: "note.text")
                     .font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
                 Spacer()
                 if editing { Button("完成") { finishEditing() }.font(.system(size: 12)) }

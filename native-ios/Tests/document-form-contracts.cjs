@@ -11,6 +11,7 @@ const picker = read('Features/Library/LibrarySelectionDialogs.swift');
 const pencil = read('Features/Shared/NativePencilDrawingEditor.swift');
 const root = read('App/RootTabView.swift');
 const doodle = read('Features/Library/LibraryDoodleSession.swift');
+const doodlePersistence = read('Features/Library/LibraryDoodlePersistence.swift');
 const navigationStyle = read('DesignSystem/NativeDocumentStyle.swift');
 const theme = read('DesignSystem/AppTheme.swift');
 const libraryView = read('Features/Library/LibraryView.swift');
@@ -84,7 +85,7 @@ const tests = {
     assert.match(pencil, /Text\("大"\)\.tag\(CGFloat\(44\)\)/);
     assert.match(pencil, /func requestClear\(\) \{[\s\S]*?action = PencilAction\(kind: \.clear\)/);
     assert.doesNotMatch(pencil, /showClearConfirmation|NativeDeleteDialog/);
-    assert.match(detail, /else if legacyPreviewCleared/);
+    assert.match(doodlePersistence, /legacyPreviewCleared/);
   },
   'drawing blocks the underlying back control without expanding it': () => {
     assert.doesNotMatch(detail, /navigationBarBackButtonHidden|ToolbarItem\(placement: \.topBarLeading\)/);

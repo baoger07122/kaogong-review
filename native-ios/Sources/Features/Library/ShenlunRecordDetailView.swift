@@ -2,16 +2,19 @@ import SwiftData
 import SwiftUI
 
 struct ShenlunRecordDetailView: View {
+    @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var doodleSession: LibraryDoodleSession
     let record: StoredRecord
     let onEdit: () -> Void
     let onDelete: () -> Void
 
     @State private var showDelete = false
+    @StateObject private var noteSession = LibraryInlineNoteSession()
 
     var body: some View {
         ZStack {
             ScrollView {
-                ShenlunRecordContent(record: record)
+                ShenlunRecordContent(record: record, noteSession: noteSession)
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
                     .padding(.bottom, 24)
@@ -31,25 +34,72 @@ struct ShenlunRecordDetailView: View {
         }
         .navigationTitle("申论详情")
         .navigationBarTitleDisplayMode(.inline)
+        .background(NativeNavigationInteraction(blocked: doodleSession.isPresented))
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button(action: onEdit) { Label("编辑申论记录", systemImage: "pencil") }
-                    Button(role: .destructive) { showDelete = true } label: {
-                        Label("删除申论记录", systemImage: "trash")
+                HStack(spacing: 8) {
+                    Button(action: openDoodle) {
+                        Image(systemName: "pencil.and.scribble")
                     }
-                } label: {
-                    Image(systemName: "ellipsis")
+                    .accessibilityLabel("涂鸦")
+                    Menu {
+                        Button {
+                            if noteSession.finish() { onEdit() }
+                        } label: {
+                            Label("编辑申论记录", systemImage: "pencil")
+                        }
+                        Button(role: .destructive) {
+                            if noteSession.finish() { showDelete = true }
+                        } label: {
+                            Label("删除申论记录", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                    }
                 }
             }
             .documentToolbarBackground()
         }
     }
+
+    private func openDoodle() {
+        guard noteSession.finish() else { return }
+        let object = record.jsonObject ?? [:]
+        let drawingData = (object["pencilKitData"] as? String)
+            ?? (object["drawingData"] as? String)
+            ?? ""
+        let legacyPreview = drawingData.isEmpty
+            ? ((object["drawingPreview"] as? String)
+                ?? (object["doodle"] as? String)
+                ?? (object["drawingDataURL"] as? String)
+                ?? "")
+            : ""
+        doodleSession.present(
+            drawingData: drawingData,
+            legacyPreviewDataURL: legacyPreview,
+            onSave: saveDrawing
+        )
+    }
+
+    private func saveDrawing(_ drawingData: String, legacyPreviewCleared: Bool) -> String? {
+        LibraryDoodlePersistence.save(
+            record: record,
+            context: modelContext,
+            drawingData: drawingData,
+            legacyPreviewCleared: legacyPreviewCleared
+        )
+    }
 }
 
 struct ShenlunRecordContent: View {
     let record: StoredRecord
+    let noteSession: LibraryInlineNoteSession?
+
+    init(record: StoredRecord, noteSession: LibraryInlineNoteSession? = nil) {
+        self.record = record
+        self.noteSession = noteSession
+    }
 
     private var object: [String: Any] { record.jsonObject ?? [:] }
 
@@ -57,13 +107,6 @@ struct ShenlunRecordContent: View {
         VStack(alignment: .leading, spacing: 18) {
             metadataSection
 
-            ForEach(Array(materials.enumerated()), id: \.offset) { index, material in
-                ShenlunTextSection(title: "材料 \(index + 1)", text: material)
-            }
-
-            if let question = nonEmptyText(object["question"]) ?? nonEmptyText(object["title"]) {
-                ShenlunTextSection(title: "题干", text: question)
-            }
             if let supplement = nonEmptyText(object["currentAffairsSupplement"]) {
                 ShenlunTextSection(title: "时政补充", text: supplement)
             }
@@ -73,35 +116,41 @@ struct ShenlunRecordContent: View {
             if let referenceAnswer = nonEmptyText(object["referenceAnswer"]) {
                 ShenlunTextSection(title: "参考答案", text: referenceAnswer)
             }
-            if let note = nonEmptyText(object["note"]) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("复盘笔记").font(AppTheme.sectionTitleFont).foregroundStyle(.primary)
-                    NativeRichTextDisplay(html: note, minHeight: 28)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.vertical, 4)
+            if let issues = nonEmptyText(object["myAnswerIssues"]) {
+                ShenlunTextSection(title: "我的作答问题", text: issues)
+            }
+            if let analysis = nonEmptyText(object["materialsAnalysis"]) {
+                ShenlunTextSection(title: "材料分析", text: analysis)
             }
 
-            if !legacyFields.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("旧版复盘内容")
-                        .font(AppTheme.sectionTitleFont)
-                        .foregroundStyle(.primary)
-                    ForEach(legacyFields) { field in
-                        ShenlunTextSection(title: field.title, text: field.text, isLegacy: true)
+            if let noteSession {
+                LibraryInlineNoteView(record: record, session: noteSession, title: "复盘笔记")
+                    .padding(14)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.primary.opacity(0.10), lineWidth: 0.8)
                     }
-                }
-                .padding(.top, 8)
+            } else if let note = nonEmptyText(object["note"]) {
+                ShenlunTextSection(title: "复盘笔记", text: note)
+            }
+
+            ForEach(legacyFields) { field in
+                ShenlunTextSection(title: field.title, text: field.text, isLegacy: true)
+            }
+
+            ForEach(Array(materials.enumerated()), id: \.offset) { index, material in
+                ShenlunTextSection(title: "材料 \(index + 1)", text: material)
+            }
+
+            if let question = nonEmptyText(object["question"]) ?? nonEmptyText(object["title"]) {
+                ShenlunTextSection(title: "题干", text: question)
             }
         }
     }
 
     private var metadataSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("题型及来源")
-                .font(AppTheme.sectionTitleFont)
-                .foregroundStyle(.primary)
-
+        ShenlunDetailCard(title: "题型及来源", systemImage: "doc.text") {
             let subject = nonEmptyText(object["subject"]) ?? record.subject ?? "申论"
             let module = nonEmptyText(object["module"])
                 ?? record.module.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
@@ -112,8 +161,10 @@ struct ShenlunRecordContent: View {
                     .foregroundStyle(.primary)
             }
 
-            if let source = nonEmptyText(object["questionSource"]) ?? nonEmptyText(object["source"]) {
-                Text("来源：\(source)")
+            let source = nonEmptyText(object["questionSource"]) ?? nonEmptyText(object["source"])
+            let questionNumber = nonEmptyText(object["questionNumber"])
+            if source != nil || questionNumber != nil {
+                Text([source, questionNumber].compactMap { $0 }.joined(separator: "-"))
                     .font(AppTheme.bodyFont)
                     .foregroundStyle(.secondary)
             }
@@ -125,9 +176,6 @@ struct ShenlunRecordContent: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.bottom, 12)
-        .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.10)).frame(height: 0.7) }
     }
 
     private var materials: [String] {
@@ -191,16 +239,51 @@ private struct ShenlunLegacyField: Identifiable {
     var id: String { title }
 }
 
+private struct ShenlunDetailCard<Content: View>: View {
+    let title: String
+    let systemImage: String?
+    let content: Content
+
+    init(
+        title: String,
+        systemImage: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let systemImage {
+                Label(title, systemImage: systemImage)
+                    .font(AppTheme.sectionTitleFont)
+                    .foregroundStyle(.primary)
+            } else {
+                Text(title)
+                    .font(AppTheme.sectionTitleFont)
+                    .foregroundStyle(.primary)
+            }
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(14)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.primary.opacity(0.10), lineWidth: 0.8)
+        }
+    }
+}
+
 private struct ShenlunTextSection: View {
     let title: String
     let text: String
     var isLegacy = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title)
-                .font(isLegacy ? AppTheme.inputFont.weight(.semibold) : AppTheme.sectionTitleFont)
-                .foregroundStyle(isLegacy ? Color.secondary : Color.primary)
+        ShenlunDetailCard(title: title) {
             Text(text)
                 .font(AppTheme.bodyFont)
                 .foregroundStyle(isLegacy ? Color.secondary : Color.primary)
@@ -208,6 +291,5 @@ private struct ShenlunTextSection: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
-        .padding(.vertical, 4)
     }
 }

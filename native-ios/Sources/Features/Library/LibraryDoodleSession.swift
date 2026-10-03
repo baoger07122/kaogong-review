@@ -3,19 +3,25 @@ import SwiftUI
 @MainActor
 final class LibraryDoodleSession: ObservableObject {
     @Published var isPresented = false
+    @Published var saveError: String?
     let canvas = LibraryDoodleCanvasState()
-    private var saveHandler: ((String, Bool) -> Void)?
+    private var saveHandler: ((String, Bool) -> String?)?
+    private var isDismissing = false
 
     func present(
         drawingData: String,
         legacyPreviewDataURL: String,
-        onSave: @escaping (String, Bool) -> Void
+        onSave: @escaping (String, Bool) -> String?
     ) {
         guard !isPresented else { return }
+        saveError = nil
+        isDismissing = false
         canvas.drawingData = drawingData
         canvas.legacyPreviewDataURL = legacyPreviewDataURL
         saveHandler = onSave
+        let preparationStart = ProcessInfo.processInfo.systemUptime
         canvas.controller.prepareForPresentation()
+        LibraryPerformanceLog.mark("doodle.present.prepare", since: preparationStart)
 
         var transaction = Transaction()
         transaction.disablesAnimations = true
@@ -23,8 +29,22 @@ final class LibraryDoodleSession: ObservableObject {
     }
 
     func dismiss() {
-        guard isPresented else { return }
-        saveHandler?(canvas.drawingData, canvas.controller.legacyPreviewCleared)
+        guard isPresented, !isDismissing else { return }
+        isDismissing = true
+        saveError = nil
+        let handler = saveHandler
+        canvas.controller.commit { [weak self] in
+            guard let self, self.isPresented else { return }
+            if let error = handler?(self.canvas.drawingData, self.canvas.controller.legacyPreviewCleared) {
+                self.saveError = error
+                self.isDismissing = false
+                return
+            }
+            self.finishDismissal()
+        }
+    }
+
+    private func finishDismissal() {
         canvas.controller.showSettings = false
 
         var transaction = Transaction()
@@ -32,6 +52,7 @@ final class LibraryDoodleSession: ObservableObject {
         withTransaction(transaction) { isPresented = false }
         saveHandler = nil
         canvas.legacyPreviewDataURL = ""
+        isDismissing = false
     }
 }
 
@@ -80,6 +101,19 @@ struct LibraryDoodleOverlay: View {
                     .padding(.top, max(proxy.safeAreaInsets.top + 5, 28))
                     .padding(.trailing, proxy.safeAreaInsets.trailing + 12)
                     Spacer(minLength: 0)
+                }
+
+                if let saveError = session.saveError {
+                    VStack {
+                        Spacer()
+                        Text(saveError)
+                            .font(AppTheme.auxiliaryFont)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(AppTheme.danger.opacity(0.9), in: Capsule())
+                            .padding(.bottom, proxy.safeAreaInsets.bottom + 18)
+                    }
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)

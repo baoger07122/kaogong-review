@@ -170,6 +170,8 @@ struct LibraryRecordSnapshot: Identifiable {
     let weaknessTags: [String]
     let imageValues: [String]
     let comparisonWords: [String]
+    let questionSource: String
+    let questionNumber: String
 
     var id: String { record.compoundID }
 
@@ -236,6 +238,10 @@ struct LibraryRecordSnapshot: Identifiable {
         }
         let linkedWordIDs = object["linkedWordIds"] as? [String] ?? []
         comparisonWords = linkedWordIDs.compactMap { linkedWordNamesByID[$0] }
+        questionSource = Self.firstText(in: object, keys: ["questionSource", "source"])
+            .map(Self.plainText) ?? ""
+        questionNumber = Self.firstText(in: object, keys: ["questionNumber"])
+            .map(Self.plainText) ?? ""
 
         var values: [String] = []
         if record.collection == "words" {
@@ -249,7 +255,7 @@ struct LibraryRecordSnapshot: Identifiable {
         var seen = Set<String>()
         tags = Array(values.filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(3))
 
-        var searchValues = [title, summary, quantityStructure]
+        var searchValues = [title, summary, quantityStructure, questionSource, questionNumber]
         searchValues.append(contentsOf: tags)
         searchValues.append(contentsOf: weaknessTags)
         searchValues.append(contentsOf: ["pinyin", "meaning", "judgmentHint", "commonMeaning", "example", "compareNote", "myUnderstanding", "collocations", "pos"]
@@ -260,6 +266,15 @@ struct LibraryRecordSnapshot: Identifiable {
             })
         }
         searchableText = searchValues.joined(separator: "\n")
+    }
+
+    var sourceDisplay: String {
+        switch (questionSource.isEmpty, questionNumber.isEmpty) {
+        case (false, false): return "\(questionSource)-\(questionNumber)"
+        case (false, true): return questionSource
+        case (true, false): return questionNumber
+        case (true, true): return ""
+        }
     }
 
     private static func firstText(in object: [String: Any], keys: [String]) -> String? {

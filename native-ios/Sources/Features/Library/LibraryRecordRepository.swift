@@ -50,6 +50,7 @@ struct LibraryRecordDraft {
     var weaknessTags = ""
     var questionSource = ""
     var accuracy = ""
+    var questionNumber = ""
     var images: [String] = []
     var compareGroups: [LogicComparisonDraft] = []
     var score = ""
@@ -57,6 +58,8 @@ struct LibraryRecordDraft {
     var materials: [ShenlunMaterialDraft] = [.init()]
     var myAnswer = ""
     var referenceAnswer = ""
+    var myAnswerIssues = ""
+    var materialsAnalysis = ""
     var currentAffairsSupplement = ""
     var myFramework = ""
     var standardFramework = ""
@@ -137,6 +140,7 @@ struct LibraryRecordDraft {
             weaknessTags = values.joined(separator: "、")
         }
         questionSource = LibraryRecordDraft.text(original, keys: ["questionSource", "source"])
+        questionNumber = LibraryRecordDraft.text(original, keys: ["questionNumber"])
         accuracy = LibraryRecordDraft.numberText(original["accuracy"])
         images = (original["images"] as? [String]) ?? (original["image"] as? String).map { [$0] } ?? []
         if let groups = original["compareGroups"] as? [[String: Any]] {
@@ -149,6 +153,8 @@ struct LibraryRecordDraft {
         }
         myAnswer = LibraryRecordDraft.text(original, keys: ["myAnswer"])
         referenceAnswer = LibraryRecordDraft.text(original, keys: ["referenceAnswer"])
+        myAnswerIssues = LibraryRecordDraft.text(original, keys: ["myAnswerIssues"])
+        materialsAnalysis = LibraryRecordDraft.text(original, keys: ["materialsAnalysis"])
         currentAffairsSupplement = LibraryRecordDraft.text(original, keys: ["currentAffairsSupplement"])
         myFramework = LibraryRecordDraft.text(original, keys: ["myFramework"])
         standardFramework = LibraryRecordDraft.text(original, keys: ["stdFramework"])
@@ -236,6 +242,7 @@ enum LibraryRecordRepository {
         records: [StoredRecord],
         context: ModelContext
     ) throws -> String {
+        let performanceStart = ProcessInfo.processInfo.systemUptime
         let now = Date()
         let id = draft.id.isEmpty ? makeID(kind: kind) : draft.id
         let existing = records.first { $0.collection == kind.collection && $0.recordID == id }
@@ -244,6 +251,7 @@ enum LibraryRecordRepository {
         let previousLinkedErrors = (object["linkedErrors"] as? [String]) ?? (object["relatedErrorIds"] as? [String]) ?? []
         let previousLinkedNotes = object["linkedNoteIds"] as? [String] ?? []
         let previousLinkedWords = object["linkedWordIds"] as? [String] ?? []
+        let previousPencilKitData = object["pencilKitData"] as? String ?? ""
         object["id"] = id
         object["subject"] = draft.subject
         object["module"] = draft.module
@@ -279,6 +287,7 @@ enum LibraryRecordRepository {
             object["quantityStructure"] = draft.quantityStructure
             object["weaknessTags"] = splitList(draft.weaknessTags)
             object["questionSource"] = draft.questionSource
+            object["questionNumber"] = draft.questionNumber
             let sourceMetadata = QuestionSourceMetadata.parse(draft.questionSource)
             object["sourceYear"] = sourceMetadata.year.map { $0 as Any } ?? NSNull()
             object["sourceExamType"] = sourceMetadata.examType.map { $0 as Any } ?? NSNull()
@@ -292,10 +301,11 @@ enum LibraryRecordRepository {
             object["linkedNoteIds"] = draft.linkedNoteIDs
             object["linkedWordIds"] = draft.linkedWordIDs
             object["pencilKitData"] = draft.pencilKitData
-            let generatedDrawingPreview = PencilDrawingCompatibility.previewDataURL(encodedData: draft.pencilKitData)
             if draft.legacyDrawingPreview.isEmpty {
-                object["drawingPreview"] = generatedDrawingPreview
-                object["handNote"] = generatedDrawingPreview
+                if draft.pencilKitData.isEmpty, !previousPencilKitData.isEmpty {
+                    object.removeValue(forKey: "drawingPreview")
+                    object.removeValue(forKey: "handNote")
+                }
             } else {
                 object["legacyDrawingPreview"] = draft.legacyDrawingPreview
                 object["drawingPreview"] = draft.legacyDrawingPreview
@@ -320,6 +330,8 @@ enum LibraryRecordRepository {
                     .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
                 object["myAnswer"] = draft.myAnswer
                 object["referenceAnswer"] = draft.referenceAnswer
+                object["myAnswerIssues"] = draft.myAnswerIssues
+                object["materialsAnalysis"] = draft.materialsAnalysis
                 object["currentAffairsSupplement"] = draft.currentAffairsSupplement
                 object["myFramework"] = draft.myFramework
                 object["stdFramework"] = draft.standardFramework
@@ -343,10 +355,11 @@ enum LibraryRecordRepository {
             object["linkedReviews"] = object["linkedReviews"] ?? []
             object["mindMap"] = draft.mindMapData
             object["pencilKitData"] = draft.pencilKitData
-            let generatedDrawingPreview = PencilDrawingCompatibility.previewDataURL(encodedData: draft.pencilKitData)
             if draft.legacyDrawingPreview.isEmpty {
-                object["drawingPreview"] = generatedDrawingPreview
-                object["doodle"] = generatedDrawingPreview
+                if draft.pencilKitData.isEmpty, !previousPencilKitData.isEmpty {
+                    object.removeValue(forKey: "drawingPreview")
+                    object.removeValue(forKey: "doodle")
+                }
             } else {
                 object["legacyDrawingPreview"] = draft.legacyDrawingPreview
                 object["drawingPreview"] = draft.legacyDrawingPreview
@@ -381,7 +394,9 @@ enum LibraryRecordRepository {
                 .map { ["name": $0.name, "meaning": $0.meaning, "wordId": $0.wordID, "entryKind": draft.wordEntryKind] }
         }
 
+        let payloadStart = ProcessInfo.processInfo.systemUptime
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        LibraryPerformanceLog.mark("record.save.payload", since: payloadStart)
         if let existing {
             existing.replacePayload(payload)
             existing.subject = draft.subject
@@ -411,7 +426,10 @@ enum LibraryRecordRepository {
         case .stickies:
             break
         }
+        let contextSaveStart = ProcessInfo.processInfo.systemUptime
         try context.save()
+        LibraryPerformanceLog.mark("record.save.context", since: contextSaveStart)
+        LibraryPerformanceLog.mark("record.save.total", since: performanceStart)
         return id
     }
 

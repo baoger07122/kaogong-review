@@ -337,6 +337,14 @@ private struct LibraryErrorRecordCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if !snapshot.sourceDisplay.isEmpty {
+                Text(snapshot.sourceDisplay)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             images
 
             Text(snapshot.title)
