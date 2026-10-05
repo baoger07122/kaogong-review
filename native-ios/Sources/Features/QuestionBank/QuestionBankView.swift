@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 import UIKit
+import OSLog
 
 struct QuestionBankView: View {
     @Environment(\.modelContext) private var modelContext
@@ -12,6 +13,7 @@ struct QuestionBankView: View {
     @State private var selectedModuleTitle = ""
     @State private var questionNumber = ""
     @State private var presentsFilePicker = false
+    @State private var filePickerCallbackReceived = false
     @State private var preparedImport: QuestionBankImportPlan?
     @State private var isPreparingImport = false
     @State private var isCommittingImport = false
@@ -20,6 +22,9 @@ struct QuestionBankView: View {
     @State private var showImportAlert = false
     @State private var importAlertTitle = "导入未完成"
     @State private var importAlertMessage = ""
+    @State private var importStatusMessage: String?
+
+    private let importLogger = Logger(subsystem: "com.baoger07122.kaogongreview", category: "QuestionBankImportUI")
 
     private var paperRecords: [QuestionBankRecord] {
         records.filter { $0.kind == QuestionBankRepository.paperKind }
@@ -71,6 +76,21 @@ struct QuestionBankView: View {
         ZStack(alignment: .bottomTrailing) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    if let importStatusMessage {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            if isPreparingImport {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "info.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text(importStatusMessage)
+                                .font(AppTheme.auxiliaryFont)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     filterControls
 
                     if visiblePapers.isEmpty {
@@ -107,15 +127,44 @@ struct QuestionBankView: View {
         .navigationTitle("真题库")
         .navigationBarTitleDisplayMode(.inline)
         .rootTabBarContentInset()
-        .fileImporter(isPresented: $presentsFilePicker, allowedContentTypes: [.zip], allowsMultipleSelection: false) { result in
+        .fileImporter(isPresented: $presentsFilePicker, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
+            filePickerCallbackReceived = true
             switch result {
             case .success(let urls):
                 guard let url = urls.first else {
                     showImportError("没有选择 ZIP 文件。")
                     return
                 }
+                guard !isPreparingImport, !isCommittingImport else {
+                    importLogger.error("picker returned a file while another import was active")
+                    return
+                }
+                importLogger.info("picker selected a file; validating and staging it")
+                importStatusMessage = "正在读取真题包…"
                 prepareImport(from: url)
-            case .failure(let error): showImportError(error.localizedDescription)
+            case .failure(let error):
+                if isFilePickerCancellation(error) {
+                    importLogger.info("picker completion reported cancellation")
+                    importStatusMessage = "已取消选择"
+                } else {
+                    importLogger.error("picker completion failed: \(error.localizedDescription, privacy: .public)")
+                    showImportError("无法访问所选文件：\(error.localizedDescription)")
+                }
+            }
+        }
+        .onChange(of: presentsFilePicker) { wasPresented, isPresented in
+            if isPresented {
+                filePickerCallbackReceived = false
+                importStatusMessage = "请选择 ZIP 真题包"
+                importLogger.info("file picker opened")
+            } else if wasPresented {
+                importLogger.info("file picker dismissed; checking whether it returned a result")
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    guard !presentsFilePicker, !filePickerCallbackReceived else { return }
+                    importLogger.info("file picker closed without a completion callback; treated as cancellation")
+                    importStatusMessage = "已取消选择"
+                }
             }
         }
         .sheet(item: $preparedImport, onDismiss: {
@@ -142,6 +191,8 @@ struct QuestionBankView: View {
 
     private var importButton: some View {
         Button {
+            guard !isPreparingImport, !isCommittingImport else { return }
+            importStatusMessage = nil
             presentsFilePicker = true
         } label: {
             Group {
@@ -250,15 +301,21 @@ struct QuestionBankView: View {
     }
 
     private func prepareImport(from url: URL) {
+        guard !isPreparingImport, !isCommittingImport else { return }
         isPreparingImport = true
+        importStatusMessage = "正在读取真题包…"
         Task {
             do {
                 let plan = try await Task.detached(priority: .userInitiated) {
                     try QuestionBankPackageImporter.prepare(from: url)
                 }.value
+                importLogger.info("package validation finished: modules=\(plan.modules.count), questions=\(plan.questions.count), assets=\(plan.assets.count), errors=\(plan.errors.count)")
                 importStagingDirectory = plan.stagingDirectory
                 preparedImport = plan
+                importStatusMessage = nil
             } catch {
+                importLogger.error("package preparation failed: \(error.localizedDescription, privacy: .public)")
+                importStatusMessage = nil
                 showImportError(error.localizedDescription)
             }
             isPreparingImport = false
@@ -273,19 +330,28 @@ struct QuestionBankView: View {
             try QuestionBankRepository.commit(plan, decision: decision, records: records, context: modelContext)
             isCommittingImport = false
             preparedImport = nil
+            importLogger.info("atomic import committed: modules=\(plan.modules.count), questions=\(plan.questions.count), assets=\(plan.assets.count)")
             importAlertTitle = "导入完成"
             importAlertMessage = "已导入“\(plan.paper?.title ?? "试卷")”：\(plan.modules.count) 个模块、\(plan.questions.count) 道题目。套卷成绩记录和学习库数据未更改。"
             showImportAlert = true
         } catch {
             isCommittingImport = false
+            importLogger.error("atomic import failed and was rolled back: \(error.localizedDescription, privacy: .public)")
             inlineImportFailure = error.localizedDescription
         }
     }
 
     private func showImportError(_ message: String) {
+        importStatusMessage = nil
         importAlertTitle = "导入未完成"
         importAlertMessage = message
         showImportAlert = true
+    }
+
+    private func isFilePickerCancellation(_ error: Error) -> Bool {
+        let value = error as NSError
+        return (value.domain == NSCocoaErrorDomain && value.code == NSUserCancelledError)
+            || (value.domain == NSURLErrorDomain && value.code == NSURLErrorCancelled)
     }
 }
 

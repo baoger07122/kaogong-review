@@ -6,14 +6,13 @@ import XCTest
 @MainActor
 final class QuestionBankImportTests: XCTestCase {
     func testValidationPackageImportsAtomicallyAndPersistsAcrossContainerReopen() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
+        try assertInvalidPackagesAreRejectedWithoutLeavingTemporaryFiles()
+        let packageURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let packageURL = repositoryRoot
-            .appendingPathComponent("outputs/question-bank-validation/2019国考地市级真题验证包.zip")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: packageURL.path), "Validation ZIP should be checked in alongside the app sources.")
+            .appendingPathComponent("TestFixtures/QuestionBank/2019-national-exam-city-7q.zip")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: packageURL.path), "Validation ZIP fixture should be checked in alongside the app sources.")
 
         let plan = try QuestionBankPackageImporter.prepare(from: packageURL)
         defer { QuestionBankPackageImporter.cleanup(plan) }
@@ -27,6 +26,10 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertEqual(q71.stemImageAssetID, "q-2019-071-full-figure")
         XCTAssertEqual(q71.options.map(\.text), ["A", "B", "C", "D"])
         XCTAssertTrue(q71.options.allSatisfy { $0.imageAssetID.isEmpty })
+        let q71Figure = try XCTUnwrap(plan.assets.first { $0.id == q71.stemImageAssetID })
+        XCTAssertEqual(q71Figure.role, "题干整图")
+        let q71FigureURL = try XCTUnwrap(plan.stagingDirectory).appendingPathComponent(q71Figure.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: q71FigureURL.path))
 
         let dataQuestions = plan.questions.filter { (111...115).contains($0.number) }
         XCTAssertEqual(dataQuestions.count, 5)
@@ -105,6 +108,37 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertEqual(persisted.filter { $0.kind == QuestionBankRepository.moduleKind }.count, 5)
         XCTAssertEqual(persisted.filter { $0.kind == QuestionBankRepository.questionKind }.count, 7)
         XCTAssertEqual(try reopened.mainContext.fetch(FetchDescriptor<StoredRecord>()).first?.recordID, "existing-exam")
+    }
+
+    private func assertInvalidPackagesAreRejectedWithoutLeavingTemporaryFiles() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankRejectedPackageTest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        let stagingRoot = FileManager.default.temporaryDirectory
+        let previousStaging = Set(try FileManager.default.contentsOfDirectory(at: stagingRoot, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix("QuestionBankImport-") })
+
+        let spreadsheetURL = temporaryRoot.appendingPathComponent("not-a-package.xlsx")
+        try Data("not a ZIP".utf8).write(to: spreadsheetURL)
+        XCTAssertThrowsError(try QuestionBankPackageImporter.prepare(from: spreadsheetURL)) {
+            XCTAssertTrue($0.localizedDescription.contains(".zip"), $0.localizedDescription)
+        }
+
+        let folderURL = temporaryRoot.appendingPathComponent("folder.zip", isDirectory: true)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        XCTAssertThrowsError(try QuestionBankPackageImporter.prepare(from: folderURL)) {
+            XCTAssertTrue($0.localizedDescription.contains("文件夹"), $0.localizedDescription)
+        }
+
+        let brokenArchiveURL = temporaryRoot.appendingPathComponent("broken.zip")
+        try Data("not a ZIP".utf8).write(to: brokenArchiveURL)
+        XCTAssertThrowsError(try QuestionBankPackageImporter.prepare(from: brokenArchiveURL)) {
+            XCTAssertTrue($0.localizedDescription.contains("有效 ZIP"), $0.localizedDescription)
+        }
+        let remainingStaging = Set(try FileManager.default.contentsOfDirectory(at: stagingRoot, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix("QuestionBankImport-") })
+        XCTAssertEqual(remainingStaging, previousStaging, "Rejected packages must not leave temporary staging directories.")
     }
 
     private func makeContainer(storeURL: URL) throws -> ModelContainer {

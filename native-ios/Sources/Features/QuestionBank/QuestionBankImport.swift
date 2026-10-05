@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import OSLog
 import ZIPFoundation
 
 struct QuestionBankPaper: Codable, Equatable, Sendable {
@@ -297,21 +298,36 @@ enum QuestionBankRepository {
 }
 
 enum QuestionBankPackageImporter {
+    private static let logger = Logger(subsystem: "com.baoger07122.kaogongreview", category: "QuestionBankPackageImporter")
+
     static func prepare(from sourceURL: URL) throws -> QuestionBankImportPlan {
+        guard sourceURL.pathExtension.lowercased() == "zip" else {
+            throw PackageError("请选择 .zip 真题包；不能直接导入 Excel、文件夹或其他文件。")
+        }
         let stage = FileManager.default.temporaryDirectory
             .appendingPathComponent("QuestionBankImport-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
-        let accessGranted = sourceURL.startAccessingSecurityScopedResource()
-        defer { if accessGranted { sourceURL.stopAccessingSecurityScopedResource() } }
 
         do {
-            try extractArchive(at: sourceURL, to: stage)
+            logger.info("prepare started; package extension is ZIP")
+            let localArchive = stage.appendingPathComponent("incoming.zip")
+            try stageSourceArchive(from: sourceURL, to: localArchive)
+            logger.info("opening ZIP from app-local staging")
+            try extractArchive(at: localArchive, to: stage)
+            try FileManager.default.removeItem(at: localArchive)
             let workbooks = try FileManager.default.contentsOfDirectory(at: stage, includingPropertiesForKeys: nil)
                 .filter { $0.pathExtension.lowercased() == "xlsx" }
             guard workbooks.count == 1 else {
                 throw PackageError("ZIP 根目录必须且只能包含一个 .xlsx 标准工作簿。")
             }
-            let tables = try XLSXTableReader.read(workbooks[0])
+            logger.info("XLSX validation started")
+            let tables: [String: [[String: String]]]
+            do {
+                tables = try XLSXTableReader.read(workbooks[0])
+            } catch {
+                logger.error("XLSX validation failed: \(error.localizedDescription, privacy: .public)")
+                throw error
+            }
             var paper: QuestionBankPaper?
             var modules: [QuestionBankModule] = []
             var materials: [QuestionBankMaterial] = []
@@ -320,25 +336,128 @@ enum QuestionBankPackageImporter {
             var errors: [String] = []
 
             do { paper = try parsePaper(tables["试卷"] ?? []) }
-            catch { errors.append("试卷表：\(error.localizedDescription)") }
+            catch {
+                logger.error("paper sheet validation failed: \(error.localizedDescription, privacy: .public)")
+                errors.append("试卷表：\(error.localizedDescription)")
+            }
             do { modules = try parseModules(tables["模块"] ?? []) }
-            catch { errors.append("模块表：\(error.localizedDescription)") }
+            catch {
+                logger.error("module sheet validation failed: \(error.localizedDescription, privacy: .public)")
+                errors.append("模块表：\(error.localizedDescription)")
+            }
             do { materials = try parseMaterials(tables["材料"] ?? []) }
-            catch { errors.append("材料表：\(error.localizedDescription)") }
+            catch {
+                logger.error("materials sheet validation failed: \(error.localizedDescription, privacy: .public)")
+                errors.append("材料表：\(error.localizedDescription)")
+            }
             do { questions = try parseQuestions(tables["题目"] ?? []) }
-            catch { errors.append("题目表：\(error.localizedDescription)") }
+            catch {
+                logger.error("questions sheet validation failed: \(error.localizedDescription, privacy: .public)")
+                errors.append("题目表：\(error.localizedDescription)")
+            }
             do { assets = try parseAssets(tables["图片资源"] ?? []) }
-            catch { errors.append("图片资源表：\(error.localizedDescription)") }
+            catch {
+                logger.error("image asset sheet validation failed: \(error.localizedDescription, privacy: .public)")
+                errors.append("图片资源表：\(error.localizedDescription)")
+            }
 
+            logger.info("image and cross-reference validation started")
             errors += validate(paper: paper, modules: modules, materials: materials, questions: questions,
                                assets: assets, staging: stage)
+            logger.info("package validation finished; modules=\(modules.count), materials=\(materials.count), questions=\(questions.count), images=\(assets.count), errors=\(errors.count)")
             return QuestionBankImportPlan(paper: paper, modules: modules, materials: materials,
                                           questions: questions, assets: assets, errors: errors,
                                           stagingDirectory: stage)
         } catch {
+            logger.error("prepare failed; staging directory will be removed: \(error.localizedDescription, privacy: .public)")
             try? FileManager.default.removeItem(at: stage)
             throw error
         }
+    }
+
+    private static func stageSourceArchive(from sourceURL: URL, to localArchive: URL) throws {
+        let hasSecurityScope = sourceURL.startAccessingSecurityScopedResource()
+        defer { if hasSecurityScope { sourceURL.stopAccessingSecurityScopedResource() } }
+        logger.info("source access started; security scope granted=\(hasSecurityScope)")
+
+        do {
+            let values = try sourceURL.resourceValues(forKeys: [.isDirectoryKey])
+            guard values.isDirectory != true else {
+                throw PackageError("所选项目是文件夹；请选择 .zip 真题包。")
+            }
+        } catch let error as PackageError {
+            throw error
+        } catch {
+            throw PackageError("无法读取所选文件信息：\(error.localizedDescription)")
+        }
+
+        try requestICloudDownloadIfNeeded(for: sourceURL)
+        logger.info("coordinated source copy started")
+        var copyResult: Result<Void, Error>?
+        var coordinationError: NSError?
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(readingItemAt: sourceURL, options: .withoutChanges, error: &coordinationError) { coordinatedURL in
+            do {
+                try FileManager.default.copyItem(at: coordinatedURL, to: localArchive)
+                copyResult = .success(())
+            } catch {
+                copyResult = .failure(error)
+            }
+        }
+        if let coordinationError {
+            logger.error("source coordination failed: \(coordinationError.localizedDescription, privacy: .public)")
+            throw PackageError("无法从文件提供方读取真题包：\(coordinationError.localizedDescription)")
+        }
+        guard let copyResult else {
+            throw PackageError("文件提供方没有返回可读取的真题包。")
+        }
+        do {
+            try copyResult.get()
+        } catch {
+            logger.error("copy to local staging failed: \(error.localizedDescription, privacy: .public)")
+            throw PackageError("无法将真题包复制到本地暂存区：\(error.localizedDescription)")
+        }
+        let attributes = try FileManager.default.attributesOfItem(atPath: localArchive.path)
+        let byteCount = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        guard byteCount > 0 else { throw PackageError("所选 ZIP 文件为空。") }
+        logger.info("coordinated local copy completed; bytes=\(byteCount)")
+    }
+
+    private static func requestICloudDownloadIfNeeded(for sourceURL: URL) throws {
+        guard let values = try? sourceURL.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]),
+              values.isUbiquitousItem == true else {
+            logger.info("source is not reported as an iCloud ubiquitous item; file-provider coordination will handle the read")
+            return
+        }
+
+        if values.ubiquitousItemDownloadingStatus == .current {
+            logger.info("iCloud source is already current on device")
+            return
+        }
+
+        do {
+            logger.info("requesting iCloud source download")
+            try FileManager.default.startDownloadingUbiquitousItem(at: sourceURL)
+        } catch {
+            logger.error("iCloud download request failed: \(error.localizedDescription, privacy: .public)")
+            throw PackageError("无法请求 iCloud 下载真题包：\(error.localizedDescription)")
+        }
+
+        let deadline = Date().addingTimeInterval(90)
+        while Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.25)
+            guard let values = try? sourceURL.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]),
+                  let status = values.ubiquitousItemDownloadingStatus else {
+                logger.error("iCloud download status could not be read; continuing to coordinated file access")
+                return
+            }
+            if status == .current {
+                logger.info("iCloud source became available; status=\(String(describing: status), privacy: .public)")
+                return
+            }
+        }
+        logger.error("iCloud source did not finish downloading within 90 seconds")
+        throw PackageError("iCloud 真题包尚未下载完成。请确认 iPad 网络正常后重试。")
     }
 
     static func cleanup(_ plan: QuestionBankImportPlan) {
@@ -355,9 +474,11 @@ enum QuestionBankPackageImporter {
 
     private static func extractArchive(at source: URL, to stage: URL) throws {
         guard let archive = Archive(url: source, accessMode: .read) else {
-            throw PackageError("无法读取 ZIP 文件。请确认文件完整且为标准 ZIP 包。")
+            logger.error("ZIP open failed; local copy is not a readable ZIP archive")
+            throw PackageError("无法读取 ZIP 文件：内容不是有效 ZIP，或文件已损坏。")
         }
         let archiveEntries = Array(archive)
+        logger.info("ZIP opened; entries=\(archiveEntries.count)")
         guard archiveEntries.count <= 800 else { throw PackageError("ZIP 包文件数量超过 800，已拒绝导入。") }
         var totalSize: UInt64 = 0
         var extractedPaths = Set<String>()
@@ -396,8 +517,13 @@ enum QuestionBankPackageImporter {
                 throw PackageError("ZIP 中包含越界文件路径：\(entry.path)")
             }
             try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try archive.extract(entry, to: target)
+            do {
+                try archive.extract(entry, to: target)
+            } catch {
+                throw PackageError("无法解压 ZIP 文件“\(entry.path)”：文件可能已损坏。\(error.localizedDescription)")
+            }
         }
+        logger.info("ZIP extraction completed; expanded bytes=\(totalSize)")
     }
 
     private static func parsePaper(_ rows: [[String: String]]) throws -> QuestionBankPaper {
