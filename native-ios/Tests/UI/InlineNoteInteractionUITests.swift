@@ -7,7 +7,7 @@ final class InlineNoteInteractionUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        let library = app.buttons["root-tab-library"]
+        let library = app.buttons["root-tab-library"].firstMatch
         XCTAssertTrue(library.waitForExistence(timeout: 15))
         library.tap()
 

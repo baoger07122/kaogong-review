@@ -79,7 +79,7 @@ final class SpeedInteractionUITests: XCTestCase {
         shortcut.tap()
         let start = app.buttons["speed-start"]
         XCTAssertTrue(start.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["root-tab-library"].isHittable)
+        XCTAssertTrue(app.buttons["root-tab-library"].firstMatch.isHittable)
         // A genuine navigation destination retains UIKit's edge-pop gesture.
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.002, dy: 0.45))
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.45))
@@ -90,7 +90,7 @@ final class SpeedInteractionUITests: XCTestCase {
         app.buttons["speed-type-addsub2"].tap()
         start.tap()
         XCTAssertTrue(app.buttons["speed-key-2"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["root-tab-library"].exists)
+        XCTAssertFalse(app.buttons["root-tab-library"].firstMatch.exists)
         // Internal practice states must confirm, not pop the whole destination.
         edge.press(forDuration: 0.05, thenDragTo: end)
         let keepGoing = app.buttons["speed-exit-continue"]
@@ -100,7 +100,7 @@ final class SpeedInteractionUITests: XCTestCase {
         app.buttons["speed-back"].tap()
         app.buttons["speed-exit-confirm"].tap()
         XCTAssertTrue(start.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["root-tab-library"].isHittable)
+        XCTAssertTrue(app.buttons["root-tab-library"].firstMatch.isHittable)
     }
 
     @MainActor
