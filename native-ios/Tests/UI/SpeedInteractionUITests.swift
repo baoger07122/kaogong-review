@@ -18,7 +18,7 @@ final class SpeedInteractionUITests: XCTestCase {
         app.launch()
 
         let tabs = ["home", "library", "review", "questionBank", "settings"]
-        let tabButtons = tabs.map { app.buttons["root-tab-\($0)"] }
+        let tabButtons = tabs.map { app.buttons["root-tab-\($0)"].firstMatch }
         for (tab, button) in zip(tabs, tabButtons) {
             XCTAssertTrue(button.waitForExistence(timeout: 15), "Missing root tab: \(tab)")
         }
@@ -34,7 +34,7 @@ final class SpeedInteractionUITests: XCTestCase {
         ]
         for (phase, sequence) in passes {
             for tab in sequence {
-                let selectedButton = app.buttons["root-tab-\(tab)"]
+                let selectedButton = app.buttons["root-tab-\(tab)"].firstMatch
                 selectedButton.tap()
                 var frames: [CGRect] = []
                 var selectedFrames: [CGRect] = []
