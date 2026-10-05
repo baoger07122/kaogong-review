@@ -147,7 +147,8 @@ final class QuestionBankImportTests: XCTestCase {
         let q71 = try XCTUnwrap(plan.questions.first { $0.number == 71 })
         XCTAssertEqual(q71.stemImageAssetID, "q-2019-071-full-figure")
         let q71Asset = try XCTUnwrap(plan.assets.first { $0.id == q71.stemImageAssetID })
-        XCTAssertTrue(FileManager.default.fileExists(atPath: XCTUnwrap(plan.stagingDirectory).appendingPathComponent(q71Asset.path).path))
+        let jsonStagingDirectory = try XCTUnwrap(plan.stagingDirectory)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: jsonStagingDirectory.appendingPathComponent(q71Asset.path).path))
 
         let sharedMaterialQuestions = plan.questions.filter { (111...115).contains($0.number) }
         XCTAssertEqual(Set(sharedMaterialQuestions.map(\.materialID)), ["m-2019-drugs-111-115"])
