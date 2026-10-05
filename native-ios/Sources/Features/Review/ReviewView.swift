@@ -170,15 +170,23 @@ struct ReviewView: View {
     }
 
     var body: some View {
-        Group { if isSession { sessionView } else { homeView } }
+        homeView
             .background(AppTheme.groupedBackground)
-            .navigationTitle(isSession ? "复习训练" : "复习")
+            .navigationTitle("复习")
             .navigationBarTitleDisplayMode(.inline)
             .rootTabBarContentInset()
-            .toolbar(isSession ? .hidden : .automatic, for: .tabBar)
+            .toolbar(.visible, for: .tabBar)
+            .navigationDestination(isPresented: $isSession) {
+                sessionView
+                    .background(AppTheme.groupedBackground)
+                    .navigationTitle("复习训练")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .rootTabBarContentInset()
+                    .toolbar(.hidden, for: .tabBar)
+            }
             .onAppear {
                 restoreSession()
-                NativePerformanceLog.event("review onAppear")
+                NativePerformanceLog.event("review onAppear isSession=\(isSession)")
             }
             .task(id: overviewRevision) {
                 await refreshOverview()

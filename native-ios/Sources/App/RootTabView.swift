@@ -111,13 +111,16 @@ struct RootTabView: View {
             NavigationStack(path: $libraryPath) {
                 LibraryView(navigationPath: $libraryPath)
             }
+                .toolbar(.visible, for: .tabBar)
                 .environmentObject(libraryDoodleSession)
                 .environment(\.rootTabContext, .library)
         case .review:
             NavigationStack { ReviewView() }
+                .toolbar(.visible, for: .tabBar)
                 .environment(\.rootTabContext, .review)
         case .questionBank:
             NavigationStack { QuestionBankView() }
+                .toolbar(.visible, for: .tabBar)
                 .environment(\.rootTabContext, .questionBank)
         case .settings:
             NavigationStack(path: $settingsPath) { SettingsView() }
@@ -134,13 +137,8 @@ struct RootTabView: View {
 
 private struct RootTabFirstFrameMarker: ViewModifier {
     let tab: RootTab
-    @State private var didMark = false
 
     func body(content: Content) -> some View {
-        content.onAppear {
-            guard !didMark else { return }
-            didMark = true
-            NativePerformanceLog.markTabFirstFrame(tab)
-        }
+        content.onAppear { NativePerformanceLog.markTabFirstFrame(tab) }
     }
 }

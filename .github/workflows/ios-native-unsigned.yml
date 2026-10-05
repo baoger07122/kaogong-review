@@ -85,23 +85,27 @@ jobs:
         run: |
           RUN_SIMULATOR=false
           RUN_QUESTION_BANK=false
+          RUN_NAVIGATION=false
           RUN_CONTRACTS=false
           if [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && [[ ! "$BEFORE_SHA" =~ ^0+$ ]]; then
             CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")
             if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/Features/QuestionBank/|Tests/QuestionBank/)'; then
               RUN_SIMULATOR=true
               RUN_QUESTION_BANK=true
-            elif echo "$CHANGED_FILES" | grep -Eq '^native-ios/Tests/(Animation|UI)/'; then
+            fi
+            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/App/RootTabView\.swift|Sources/Features/Review/ReviewView\.swift|Tests/UI/SpeedInteractionUITests\.swift)$'; then
               RUN_SIMULATOR=true
+              RUN_NAVIGATION=true
             fi
             # These source-only contracts cover keypad, form, and rich-text changes;
             # unrelated feature releases should not spend time running them.
-            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/Features/Speed/|Sources/Features/Library/LibraryRecordEditorView\.swift|Sources/Features/Shared/NativeRichTextEditor\.swift|Tests/(Animation|UI|Speed)|Tests/(speed-feedback-contracts|document-form-contracts|rich-text-toolbar-contracts)\.cjs)'; then
+            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/Features/Speed/|Sources/Features/Library/LibraryRecordEditorView\.swift|Sources/Features/Shared/NativeRichTextEditor\.swift|Tests/(Animation/|Speed/|speed-feedback-contracts\.cjs|document-form-contracts\.cjs|rich-text-toolbar-contracts\.cjs))'; then
               RUN_CONTRACTS=true
             fi
           fi
           echo "run=$RUN_SIMULATOR" >> "$GITHUB_OUTPUT"
           echo "question_bank=$RUN_QUESTION_BANK" >> "$GITHUB_OUTPUT"
+          echo "navigation=$RUN_NAVIGATION" >> "$GITHUB_OUTPUT"
           echo "contracts=$RUN_CONTRACTS" >> "$GITHUB_OUTPUT"
           echo "Run focused simulator tests: $RUN_SIMULATOR"
 
@@ -128,6 +132,32 @@ jobs:
         run: |
           SIMULATOR_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next(d["udid"] for runtime,devices in sorted(data["devices"].items(), reverse=True) if "iOS" in runtime for d in devices if "iPad" in d["name"]))')
           echo "SIMULATOR_ID=$SIMULATOR_ID" >> "$GITHUB_ENV"
+
+      - name: Measure released tab bar geometry before changes
+        if: steps.simulator_scope.outputs.navigation == 'true'
+        timeout-minutes: 12
+        shell: bash
+        run: |
+          BASELINE_DIR="$RUNNER_TEMP/native-tabbar-baseline"
+          git worktree add --detach "$BASELINE_DIR" native-v10.5.4
+          cp native-ios/Tests/UI/SpeedInteractionUITests.swift "$BASELINE_DIR/native-ios/Tests/UI/SpeedInteractionUITests.swift"
+          (cd "$BASELINE_DIR/native-ios" && xcodegen generate)
+          xcrun simctl boot "$SIMULATOR_ID" || true
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+          mkdir -p build
+          RESULT_PATH=build/TabBarBaseline.xcresult
+          if ! xcodebuild test \
+            -project "$BASELINE_DIR/native-ios/KaogongReviewNative.xcodeproj" \
+            -scheme KaogongReviewNative \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath build/TabBarBaselineDerivedData \
+            -parallel-testing-enabled NO \
+            -resultBundlePath "$RESULT_PATH" \
+            -only-testing:SpeedInteractionUITests/SpeedInteractionUITests/testRootTabBarFrameBaselineDiagnostics \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
+            xcrun xcresulttool get test-results summary --path "$RESULT_PATH" || true
+            exit 1
+          fi
 
       - name: Compile native App and focused tests
         if: steps.simulator_scope.outputs.run == 'true'
@@ -160,7 +190,18 @@ jobs:
           if [ "$RUN_QUESTION_BANK" = "true" ]; then
             TEST_SCHEME=QuestionBankImport
             RESULT_PATH=build/QuestionBankImport.xcresult
-            TEST_ARGS=(-only-testing:QuestionBankImportTests)
+            TEST_ARGS=(
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testPickerDidPickThenDismissKeepsSelectionAndStartsOnce
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testPickerDismissThenDidPickAcceptsLateCallback
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testPickerDuplicateCallbackIsIgnoredWithoutResettingPreparation
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testPickerExplicitCancellationRejectsLateSelection
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testPickerInvalidResultsAreDistinctAndAllowReselection
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testSingleJSONPickerCallbackReachesPreviewAndConfirmedCommit
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testShenlunAdaptationBacksUpExactPayloadAndWritesOnce
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testInvalidShenlunAdaptationLeavesPayloadAndBackupUntouched
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testJSONV1PreservesVerifiedQuestionsAndPersistsWithoutBase64Payloads
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testValidationPackageImportsAtomicallyAndPersistsAcrossContainerReopen
+            )
           else
             TEST_ARGS=(
               -only-testing:SpeedInteractionUITests/SpeedInteractionUITests/testBlankStartAreaAndSingleDispatchForKeys
@@ -177,6 +218,28 @@ jobs:
             -parallel-testing-enabled NO \
             -resultBundlePath "$RESULT_PATH" \
             "${TEST_ARGS[@]}" \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
+            xcrun xcresulttool get test-results summary --path "$RESULT_PATH" || true
+            exit 1
+          fi
+
+      - name: Measure primary tab bar geometry and preserve hidden secondary pages
+        if: steps.simulator_scope.outputs.navigation == 'true'
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          xcrun simctl boot "$SIMULATOR_ID" || true
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+          RESULT_PATH=build/RootTabBarStability.xcresult
+          if ! xcodebuild test \
+            -project native-ios/KaogongReviewNative.xcodeproj \
+            -scheme KaogongReviewNative \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath build/NativeTestDerivedData \
+            -parallel-testing-enabled NO \
+            -resultBundlePath "$RESULT_PATH" \
+            -only-testing:SpeedInteractionUITests/SpeedInteractionUITests/testRootTabBarFrameStaysStableOnFirstAndRepeatedSwitches \
+            -only-testing:SpeedInteractionUITests/SpeedInteractionUITests/testNavigationEdgeAndPageOwnedTabBar \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
             xcrun xcresulttool get test-results summary --path "$RESULT_PATH" || true
             exit 1

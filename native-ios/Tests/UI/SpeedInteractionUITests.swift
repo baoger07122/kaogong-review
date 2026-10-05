@@ -2,6 +2,71 @@ import XCTest
 
 final class SpeedInteractionUITests: XCTestCase {
     @MainActor
+    func testRootTabBarFrameStaysStableOnFirstAndRepeatedSwitches() async throws {
+        try await measureRootTabBarGeometry(assertStable: true)
+    }
+
+    @MainActor
+    func testRootTabBarFrameBaselineDiagnostics() async throws {
+        try await measureRootTabBarGeometry(assertStable: false)
+    }
+
+    @MainActor
+    private func measureRootTabBarGeometry(assertStable: Bool) async throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launch()
+
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 15))
+        let tabs = ["home", "library", "review", "questionBank", "settings"]
+        for tab in tabs {
+            XCTAssertTrue(app.buttons["root-tab-\(tab)"].waitForExistence(timeout: 5), "Missing root tab: \(tab)")
+        }
+        XCTAssertEqual(tabBar.buttons.count, 5, "Root tab count and ordering must remain a five-tab system TabView")
+
+        let baseline = tabBar.frame
+        let selectedBaseline = app.buttons["root-tab-home"].frame
+        print("TAB_BAR_FRAME phase=baseline x=\(baseline.minX) y=\(baseline.minY) width=\(baseline.width) height=\(baseline.height)")
+        let passes: [(String, [String])] = [
+            ("first", ["library", "review", "questionBank", "settings", "home"]),
+            ("repeat", ["settings", "questionBank", "review", "library", "home"])
+        ]
+        for (phase, sequence) in passes {
+            for tab in sequence {
+                let selectedButton = app.buttons["root-tab-\(tab)"]
+                selectedButton.tap()
+                var frames: [CGRect] = []
+                var selectedFrames: [CGRect] = []
+                for _ in 0..<12 {
+                    frames.append(tabBar.frame)
+                    selectedFrames.append(selectedButton.frame)
+                    try await Task.sleep(nanoseconds: 50_000_000)
+                }
+                let minY = frames.map(\.minY).min() ?? baseline.minY
+                let maxY = frames.map(\.minY).max() ?? baseline.minY
+                let minHeight = frames.map(\.height).min() ?? baseline.height
+                let maxHeight = frames.map(\.height).max() ?? baseline.height
+                let selectedMinY = selectedFrames.map(\.minY).min() ?? selectedBaseline.minY
+                let selectedMaxY = selectedFrames.map(\.minY).max() ?? selectedBaseline.minY
+                let selectedMinHeight = selectedFrames.map(\.height).min() ?? selectedBaseline.height
+                let selectedMaxHeight = selectedFrames.map(\.height).max() ?? selectedBaseline.height
+                print("TAB_BAR_FRAME phase=\(phase) tab=\(tab) yRange=\(minY)...\(maxY) heightRange=\(minHeight)...\(maxHeight) itemYRange=\(selectedMinY)...\(selectedMaxY) itemHeightRange=\(selectedMinHeight)...\(selectedMaxHeight)")
+                if assertStable {
+                    for frame in frames {
+                        XCTAssertEqual(frame.minY, baseline.minY, accuracy: 1.0, "Tab bar vertical position changed during \(phase) switch to \(tab)")
+                        XCTAssertEqual(frame.height, baseline.height, accuracy: 1.0, "Tab bar height changed during \(phase) switch to \(tab)")
+                    }
+                    for frame in selectedFrames {
+                        XCTAssertEqual(frame.minY, selectedBaseline.minY, accuracy: 1.0, "Selected tab item moved vertically during \(phase) switch to \(tab)")
+                        XCTAssertEqual(frame.height, selectedBaseline.height, accuracy: 1.0, "Selected tab item changed height during \(phase) switch to \(tab)")
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
     func testNavigationEdgeAndPageOwnedTabBar() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

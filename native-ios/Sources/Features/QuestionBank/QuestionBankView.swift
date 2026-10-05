@@ -5,7 +5,7 @@ import UIKit
 import OSLog
 
 private enum QuestionBankImportSheet: Identifiable {
-    case picker
+    case picker(UUID)
     case preparing(UUID)
     case preview(QuestionBankImportPlan)
 
@@ -179,8 +179,9 @@ struct QuestionBankView: View {
         .rootTabBarContentInset()
         .sheet(item: $activeImportSheet, onDismiss: handleImportSheetDismissal) { sheet in
             switch sheet {
-            case .picker:
+            case .picker(let requestID):
                 QuestionBankDocumentPicker(
+                    requestID: requestID,
                     onPick: handlePickedDocuments,
                     onCancel: handleDocumentPickerCancellation
                 )
@@ -339,57 +340,79 @@ struct QuestionBankView: View {
 
     private func presentDocumentPicker() {
         guard !isPreparingImport, !isCommittingImport, activeImportSheet == nil else { return }
-        importSelection.beginPicker()
+        let requestID = importSelection.beginPicker()
         importProgress.setMessage("文件选择器已打开")
         importLogger.info("native document picker opened")
-        activeImportSheet = .picker
+        activeImportSheet = .picker(requestID)
     }
 
-    private func handlePickedDocuments(_ urls: [URL]) {
-        importLogger.info("native document picker returned a selection")
-        guard let url = urls.first else {
-            importSelection.cancelPickerRequest()
-            importProgress.setMessage(nil)
-            showImportError("文件选择器没有返回文件。")
-            activeImportSheet = nil
-            return
-        }
-        guard let selection = importSelection.receivePickedURL(url) else {
-            importLogger.error("native document picker sent a duplicate or invalid selection")
-            showImportError("文件选择回调无效或重复，未启动导入。")
-            activeImportSheet = nil
-            return
-        }
-        importProgress.setMessage("\(url.lastPathComponent)／准备读取")
-        activeImportSheet = .preparing(selection.id)
-        // Start from the delegate callback. The dismissal callback is only a
-        // cleanup fallback and is deliberately not part of the success path.
-        Task { @MainActor in
-            await Task.yield()
-            startPendingPickedImportIfPossible()
+    private func handlePickedDocuments(_ requestID: UUID, _ urls: [URL]) {
+        switch importSelection.receivePickedURLs(requestID: requestID, urls: urls) {
+        case .selected(let selection):
+            importLogger.info("native document picker returned a valid selection for request \(requestID.uuidString, privacy: .public)")
+            showImportAlert = false
+            importProgress.setMessage("\(selection.url.lastPathComponent)／准备读取")
+            activeImportSheet = .preparing(requestID)
+            // Selection starts preparation directly. The dismissal callback is
+            // never required and cannot invalidate this request.
+            Task { @MainActor in
+                await Task.yield()
+                startPendingPickedImportIfPossible(requestID: requestID)
+            }
+        case .emptySelection:
+            reportPickerFailure(requestID: requestID, message: "文件选择器没有返回所选文件。请重新选择 JSON 或 ZIP 文件。")
+        case .emptyURL:
+            reportPickerFailure(requestID: requestID, message: "所选文件路径为空。请重新选择文件。")
+        case .nonFileURL:
+            reportPickerFailure(requestID: requestID, message: "选择器返回的不是本地文件，无法导入。")
+        case .duplicate:
+            importLogger.info("duplicate picker callback ignored for request \(requestID.uuidString, privacy: .public)")
+        case .staleRequest:
+            importLogger.info("stale picker callback ignored for request \(requestID.uuidString, privacy: .public)")
         }
     }
 
-    private func handleDocumentPickerCancellation() {
-        importSelection.cancelPickerRequest()
+    private func handleDocumentPickerCancellation(_ requestID: UUID) {
+        guard importSelection.cancelPickerRequest(requestID: requestID) else {
+            importLogger.info("picker cancellation ignored after a selection was accepted")
+            return
+        }
         importProgress.setMessage("已取消选择")
         importLogger.info("native document picker reported cancellation")
-        activeImportSheet = nil
+        if case .picker(let activeID) = activeImportSheet, activeID == requestID {
+            activeImportSheet = nil
+        }
     }
 
     private func handleImportSheetDismissal() {
-        if importSelection.hasActivePickerRequest {
-            importLogger.info("native document picker dismissed; no import was started from dismissal")
-            if importSelection.hasPendingSelection {
-                importSelection.pickerWasDismissed()
-            } else {
-                importSelection.cancelPickerRequest()
-            }
-            if !isPreparingImport && !importSelection.hasPendingSelection {
-                importProgress.setMessage("已取消选择")
+        if let requestID = importSelection.activePickerRequestID {
+            switch importSelection.pickerWasDismissed(requestID: requestID) {
+            case .awaitingCallback:
+                importLogger.info("picker dismissed before callback; waiting for a late result")
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    guard importSelection.noteDismissalWithoutCallback(requestID: requestID) else { return }
+                    importProgress.setMessage(nil)
+                    showImportError("文件选择器关闭后没有返回文件。请重新选择。")
+                }
+                return
+            case .selectionAlreadyReceived:
+                // A selected URL remains valid even when the picker dismisses
+                // before the flow view is ready to retain its new sheet item.
+                if activeImportSheet == nil {
+                    activeImportSheet = .preparing(requestID)
+                }
+                return
+            case .alreadyAwaitingCallback:
+                return
+            case .previewAlreadyPresented:
+                importSelection.finishPickerRequest(requestID: requestID)
+            case .staleRequest:
+                break
             }
         }
 
+        guard activeImportSheet == nil else { return }
         if let importStagingDirectory {
             try? FileManager.default.removeItem(at: importStagingDirectory)
         }
@@ -397,14 +420,23 @@ struct QuestionBankView: View {
         processPendingExternalFileIfPossible()
     }
 
-    private func startPendingPickedImportIfPossible() {
-        guard case .preparing = activeImportSheet,
+    private func startPendingPickedImportIfPossible(requestID: UUID) {
+        guard case .preparing(let activeID) = activeImportSheet,
+              activeID == requestID,
               !isPreparingImport,
               importWorker == nil,
               !isCommittingImport,
-              let selection = importSelection.takePendingSelection()
+              let selection = importSelection.takePendingSelection(requestID: requestID)
         else { return }
-        prepareImport(from: selection.url, source: .pickerCopy)
+        prepareImport(from: selection.url, source: .pickerCopy, pickerRequestID: requestID)
+    }
+
+    private func reportPickerFailure(requestID: UUID, message: String) {
+        importSelection.failPickerRequest(requestID: requestID)
+        importLogger.error("document picker returned an unusable selection for request \(requestID.uuidString, privacy: .public)")
+        importProgress.setMessage(nil)
+        activeImportSheet = nil
+        showImportError(message)
     }
 
     private func processPendingExternalFileIfPossible() {
@@ -424,7 +456,11 @@ struct QuestionBankView: View {
         )
     }
 
-    private func prepareImport(from url: URL, source: QuestionBankImportSource = .trustedLocalFile) {
+    private func prepareImport(
+        from url: URL,
+        source: QuestionBankImportSource = .trustedLocalFile,
+        pickerRequestID: UUID? = nil
+    ) {
         guard !isPreparingImport, importWorker == nil, !isCommittingImport else { return }
         let runID = UUID()
         activeImportID = runID
@@ -459,10 +495,14 @@ struct QuestionBankView: View {
                     QuestionBankPackageImporter.cleanup(plan)
                     return
                 }
+                if let pickerRequestID,
+                   !importSelection.markPreviewReady(requestID: pickerRequestID) {
+                    QuestionBankPackageImporter.cleanup(plan)
+                    return
+                }
                 importLogger.info("package validation finished: modules=\(plan.modules.count), questions=\(plan.questions.count), assets=\(plan.assets.count), errors=\(plan.errors.count)")
                 importStagingDirectory = plan.stagingDirectory
                 activeImportSheet = .preview(plan)
-                importSelection.finishPickerRequest()
                 importProgress.finish(runID: runID)
             } catch is CancellationError {
                 if activeImportID == runID {
@@ -472,6 +512,9 @@ struct QuestionBankView: View {
                 guard activeImportID == runID else { return }
                 let errorType = String(reflecting: type(of: error))
                 importLogger.error("package preparation failed (\(errorType, privacy: .public))")
+                if let pickerRequestID {
+                    importSelection.failPickerRequest(requestID: pickerRequestID)
+                }
                 importProgress.finish(runID: runID)
                 activeImportSheet = nil
                 showImportError(error.localizedDescription)
@@ -483,7 +526,9 @@ struct QuestionBankView: View {
         guard isPreparingImport, let runID = activeImportID else { return }
         activeImportID = nil
         importWorker?.cancel()
-        importSelection.cancelPickerRequest()
+        if let requestID = importSelection.activePickerRequestID {
+            importSelection.failPickerRequest(requestID: requestID)
+        }
         isCancellingImport = true
         importProgress.finish(runID: runID, message: "正在停止读取…")
         activeImportSheet = nil

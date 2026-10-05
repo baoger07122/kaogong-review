@@ -9,10 +9,26 @@ struct QuestionBankFileRequest: Identifiable, Equatable {
     let url: URL
 }
 
-/// Owns the picker callback hand-off separately from sheet dismissal. A document
-/// picker may send its delegate callback before SwiftUI has finished updating the
-/// sheet presentation, so the selected URL must be queued and consumed exactly
-/// once by the import flow.
+enum QuestionBankPickerSelectionResult: Equatable {
+    case selected(QuestionBankImportSelectionCoordinator.Selection)
+    case emptySelection
+    case emptyURL
+    case nonFileURL
+    case duplicate
+    case staleRequest
+}
+
+enum QuestionBankPickerDismissalResult: Equatable {
+    case awaitingCallback
+    case selectionAlreadyReceived
+    case previewAlreadyPresented
+    case alreadyAwaitingCallback
+    case staleRequest
+}
+
+/// Keeps picker request identity alive across document-picker and SwiftUI
+/// dismissal callbacks. Dismissal is only a hint that a callback may be late;
+/// it does not invalidate the request.
 @MainActor
 final class QuestionBankImportSelectionCoordinator: ObservableObject {
     struct Selection: Equatable {
@@ -20,51 +36,123 @@ final class QuestionBankImportSelectionCoordinator: ObservableObject {
         let url: URL
     }
 
+    private enum Phase {
+        case idle
+        case selecting
+        case dismissedAwaitingCallback
+        case dismissedWithoutCallback
+        case selected(URL)
+        case preparing
+        case preview
+    }
+
     private(set) var activePickerRequestID: UUID?
-    private(set) var pendingSelection: Selection?
-    private var handledRequestIDs = Set<UUID>()
+    private var phase: Phase = .idle
 
     var hasActivePickerRequest: Bool { activePickerRequestID != nil }
-    var hasPendingSelection: Bool { pendingSelection != nil }
 
     @discardableResult
     func beginPicker() -> UUID {
         let id = UUID()
         activePickerRequestID = id
-        pendingSelection = nil
-        handledRequestIDs.removeAll(keepingCapacity: true)
+        phase = .selecting
         return id
     }
 
     @discardableResult
-    func receivePickedURL(_ url: URL) -> Selection? {
-        guard let requestID = activePickerRequestID,
-              !handledRequestIDs.contains(requestID),
-              pendingSelection == nil,
-              url.isFileURL else { return nil }
-        handledRequestIDs.insert(requestID)
-        let selection = Selection(id: requestID, url: url)
-        pendingSelection = selection
-        return selection
+    func receivePickedURLs(requestID: UUID, urls: [URL]) -> QuestionBankPickerSelectionResult {
+        guard activePickerRequestID == requestID else { return .staleRequest }
+        switch phase {
+        case .selecting, .dismissedAwaitingCallback, .dismissedWithoutCallback:
+            break
+        default:
+            return .duplicate
+        }
+
+        guard let url = urls.first else {
+            finishPickerRequest(requestID: requestID)
+            return .emptySelection
+        }
+        guard !url.absoluteString.isEmpty else {
+            finishPickerRequest(requestID: requestID)
+            return .emptyURL
+        }
+        guard url.isFileURL else {
+            finishPickerRequest(requestID: requestID)
+            return .nonFileURL
+        }
+        guard !url.path.isEmpty else {
+            finishPickerRequest(requestID: requestID)
+            return .emptyURL
+        }
+
+        phase = .selected(url)
+        return .selected(Selection(id: requestID, url: url))
     }
 
-    func takePendingSelection() -> Selection? {
-        guard let pendingSelection else { return nil }
-        self.pendingSelection = nil
-        return pendingSelection
+    func pickerWasDismissed(requestID: UUID) -> QuestionBankPickerDismissalResult {
+        guard activePickerRequestID == requestID else { return .staleRequest }
+        switch phase {
+        case .selecting:
+            phase = .dismissedAwaitingCallback
+            return .awaitingCallback
+        case .dismissedAwaitingCallback, .dismissedWithoutCallback:
+            return .alreadyAwaitingCallback
+        case .selected, .preparing:
+            return .selectionAlreadyReceived
+        case .preview:
+            return .previewAlreadyPresented
+        case .idle:
+            return .staleRequest
+        }
     }
 
-    func finishPickerRequest() {
+    /// Called only after a short dismissal grace period. The request remains
+    /// eligible for a late didPick callback until a new picker supersedes it.
+    func noteDismissalWithoutCallback(requestID: UUID) -> Bool {
+        guard activePickerRequestID == requestID,
+              case .dismissedAwaitingCallback = phase else { return false }
+        phase = .dismissedWithoutCallback
+        return true
+    }
+
+    func takePendingSelection(requestID: UUID) -> Selection? {
+        guard activePickerRequestID == requestID,
+              case .selected(let url) = phase else { return nil }
+        phase = .preparing
+        return Selection(id: requestID, url: url)
+    }
+
+    func markPreviewReady(requestID: UUID) -> Bool {
+        guard activePickerRequestID == requestID, case .preparing = phase else { return false }
+        phase = .preview
+        return true
+    }
+
+    @discardableResult
+    func cancelPickerRequest(requestID: UUID) -> Bool {
+        guard activePickerRequestID == requestID else { return false }
+        switch phase {
+        case .selecting, .dismissedAwaitingCallback, .dismissedWithoutCallback:
+            clearRequest()
+            return true
+        default:
+            return false
+        }
+    }
+
+    func finishPickerRequest(requestID: UUID) {
+        guard activePickerRequestID == requestID else { return }
+        clearRequest()
+    }
+
+    func failPickerRequest(requestID: UUID) {
+        finishPickerRequest(requestID: requestID)
+    }
+
+    private func clearRequest() {
         activePickerRequestID = nil
-        pendingSelection = nil
-    }
-
-    func pickerWasDismissed() {
-        activePickerRequestID = nil
-    }
-
-    func cancelPickerRequest() {
-        finishPickerRequest()
+        phase = .idle
     }
 }
 
@@ -87,8 +175,9 @@ final class QuestionBankImportRouter: ObservableObject {
 
 @MainActor
 struct QuestionBankDocumentPicker: UIViewControllerRepresentable {
-    let onPick: ([URL]) -> Void
-    let onCancel: () -> Void
+    let requestID: UUID
+    let onPick: (UUID, [URL]) -> Void
+    let onCancel: (UUID) -> Void
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let picker = UIDocumentPickerViewController(
@@ -103,25 +192,27 @@ struct QuestionBankDocumentPicker: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) { }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onPick: onPick, onCancel: onCancel)
+        Coordinator(requestID: requestID, onPick: onPick, onCancel: onCancel)
     }
 
     @MainActor
     final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        private let onPick: ([URL]) -> Void
-        private let onCancel: () -> Void
+        private let requestID: UUID
+        private let onPick: (UUID, [URL]) -> Void
+        private let onCancel: (UUID) -> Void
 
-        init(onPick: @escaping ([URL]) -> Void, onCancel: @escaping () -> Void) {
+        init(requestID: UUID, onPick: @escaping (UUID, [URL]) -> Void, onCancel: @escaping (UUID) -> Void) {
+            self.requestID = requestID
             self.onPick = onPick
             self.onCancel = onCancel
         }
 
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            onPick(urls)
+            onPick(requestID, urls)
         }
 
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-            onCancel()
+            onCancel(requestID)
         }
     }
 }

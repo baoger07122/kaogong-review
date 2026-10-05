@@ -235,8 +235,9 @@ struct LibraryRecordDraft {
     }
 }
 
-enum ShenlunAdaptationError: LocalizedError {
+enum ShenlunAdaptationError: LocalizedError, Equatable {
     case notShenlunRecord
+    case alreadyAdapted
     case contextHasPendingChanges
     case invalidNumber(field: String)
 
@@ -244,6 +245,8 @@ enum ShenlunAdaptationError: LocalizedError {
         switch self {
         case .notShenlunRecord:
             return "这条记录不是申论记录，未执行适配。"
+        case .alreadyAdapted:
+            return "这条申论记录已完成适配，未再次写入。"
         case .contextHasPendingChanges:
             return "当前还有未保存的其他更改。请先保存或取消后再适配；本次未修改记录。"
         case let .invalidNumber(field):
@@ -461,6 +464,7 @@ enum LibraryRecordRepository {
         context: ModelContext
     ) throws {
         guard record.isShenlunRecord else { throw ShenlunAdaptationError.notShenlunRecord }
+        guard record.requiresShenlunAdaptation else { throw ShenlunAdaptationError.alreadyAdapted }
         guard !context.hasChanges else { throw ShenlunAdaptationError.contextHasPendingChanges }
 
         let backupID = record.recordID

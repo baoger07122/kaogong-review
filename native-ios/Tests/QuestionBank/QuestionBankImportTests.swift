@@ -1,27 +1,276 @@
 import Foundation
 import CryptoKit
 import SwiftData
+import UIKit
 import XCTest
 @testable import KaogongReviewNative
 
 @MainActor
 final class QuestionBankImportTests: XCTestCase {
-    func testPickerSelectionQueuesPreparationExactlyOnceWithoutDismissalCallback() throws {
+    func testPickerDidPickThenDismissKeepsSelectionAndStartsOnce() throws {
         let coordinator = QuestionBankImportSelectionCoordinator()
         let pickerID = coordinator.beginPicker()
         let url = URL(fileURLWithPath: "/tmp/question-bank-v1.json")
 
-        let selection = try XCTUnwrap(coordinator.receivePickedURL(url))
+        guard case .selected(let selection) = coordinator.receivePickedURLs(requestID: pickerID, urls: [url]) else {
+            return XCTFail("The first file callback should be accepted")
+        }
         XCTAssertEqual(selection.id, pickerID)
         XCTAssertEqual(selection.url, url)
-        XCTAssertEqual(coordinator.takePendingSelection(), selection)
-        XCTAssertNil(coordinator.takePendingSelection())
-        XCTAssertNil(coordinator.receivePickedURL(url))
+        XCTAssertEqual(coordinator.pickerWasDismissed(requestID: pickerID), .selectionAlreadyReceived)
+        XCTAssertEqual(coordinator.takePendingSelection(requestID: pickerID), selection)
+        XCTAssertNil(coordinator.takePendingSelection(requestID: pickerID))
+        XCTAssertEqual(coordinator.receivePickedURLs(requestID: pickerID, urls: [url]), .duplicate)
+        XCTAssertTrue(coordinator.hasActivePickerRequest, "The request remains current until import preview finishes")
+    }
 
-        // Preparation can consume the queued URL before the sheet dismissal
-        // callback arrives; dismissal is not required to start the hand-off.
-        coordinator.finishPickerRequest()
+    func testPickerDismissThenDidPickAcceptsLateCallback() throws {
+        let coordinator = QuestionBankImportSelectionCoordinator()
+        let pickerID = coordinator.beginPicker()
+        let url = URL(fileURLWithPath: "/tmp/late-question-bank-v1.json")
+
+        XCTAssertEqual(coordinator.pickerWasDismissed(requestID: pickerID), .awaitingCallback)
+        XCTAssertTrue(coordinator.noteDismissalWithoutCallback(requestID: pickerID))
+        guard case .selected(let selection) = coordinator.receivePickedURLs(requestID: pickerID, urls: [url]) else {
+            return XCTFail("A dismissal must not invalidate a late valid file callback")
+        }
+        XCTAssertEqual(selection.id, pickerID)
+        XCTAssertEqual(coordinator.takePendingSelection(requestID: pickerID), selection)
+    }
+
+    func testPickerDuplicateCallbackIsIgnoredWithoutResettingPreparation() throws {
+        let coordinator = QuestionBankImportSelectionCoordinator()
+        let pickerID = coordinator.beginPicker()
+        let url = URL(fileURLWithPath: "/tmp/question-bank-v1.json")
+        guard case .selected = coordinator.receivePickedURLs(requestID: pickerID, urls: [url]) else {
+            return XCTFail("The initial selection should be accepted")
+        }
+        _ = try XCTUnwrap(coordinator.takePendingSelection(requestID: pickerID))
+
+        XCTAssertEqual(coordinator.receivePickedURLs(requestID: pickerID, urls: [url]), .duplicate)
+        XCTAssertTrue(coordinator.markPreviewReady(requestID: pickerID))
+        XCTAssertEqual(coordinator.receivePickedURLs(requestID: pickerID, urls: [url]), .duplicate)
+        XCTAssertEqual(coordinator.pickerWasDismissed(requestID: pickerID), .previewAlreadyPresented)
+    }
+
+    func testPickerExplicitCancellationRejectsLateSelection() throws {
+        let coordinator = QuestionBankImportSelectionCoordinator()
+        let pickerID = coordinator.beginPicker()
+        var cancelledRequestID: UUID?
+        let pickerDelegate = QuestionBankDocumentPicker.Coordinator(
+            requestID: pickerID,
+            onPick: { _, _ in },
+            onCancel: { requestID in
+                cancelledRequestID = requestID
+                _ = coordinator.cancelPickerRequest(requestID: requestID)
+            }
+        )
+        let pickerController = UIDocumentPickerViewController(forOpeningContentTypes: [.json], asCopy: true)
+        pickerDelegate.documentPickerWasCancelled(pickerController)
+        XCTAssertEqual(cancelledRequestID, pickerID)
         XCTAssertFalse(coordinator.hasActivePickerRequest)
+        XCTAssertFalse(coordinator.cancelPickerRequest(requestID: pickerID))
+        XCTAssertEqual(
+            coordinator.receivePickedURLs(requestID: pickerID, urls: [URL(fileURLWithPath: "/tmp/stale.json")]),
+            .staleRequest
+        )
+    }
+
+    func testPickerInvalidResultsAreDistinctAndAllowReselection() throws {
+        let coordinator = QuestionBankImportSelectionCoordinator()
+        let emptySelectionID = coordinator.beginPicker()
+        XCTAssertEqual(coordinator.receivePickedURLs(requestID: emptySelectionID, urls: []), .emptySelection)
+
+        let emptyURLID = coordinator.beginPicker()
+        let emptyURL = try XCTUnwrap(URL(string: ""))
+        XCTAssertEqual(coordinator.receivePickedURLs(requestID: emptyURLID, urls: [emptyURL]), .emptyURL)
+
+        let nonFileID = coordinator.beginPicker()
+        let nonFileURL = try XCTUnwrap(URL(string: "https://example.com/questions.json"))
+        XCTAssertEqual(coordinator.receivePickedURLs(requestID: nonFileID, urls: [nonFileURL]), .nonFileURL)
+
+        let retryID = coordinator.beginPicker()
+        guard case .selected = coordinator.receivePickedURLs(
+            requestID: retryID, urls: [URL(fileURLWithPath: "/tmp/retry.json")]
+        ) else {
+            return XCTFail("A new request should accept a valid file after earlier invalid results")
+        }
+    }
+
+    func testSingleJSONPickerCallbackReachesPreviewAndConfirmedCommit() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankPickerJSONFlow-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let sourcePlan = try QuestionBankPackageImporter.prepare(from: validationPackageURL())
+        defer { QuestionBankPackageImporter.cleanup(sourcePlan) }
+        let jsonURL = try writeJSON(makeJSONDocument(from: sourcePlan), to: temporaryRoot, name: "picker-one-file.json")
+
+        let coordinator = QuestionBankImportSelectionCoordinator()
+        let requestID = coordinator.beginPicker()
+        var callbackResult: QuestionBankPickerSelectionResult?
+        let pickerDelegate = QuestionBankDocumentPicker.Coordinator(
+            requestID: requestID,
+            onPick: { callbackRequestID, urls in
+                XCTAssertEqual(callbackRequestID, requestID)
+                callbackResult = coordinator.receivePickedURLs(requestID: callbackRequestID, urls: urls)
+            },
+            onCancel: { cancelledRequestID in
+                XCTAssertEqual(cancelledRequestID, requestID)
+            }
+        )
+        let pickerController = UIDocumentPickerViewController(forOpeningContentTypes: [.json], asCopy: true)
+        pickerDelegate.documentPicker(pickerController, didPickDocumentsAt: [jsonURL])
+
+        guard case .selected(let selection) = try XCTUnwrap(callbackResult) else {
+            return XCTFail("The UIDocumentPicker delegate callback should select the JSON fixture")
+        }
+        XCTAssertEqual(selection.url, jsonURL)
+        XCTAssertEqual(coordinator.pickerWasDismissed(requestID: requestID), .selectionAlreadyReceived)
+        let preparingSelection = try XCTUnwrap(coordinator.takePendingSelection(requestID: requestID))
+        let previewPlan = try QuestionBankPackageImporter.prepare(from: preparingSelection.url, source: .pickerCopy)
+        defer { QuestionBankPackageImporter.cleanup(previewPlan) }
+        XCTAssertTrue(previewPlan.errors.isEmpty, previewPlan.errors.joined(separator: "\n"))
+        XCTAssertTrue(previewPlan.canImport)
+        XCTAssertEqual(previewPlan.questions.count, 7)
+        XCTAssertTrue(coordinator.markPreviewReady(requestID: requestID), "A valid JSON plan should reach the import preview")
+
+        let storeURL = temporaryRoot.appendingPathComponent("QuestionBank.store")
+        let assetRoot = temporaryRoot.appendingPathComponent("assets", isDirectory: true)
+        let container = try makeContainer(storeURL: storeURL)
+        try QuestionBankRepository.commit(
+            previewPlan, decision: .add, records: [], context: container.mainContext, assetRoot: assetRoot
+        )
+        let committed = try container.mainContext.fetch(FetchDescriptor<QuestionBankRecord>())
+        XCTAssertEqual(committed.filter { $0.kind == QuestionBankRepository.paperKind }.count, 1)
+        XCTAssertEqual(committed.filter { $0.kind == QuestionBankRepository.moduleKind }.count, 5)
+        XCTAssertEqual(committed.filter { $0.kind == QuestionBankRepository.questionKind }.count, 7)
+        XCTAssertEqual(coordinator.pickerWasDismissed(requestID: requestID), .previewAlreadyPresented)
+    }
+
+    func testShenlunAdaptationBacksUpExactPayloadAndWritesOnce() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ShenlunAdaptationTest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let recordID = "legacy-shenlun-1"
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let originalObject: [String: Any] = [
+            "id": recordID,
+            "subject": "申论",
+            "module": "旧题型",
+            "isShenlun": true,
+            "status": "待吸收",
+            "myFramework": "原始框架",
+            "bias": [["wrong": "原思路", "right": "修正思路"]],
+            "legacySentinel": ["keep", "exactly"]
+        ]
+        let originalPayload = try JSONSerialization.data(withJSONObject: originalObject, options: [.sortedKeys])
+        var values = ShenlunAdaptationValues()
+        values.questionType = "归纳概括"
+        values.questionSource = "2022 国考"
+        values.questionNumber = "1"
+        values.score = "18"
+        values.totalScore = "25"
+        values.question = "根据给定资料，概括主要问题。"
+        values.currentAffairsSupplement = "补充背景"
+        values.myAnswer = "我的答案"
+        values.referenceAnswer = "参考答案"
+        values.myAnswerIssues = "遗漏依据"
+        values.materialsAnalysis = "材料分析"
+        values.reviewNote = "复盘笔记"
+        values.materials = ["第一则材料", "第二则材料"]
+
+        let storeURL = temporaryRoot.appendingPathComponent("shenlun.store")
+        do {
+            let container = try makeContainer(storeURL: storeURL)
+            let context = container.mainContext
+            let record = StoredRecord(
+                collection: "errors", recordID: recordID, payload: originalPayload,
+                subject: "申论", module: "旧题型", createdAt: createdAt, updatedAt: createdAt
+            )
+            context.insert(record)
+            try context.save()
+            XCTAssertFalse(context.hasChanges)
+
+            try LibraryRecordRepository.adaptShenlunRecord(record: record, values: values, context: context)
+            XCTAssertFalse(context.hasChanges, "The adaptation transaction should finish its one persistent write")
+            XCTAssertFalse(record.requiresShenlunAdaptation)
+            XCTAssertEqual(record.subject, "申论")
+            XCTAssertEqual(record.module, "归纳概括")
+
+            let backupID = "\(ShenlunRecordFormat.backupCollection):\(recordID)"
+            let backupDescriptor = FetchDescriptor<StoredRecord>(predicate: #Predicate { $0.compoundID == backupID })
+            let backup = try XCTUnwrap(context.fetch(backupDescriptor).first)
+            XCTAssertEqual(backup.payload, originalPayload, "Backup payload bytes must be preserved exactly")
+            XCTAssertEqual(backup.createdAt, createdAt)
+            XCTAssertEqual(backup.updatedAt, createdAt)
+
+            let adapted = try XCTUnwrap(record.jsonObject)
+            XCTAssertEqual(adapted["shenlunFormatVersion"] as? Int, ShenlunRecordFormat.currentVersion)
+            XCTAssertEqual(adapted["question"] as? String, values.question)
+            XCTAssertEqual(adapted["questionSource"] as? String, values.questionSource)
+            XCTAssertEqual(adapted["score"] as? Int, 18)
+            XCTAssertEqual(adapted["totalScore"] as? Int, 25)
+            XCTAssertEqual(adapted["materials"] as? [String], values.materials)
+            XCTAssertEqual(adapted["status"] as? String, "待吸收")
+            XCTAssertEqual(adapted["myFramework"] as? String, "原始框架")
+            XCTAssertEqual(adapted["legacySentinel"] as? [String], ["keep", "exactly"])
+
+            let adaptedPayload = record.payload
+            XCTAssertThrowsError(try LibraryRecordRepository.adaptShenlunRecord(
+                record: record, values: values, context: context
+            )) { error in
+                XCTAssertEqual(error as? ShenlunAdaptationError, .alreadyAdapted)
+            }
+            XCTAssertEqual(record.payload, adaptedPayload, "A second confirmation must not write again")
+            let backupCount = try context.fetch(backupDescriptor).count
+            XCTAssertEqual(backupCount, 1, "The first backup must never be overwritten or duplicated")
+        }
+
+        let reopened = try makeContainer(storeURL: storeURL)
+        let persisted = try reopened.mainContext.fetch(FetchDescriptor<StoredRecord>())
+        let adapted = try XCTUnwrap(persisted.first { $0.collection == "errors" && $0.recordID == recordID })
+        let persistedBackup = try XCTUnwrap(persisted.first {
+            $0.collection == ShenlunRecordFormat.backupCollection && $0.recordID == recordID
+        })
+        XCTAssertFalse(adapted.requiresShenlunAdaptation)
+        XCTAssertEqual(adapted.jsonObject?["question"] as? String, values.question)
+        XCTAssertEqual(persistedBackup.payload, originalPayload)
+    }
+
+    func testInvalidShenlunAdaptationLeavesPayloadAndBackupUntouched() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ShenlunAdaptationRejectedTest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let storeURL = temporaryRoot.appendingPathComponent("shenlun.store")
+        let container = try makeContainer(storeURL: storeURL)
+        let context = container.mainContext
+        let recordID = "legacy-shenlun-invalid-score"
+        let originalPayload = try JSONSerialization.data(withJSONObject: [
+            "id": recordID, "subject": "申论", "isShenlun": true, "status": "待吸收"
+        ], options: [.sortedKeys])
+        let record = StoredRecord(collection: "errors", recordID: recordID, payload: originalPayload, subject: "申论")
+        context.insert(record)
+        try context.save()
+
+        var values = ShenlunAdaptationValues()
+        values.score = "18.5"
+        XCTAssertThrowsError(try LibraryRecordRepository.adaptShenlunRecord(
+            record: record, values: values, context: context
+        )) { error in
+            XCTAssertEqual(error as? ShenlunAdaptationError, .invalidNumber(field: "score"))
+        }
+        XCTAssertEqual(record.payload, originalPayload)
+        XCTAssertFalse(context.hasChanges)
+        let backupID = "\(ShenlunRecordFormat.backupCollection):\(recordID)"
+        let backupDescriptor = FetchDescriptor<StoredRecord>(predicate: #Predicate { $0.compoundID == backupID })
+        let backups = try context.fetch(backupDescriptor)
+        XCTAssertTrue(backups.isEmpty, "Validation failure must not leave a partial backup")
     }
 
     func testLibraryLegacyIndexMigrationIsVersionedAndRepairsOnlyOnce() async throws {
