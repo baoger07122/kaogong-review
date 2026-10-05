@@ -97,6 +97,10 @@ jobs:
               RUN_SIMULATOR=true
               RUN_QUESTION_BANK=true
             fi
+            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Sources/Features/Library/(LibraryRecordRepository\.swift|LibraryRecordModels\.swift|ShenlunAdaptationView\.swift)$'; then
+              RUN_SIMULATOR=true
+              RUN_QUESTION_BANK=true
+            fi
             if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/App/RootTabView\.swift|Sources/Features/Review/ReviewView\.swift|Tests/UI/SpeedInteractionUITests\.swift)$'; then
               RUN_SIMULATOR=true
               RUN_NAVIGATION=true
@@ -104,7 +108,6 @@ jobs:
             if echo "$CHANGED_FILES" | grep -Eq '^\.github/workflows/ios-native-unsigned\.yml$'; then
               RUN_SIMULATOR=true
               RUN_QUESTION_BANK=true
-              RUN_NAVIGATION=true
             fi
             # These source-only contracts cover keypad, form, and rich-text changes;
             # unrelated feature releases should not spend time running them.
