@@ -307,6 +307,7 @@ enum QuestionBankImportFailure: LocalizedError {
     case invalidPlan
     case duplicatePaper(String)
     case missingStagingFile(String)
+    case unsafeAssetPath
 
     var errorDescription: String? {
         switch self {
@@ -316,6 +317,8 @@ enum QuestionBankImportFailure: LocalizedError {
             "已存在同一套试卷“\(title)”。请选择替换，或取消本次导入。"
         case .missingStagingFile(let name):
             "导入时找不到图片文件：\(name)。原有数据未更改。"
+        case .unsafeAssetPath:
+            "图片路径越出资源目录，未写入真题库。"
         }
     }
 }
@@ -333,12 +336,84 @@ enum QuestionBankAssetStore {
     }
 
     static func url(for relativePath: String?) -> URL? {
-        guard let relativePath, !relativePath.isEmpty,
-              !relativePath.contains(".."), !relativePath.hasPrefix("/") else { return nil }
+        guard let relativePath else { return nil }
         guard let root = try? root(create: false) else { return nil }
-        let result = root.appendingPathComponent(relativePath).standardizedFileURL
-        guard result.path.hasPrefix(root.standardizedFileURL.path + "/") else { return nil }
-        return result
+        return url(for: relativePath, under: root)
+    }
+
+    /// Resolves a slash-separated relative path without relying on string-prefix
+    /// comparisons of absolute URL paths. Existing symlink components are rejected
+    /// so a staged or persisted asset cannot escape its trusted root.
+    static func url(for relativePath: String, under root: URL) -> URL? {
+        guard root.isFileURL, let components = safePathComponents(relativePath) else { return nil }
+        let normalizedRoot = root.standardizedFileURL.resolvingSymlinksInPath().standardizedFileURL
+        let rootComponents = pathComponents(of: normalizedRoot)
+        var candidate = normalizedRoot
+
+        for (index, component) in components.enumerated() {
+            candidate.appendPathComponent(component, isDirectory: false)
+            candidate = candidate.standardizedFileURL
+            let candidateComponents = pathComponents(of: candidate)
+            guard candidate.isFileURL,
+                  candidateComponents.count == rootComponents.count + index + 1,
+                  candidateComponents.starts(with: rootComponents) else { return nil }
+            if let values = try? candidate.resourceValues(forKeys: [.isSymbolicLinkKey]),
+               values.isSymbolicLink == true {
+                return nil
+            }
+        }
+
+        let resolvedCandidate = candidate.resolvingSymlinksInPath().standardizedFileURL
+        let resolvedComponents = pathComponents(of: resolvedCandidate)
+        guard resolvedComponents.count == rootComponents.count + components.count,
+              resolvedComponents.starts(with: rootComponents) else { return nil }
+        return candidate
+    }
+
+    /// A diagnostic suitable for device logs: it includes the normalized path tails
+    /// and comparison results while withholding the user's full sandbox path.
+    static func redactedContainmentDiagnostic(root: URL, candidate: URL) -> String {
+        let normalizedRoot = root.standardizedFileURL
+        let normalizedCandidate = candidate.standardizedFileURL
+        let resolvedRoot = normalizedRoot.resolvingSymlinksInPath().standardizedFileURL
+        let resolvedCandidate = normalizedCandidate.resolvingSymlinksInPath().standardizedFileURL
+        let rootComponents = pathComponents(of: normalizedRoot)
+        let candidateComponents = pathComponents(of: normalizedCandidate)
+        let resolvedRootComponents = pathComponents(of: resolvedRoot)
+        let resolvedCandidateComponents = pathComponents(of: resolvedCandidate)
+        let sharedComponents = zip(rootComponents, candidateComponents)
+            .prefix(while: { $0.0 == $0.1 }).count
+        let legacyStringPrefix = normalizedCandidate.path.hasPrefix(normalizedRoot.path + "/")
+        let componentPrefix = candidateComponents.count > rootComponents.count
+            && candidateComponents.starts(with: rootComponents)
+        let resolvedComponentPrefix = resolvedCandidateComponents.count > resolvedRootComponents.count
+            && resolvedCandidateComponents.starts(with: resolvedRootComponents)
+        let rootTrailingSlash = normalizedRoot.path.hasSuffix("/")
+        let targetTrailingSlash = normalizedCandidate.path.hasSuffix("/")
+        return "rootTail=\(redactedTail(rootComponents)) targetTail=\(redactedTail(candidateComponents)) "
+            + "rootComponents=\(rootComponents.count) targetComponents=\(candidateComponents.count) "
+            + "sharedPrefixComponents=\(sharedComponents) legacyStringPrefix=\(legacyStringPrefix) "
+            + "componentPrefix=\(componentPrefix) resolvedComponentPrefix=\(resolvedComponentPrefix) "
+            + "rootTrailingSlash=\(rootTrailingSlash) targetTrailingSlash=\(targetTrailingSlash)"
+    }
+
+    private static func safePathComponents(_ path: String) -> [String]? {
+        guard !path.isEmpty, !path.hasPrefix("/"), !path.contains("\\"),
+              !path.contains(":"), !path.contains("\0") else { return nil }
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard !parts.isEmpty,
+              parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
+        return parts.map(String.init)
+    }
+
+    private static func pathComponents(of url: URL) -> [String] {
+        url.standardizedFileURL.path
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+    }
+
+    private static func redactedTail(_ components: [String]) -> String {
+        "…/" + components.suffix(4).joined(separator: "/")
     }
 }
 
@@ -378,7 +453,9 @@ enum QuestionBankRepository {
         if let assetRoot { root = assetRoot } else { root = try QuestionBankAssetStore.root() }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let generation = "\(safePathComponent(paper.id))-\(UUID().uuidString.lowercased())"
-        let generationURL = root.appendingPathComponent(generation, isDirectory: true)
+        guard let generationURL = QuestionBankAssetStore.url(for: generation, under: root) else {
+            throw QuestionBankImportFailure.unsafeAssetPath
+        }
         let previousPaperID = duplicate?.paperID
         let replacingRows = records.filter { record in
             guard let previousPaperID else { return record.paperID == paper.id }
@@ -393,16 +470,25 @@ enum QuestionBankRepository {
             if !plan.assets.isEmpty {
                 try FileManager.default.createDirectory(at: generationURL, withIntermediateDirectories: true)
                 for asset in plan.assets {
-                    let source = stage.appendingPathComponent(asset.path).standardizedFileURL
-                    guard source.path.hasPrefix(stage.standardizedFileURL.path + "/"),
+                    guard let source = QuestionBankAssetStore.url(for: asset.path, under: stage),
                           FileManager.default.fileExists(atPath: source.path) else {
                         throw QuestionBankImportFailure.missingStagingFile(asset.fileName)
                     }
-                    let destination = generationURL.appendingPathComponent(asset.path)
+                    let destinationRelativePath = "\(generation)/\(asset.path)"
+                    guard let destinationCandidate = QuestionBankAssetStore.url(
+                        for: destinationRelativePath, under: root
+                    ) else {
+                        throw QuestionBankImportFailure.unsafeAssetPath
+                    }
                     try FileManager.default.createDirectory(
-                        at: destination.deletingLastPathComponent(),
+                        at: destinationCandidate.deletingLastPathComponent(),
                         withIntermediateDirectories: true
                     )
+                    guard let destination = QuestionBankAssetStore.url(
+                        for: destinationRelativePath, under: root
+                    ) else {
+                        throw QuestionBankImportFailure.unsafeAssetPath
+                    }
                     try FileManager.default.copyItem(at: source, to: destination)
                 }
             }
@@ -429,7 +515,8 @@ enum QuestionBankRepository {
         }
 
         for oldGeneration in oldGenerations where oldGeneration != generation {
-            try? FileManager.default.removeItem(at: root.appendingPathComponent(oldGeneration, isDirectory: true))
+            guard let oldGenerationURL = QuestionBankAssetStore.url(for: oldGeneration, under: root) else { continue }
+            try? FileManager.default.removeItem(at: oldGenerationURL)
         }
     }
 
@@ -818,7 +905,9 @@ enum QuestionBankPackageImporter {
         var totalImageBytes: Int64 = 0
         let questionNumbers = Dictionary(questions.map { ($0.id, $0.number) }, uniquingKeysWith: { first, _ in first })
         var installedPaths = Set<String>()
-        let assetsDirectory = staging.appendingPathComponent("assets", isDirectory: true)
+        guard let assetsDirectory = QuestionBankAssetStore.url(for: "assets", under: staging) else {
+            throw PackageError("真题 JSON 的图片目录路径不安全。")
+        }
         try FileManager.default.createDirectory(at: assetsDirectory, withIntermediateDirectories: true)
 
         for asset in jsonAssets {
@@ -882,8 +971,16 @@ enum QuestionBankPackageImporter {
                 errors.append("\(label)：sha256 与图片原始字节不匹配。")
                 continue
             }
-            let target = staging.appendingPathComponent(asset.path).standardizedFileURL
-            guard target.path.hasPrefix(staging.standardizedFileURL.path + "/") else {
+            let legacyTarget = staging.appendingPathComponent(asset.path).standardizedFileURL
+            let legacyStringPrefix = legacyTarget.path.hasPrefix(staging.standardizedFileURL.path + "/")
+            let safeTarget = QuestionBankAssetStore.url(for: asset.path, under: staging)
+            if !legacyStringPrefix || safeTarget == nil {
+                let diagnostic = QuestionBankAssetStore.redactedContainmentDiagnostic(
+                    root: staging, candidate: legacyTarget
+                )
+                logger.info("JSON image normalized-path comparison: \(diagnostic, privacy: .public)")
+            }
+            guard let target = safeTarget else {
                 errors.append("\(label)：图片 path 越出暂存目录。")
                 continue
             }
@@ -946,13 +1043,15 @@ enum QuestionBankPackageImporter {
             guard size <= 30 * 1024 * 1024 else { throw PackageError("文件过大：\(entry.path)（单文件上限 30 MB）。") }
             totalSize += size
             guard totalSize <= 250 * 1024 * 1024 else { throw PackageError("ZIP 解压总量超过 250 MB，已拒绝导入。") }
-            let target = stage.appendingPathComponent(path).standardizedFileURL
-            guard target.path.hasPrefix(stage.standardizedFileURL.path + "/") else {
+            guard let target = QuestionBankAssetStore.url(for: path, under: stage) else {
                 throw PackageError("ZIP 中包含越界文件路径：\(entry.path)")
             }
             try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            guard let checkedTarget = QuestionBankAssetStore.url(for: path, under: stage) else {
+                throw PackageError("ZIP 中包含越界文件路径：\(entry.path)")
+            }
             do {
-                try archive.extract(entry, to: target)
+                try archive.extract(entry, to: checkedTarget)
             } catch {
                 throw PackageError("无法解压 ZIP 文件“\(entry.path)”：文件可能已损坏。\(error.localizedDescription)")
             }
@@ -1160,8 +1259,7 @@ enum QuestionBankPackageImporter {
                 errors.append("\(label)：相对路径必须为 assets/文件名，当前为“\(asset.path)”。")
                 continue
             }
-            let fileURL = staging.appendingPathComponent(asset.path).standardizedFileURL
-            guard fileURL.path.hasPrefix(staging.standardizedFileURL.path + "/"),
+            guard let fileURL = QuestionBankAssetStore.url(for: asset.path, under: staging),
                   let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]) else {
                 errors.append("\(paper.title)／\(asset.ownerType == "question" || asset.ownerType == "option" ? "第\(questionByID[asset.ownerID]?.number ?? 0)题／" : "")图片“\(asset.fileName)”：文件缺失或无法读取。")
                 continue
@@ -1335,13 +1433,15 @@ private enum XLSXTableReader {
             guard extractedSize <= 96 * 1024 * 1024 else {
                 throw NSError(domain: "XLSX", code: 8, userInfo: [NSLocalizedDescriptionKey: "工作簿 XML 解压总量超过 96 MB。"])
             }
-            let destination = temporaryRoot.appendingPathComponent(path).standardizedFileURL
-            guard destination.path.hasPrefix(temporaryRoot.standardizedFileURL.path + "/") else {
+            guard let destination = QuestionBankAssetStore.url(for: path, under: temporaryRoot) else {
                 throw NSError(domain: "XLSX", code: 9, userInfo: [NSLocalizedDescriptionKey: "工作簿内部路径无效：\(path)"])
             }
             try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try archive.extract(entry, to: destination)
-            return destination
+            guard let checkedDestination = QuestionBankAssetStore.url(for: path, under: temporaryRoot) else {
+                throw NSError(domain: "XLSX", code: 9, userInfo: [NSLocalizedDescriptionKey: "工作簿内部路径无效：\(path)"])
+            }
+            try archive.extract(entry, to: checkedDestination)
+            return checkedDestination
         }
 
         let workbookURL = try extractXML("xl/workbook.xml")

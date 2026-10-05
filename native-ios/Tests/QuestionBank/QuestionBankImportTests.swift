@@ -99,6 +99,34 @@ final class QuestionBankImportTests: XCTestCase {
         }
     }
 
+    func testAssetPathResolverRejectsTraversalAndSymlinkEscape() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankAssetPathTest-\(UUID().uuidString)", isDirectory: true)
+        let root = temporaryRoot.appendingPathComponent("root", isDirectory: true)
+        let assetsDirectory = root.appendingPathComponent("assets", isDirectory: true)
+        let outsideDirectory = temporaryRoot.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: assetsDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let validPath = "assets/q071-combined-figure.png"
+        XCTAssertNotNil(QuestionBankAssetStore.url(for: validPath, under: root))
+        for invalidPath in [
+            "../escaped.png", "/private/escaped.png", "assets/../escaped.png",
+            "assets//escaped.png", "assets/./escaped.png", "assets\\..\\escaped.png",
+            "C:/escaped.png"
+        ] {
+            XCTAssertNil(QuestionBankAssetStore.url(for: invalidPath, under: root), invalidPath)
+        }
+
+        let outsideImage = outsideDirectory.appendingPathComponent("escaped.png")
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: outsideImage)
+        let symlink = assetsDirectory.appendingPathComponent("external", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: outsideDirectory)
+        XCTAssertNil(QuestionBankAssetStore.url(for: "assets/external/escaped.png", under: root))
+        XCTAssertEqual(try Data(contentsOf: outsideImage), Data([0x89, 0x50, 0x4E, 0x47]))
+    }
+
     func testSingleJSONPickerCallbackReachesPreviewAndConfirmedCommit() throws {
         let temporaryRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("QuestionBankPickerJSONFlow-\(UUID().uuidString)", isDirectory: true)
@@ -332,7 +360,9 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertTrue(q71.options.allSatisfy { $0.imageAssetID.isEmpty })
         let q71Figure = try XCTUnwrap(plan.assets.first { $0.id == q71.stemImageAssetID })
         XCTAssertEqual(q71Figure.role, "题干整图")
-        let q71FigureURL = try XCTUnwrap(plan.stagingDirectory).appendingPathComponent(q71Figure.path)
+        let q71FigureURL = try XCTUnwrap(QuestionBankAssetStore.url(
+            for: q71Figure.path, under: try XCTUnwrap(plan.stagingDirectory)
+        ))
         XCTAssertTrue(FileManager.default.fileExists(atPath: q71FigureURL.path))
 
         let dataQuestions = plan.questions.filter { (111...115).contains($0.number) }
@@ -374,7 +404,18 @@ final class QuestionBankImportTests: XCTestCase {
             XCTAssertEqual(imported.filter { $0.kind == QuestionBankRepository.paperKind }.count, 1)
             XCTAssertEqual(imported.filter { $0.kind == QuestionBankRepository.moduleKind }.count, 5)
             XCTAssertEqual(imported.filter { $0.kind == QuestionBankRepository.questionKind }.count, 7)
+            let importedAssets = imported.filter { $0.kind == QuestionBankRepository.assetKind }
+            XCTAssertEqual(importedAssets.count, 6)
             XCTAssertEqual(try context.fetch(FetchDescriptor<StoredRecord>()).first?.recordID, "existing-exam")
+            for importedAsset in importedAssets {
+                let relativePath = try XCTUnwrap(importedAsset.assetRelativePath)
+                let localURL = try XCTUnwrap(QuestionBankAssetStore.url(for: relativePath, under: assetRoot))
+                let storedBytes = try Data(contentsOf: localURL)
+                let sourceAsset = try XCTUnwrap(plan.assets.first { $0.id == importedAsset.stableID })
+                let stage = try XCTUnwrap(plan.stagingDirectory)
+                let sourceURL = try XCTUnwrap(QuestionBankAssetStore.url(for: sourceAsset.path, under: stage))
+                XCTAssertEqual(storedBytes, try Data(contentsOf: sourceURL))
+            }
 
             let duplicate = try XCTUnwrap(QuestionBankRepository.duplicatePaper(for: XCTUnwrap(plan.paper), in: imported))
             XCTAssertEqual(duplicate.stableID, plan.paper?.id)
@@ -399,7 +440,8 @@ final class QuestionBankImportTests: XCTestCase {
             let q114Assets = imported.filter { $0.kind == QuestionBankRepository.assetKind && $0.stableID.hasPrefix("q-2019-114-option-") }
             XCTAssertEqual(q114Assets.count, 4)
             for asset in q114Assets {
-                let localURL = try XCTUnwrap(asset.assetRelativePath.map { assetRoot.appendingPathComponent($0) })
+                let relativePath = try XCTUnwrap(asset.assetRelativePath)
+                let localURL = try XCTUnwrap(QuestionBankAssetStore.url(for: relativePath, under: assetRoot))
                 XCTAssertTrue(FileManager.default.fileExists(atPath: localURL.path), "Missing imported image: \(asset.title ?? asset.stableID)")
             }
             try context.save()
@@ -411,6 +453,13 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertEqual(persisted.filter { $0.kind == QuestionBankRepository.paperKind }.count, 1)
         XCTAssertEqual(persisted.filter { $0.kind == QuestionBankRepository.moduleKind }.count, 5)
         XCTAssertEqual(persisted.filter { $0.kind == QuestionBankRepository.questionKind }.count, 7)
+        let persistedAssets = persisted.filter { $0.kind == QuestionBankRepository.assetKind }
+        XCTAssertEqual(persistedAssets.count, 6)
+        for asset in persistedAssets {
+            let relativePath = try XCTUnwrap(asset.assetRelativePath)
+            let localURL = try XCTUnwrap(QuestionBankAssetStore.url(for: relativePath, under: assetRoot))
+            XCTAssertFalse(try Data(contentsOf: localURL).isEmpty)
+        }
         XCTAssertEqual(try reopened.mainContext.fetch(FetchDescriptor<StoredRecord>()).first?.recordID, "existing-exam")
     }
 
@@ -423,7 +472,23 @@ final class QuestionBankImportTests: XCTestCase {
             .appendingPathComponent("QuestionBankJSONImportTest-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporaryRoot) }
-        let jsonURL = try writeJSON(makeJSONDocument(from: sourcePlan), to: temporaryRoot, name: "validation.json")
+        let realInputAssetPaths = [
+            "assets/q071-combined-figure.png",
+            "assets/shared-material-111-115.png",
+            "assets/q114-option-a-graph.png",
+            "assets/q114-option-b-graph.png",
+            "assets/q114-option-c-graph.png",
+            "assets/q114-option-d-graph.png"
+        ]
+        var document = try makeJSONDocument(from: sourcePlan)
+        XCTAssertEqual(document.assets.count, realInputAssetPaths.count)
+        for index in document.assets.indices {
+            document.assets[index].path = realInputAssetPaths[index]
+            document.assets[index].fileName = String(try XCTUnwrap(
+                realInputAssetPaths[index].split(separator: "/").last
+            ))
+        }
+        let jsonURL = try writeJSON(document, to: temporaryRoot, name: "validation.json")
         let plan = try QuestionBankPackageImporter.prepare(from: jsonURL, source: .pickerCopy, onProgress: { _ in })
         defer { QuestionBankPackageImporter.cleanup(plan) }
 
@@ -434,11 +499,40 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertEqual(plan.materials.map(\.id), sourcePlan.materials.map(\.id))
         XCTAssertEqual(plan.questions.map(\.id), sourcePlan.questions.map(\.id))
         XCTAssertEqual(plan.assets.map(\.id), sourcePlan.assets.map(\.id))
+        XCTAssertEqual(plan.assets.count, 6)
+        let jsonStagingDirectory = try XCTUnwrap(plan.stagingDirectory)
+        for inputPath in realInputAssetPaths {
+            let legacyTarget = jsonStagingDirectory.appendingPathComponent(inputPath).standardizedFileURL
+            print("QUESTION_BANK_PATH_COMPARE \(QuestionBankAssetStore.redactedContainmentDiagnostic(
+                root: jsonStagingDirectory, candidate: legacyTarget
+            ))")
+            XCTAssertNotNil(QuestionBankAssetStore.url(for: inputPath, under: jsonStagingDirectory))
+        }
         for asset in plan.assets {
-            let importedBytes = try Data(contentsOf: XCTUnwrap(plan.stagingDirectory).appendingPathComponent(asset.path))
-            let originalBytes = try Data(contentsOf: XCTUnwrap(sourcePlan.stagingDirectory).appendingPathComponent(asset.path))
+            let sourceAsset = try XCTUnwrap(sourcePlan.assets.first { $0.id == asset.id })
+            let importedURL = try XCTUnwrap(QuestionBankAssetStore.url(for: asset.path, under: jsonStagingDirectory))
+            let sourceURL = try XCTUnwrap(QuestionBankAssetStore.url(
+                for: sourceAsset.path, under: try XCTUnwrap(sourcePlan.stagingDirectory)
+            ))
+            let importedBytes = try Data(contentsOf: importedURL)
+            let originalBytes = try Data(contentsOf: sourceURL)
             XCTAssertEqual(importedBytes, originalBytes, "JSON import must preserve source image bytes for \(asset.fileName).")
         }
+
+        var maliciousDocument = document
+        maliciousDocument.assets[0].path = "../escaped.png"
+        maliciousDocument.assets[0].fileName = "escaped.png"
+        let maliciousURL = try writeJSON(maliciousDocument, to: temporaryRoot, name: "malicious-path.json")
+        let maliciousPlan = try QuestionBankPackageImporter.prepare(
+            from: maliciousURL, source: .pickerCopy, onProgress: { _ in }
+        )
+        defer { QuestionBankPackageImporter.cleanup(maliciousPlan) }
+        XCTAssertFalse(maliciousPlan.canImport)
+        XCTAssertTrue(maliciousPlan.errors.contains { $0.contains("安全的 assets/文件名路径") })
+        let maliciousStage = try XCTUnwrap(maliciousPlan.stagingDirectory)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: maliciousStage.deletingLastPathComponent().appendingPathComponent("escaped.png").path
+        ))
 
         let filesOpenInPlan = try QuestionBankPackageImporter.prepare(
             from: jsonURL, source: .filesOpenIn, onProgress: { _ in }
@@ -450,8 +544,8 @@ final class QuestionBankImportTests: XCTestCase {
         let q71 = try XCTUnwrap(plan.questions.first { $0.number == 71 })
         XCTAssertEqual(q71.stemImageAssetID, "q-2019-071-full-figure")
         let q71Asset = try XCTUnwrap(plan.assets.first { $0.id == q71.stemImageAssetID })
-        let jsonStagingDirectory = try XCTUnwrap(plan.stagingDirectory)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: jsonStagingDirectory.appendingPathComponent(q71Asset.path).path))
+        let q71AssetURL = try XCTUnwrap(QuestionBankAssetStore.url(for: q71Asset.path, under: jsonStagingDirectory))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: q71AssetURL.path))
 
         let sharedMaterialQuestions = plan.questions.filter { (111...115).contains($0.number) }
         XCTAssertEqual(Set(sharedMaterialQuestions.map(\.materialID)), ["m-2019-drugs-111-115"])
@@ -467,6 +561,17 @@ final class QuestionBankImportTests: XCTestCase {
             try QuestionBankRepository.commit(plan, decision: .add, records: [], context: context, assetRoot: assetRoot)
             var imported = try context.fetch(FetchDescriptor<QuestionBankRecord>())
             XCTAssertEqual(imported.filter { $0.kind == QuestionBankRepository.questionKind }.count, 7)
+            let importedAssets = imported.filter { $0.kind == QuestionBankRepository.assetKind }
+            XCTAssertEqual(importedAssets.count, 6)
+            for importedAsset in importedAssets {
+                let relativePath = try XCTUnwrap(importedAsset.assetRelativePath)
+                let storedURL = try XCTUnwrap(QuestionBankAssetStore.url(for: relativePath, under: assetRoot))
+                let sourceAsset = try XCTUnwrap(sourcePlan.assets.first { $0.id == importedAsset.stableID })
+                let sourceURL = try XCTUnwrap(QuestionBankAssetStore.url(
+                    for: sourceAsset.path, under: try XCTUnwrap(sourcePlan.stagingDirectory)
+                ))
+                XCTAssertEqual(try Data(contentsOf: storedURL), try Data(contentsOf: sourceURL))
+            }
             let imageRecord = try XCTUnwrap(imported.first { $0.kind == QuestionBankRepository.assetKind })
             let imagePayload = String(decoding: imageRecord.payload, as: UTF8.self)
             XCTAssertFalse(imagePayload.contains("dataBase64"))
@@ -483,14 +588,27 @@ final class QuestionBankImportTests: XCTestCase {
         let reopened = try makeContainer(storeURL: storeURL)
         let persisted = try reopened.mainContext.fetch(FetchDescriptor<QuestionBankRecord>())
         XCTAssertEqual(persisted.filter { $0.kind == QuestionBankRepository.paperKind }.count, 1)
+        XCTAssertEqual(persisted.filter { $0.kind == QuestionBankRepository.moduleKind }.count, 5)
         XCTAssertEqual(persisted.filter { $0.kind == QuestionBankRepository.questionKind }.count, 7)
+        let persistedAssets = persisted.filter { $0.kind == QuestionBankRepository.assetKind }
+        XCTAssertEqual(persistedAssets.count, 6)
+        for asset in persistedAssets {
+            let relativePath = try XCTUnwrap(asset.assetRelativePath)
+            let storedURL = try XCTUnwrap(QuestionBankAssetStore.url(for: relativePath, under: assetRoot))
+            let sourceAsset = try XCTUnwrap(sourcePlan.assets.first { $0.id == asset.stableID })
+            let sourceURL = try XCTUnwrap(QuestionBankAssetStore.url(
+                for: sourceAsset.path, under: try XCTUnwrap(sourcePlan.stagingDirectory)
+            ))
+            XCTAssertEqual(try Data(contentsOf: storedURL), try Data(contentsOf: sourceURL))
+        }
         let persistedQ114Assets = persisted.filter {
             $0.kind == QuestionBankRepository.assetKind && $0.stableID.hasPrefix("q-2019-114-option-")
         }
         XCTAssertEqual(persistedQ114Assets.count, 4)
         for asset in persistedQ114Assets {
             let path = try XCTUnwrap(asset.assetRelativePath)
-            XCTAssertTrue(FileManager.default.fileExists(atPath: assetRoot.appendingPathComponent(path).path))
+            let storedURL = try XCTUnwrap(QuestionBankAssetStore.url(for: path, under: assetRoot))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: storedURL.path))
         }
     }
 
@@ -596,7 +714,8 @@ final class QuestionBankImportTests: XCTestCase {
     private func makeJSONDocument(from plan: QuestionBankImportPlan) throws -> QuestionBankImportJSONV1 {
         let staging = try XCTUnwrap(plan.stagingDirectory)
         let assets = try plan.assets.map { asset -> QuestionBankJSONAssetV1 in
-            let data = try Data(contentsOf: staging.appendingPathComponent(asset.path))
+            let assetURL = try XCTUnwrap(QuestionBankAssetStore.url(for: asset.path, under: staging))
+            let data = try Data(contentsOf: assetURL)
             let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
             return QuestionBankJSONAssetV1(id: asset.id, paperID: asset.paperID,
                 ownerType: asset.ownerType, ownerID: asset.ownerID, role: asset.role,
