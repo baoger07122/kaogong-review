@@ -127,6 +127,89 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: outsideImage), Data([0x89, 0x50, 0x4E, 0x47]))
     }
 
+    func testReadingSequenceGroupsSharedMaterialsOnceAndKeepsQuestionOrder() {
+        let questions = [
+            readingQuestion(id: "q-115", number: 115, materialID: "material-a"),
+            readingQuestion(id: "q-112", number: 112),
+            readingQuestion(id: "q-114", number: 114, materialID: "material-b"),
+            readingQuestion(id: "q-111", number: 111, materialID: "material-a"),
+            readingQuestion(id: "q-113", number: 113, materialID: "material-b")
+        ]
+
+        let steps = QuestionBankReadingSequence.steps(for: questions)
+        let sequence = steps.map { step -> String in
+            switch step.kind {
+            case .material(let materialID): "material:\(materialID)"
+            case .question(let questionID): "question:\(questionID)"
+            }
+        }
+
+        XCTAssertEqual(sequence, [
+            "material:material-a", "question:q-111", "question:q-112",
+            "material:material-b", "question:q-113", "question:q-114", "question:q-115"
+        ])
+        XCTAssertEqual(steps.filter {
+            if case .material(_) = $0.kind { return true }
+            return false
+        }.count, 2)
+
+        let dataQuestions = (111...115).reversed().map {
+            readingQuestion(id: "q-\($0)", number: $0, materialID: "data-set")
+        }
+        let dataSequence = QuestionBankReadingSequence.steps(for: dataQuestions)
+        XCTAssertEqual(dataSequence.first?.kind, .material("data-set"))
+        XCTAssertEqual(dataSequence.filter {
+            if case .material(_) = $0.kind { return true }
+            return false
+        }.count, 1)
+        XCTAssertEqual(dataSequence.compactMap { step -> String? in
+            guard case .question(let id) = step.kind else { return nil }
+            return id
+        }, (111...115).map { "q-\($0)" })
+    }
+
+    func testQuestionNumberFilterTargetsOwningModuleAndQuestion() {
+        let module = QuestionBankRecord(
+            compoundID: "sample-paper::module::data",
+            paperID: "sample-paper",
+            kind: QuestionBankRepository.moduleKind,
+            stableID: "data-analysis",
+            title: "资料分析",
+            payload: Data()
+        )
+        let question = QuestionBankRecord(
+            compoundID: "sample-paper::question::q-113",
+            paperID: "sample-paper",
+            kind: QuestionBankRepository.questionKind,
+            stableID: "q-113",
+            moduleID: "data-analysis",
+            questionNumber: 113,
+            payload: Data()
+        )
+
+        XCTAssertEqual(
+            QuestionBankQuestionRoute.target(
+                questionNumber: 113,
+                paperID: "sample-paper",
+                selectedModuleTitle: "",
+                records: [module, question]
+            ),
+            QuestionBankQuestionRouteTarget(moduleID: "data-analysis", questionNumber: 113)
+        )
+        XCTAssertNil(QuestionBankQuestionRoute.target(
+            questionNumber: 113,
+            paperID: "sample-paper",
+            selectedModuleTitle: "常识判断",
+            records: [module, question]
+        ))
+        XCTAssertNil(QuestionBankQuestionRoute.target(
+            questionNumber: nil,
+            paperID: "sample-paper",
+            selectedModuleTitle: "",
+            records: [module, question]
+        ))
+    }
+
     func testSingleJSONPickerCallbackReachesPreviewAndConfirmedCommit() throws {
         let temporaryRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("QuestionBankPickerJSONFlow-\(UUID().uuidString)", isDirectory: true)
@@ -369,6 +452,16 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertEqual(dataQuestions.count, 5)
         XCTAssertEqual(Set(dataQuestions.map(\.materialID)), ["m-2019-drugs-111-115"])
         XCTAssertTrue(dataQuestions.allSatisfy { !$0.stem.isEmpty })
+        let dataReadingSteps = QuestionBankReadingSequence.steps(for: dataQuestions)
+        XCTAssertEqual(dataReadingSteps.first?.kind, .material("m-2019-drugs-111-115"))
+        XCTAssertEqual(dataReadingSteps.filter {
+            if case .material = $0.kind { return true }
+            return false
+        }.count, 1)
+        XCTAssertEqual(dataReadingSteps.compactMap { step -> String? in
+            guard case .question(let id) = step.kind else { return nil }
+            return id
+        }, dataQuestions.sorted { $0.number < $1.number }.map(\.id))
         let q114 = try XCTUnwrap(dataQuestions.first { $0.number == 114 })
         XCTAssertEqual(q114.options.map(\.text), ["A", "B", "C", "D"])
         XCTAssertEqual(q114.options.map(\.imageAssetID).filter { !$0.isEmpty }.count, 4)
@@ -771,6 +864,24 @@ final class QuestionBankImportTests: XCTestCase {
             cloudKitDatabase: .none
         )
         return try ModelContainer(for: schema, configurations: [configuration])
+    }
+
+    private func readingQuestion(id: String, number: Int, materialID: String = "") -> QuestionBankQuestion {
+        QuestionBankQuestion(
+            id: id,
+            paperID: "sample-paper",
+            moduleID: "sample-module",
+            number: number,
+            subject: "",
+            type: "",
+            materialID: materialID,
+            stem: "",
+            stemImageAssetID: "",
+            options: [],
+            answer: "",
+            explanation: "",
+            originalPage: ""
+        )
     }
 
     private func makeLegacyContainer(storeURL: URL) throws -> ModelContainer {

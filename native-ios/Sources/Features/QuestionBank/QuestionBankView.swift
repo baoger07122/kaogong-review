@@ -1,7 +1,5 @@
 import SwiftUI
 import SwiftData
-import UniformTypeIdentifiers
-import UIKit
 import OSLog
 
 private enum QuestionBankImportSheet: Identifiable {
@@ -102,6 +100,16 @@ struct QuestionBankView: View {
                    $0.paperID == paper.paperID && $0.kind == QuestionBankRepository.questionKind
                        && $0.questionNumber == number
                }) { return false }
+            if let number = Int(questionNumber), number > 0, !selectedModuleTitle.isEmpty {
+                let selectedModuleIDs = Set(records.filter {
+                    $0.paperID == paper.paperID && $0.kind == QuestionBankRepository.moduleKind
+                        && $0.title == selectedModuleTitle
+                }.map(\.stableID))
+                if !records.contains(where: {
+                    $0.paperID == paper.paperID && $0.kind == QuestionBankRepository.questionKind
+                        && $0.questionNumber == number && selectedModuleIDs.contains($0.moduleID ?? "")
+                }) { return false }
+            }
             if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
                 let matchesPaper = paper.searchText.localizedCaseInsensitiveContains(query)
@@ -156,11 +164,7 @@ struct QuestionBankView: View {
                         LazyVStack(spacing: 10) {
                             ForEach(visiblePapers, id: \.compoundID) { record in
                                 NavigationLink {
-                                    QuestionBankPaperView(
-                                        paperID: record.paperID,
-                                        initialModuleTitle: selectedModuleTitle,
-                                        initialQuestionNumber: questionNumber
-                                    )
+                                    paperDestination(for: record)
                                 } label: {
                                     paperCard(record)
                                 }
@@ -319,7 +323,7 @@ struct QuestionBankView: View {
                 Text(paper?.title ?? record.title ?? "未命名试卷")
                     .font(AppTheme.cardTitleFont).foregroundStyle(.primary).lineLimit(2)
                 Spacer(minLength: 8)
-                Text("\(paper?.year ?? record.year ?? 0)")
+                Text(String(paper?.year ?? record.year ?? 0))
                     .font(AppTheme.auxiliaryFont.weight(.medium)).foregroundStyle(.secondary)
             }
             HStack(spacing: 8) {
@@ -336,6 +340,32 @@ struct QuestionBankView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .nativeCard(padding: 15)
+    }
+
+    @ViewBuilder
+    private func paperDestination(for record: QuestionBankRecord) -> some View {
+        if let target = questionTarget(for: record.paperID) {
+            QuestionBankModuleView(
+                paperID: record.paperID,
+                moduleID: target.moduleID,
+                initialQuestionNumber: String(target.number)
+            )
+        } else {
+            QuestionBankPaperView(
+                paperID: record.paperID,
+                initialModuleTitle: selectedModuleTitle,
+                initialQuestionNumber: questionNumber
+            )
+        }
+    }
+
+    private func questionTarget(for paperID: String) -> QuestionBankQuestionRouteTarget? {
+        QuestionBankQuestionRoute.target(
+            questionNumber: Int(questionNumber),
+            paperID: paperID,
+            selectedModuleTitle: selectedModuleTitle,
+            records: records
+        )
     }
 
     private func presentDocumentPicker() {
@@ -701,13 +731,14 @@ private struct QuestionBankPaperView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if let paper {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(paper.title).font(AppTheme.pageTitleFont)
-                        Text("\(paper.year) · \(paper.examType)\(paper.volume.isEmpty ? "" : " · \(paper.volume)")")
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(paper.title).font(AppTheme.sectionTitleFont)
+                        Text([String(paper.year), paper.examType, paper.volume]
+                            .filter { !$0.isEmpty }
+                            .joined(separator: " · "))
                             .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .nativeCard()
+                    .padding(.bottom, 2)
                 }
                 HStack(spacing: 8) {
                     Menu {
@@ -728,43 +759,47 @@ private struct QuestionBankPaperView: View {
                 if modules.isEmpty {
                     NativeStatusCard(title: "没有匹配模块", detail: "更改模块或题号筛选条件。", systemImage: "line.3.horizontal.decrease", color: AppTheme.accent)
                 } else {
-                    LazyVStack(spacing: 10) {
+                    LazyVStack(spacing: 0) {
                         ForEach(modules, id: \.compoundID) { moduleRecord in
                             let module = moduleRecord.decoded(QuestionBankModule.self)
                             let count = records.filter { $0.paperID == paperID && $0.kind == QuestionBankRepository.questionKind && $0.moduleID == moduleRecord.stableID }.count
                             NavigationLink {
                                 QuestionBankModuleView(paperID: paperID, moduleID: moduleRecord.stableID, initialQuestionNumber: questionNumber)
-                            } label: {
-                                HStack(alignment: .top, spacing: 12) {
-                                    Text(String(format: "%02d", module?.sequence ?? moduleRecord.sequence ?? 0))
-                                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                        .foregroundStyle(AppTheme.accent)
-                                        .frame(width: 38, height: 38)
-                                        .background(AppTheme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        HStack {
-                                            Text(module?.title ?? moduleRecord.title ?? "模块").font(AppTheme.sectionTitleFont).foregroundStyle(.primary)
-                                            Spacer()
-                                            Text("\(count) 题").font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                                } label: {
+                                    HStack(alignment: .top, spacing: 12) {
+                                        Text(String(format: "%02d", module?.sequence ?? moduleRecord.sequence ?? 0))
+                                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                            .foregroundStyle(AppTheme.accent)
+                                            .frame(width: 36, height: 34, alignment: .leading)
+                                        VStack(alignment: .leading, spacing: 5) {
+                                            Text(module?.title ?? moduleRecord.title ?? "模块")
+                                                .font(AppTheme.sectionTitleFont).foregroundStyle(.primary)
+                                            Text(count == 0 ? "本次样本未收录题目" : "\(String(count)) 道样题")
+                                                .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
                                         }
-                                        if let instruction = module?.instruction, !instruction.isEmpty {
-                                            Text(instruction).font(AppTheme.bodyFont).foregroundStyle(.secondary).lineLimit(3)
-                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
                                     }
-                                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                    .padding(.vertical, 14)
+                                    .overlay(alignment: .bottom) {
+                                        Rectangle()
+                                            .fill(Color(uiColor: .separator).opacity(0.45))
+                                            .frame(height: 1)
+                                    }
                                 }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .nativeCard(padding: 14)
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("question-bank-module-\(moduleRecord.stableID)")
                             }
-                            .buttonStyle(.plain)
-                        }
                     }
                 }
             }.padding(20)
         }
         .background(AppTheme.groupedBackground)
-        .navigationTitle("试卷结构")
+        .navigationTitle("模块目录")
         .navigationBarTitleDisplayMode(.inline)
+        .secondaryPageTabBarHidden()
     }
 
     private func filterLabel(_ value: String) -> some View {
@@ -772,206 +807,4 @@ private struct QuestionBankPaperView: View {
             .font(AppTheme.auxiliaryFont.weight(.medium)).foregroundStyle(AppTheme.accent)
             .padding(.horizontal, 11).frame(height: 34).background(AppTheme.secondaryBackground, in: Capsule())
     }
-}
-
-private struct QuestionBankModuleView: View {
-    @Query private var records: [QuestionBankRecord]
-    let paperID: String
-    let moduleID: String
-    @State private var questionNumber: String
-
-    init(paperID: String, moduleID: String, initialQuestionNumber: String) {
-        self.paperID = paperID
-        self.moduleID = moduleID
-        _questionNumber = State(initialValue: initialQuestionNumber)
-    }
-
-    private var module: QuestionBankModule? {
-        records.first { $0.paperID == paperID && $0.stableID == moduleID && $0.kind == QuestionBankRepository.moduleKind }?.decoded(QuestionBankModule.self)
-    }
-    private var questions: [QuestionBankRecord] {
-        records.filter { $0.paperID == paperID && $0.kind == QuestionBankRepository.questionKind && $0.moduleID == moduleID }
-            .filter { questionNumber.isEmpty || String($0.questionNumber ?? 0).contains(questionNumber) }
-            .sorted { ($0.questionNumber ?? 0) < ($1.questionNumber ?? 0) }
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                if let module {
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(module.title).font(AppTheme.pageTitleFont)
-                        Text(module.instruction).font(AppTheme.bodyFont).foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .nativeCard()
-                }
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("按题号查找", text: $questionNumber).keyboardType(.numberPad)
-                    if !questionNumber.isEmpty {
-                        Button { questionNumber = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
-                            .buttonStyle(.plain)
-                    }
-                }
-                .font(AppTheme.inputFont).padding(.horizontal, 12).frame(height: 40)
-                .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
-                if questions.isEmpty {
-                    NativeStatusCard(title: "当前没有样题", detail: "这个模块已作为试卷结构导入，样题可能尚未整理。", systemImage: "doc.text.magnifyingglass", color: AppTheme.accent)
-                } else {
-                    LazyVStack(spacing: 10) {
-                        ForEach(questions, id: \.compoundID) { record in
-                            if let question = record.decoded(QuestionBankQuestion.self) {
-                                NavigationLink {
-                                    QuestionBankQuestionView(paperID: paperID, questionID: question.id)
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        Text("第\(question.number)题 · \(question.type.isEmpty ? question.subject : question.type)")
-                                            .font(AppTheme.auxiliaryFont.weight(.semibold)).foregroundStyle(AppTheme.accent)
-                                        Text(question.stem.isEmpty ? "图片题" : question.stem)
-                                            .font(AppTheme.cardTitleFont).foregroundStyle(.primary).lineLimit(3)
-                                        if question.materialID.isEmpty == false {
-                                            Label("含共用材料", systemImage: "doc.on.doc").font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .nativeCard(padding: 15)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                }
-            }.padding(20)
-        }
-        .background(AppTheme.groupedBackground)
-        .navigationTitle(module?.title ?? "模块题目")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-private struct QuestionBankQuestionView: View {
-    @Query private var records: [QuestionBankRecord]
-    let paperID: String
-    let questionID: String
-
-    private var question: QuestionBankQuestion? {
-        records.first { $0.paperID == paperID && $0.stableID == questionID && $0.kind == QuestionBankRepository.questionKind }?.decoded(QuestionBankQuestion.self)
-    }
-    private var module: QuestionBankModule? {
-        guard let moduleID = question?.moduleID else { return nil }
-        return records.first { $0.paperID == paperID && $0.stableID == moduleID && $0.kind == QuestionBankRepository.moduleKind }?.decoded(QuestionBankModule.self)
-    }
-    private var material: QuestionBankMaterial? {
-        guard let materialID = question?.materialID, !materialID.isEmpty else { return nil }
-        return records.first { $0.paperID == paperID && $0.stableID == materialID && $0.kind == QuestionBankRepository.materialKind }?.decoded(QuestionBankMaterial.self)
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if let module {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(module.title).font(AppTheme.auxiliaryFont.weight(.semibold)).foregroundStyle(AppTheme.accent)
-                        if !module.instruction.isEmpty { Text(module.instruction).font(AppTheme.auxiliaryFont).foregroundStyle(.secondary) }
-                    }
-                }
-                if let material {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("共用材料").font(AppTheme.sectionTitleFont)
-                        if !material.text.isEmpty { Text(material.text).font(AppTheme.bodyFont).fixedSize(horizontal: false, vertical: true) }
-                        if !material.imageAssetID.isEmpty, let asset = assetRecord(material.imageAssetID) {
-                            QuestionBankLocalImage(asset: asset)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .nativeCard()
-                }
-                if let question {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("第\(question.number)题").font(AppTheme.sectionTitleFont)
-                        if !question.stem.isEmpty {
-                            Text(question.stem).font(AppTheme.questionTextFont).lineSpacing(AppTheme.questionLineSpacing)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        if !question.stemImageAssetID.isEmpty, let asset = assetRecord(question.stemImageAssetID) {
-                            QuestionBankLocalImage(asset: asset)
-                        }
-                        ForEach(question.options) { option in
-                            optionRow(option, question: question)
-                        }
-                        HStack(spacing: 8) {
-                            Image(systemName: "checkmark.circle.fill").foregroundStyle(AppTheme.success)
-                            Text("正确答案").foregroundStyle(.secondary)
-                            Text(question.answer).fontWeight(.semibold)
-                        }
-                        .font(AppTheme.bodyFont)
-                        .padding(.top, 4)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .nativeCard()
-                } else {
-                    NativeStatusCard(title: "题目不存在", detail: "此题可能已被试卷替换。", systemImage: "exclamationmark.triangle", color: AppTheme.warning)
-                }
-            }.padding(20)
-        }
-        .background(AppTheme.groupedBackground)
-        .navigationTitle("第\(question?.number ?? 0)题")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    @ViewBuilder
-    private func optionRow(_ option: QuestionBankOption, question: QuestionBankQuestion) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Text(option.id).font(AppTheme.bodyFont.weight(.semibold)).frame(width: 25, alignment: .leading)
-            VStack(alignment: .leading, spacing: 8) {
-                if !option.text.isEmpty { Text(option.text).font(AppTheme.bodyFont).fixedSize(horizontal: false, vertical: true) }
-                if !option.imageAssetID.isEmpty, let asset = assetRecord(option.imageAssetID) {
-                    QuestionBankLocalImage(asset: asset)
-                }
-            }
-            Spacer(minLength: 0)
-            if question.answer == option.id {
-                Image(systemName: "checkmark").foregroundStyle(AppTheme.success).fontWeight(.semibold)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.groupedBackground, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
-    }
-
-    private func assetRecord(_ id: String) -> QuestionBankRecord? {
-        records.first { $0.paperID == paperID && $0.stableID == id && $0.kind == QuestionBankRepository.assetKind }
-    }
-}
-
-private struct QuestionBankLocalImage: View {
-    let asset: QuestionBankRecord
-    @State private var image: UIImage?
-
-    var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image).resizable().scaledToFit()
-            } else {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(AppTheme.groupedBackground)
-                    .overlay { ProgressView().controlSize(.small) }
-                    .frame(height: 90)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .task(id: asset.assetRelativePath) {
-            guard let url = QuestionBankAssetStore.url(for: asset.assetRelativePath) else { return }
-            let data = await Task.detached(priority: .userInitiated) {
-                try? Data(contentsOf: url, options: [.mappedIfSafe])
-            }.value
-            image = data.flatMap(UIImage.init(data:))
-        }
-    }
-}
-
-private extension QuestionBankRecord {
-    func decoded<Value: Decodable>(_ type: Value.Type) -> Value? { try? JSONDecoder().decode(type, from: payload) }
 }
