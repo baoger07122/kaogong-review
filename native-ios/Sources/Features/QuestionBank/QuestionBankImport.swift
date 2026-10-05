@@ -799,7 +799,8 @@ enum QuestionBankPackageImporter {
             if key.stringValue == "format" && context.codingPath.isEmpty {
                 return "所选 JSON 没有真题包 format 标识；备份 JSON 不能作为真题包导入。"
             }
-            return "真题 JSON 缺少必需字段“\(([context.codingPath.map(\.stringValue) + [key.stringValue]).joined(separator: "."))”。"
+            let missingPath = (context.codingPath.map(\.stringValue) + [key.stringValue]).joined(separator: ".")
+            return "真题 JSON 缺少必需字段“\(missingPath)”。"
         case .typeMismatch(_, let context), .valueNotFound(_, let context):
             let location = path(context.codingPath)
             return "真题 JSON 字段“\(location.isEmpty ? "根对象" : location)”类型或值无效。"
