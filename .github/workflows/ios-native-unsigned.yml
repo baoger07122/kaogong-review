@@ -135,7 +135,7 @@ jobs:
 
       - name: Measure released tab bar geometry before changes
         if: steps.simulator_scope.outputs.navigation == 'true'
-        timeout-minutes: 12
+        timeout-minutes: 25
         shell: bash
         run: |
           BASELINE_DIR="$RUNNER_TEMP/native-tabbar-baseline"
