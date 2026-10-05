@@ -82,7 +82,9 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertEqual(coordinator.receivePickedURLs(requestID: emptySelectionID, urls: []), .emptySelection)
 
         let emptyURLID = coordinator.beginPicker()
-        let emptyURL = try XCTUnwrap(URL(string: ""))
+        let emptyURL = try XCTUnwrap(URL(string: "file:"))
+        XCTAssertTrue(emptyURL.isFileURL)
+        XCTAssertTrue(emptyURL.path.isEmpty)
         XCTAssertEqual(coordinator.receivePickedURLs(requestID: emptyURLID, urls: [emptyURL]), .emptyURL)
 
         let nonFileID = coordinator.beginPicker()
