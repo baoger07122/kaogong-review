@@ -348,7 +348,7 @@ struct QuestionBankView: View {
             QuestionBankModuleView(
                 paperID: record.paperID,
                 moduleID: target.moduleID,
-                initialQuestionNumber: String(target.number)
+                initialQuestionNumber: String(target.questionNumber)
             )
         } else {
             QuestionBankPaperView(
