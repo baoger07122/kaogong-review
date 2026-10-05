@@ -9,6 +9,65 @@ struct QuestionBankFileRequest: Identifiable, Equatable {
     let url: URL
 }
 
+/// Owns the picker callback hand-off separately from sheet dismissal. A document
+/// picker may send its delegate callback before SwiftUI has finished updating the
+/// sheet presentation, so the selected URL must be queued and consumed exactly
+/// once by the import flow.
+@MainActor
+final class QuestionBankImportSelectionCoordinator: ObservableObject {
+    struct Selection: Equatable {
+        let id: UUID
+        let url: URL
+    }
+
+    private(set) var activePickerRequestID: UUID?
+    private(set) var pendingSelection: Selection?
+    private var handledRequestIDs = Set<UUID>()
+
+    var hasActivePickerRequest: Bool { activePickerRequestID != nil }
+    var hasPendingSelection: Bool { pendingSelection != nil }
+
+    @discardableResult
+    func beginPicker() -> UUID {
+        let id = UUID()
+        activePickerRequestID = id
+        pendingSelection = nil
+        handledRequestIDs.removeAll(keepingCapacity: true)
+        return id
+    }
+
+    @discardableResult
+    func receivePickedURL(_ url: URL) -> Selection? {
+        guard let requestID = activePickerRequestID,
+              !handledRequestIDs.contains(requestID),
+              pendingSelection == nil,
+              url.isFileURL else { return nil }
+        handledRequestIDs.insert(requestID)
+        let selection = Selection(id: requestID, url: url)
+        pendingSelection = selection
+        return selection
+    }
+
+    func takePendingSelection() -> Selection? {
+        guard let pendingSelection else { return nil }
+        self.pendingSelection = nil
+        return pendingSelection
+    }
+
+    func finishPickerRequest() {
+        activePickerRequestID = nil
+        pendingSelection = nil
+    }
+
+    func pickerWasDismissed() {
+        activePickerRequestID = nil
+    }
+
+    func cancelPickerRequest() {
+        finishPickerRequest()
+    }
+}
+
 @MainActor
 final class QuestionBankImportRouter: ObservableObject {
     @Published private(set) var pendingRequests: [QuestionBankFileRequest] = []

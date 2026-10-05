@@ -134,6 +134,7 @@ struct SettingsView: View {
         .background(AppTheme.groupedBackground)
         .stableRootNavigationBar()
         .rootTabBarContentInset()
+        .onAppear { NativePerformanceLog.event("settings onAppear") }
         .navigationDestination(for: SettingsRoute.self) { route in
             switch route {
             case .cloudSync: CloudSyncView()

@@ -6,6 +6,56 @@ import XCTest
 
 @MainActor
 final class QuestionBankImportTests: XCTestCase {
+    func testPickerSelectionQueuesPreparationExactlyOnceWithoutDismissalCallback() throws {
+        let coordinator = QuestionBankImportSelectionCoordinator()
+        let pickerID = coordinator.beginPicker()
+        let url = URL(fileURLWithPath: "/tmp/question-bank-v1.json")
+
+        let selection = try XCTUnwrap(coordinator.receivePickedURL(url))
+        XCTAssertEqual(selection.id, pickerID)
+        XCTAssertEqual(selection.url, url)
+        XCTAssertEqual(coordinator.takePendingSelection(), selection)
+        XCTAssertNil(coordinator.takePendingSelection())
+        XCTAssertNil(coordinator.receivePickedURL(url))
+
+        // Preparation can consume the queued URL before the sheet dismissal
+        // callback arrives; dismissal is not required to start the hand-off.
+        coordinator.finishPickerRequest()
+        XCTAssertFalse(coordinator.hasActivePickerRequest)
+    }
+
+    func testLibraryLegacyIndexMigrationIsVersionedAndRepairsOnlyOnce() async throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibraryIndexMigrationTest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        let container = try makeContainer(storeURL: temporaryRoot.appendingPathComponent("library.store"))
+        let context = container.mainContext
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "id": "legacy-error",
+            "pitfall": "旧索引缺字段",
+            "options": [["text": "A"]],
+            "status": "未掌握"
+        ], options: [.sortedKeys])
+        let record = StoredRecord(collection: "errors", recordID: "legacy-error", payload: payload)
+        record.indexPayload = try JSONSerialization.data(withJSONObject: ["id": "legacy-error", "status": "未掌握"])
+        context.insert(record)
+        try context.save()
+
+        let changed = try await LibraryLegacyIndexMigration.runIfNeeded(in: container, storedVersion: 0)
+        XCTAssertEqual(changed, 1)
+        let verificationContext = ModelContext(container)
+        let verified = try verificationContext.fetch(FetchDescriptor<StoredRecord>()).first
+        XCTAssertNotNil(verified?.indexObject?["pitfall"])
+        XCTAssertNotNil(verified?.indexObject?["options"])
+
+        let skipped = try await LibraryLegacyIndexMigration.runIfNeeded(
+            in: container,
+            storedVersion: LibraryLegacyIndexMigration.currentVersion
+        )
+        XCTAssertEqual(skipped, 0)
+    }
+
     func testValidationPackageImportsAtomicallyAndPersistsAcrossContainerReopen() throws {
         try assertInvalidPackagesAreRejectedWithoutLeavingTemporaryFiles()
         let packageURL = URL(fileURLWithPath: #filePath)

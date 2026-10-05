@@ -53,6 +53,7 @@ struct HomeView: View {
         .background(Color.white)
         .stableRootNavigationBar()
         .rootTabBarContentInset()
+        .onAppear { NativePerformanceLog.event("home onAppear") }
         .task { await loadErrorStatsIfNeeded() }
         .navigationDestination(for: AppRoute.self) { route in
             HomeShortcutView(route: route)
@@ -461,11 +462,14 @@ struct HomeView: View {
     private func loadErrorStatsIfNeeded() async {
         guard !didRequestErrorStats else { return }
         didRequestErrorStats = true
+        let started = ProcessInfo.processInfo.systemUptime
         if let cached = HomeErrorStatsRepository.cached(from: records) {
             errorStats = cached
+            NativePerformanceLog.mark("home stats cache", since: started)
             return
         }
         errorStats = try? await HomeErrorStatsRepository.rebuild(in: modelContext.container)
+        NativePerformanceLog.mark("home stats background rebuild", since: started)
     }
     private var greeting: String {
         switch Calendar.current.component(.hour, from: .now) {

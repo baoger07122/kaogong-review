@@ -28,10 +28,10 @@ struct LibraryView: View {
     @State private var wordSentiment = ""
     @State private var wordEntryKind = ""
     @State private var renderLimit = 40
-    @State private var refreshedLegacyIndexes = false
     @State private var selectedQuantityType = ""
     @State private var snapshotCache = LibrarySnapshotCache()
     @AppStorage("native.library.graphDisplayMode") private var graphDisplayMode = "cards"
+    @AppStorage("native.library.legacyIndexMigrationVersion") private var legacyIndexMigrationVersion = 0
 
     var body: some View {
         GeometryReader { proxy in
@@ -50,7 +50,8 @@ struct LibraryView: View {
         .background(AppTheme.groupedBackground)
         .stableRootNavigationBar()
         .rootTabBarContentInset()
-        .task { refreshLegacyIndexesIfNeeded() }
+        .onAppear { NativePerformanceLog.event("library onAppear") }
+        .task { await runLegacyIndexMigrationIfNeeded() }
         .onChange(of: quantityQuestionTypes) { _, values in
             if !selectedQuantityType.isEmpty,
                selectedQuantityType != "未分类",
@@ -221,23 +222,23 @@ struct LibraryView: View {
         navigationPath[navigationPath.count - 1] = route
     }
 
-    private func refreshLegacyIndexesIfNeeded() {
-        guard !refreshedLegacyIndexes else { return }
-        refreshedLegacyIndexes = true
-        var changed = false
-        for record in records {
-            if record.collection == "errors",
-               (record.indexObject?["pitfall"] == nil && record.jsonObject?["pitfall"] != nil
-                || record.indexObject?["options"] == nil && record.jsonObject?["options"] != nil) {
-                record.replacePayload(record.payload)
-                changed = true
-            } else if record.collection == "words", record.indexObject?["entryKind"] == nil,
-                      record.jsonObject?["entryKind"] != nil {
-                record.replacePayload(record.payload)
-                changed = true
-            }
+    @MainActor
+    private func runLegacyIndexMigrationIfNeeded() async {
+        guard legacyIndexMigrationVersion < LibraryLegacyIndexMigration.currentVersion else {
+            NativePerformanceLog.event("library legacy index migration already current")
+            return
         }
-        if changed { try? modelContext.save() }
+        let started = ProcessInfo.processInfo.systemUptime
+        do {
+            _ = try await LibraryLegacyIndexMigration.runIfNeeded(
+                in: modelContext.container,
+                storedVersion: legacyIndexMigrationVersion
+            )
+            legacyIndexMigrationVersion = LibraryLegacyIndexMigration.currentVersion
+            NativePerformanceLog.mark("library legacy index migration task", since: started)
+        } catch {
+            NativePerformanceLog.event("library legacy index migration failed: \(error.localizedDescription)")
+        }
     }
 
     private var content: some View {

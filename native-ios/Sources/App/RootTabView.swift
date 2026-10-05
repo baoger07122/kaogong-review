@@ -67,6 +67,7 @@ struct RootTabView: View {
             TabView(selection: $selection) {
                 ForEach(RootTab.allCases) { tab in
                     tabContent(tab)
+                        .modifier(RootTabFirstFrameMarker(tab: tab))
                         .tabItem {
                             Label(tab.title, systemImage: tab.systemImage)
                                 .accessibilityIdentifier("root-tab-\(tab.rawValue)")
@@ -88,7 +89,11 @@ struct RootTabView: View {
                 .accessibilityHidden(!libraryDoodleSession.isPresented)
         }
         .onAppear {
+            NativePerformanceLog.beginTabSelection(selection)
             selectQuestionBankForIncomingFiles()
+        }
+        .onChange(of: selection) { _, selected in
+            NativePerformanceLog.beginTabSelection(selected)
         }
         .onChange(of: questionBankImportRouter.pendingRequestIDs) { _, _ in
             selectQuestionBankForIncomingFiles()
@@ -124,5 +129,18 @@ struct RootTabView: View {
     private func selectQuestionBankForIncomingFiles() {
         guard !questionBankImportRouter.pendingRequestIDs.isEmpty else { return }
         selection = .questionBank
+    }
+}
+
+private struct RootTabFirstFrameMarker: ViewModifier {
+    let tab: RootTab
+    @State private var didMark = false
+
+    func body(content: Content) -> some View {
+        content.onAppear {
+            guard !didMark else { return }
+            didMark = true
+            NativePerformanceLog.markTabFirstFrame(tab)
+        }
     }
 }

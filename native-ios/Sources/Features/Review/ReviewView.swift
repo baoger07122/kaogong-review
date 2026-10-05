@@ -9,7 +9,7 @@ private struct ReviewSessionSnapshot: Codable {
     let index: Int
 }
 
-private struct ReviewModuleStat: Identifiable {
+private struct ReviewModuleStat: Identifiable, Sendable {
     let subject: String
     let module: String
     let total: Int
@@ -18,12 +18,12 @@ private struct ReviewModuleStat: Identifiable {
     var id: String { "\(subject)|\(module)" }
 }
 
-private struct ReviewModuleKey: Hashable {
+private struct ReviewModuleKey: Hashable, Sendable {
     let subject: String
     let module: String
 }
 
-private struct ReviewModuleCounts {
+private struct ReviewModuleCounts: Sendable {
     var total = 0
     var inPool = 0
     var mastered = 0
@@ -35,6 +35,118 @@ private struct ReviewOverview {
     let mastered: Int
     let subjectCounts: [String: Int]
     let moduleStats: [ReviewModuleStat]
+
+    static let empty = ReviewOverview(due: [], pool: [], mastered: 0, subjectCounts: [:], moduleStats: [])
+}
+
+private struct ReviewRecordSnapshot: Sendable {
+    let recordID: String
+    let subject: String
+    let module: String
+    let status: String
+    let lastReviewDate: Date?
+    let createdAt: Date
+    let isShenlun: Bool
+
+    init(record: StoredRecord) {
+        // Overview construction intentionally reads only the lightweight index
+        // payload. Large question bodies and images stay out of the tab switch
+        // path; the legacy index migration repairs old records separately.
+        let object: [String: Any]
+        if let indexPayload = record.indexPayload,
+           let value = try? JSONSerialization.jsonObject(with: indexPayload) as? [String: Any] {
+            object = value
+        } else {
+            object = [:]
+        }
+        let indexedSubject = (object["subject"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let storedSubject = record.subject?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let subject = storedSubject.isEmpty ? indexedSubject : storedSubject
+        self.recordID = record.recordID
+        self.subject = subject.isEmpty && (object["isShenlun"] as? Bool) == true ? "申论" : (subject.isEmpty ? "未分类" : subject)
+        self.module = record.module ?? (object["module"] as? String ?? "")
+        self.status = object["status"] as? String ?? ""
+        self.lastReviewDate = Self.parseDate(object["lastReviewDate"])
+        self.createdAt = record.createdAt ?? .distantPast
+        self.isShenlun = subject == "申论" || (object["isShenlun"] as? Bool) == true
+    }
+
+    private static func parseDate(_ value: Any?) -> Date? {
+        if let number = value as? NSNumber {
+            let seconds = number.doubleValue > 10_000_000_000 ? number.doubleValue / 1_000 : number.doubleValue
+            return Date(timeIntervalSince1970: seconds)
+        }
+        guard let value = value as? String else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+}
+
+private struct ReviewOverviewValues: Sendable {
+    let dueIDs: [String]
+    let poolIDs: [String]
+    let mastered: Int
+    let subjectCounts: [String: Int]
+    let moduleStats: [ReviewModuleStat]
+}
+
+private enum ReviewOverviewCalculator {
+    static func make(from records: [ReviewRecordSnapshot], now: Date = .now) -> ReviewOverviewValues {
+        var dueRecords: [ReviewRecordSnapshot] = []
+        var counts: [ReviewModuleKey: ReviewModuleCounts] = [:]
+        var mastered = 0
+        for record in records {
+            let key = ReviewModuleKey(subject: record.subject, module: record.module)
+            var value = counts[key] ?? ReviewModuleCounts()
+            value.total += 1
+            if record.status == "已掌握" {
+                mastered += 1
+                value.mastered += 1
+            }
+            counts[key] = value
+            if isDue(record, now: now) { dueRecords.append(record) }
+        }
+        dueRecords.sort {
+            let left = $0.lastReviewDate ?? $0.createdAt
+            let right = $1.lastReviewDate ?? $1.createdAt
+            if left != right { return left < right }
+            return $0.recordID < $1.recordID
+        }
+        let pool = dueRecords.isEmpty ? records : dueRecords
+        var subjectCounts: [String: Int] = [:]
+        for record in pool {
+            let key = ReviewModuleKey(subject: record.subject, module: record.module)
+            var value = counts[key] ?? ReviewModuleCounts()
+            value.inPool += 1
+            counts[key] = value
+            subjectCounts[key.subject, default: 0] += 1
+        }
+        let stats = counts.map { key, value in
+            ReviewModuleStat(subject: key.subject, module: key.module, total: value.total,
+                             inPool: value.inPool, mastered: value.mastered)
+        }.sorted {
+            if $0.subject != $1.subject { return $0.subject < $1.subject }
+            return $0.module < $1.module
+        }
+        return ReviewOverviewValues(
+            dueIDs: dueRecords.map(\.recordID),
+            poolIDs: pool.map(\.recordID),
+            mastered: mastered,
+            subjectCounts: subjectCounts,
+            moduleStats: stats
+        )
+    }
+
+    private static func isDue(_ record: ReviewRecordSnapshot, now: Date) -> Bool {
+        if record.isShenlun {
+            guard record.status != "已掌握" else { return false }
+        } else {
+            guard record.status == "未掌握" else { return false }
+        }
+        let date = record.lastReviewDate ?? record.createdAt
+        return Calendar.current.dateComponents([.day], from: date, to: now).day ?? 0 >= 3
+    }
 }
 
 struct ReviewView: View {
@@ -45,17 +157,12 @@ struct ReviewView: View {
     @State private var index = 0
     @State private var answer: ReviewAnswer?
     @State private var isSession = false
+    @State private var cachedOverview: ReviewOverview?
     private let sessionKey = "native.review.activeSession"
 
     private var errors: [StoredRecord] { records }
-    private var due: [StoredRecord] {
-        let now = Date()
-        return errors.filter { isDue($0, now: now) }
-            .sorted { reviewDate($0) < reviewDate($1) }
-    }
     private var reviewPool: [StoredRecord] {
-        let dueRecords = due
-        return dueRecords.isEmpty ? errors : dueRecords
+        cachedOverview?.pool ?? []
     }
     private var queue: [StoredRecord] {
         let byID = Dictionary(errors.map { ($0.recordID, $0) }, uniquingKeysWith: { first, _ in first })
@@ -69,7 +176,13 @@ struct ReviewView: View {
             .navigationBarTitleDisplayMode(.inline)
             .rootTabBarContentInset()
             .toolbar(isSession ? .hidden : .automatic, for: .tabBar)
-            .onAppear(perform: restoreSession)
+            .onAppear {
+                restoreSession()
+                NativePerformanceLog.event("review onAppear")
+            }
+            .task(id: overviewRevision) {
+                await refreshOverview()
+            }
             .onChange(of: queueIDs) { _, _ in persistSession() }
             .onChange(of: index) { _, _ in persistSession() }
             .onChange(of: isSession) { _, _ in persistSession() }
@@ -79,7 +192,7 @@ struct ReviewView: View {
     }
 
     private var homeView: some View {
-        let overview = makeOverview()
+        let overview = cachedOverview ?? .empty
         return ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -147,49 +260,29 @@ struct ReviewView: View {
         Group { if index >= queue.count { finishedView } else { questionView(queue[index]) } }
     }
 
-    private func makeOverview() -> ReviewOverview {
-        let now = Date()
-        var dueRecords: [StoredRecord] = []
-        var counts: [ReviewModuleKey: ReviewModuleCounts] = [:]
-        var mastered = 0
-        for record in errors {
-            let key = ReviewModuleKey(subject: reviewSubject(record), module: record.module ?? "")
-            var value = counts[key] ?? ReviewModuleCounts()
-            value.total += 1
-            if (record.indexObject?["status"] as? String) == "已掌握" {
-                mastered += 1
-                value.mastered += 1
-            }
-            counts[key] = value
-            if isDue(record, now: now) { dueRecords.append(record) }
+    private var overviewRevision: [String] {
+        records.map { record in
+            "\(record.compoundID)|\(record.updatedAt?.timeIntervalSinceReferenceDate ?? 0)"
         }
-        dueRecords.sort { reviewDate($0) < reviewDate($1) }
-        let pool = dueRecords.isEmpty ? errors : dueRecords
-        var subjectCounts: [String: Int] = [:]
-        for record in pool {
-            let key = ReviewModuleKey(subject: reviewSubject(record), module: record.module ?? "")
-            var value = counts[key] ?? ReviewModuleCounts()
-            value.inPool += 1
-            counts[key] = value
-            subjectCounts[key.subject, default: 0] += 1
-        }
-        var stats: [ReviewModuleStat] = []
-        stats.reserveCapacity(counts.count)
-        for (key, value) in counts {
-            stats.append(ReviewModuleStat(
-                subject: key.subject,
-                module: key.module,
-                total: value.total,
-                inPool: value.inPool,
-                mastered: value.mastered
-            ))
-        }
-        stats.sort { lhs, rhs in
-            if lhs.subject != rhs.subject { return lhs.subject < rhs.subject }
-            return lhs.module < rhs.module
-        }
-        return ReviewOverview(due: dueRecords, pool: pool, mastered: mastered,
-                              subjectCounts: subjectCounts, moduleStats: stats)
+    }
+
+    @MainActor
+    private func refreshOverview() async {
+        let started = ProcessInfo.processInfo.systemUptime
+        let snapshots = records.map(ReviewRecordSnapshot.init)
+        let values = await Task.detached(priority: .utility) {
+            ReviewOverviewCalculator.make(from: snapshots)
+        }.value
+        guard !Task.isCancelled else { return }
+        let byID = Dictionary(records.map { ($0.recordID, $0) }, uniquingKeysWith: { first, _ in first })
+        cachedOverview = ReviewOverview(
+            due: values.dueIDs.compactMap { byID[$0] },
+            pool: values.poolIDs.compactMap { byID[$0] },
+            mastered: values.mastered,
+            subjectCounts: values.subjectCounts,
+            moduleStats: values.moduleStats
+        )
+        NativePerformanceLog.mark("review overview records=\(snapshots.count)", since: started)
     }
 
     private func isDue(_ record: StoredRecord, now: Date) -> Bool {
