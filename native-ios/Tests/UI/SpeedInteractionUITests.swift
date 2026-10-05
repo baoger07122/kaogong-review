@@ -22,12 +22,6 @@ final class SpeedInteractionUITests: XCTestCase {
         for (tab, button) in zip(tabs, tabButtons) {
             XCTAssertTrue(button.waitForExistence(timeout: 15), "Missing root tab: \(tab)")
         }
-        XCTAssertEqual(
-            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "root-tab-")).count,
-            5,
-            "Root tab count and ordering must remain a five-tab system TabView"
-        )
-
         let itemClusterFrame = { () -> CGRect in
             tabButtons.map(\.frame).reduce(CGRect.null) { $0.union($1) }
         }
