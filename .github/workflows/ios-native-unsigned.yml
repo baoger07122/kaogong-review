@@ -97,6 +97,11 @@ jobs:
               RUN_SIMULATOR=true
               RUN_NAVIGATION=true
             fi
+            if echo "$CHANGED_FILES" | grep -Eq '^\.github/workflows/ios-native-unsigned\.yml$'; then
+              RUN_SIMULATOR=true
+              RUN_QUESTION_BANK=true
+              RUN_NAVIGATION=true
+            fi
             # These source-only contracts cover keypad, form, and rich-text changes;
             # unrelated feature releases should not spend time running them.
             if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/Features/Speed/|Sources/Features/Library/LibraryRecordEditorView\.swift|Sources/Features/Shared/NativeRichTextEditor\.swift|Tests/(Animation/|Speed/|speed-feedback-contracts\.cjs|document-form-contracts\.cjs|rich-text-toolbar-contracts\.cjs))'; then
@@ -339,8 +344,12 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             EXISTING_TARGET=$(gh release view "$TAG" --json targetCommitish --jq '.targetCommitish')
             if [ "$EXISTING_TARGET" != "$GITHUB_SHA" ]; then
-              echo "Release ${TAG} belongs to ${EXISTING_TARGET}; increment the native version before publishing new source"
-              exit 1
+              if git diff --quiet "$EXISTING_TARGET" "$GITHUB_SHA" -- native-ios; then
+                echo "Native app sources match release ${TAG}; refreshing the same-version IPA after validation"
+              else
+                echo "Release ${TAG} belongs to ${EXISTING_TARGET}; increment the native version before publishing new app source"
+                exit 1
+              fi
             fi
             gh release upload "$TAG" "build/native-ipa/${IPA_NAME}" --clobber
           else
