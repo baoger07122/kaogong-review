@@ -79,18 +79,21 @@ final class SpeedInteractionUITests: XCTestCase {
         shortcut.tap()
         let start = app.buttons["speed-start"]
         XCTAssertTrue(start.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["root-tab-library"].firstMatch.isHittable)
+        let rootLibraryTab = app.buttons["root-tab-library"].firstMatch
+        XCTAssertFalse(rootLibraryTab.exists, "System tabs must be hidden on the secondary speed page")
         // A genuine navigation destination retains UIKit's edge-pop gesture.
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.002, dy: 0.45))
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.45))
         edge.press(forDuration: 0.05, thenDragTo: end)
         XCTAssertTrue(shortcut.waitForExistence(timeout: 5))
+        XCTAssertTrue(rootLibraryTab.waitForExistence(timeout: 5), "System tabs must return on the root page")
+        XCTAssertTrue(rootLibraryTab.isHittable)
         shortcut.tap()
         XCTAssertTrue(start.waitForExistence(timeout: 5))
         app.buttons["speed-type-addsub2"].tap()
         start.tap()
         XCTAssertTrue(app.buttons["speed-key-2"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["root-tab-library"].firstMatch.exists)
+        XCTAssertFalse(rootLibraryTab.exists, "System tabs must remain hidden during speed practice")
         // Internal practice states must confirm, not pop the whole destination.
         edge.press(forDuration: 0.05, thenDragTo: end)
         let keepGoing = app.buttons["speed-exit-continue"]
@@ -100,7 +103,7 @@ final class SpeedInteractionUITests: XCTestCase {
         app.buttons["speed-back"].tap()
         app.buttons["speed-exit-confirm"].tap()
         XCTAssertTrue(start.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["root-tab-library"].firstMatch.isHittable)
+        XCTAssertFalse(rootLibraryTab.exists, "System tabs must remain hidden on the secondary speed page")
     }
 
     @MainActor
