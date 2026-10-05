@@ -200,6 +200,7 @@ final class QuestionBankImportTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: temporaryRoot) }
         let original = try makeJSONDocument(from: sourcePlan)
         let q71AssetIndex = try XCTUnwrap(original.assets.firstIndex { $0.id == "q-2019-071-full-figure" })
+        let q71FileName = original.assets[q71AssetIndex].fileName
 
         var unsupportedSchema = original
         unsupportedSchema.schemaVersion = 2
@@ -217,12 +218,12 @@ final class QuestionBankImportTests: XCTestCase {
         var invalidBase64 = original
         invalidBase64.assets[q71AssetIndex].dataBase64 = "%%%"
         try assertJSONPlanContainsError(invalidBase64, directory: temporaryRoot, name: "bad-base64.json",
-                                        matching: "不是有效的纯 Base64", context: "q071-diagram.png")
+                                        matching: "不是有效的纯 Base64", context: q71FileName)
 
         var invalidHash = original
         invalidHash.assets[q71AssetIndex].sha256 = String(repeating: "0", count: 64)
         try assertJSONPlanContainsError(invalidHash, directory: temporaryRoot, name: "bad-hash.json",
-                                        matching: "sha256 与图片原始字节不匹配", context: "q071-diagram.png")
+                                        matching: "sha256 与图片原始字节不匹配", context: q71FileName)
 
         var oversizedImage = original
         let maxEncodedLength = ((QuestionBankPackageImporter.maxJSONImageBytes + 2) / 3) * 4
@@ -237,7 +238,7 @@ final class QuestionBankImportTests: XCTestCase {
 
         let missingIDFieldURL = try writeJSONRemovingField(original, directory: temporaryRoot,
             name: "missing-id-field.json", collection: "assets", index: q71AssetIndex, field: "id")
-        try assertJSONFileContainsError(missingIDFieldURL, matching: "图片资源ID不能为空", context: "q071-diagram.png")
+        try assertJSONFileContainsError(missingIDFieldURL, matching: "图片资源ID不能为空", context: q71FileName)
 
         let q71QuestionIndex = try XCTUnwrap(original.questions.firstIndex { $0.number == 71 })
         let missingQuestionIDFieldURL = try writeJSONRemovingField(original, directory: temporaryRoot,
