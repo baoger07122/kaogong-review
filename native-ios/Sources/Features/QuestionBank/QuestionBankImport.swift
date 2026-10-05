@@ -2,6 +2,7 @@ import Foundation
 import SwiftData
 import OSLog
 import ZIPFoundation
+import CryptoKit
 
 struct QuestionBankPaper: Codable, Equatable, Sendable {
     var id: String
@@ -71,6 +72,190 @@ struct QuestionBankAsset: Codable, Equatable, Sendable, Identifiable {
     var mimeType: String
     var fileName: String
     var originalPage: String
+}
+
+enum QuestionBankImportSource: Sendable, Equatable {
+    case pickerCopy
+    case filesOpenIn
+    case trustedLocalFile
+}
+
+enum QuestionBankImportPhase: String, Sendable {
+    case acquiringFile = "取得本地文件"
+    case parsing = "解析文件"
+    case validatingImages = "校验图片"
+    case preparingPreview = "生成预览"
+}
+
+struct QuestionBankJSONAssetV1: Codable, Equatable, Sendable {
+    var id: String
+    var paperID: String
+    var ownerType: String
+    var ownerID: String
+    var role: String
+    var path: String
+    var mimeType: String
+    var fileName: String
+    var originalPage: String
+    var dataBase64: String
+    var sha256: String
+
+    private enum CodingKeys: String, CodingKey {
+        case id, paperID, ownerType, ownerID, role, path, mimeType, fileName, originalPage, dataBase64, sha256
+    }
+
+    init(id: String, paperID: String, ownerType: String, ownerID: String, role: String,
+         path: String, mimeType: String, fileName: String, originalPage: String,
+         dataBase64: String, sha256: String) {
+        self.id = id
+        self.paperID = paperID
+        self.ownerType = ownerType
+        self.ownerID = ownerID
+        self.role = role
+        self.path = path
+        self.mimeType = mimeType
+        self.fileName = fileName
+        self.originalPage = originalPage
+        self.dataBase64 = dataBase64
+        self.sha256 = sha256
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? container.decode(String.self, forKey: .id)) ?? ""
+        paperID = try container.decode(String.self, forKey: .paperID)
+        ownerType = try container.decode(String.self, forKey: .ownerType)
+        ownerID = (try? container.decode(String.self, forKey: .ownerID)) ?? ""
+        role = try container.decode(String.self, forKey: .role)
+        path = try container.decode(String.self, forKey: .path)
+        mimeType = try container.decode(String.self, forKey: .mimeType)
+        fileName = try container.decode(String.self, forKey: .fileName)
+        originalPage = try container.decode(String.self, forKey: .originalPage)
+        dataBase64 = (try? container.decode(String.self, forKey: .dataBase64)) ?? ""
+        sha256 = (try? container.decode(String.self, forKey: .sha256)) ?? ""
+    }
+
+    var metadata: QuestionBankAsset {
+        QuestionBankAsset(id: id, paperID: paperID, ownerType: ownerType, ownerID: ownerID,
+                          role: role, path: path, mimeType: mimeType, fileName: fileName,
+                          originalPage: originalPage)
+    }
+}
+
+private struct QuestionBankJSONPaperFieldsV1: Decodable {
+    let value: QuestionBankPaper
+    private enum CodingKeys: String, CodingKey { case id, title, year, examType, volume, source, importVersion }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        value = QuestionBankPaper(id: (try? c.decode(String.self, forKey: .id)) ?? "",
+            title: try c.decode(String.self, forKey: .title), year: try c.decode(Int.self, forKey: .year),
+            examType: try c.decode(String.self, forKey: .examType), volume: try c.decode(String.self, forKey: .volume),
+            source: try c.decode(String.self, forKey: .source), importVersion: try c.decode(String.self, forKey: .importVersion))
+    }
+}
+
+private struct QuestionBankJSONModuleFieldsV1: Decodable {
+    let value: QuestionBankModule
+    private enum CodingKeys: String, CodingKey { case id, paperID, sequence, title, instruction, originalPage }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        value = QuestionBankModule(id: (try? c.decode(String.self, forKey: .id)) ?? "",
+            paperID: try c.decode(String.self, forKey: .paperID), sequence: try c.decode(Int.self, forKey: .sequence),
+            title: try c.decode(String.self, forKey: .title), instruction: try c.decode(String.self, forKey: .instruction),
+            originalPage: try c.decode(String.self, forKey: .originalPage))
+    }
+}
+
+private struct QuestionBankJSONMaterialFieldsV1: Decodable {
+    let value: QuestionBankMaterial
+    private enum CodingKeys: String, CodingKey { case id, paperID, moduleID, type, text, imageAssetID, applicableQuestions, originalPage }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        value = QuestionBankMaterial(id: (try? c.decode(String.self, forKey: .id)) ?? "",
+            paperID: try c.decode(String.self, forKey: .paperID), moduleID: try c.decode(String.self, forKey: .moduleID),
+            type: try c.decode(String.self, forKey: .type), text: try c.decode(String.self, forKey: .text),
+            imageAssetID: try c.decode(String.self, forKey: .imageAssetID),
+            applicableQuestions: try c.decode(String.self, forKey: .applicableQuestions),
+            originalPage: try c.decode(String.self, forKey: .originalPage))
+    }
+}
+
+private struct QuestionBankJSONOptionFieldsV1: Decodable {
+    let value: QuestionBankOption
+    private enum CodingKeys: String, CodingKey { case id, text, imageAssetID }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        value = QuestionBankOption(id: (try? c.decode(String.self, forKey: .id)) ?? "",
+            text: try c.decode(String.self, forKey: .text), imageAssetID: try c.decode(String.self, forKey: .imageAssetID))
+    }
+}
+
+private struct QuestionBankJSONQuestionFieldsV1: Decodable {
+    let value: QuestionBankQuestion
+    private enum CodingKeys: String, CodingKey {
+        case id, paperID, moduleID, number, subject, type, materialID, stem, stemImageAssetID
+        case options, answer, explanation, originalPage
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let options = try c.decode([QuestionBankJSONOptionFieldsV1].self, forKey: .options).map(\.value)
+        value = QuestionBankQuestion(id: (try? c.decode(String.self, forKey: .id)) ?? "",
+            paperID: try c.decode(String.self, forKey: .paperID), moduleID: try c.decode(String.self, forKey: .moduleID),
+            number: try c.decode(Int.self, forKey: .number), subject: try c.decode(String.self, forKey: .subject),
+            type: try c.decode(String.self, forKey: .type), materialID: try c.decode(String.self, forKey: .materialID),
+            stem: try c.decode(String.self, forKey: .stem), stemImageAssetID: try c.decode(String.self, forKey: .stemImageAssetID),
+            options: options, answer: try c.decode(String.self, forKey: .answer),
+            explanation: try c.decode(String.self, forKey: .explanation), originalPage: try c.decode(String.self, forKey: .originalPage))
+    }
+}
+
+struct QuestionBankImportJSONV1: Codable, Sendable {
+    static let formatIdentifier = "kaogong-question-bank"
+    static let currentSchemaVersion = 1
+
+    var format: String
+    var schemaVersion: Int
+    var paper: QuestionBankPaper
+    var modules: [QuestionBankModule]
+    var materials: [QuestionBankMaterial]
+    var questions: [QuestionBankQuestion]
+    var assets: [QuestionBankJSONAssetV1]
+
+    private enum CodingKeys: String, CodingKey {
+        case format, schemaVersion, paper, modules, materials, questions, assets
+    }
+
+    init(format: String = QuestionBankImportJSONV1.formatIdentifier,
+         schemaVersion: Int = QuestionBankImportJSONV1.currentSchemaVersion,
+         paper: QuestionBankPaper, modules: [QuestionBankModule], materials: [QuestionBankMaterial],
+         questions: [QuestionBankQuestion], assets: [QuestionBankJSONAssetV1]) {
+        self.format = format
+        self.schemaVersion = schemaVersion
+        self.paper = paper
+        self.modules = modules
+        self.materials = materials
+        self.questions = questions
+        self.assets = assets
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        format = try container.decode(String.self, forKey: .format)
+        guard format == Self.formatIdentifier else {
+            throw DecodingError.dataCorruptedError(forKey: .format, in: container,
+                debugDescription: "不是 kaogong 真题库 JSON；备份文件和其他 JSON 不能作为真题包导入。")
+        }
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        guard schemaVersion == Self.currentSchemaVersion else {
+            throw DecodingError.dataCorruptedError(forKey: .schemaVersion, in: container,
+                debugDescription: "不支持真题 JSON schemaVersion=\(schemaVersion)，当前只支持 1。")
+        }
+        paper = try container.decode(QuestionBankJSONPaperFieldsV1.self, forKey: .paper).value
+        modules = try container.decode([QuestionBankJSONModuleFieldsV1].self, forKey: .modules).map(\.value)
+        materials = try container.decode([QuestionBankJSONMaterialFieldsV1].self, forKey: .materials).map(\.value)
+        questions = try container.decode([QuestionBankJSONQuestionFieldsV1].self, forKey: .questions).map(\.value)
+        assets = try container.decode([QuestionBankJSONAssetV1].self, forKey: .assets)
+    }
 }
 
 struct QuestionBankImportPlan: Identifiable, Sendable {
@@ -299,6 +484,51 @@ enum QuestionBankRepository {
 
 enum QuestionBankPackageImporter {
     private static let logger = Logger(subsystem: "com.baoger07122.kaogongreview", category: "QuestionBankPackageImporter")
+    static let maxJSONFileBytes: Int64 = 64 * 1024 * 1024
+    static let maxJSONImageBytes: Int = 16 * 1024 * 1024
+    static let maxJSONImagesTotalBytes: Int64 = 48 * 1024 * 1024
+    private static let externalCoordinationTimeout: TimeInterval = 30
+
+    private struct ParsedPackage {
+        var paper: QuestionBankPaper?
+        var modules: [QuestionBankModule]
+        var materials: [QuestionBankMaterial]
+        var questions: [QuestionBankQuestion]
+        var assets: [QuestionBankAsset]
+        var jsonAssets: [QuestionBankJSONAssetV1]
+        var errors: [String]
+    }
+
+    private final class CoordinationCompletion: @unchecked Sendable {
+        let semaphore = DispatchSemaphore(value: 0)
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        private let lock = NSLock()
+        private var result: Result<Void, Error>?
+        private var cancelledOrTimedOut = false
+
+        func complete(_ result: Result<Void, Error>) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !cancelledOrTimedOut else { return false }
+            self.result = result
+            return true
+        }
+
+        func snapshot() -> Result<Void, Error>? {
+            lock.lock()
+            defer { lock.unlock() }
+            return result
+        }
+
+        func cancel() -> Bool {
+            lock.lock()
+            cancelledOrTimedOut = true
+            let alreadyCompleted = result != nil
+            lock.unlock()
+            coordinator.cancel()
+            return alreadyCompleted
+        }
+    }
 
     private static func logFailure(_ phase: String, error: Error) {
         let errorType = String(reflecting: type(of: error))
@@ -306,73 +536,60 @@ enum QuestionBankPackageImporter {
     }
 
     static func prepare(from sourceURL: URL) throws -> QuestionBankImportPlan {
-        guard sourceURL.pathExtension.lowercased() == "zip" else {
-            throw PackageError("请选择 .zip 真题包；不能直接导入 Excel、文件夹或其他文件。")
+        try prepare(from: sourceURL, source: .trustedLocalFile, onProgress: { _ in })
+    }
+
+    static func prepare(from sourceURL: URL, source: QuestionBankImportSource,
+                        onProgress: @escaping @Sendable (QuestionBankImportPhase) -> Void) throws -> QuestionBankImportPlan {
+        let fileExtension = sourceURL.pathExtension.lowercased()
+        guard ["zip", "json"].contains(fileExtension) else {
+            throw PackageError("请选择单文件真题包：新版 .json 或兼容旧版 .zip。备份 JSON 不是可导入的真题包。")
         }
         let stage = FileManager.default.temporaryDirectory
             .appendingPathComponent("QuestionBankImport-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+        var temporarySource: URL?
+        defer {
+            if let temporarySource { try? FileManager.default.removeItem(at: temporarySource) }
+        }
 
         do {
-            logger.info("prepare started; package extension is ZIP")
-            let localArchive = stage.appendingPathComponent("incoming.zip")
-            try stageSourceArchive(from: sourceURL, to: localArchive)
-            logger.info("opening ZIP from app-local staging")
-            try extractArchive(at: localArchive, to: stage)
-            try FileManager.default.removeItem(at: localArchive)
-            let workbooks = try FileManager.default.contentsOfDirectory(at: stage, includingPropertiesForKeys: nil)
-                .filter { $0.pathExtension.lowercased() == "xlsx" }
-            guard workbooks.count == 1 else {
-                throw PackageError("ZIP 根目录必须且只能包含一个 .xlsx 标准工作簿。")
+            try checkCancellation()
+            let readableSource = try runPhase(.acquiringFile, onProgress: onProgress) {
+                let url = try makeReadableSource(from: sourceURL, source: source)
+                if source == .filesOpenIn { temporarySource = url }
+                if fileExtension == "json" {
+                    let byteCount = try fileSize(at: url)
+                    guard byteCount <= maxJSONFileBytes else {
+                        throw PackageError("真题 JSON 文件为 \(byteCount / 1024 / 1024) MiB，超过 64 MiB 上限。请拆分图片资源后重新生成。")
+                    }
+                }
+                return url
             }
-            logger.info("XLSX validation started")
-            let tables: [String: [[String: String]]]
-            do {
-                tables = try XLSXTableReader.read(workbooks[0])
-            } catch {
-                logFailure("XLSX validation", error: error)
-                throw error
+            let parsed = try runPhase(.parsing, onProgress: onProgress) {
+                fileExtension == "zip"
+                    ? try parseZIP(from: readableSource, into: stage)
+                    : try parseJSON(from: readableSource)
             }
-            var paper: QuestionBankPaper?
-            var modules: [QuestionBankModule] = []
-            var materials: [QuestionBankMaterial] = []
-            var questions: [QuestionBankQuestion] = []
-            var assets: [QuestionBankAsset] = []
-            var errors: [String] = []
-
-            do { paper = try parsePaper(tables["试卷"] ?? []) }
-            catch {
-                logFailure("paper sheet validation", error: error)
-                errors.append("试卷表：\(error.localizedDescription)")
+            let imageAndReferenceErrors = try runPhase(.validatingImages, onProgress: onProgress) {
+                var errors = parsed.errors
+                if !parsed.jsonAssets.isEmpty {
+                    errors += try installAndValidateJSONAssets(parsed.jsonAssets, paper: parsed.paper,
+                        modules: parsed.modules, materials: parsed.materials, questions: parsed.questions,
+                        staging: stage)
+                }
+                errors += try validate(paper: parsed.paper, modules: parsed.modules,
+                    materials: parsed.materials, questions: parsed.questions,
+                    assets: parsed.assets, staging: stage)
+                return errors
             }
-            do { modules = try parseModules(tables["模块"] ?? []) }
-            catch {
-                logFailure("module sheet validation", error: error)
-                errors.append("模块表：\(error.localizedDescription)")
+            return try runPhase(.preparingPreview, onProgress: onProgress) {
+                try checkCancellation()
+                logger.info("package validation finished; modules=\(parsed.modules.count), materials=\(parsed.materials.count), questions=\(parsed.questions.count), images=\(parsed.assets.count), errors=\(imageAndReferenceErrors.count)")
+                return QuestionBankImportPlan(paper: parsed.paper, modules: parsed.modules,
+                    materials: parsed.materials, questions: parsed.questions, assets: parsed.assets,
+                    errors: imageAndReferenceErrors, stagingDirectory: stage)
             }
-            do { materials = try parseMaterials(tables["材料"] ?? []) }
-            catch {
-                logFailure("materials sheet validation", error: error)
-                errors.append("材料表：\(error.localizedDescription)")
-            }
-            do { questions = try parseQuestions(tables["题目"] ?? []) }
-            catch {
-                logFailure("questions sheet validation", error: error)
-                errors.append("题目表：\(error.localizedDescription)")
-            }
-            do { assets = try parseAssets(tables["图片资源"] ?? []) }
-            catch {
-                logFailure("image asset sheet validation", error: error)
-                errors.append("图片资源表：\(error.localizedDescription)")
-            }
-
-            logger.info("image and cross-reference validation started")
-            errors += validate(paper: paper, modules: modules, materials: materials, questions: questions,
-                               assets: assets, staging: stage)
-            logger.info("package validation finished; modules=\(modules.count), materials=\(materials.count), questions=\(questions.count), images=\(assets.count), errors=\(errors.count)")
-            return QuestionBankImportPlan(paper: paper, modules: modules, materials: materials,
-                                          questions: questions, assets: assets, errors: errors,
-                                          stagingDirectory: stage)
         } catch {
             logFailure("package preparation", error: error)
             try? FileManager.default.removeItem(at: stage)
@@ -380,89 +597,299 @@ enum QuestionBankPackageImporter {
         }
     }
 
-    private static func stageSourceArchive(from sourceURL: URL, to localArchive: URL) throws {
-        let hasSecurityScope = sourceURL.startAccessingSecurityScopedResource()
-        defer { if hasSecurityScope { sourceURL.stopAccessingSecurityScopedResource() } }
-        logger.info("source access started; security scope granted=\(hasSecurityScope)")
+    private static func runPhase<T>(_ phase: QuestionBankImportPhase,
+                                    onProgress: @Sendable (QuestionBankImportPhase) -> Void,
+                                    operation: () throws -> T) rethrows -> T {
+        onProgress(phase)
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        logger.info("import phase started: \(phase.rawValue, privacy: .public)")
+        do {
+            let result = try operation()
+            let elapsed = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
+            logger.info("import phase completed: \(phase.rawValue, privacy: .public), elapsed_ms=\(elapsed, privacy: .public)")
+            return result
+        } catch {
+            let elapsed = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
+            logFailure("\(phase.rawValue) elapsed_ms=\(elapsed)", error: error)
+            throw error
+        }
+    }
 
+    private static func checkCancellation() throws {
+        if withUnsafeCurrentTask(body: { $0?.isCancelled ?? false }) {
+            throw CancellationError()
+        }
+    }
+
+    private static func fileSize(at url: URL) throws -> Int64 {
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            return (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        } catch {
+            throw PackageError("无法读取所选文件大小：\(error.localizedDescription)")
+        }
+    }
+
+    private static func makeReadableSource(from sourceURL: URL, source: QuestionBankImportSource) throws -> URL {
+        guard sourceURL.isFileURL else { throw PackageError("所选项目不是本地文件。") }
+        if source == .filesOpenIn {
+            return try coordinateExternalFile(from: sourceURL)
+        }
         do {
             let values = try sourceURL.resourceValues(forKeys: [.isDirectoryKey])
-            guard values.isDirectory != true else {
-                throw PackageError("所选项目是文件夹；请选择 .zip 真题包。")
-            }
+            guard values.isDirectory != true else { throw PackageError("所选项目是文件夹；请选择 .json 或 .zip 单文件真题包。") }
         } catch let error as PackageError {
             throw error
         } catch {
-            throw PackageError("无法读取所选文件信息：\(error.localizedDescription)")
+            throw PackageError("无法取得本地文件：\(error.localizedDescription)")
         }
-
-        try requestICloudDownloadIfNeeded(for: sourceURL)
-        logger.info("coordinated source copy started")
-        var copyResult: Result<Void, Error>?
-        var coordinationError: NSError?
-        let coordinator = NSFileCoordinator(filePresenter: nil)
-        coordinator.coordinate(readingItemAt: sourceURL, options: .withoutChanges, error: &coordinationError) { coordinatedURL in
-            do {
-                try FileManager.default.copyItem(at: coordinatedURL, to: localArchive)
-                copyResult = .success(())
-            } catch {
-                copyResult = .failure(error)
-            }
+        let byteCount = try fileSize(at: sourceURL)
+        guard byteCount > 0 else { throw PackageError("所选真题包是空文件。") }
+        if source == .pickerCopy {
+            logger.info("picker returned an app-local copy; reading it directly without security scope, iCloud polling, or coordination; bytes=\(byteCount)")
+        } else {
+            logger.info("trusted local package read directly; bytes=\(byteCount)")
         }
-        if let coordinationError {
-            logFailure("source coordination", error: coordinationError)
-            throw PackageError("无法从文件提供方读取真题包：\(coordinationError.localizedDescription)")
-        }
-        guard let copyResult else {
-            throw PackageError("文件提供方没有返回可读取的真题包。")
-        }
-        do {
-            try copyResult.get()
-        } catch {
-            logFailure("copy to local staging", error: error)
-            throw PackageError("无法将真题包复制到本地暂存区：\(error.localizedDescription)")
-        }
-        let attributes = try FileManager.default.attributesOfItem(atPath: localArchive.path)
-        let byteCount = (attributes[.size] as? NSNumber)?.int64Value ?? 0
-        guard byteCount > 0 else { throw PackageError("所选 ZIP 文件为空。") }
-        logger.info("coordinated local copy completed; bytes=\(byteCount)")
+        return sourceURL
     }
 
-    private static func requestICloudDownloadIfNeeded(for sourceURL: URL) throws {
-        guard let values = try? sourceURL.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]),
-              values.isUbiquitousItem == true else {
-            logger.info("source is not reported as an iCloud ubiquitous item; file-provider coordination will handle the read")
-            return
+    private static func coordinateExternalFile(from sourceURL: URL) throws -> URL {
+        let target = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankOpenIn-\(UUID().uuidString).\(sourceURL.pathExtension.lowercased())")
+        let completion = CoordinationCompletion()
+        logger.info("Files Open In coordination started")
+        DispatchQueue.global(qos: .userInitiated).async {
+            let hasSecurityScope = sourceURL.startAccessingSecurityScopedResource()
+            defer { if hasSecurityScope { sourceURL.stopAccessingSecurityScopedResource() } }
+            var result: Result<Void, Error>?
+            var coordinationError: NSError?
+            completion.coordinator.coordinate(readingItemAt: sourceURL, options: .withoutChanges,
+                                               error: &coordinationError) { coordinatedURL in
+                do {
+                    let values = try coordinatedURL.resourceValues(forKeys: [.isDirectoryKey])
+                    guard values.isDirectory != true else {
+                        throw PackageError("Files 收到的是文件夹；请选择 .json 或 .zip 单文件真题包。")
+                    }
+                    let byteCount = try fileSize(at: coordinatedURL)
+                    guard byteCount > 0 else { throw PackageError("Files 返回的真题文件为空。") }
+                    if sourceURL.pathExtension.lowercased() == "json", byteCount > maxJSONFileBytes {
+                        throw PackageError("Files 真题 JSON 超过 64 MiB 上限。")
+                    }
+                    try FileManager.default.copyItem(at: coordinatedURL, to: target)
+                    result = .success(())
+                } catch {
+                    result = .failure(error)
+                }
+            }
+            if let coordinationError {
+                result = .failure(PackageError("Files 文件协调失败：\(coordinationError.localizedDescription)"))
+            } else if result == nil {
+                result = .failure(PackageError("Files 没有提供可读取的真题文件。"))
+            }
+            let keepCopy = completion.complete(result ?? .failure(PackageError("Files 文件读取失败。")))
+            if !keepCopy { try? FileManager.default.removeItem(at: target) }
+            completion.semaphore.signal()
         }
 
-        if values.ubiquitousItemDownloadingStatus == .current {
-            logger.info("iCloud source is already current on device")
-            return
+        let deadline = ProcessInfo.processInfo.systemUptime + externalCoordinationTimeout
+        while completion.semaphore.wait(timeout: .now() + 0.2) != .success {
+            do {
+                try checkCancellation()
+            } catch {
+                let alreadyCompleted = completion.cancel()
+                if alreadyCompleted { try? FileManager.default.removeItem(at: target) }
+                throw error
+            }
+            if ProcessInfo.processInfo.systemUptime >= deadline {
+                if let result = completion.snapshot() {
+                    try result.get()
+                    break
+                }
+                let alreadyCompleted = completion.cancel()
+                if alreadyCompleted, let result = completion.snapshot() {
+                    try result.get()
+                    break
+                }
+                throw PackageError("Files 文件协调读取超过 30 秒，已停止本次导入。请将文件存储到“我的 iPad”后重试。")
+            }
         }
-
+        guard let result = completion.snapshot() else {
+            throw PackageError("Files 没有在时限内返回真题文件。")
+        }
         do {
-            logger.info("requesting iCloud source download")
-            try FileManager.default.startDownloadingUbiquitousItem(at: sourceURL)
+            try result.get()
         } catch {
-            logFailure("iCloud download request", error: error)
-            throw PackageError("无法请求 iCloud 下载真题包：\(error.localizedDescription)")
+            logFailure("Files Open In coordination", error: error)
+            throw PackageError("无法从 Files 读取真题文件：\(error.localizedDescription)")
         }
+        let byteCount = try fileSize(at: target)
+        guard byteCount > 0 else { throw PackageError("Files 返回的真题文件为空。") }
+        logger.info("Files Open In local copy ready; bytes=\(byteCount)")
+        return target
+    }
 
-        let deadline = Date().addingTimeInterval(90)
-        while Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.25)
-            guard let values = try? sourceURL.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]),
-                  let status = values.ubiquitousItemDownloadingStatus else {
-                logger.error("iCloud download status could not be read; continuing to coordinated file access")
-                return
-            }
-            if status == .current {
-                logger.info("iCloud source became available; status=\(String(describing: status), privacy: .public)")
-                return
-            }
+    private static func parseZIP(from sourceURL: URL, into stage: URL) throws -> ParsedPackage {
+        try checkCancellation()
+        logger.info("opening ZIP directly from local source")
+        try extractArchive(at: sourceURL, to: stage)
+        let workbooks = try FileManager.default.contentsOfDirectory(at: stage, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension.lowercased() == "xlsx" }
+        guard workbooks.count == 1 else {
+            throw PackageError("ZIP 根目录必须且只能包含一个 .xlsx 标准工作簿。")
         }
-        logger.error("iCloud source did not finish downloading within 90 seconds")
-        throw PackageError("iCloud 真题包尚未下载完成。请确认 iPad 网络正常后重试。")
+        logger.info("XLSX table parsing started")
+        let tables: [String: [[String: String]]]
+        do {
+            tables = try XLSXTableReader.read(workbooks[0])
+        } catch {
+            logFailure("XLSX parsing", error: error)
+            throw error
+        }
+        try checkCancellation()
+        var paper: QuestionBankPaper?
+        var modules: [QuestionBankModule] = []
+        var materials: [QuestionBankMaterial] = []
+        var questions: [QuestionBankQuestion] = []
+        var assets: [QuestionBankAsset] = []
+        var errors: [String] = []
+        do { paper = try parsePaper(tables["试卷"] ?? []) }
+        catch { logFailure("paper sheet validation", error: error); errors.append("试卷表：\(error.localizedDescription)") }
+        do { modules = try parseModules(tables["模块"] ?? []) }
+        catch { logFailure("module sheet validation", error: error); errors.append("模块表：\(error.localizedDescription)") }
+        do { materials = try parseMaterials(tables["材料"] ?? []) }
+        catch { logFailure("materials sheet validation", error: error); errors.append("材料表：\(error.localizedDescription)") }
+        do { questions = try parseQuestions(tables["题目"] ?? []) }
+        catch { logFailure("questions sheet validation", error: error); errors.append("题目表：\(error.localizedDescription)") }
+        do { assets = try parseAssets(tables["图片资源"] ?? []) }
+        catch { logFailure("image asset sheet validation", error: error); errors.append("图片资源表：\(error.localizedDescription)") }
+        return ParsedPackage(paper: paper, modules: modules, materials: materials,
+            questions: questions, assets: assets, jsonAssets: [], errors: errors)
+    }
+
+    private static func parseJSON(from sourceURL: URL) throws -> ParsedPackage {
+        try checkCancellation()
+        let byteCount = try fileSize(at: sourceURL)
+        guard byteCount > 0 else { throw PackageError("真题 JSON 文件为空。") }
+        guard byteCount <= maxJSONFileBytes else {
+            throw PackageError("真题 JSON 文件超过 64 MiB 上限。")
+        }
+        let data: Data
+        do { data = try Data(contentsOf: sourceURL, options: [.mappedIfSafe]) }
+        catch { throw PackageError("无法读取真题 JSON 文件：\(error.localizedDescription)") }
+        try checkCancellation()
+        let document: QuestionBankImportJSONV1
+        do { document = try JSONDecoder().decode(QuestionBankImportJSONV1.self, from: data) }
+        catch let error as DecodingError {
+            throw PackageError(jsonDecodingMessage(error))
+        } catch {
+            throw PackageError("真题 JSON 格式无效：\(error.localizedDescription)")
+        }
+        try checkCancellation()
+        return ParsedPackage(paper: document.paper, modules: document.modules,
+            materials: document.materials, questions: document.questions,
+            assets: document.assets.map(\.metadata), jsonAssets: document.assets, errors: [])
+    }
+
+    private static func jsonDecodingMessage(_ error: DecodingError) -> String {
+        func path(_ codingPath: [any CodingKey]) -> String {
+            codingPath.map(\.stringValue).joined(separator: ".")
+        }
+        switch error {
+        case .keyNotFound(let key, let context):
+            if key.stringValue == "format" && context.codingPath.isEmpty {
+                return "所选 JSON 没有真题包 format 标识；备份 JSON 不能作为真题包导入。"
+            }
+            return "真题 JSON 缺少必需字段“\(([context.codingPath.map(\.stringValue) + [key.stringValue]).joined(separator: "."))”。"
+        case .typeMismatch(_, let context), .valueNotFound(_, let context):
+            let location = path(context.codingPath)
+            return "真题 JSON 字段“\(location.isEmpty ? "根对象" : location)”类型或值无效。"
+        case .dataCorrupted(let context):
+            return context.debugDescription
+        @unknown default:
+            return "真题 JSON schema 无效；请按 kaogong-question-bank v1 格式重新生成。"
+        }
+    }
+
+    private static func installAndValidateJSONAssets(_ jsonAssets: [QuestionBankJSONAssetV1],
+        paper: QuestionBankPaper?, modules: [QuestionBankModule], materials: [QuestionBankMaterial],
+        questions: [QuestionBankQuestion], staging: URL) throws -> [String] {
+        var errors: [String] = []
+        var totalImageBytes: Int64 = 0
+        let questionNumbers = Dictionary(questions.map { ($0.id, $0.number) }, uniquingKeysWith: { first, _ in first })
+        var installedPaths = Set<String>()
+        let assetsDirectory = staging.appendingPathComponent("assets", isDirectory: true)
+        try FileManager.default.createDirectory(at: assetsDirectory, withIntermediateDirectories: true)
+
+        for asset in jsonAssets {
+            try checkCancellation()
+            let number = questionNumbers[asset.ownerID]
+            let subject: String
+            if let number { subject = "第\(number)题" }
+            else if asset.ownerType == "material" { subject = "共用材料“\(asset.ownerID)”" }
+            else { subject = "图片资源“\(asset.id.isEmpty ? "未命名" : asset.id)”" }
+            let filename = asset.fileName.isEmpty ? (asset.id.isEmpty ? "未命名图片" : asset.id) : asset.fileName
+            let label = "\(paper?.title ?? "真题包")／\(subject)／图片“\(filename)”"
+            guard asset.dataBase64.hasPrefix("data:") == false else {
+                errors.append("\(label)：dataBase64 必须是纯 Base64，不能包含 data: 前缀。")
+                continue
+            }
+            guard !asset.dataBase64.isEmpty else {
+                errors.append("\(label)：缺少图片字段 dataBase64。")
+                continue
+            }
+            guard !asset.sha256.isEmpty else {
+                errors.append("\(label)：缺少原始图片字节的 sha256。")
+                continue
+            }
+            let parts = asset.path.split(separator: "/")
+            guard parts.count == 2, parts.first == "assets", !parts[1].isEmpty,
+                  !parts.contains(".."), !parts.contains("."), !asset.path.contains("\\"), !asset.path.contains(":"),
+                  URL(fileURLWithPath: String(parts[1])).lastPathComponent == String(parts[1]),
+                  asset.fileName == String(parts[1]) else {
+                errors.append("\(label)：path 必须是安全的 assets/文件名路径，且文件名要与 fileName 相同。")
+                continue
+            }
+            guard installedPaths.insert(asset.path).inserted else {
+                errors.append("\(label)：与其他图片重复使用 path“\(asset.path)”。")
+                continue
+            }
+            let maximumBase64Length = ((maxJSONImageBytes + 2) / 3) * 4
+            guard asset.dataBase64.utf8.count <= maximumBase64Length else {
+                errors.append("\(label)：图片超过 16 MiB 单图上限，已拒绝；请保留原图但拆分真题文件。")
+                continue
+            }
+            guard asset.sha256.count == 64, asset.sha256.allSatisfy({ $0.isHexDigit }) else {
+                errors.append("\(label)：sha256 必须是 64 位十六进制摘要。")
+                continue
+            }
+            guard let imageData = Data(base64Encoded: asset.dataBase64) else {
+                errors.append("\(label)：dataBase64 不是有效的纯 Base64。")
+                continue
+            }
+            guard imageData.count <= maxJSONImageBytes else {
+                errors.append("\(label)：图片为 \(imageData.count / 1024 / 1024) MiB，超过 16 MiB 单图上限。")
+                continue
+            }
+            let nextTotal = totalImageBytes + Int64(imageData.count)
+            guard nextTotal <= maxJSONImagesTotalBytes else {
+                errors.append("\(label)：图片资源总量超过 48 MiB 上限。")
+                continue
+            }
+            totalImageBytes = nextTotal
+            let actualHash = SHA256.hash(data: imageData).map { String(format: "%02x", $0) }.joined()
+            guard actualHash.caseInsensitiveCompare(asset.sha256) == .orderedSame else {
+                errors.append("\(label)：sha256 与图片原始字节不匹配。")
+                continue
+            }
+            let target = staging.appendingPathComponent(asset.path).standardizedFileURL
+            guard target.path.hasPrefix(staging.standardizedFileURL.path + "/") else {
+                errors.append("\(label)：图片 path 越出暂存目录。")
+                continue
+            }
+            do { try imageData.write(to: target, options: .atomic) }
+            catch { errors.append("\(label)：无法写入本地图片文件：\(error.localizedDescription)") }
+        }
+        return errors
     }
 
     static func cleanup(_ plan: QuestionBankImportPlan) {
@@ -488,6 +915,7 @@ enum QuestionBankPackageImporter {
         var totalSize: UInt64 = 0
         var extractedPaths = Set<String>()
         for entry in archiveEntries {
+            try checkCancellation()
             let path = entry.path.replacingOccurrences(of: "\\", with: "/")
             let components = path.split(separator: "/")
             guard !path.hasPrefix("/"), !components.isEmpty,
@@ -606,15 +1034,29 @@ enum QuestionBankPackageImporter {
 
     private static func validate(paper: QuestionBankPaper?, modules: [QuestionBankModule],
                                  materials: [QuestionBankMaterial], questions: [QuestionBankQuestion],
-                                 assets: [QuestionBankAsset], staging: URL) -> [String] {
+                                 assets: [QuestionBankAsset], staging: URL) throws -> [String] {
         var errors: [String] = []
         guard let paper else { return errors }
+        if paper.id.isEmpty { errors.append("试卷ID不能为空。") }
+        if paper.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("试卷名称不能为空。") }
+        if paper.year <= 1900 { errors.append("试卷年份无效。") }
+        if paper.examType.isEmpty { errors.append("考试类型不能为空。") }
         if modules.isEmpty { errors.append("\(paper.title)：模块表至少需要一条模块记录。") }
         reportDuplicates(modules.map(\.id), label: "模块ID", paper: paper.title, errors: &errors)
         reportDuplicates(modules.map(\.sequence), label: "模块序号", paper: paper.title, errors: &errors)
         reportDuplicates(materials.map(\.id), label: "材料ID", paper: paper.title, errors: &errors)
         reportDuplicates(questions.map(\.id), label: "题目ID", paper: paper.title, errors: &errors)
         reportDuplicates(questions.map(\.number), label: "题号", paper: paper.title, errors: &errors)
+        let stableIDs: [(String, String)] = [(paper.id, "试卷")] +
+            modules.map { ($0.id, "模块") } + materials.map { ($0.id, "材料") } +
+            questions.map { ($0.id, "题目") } + assets.map { ($0.id, "图片资源") }
+        var entityKindsByID: [String: Set<String>] = [:]
+        for (id, kind) in stableIDs where !id.isEmpty {
+            entityKindsByID[id, default: []].insert(kind)
+        }
+        for (id, kinds) in entityKindsByID where kinds.count > 1 {
+            errors.append("\(paper.title)：不同实体重复使用 ID“\(id)”（\(kinds.sorted().joined(separator: "、"))）；选项 A–D 除外，它们只在各自题目内命名。")
+        }
         let moduleIDs = Set(modules.map(\.id))
         let materialByID = Dictionary(materials.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let questionByID = Dictionary(questions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -632,10 +1074,12 @@ enum QuestionBankPackageImporter {
             errors.append("\(paper.title)\(location)／图片“\(names)”：图片资源ID“\(id)”重复。")
         }
         for module in modules {
+            try checkCancellation()
             if module.id.isEmpty || module.title.isEmpty { errors.append("\(paper.title)：模块ID和标题不能为空。") }
             if module.paperID != paper.id { errors.append("\(paper.title)／模块“\(module.title)”：试卷ID关联不一致。") }
         }
         for material in materials {
+            try checkCancellation()
             let label = "\(paper.title)／材料“\(material.id.isEmpty ? "未命名" : material.id)”"
             if material.id.isEmpty { errors.append("\(label)：材料ID不能为空。") }
             if material.paperID != paper.id { errors.append("\(label)：试卷关联缺失或不匹配。") }
@@ -659,6 +1103,7 @@ enum QuestionBankPackageImporter {
             }
         }
         for question in questions {
+            try checkCancellation()
             let label = "\(paper.title)／第\(question.number)题"
             if question.id.isEmpty { errors.append("\(label)：题目ID不能为空。") }
             if question.paperID != paper.id { errors.append("\(label)：试卷ID关联不匹配。") }
@@ -697,6 +1142,7 @@ enum QuestionBankPackageImporter {
                        owner: material.id, role: "共用材料")
         }
         for asset in assets {
+            try checkCancellation()
             let ownerLabel: String
             if let number = questionByID[asset.ownerID]?.number {
                 ownerLabel = "／第\(number)题"

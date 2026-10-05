@@ -160,7 +160,7 @@ jobs:
           if [ "$RUN_QUESTION_BANK" = "true" ]; then
             TEST_SCHEME=QuestionBankImport
             RESULT_PATH=build/QuestionBankImport.xcresult
-            TEST_ARGS=(-only-testing:QuestionBankImportTests/QuestionBankImportTests/testValidationPackageImportsAtomicallyAndPersistsAcrossContainerReopen)
+            TEST_ARGS=(-only-testing:QuestionBankImportTests)
           else
             TEST_ARGS=(
               -only-testing:SpeedInteractionUITests/SpeedInteractionUITests/testBlankStartAreaAndSingleDispatchForKeys

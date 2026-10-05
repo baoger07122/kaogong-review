@@ -33,7 +33,7 @@ struct QuestionBankDocumentPicker: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let picker = UIDocumentPickerViewController(
-            forOpeningContentTypes: [.zip, .data, .item],
+            forOpeningContentTypes: [.json, .zip],
             asCopy: true
         )
         picker.allowsMultipleSelection = false

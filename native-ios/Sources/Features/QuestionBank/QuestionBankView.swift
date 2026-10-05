@@ -22,11 +22,41 @@ private enum QuestionBankFilePickerOutcome {
     case emptySelection
 }
 
+@MainActor
+private final class QuestionBankImportProgressModel: ObservableObject {
+    @Published private(set) var message: String?
+    private var activeRunID: UUID?
+    private var fileName = ""
+
+    func setMessage(_ value: String?) {
+        message = value
+    }
+
+    func begin(runID: UUID, fileName: String) {
+        activeRunID = runID
+        self.fileName = fileName
+        message = "\(fileName)／准备读取"
+    }
+
+    func update(runID: UUID, phase: QuestionBankImportPhase) {
+        guard activeRunID == runID else { return }
+        message = "\(fileName)／\(phase.rawValue)"
+    }
+
+    func finish(runID: UUID, message: String? = nil) {
+        guard activeRunID == runID else { return }
+        activeRunID = nil
+        fileName = ""
+        self.message = message
+    }
+}
+
 struct QuestionBankView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.rootTabSelection) private var rootTabSelection
     @EnvironmentObject private var importRouter: QuestionBankImportRouter
     @Query private var records: [QuestionBankRecord]
+    @StateObject private var importProgress = QuestionBankImportProgressModel()
     @State private var searchText = ""
     @State private var selectedYear = ""
     @State private var selectedExamType = ""
@@ -37,13 +67,16 @@ struct QuestionBankView: View {
     @State private var filePickerCallbackReceived = false
     @State private var filePickerOutcome: QuestionBankFilePickerOutcome?
     @State private var isPreparingImport = false
+    @State private var isCancellingImport = false
     @State private var isCommittingImport = false
     @State private var importStagingDirectory: URL?
     @State private var inlineImportFailure: String?
     @State private var showImportAlert = false
     @State private var importAlertTitle = "导入未完成"
     @State private var importAlertMessage = ""
-    @State private var importStatusMessage: String?
+    @State private var activeImportID: UUID?
+    @State private var importWorkerID: UUID?
+    @State private var importWorker: Task<QuestionBankImportPlan, Error>?
 
     private let importLogger = Logger(subsystem: "com.baoger07122.kaogongreview", category: "QuestionBankImportUI")
 
@@ -97,7 +130,7 @@ struct QuestionBankView: View {
         ZStack(alignment: .bottomTrailing) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    if let importStatusMessage {
+                    if let importStatusMessage = importProgress.message {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             if isPreparingImport {
                                 ProgressView().controlSize(.small)
@@ -109,6 +142,10 @@ struct QuestionBankView: View {
                                 .font(AppTheme.auxiliaryFont)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
+                            if isPreparingImport && !isCancellingImport {
+                                Button("取消", action: cancelPreparingImport)
+                                    .font(AppTheme.auxiliaryFont.weight(.semibold))
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -118,7 +155,7 @@ struct QuestionBankView: View {
                         NativeStatusCard(
                             title: paperRecords.isEmpty ? "还没有导入真题" : "没有符合条件的试卷",
                             detail: paperRecords.isEmpty
-                                ? "导入包含标准 Excel 和图片资源的 ZIP 套卷，即可按模块查看题目。"
+                                ? "优先导入单文件 JSON 真题包；旧版 ZIP 套卷也可继续使用。"
                                 : "调整年份、考试类型、模块、题号或搜索关键词后重试。",
                             systemImage: "books.vertical",
                             color: AppTheme.accent
@@ -304,7 +341,7 @@ struct QuestionBankView: View {
         filePickerWasPresented = true
         filePickerCallbackReceived = false
         filePickerOutcome = nil
-        importStatusMessage = "文件选择器已打开"
+        importProgress.setMessage("文件选择器已打开")
         importLogger.info("native document picker opened")
         activeImportSheet = .picker
     }
@@ -318,7 +355,7 @@ struct QuestionBankView: View {
             return
         }
         filePickerOutcome = .selected(url)
-        importStatusMessage = "已选中 \(url.lastPathComponent)／正在读取…"
+        importProgress.setMessage("已选中 \(url.lastPathComponent)")
         activeImportSheet = nil
     }
 
@@ -335,22 +372,19 @@ struct QuestionBankView: View {
             switch filePickerOutcome {
             case .selected(let url):
                 filePickerOutcome = nil
-                prepareImport(
-                    from: url,
-                    statusMessage: "已选中 \(url.lastPathComponent)／正在读取…"
-                )
+                prepareImport(from: url, source: .pickerCopy)
             case .cancelled:
                 filePickerOutcome = nil
-                importStatusMessage = "已取消选择"
+                importProgress.setMessage("已取消选择")
             case .emptySelection:
                 filePickerOutcome = nil
                 showImportError("文件选择器没有返回文件。")
             case nil:
                 if filePickerCallbackReceived {
-                    importStatusMessage = "文件选择器已关闭，但没有返回文件。"
+                    importProgress.setMessage("文件选择器已关闭，但没有返回文件。")
                 } else {
                     importLogger.error("native document picker dismissed without a delegate callback")
-                    importStatusMessage = "系统选择器已关闭，但没有返回文件；未收到选择或取消回调。"
+                    importProgress.setMessage("系统选择器已关闭，但没有返回文件；未收到选择或取消回调。")
                 }
             }
             processPendingExternalFileIfPossible()
@@ -367,6 +401,7 @@ struct QuestionBankView: View {
     private func processPendingExternalFileIfPossible() {
         guard rootTabSelection.wrappedValue == .questionBank,
               !isPreparingImport,
+              importWorker == nil,
               !isCommittingImport,
               !showImportAlert,
               activeImportSheet == nil,
@@ -376,31 +411,70 @@ struct QuestionBankView: View {
         importLogger.info("Files document-open request received")
         prepareImport(
             from: request.url,
-            statusMessage: "从“文件”收到 \(request.url.lastPathComponent)／正在读取…"
+            source: .filesOpenIn
         )
     }
 
-    private func prepareImport(from url: URL, statusMessage: String? = nil) {
-        guard !isPreparingImport, !isCommittingImport else { return }
+    private func prepareImport(from url: URL, source: QuestionBankImportSource = .trustedLocalFile) {
+        guard !isPreparingImport, importWorker == nil, !isCommittingImport else { return }
+        let runID = UUID()
+        activeImportID = runID
+        importWorkerID = runID
         isPreparingImport = true
-        importStatusMessage = statusMessage ?? "已选中 \(url.lastPathComponent)／正在读取…"
-        Task {
+        isCancellingImport = false
+        importProgress.begin(runID: runID, fileName: url.lastPathComponent)
+        let progress = importProgress
+        let worker = Task.detached(priority: .userInitiated) {
+            try QuestionBankPackageImporter.prepare(from: url, source: source) { phase in
+                Task { @MainActor in progress.update(runID: runID, phase: phase) }
+            }
+        }
+        importWorker = worker
+        Task { @MainActor in
+            defer {
+                if importWorkerID == runID {
+                    importWorker = nil
+                    importWorkerID = nil
+                    if activeImportID == runID { activeImportID = nil }
+                    isPreparingImport = false
+                    if isCancellingImport {
+                        isCancellingImport = false
+                        importProgress.setMessage("已取消读取")
+                    }
+                    processPendingExternalFileIfPossible()
+                }
+            }
             do {
-                let plan = try await Task.detached(priority: .userInitiated) {
-                    try QuestionBankPackageImporter.prepare(from: url)
-                }.value
+                let plan = try await worker.value
+                guard activeImportID == runID else {
+                    QuestionBankPackageImporter.cleanup(plan)
+                    return
+                }
                 importLogger.info("package validation finished: modules=\(plan.modules.count), questions=\(plan.questions.count), assets=\(plan.assets.count), errors=\(plan.errors.count)")
                 importStagingDirectory = plan.stagingDirectory
                 activeImportSheet = .preview(plan)
-                importStatusMessage = nil
+                importProgress.finish(runID: runID)
+            } catch is CancellationError {
+                if activeImportID == runID {
+                    importProgress.finish(runID: runID, message: "已取消读取")
+                }
             } catch {
+                guard activeImportID == runID else { return }
                 let errorType = String(reflecting: type(of: error))
                 importLogger.error("package preparation failed (\(errorType, privacy: .public))")
-                importStatusMessage = nil
+                importProgress.finish(runID: runID)
                 showImportError(error.localizedDescription)
             }
-            isPreparingImport = false
         }
+    }
+
+    private func cancelPreparingImport() {
+        guard isPreparingImport, let runID = activeImportID else { return }
+        activeImportID = nil
+        importWorker?.cancel()
+        isCancellingImport = true
+        importProgress.finish(runID: runID, message: "正在停止读取…")
+        importLogger.info("question bank import cancelled by user")
     }
 
     private func commitImport(_ plan: QuestionBankImportPlan, decision: QuestionBankImportDecision) {
@@ -424,7 +498,7 @@ struct QuestionBankView: View {
     }
 
     private func showImportError(_ message: String) {
-        importStatusMessage = nil
+        importProgress.setMessage(nil)
         importAlertTitle = "导入未完成"
         importAlertMessage = message
         showImportAlert = true
