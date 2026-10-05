@@ -503,9 +503,10 @@ final class QuestionBankImportTests: XCTestCase {
         let jsonStagingDirectory = try XCTUnwrap(plan.stagingDirectory)
         for inputPath in realInputAssetPaths {
             let legacyTarget = jsonStagingDirectory.appendingPathComponent(inputPath).standardizedFileURL
-            print("QUESTION_BANK_PATH_COMPARE \(QuestionBankAssetStore.redactedContainmentDiagnostic(
+            let diagnostic = QuestionBankAssetStore.redactedContainmentDiagnostic(
                 root: jsonStagingDirectory, candidate: legacyTarget
-            ))")
+            )
+            print("QUESTION_BANK_PATH_COMPARE \(diagnostic)")
             XCTAssertNotNil(QuestionBankAssetStore.url(for: inputPath, under: jsonStagingDirectory))
         }
         for asset in plan.assets {
