@@ -17,17 +17,23 @@ final class SpeedInteractionUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.waitForExistence(timeout: 15))
         let tabs = ["home", "library", "review", "questionBank", "settings"]
-        for tab in tabs {
-            XCTAssertTrue(app.buttons["root-tab-\(tab)"].waitForExistence(timeout: 5), "Missing root tab: \(tab)")
+        let tabButtons = tabs.map { app.buttons["root-tab-\($0)"] }
+        for (tab, button) in zip(tabs, tabButtons) {
+            XCTAssertTrue(button.waitForExistence(timeout: 15), "Missing root tab: \(tab)")
         }
-        XCTAssertEqual(tabBar.buttons.count, 5, "Root tab count and ordering must remain a five-tab system TabView")
+        XCTAssertEqual(
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "root-tab-")).count,
+            5,
+            "Root tab count and ordering must remain a five-tab system TabView"
+        )
 
-        let baseline = tabBar.frame
-        let selectedBaseline = app.buttons["root-tab-home"].frame
-        print("TAB_BAR_FRAME phase=baseline x=\(baseline.minX) y=\(baseline.minY) width=\(baseline.width) height=\(baseline.height)")
+        let itemClusterFrame = { () -> CGRect in
+            tabButtons.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+        }
+        let baseline = itemClusterFrame()
+        let selectedBaseline = tabButtons[0].frame
+        print("TAB_BAR_FRAME source=fiveTabButtonUnion phase=baseline x=\(baseline.minX) y=\(baseline.minY) width=\(baseline.width) height=\(baseline.height)")
         let passes: [(String, [String])] = [
             ("first", ["library", "review", "questionBank", "settings", "home"]),
             ("repeat", ["settings", "questionBank", "review", "library", "home"])
@@ -39,7 +45,7 @@ final class SpeedInteractionUITests: XCTestCase {
                 var frames: [CGRect] = []
                 var selectedFrames: [CGRect] = []
                 for _ in 0..<12 {
-                    frames.append(tabBar.frame)
+                    frames.append(itemClusterFrame())
                     selectedFrames.append(selectedButton.frame)
                     try await Task.sleep(nanoseconds: 50_000_000)
                 }

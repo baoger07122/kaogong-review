@@ -45,7 +45,7 @@ jobs:
               PREVIOUS_VERSION=$(git show "$BEFORE_SHA:native-ios/project.yml" 2>/dev/null | awk '/MARKETING_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' || true)
               if [ "$VERSION" = "$PREVIOUS_VERSION" ] && git tag -l "native-v${VERSION}" | grep -q .; then
                 RELEASE_TARGET=$(git rev-list -n 1 "native-v${VERSION}")
-                if [ -z "$RELEASE_TARGET" ] || ! git diff --quiet "$RELEASE_TARGET" "$GITHUB_SHA" -- native-ios; then
+                if [ -z "$RELEASE_TARGET" ] || ! git diff --quiet "$RELEASE_TARGET" "$GITHUB_SHA" -- native-ios/Sources native-ios/Resources native-ios/project.yml; then
                   echo "Native app sources changed after $VERSION was already published; increment the iteration number"
                   exit 1
                 fi
@@ -348,7 +348,7 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             EXISTING_TARGET=$(gh release view "$TAG" --json targetCommitish --jq '.targetCommitish')
             if [ "$EXISTING_TARGET" != "$GITHUB_SHA" ]; then
-              if git diff --quiet "$EXISTING_TARGET" "$GITHUB_SHA" -- native-ios; then
+              if git diff --quiet "$EXISTING_TARGET" "$GITHUB_SHA" -- native-ios/Sources native-ios/Resources native-ios/project.yml; then
                 echo "Native app sources match release ${TAG}; refreshing the same-version IPA after validation"
               else
                 echo "Release ${TAG} belongs to ${EXISTING_TARGET}; increment the native version before publishing new app source"
