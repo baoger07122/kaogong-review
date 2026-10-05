@@ -129,7 +129,9 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertEqual(selection.url, jsonURL)
         XCTAssertEqual(coordinator.pickerWasDismissed(requestID: requestID), .selectionAlreadyReceived)
         let preparingSelection = try XCTUnwrap(coordinator.takePendingSelection(requestID: requestID))
-        let previewPlan = try QuestionBankPackageImporter.prepare(from: preparingSelection.url, source: .pickerCopy)
+        let previewPlan = try QuestionBankPackageImporter.prepare(
+            from: preparingSelection.url, source: .pickerCopy, onProgress: { _ in }
+        )
         defer { QuestionBankPackageImporter.cleanup(previewPlan) }
         XCTAssertTrue(previewPlan.errors.isEmpty, previewPlan.errors.joined(separator: "\n"))
         XCTAssertTrue(previewPlan.canImport)
