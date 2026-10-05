@@ -5,6 +5,7 @@ import SwiftUI
 @main
 struct KaogongReviewNativeApp: App {
     private let modelContainer: ModelContainer
+    @StateObject private var questionBankImportRouter = QuestionBankImportRouter()
 
     init() {
         do {
@@ -22,8 +23,12 @@ struct KaogongReviewNativeApp: App {
     var body: some Scene {
         WindowGroup {
             RootTabView()
+                .environmentObject(questionBankImportRouter)
                 .environment(\.apiClient, .production)
                 .environment(\.locale, Locale(identifier: "zh-Hans"))
+                .onOpenURL { url in
+                    questionBankImportRouter.receive(url)
+                }
         }
         .modelContainer(modelContainer)
     }

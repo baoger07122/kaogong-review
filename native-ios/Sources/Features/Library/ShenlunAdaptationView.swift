@@ -173,7 +173,7 @@ struct ShenlunAdaptationView: View {
         adaptationCard {
             Label("旧格式记录", systemImage: "arrow.triangle.2.circlepath")
                 .font(AppTheme.cardTitleFont)
-            Text("查看和修改以下目标字段不会改变原记录。点击“确认适配”后，应用会先保存一次原始 payload 快照，再在一个事务中写入规范字段和格式版本。")
+            Text("查看和修改以下目标字段不会改变原记录。点击“确认适配”后，应用会在同一事务中保留原始 payload 快照并写入规范字段和格式版本；若写回失败，本次改动会一起回滚。")
                 .font(AppTheme.auxiliaryFont)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

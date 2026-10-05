@@ -237,12 +237,15 @@ struct LibraryRecordDraft {
 
 enum ShenlunAdaptationError: LocalizedError {
     case notShenlunRecord
+    case contextHasPendingChanges
     case invalidNumber(field: String)
 
     var errorDescription: String? {
         switch self {
         case .notShenlunRecord:
             return "这条记录不是申论记录，未执行适配。"
+        case .contextHasPendingChanges:
+            return "当前还有未保存的其他更改。请先保存或取消后再适配；本次未修改记录。"
         case let .invalidNumber(field):
             let label = field == "score" ? "得分" : "总分"
             return "\(label)必须是数字，或留空。"
@@ -450,80 +453,79 @@ enum LibraryRecordRepository {
     }
 
     /// Converts one legacy 申论 payload after the user has reviewed every
-    /// destination field. The first payload is kept in a separate StoredRecord
-    /// backup and the backup is never overwritten on later edits.
+    /// destination field. The original bytes and canonical payload are saved
+    /// together in one transaction; the first backup is never overwritten.
     static func adaptShenlunRecord(
         record: StoredRecord,
         values: ShenlunAdaptationValues,
         context: ModelContext
     ) throws {
         guard record.isShenlunRecord else { throw ShenlunAdaptationError.notShenlunRecord }
+        guard !context.hasChanges else { throw ShenlunAdaptationError.contextHasPendingChanges }
 
-        let originalPayload = record.payload
-        let originalIndexPayload = record.indexPayload
-        let originalSubject = record.subject
-        let originalModule = record.module
-        let originalUpdatedAt = record.updatedAt
         let backupID = record.recordID
-        let backup = try context.fetch(FetchDescriptor<StoredRecord>()).first {
-            $0.collection == ShenlunRecordFormat.backupCollection && $0.recordID == backupID
-        }
-        var insertedBackup: StoredRecord?
+        let backupCompoundID = "\(ShenlunRecordFormat.backupCollection):\(backupID)"
+        let backupDescriptor = FetchDescriptor<StoredRecord>(
+            predicate: #Predicate { $0.compoundID == backupCompoundID }
+        )
+        let backup = try context.fetch(backupDescriptor).first
+        let snapshot: StoredRecord?
         if backup == nil {
-            let snapshot = StoredRecord(
+            snapshot = StoredRecord(
                 collection: ShenlunRecordFormat.backupCollection,
                 recordID: backupID,
-                payload: originalPayload,
+                payload: record.payload,
                 subject: record.subject,
                 module: record.module,
                 createdAt: record.createdAt,
                 updatedAt: record.updatedAt
             )
-            context.insert(snapshot)
-            insertedBackup = snapshot
+        } else {
+            snapshot = nil
         }
 
+        var object = record.jsonObject ?? [:]
+        let now = Date()
+        object["id"] = record.recordID
+        object["subject"] = "申论"
+        let module = values.questionType.trimmingCharacters(in: .whitespacesAndNewlines)
+        object["module"] = module.isEmpty ? (record.module ?? "") : module
+        object["isShenlun"] = true
+        object["shenlunFormatVersion"] = ShenlunRecordFormat.currentVersion
+        object["updatedAt"] = iso(now)
+        if object["createdAt"] == nil, let createdAt = record.createdAt {
+            object["createdAt"] = iso(createdAt)
+        }
+
+        setText(values.question, keys: ["question"], in: &object)
+        setText(values.questionSource, keys: ["questionSource", "source"], in: &object)
+        setText(values.questionNumber, keys: ["questionNumber"], in: &object)
+        try setInteger(values.score, key: "score", in: &object)
+        try setInteger(values.totalScore, key: "totalScore", in: &object)
+        setText(values.currentAffairsSupplement, keys: ["currentAffairsSupplement"], in: &object)
+        setText(values.myAnswer, keys: ["myAnswer"], in: &object)
+        setText(values.referenceAnswer, keys: ["referenceAnswer"], in: &object)
+        setText(values.myAnswerIssues, keys: ["myAnswerIssues"], in: &object)
+        setText(values.materialsAnalysis, keys: ["materialsAnalysis"], in: &object)
+        setText(values.reviewNote, keys: ["note"], in: &object)
+        object["materials"] = values.materials
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+        let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        let wasAutosaveEnabled = context.autosaveEnabled
+        context.autosaveEnabled = false
+        defer { context.autosaveEnabled = wasAutosaveEnabled }
+
         do {
-            var object = record.jsonObject ?? [:]
-            let now = Date()
-            object["id"] = record.recordID
-            object["subject"] = "申论"
-            let module = values.questionType.trimmingCharacters(in: .whitespacesAndNewlines)
-            object["module"] = module.isEmpty ? (record.module ?? "") : module
-            object["isShenlun"] = true
-            object["shenlunFormatVersion"] = ShenlunRecordFormat.currentVersion
-            object["updatedAt"] = iso(now)
-            if object["createdAt"] == nil, let createdAt = record.createdAt {
-                object["createdAt"] = iso(createdAt)
+            try context.transaction {
+                if let snapshot { context.insert(snapshot) }
+                record.replacePayload(payload)
+                record.subject = "申论"
+                record.module = object["module"] as? String
+                record.updatedAt = now
             }
-
-            setText(values.question, keys: ["question"], in: &object)
-            setText(values.questionSource, keys: ["questionSource", "source"], in: &object)
-            setText(values.questionNumber, keys: ["questionNumber"], in: &object)
-            try setInteger(values.score, key: "score", in: &object)
-            try setInteger(values.totalScore, key: "totalScore", in: &object)
-            setText(values.currentAffairsSupplement, keys: ["currentAffairsSupplement"], in: &object)
-            setText(values.myAnswer, keys: ["myAnswer"], in: &object)
-            setText(values.referenceAnswer, keys: ["referenceAnswer"], in: &object)
-            setText(values.myAnswerIssues, keys: ["myAnswerIssues"], in: &object)
-            setText(values.materialsAnalysis, keys: ["materialsAnalysis"], in: &object)
-            setText(values.reviewNote, keys: ["note"], in: &object)
-            object["materials"] = values.materials
-                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
-            let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-            record.replacePayload(payload)
-            record.subject = "申论"
-            record.module = object["module"] as? String
-            record.updatedAt = now
-            try context.save()
         } catch {
-            record.payload = originalPayload
-            record.indexPayload = originalIndexPayload
-            record.subject = originalSubject
-            record.module = originalModule
-            record.updatedAt = originalUpdatedAt
-            if let insertedBackup { context.delete(insertedBackup) }
+            context.rollback()
             throw error
         }
     }

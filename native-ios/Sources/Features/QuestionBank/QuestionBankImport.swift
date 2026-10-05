@@ -300,6 +300,11 @@ enum QuestionBankRepository {
 enum QuestionBankPackageImporter {
     private static let logger = Logger(subsystem: "com.baoger07122.kaogongreview", category: "QuestionBankPackageImporter")
 
+    private static func logFailure(_ phase: String, error: Error) {
+        let errorType = String(reflecting: type(of: error))
+        logger.error("\(phase, privacy: .public) failed (\(errorType, privacy: .public))")
+    }
+
     static func prepare(from sourceURL: URL) throws -> QuestionBankImportPlan {
         guard sourceURL.pathExtension.lowercased() == "zip" else {
             throw PackageError("请选择 .zip 真题包；不能直接导入 Excel、文件夹或其他文件。")
@@ -325,7 +330,7 @@ enum QuestionBankPackageImporter {
             do {
                 tables = try XLSXTableReader.read(workbooks[0])
             } catch {
-                logger.error("XLSX validation failed: \(error.localizedDescription, privacy: .public)")
+                logFailure("XLSX validation", error: error)
                 throw error
             }
             var paper: QuestionBankPaper?
@@ -337,27 +342,27 @@ enum QuestionBankPackageImporter {
 
             do { paper = try parsePaper(tables["试卷"] ?? []) }
             catch {
-                logger.error("paper sheet validation failed: \(error.localizedDescription, privacy: .public)")
+                logFailure("paper sheet validation", error: error)
                 errors.append("试卷表：\(error.localizedDescription)")
             }
             do { modules = try parseModules(tables["模块"] ?? []) }
             catch {
-                logger.error("module sheet validation failed: \(error.localizedDescription, privacy: .public)")
+                logFailure("module sheet validation", error: error)
                 errors.append("模块表：\(error.localizedDescription)")
             }
             do { materials = try parseMaterials(tables["材料"] ?? []) }
             catch {
-                logger.error("materials sheet validation failed: \(error.localizedDescription, privacy: .public)")
+                logFailure("materials sheet validation", error: error)
                 errors.append("材料表：\(error.localizedDescription)")
             }
             do { questions = try parseQuestions(tables["题目"] ?? []) }
             catch {
-                logger.error("questions sheet validation failed: \(error.localizedDescription, privacy: .public)")
+                logFailure("questions sheet validation", error: error)
                 errors.append("题目表：\(error.localizedDescription)")
             }
             do { assets = try parseAssets(tables["图片资源"] ?? []) }
             catch {
-                logger.error("image asset sheet validation failed: \(error.localizedDescription, privacy: .public)")
+                logFailure("image asset sheet validation", error: error)
                 errors.append("图片资源表：\(error.localizedDescription)")
             }
 
@@ -369,7 +374,7 @@ enum QuestionBankPackageImporter {
                                           questions: questions, assets: assets, errors: errors,
                                           stagingDirectory: stage)
         } catch {
-            logger.error("prepare failed; staging directory will be removed: \(error.localizedDescription, privacy: .public)")
+            logFailure("package preparation", error: error)
             try? FileManager.default.removeItem(at: stage)
             throw error
         }
@@ -405,7 +410,7 @@ enum QuestionBankPackageImporter {
             }
         }
         if let coordinationError {
-            logger.error("source coordination failed: \(coordinationError.localizedDescription, privacy: .public)")
+            logFailure("source coordination", error: coordinationError)
             throw PackageError("无法从文件提供方读取真题包：\(coordinationError.localizedDescription)")
         }
         guard let copyResult else {
@@ -414,7 +419,7 @@ enum QuestionBankPackageImporter {
         do {
             try copyResult.get()
         } catch {
-            logger.error("copy to local staging failed: \(error.localizedDescription, privacy: .public)")
+            logFailure("copy to local staging", error: error)
             throw PackageError("无法将真题包复制到本地暂存区：\(error.localizedDescription)")
         }
         let attributes = try FileManager.default.attributesOfItem(atPath: localArchive.path)
@@ -439,7 +444,7 @@ enum QuestionBankPackageImporter {
             logger.info("requesting iCloud source download")
             try FileManager.default.startDownloadingUbiquitousItem(at: sourceURL)
         } catch {
-            logger.error("iCloud download request failed: \(error.localizedDescription, privacy: .public)")
+            logFailure("iCloud download request", error: error)
             throw PackageError("无法请求 iCloud 下载真题包：\(error.localizedDescription)")
         }
 

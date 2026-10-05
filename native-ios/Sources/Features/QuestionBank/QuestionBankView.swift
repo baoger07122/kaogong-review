@@ -4,17 +4,38 @@ import UniformTypeIdentifiers
 import UIKit
 import OSLog
 
+private enum QuestionBankImportSheet: Identifiable {
+    case picker
+    case preview(QuestionBankImportPlan)
+
+    var id: String {
+        switch self {
+        case .picker: "file-picker"
+        case .preview(let plan): "import-preview-\(plan.id.uuidString)"
+        }
+    }
+}
+
+private enum QuestionBankFilePickerOutcome {
+    case selected(URL)
+    case cancelled
+    case emptySelection
+}
+
 struct QuestionBankView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.rootTabSelection) private var rootTabSelection
+    @EnvironmentObject private var importRouter: QuestionBankImportRouter
     @Query private var records: [QuestionBankRecord]
     @State private var searchText = ""
     @State private var selectedYear = ""
     @State private var selectedExamType = ""
     @State private var selectedModuleTitle = ""
     @State private var questionNumber = ""
-    @State private var presentsFilePicker = false
+    @State private var activeImportSheet: QuestionBankImportSheet?
+    @State private var filePickerWasPresented = false
     @State private var filePickerCallbackReceived = false
-    @State private var preparedImport: QuestionBankImportPlan?
+    @State private var filePickerOutcome: QuestionBankFilePickerOutcome?
     @State private var isPreparingImport = false
     @State private var isCommittingImport = false
     @State private var importStagingDirectory: URL?
@@ -127,73 +148,51 @@ struct QuestionBankView: View {
         .navigationTitle("真题库")
         .navigationBarTitleDisplayMode(.inline)
         .rootTabBarContentInset()
-        .fileImporter(isPresented: $presentsFilePicker, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
-            filePickerCallbackReceived = true
-            switch result {
-            case .success(let urls):
-                guard let url = urls.first else {
-                    showImportError("没有选择 ZIP 文件。")
-                    return
-                }
-                guard !isPreparingImport, !isCommittingImport else {
-                    importLogger.error("picker returned a file while another import was active")
-                    return
-                }
-                importLogger.info("picker selected a file; validating and staging it")
-                importStatusMessage = "正在读取真题包…"
-                prepareImport(from: url)
-            case .failure(let error):
-                if isFilePickerCancellation(error) {
-                    importLogger.info("picker completion reported cancellation")
-                    importStatusMessage = "已取消选择"
-                } else {
-                    importLogger.error("picker completion failed: \(error.localizedDescription, privacy: .public)")
-                    showImportError("无法访问所选文件：\(error.localizedDescription)")
-                }
+        .sheet(item: $activeImportSheet, onDismiss: handleImportSheetDismissal) { sheet in
+            switch sheet {
+            case .picker:
+                QuestionBankDocumentPicker(
+                    onPick: handlePickedDocuments,
+                    onCancel: handleDocumentPickerCancellation
+                )
+                .ignoresSafeArea()
+            case .preview(let plan):
+                QuestionBankImportPreview(
+                    plan: plan,
+                    duplicateTitle: plan.paper.flatMap { QuestionBankRepository.duplicatePaper(for: $0, in: records)?.title },
+                    isImporting: isCommittingImport,
+                    importFailure: $inlineImportFailure,
+                    onImport: { decision in commitImport(plan, decision: decision) },
+                    onCancel: { activeImportSheet = nil }
+                )
             }
-        }
-        .onChange(of: presentsFilePicker) { wasPresented, isPresented in
-            if isPresented {
-                filePickerCallbackReceived = false
-                importStatusMessage = "请选择 ZIP 真题包"
-                importLogger.info("file picker opened")
-            } else if wasPresented {
-                importLogger.info("file picker dismissed; checking whether it returned a result")
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    guard !presentsFilePicker, !filePickerCallbackReceived else { return }
-                    importLogger.info("file picker closed without a completion callback; treated as cancellation")
-                    importStatusMessage = "已取消选择"
-                }
-            }
-        }
-        .sheet(item: $preparedImport, onDismiss: {
-            if let importStagingDirectory {
-                try? FileManager.default.removeItem(at: importStagingDirectory)
-            }
-            importStagingDirectory = nil
-        }) { plan in
-            QuestionBankImportPreview(
-                plan: plan,
-                duplicateTitle: plan.paper.flatMap { QuestionBankRepository.duplicatePaper(for: $0, in: records)?.title },
-                isImporting: isCommittingImport,
-                importFailure: $inlineImportFailure,
-                onImport: { decision in commitImport(plan, decision: decision) },
-                onCancel: { preparedImport = nil }
-            )
         }
         .alert(importAlertTitle, isPresented: $showImportAlert) {
             Button("好", role: .cancel) { }
         } message: {
             Text(importAlertMessage)
         }
+        .onAppear(perform: processPendingExternalFileIfPossible)
+        .onChange(of: importRouter.pendingRequestIDs) { _, _ in
+            processPendingExternalFileIfPossible()
+        }
+        .onChange(of: rootTabSelection.wrappedValue) { _, selectedTab in
+            if selectedTab == .questionBank { processPendingExternalFileIfPossible() }
+        }
+        .onChange(of: isPreparingImport) { _, isPreparing in
+            if !isPreparing { processPendingExternalFileIfPossible() }
+        }
+        .onChange(of: isCommittingImport) { _, isCommitting in
+            if !isCommitting { processPendingExternalFileIfPossible() }
+        }
+        .onChange(of: showImportAlert) { _, isShowing in
+            if !isShowing { processPendingExternalFileIfPossible() }
+        }
     }
 
     private var importButton: some View {
         Button {
-            guard !isPreparingImport, !isCommittingImport else { return }
-            importStatusMessage = nil
-            presentsFilePicker = true
+            presentDocumentPicker()
         } label: {
             Group {
                 if isPreparingImport || isCommittingImport {
@@ -300,10 +299,91 @@ struct QuestionBankView: View {
         .nativeCard(padding: 15)
     }
 
-    private func prepareImport(from url: URL) {
+    private func presentDocumentPicker() {
+        guard !isPreparingImport, !isCommittingImport, activeImportSheet == nil else { return }
+        filePickerWasPresented = true
+        filePickerCallbackReceived = false
+        filePickerOutcome = nil
+        importStatusMessage = "文件选择器已打开"
+        importLogger.info("native document picker opened")
+        activeImportSheet = .picker
+    }
+
+    private func handlePickedDocuments(_ urls: [URL]) {
+        filePickerCallbackReceived = true
+        importLogger.info("native document picker returned a selection")
+        guard let url = urls.first else {
+            filePickerOutcome = .emptySelection
+            activeImportSheet = nil
+            return
+        }
+        filePickerOutcome = .selected(url)
+        importStatusMessage = "已选中 \(url.lastPathComponent)／正在读取…"
+        activeImportSheet = nil
+    }
+
+    private func handleDocumentPickerCancellation() {
+        filePickerCallbackReceived = true
+        filePickerOutcome = .cancelled
+        importLogger.info("native document picker reported cancellation")
+        activeImportSheet = nil
+    }
+
+    private func handleImportSheetDismissal() {
+        if filePickerWasPresented {
+            filePickerWasPresented = false
+            switch filePickerOutcome {
+            case .selected(let url):
+                filePickerOutcome = nil
+                prepareImport(
+                    from: url,
+                    statusMessage: "已选中 \(url.lastPathComponent)／正在读取…"
+                )
+            case .cancelled:
+                filePickerOutcome = nil
+                importStatusMessage = "已取消选择"
+            case .emptySelection:
+                filePickerOutcome = nil
+                showImportError("文件选择器没有返回文件。")
+            case nil:
+                if filePickerCallbackReceived {
+                    importStatusMessage = "文件选择器已关闭，但没有返回文件。"
+                } else {
+                    importLogger.error("native document picker dismissed without a delegate callback")
+                    importStatusMessage = "系统选择器已关闭，但没有返回文件；未收到选择或取消回调。"
+                }
+            }
+            processPendingExternalFileIfPossible()
+            return
+        }
+
+        if let importStagingDirectory {
+            try? FileManager.default.removeItem(at: importStagingDirectory)
+        }
+        importStagingDirectory = nil
+        processPendingExternalFileIfPossible()
+    }
+
+    private func processPendingExternalFileIfPossible() {
+        guard rootTabSelection.wrappedValue == .questionBank,
+              !isPreparingImport,
+              !isCommittingImport,
+              !showImportAlert,
+              activeImportSheet == nil,
+              let request = importRouter.takeNextRequest()
+        else { return }
+
+        importLogger.info("Files document-open request received")
+        prepareImport(
+            from: request.url,
+            statusMessage: "从“文件”收到 \(request.url.lastPathComponent)／正在读取…"
+        )
+    }
+
+    private func prepareImport(from url: URL, statusMessage: String? = nil) {
         guard !isPreparingImport, !isCommittingImport else { return }
         isPreparingImport = true
-        importStatusMessage = "正在读取真题包…"
+        importStatusMessage = statusMessage ?? "已选中 \(url.lastPathComponent)／正在读取…"
         Task {
             do {
                 let plan = try await Task.detached(priority: .userInitiated) {
@@ -311,10 +391,11 @@ struct QuestionBankView: View {
                 }.value
                 importLogger.info("package validation finished: modules=\(plan.modules.count), questions=\(plan.questions.count), assets=\(plan.assets.count), errors=\(plan.errors.count)")
                 importStagingDirectory = plan.stagingDirectory
-                preparedImport = plan
+                activeImportSheet = .preview(plan)
                 importStatusMessage = nil
             } catch {
-                importLogger.error("package preparation failed: \(error.localizedDescription, privacy: .public)")
+                let errorType = String(reflecting: type(of: error))
+                importLogger.error("package preparation failed (\(errorType, privacy: .public))")
                 importStatusMessage = nil
                 showImportError(error.localizedDescription)
             }
@@ -329,14 +410,15 @@ struct QuestionBankView: View {
         do {
             try QuestionBankRepository.commit(plan, decision: decision, records: records, context: modelContext)
             isCommittingImport = false
-            preparedImport = nil
+            activeImportSheet = nil
             importLogger.info("atomic import committed: modules=\(plan.modules.count), questions=\(plan.questions.count), assets=\(plan.assets.count)")
             importAlertTitle = "导入完成"
             importAlertMessage = "已导入“\(plan.paper?.title ?? "试卷")”：\(plan.modules.count) 个模块、\(plan.questions.count) 道题目。套卷成绩记录和学习库数据未更改。"
             showImportAlert = true
         } catch {
             isCommittingImport = false
-            importLogger.error("atomic import failed and was rolled back: \(error.localizedDescription, privacy: .public)")
+            let errorType = String(reflecting: type(of: error))
+            importLogger.error("atomic import failed and was rolled back (\(errorType, privacy: .public))")
             inlineImportFailure = error.localizedDescription
         }
     }
@@ -348,11 +430,6 @@ struct QuestionBankView: View {
         showImportAlert = true
     }
 
-    private func isFilePickerCancellation(_ error: Error) -> Bool {
-        let value = error as NSError
-        return (value.domain == NSCocoaErrorDomain && value.code == NSUserCancelledError)
-            || (value.domain == NSURLErrorDomain && value.code == NSURLErrorCancelled)
-    }
 }
 
 private struct QuestionBankImportPreview: View {

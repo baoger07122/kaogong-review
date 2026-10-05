@@ -55,6 +55,7 @@ enum RootTab: String, CaseIterable, Identifiable {
 }
 
 struct RootTabView: View {
+    @EnvironmentObject private var questionBankImportRouter: QuestionBankImportRouter
     @State private var selection: RootTab = .home
     @State private var homePath: [AppRoute] = []
     @State private var libraryPath: [LibraryRoute] = []
@@ -86,6 +87,12 @@ struct RootTabView: View {
                 .allowsHitTesting(libraryDoodleSession.isPresented)
                 .accessibilityHidden(!libraryDoodleSession.isPresented)
         }
+        .onAppear {
+            selectQuestionBankForIncomingFiles()
+        }
+        .onChange(of: questionBankImportRouter.pendingRequestIDs) { _, _ in
+            selectQuestionBankForIncomingFiles()
+        }
     }
 
     @ViewBuilder
@@ -112,5 +119,10 @@ struct RootTabView: View {
                 .toolbar(settingsPath.isEmpty ? .visible : .hidden, for: .tabBar)
                 .environment(\.rootTabContext, .settings)
         }
+    }
+
+    private func selectQuestionBankForIncomingFiles() {
+        guard !questionBankImportRouter.pendingRequestIDs.isEmpty else { return }
+        selection = .questionBank
     }
 }
