@@ -44,8 +44,12 @@ jobs:
             if [ -n "$BEFORE_SHA" ] && [[ ! "$BEFORE_SHA" =~ ^0+$ ]]; then
               PREVIOUS_VERSION=$(git show "$BEFORE_SHA:native-ios/project.yml" 2>/dev/null | awk '/MARKETING_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' || true)
               if [ "$VERSION" = "$PREVIOUS_VERSION" ] && git tag -l "native-v${VERSION}" | grep -q .; then
-                echo "Native source changed after $VERSION was already published; increment the iteration number"
-                exit 1
+                RELEASE_TARGET=$(git rev-list -n 1 "native-v${VERSION}")
+                if [ -z "$RELEASE_TARGET" ] || ! git diff --quiet "$RELEASE_TARGET" "$GITHUB_SHA" -- native-ios; then
+                  echo "Native app sources changed after $VERSION was already published; increment the iteration number"
+                  exit 1
+                fi
+                echo "Native app sources match published $VERSION; allowing workflow-only validation"
               fi
             fi
           fi
