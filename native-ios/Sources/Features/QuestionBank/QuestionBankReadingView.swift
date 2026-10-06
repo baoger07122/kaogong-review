@@ -261,43 +261,7 @@ struct QuestionBankModuleView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let canOpenSplit = horizontalSizeClass == .regular && geometry.size.width >= 700
-            let splitOrientation = QuestionBankSplitLayout.orientation(
-                width: geometry.size.width,
-                height: geometry.size.height
-            )
-            Group {
-                if let splitMaterialID {
-                    splitReader(
-                        materialID: splitMaterialID,
-                        width: geometry.size.width,
-                        height: geometry.size.height,
-                        orientation: splitOrientation
-                    )
-                } else if presentationMode == .single {
-                    singleQuestionReader(canOpenSplit: canOpenSplit)
-                } else {
-                    continuousReader(canOpenSplit: canOpenSplit)
-                }
-            }
-            .onChange(of: splitOrientation) { _, _ in
-                guard splitMaterialID != nil, let questionID = currentVisibleQuestionID else { return }
-                splitScrollRequest = QuestionBankScrollRequest(questionID: questionID, token: UUID())
-            }
-            .overlay {
-                QuestionBankDoodleAutosaveObserver(session: doodleSession, context: modelContext)
-            }
-            .onChange(of: scenePhase) { _, phase in
-                switch phase {
-                case .inactive, .background:
-                    if let currentVisibleQuestionID { storedQuestionID = currentVisibleQuestionID }
-                    storedSplitMaterialID = splitMaterialID ?? ""
-                case .active:
-                    restoreReaderPosition()
-                @unknown default:
-                    break
-                }
-            }
+            readerContent(width: geometry.size.width, height: geometry.size.height)
         }
         .background(Color.white)
         .navigationTitle(module?.title ?? "真题阅读")
@@ -306,105 +270,7 @@ struct QuestionBankModuleView: View {
         .secondaryPageTabBarHidden()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 0) {
-                    Menu {
-                        ForEach(QuestionBankPresentationMode.allCases) { mode in
-                            Button {
-                                selectPresentationMode(mode)
-                            } label: {
-                                if presentationMode == mode {
-                                    Label(mode.title, systemImage: "checkmark")
-                                } else {
-                                    Text(mode.title)
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 2) {
-                            Text(presentationMode.shortTitle)
-                                .font(AppTheme.auxiliaryFont.weight(.medium))
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 8, weight: .semibold))
-                        }
-                        .frame(minWidth: 44, height: 44)
-                        .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("展示方式：\(presentationMode.title)")
-                    .accessibilityIdentifier("question-bank-presentation-mode")
-
-                    Menu {
-                        ForEach(QuestionBankReadingMode.allCases) { mode in
-                            Button {
-                                readingMode = mode
-                            } label: {
-                                if readingMode == mode {
-                                    Label(mode.title, systemImage: "checkmark")
-                                } else {
-                                    Text(mode.title)
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 2) {
-                            Image(systemName: readingMode == .reading ? "book" : "checkmark.circle")
-                                .font(.system(size: 16, weight: .regular))
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 8, weight: .semibold))
-                        }
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("阅读模式：\(readingMode.title)")
-                    .accessibilityIdentifier("question-bank-reading-mode")
-
-                    if let target = doodleToolbarTarget {
-                        Button {
-                            guard let item = readingItem(for: target.questionID) else { return }
-                            openQuestionDoodle(item)
-                        } label: {
-                            Image(systemName: "pencil.and.scribble")
-                                .font(.system(size: 17, weight: .regular))
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .accessibilityLabel("标注当前题（第\(target.questionNumber)题）")
-                        .accessibilityIdentifier("question-bank-doodle-current-question")
-
-                        if let materialID = target.materialID {
-                            Menu {
-                                Button {
-                                    openMaterialDoodle(materialID)
-                                } label: {
-                                    Label("标注共用材料", systemImage: "pencil.and.scribble")
-                                }
-                            } label: {
-                                HStack(spacing: 2) {
-                                    Image(systemName: "doc.text")
-                                        .font(.system(size: 16, weight: .regular))
-                                    Image(systemName: "chevron.down")
-                                        .font(.system(size: 8, weight: .semibold))
-                                }
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                            }
-                            .accessibilityLabel("标注共用材料")
-                            .accessibilityHint("打开当前题引用的共用材料标注选项")
-                            .accessibilityIdentifier("question-bank-doodle-material-menu-\(materialID)")
-                        }
-                    }
-
-                    Button {
-                        activeSheet = QuestionBankReaderSheet(content: .overview)
-                    } label: {
-                        Image(systemName: "square.grid.3x3")
-                            .font(.system(size: 15, weight: .medium))
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("题号总览")
-                    .disabled(readingItems.isEmpty)
-                    .accessibilityIdentifier("question-bank-number-overview")
-                }
+                questionBankToolbar
             }
         }
         .sheet(item: $activeSheet, onDismiss: handleReaderSheetDismissal) { sheet in
@@ -431,6 +297,166 @@ struct QuestionBankModuleView: View {
             restoreReaderState()
         }
         .onChange(of: snapshotRevision) { _, _ in applyInitialFocusIfNeeded() }
+    }
+
+    private func readerContent(width: CGFloat, height: CGFloat) -> some View {
+        let canOpenSplit = horizontalSizeClass == .regular && width >= 700
+        let splitOrientation = QuestionBankSplitLayout.orientation(width: width, height: height)
+        return Group {
+            if let splitMaterialID {
+                splitReader(
+                    materialID: splitMaterialID,
+                    width: width,
+                    height: height,
+                    orientation: splitOrientation
+                )
+            } else if presentationMode == .single {
+                singleQuestionReader(canOpenSplit: canOpenSplit)
+            } else {
+                continuousReader(canOpenSplit: canOpenSplit)
+            }
+        }
+        .onChange(of: splitOrientation) { _, _ in
+            guard splitMaterialID != nil, let questionID = currentVisibleQuestionID else { return }
+            splitScrollRequest = QuestionBankScrollRequest(questionID: questionID, token: UUID())
+        }
+        .overlay {
+            QuestionBankDoodleAutosaveObserver(session: doodleSession, context: modelContext)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .inactive, .background:
+                if let currentVisibleQuestionID { storedQuestionID = currentVisibleQuestionID }
+                storedSplitMaterialID = splitMaterialID ?? ""
+            case .active:
+                restoreReaderPosition()
+            @unknown default:
+                break
+            }
+        }
+    }
+
+    private var questionBankToolbar: some View {
+        HStack(spacing: 0) {
+            presentationModeMenu
+            readingModeMenu
+            questionDoodleToolbarItems
+            questionOverviewButton
+        }
+    }
+
+    private var presentationModeMenu: some View {
+        Menu {
+            ForEach(QuestionBankPresentationMode.allCases) { mode in
+                Button {
+                    selectPresentationMode(mode)
+                } label: {
+                    if presentationMode == mode {
+                        Label(mode.title, systemImage: "checkmark")
+                    } else {
+                        Text(mode.title)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 2) {
+                Text(presentationMode.shortTitle)
+                    .font(AppTheme.auxiliaryFont.weight(.medium))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+            .frame(minWidth: 44, height: 44)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("展示方式：\(presentationMode.title)")
+        .accessibilityIdentifier("question-bank-presentation-mode")
+    }
+
+    private var readingModeMenu: some View {
+        Menu {
+            ForEach(QuestionBankReadingMode.allCases) { mode in
+                Button {
+                    readingMode = mode
+                } label: {
+                    if readingMode == mode {
+                        Label(mode.title, systemImage: "checkmark")
+                    } else {
+                        Text(mode.title)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 2) {
+                Image(systemName: readingMode == .reading ? "book" : "checkmark.circle")
+                    .font(.system(size: 16, weight: .regular))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("阅读模式：\(readingMode.title)")
+        .accessibilityIdentifier("question-bank-reading-mode")
+    }
+
+    @ViewBuilder
+    private var questionDoodleToolbarItems: some View {
+        if let target = doodleToolbarTarget {
+            currentQuestionDoodleButton(target)
+            if let materialID = target.materialID {
+                materialDoodleMenu(materialID)
+            }
+        }
+    }
+
+    private func currentQuestionDoodleButton(_ target: QuestionBankDoodleToolbarTarget) -> some View {
+        Button {
+            guard let item = readingItem(for: target.questionID) else { return }
+            openQuestionDoodle(item)
+        } label: {
+            Image(systemName: "pencil.and.scribble")
+                .font(.system(size: 17, weight: .regular))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("标注当前题（第\(target.questionNumber)题）")
+        .accessibilityIdentifier("question-bank-doodle-current-question")
+    }
+
+    private func materialDoodleMenu(_ materialID: String) -> some View {
+        Menu {
+            Button {
+                openMaterialDoodle(materialID)
+            } label: {
+                Label("标注共用材料", systemImage: "pencil.and.scribble")
+            }
+        } label: {
+            HStack(spacing: 2) {
+                Image(systemName: "doc.text")
+                    .font(.system(size: 16, weight: .regular))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("标注共用材料")
+        .accessibilityHint("打开当前题引用的共用材料标注选项")
+        .accessibilityIdentifier("question-bank-doodle-material-menu-\(materialID)")
+    }
+
+    private var questionOverviewButton: some View {
+        Button {
+            activeSheet = QuestionBankReaderSheet(content: .overview)
+        } label: {
+            Image(systemName: "square.grid.3x3")
+                .font(.system(size: 15, weight: .medium))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("题号总览")
+        .disabled(readingItems.isEmpty)
+        .accessibilityIdentifier("question-bank-number-overview")
     }
 
     @ViewBuilder
@@ -587,7 +613,7 @@ struct QuestionBankModuleView: View {
         } else {
             visibleQuestions = groupedQuestions
         }
-        ScrollViewReader { proxy in
+        return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(visibleQuestions) { item in
@@ -1056,7 +1082,9 @@ struct QuestionBankModuleView: View {
             self.splitMaterialID = nil
         }
         applyInitialFocusIfNeeded()
-        if splitMaterialID != nil, let item = readingItem(for: currentVisibleQuestionID) {
+        if splitMaterialID != nil,
+           let questionID = currentVisibleQuestionID,
+           let item = readingItem(for: questionID) {
             reconcileSplitMaterial(for: item)
             if self.splitMaterialID != nil {
                 splitScrollRequest = QuestionBankScrollRequest(questionID: item.id, token: UUID())
