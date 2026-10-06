@@ -163,8 +163,8 @@ struct QuestionBankModuleView: View {
     @State private var snapshotRevision = 0
     @State private var didApplyInitialFocus = false
     @State private var selectedOptionsByQuestionID: [String: String] = [:]
-    @SceneStorage private var storedSplitMaterialID: String?
-    @SceneStorage private var storedQuestionID: String?
+    @SceneStorage private var storedSplitMaterialID: String
+    @SceneStorage private var storedQuestionID: String
     @SceneStorage private var storedReadingMode: String
 
     init(paperID: String, moduleID: String, initialQuestionNumber: String) {
@@ -172,11 +172,11 @@ struct QuestionBankModuleView: View {
         self.moduleID = moduleID
         self.initialQuestionNumber = initialQuestionNumber
         _storedSplitMaterialID = SceneStorage(
-            wrappedValue: nil,
+            wrappedValue: "",
             "question-bank.split.\(paperID).\(moduleID)"
         )
         _storedQuestionID = SceneStorage(
-            wrappedValue: nil,
+            wrappedValue: "",
             "question-bank.question.\(paperID).\(moduleID)"
         )
         _storedReadingMode = SceneStorage(
@@ -197,13 +197,13 @@ struct QuestionBankModuleView: View {
     }
 
     private var splitMaterialID: String? {
-        get { storedSplitMaterialID }
-        nonmutating set { storedSplitMaterialID = newValue }
+        get { storedSplitMaterialID.isEmpty ? nil : storedSplitMaterialID }
+        nonmutating set { storedSplitMaterialID = newValue ?? "" }
     }
 
     private var currentVisibleQuestionID: String? {
-        get { storedQuestionID }
-        nonmutating set { storedQuestionID = newValue }
+        get { storedQuestionID.isEmpty ? nil : storedQuestionID }
+        nonmutating set { storedQuestionID = newValue ?? "" }
     }
 
     private var readingMode: QuestionBankReadingMode {
@@ -245,7 +245,7 @@ struct QuestionBankModuleView: View {
                 switch phase {
                 case .inactive, .background:
                     if let currentVisibleQuestionID { storedQuestionID = currentVisibleQuestionID }
-                    storedSplitMaterialID = splitMaterialID
+                    storedSplitMaterialID = splitMaterialID ?? ""
                 case .active:
                     restoreReaderPosition()
                 @unknown default:
@@ -459,7 +459,7 @@ struct QuestionBankModuleView: View {
                 }
             }
             .onAppear {
-                let preferred = currentVisibleQuestionID ?? storedQuestionID
+                let preferred = currentVisibleQuestionID
                 let target = groupedQuestions.first(where: { $0.id == preferred })?.id
                     ?? splitScrollRequest?.questionID
                     ?? groupedQuestions.first?.id
@@ -554,7 +554,7 @@ struct QuestionBankModuleView: View {
     private func questionSection(_ item: QuestionBankReadingItem) -> some View {
         let selectedOptionID = selectedOptionsByQuestionID[item.id]
         let revealsAnswer = readingMode.revealsAnswer(afterSelecting: selectedOptionID)
-        VStack(alignment: .leading, spacing: 0) {
+        return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text("\(String(item.question.number)).")
                     .font(AppTheme.bodyFont.weight(.semibold))
@@ -661,7 +661,7 @@ struct QuestionBankModuleView: View {
             activeSheet = QuestionBankReaderSheet(content: .material(materialID))
             return
         }
-        continuousAnchorQuestionID = currentVisibleQuestionID ?? storedQuestionID
+        continuousAnchorQuestionID = currentVisibleQuestionID ?? continuousAnchorQuestionID
         splitMaterialID = materialID
         storedSplitMaterialID = materialID
         let preferredQuestion = readingItems.first {
@@ -670,15 +670,14 @@ struct QuestionBankModuleView: View {
         let target = preferredQuestion?.id ?? readingItems.first { $0.question.materialID == materialID }?.id
         if let target {
             currentVisibleQuestionID = target
-            storedQuestionID = target
             splitScrollRequest = QuestionBankScrollRequest(questionID: target, token: UUID())
         }
     }
 
     private func closeSplitReader() {
-        let returnTarget = currentVisibleQuestionID ?? continuousAnchorQuestionID ?? storedQuestionID
+        let returnTarget = currentVisibleQuestionID ?? continuousAnchorQuestionID
         splitMaterialID = nil
-        storedSplitMaterialID = nil
+        storedSplitMaterialID = ""
         guard let returnTarget else { return }
         continuousScrollRequest = QuestionBankScrollRequest(questionID: returnTarget, token: UUID())
     }
@@ -724,10 +723,9 @@ struct QuestionBankModuleView: View {
         pendingOverviewQuestionID = item.id
         continuousAnchorQuestionID = item.id
         currentVisibleQuestionID = item.id
-        storedQuestionID = item.id
         if splitMaterialID != nil {
             splitMaterialID = item.materialID.isEmpty ? nil : item.materialID
-            storedSplitMaterialID = splitMaterialID
+            storedSplitMaterialID = splitMaterialID ?? ""
         }
     }
 
@@ -748,13 +746,12 @@ struct QuestionBankModuleView: View {
             .min(by: { $0.value.top < $1.value.top })?.key else { return }
         guard currentVisibleQuestionID != visible else { return }
         currentVisibleQuestionID = visible
-        storedQuestionID = visible
         if splitMaterialID == nil { continuousAnchorQuestionID = visible }
     }
 
     private func applyInitialFocusIfNeeded() {
         guard !didApplyInitialFocus else { return }
-        let restoredID = readingItems.first(where: { $0.id == storedQuestionID })?.id
+        let restoredID = readingItems.first(where: { $0.id == currentVisibleQuestionID })?.id
         guard let questionID = initialFocusQuestionID ?? restoredID else { return }
         didApplyInitialFocus = true
         currentVisibleQuestionID = questionID
@@ -775,8 +772,7 @@ struct QuestionBankModuleView: View {
     }
 
     private func restoreReaderPosition() {
-        guard let questionID = readingItems.first(where: { $0.id == currentVisibleQuestionID })?.id
-                ?? readingItems.first(where: { $0.id == storedQuestionID })?.id else { return }
+        guard let questionID = readingItems.first(where: { $0.id == currentVisibleQuestionID })?.id else { return }
         currentVisibleQuestionID = questionID
         if splitMaterialID != nil,
            readingItem(for: questionID)?.question.materialID == splitMaterialID {
