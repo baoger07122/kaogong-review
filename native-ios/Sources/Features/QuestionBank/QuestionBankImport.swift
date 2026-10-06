@@ -732,7 +732,8 @@ enum QuestionBankRepository {
         storedAsset.contentSHA256 = ""
         guard incomingAsset == storedAsset,
               let root = assetRoot ?? (try? QuestionBankAssetStore.root(create: false)),
-              let oldAssetURL = QuestionBankAssetStore.url(for: rhs.assetRelativePath, under: root),
+              let oldAssetPath = rhs.assetRelativePath,
+              let oldAssetURL = QuestionBankAssetStore.url(for: oldAssetPath, under: root),
               FileManager.default.fileExists(atPath: oldAssetURL.path),
               FileManager.default.isReadableFile(atPath: oldAssetURL.path) else { return false }
         if !storedDigest.isEmpty { return storedDigest == incomingDigest }
