@@ -211,16 +211,19 @@ jobs:
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testAssetPathResolverRejectsTraversalAndSymlinkEscape
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testReadingSequenceGroupsSharedMaterialsOnceAndKeepsQuestionOrder
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankReaderLayoutModesAndOptionDisplay
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankPresentationSwitchPreservesCurrentQuestionAndReadingMode
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankSingleQuestionNavigationStopsAtModuleBoundaries
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankPresentationModeSelectsOnlyTheCurrentVisibleQuestion
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankOverviewSelectionUsesSingleModeAndKeepsSplitMaterialSafe
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankSelectedOptionsPersistByStableQuestionID
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankDoodleToolbarTargetFollowsVisibleQuestionAndMaterial
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankDoodlesRoundTripThroughGenericKeyValueBackup
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionNumberFilterTargetsOwningModuleAndQuestion
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testSingleJSONPickerCallbackReachesPreviewAndConfirmedCommit
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testShenlunAdaptationBacksUpExactPayloadAndWritesOnce
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testInvalidShenlunAdaptationLeavesPayloadAndBackupUntouched
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testJSONV1PreservesVerifiedQuestionsAndPersistsWithoutBase64Payloads
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testValidationPackageImportsAtomicallyAndPersistsAcrossContainerReopen
-              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankIncrementalMergeAddsWithoutDeletingOrDuplicatingAndKeepsDoodles
-              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankMergeConflictsDefaultToLocalAndRequireExplicitOverwrite
-              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankMergeDetectsChangedImageBytesAndOverwritesOnlyExplicitly
-              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankMergeMissingImageOrInvalidPlanLeavesExistingRowsAndFilesUntouched
             )
           else
             TEST_ARGS=(

@@ -14,6 +14,102 @@ enum QuestionBankReadingMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum QuestionBankPresentationMode: String, CaseIterable, Identifiable, Equatable {
+    case continuous
+    case single
+
+    var id: String { rawValue }
+    var title: String { self == .continuous ? "连续阅读" : "单题模式" }
+    var shortTitle: String { self == .continuous ? "连续" : "单题" }
+}
+
+struct QuestionBankReaderPosition: Equatable {
+    var presentationMode: QuestionBankPresentationMode
+    var currentQuestionID: String?
+    var splitMaterialID: String?
+}
+
+enum QuestionBankReaderTransition {
+    static func switchingPresentation(
+        to mode: QuestionBankPresentationMode,
+        from position: QuestionBankReaderPosition
+    ) -> QuestionBankReaderPosition {
+        var result = position
+        result.presentationMode = mode
+        return result
+    }
+
+    static func selectingOverviewQuestion(
+        _ questionID: String,
+        materialID: String?,
+        availableMaterialIDs: Set<String>,
+        from position: QuestionBankReaderPosition
+    ) -> QuestionBankReaderPosition {
+        var result = position
+        result.presentationMode = .single
+        result.currentQuestionID = questionID
+        if position.splitMaterialID != nil {
+            result.splitMaterialID = materialID.flatMap { availableMaterialIDs.contains($0) ? $0 : nil }
+        }
+        return result
+    }
+
+    static func movingToQuestion(
+        _ questionID: String,
+        materialID: String?,
+        availableMaterialIDs: Set<String>,
+        from position: QuestionBankReaderPosition
+    ) -> QuestionBankReaderPosition {
+        var result = position
+        result.currentQuestionID = questionID
+        if position.splitMaterialID != nil {
+            result.splitMaterialID = materialID.flatMap { availableMaterialIDs.contains($0) ? $0 : nil }
+        }
+        return result
+    }
+
+    static func adjacentQuestionID(
+        currentID: String?,
+        orderedIDs: [String],
+        direction: Int
+    ) -> String? {
+        guard direction == -1 || direction == 1,
+              let currentID,
+              let index = orderedIDs.firstIndex(of: currentID) else { return nil }
+        let targetIndex = index + direction
+        guard orderedIDs.indices.contains(targetIndex) else { return nil }
+        return orderedIDs[targetIndex]
+    }
+
+    static func displayedQuestionIDs(
+        for mode: QuestionBankPresentationMode,
+        currentID: String?,
+        orderedIDs: [String]
+    ) -> [String] {
+        guard mode == .single else { return orderedIDs }
+        if let currentID, orderedIDs.contains(currentID) { return [currentID] }
+        return orderedIDs.first.map { [$0] } ?? []
+    }
+
+    static func ordinal(of questionID: String?, in orderedIDs: [String]) -> Int? {
+        guard let questionID, let index = orderedIDs.firstIndex(of: questionID) else { return nil }
+        return index + 1
+    }
+}
+
+enum QuestionBankSelectedOptionsStorage {
+    static func decode(_ value: String) -> [String: String] {
+        guard let data = value.data(using: .utf8) else { return [:] }
+        return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+    }
+
+    static func encode(_ selections: [String: String]) -> String {
+        guard let data = try? JSONEncoder().encode(selections),
+              let value = String(data: data, encoding: .utf8) else { return "{}" }
+        return value
+    }
+}
+
 struct QuestionBankDoodleToolbarTarget: Equatable {
     let questionID: String
     let questionNumber: Int
