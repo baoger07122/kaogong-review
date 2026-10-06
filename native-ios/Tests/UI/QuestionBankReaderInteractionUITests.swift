@@ -94,6 +94,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
     private func launchPracticeReader() -> ReaderUITestContext {
         let sessionID = UUID().uuidString
         let paperID = "ui-test-\(sessionID)-paper"
+        let moduleID = "ui-test-\(sessionID)-module"
         let materialID = "ui-test-\(sessionID)-material"
         let questionID = "ui-test-\(sessionID)-question-1"
         let app = XCUIApplication()
@@ -110,12 +111,21 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertTrue(paper.waitForExistence(timeout: 10))
         paper.tap()
 
+        let module = app.buttons["question-bank-module-\(moduleID)"].firstMatch
+        XCTAssertTrue(module.waitForExistence(timeout: 10))
+        module.tap()
+
         let readingMode = element(app, identifier: "question-bank-reading-mode")
         XCTAssertTrue(readingMode.waitForExistence(timeout: 10))
         readingMode.tap()
         app.buttons["刷题"].firstMatch.tap()
         XCTAssertTrue(app.buttons["question-bank-option-\(questionID)-A"].waitForExistence(timeout: 10))
-        return ReaderUITestContext(app: app, paperID: paperID, materialID: materialID, questionID: questionID)
+        return ReaderUITestContext(
+            app: app,
+            paperID: paperID,
+            materialID: materialID,
+            questionID: questionID
+        )
     }
 
     @MainActor
