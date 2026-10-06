@@ -819,43 +819,44 @@ struct QuestionBankModuleView: View {
                             .padding(.bottom, 10)
                     }
                 }
+            }
 
-                ForEach(item.question.options) { option in
-                    QuestionBankOptionRow(
-                        option: option,
-                        answer: item.question.answer,
-                        readingMode: readingMode,
-                        selectedOptionID: selectedOptionID,
-                        revealsAnswer: revealsAnswer,
-                        onSelect: { selectedOptionsByQuestionID[item.id] = option.id },
-                        assetLookup: assetRecord(for:)
-                    )
-                }
+            ForEach(item.question.options) { option in
+                QuestionBankOptionRow(
+                    option: option,
+                    answer: item.question.answer,
+                    readingMode: readingMode,
+                    selectedOptionID: selectedOptionID,
+                    revealsAnswer: revealsAnswer,
+                    onSelect: { selectedOptionsByQuestionID[item.id] = option.id },
+                    assetLookup: assetRecord(for:)
+                )
+            }
 
-                if readingMode == .reading {
-                    HStack(spacing: 7) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(AppTheme.success)
-                        Text("正确答案")
-                            .foregroundStyle(.secondary)
-                        Text(item.question.answer.isEmpty ? "未提供" : item.question.answer)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(AppTheme.success)
-                    }
-                    .font(AppTheme.bodyFont)
-                    .padding(.top, 12)
-                } else if let selectedOptionID {
-                    HStack(spacing: 8) {
-                        Text("你的选择：\(selectedOptionID)")
-                            .foregroundStyle(selectedOptionID == item.question.answer ? AppTheme.success : AppTheme.danger)
-                        Spacer(minLength: 8)
-                        Text("正确答案：\(item.question.answer.isEmpty ? "未提供" : item.question.answer)")
-                            .fontWeight(.semibold)
-                            .foregroundStyle(AppTheme.success)
-                    }
-                    .font(AppTheme.auxiliaryFont)
-                    .padding(.top, 12)
+            if readingMode == .reading {
+                HStack(spacing: 7) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(AppTheme.success)
+                    Text("正确答案")
+                        .foregroundStyle(.secondary)
+                    Text(item.question.answer.isEmpty ? "未提供" : item.question.answer)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(AppTheme.success)
                 }
+                .font(AppTheme.bodyFont)
+                .padding(.top, 12)
+            } else if let selectedOptionID {
+                HStack(spacing: 8) {
+                    Text("你的选择：\(selectedOptionID)")
+                        .foregroundStyle(selectedOptionID == item.question.answer ? AppTheme.success : AppTheme.danger)
+                    Spacer(minLength: 8)
+                    Text("正确答案：\(item.question.answer.isEmpty ? "未提供" : item.question.answer)")
+                        .fontWeight(.semibold)
+                        .foregroundStyle(AppTheme.success)
+                }
+                .font(AppTheme.auxiliaryFont)
+                .padding(.top, 12)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 13)
