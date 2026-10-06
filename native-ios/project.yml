@@ -90,6 +90,17 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: KaogongReviewNative
+  QuestionBankReaderInteractionUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - Tests/UI/QuestionBankReaderInteractionUITests.swift
+    dependencies:
+      - target: KaogongReviewNative
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: KaogongReviewNative
   QuestionBankImportTests:
     type: bundle.unit-test
     platform: iOS
@@ -121,3 +132,11 @@ schemes:
     test:
       targets:
         - QuestionBankImportTests
+  QuestionBankReaderInteraction:
+    build:
+      targets:
+        KaogongReviewNative: all
+        QuestionBankReaderInteractionUITests: [test]
+    test:
+      targets:
+        - QuestionBankReaderInteractionUITests

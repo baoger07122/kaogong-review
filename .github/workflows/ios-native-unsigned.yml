@@ -178,15 +178,30 @@ jobs:
         env:
           RUN_QUESTION_BANK: ${{ steps.simulator_scope.outputs.question_bank }}
         run: |
-          TEST_SCHEME=KaogongReviewNative
-          if [ "$RUN_QUESTION_BANK" = "true" ]; then TEST_SCHEME=QuestionBankImport; fi
-          xcodebuild build-for-testing \
-            -project native-ios/KaogongReviewNative.xcodeproj \
-            -scheme "$TEST_SCHEME" \
-            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-            -derivedDataPath build/NativeTestDerivedData \
-            -parallel-testing-enabled NO \
-            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
+          if [ "$RUN_QUESTION_BANK" = "true" ]; then
+            xcodebuild build-for-testing \
+              -project native-ios/KaogongReviewNative.xcodeproj \
+              -scheme QuestionBankImport \
+              -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+              -derivedDataPath build/NativeTestDerivedData \
+              -parallel-testing-enabled NO \
+              CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
+            xcodebuild build-for-testing \
+              -project native-ios/KaogongReviewNative.xcodeproj \
+              -scheme QuestionBankReaderInteraction \
+              -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+              -derivedDataPath build/NativeTestDerivedData \
+              -parallel-testing-enabled NO \
+              CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
+          else
+            xcodebuild build-for-testing \
+              -project native-ios/KaogongReviewNative.xcodeproj \
+              -scheme KaogongReviewNative \
+              -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+              -derivedDataPath build/NativeTestDerivedData \
+              -parallel-testing-enabled NO \
+              CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
+          fi
 
       - name: Test changed navigation, speed controls and inline note
         if: steps.simulator_scope.outputs.run == 'true'
@@ -216,6 +231,7 @@ jobs:
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankPresentationModeSelectsOnlyTheCurrentVisibleQuestion
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankOverviewSelectionUsesSingleModeAndKeepsSplitMaterialSafe
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankSelectedOptionsPersistByStableQuestionID
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankRevealedAnswersPersistByStableQuestionID
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankDoodleToolbarTargetFollowsVisibleQuestionAndMaterial
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankDoodlesRoundTripThroughGenericKeyValueBackup
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionNumberFilterTargetsOwningModuleAndQuestion
@@ -241,6 +257,28 @@ jobs:
             -parallel-testing-enabled NO \
             -resultBundlePath "$RESULT_PATH" \
             "${TEST_ARGS[@]}" \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
+            xcrun xcresulttool get test-results summary --path "$RESULT_PATH" || true
+            exit 1
+          fi
+
+      - name: Test question-bank reader interactions
+        if: steps.simulator_scope.outputs.question_bank == 'true'
+        timeout-minutes: 12
+        shell: bash
+        run: |
+          xcrun simctl boot "$SIMULATOR_ID" || true
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+          RESULT_PATH=build/QuestionBankReaderInteraction.xcresult
+          if ! xcodebuild test-without-building \
+            -project native-ios/KaogongReviewNative.xcodeproj \
+            -scheme QuestionBankReaderInteraction \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath build/NativeTestDerivedData \
+            -parallel-testing-enabled NO \
+            -resultBundlePath "$RESULT_PATH" \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testPracticeAnswerWaitsForConfirmationAndSurvivesReaderModeChanges \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testDoodleBlocksOptionSelectionAndQuestionNavigationInMaterialSplit \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
             xcrun xcresulttool get test-results summary --path "$RESULT_PATH" || true
             exit 1

@@ -183,9 +183,10 @@ final class QuestionBankImportTests: XCTestCase {
             QuestionBankSplitLayout.minimumQuestionPaneWidth
         )
 
-        XCTAssertTrue(QuestionBankReadingMode.reading.revealsAnswer(afterSelecting: nil))
-        XCTAssertFalse(QuestionBankReadingMode.practice.revealsAnswer(afterSelecting: nil))
-        XCTAssertTrue(QuestionBankReadingMode.practice.revealsAnswer(afterSelecting: "B"))
+        XCTAssertTrue(QuestionBankReadingMode.reading.revealsAnswer(afterSelecting: nil, wasConfirmed: false))
+        XCTAssertFalse(QuestionBankReadingMode.practice.revealsAnswer(afterSelecting: nil, wasConfirmed: true))
+        XCTAssertFalse(QuestionBankReadingMode.practice.revealsAnswer(afterSelecting: "B", wasConfirmed: false))
+        XCTAssertTrue(QuestionBankReadingMode.practice.revealsAnswer(afterSelecting: "B", wasConfirmed: true))
 
         XCTAssertNil(QuestionBankOptionDisplay.text(for: QuestionBankOption(id: "A", text: "A", imageAssetID: "")))
         XCTAssertNil(QuestionBankOptionDisplay.text(for: QuestionBankOption(id: "A", text: " A\n", imageAssetID: "")))
@@ -207,8 +208,8 @@ final class QuestionBankImportTests: XCTestCase {
             to: .continuous, from: single
         )
         XCTAssertEqual(returnedToContinuous.currentQuestionID, "q-114")
-        XCTAssertTrue(QuestionBankReadingMode.reading.revealsAnswer(afterSelecting: nil))
-        XCTAssertFalse(QuestionBankReadingMode.practice.revealsAnswer(afterSelecting: nil))
+        XCTAssertTrue(QuestionBankReadingMode.reading.revealsAnswer(afterSelecting: nil, wasConfirmed: false))
+        XCTAssertFalse(QuestionBankReadingMode.practice.revealsAnswer(afterSelecting: nil, wasConfirmed: false))
     }
 
     func testQuestionBankSingleQuestionNavigationStopsAtModuleBoundaries() {
@@ -296,6 +297,14 @@ final class QuestionBankImportTests: XCTestCase {
             QuestionBankSelectedOptionsStorage.encode(selected)
         ), selected)
         XCTAssertEqual(QuestionBankSelectedOptionsStorage.decode("invalid"), [:])
+    }
+
+    func testQuestionBankRevealedAnswersPersistByStableQuestionID() {
+        let confirmed: Set<String> = ["q-114", "q-115"]
+        XCTAssertEqual(QuestionBankRevealedAnswersStorage.decode(
+            QuestionBankRevealedAnswersStorage.encode(confirmed)
+        ), confirmed)
+        XCTAssertEqual(QuestionBankRevealedAnswersStorage.decode("invalid"), [])
     }
 
     func testQuestionBankDoodleToolbarTargetFollowsVisibleQuestionAndMaterial() {

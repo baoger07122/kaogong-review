@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @MainActor
 final class LibraryDoodleSession: ObservableObject {
@@ -19,6 +20,9 @@ final class LibraryDoodleSession: ObservableObject {
         saveError = nil
         isDismissing = false
         self.targetRecordID = targetRecordID
+        canvas.canvasFrameInGlobal = nil
+        canvas.controller.canvasReady = false
+        canvas.controller.canvasLoadError = nil
         canvas.drawingData = drawingData
         canvas.legacyPreviewDataURL = legacyPreviewDataURL
         saveHandler = onSave
@@ -90,41 +94,61 @@ final class LibraryDoodleSession: ObservableObject {
 final class LibraryDoodleCanvasState: ObservableObject {
     @Published var drawingData = ""
     @Published var legacyPreviewDataURL = ""
+    @Published var canvasFrameInGlobal: CGRect?
     let controller = PencilDrawingController()
 }
 
 struct LibraryDoodleOverlay: View {
     @ObservedObject var session: LibraryDoodleSession
+    @ObservedObject private var canvas: LibraryDoodleCanvasState
     @ObservedObject private var controller: PencilDrawingController
 
     init(session: LibraryDoodleSession) {
         self.session = session
+        _canvas = ObservedObject(wrappedValue: session.canvas)
         _controller = ObservedObject(wrappedValue: session.canvas.controller)
     }
 
     var body: some View {
         GeometryReader { proxy in
+            let activeCanvasFrame = canvasPassThroughRect(in: proxy)
             ZStack(alignment: .topTrailing) {
-                // The dimmer and toolbar live above the complete NavigationStack,
-                // while the drawing surface is mounted inside the detail ScrollView
-                // so both content and strokes share the same coordinate space.
+                // The transparent shield blocks every underlying control while the
+                // canvas loads, then leaves only the active canvas target hittable.
                 Color.black.opacity(0.18)
                     .contentShape(Rectangle())
                     .allowsHitTesting(false)
 
+                LibraryDoodleInteractionShield(
+                    passThroughRect: activeCanvasFrame
+                )
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(controller.canvasLoadError ?? "涂鸦交互遮罩")
+                .accessibilityValue(activeCanvasFrame == nil ? "canvas-loading" : "canvas-ready")
+                .accessibilityIdentifier("library-doodle-interaction-shield")
+
+                if let message = controller.canvasLoadError {
+                    statusMessage(message)
+                        .allowsHitTesting(false)
+                } else if activeCanvasFrame == nil {
+                    ProgressView("正在载入涂鸦")
+                        .padding(12)
+                        .background(.regularMaterial, in: Capsule())
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .allowsHitTesting(false)
+                }
+
                 toolbar
                     .padding(.top, max(proxy.safeAreaInsets.top + 5, 28))
                     .padding(.trailing, proxy.safeAreaInsets.trailing + 12)
+                    .zIndex(1)
 
                 if let saveError = session.saveError {
-                    Text(saveError)
-                        .font(AppTheme.auxiliaryFont)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(AppTheme.danger.opacity(0.9), in: Capsule())
+                    statusMessage(saveError)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, proxy.safeAreaInsets.bottom + 18)
+                        .allowsHitTesting(false)
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
@@ -181,6 +205,31 @@ struct LibraryDoodleOverlay: View {
         .buttonStyle(.plain)
         .accessibilityLabel(label)
     }
+
+    private func statusMessage(_ value: String) -> some View {
+        Text(value)
+            .font(AppTheme.auxiliaryFont)
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(AppTheme.danger.opacity(0.9), in: Capsule())
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    private func canvasPassThroughRect(in proxy: GeometryProxy) -> CGRect? {
+        guard controller.canvasReady,
+              let canvasFrame = canvas.canvasFrameInGlobal else { return nil }
+        let overlayFrame = proxy.frame(in: .global)
+        let localFrame = CGRect(
+            x: canvasFrame.minX - overlayFrame.minX,
+            y: canvasFrame.minY - overlayFrame.minY,
+            width: canvasFrame.width,
+            height: canvasFrame.height
+        )
+        let visibleFrame = localFrame.intersection(CGRect(origin: .zero, size: proxy.size))
+        return visibleFrame.isNull || visibleFrame.isEmpty ? nil : visibleFrame
+    }
 }
 
 /// Mounts PencilKit in the detail page's content coordinate space. The view is
@@ -216,12 +265,56 @@ struct LibraryDoodleContentLayer: View {
                     onClose: session.dismiss
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
+                .preference(
+                    key: LibraryDoodleCanvasFramePreferenceKey.self,
+                    value: [targetRecordID: proxy.frame(in: .global)]
+                )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .frame(minHeight: minimumCanvasHeight)
             .contentShape(Rectangle())
             .opacity(session.isPresented ? 1 : 0)
             .allowsHitTesting(session.isPresented)
+        }
+        .onPreferenceChange(LibraryDoodleCanvasFramePreferenceKey.self) { frames in
+            guard session.targetRecordID == targetRecordID else { return }
+            session.canvas.canvasFrameInGlobal = frames[targetRecordID]
+        }
+        .onDisappear {
+            guard session.targetRecordID == targetRecordID else { return }
+            session.canvas.canvasFrameInGlobal = nil
+        }
+    }
+}
+
+private struct LibraryDoodleCanvasFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, newest in newest })
+    }
+}
+
+private struct LibraryDoodleInteractionShield: UIViewRepresentable {
+    let passThroughRect: CGRect?
+
+    func makeUIView(context: Context) -> ShieldView {
+        let view = ShieldView()
+        view.backgroundColor = .clear
+        view.isOpaque = false
+        return view
+    }
+
+    func updateUIView(_ view: ShieldView, context: Context) {
+        view.passThroughRect = passThroughRect
+    }
+
+    final class ShieldView: UIView {
+        var passThroughRect: CGRect?
+
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+            guard super.point(inside: point, with: event) else { return false }
+            return !(passThroughRect?.contains(point) ?? false)
         }
     }
 }

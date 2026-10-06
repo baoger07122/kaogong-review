@@ -169,6 +169,7 @@ struct QuestionBankView: View {
                                     paperCard(record)
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityIdentifier("question-bank-paper-\(record.stableID)")
                             }
                         }
                     }

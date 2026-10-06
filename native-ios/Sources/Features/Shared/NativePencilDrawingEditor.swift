@@ -46,6 +46,8 @@ final class PencilDrawingController: ObservableObject {
     @Published var showSettings = false
     @Published var legacyPreviewCleared = false
     @Published fileprivate(set) var hasPendingDrawingPublish = false
+    @Published var canvasReady = false
+    @Published var canvasLoadError: String?
     @Published fileprivate var action: PencilAction?
 
     private let defaults: UserDefaults
@@ -130,6 +132,8 @@ final class PencilDrawingController: ObservableObject {
         legacyPreviewCleared = false
         restoreLegacyOnNextUndo = false
         hasPendingDrawingPublish = false
+        canvasReady = false
+        canvasLoadError = nil
     }
 
     private func persist() {
@@ -582,6 +586,8 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             guard requestedEncoded != encoded else { return }
             requestedEncoded = encoded
             canvasReady = false
+            controller.canvasReady = false
+            controller.canvasLoadError = nil
             canvas.isUserInteractionEnabled = false
             drawingChanged = false
             controller.hasPendingDrawingPublish = false
@@ -595,6 +601,8 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
                     canvas.drawing = PKDrawing()
                     self.lastEncoded = ""
                     self.canvasReady = true
+                    self.controller.canvasReady = true
+                    self.controller.canvasLoadError = nil
                     canvas.isDrawingReady = true
                     canvas.isUserInteractionEnabled = self.parent.isActive
                     if self.parent.isActive {
@@ -611,10 +619,16 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
                 LibraryPerformanceLog.mark("doodle.canvas.decode", since: decodeStart)
                 DispatchQueue.main.async {
                     guard let self, let canvas, self.decodeToken == token else { return }
-                    guard let drawing else { return }
+                    guard let drawing else {
+                        self.controller.canvasReady = false
+                        self.controller.canvasLoadError = "已有涂鸦无法载入；关闭后会保留原记录。"
+                        return
+                    }
                     canvas.drawing = drawing
                     self.lastEncoded = encoded
                     self.canvasReady = true
+                    self.controller.canvasReady = true
+                    self.controller.canvasLoadError = nil
                     canvas.isDrawingReady = true
                     canvas.isUserInteractionEnabled = self.parent.isActive
                     if self.parent.isActive {

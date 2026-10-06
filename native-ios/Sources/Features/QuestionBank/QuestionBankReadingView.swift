@@ -167,6 +167,7 @@ struct QuestionBankModuleView: View {
     @SceneStorage private var storedReadingMode: String
     @SceneStorage private var storedPresentationMode: String
     @SceneStorage private var storedSelectedOptionsJSON: String
+    @SceneStorage private var storedRevealedAnswersJSON: String
 
     init(paperID: String, moduleID: String, initialQuestionNumber: String) {
         self.paperID = paperID
@@ -191,6 +192,10 @@ struct QuestionBankModuleView: View {
         _storedSelectedOptionsJSON = SceneStorage(
             wrappedValue: "{}",
             "question-bank.selected-options.\(paperID).\(moduleID)"
+        )
+        _storedRevealedAnswersJSON = SceneStorage(
+            wrappedValue: "[]",
+            "question-bank.revealed-answers.\(paperID).\(moduleID)"
         )
     }
 
@@ -228,6 +233,11 @@ struct QuestionBankModuleView: View {
     private var selectedOptionsByQuestionID: [String: String] {
         get { QuestionBankSelectedOptionsStorage.decode(storedSelectedOptionsJSON) }
         nonmutating set { storedSelectedOptionsJSON = QuestionBankSelectedOptionsStorage.encode(newValue) }
+    }
+
+    private var revealedAnswerQuestionIDs: Set<String> {
+        get { QuestionBankRevealedAnswersStorage.decode(storedRevealedAnswersJSON) }
+        nonmutating set { storedRevealedAnswersJSON = QuestionBankRevealedAnswersStorage.encode(newValue) }
     }
 
     private var readerPosition: QuestionBankReaderPosition {
@@ -338,9 +348,9 @@ struct QuestionBankModuleView: View {
 
     private var questionBankToolbar: some View {
         HStack(spacing: 0) {
+            questionDoodleToolbarItems
             presentationModeMenu
             readingModeMenu
-            questionDoodleToolbarItems
             questionOverviewButton
         }
     }
@@ -362,20 +372,24 @@ struct QuestionBankModuleView: View {
             HStack(spacing: 2) {
                 Text(presentationMode.shortTitle)
                     .font(AppTheme.auxiliaryFont.weight(.medium))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
             }
             .frame(minWidth: 44, minHeight: 44)
             .contentShape(Rectangle())
+            .foregroundStyle(AppTheme.accent)
+            .background(AppTheme.accent.opacity(0.08), in: Capsule())
         }
         .accessibilityLabel("展示方式：\(presentationMode.title)")
+        .accessibilityValue(presentationMode.title)
+        .accessibilityHint("双击后选择连续阅读或单题模式")
         .accessibilityIdentifier("question-bank-presentation-mode")
+        .disabled(doodleSession.isPresented)
     }
 
     private var readingModeMenu: some View {
         Menu {
             ForEach(QuestionBankReadingMode.allCases) { mode in
                 Button {
+                    guard !doodleSession.isPresented else { return }
                     readingMode = mode
                 } label: {
                     if readingMode == mode {
@@ -386,31 +400,30 @@ struct QuestionBankModuleView: View {
                 }
             }
         } label: {
-            HStack(spacing: 2) {
-                Image(systemName: readingMode == .reading ? "book" : "checkmark.circle")
-                    .font(.system(size: 16, weight: .regular))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-            }
-            .frame(width: 44, height: 44)
-            .contentShape(Rectangle())
+            Text(readingMode.title)
+                .font(AppTheme.auxiliaryFont.weight(.medium))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+                .foregroundStyle(AppTheme.accent)
+                .background(AppTheme.accent.opacity(0.08), in: Capsule())
         }
         .accessibilityLabel("阅读模式：\(readingMode.title)")
+        .accessibilityValue(readingMode.title)
+        .accessibilityHint("双击后选择看题或刷题")
         .accessibilityIdentifier("question-bank-reading-mode")
+        .disabled(doodleSession.isPresented)
     }
 
     @ViewBuilder
     private var questionDoodleToolbarItems: some View {
         if let target = doodleToolbarTarget {
             currentQuestionDoodleButton(target)
-            if let materialID = target.materialID {
-                materialDoodleMenu(materialID)
-            }
         }
     }
 
+    @ViewBuilder
     private func currentQuestionDoodleButton(_ target: QuestionBankDoodleToolbarTarget) -> some View {
-        Button {
+        let button = Button {
             guard let item = readingItem(for: target.questionID) else { return }
             openQuestionDoodle(item)
         } label: {
@@ -420,33 +433,31 @@ struct QuestionBankModuleView: View {
                 .contentShape(Rectangle())
         }
         .accessibilityLabel("标注当前题（第\(target.questionNumber)题）")
+        .accessibilityHint(target.materialID == nil ? "打开当前题涂鸦" : "轻点标注当前题，长按可选择标注共用材料")
         .accessibilityIdentifier("question-bank-doodle-current-question")
-    }
+        .disabled(doodleSession.isPresented)
 
-    private func materialDoodleMenu(_ materialID: String) -> some View {
-        Menu {
-            Button {
-                openMaterialDoodle(materialID)
-            } label: {
-                Label("标注共用材料", systemImage: "pencil.and.scribble")
-            }
-        } label: {
-            HStack(spacing: 2) {
-                Image(systemName: "doc.text")
-                    .font(.system(size: 16, weight: .regular))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-            }
-            .frame(width: 44, height: 44)
-            .contentShape(Rectangle())
+        if let materialID = target.materialID {
+            button
+                .contextMenu {
+                    Button {
+                        openMaterialDoodle(materialID)
+                    } label: {
+                        Label("标注共用材料", systemImage: "pencil.and.scribble")
+                    }
+                }
+                .accessibilityAction(named: Text("标注共用材料")) {
+                    guard !doodleSession.isPresented else { return }
+                    openMaterialDoodle(materialID)
+                }
+        } else {
+            button
         }
-        .accessibilityLabel("标注共用材料")
-        .accessibilityHint("打开当前题引用的共用材料标注选项")
-        .accessibilityIdentifier("question-bank-doodle-material-menu-\(materialID)")
     }
 
     private var questionOverviewButton: some View {
         Button {
+            guard !doodleSession.isPresented else { return }
             activeSheet = QuestionBankReaderSheet(content: .overview)
         } label: {
             Image(systemName: "square.grid.3x3")
@@ -455,7 +466,7 @@ struct QuestionBankModuleView: View {
                 .contentShape(Rectangle())
         }
         .accessibilityLabel("题号总览")
-        .disabled(readingItems.isEmpty)
+        .disabled(readingItems.isEmpty || doodleSession.isPresented)
         .accessibilityIdentifier("question-bank-number-overview")
     }
 
@@ -488,6 +499,7 @@ struct QuestionBankModuleView: View {
                 }
                 .scrollContentBackground(.hidden)
                 .background(Color.white)
+                .scrollDisabled(doodleSession.isPresented)
                 .coordinateSpace(name: "question-bank-continuous-scroll")
                 .onPreferenceChange(QuestionBankReaderViewportPreference.self, perform: updateVisibleQuestion)
                 .onChange(of: continuousScrollRequest) { _, request in
@@ -515,6 +527,7 @@ struct QuestionBankModuleView: View {
                 }
                 .scrollContentBackground(.hidden)
                 .background(Color.white)
+                .scrollDisabled(doodleSession.isPresented)
                 .coordinateSpace(name: "question-bank-continuous-scroll")
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     singleQuestionNavigation(for: item)
@@ -596,6 +609,7 @@ struct QuestionBankModuleView: View {
             }
             .scrollContentBackground(.hidden)
             .background(Color.white)
+            .scrollDisabled(doodleSession.isPresented)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.white)
@@ -625,6 +639,7 @@ struct QuestionBankModuleView: View {
             }
             .scrollContentBackground(.hidden)
             .background(Color.white)
+            .scrollDisabled(doodleSession.isPresented)
             .coordinateSpace(name: "question-bank-continuous-scroll")
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if presentationMode == .single, let item = visibleQuestions.first {
@@ -683,6 +698,7 @@ struct QuestionBankModuleView: View {
                 .frame(minHeight: 40)
             }
             .buttonStyle(.bordered)
+            .disabled(doodleSession.isPresented)
             .accessibilityIdentifier("question-bank-single-material-\(materialID)")
             .padding(.bottom, 10)
         }
@@ -706,7 +722,7 @@ struct QuestionBankModuleView: View {
                 .frame(minWidth: 78, minHeight: 44)
                 .contentShape(Rectangle())
             }
-            .disabled(previousID == nil)
+            .disabled(previousID == nil || doodleSession.isPresented)
             .accessibilityLabel("上一题")
             .accessibilityIdentifier("question-bank-single-previous")
 
@@ -728,7 +744,7 @@ struct QuestionBankModuleView: View {
                 .frame(minWidth: 78, minHeight: 44)
                 .contentShape(Rectangle())
             }
-            .disabled(nextID == nil)
+            .disabled(nextID == nil || doodleSession.isPresented)
             .accessibilityLabel("下一题")
             .accessibilityIdentifier("question-bank-single-next")
         }
@@ -814,7 +830,10 @@ struct QuestionBankModuleView: View {
 
     private func questionSection(_ item: QuestionBankReadingItem) -> some View {
         let selectedOptionID = selectedOptionsByQuestionID[item.id]
-        let revealsAnswer = readingMode.revealsAnswer(afterSelecting: selectedOptionID)
+        let revealsAnswer = readingMode.revealsAnswer(
+            afterSelecting: selectedOptionID,
+            wasConfirmed: revealedAnswerQuestionIDs.contains(item.id)
+        )
         return VStack(alignment: .leading, spacing: 0) {
             let subject = item.question.type.isEmpty ? item.question.subject : item.question.type
             if !subject.isEmpty {
@@ -849,12 +868,14 @@ struct QuestionBankModuleView: View {
 
             ForEach(item.question.options) { option in
                 QuestionBankOptionRow(
+                    questionID: item.id,
                     option: option,
                     answer: item.question.answer,
                     readingMode: readingMode,
                     selectedOptionID: selectedOptionID,
                     revealsAnswer: revealsAnswer,
-                    onSelect: { selectedOptionsByQuestionID[item.id] = option.id },
+                    isInteractionBlocked: doodleSession.isPresented,
+                    onSelect: { selectOption(option.id, for: item.id) },
                     assetLookup: assetRecord(for:)
                 )
             }
@@ -871,17 +892,37 @@ struct QuestionBankModuleView: View {
                 }
                 .font(AppTheme.bodyFont)
                 .padding(.top, 12)
-            } else if let selectedOptionID {
-                HStack(spacing: 8) {
-                    Text("你的选择：\(selectedOptionID)")
-                        .foregroundStyle(selectedOptionID == item.question.answer ? AppTheme.success : AppTheme.danger)
-                    Spacer(minLength: 8)
-                    Text("正确答案：\(item.question.answer.isEmpty ? "未提供" : item.question.answer)")
-                        .fontWeight(.semibold)
-                        .foregroundStyle(AppTheme.success)
+            } else if readingMode == .practice {
+                if revealsAnswer, let selectedOptionID {
+                    HStack(spacing: 8) {
+                        Text("你的选择：\(selectedOptionID)")
+                            .foregroundStyle(selectedOptionID == item.question.answer ? AppTheme.success : AppTheme.danger)
+                        Spacer(minLength: 8)
+                        Text("正确答案：\(item.question.answer.isEmpty ? "未提供" : item.question.answer)")
+                            .fontWeight(.semibold)
+                            .foregroundStyle(AppTheme.success)
+                    }
+                    .font(AppTheme.auxiliaryFont)
+                    .padding(.top, 12)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("question-bank-answer-feedback-\(item.id)")
+                } else {
+                    HStack {
+                        Spacer(minLength: 0)
+                        Button {
+                            confirmAnswer(for: item.id)
+                        } label: {
+                            Text("确认答案")
+                                .font(AppTheme.auxiliaryFont.weight(.semibold))
+                                .frame(minWidth: 96, minHeight: 40)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(selectedOptionID == nil || doodleSession.isPresented)
+                        .accessibilityLabel("确认答案并查看正确选项")
+                        .accessibilityIdentifier("question-bank-confirm-answer-\(item.id)")
+                    }
+                    .padding(.top, 12)
                 }
-                .font(AppTheme.auxiliaryFont)
-                .padding(.top, 12)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -912,6 +953,7 @@ struct QuestionBankModuleView: View {
     }
 
     private func openMaterial(_ materialID: String, canOpenSplit: Bool) {
+        guard !doodleSession.isPresented else { return }
         guard canOpenSplit else {
             activeSheet = QuestionBankReaderSheet(content: .material(materialID))
             return
@@ -930,6 +972,7 @@ struct QuestionBankModuleView: View {
     }
 
     private func closeSplitReader() {
+        guard !doodleSession.isPresented else { return }
         let returnTarget = currentVisibleQuestionID ?? continuousAnchorQuestionID
         splitMaterialID = nil
         storedSplitMaterialID = ""
@@ -947,19 +990,12 @@ struct QuestionBankModuleView: View {
                     }
                     .scrollContentBackground(.hidden)
                     .background(Color.white)
+                    .scrollDisabled(doodleSession.isPresented)
                     .navigationTitle("共用材料")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
-                            HStack {
-                                Button {
-                                    openMaterialDoodle(material.id)
-                                } label: {
-                                    Image(systemName: "pencil.and.scribble")
-                                }
-                                .accessibilityLabel("标注共用材料")
-                                Button("完成") { activeSheet = nil }
-                            }
+                            Button("完成") { activeSheet = nil }
                         }
                     }
                 }
@@ -975,6 +1011,7 @@ struct QuestionBankModuleView: View {
     }
 
     private func handleOverviewSelection(_ item: QuestionBankOverviewItem) {
+        guard !doodleSession.isPresented else { return }
         pendingOverviewQuestionID = item.id
         continuousAnchorQuestionID = item.id
         let position = QuestionBankReaderTransition.selectingOverviewQuestion(
@@ -1004,6 +1041,7 @@ struct QuestionBankModuleView: View {
     }
 
     private func selectPresentationMode(_ mode: QuestionBankPresentationMode) {
+        guard !doodleSession.isPresented else { return }
         guard mode != presentationMode else { return }
         var source = readerPosition
         if source.currentQuestionID == nil {
@@ -1021,6 +1059,7 @@ struct QuestionBankModuleView: View {
     }
 
     private func navigateSingleQuestion(by direction: Int) {
+        guard !doodleSession.isPresented else { return }
         guard let targetID = QuestionBankReaderTransition.adjacentQuestionID(
             currentID: currentVisibleQuestionID ?? currentSingleItem?.id,
             orderedIDs: orderedQuestionIDs,
@@ -1040,6 +1079,19 @@ struct QuestionBankModuleView: View {
         if hadSplitMaterial, splitMaterialID != nil {
             splitScrollRequest = QuestionBankScrollRequest(questionID: targetID, token: UUID())
         }
+    }
+
+    private func selectOption(_ optionID: String, for questionID: String) {
+        guard !doodleSession.isPresented else { return }
+        selectedOptionsByQuestionID[questionID] = optionID
+    }
+
+    private func confirmAnswer(for questionID: String) {
+        guard !doodleSession.isPresented,
+              selectedOptionsByQuestionID[questionID] != nil else { return }
+        var revealed = revealedAnswerQuestionIDs
+        revealed.insert(questionID)
+        revealedAnswerQuestionIDs = revealed
     }
 
     private func scrollSingleQuestion(_ questionID: String, using proxy: ScrollViewProxy) {
@@ -1378,24 +1430,32 @@ private struct QuestionBankMaterialBody: View {
 }
 
 private struct QuestionBankOptionRow: View {
+    let questionID: String
     let option: QuestionBankOption
     let answer: String
     let readingMode: QuestionBankReadingMode
     let selectedOptionID: String?
     let revealsAnswer: Bool
+    let isInteractionBlocked: Bool
     let onSelect: () -> Void
     let assetLookup: (String) -> QuestionBankRecord?
 
     var body: some View {
         Group {
             if readingMode == .practice {
-                Button(action: onSelect) { row }
+                Button {
+                    guard !isInteractionBlocked else { return }
+                    onSelect()
+                } label: {
+                    row
+                }
                     .buttonStyle(.plain)
+                    .disabled(isInteractionBlocked)
             } else {
                 row
             }
         }
-        .accessibilityIdentifier("question-bank-option-\(option.id)")
+        .accessibilityIdentifier("question-bank-option-\(questionID)-\(option.id)")
     }
 
     private var row: some View {

@@ -9,8 +9,8 @@ enum QuestionBankReadingMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String { self == .reading ? "看题" : "刷题" }
 
-    func revealsAnswer(afterSelecting optionID: String?) -> Bool {
-        self == .reading || optionID != nil
+    func revealsAnswer(afterSelecting optionID: String?, wasConfirmed: Bool) -> Bool {
+        self == .reading || (optionID != nil && wasConfirmed)
     }
 }
 
@@ -106,6 +106,19 @@ enum QuestionBankSelectedOptionsStorage {
     static func encode(_ selections: [String: String]) -> String {
         guard let data = try? JSONEncoder().encode(selections),
               let value = String(data: data, encoding: .utf8) else { return "{}" }
+        return value
+    }
+}
+
+enum QuestionBankRevealedAnswersStorage {
+    static func decode(_ value: String) -> Set<String> {
+        guard let data = value.data(using: .utf8) else { return [] }
+        return Set((try? JSONDecoder().decode([String].self, from: data)) ?? [])
+    }
+
+    static func encode(_ questionIDs: Set<String>) -> String {
+        guard let data = try? JSONEncoder().encode(questionIDs.sorted()),
+              let value = String(data: data, encoding: .utf8) else { return "[]" }
         return value
     }
 }

@@ -77,6 +77,7 @@ struct RootTabView: View {
             }
             .environment(\.rootWindowTopInset, window.safeAreaInsets.top)
             .environment(\.rootTabSelection, $selection)
+            .accessibilityHidden(libraryDoodleSession.isPresented)
         }
         .tint(AppTheme.accent)
         .overlay {
