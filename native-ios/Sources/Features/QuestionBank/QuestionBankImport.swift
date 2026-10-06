@@ -20,6 +20,104 @@ struct QuestionBankPaper: Codable, Equatable, Sendable {
     }
 }
 
+enum QuestionBankBatchFamily: String, Codable, CaseIterable, Hashable, Sendable {
+    case national
+    case joint
+    case provincial
+
+    var title: String {
+        switch self {
+        case .national: "国考"
+        case .joint: "联考"
+        case .provincial: "省考"
+        }
+    }
+}
+
+struct QuestionBankSourceProvince: Codable, Equatable, Sendable, Identifiable {
+    var code: String
+    var name: String
+    var id: String { code }
+}
+
+/// Optional v1 extension. Every grouping value is supplied explicitly; no paper
+/// title, filename, or legacy `paper.volume` value is used to fill it in.
+struct QuestionBankBatchMetadata: Codable, Equatable, Sendable {
+    var family: QuestionBankBatchFamily
+    var sourceID: String
+    var revision: String
+    var year: Int
+    var volumeID: String?
+    var volumeName: String?
+    var sessionID: String?
+    var sessionName: String?
+    var sourceProvinces: [QuestionBankSourceProvince]?
+    var provinceCode: String?
+    var provinceName: String?
+    var batchID: String?
+    var batchName: String?
+
+    var validationError: String? {
+        guard !sourceID.trimmedNonempty.isEmpty else { return "batch.sourceID 不能为空。" }
+        guard !revision.trimmedNonempty.isEmpty else { return "batch.revision 不能为空。" }
+        guard year > 0 else { return "batch.year 必须是明确的正整数年份。" }
+        switch family {
+        case .national:
+            guard !volumeID.trimmedNonempty.isEmpty, !volumeName.trimmedNonempty.isEmpty else {
+                return "国考批次必须明确提供 batch.volumeID 和 batch.volumeName。"
+            }
+        case .joint:
+            guard !sessionID.trimmedNonempty.isEmpty, !sessionName.trimmedNonempty.isEmpty else {
+                return "联考批次必须明确提供 batch.sessionID 和 batch.sessionName。"
+            }
+            let provinces = sourceProvinces ?? []
+            guard !provinces.isEmpty,
+                  provinces.allSatisfy({ !$0.code.trimmedNonempty.isEmpty && !$0.name.trimmedNonempty.isEmpty }),
+                  Set(provinces.map { $0.code.trimmedNonempty }).count == provinces.count else {
+                return "联考批次必须提供非空且代码不重复的 batch.sourceProvinces。"
+            }
+        case .provincial:
+            guard !provinceCode.trimmedNonempty.isEmpty, !provinceName.trimmedNonempty.isEmpty,
+                  !batchID.trimmedNonempty.isEmpty, !batchName.trimmedNonempty.isEmpty else {
+                return "省考批次必须明确提供 provinceCode、provinceName、batchID 和 batchName。"
+            }
+        }
+        return nil
+    }
+
+    var identityKey: String {
+        let parts: [String]
+        switch family {
+        case .national:
+            parts = [family.rawValue, String(year), volumeID ?? ""]
+        case .joint:
+            parts = [family.rawValue, String(year), sessionID ?? ""]
+        case .provincial:
+            parts = [family.rawValue, String(year), provinceCode ?? "", batchID ?? ""]
+        }
+        return parts.map(Self.keyPart).joined(separator: "|")
+    }
+
+    var displayName: String {
+        switch family {
+        case .national: "\(year)年国考·\(volumeName ?? "")"
+        case .joint: "\(year)年联考·\(sessionName ?? "")"
+        case .provincial: "\(year)年\(provinceName ?? "")·\(batchName ?? "")"
+        }
+    }
+
+    private static func keyPart(_ value: String) -> String {
+        Data(value.trimmedNonempty.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+}
+
+extension String {
+    var trimmedNonempty: String { trimmingCharacters(in: .whitespacesAndNewlines) }
+}
+
 struct QuestionBankModule: Codable, Equatable, Sendable, Identifiable {
     var id: String
     var paperID: String
@@ -220,15 +318,17 @@ struct QuestionBankImportJSONV1: Codable, Sendable {
     var materials: [QuestionBankMaterial]
     var questions: [QuestionBankQuestion]
     var assets: [QuestionBankJSONAssetV1]
+    var batch: QuestionBankBatchMetadata?
 
     private enum CodingKeys: String, CodingKey {
-        case format, schemaVersion, paper, modules, materials, questions, assets
+        case format, schemaVersion, paper, modules, materials, questions, assets, batch
     }
 
     init(format: String = QuestionBankImportJSONV1.formatIdentifier,
          schemaVersion: Int = QuestionBankImportJSONV1.currentSchemaVersion,
          paper: QuestionBankPaper, modules: [QuestionBankModule], materials: [QuestionBankMaterial],
-         questions: [QuestionBankQuestion], assets: [QuestionBankJSONAssetV1]) {
+         questions: [QuestionBankQuestion], assets: [QuestionBankJSONAssetV1],
+         batch: QuestionBankBatchMetadata? = nil) {
         self.format = format
         self.schemaVersion = schemaVersion
         self.paper = paper
@@ -236,6 +336,7 @@ struct QuestionBankImportJSONV1: Codable, Sendable {
         self.materials = materials
         self.questions = questions
         self.assets = assets
+        self.batch = batch
     }
 
     init(from decoder: Decoder) throws {
@@ -255,6 +356,7 @@ struct QuestionBankImportJSONV1: Codable, Sendable {
         materials = try container.decode([QuestionBankJSONMaterialFieldsV1].self, forKey: .materials).map(\.value)
         questions = try container.decode([QuestionBankJSONQuestionFieldsV1].self, forKey: .questions).map(\.value)
         assets = try container.decode([QuestionBankJSONAssetV1].self, forKey: .assets)
+        batch = try container.decodeIfPresent(QuestionBankBatchMetadata.self, forKey: .batch)
     }
 }
 
@@ -267,6 +369,8 @@ struct QuestionBankImportPlan: Identifiable, Sendable {
     var assets: [QuestionBankAsset]
     var errors: [String]
     var stagingDirectory: URL?
+    var batchMetadata: QuestionBankBatchMetadata? = nil
+    var sourceFileSHA256: String = ""
 
     var canImport: Bool { paper != nil && errors.isEmpty && stagingDirectory != nil }
 }
@@ -439,14 +543,28 @@ enum QuestionBankRepository {
         decision: QuestionBankImportDecision,
         records: [QuestionBankRecord],
         context: ModelContext,
-        assetRoot: URL? = nil
+        assetRoot: URL? = nil,
+        batchPreparation: QuestionBankBatchPreparation? = nil,
+        batches: [QuestionBankBatchRecord] = [],
+        sources: [QuestionBankBatchSourceRecord] = [],
+        batchMaterialLinks: [QuestionBankBatchMaterialLinkRecord] = [],
+        batchQuestionLinks: [QuestionBankBatchQuestionLinkRecord] = []
     ) throws {
         guard plan.canImport, let paper = plan.paper, let stage = plan.stagingDirectory else {
             throw QuestionBankImportFailure.invalidPlan
         }
         let duplicate = duplicatePaper(for: paper, in: records)
-        if let duplicate, decision != .replaceExisting {
-            throw QuestionBankImportFailure.duplicatePaper(duplicate.title ?? "未命名试卷")
+        let previousPaperID = batchPreparation?.replacingPaperID ?? duplicate?.paperID
+        if let duplicate, let previousPaperID, duplicate.paperID != previousPaperID {
+            throw QuestionBankBatchFailure.conflictingReplacementTargets(
+                batchPreparation?.metadata.sourceID ?? paper.id
+            )
+        }
+        if let previousPaperID, decision != .replaceExisting {
+            let previousTitle = records.first {
+                $0.paperID == previousPaperID && $0.kind == paperKind
+            }?.title ?? duplicate?.title ?? "未命名试卷"
+            throw QuestionBankImportFailure.duplicatePaper(previousTitle)
         }
 
         let root: URL
@@ -456,7 +574,6 @@ enum QuestionBankRepository {
         guard let generationURL = QuestionBankAssetStore.url(for: generation, under: root) else {
             throw QuestionBankImportFailure.unsafeAssetPath
         }
-        let previousPaperID = duplicate?.paperID
         let replacingRows = records.filter { record in
             guard let previousPaperID else { return record.paperID == paper.id }
             return record.paperID == previousPaperID
@@ -506,6 +623,20 @@ enum QuestionBankRepository {
                     } else {
                         context.insert(row.makeRecord())
                     }
+                }
+                if let batchPreparation {
+                    QuestionBankBatchRepository.apply(
+                        batchPreparation, batches: batches, sources: sources,
+                        materialLinks: batchMaterialLinks, questionLinks: batchQuestionLinks,
+                        replacingPaperID: previousPaperID,
+                        context: context
+                    )
+                } else if let previousPaperID {
+                    QuestionBankBatchRepository.detachPaperFromBatches(
+                        previousPaperID, batches: batches, sources: sources,
+                        materialLinks: batchMaterialLinks, questionLinks: batchQuestionLinks,
+                        context: context
+                    )
                 }
             }
         } catch {
@@ -578,6 +709,7 @@ enum QuestionBankPackageImporter {
 
     private struct ParsedPackage {
         var paper: QuestionBankPaper?
+        var batchMetadata: QuestionBankBatchMetadata?
         var modules: [QuestionBankModule]
         var materials: [QuestionBankMaterial]
         var questions: [QuestionBankQuestion]
@@ -653,6 +785,7 @@ enum QuestionBankPackageImporter {
                 }
                 return url
             }
+            let sourceFileSHA256 = try sha256(fileAt: readableSource)
             let parsed = try runPhase(.parsing, onProgress: onProgress) {
                 fileExtension == "zip"
                     ? try parseZIP(from: readableSource, into: stage)
@@ -660,6 +793,12 @@ enum QuestionBankPackageImporter {
             }
             let imageAndReferenceErrors = try runPhase(.validatingImages, onProgress: onProgress) {
                 var errors = parsed.errors
+                if let metadataError = parsed.batchMetadata?.validationError {
+                    errors.append(metadataError)
+                }
+                if let batchYear = parsed.batchMetadata?.year, let paper = parsed.paper, batchYear != paper.year {
+                    errors.append("batch.year（\(batchYear)）与 paper.year（\(paper.year)）不一致；请核对来源数据，应用不会代为改写。")
+                }
                 if !parsed.jsonAssets.isEmpty {
                     errors += try installAndValidateJSONAssets(parsed.jsonAssets, paper: parsed.paper,
                         modules: parsed.modules, materials: parsed.materials, questions: parsed.questions,
@@ -675,7 +814,8 @@ enum QuestionBankPackageImporter {
                 logger.info("package validation finished; modules=\(parsed.modules.count), materials=\(parsed.materials.count), questions=\(parsed.questions.count), images=\(parsed.assets.count), errors=\(imageAndReferenceErrors.count)")
                 return QuestionBankImportPlan(paper: parsed.paper, modules: parsed.modules,
                     materials: parsed.materials, questions: parsed.questions, assets: parsed.assets,
-                    errors: imageAndReferenceErrors, stagingDirectory: stage)
+                    errors: imageAndReferenceErrors, stagingDirectory: stage,
+                    batchMetadata: parsed.batchMetadata, sourceFileSHA256: sourceFileSHA256)
             }
         } catch {
             logFailure("package preparation", error: error)
@@ -715,6 +855,22 @@ enum QuestionBankPackageImporter {
         } catch {
             throw PackageError("无法读取所选文件大小：\(error.localizedDescription)")
         }
+    }
+
+    private static func sha256(fileAt url: URL) throws -> String {
+        let handle: FileHandle
+        do { handle = try FileHandle(forReadingFrom: url) }
+        catch { throw PackageError("无法读取来源文件摘要：\(error.localizedDescription)") }
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        do {
+            while let chunk = try handle.read(upToCount: 1024 * 1024), !chunk.isEmpty {
+                hasher.update(data: chunk)
+            }
+        } catch {
+            throw PackageError("无法计算来源文件 SHA-256：\(error.localizedDescription)")
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     private static func makeReadableSource(from sourceURL: URL, source: QuestionBankImportSource) throws -> URL {
@@ -849,7 +1005,7 @@ enum QuestionBankPackageImporter {
         catch { logFailure("questions sheet validation", error: error); errors.append("题目表：\(error.localizedDescription)") }
         do { assets = try parseAssets(tables["图片资源"] ?? []) }
         catch { logFailure("image asset sheet validation", error: error); errors.append("图片资源表：\(error.localizedDescription)") }
-        return ParsedPackage(paper: paper, modules: modules, materials: materials,
+        return ParsedPackage(paper: paper, batchMetadata: nil, modules: modules, materials: materials,
             questions: questions, assets: assets, jsonAssets: [], errors: errors)
     }
 
@@ -872,7 +1028,7 @@ enum QuestionBankPackageImporter {
             throw PackageError("真题 JSON 格式无效：\(error.localizedDescription)")
         }
         try checkCancellation()
-        return ParsedPackage(paper: document.paper, modules: document.modules,
+        return ParsedPackage(paper: document.paper, batchMetadata: document.batch, modules: document.modules,
             materials: document.materials, questions: document.questions,
             assets: document.assets.map(\.metadata), jsonAssets: document.assets, errors: [])
     }

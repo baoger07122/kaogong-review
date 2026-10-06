@@ -48,6 +48,10 @@ struct QuestionBankView: View {
     @Environment(\.rootTabSelection) private var rootTabSelection
     @EnvironmentObject private var importRouter: QuestionBankImportRouter
     @Query private var records: [QuestionBankRecord]
+    @Query private var batchIndexes: [QuestionBankBatchRecord]
+    @Query private var batchSources: [QuestionBankBatchSourceRecord]
+    @Query private var batchMaterialLinks: [QuestionBankBatchMaterialLinkRecord]
+    @Query private var batchQuestionLinks: [QuestionBankBatchQuestionLinkRecord]
     @StateObject private var importProgress = QuestionBankImportProgressModel()
     @StateObject private var importSelection = QuestionBankImportSelectionCoordinator()
     @State private var searchText = ""
@@ -72,6 +76,9 @@ struct QuestionBankView: View {
 
     private var paperRecords: [QuestionBankRecord] {
         records.filter { $0.kind == QuestionBankRepository.paperKind }
+    }
+    private var sortedBatches: [QuestionBankBatchRecord] {
+        batchIndexes.sorted { ($0.year, $0.displayName) > ($1.year, $1.displayName) }
     }
     private var years: [String] {
         Array(Set(paperRecords.compactMap(\.year).map(String.init))).sorted(by: >)
@@ -149,6 +156,32 @@ struct QuestionBankView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    if !sortedBatches.isEmpty {
+                        VStack(alignment: .leading, spacing: 9) {
+                            Text("跨卷批次").font(AppTheme.sectionTitleFont)
+                            ForEach(sortedBatches, id: \.identityKey) { batch in
+                                NavigationLink {
+                                    QuestionBankBatchDetailView(batchID: batch.identityKey)
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "rectangle.stack.fill")
+                                            .foregroundStyle(AppTheme.accent)
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(batch.displayName).font(AppTheme.cardTitleFont).foregroundStyle(.primary)
+                                            Text("\(batch.sourceCount) 个来源 · \(batch.uniqueQuestionCount) 道唯一题 · \(batch.pendingCount) 条待核")
+                                                .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                                        }
+                                        Spacer(minLength: 0)
+                                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .nativeCard(padding: 13)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("question-bank-batch-\(batch.identityKey)")
+                            }
+                        }
+                    }
                     filterControls
 
                     if visiblePapers.isEmpty {
@@ -199,10 +232,11 @@ struct QuestionBankView: View {
             case .preview(let plan):
                 QuestionBankImportPreview(
                     plan: plan,
-                    duplicateTitle: plan.paper.flatMap { QuestionBankRepository.duplicatePaper(for: $0, in: records)?.title },
+                    records: records,
+                    batchSources: batchSources,
                     isImporting: isCommittingImport,
                     importFailure: $inlineImportFailure,
-                    onImport: { decision in commitImport(plan, decision: decision) },
+                    onImport: { decision, batchMetadata in commitImport(plan, decision: decision, batchMetadata: batchMetadata) },
                     onCancel: { activeImportSheet = nil }
                 )
             }
@@ -566,17 +600,35 @@ struct QuestionBankView: View {
         importLogger.info("question bank import cancelled by user")
     }
 
-    private func commitImport(_ plan: QuestionBankImportPlan, decision: QuestionBankImportDecision) {
+    private func commitImport(_ plan: QuestionBankImportPlan, decision: QuestionBankImportDecision,
+                              batchMetadata: QuestionBankBatchMetadata?) {
         guard !isCommittingImport else { return }
         isCommittingImport = true
         inlineImportFailure = nil
         do {
-            try QuestionBankRepository.commit(plan, decision: decision, records: records, context: modelContext)
+            let duplicate = plan.paper.flatMap { QuestionBankRepository.duplicatePaper(for: $0, in: records) }
+            let batchPreparation: QuestionBankBatchPreparation?
+            if let batchMetadata {
+                batchPreparation = try QuestionBankBatchRepository.prepare(
+                    metadata: batchMetadata, plan: plan, records: records,
+                    sourceRecords: batchSources, replacingPaperID: duplicate?.paperID
+                )
+            } else {
+                batchPreparation = nil
+            }
+            try QuestionBankRepository.commit(
+                plan, decision: decision, records: records, context: modelContext,
+                batchPreparation: batchPreparation, batches: batchIndexes, sources: batchSources,
+                batchMaterialLinks: batchMaterialLinks, batchQuestionLinks: batchQuestionLinks
+            )
             isCommittingImport = false
             activeImportSheet = nil
             importLogger.info("atomic import committed: modules=\(plan.modules.count), questions=\(plan.questions.count), assets=\(plan.assets.count)")
             importAlertTitle = "导入完成"
-            importAlertMessage = "已导入“\(plan.paper?.title ?? "试卷")”：\(plan.modules.count) 个模块、\(plan.questions.count) 道题目。套卷成绩记录和学习库数据未更改。"
+            let batchSuffix = batchPreparation.map {
+                "；批次新增唯一题 \($0.currentSourcePreview.uniqueQuestions)，精确重复 \($0.currentSourcePreview.duplicateQuestions)，待核 \($0.currentSourcePreview.suspectedQuestions + $0.currentSourcePreview.conflictingQuestions)"
+            } ?? ""
+            importAlertMessage = "已导入“\(plan.paper?.title ?? "试卷")”：\(plan.modules.count) 个模块、\(plan.questions.count) 道题目\(batchSuffix)。套卷成绩记录和学习库数据未更改。"
             showImportAlert = true
         } catch {
             isCommittingImport = false
@@ -621,16 +673,170 @@ private struct QuestionBankImportPreparingView: View {
 
 private struct QuestionBankImportPreview: View {
     let plan: QuestionBankImportPlan
-    let duplicateTitle: String?
     let isImporting: Bool
+    let records: [QuestionBankRecord]
+    let batchSources: [QuestionBankBatchSourceRecord]
     @Binding var importFailure: String?
-    let onImport: (QuestionBankImportDecision) -> Void
+    let onImport: (QuestionBankImportDecision, QuestionBankBatchMetadata?) -> Void
     let onCancel: () -> Void
-    @Environment(\.dismiss) private var dismiss
     @State private var asksToReplace = false
+    @State private var includesBatch: Bool
+    @State private var family: QuestionBankBatchFamily?
+    @State private var sourceID: String
+    @State private var revision: String
+    @State private var batchYear: String
+    @State private var volumeID: String
+    @State private var volumeName: String
+    @State private var sessionID: String
+    @State private var sessionName: String
+    @State private var sourceProvinces: String
+    @State private var provinceCode: String
+    @State private var provinceName: String
+    @State private var batchID: String
+    @State private var batchName: String
+
+    init(plan: QuestionBankImportPlan, records: [QuestionBankRecord],
+         batchSources: [QuestionBankBatchSourceRecord], isImporting: Bool,
+         importFailure: Binding<String?>,
+         onImport: @escaping (QuestionBankImportDecision, QuestionBankBatchMetadata?) -> Void,
+         onCancel: @escaping () -> Void) {
+        self.plan = plan
+        self.records = records
+        self.batchSources = batchSources
+        self.isImporting = isImporting
+        self._importFailure = importFailure
+        self.onImport = onImport
+        self.onCancel = onCancel
+        let metadata = plan.batchMetadata
+        _includesBatch = State(initialValue: metadata != nil)
+        _family = State(initialValue: metadata?.family)
+        _sourceID = State(initialValue: metadata?.sourceID ?? "")
+        _revision = State(initialValue: metadata?.revision ?? "")
+        _batchYear = State(initialValue: metadata.map { String($0.year) } ?? "")
+        _volumeID = State(initialValue: metadata?.volumeID ?? "")
+        _volumeName = State(initialValue: metadata?.volumeName ?? "")
+        _sessionID = State(initialValue: metadata?.sessionID ?? "")
+        _sessionName = State(initialValue: metadata?.sessionName ?? "")
+        _sourceProvinces = State(initialValue: (metadata?.sourceProvinces ?? [])
+            .map { "\($0.code)|\($0.name)" }.joined(separator: "\n"))
+        _provinceCode = State(initialValue: metadata?.provinceCode ?? "")
+        _provinceName = State(initialValue: metadata?.provinceName ?? "")
+        _batchID = State(initialValue: metadata?.batchID ?? "")
+        _batchName = State(initialValue: metadata?.batchName ?? "")
+    }
+
+    private var currentBatchMetadata: QuestionBankBatchMetadata? {
+        guard includesBatch, let family else { return nil }
+        let year = Int(batchYear.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+        let passthrough = plan.batchMetadata?.family == family ? plan.batchMetadata : nil
+        switch family {
+        case .national:
+            return QuestionBankBatchMetadata(family: family, sourceID: sourceID, revision: revision, year: year,
+                volumeID: volumeID, volumeName: volumeName, sessionID: passthrough?.sessionID,
+                sessionName: passthrough?.sessionName, sourceProvinces: passthrough?.sourceProvinces,
+                provinceCode: passthrough?.provinceCode, provinceName: passthrough?.provinceName,
+                batchID: passthrough?.batchID, batchName: passthrough?.batchName)
+        case .joint:
+            return QuestionBankBatchMetadata(family: family, sourceID: sourceID, revision: revision, year: year,
+                volumeID: passthrough?.volumeID, volumeName: passthrough?.volumeName,
+                sessionID: sessionID, sessionName: sessionName,
+                sourceProvinces: parseSourceProvinces(), provinceCode: passthrough?.provinceCode,
+                provinceName: passthrough?.provinceName, batchID: passthrough?.batchID,
+                batchName: passthrough?.batchName)
+        case .provincial:
+            return QuestionBankBatchMetadata(family: family, sourceID: sourceID, revision: revision, year: year,
+                volumeID: passthrough?.volumeID, volumeName: passthrough?.volumeName,
+                sessionID: passthrough?.sessionID, sessionName: passthrough?.sessionName,
+                sourceProvinces: passthrough?.sourceProvinces,
+                provinceCode: provinceCode, provinceName: provinceName,
+                batchID: batchID, batchName: batchName)
+        }
+    }
+
+    private var batchPreparationResult: Result<QuestionBankBatchPreparation, Error>? {
+        guard plan.canImport, let metadata = currentBatchMetadata, metadata.validationError == nil else { return nil }
+        let duplicate = replacementPaperRecord
+        return Result {
+            try QuestionBankBatchRepository.prepare(metadata: metadata, plan: plan, records: records,
+                sourceRecords: batchSources, replacingPaperID: duplicate?.paperID)
+        }
+    }
+
+    private var duplicatePaperRecord: QuestionBankRecord? {
+        plan.paper.flatMap { QuestionBankRepository.duplicatePaper(for: $0, in: records) }
+    }
+
+    private var existingSourcePaperRecord: QuestionBankRecord? {
+        guard includesBatch, let metadata = currentBatchMetadata else { return nil }
+        let stableSourceID = metadata.sourceID.trimmedNonempty
+        guard let source = batchSources.first(where: { $0.sourceID == stableSourceID }) else { return nil }
+        return records.first {
+            $0.paperID == source.paperID && $0.kind == QuestionBankRepository.paperKind
+        }
+    }
+
+    private var replacementPaperRecord: QuestionBankRecord? {
+        existingSourcePaperRecord ?? duplicatePaperRecord
+    }
+
+    private var replacementTitle: String? {
+        replacementPaperRecord.map { row in
+            row.decoded(QuestionBankPaper.self)?.title ?? row.title ?? "未命名试卷"
+        }
+    }
+
+    private func parseSourceProvinces() -> [QuestionBankSourceProvince] {
+        return sourceProvinceLines.compactMap { line in
+            let parts = line.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else { return nil }
+            return QuestionBankSourceProvince(code: String(parts[0]).trimmedNonempty,
+                name: String(parts[1]).trimmedNonempty)
+        }
+    }
+
+    private var sourceProvinceLines: [String] {
+        var lines = sourceProvinces
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n")
+        while lines.last?.trimmedNonempty.isEmpty == true { lines.removeLast() }
+        return lines
+    }
+
+    private var hasMalformedSourceProvinceLine: Bool {
+        sourceProvinceLines.contains { line in
+            let parts = line.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+            return parts.count != 2 || parts.contains { String($0).trimmedNonempty.isEmpty }
+        }
+    }
+
+    private func submit(_ decision: QuestionBankImportDecision) {
+        onImport(decision, currentBatchMetadata)
+    }
 
     var body: some View {
-        NavigationStack {
+        let batchResult = batchPreparationResult
+        let metadataError: String? = {
+            guard includesBatch else { return nil }
+            guard let family else { return "请选择批次类别。" }
+            guard let metadata = currentBatchMetadata else { return "请填写完整批次信息。" }
+            if let existingSourcePaperRecord, let duplicatePaperRecord,
+               existingSourcePaperRecord.paperID != duplicatePaperRecord.paperID {
+                return QuestionBankBatchFailure.conflictingReplacementTargets(metadata.sourceID)
+                    .localizedDescription
+            }
+            if family == .joint && hasMalformedSourceProvinceLine {
+                return "来源省份每行必须按“代码|名称”填写；无效行不会被忽略。"
+            }
+            if let message = metadata.validationError { return message }
+            if let batchResult, case .failure(let error) = batchResult { return error.localizedDescription }
+            return nil
+        }()
+        let preparedBatch: QuestionBankBatchPreparation? = {
+            guard let batchResult, case .success(let preparation) = batchResult else { return nil }
+            return preparation
+        }()
+        return NavigationStack {
             Form {
                 if let importFailure {
                     Section("导入失败，原有试卷未更改") {
@@ -646,6 +852,50 @@ private struct QuestionBankImportPreview: View {
                     LabeledContent("共用材料", value: "\(plan.materials.count) 份")
                     LabeledContent("题目", value: "\(plan.questions.count) 道")
                     LabeledContent("图片", value: "\(plan.assets.count) 张")
+                }
+                Section("跨卷批次") {
+                    Toggle("加入跨卷批次", isOn: $includesBatch)
+                    if includesBatch {
+                        Picker("批次类别", selection: $family) {
+                            Text("请选择类别").tag(QuestionBankBatchFamily?.none)
+                            ForEach(QuestionBankBatchFamily.allCases, id: \.self) { value in
+                                Text(value.title).tag(Optional(value))
+                            }
+                        }
+                        TextField("来源标识 sourceID", text: $sourceID).textInputAutocapitalization(.never)
+                        TextField("来源修订 revision", text: $revision).textInputAutocapitalization(.never)
+                        TextField("批次年份 year", text: $batchYear).keyboardType(.numberPad)
+                        if let family {
+                            switch family {
+                            case .national:
+                                TextField("明确卷别 ID volumeID", text: $volumeID)
+                                TextField("明确卷别名称 volumeName", text: $volumeName)
+                            case .joint:
+                                TextField("明确场次 ID sessionID", text: $sessionID)
+                                TextField("明确场次名称 sessionName", text: $sessionName)
+                                TextField("来源省份：每行代码|名称", text: $sourceProvinces, axis: .vertical)
+                                    .lineLimit(1...4)
+                            case .provincial:
+                                TextField("省份代码 provinceCode", text: $provinceCode)
+                                TextField("省份名称 provinceName", text: $provinceName)
+                                TextField("批次 ID batchID", text: $batchID)
+                                TextField("批次名称 batchName", text: $batchName)
+                            }
+                        }
+                        if let metadataError {
+                            Label(metadataError, systemImage: "exclamationmark.triangle.fill")
+                                .font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.danger)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else if let preview = preparedBatch?.currentSourcePreview {
+                            LabeledContent("题目", value: "新增唯一 \(preview.uniqueQuestions) · 精确重复 \(preview.duplicateQuestions) · 疑似 \(preview.suspectedQuestions) · 冲突 \(preview.conflictingQuestions)")
+                            LabeledContent("材料", value: "新增唯一 \(preview.uniqueMaterials) · 精确重复 \(preview.duplicateMaterials) · 待核 \(preview.pendingMaterials)")
+                        }
+                        Text("批次只新增索引与来源关联，不复制正文或图片；整卷替换仍按上方确认执行。卷别、省份、场次和批次必须由来源明确提供，不从标题或文件名猜测。")
+                            .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                    } else if plan.batchMetadata == nil {
+                        Text("旧版 v1 文件可继续作为单卷导入；需要归入批次时再填写明确元数据。")
+                            .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                    }
                 }
                 if !plan.errors.isEmpty {
                     Section("校验错误（修复后再导入）") {
@@ -673,10 +923,11 @@ private struct QuestionBankImportPreview: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isImporting ? "正在导入…" : "导入试卷") {
-                        if duplicateTitle != nil { asksToReplace = true }
-                        else { onImport(.add) }
+                        if replacementTitle != nil { asksToReplace = true }
+                        else { submit(.add) }
                     }
-                    .disabled(!plan.canImport || isImporting)
+                    .disabled(!plan.canImport || isImporting
+                        || (includesBatch && (metadataError != nil || preparedBatch == nil)))
                 }
             }
             .confirmationDialog(
@@ -684,12 +935,12 @@ private struct QuestionBankImportPreview: View {
                 isPresented: $asksToReplace,
                 titleVisibility: .visible
             ) {
-                Button("替换已有的“\(duplicateTitle ?? "同名试卷")”", role: .destructive) {
-                    onImport(.replaceExisting)
+                Button("替换已有的“\(replacementTitle ?? "同名试卷")”", role: .destructive) {
+                    submit(.replaceExisting)
                 }
                 Button("取消导入", role: .cancel) { }
             } message: {
-                Text("按试卷ID或年份、考试类型、卷别和名称识别为同一套试卷。替换失败时仍保留原数据。")
+                Text("按来源标识的修订关系、试卷 ID，或年份、考试类型、卷别和名称识别替换目标。替换失败时仍保留原数据。")
             }
         }
         .presentationDetents([.medium, .large])

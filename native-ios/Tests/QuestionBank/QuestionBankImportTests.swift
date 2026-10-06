@@ -1078,7 +1078,8 @@ final class QuestionBankImportTests: XCTestCase {
                 originalPage: asset.originalPage, dataBase64: data.base64EncodedString(), sha256: digest)
         }
         return QuestionBankImportJSONV1(paper: try XCTUnwrap(plan.paper), modules: plan.modules,
-            materials: plan.materials, questions: plan.questions, assets: assets)
+            materials: plan.materials, questions: plan.questions, assets: assets,
+            batch: plan.batchMetadata)
     }
 
     private func writeJSON(_ document: QuestionBankImportJSONV1, to directory: URL, name: String) throws -> URL {
@@ -1116,8 +1117,381 @@ final class QuestionBankImportTests: XCTestCase {
             "Expected error containing ‘\(phrase)’ and ‘\(context)’; got: \(plan.errors)", file: file, line: line)
     }
 
+    func testQuestionBankJSONV1CarriesExplicitBatchMetadataAndHashesOriginalBytes() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankBatchJSON-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        let paper = batchTestPaper(id: "json-batch-paper", title: "批次 JSON")
+        let module = QuestionBankModule(id: "module-\(paper.id)", paperID: paper.id,
+            sequence: 1, title: "阅读理解", instruction: "请选择正确答案。", originalPage: "1")
+        let question = batchTestQuestion(id: "json-batch-question", paperID: paper.id,
+            materialID: "", stem: "JSON 元数据兼容测试", answer: "A", reordered: false)
+        let metadata = batchMetadata(family: .national, sourceID: "json-source", revision: "r1",
+            year: paper.year, volumeID: "explicit-volume", volumeName: "明确卷别")
+        let document = QuestionBankImportJSONV1(paper: paper, modules: [module],
+            materials: [], questions: [question], assets: [], batch: metadata)
+        let jsonURL = try writeJSON(document, to: temporaryRoot, name: "batch.json")
+        let rawBytes = try Data(contentsOf: jsonURL)
+        let plan = try QuestionBankPackageImporter.prepare(from: jsonURL)
+        defer { QuestionBankPackageImporter.cleanup(plan) }
+
+        XCTAssertTrue(plan.errors.isEmpty, plan.errors.joined(separator: "\n"))
+        XCTAssertEqual(plan.batchMetadata, metadata)
+        XCTAssertEqual(plan.sourceFileSHA256,
+            SHA256.hash(data: rawBytes).map { String(format: "%02x", $0) }.joined())
+
+        var mismatchedYearDocument = document
+        mismatchedYearDocument.batch?.year = paper.year + 1
+        let mismatchedYearURL = try writeJSON(mismatchedYearDocument, to: temporaryRoot,
+            name: "batch-year-mismatch.json")
+        let mismatchedYearPlan = try QuestionBankPackageImporter.prepare(from: mismatchedYearURL)
+        defer { QuestionBankPackageImporter.cleanup(mismatchedYearPlan) }
+        XCTAssertTrue(mismatchedYearPlan.errors.contains { $0.contains("batch.year") && $0.contains("paper.year") })
+    }
+
+    func testBatchIdentityUsesOnlyTheDeclaredFamilyFields() {
+        let nationalA = batchMetadata(family: .national, sourceID: "n-a", revision: "1",
+            year: 2026, volumeID: "volume-a", volumeName: "A卷")
+        let nationalB = batchMetadata(family: .national, sourceID: "n-b", revision: "1",
+            year: 2026, volumeID: "volume-b", volumeName: "B卷")
+        XCTAssertNil(nationalA.validationError)
+        XCTAssertNotEqual(nationalA.identityKey, nationalB.identityKey)
+
+        let jointA = batchMetadata(family: .joint, sourceID: "j-a", revision: "1",
+            year: 2026, sessionID: "spring", sessionName: "春季联考",
+            sourceProvinces: [QuestionBankSourceProvince(code: "A", name: "甲省")])
+        let jointB = batchMetadata(family: .joint, sourceID: "j-b", revision: "1",
+            year: 2026, sessionID: "spring", sessionName: "春季联考",
+            sourceProvinces: [QuestionBankSourceProvince(code: "B", name: "乙省")])
+        XCTAssertEqual(jointA.identityKey, jointB.identityKey)
+
+        let provincialA = batchMetadata(family: .provincial, sourceID: "p-a", revision: "1",
+            year: 2026, provinceCode: "P", provinceName: "丙省", batchID: "spring", batchName: "春季")
+        let provincialB = batchMetadata(family: .provincial, sourceID: "p-b", revision: "1",
+            year: 2026, provinceCode: "P", provinceName: "丙省", batchID: "autumn", batchName: "秋季")
+        XCTAssertNotEqual(provincialA.identityKey, provincialB.identityKey)
+
+        let incomplete = batchMetadata(family: .national, sourceID: "n-x", revision: "1", year: 2026)
+        XCTAssertNotNil(incomplete.validationError, "The importer must not infer the national volume.")
+    }
+
+    func testSourceRevisionCannotReplaceASeparatePaperMatchedByItsNewTitle() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankBatchReplacementConflict-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let metadata = batchMetadata(family: .national, sourceID: "collision-source", revision: "2",
+            year: 2025, volumeID: "main", volumeName: "主卷")
+        let oldPaper = batchTestPaper(id: "collision-source-old", title: "原来源名称")
+        let otherPaper = batchTestPaper(id: "other-paper", title: "修订后的来源名称")
+        let incomingPaper = batchTestPaper(id: "collision-source-new", title: otherPaper.title)
+        let records = try [
+            batchTestRecord(kind: QuestionBankRepository.paperKind, id: oldPaper.id,
+                paperID: oldPaper.id, value: oldPaper),
+            batchTestRecord(kind: QuestionBankRepository.paperKind, id: otherPaper.id,
+                paperID: otherPaper.id, value: otherPaper)
+        ]
+        let source = QuestionBankBatchSourceRecord(sourceID: metadata.sourceID,
+            batchID: metadata.identityKey, revision: "1", sourceSHA256: String(repeating: "a", count: 64),
+            paperID: oldPaper.id, importedAt: Date(timeIntervalSince1970: 1),
+            sourceQuestionCount: 0, sourceMaterialCount: 0, uniqueQuestionCount: 0,
+            duplicateQuestionCount: 0, pendingQuestionCount: 0, uniqueMaterialCount: 0,
+            duplicateMaterialCount: 0, pendingMaterialCount: 0)
+        let emptyPlan = QuestionBankImportPlan(paper: incomingPaper, modules: [], materials: [],
+            questions: [], assets: [], errors: [], stagingDirectory: temporaryRoot,
+            batchMetadata: metadata, sourceFileSHA256: String(repeating: "b", count: 64))
+
+        XCTAssertThrowsError(try QuestionBankBatchRepository.prepare(metadata: metadata, plan: emptyPlan,
+            records: records, sourceRecords: [source])) { error in
+            XCTAssertTrue(error.localizedDescription.contains("对应的原试卷与本次匹配到的另一套试卷"),
+                error.localizedDescription)
+        }
+    }
+
+    func testBatchPreviewMapsReorderedOptionsAndKeepsAnswerConflictsPending() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankBatchPreview-\(UUID().uuidString)", isDirectory: true)
+        let stage = temporaryRoot.appendingPathComponent("incoming-stage", isDirectory: true)
+        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let metadata = batchMetadata(family: .national, sourceID: "source-new", revision: "1",
+            year: 2025, volumeID: "main", volumeName: "国考")
+        let oldPaper = batchTestPaper(id: "source-old-paper", title: "来源甲")
+        let oldMaterial = batchTestMaterial(id: "old-material", paperID: oldPaper.id, text: "共享材料")
+        let oldQuestion = batchTestQuestion(id: "old-question", paperID: oldPaper.id,
+            materialID: oldMaterial.id, stem: "题干 文字", answer: "A", reordered: false)
+        let oldRows = try [
+            batchTestRecord(kind: QuestionBankRepository.paperKind, id: oldPaper.id, paperID: oldPaper.id, value: oldPaper),
+            batchTestRecord(kind: QuestionBankRepository.materialKind, id: oldMaterial.id, paperID: oldPaper.id, value: oldMaterial),
+            batchTestRecord(kind: QuestionBankRepository.questionKind, id: oldQuestion.id, paperID: oldPaper.id, value: oldQuestion)
+        ]
+        let oldSource = QuestionBankBatchSourceRecord(
+            sourceID: "source-old", batchID: metadata.identityKey, revision: "1",
+            sourceSHA256: String(repeating: "a", count: 64), paperID: oldPaper.id, importedAt: Date(timeIntervalSince1970: 10),
+            sourceQuestionCount: 1, sourceMaterialCount: 1, uniqueQuestionCount: 1,
+            duplicateQuestionCount: 0, pendingQuestionCount: 0, uniqueMaterialCount: 1,
+            duplicateMaterialCount: 0, pendingMaterialCount: 0
+        )
+        let newPaper = batchTestPaper(id: "source-new-paper", title: "来源乙")
+        let newMaterial = batchTestMaterial(id: "new-material", paperID: newPaper.id, text: "共享\n材料")
+        let reorderedQuestion = batchTestQuestion(id: "new-question", paperID: newPaper.id,
+            materialID: newMaterial.id, stem: "题干\n文字", answer: "B", reordered: true)
+        let plan = batchTestPlan(paper: newPaper, material: newMaterial, question: reorderedQuestion,
+            stage: stage, metadata: metadata, sha: String(repeating: "b", count: 64))
+
+        let exact = try QuestionBankBatchRepository.prepare(metadata: metadata, plan: plan,
+            records: oldRows, sourceRecords: [oldSource])
+        XCTAssertEqual(exact.currentSourcePreview.uniqueMaterials, 0)
+        XCTAssertEqual(exact.currentSourcePreview.duplicateMaterials, 1)
+        XCTAssertEqual(exact.currentSourcePreview.uniqueQuestions, 0)
+        XCTAssertEqual(exact.currentSourcePreview.duplicateQuestions, 1)
+        XCTAssertEqual(exact.questionLinks.last?.canonicalPaperID, oldPaper.id)
+        XCTAssertEqual(exact.questionLinks.last?.canonicalQuestionID, oldQuestion.id)
+
+        let conflictMetadata = batchMetadata(family: .national, sourceID: "source-conflict", revision: "1",
+            year: 2025, volumeID: "main", volumeName: "国考")
+        let wrongAnswer = batchTestQuestion(id: "conflict-question", paperID: newPaper.id,
+            materialID: newMaterial.id, stem: "题干文字", answer: "A", reordered: true)
+        let conflictPlan = batchTestPlan(paper: newPaper, material: newMaterial, question: wrongAnswer,
+            stage: stage, metadata: conflictMetadata, sha: String(repeating: "c", count: 64))
+        let conflict = try QuestionBankBatchRepository.prepare(metadata: conflictMetadata, plan: conflictPlan,
+            records: oldRows, sourceRecords: [oldSource])
+        XCTAssertEqual(conflict.currentSourcePreview.conflictingQuestions, 1)
+        XCTAssertNil(conflict.questionLinks.last?.canonicalQuestionID,
+            "A same-stem question with a different correct option must remain pending, not be silently dropped.")
+    }
+
+    func testJointBatchDeduplicatesSharedMaterialWithoutMergingDifferentQuestions() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankJointBatch-\(UUID().uuidString)", isDirectory: true)
+        let stage = temporaryRoot.appendingPathComponent("stage", isDirectory: true)
+        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let oldMetadata = batchMetadata(family: .joint, sourceID: "joint-source-a", revision: "1",
+            year: 2025, sessionID: "spring", sessionName: "春季联考",
+            sourceProvinces: [QuestionBankSourceProvince(code: "A", name: "甲省")])
+        let oldPaper = batchTestPaper(id: "joint-paper-a", title: "甲省来源")
+        let oldMaterial = batchTestMaterial(id: "joint-material-a", paperID: oldPaper.id, text: "联考共同材料")
+        let oldQuestion = batchTestQuestion(id: "joint-question-a", paperID: oldPaper.id,
+            materialID: oldMaterial.id, stem: "第一道题", answer: "A", reordered: false)
+        let records = try [
+            batchTestRecord(kind: QuestionBankRepository.paperKind, id: oldPaper.id, paperID: oldPaper.id, value: oldPaper),
+            batchTestRecord(kind: QuestionBankRepository.materialKind, id: oldMaterial.id, paperID: oldPaper.id, value: oldMaterial),
+            batchTestRecord(kind: QuestionBankRepository.questionKind, id: oldQuestion.id, paperID: oldPaper.id, value: oldQuestion)
+        ]
+        let source = QuestionBankBatchSourceRecord(sourceID: oldMetadata.sourceID,
+            batchID: oldMetadata.identityKey, revision: oldMetadata.revision,
+            sourceSHA256: String(repeating: "a", count: 64), metadataPayload: try JSONEncoder().encode(oldMetadata),
+            paperID: oldPaper.id, importedAt: Date(timeIntervalSince1970: 20),
+            sourceQuestionCount: 1, sourceMaterialCount: 1, uniqueQuestionCount: 1,
+            duplicateQuestionCount: 0, pendingQuestionCount: 0, uniqueMaterialCount: 1,
+            duplicateMaterialCount: 0, pendingMaterialCount: 0)
+
+        let incomingMetadata = batchMetadata(family: .joint, sourceID: "joint-source-b", revision: "1",
+            year: 2025, sessionID: "spring", sessionName: "春季联考",
+            sourceProvinces: [QuestionBankSourceProvince(code: "B", name: "乙省")])
+        let incomingPaper = batchTestPaper(id: "joint-paper-b", title: "乙省来源")
+        let incomingMaterial = batchTestMaterial(id: "joint-material-b", paperID: incomingPaper.id, text: "联考共同\n材料")
+        let incomingQuestion = batchTestQuestion(id: "joint-question-b", paperID: incomingPaper.id,
+            materialID: incomingMaterial.id, stem: "第二道题", answer: "A", reordered: false)
+        let plan = batchTestPlan(paper: incomingPaper, material: incomingMaterial,
+            question: incomingQuestion, stage: stage, metadata: incomingMetadata,
+            sha: String(repeating: "b", count: 64))
+
+        let prepared = try QuestionBankBatchRepository.prepare(metadata: incomingMetadata,
+            plan: plan, records: records, sourceRecords: [source])
+        XCTAssertEqual(prepared.batchID, oldMetadata.identityKey)
+        XCTAssertEqual(prepared.currentSourcePreview.duplicateMaterials, 1)
+        XCTAssertEqual(prepared.currentSourcePreview.uniqueQuestions, 1)
+        XCTAssertEqual(prepared.materialLinks.last?.canonicalMaterialID, oldMaterial.id)
+        XCTAssertEqual(prepared.questionLinks.last?.status, .unique)
+    }
+
+    func testReimportedBatchSourceRevisionReplacesRenamedPaperAndKeepsOneLedger() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankBatchRevision-\(UUID().uuidString)", isDirectory: true)
+        let stage = temporaryRoot.appendingPathComponent("stage", isDirectory: true)
+        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let paper = batchTestPaper(id: "revision-paper", title: "批次修订测试")
+        let material = batchTestMaterial(id: "revision-material", paperID: paper.id, text: "材料")
+        let question = batchTestQuestion(id: "revision-question", paperID: paper.id,
+            materialID: material.id, stem: "题目", answer: "A", reordered: false)
+        let metadataV1 = batchMetadata(family: .provincial, sourceID: "stable-source",
+            revision: "1", year: 2025, provinceCode: "P", provinceName: "测试省",
+            batchID: "spring", batchName: "春季")
+        let planV1 = batchTestPlan(paper: paper, material: material, question: question,
+            stage: stage, metadata: metadataV1, sha: String(repeating: "1", count: 64))
+        let container = try makeBatchMemoryContainer()
+        let context = container.mainContext
+        let firstPrepared = try QuestionBankBatchRepository.prepare(metadata: metadataV1,
+            plan: planV1, records: [], sourceRecords: [])
+        try QuestionBankRepository.commit(planV1, decision: .add, records: [], context: context,
+            assetRoot: temporaryRoot.appendingPathComponent("question-assets"),
+            batchPreparation: firstPrepared)
+
+        let savedRows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        let savedSources = try context.fetch(FetchDescriptor<QuestionBankBatchSourceRecord>())
+        let savedBatches = try context.fetch(FetchDescriptor<QuestionBankBatchRecord>())
+        let savedMaterialLinks = try context.fetch(FetchDescriptor<QuestionBankBatchMaterialLinkRecord>())
+        let savedQuestionLinks = try context.fetch(FetchDescriptor<QuestionBankBatchQuestionLinkRecord>())
+        let metadataV2 = batchMetadata(family: .provincial, sourceID: "stable-source",
+            revision: "2", year: 2025, provinceCode: "P", provinceName: "测试省",
+            batchID: "spring", batchName: "春季")
+        let revisedPaper = batchTestPaper(id: "revision-paper-v2", title: "批次修订测试·更名")
+        let revisedMaterial = batchTestMaterial(id: "revision-material-v2", paperID: revisedPaper.id, text: "材料")
+        let revisedQuestion = batchTestQuestion(id: "revision-question-v2", paperID: revisedPaper.id,
+            materialID: revisedMaterial.id, stem: "题目", answer: "A", reordered: false)
+        let planV2 = batchTestPlan(paper: revisedPaper, material: revisedMaterial, question: revisedQuestion,
+            stage: stage, metadata: metadataV2, sha: String(repeating: "2", count: 64))
+        let secondPrepared = try QuestionBankBatchRepository.prepare(metadata: metadataV2,
+            plan: planV2, records: savedRows, sourceRecords: savedSources)
+        XCTAssertEqual(secondPrepared.replacingPaperID, paper.id,
+            "The same stable source ID must replace its prior paper even when a revision changes the paper ID and title.")
+        try QuestionBankRepository.commit(planV2, decision: .replaceExisting, records: savedRows,
+            context: context, assetRoot: temporaryRoot.appendingPathComponent("question-assets"),
+            batchPreparation: secondPrepared, batches: savedBatches, sources: savedSources,
+            batchMaterialLinks: savedMaterialLinks, batchQuestionLinks: savedQuestionLinks)
+
+        let finalSources = try context.fetch(FetchDescriptor<QuestionBankBatchSourceRecord>())
+        let finalRows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        let finalBatch = try XCTUnwrap(context.fetch(FetchDescriptor<QuestionBankBatchRecord>()).first)
+        XCTAssertEqual(finalSources.count, 1)
+        XCTAssertEqual(finalSources.first?.sourceID, "stable-source")
+        XCTAssertEqual(finalSources.first?.revision, "2")
+        XCTAssertEqual(finalSources.first?.sourceSHA256, planV2.sourceFileSHA256)
+        XCTAssertEqual(finalSources.first?.paperID, revisedPaper.id)
+        let savedMetadata = try JSONDecoder().decode(
+            QuestionBankBatchMetadata.self, from: try XCTUnwrap(finalSources.first?.metadataPayload)
+        )
+        XCTAssertEqual(savedMetadata.batchID, "spring")
+        XCTAssertEqual(finalBatch.sourceCount, 1)
+        XCTAssertFalse(finalRows.contains {
+            $0.paperID == paper.id && $0.kind == QuestionBankRepository.paperKind
+        })
+        XCTAssertEqual(finalRows.filter { $0.kind == QuestionBankRepository.questionKind }.count, 1)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<QuestionBankBatchQuestionLinkRecord>()).count, 1)
+        let originalImportDate = try XCTUnwrap(finalSources.first?.importedAt)
+        let repeatedPreparation = try QuestionBankBatchRepository.prepare(metadata: metadataV2,
+            plan: planV2, records: finalRows, sourceRecords: finalSources)
+        try QuestionBankRepository.commit(planV2, decision: .replaceExisting, records: finalRows,
+            context: context, assetRoot: temporaryRoot.appendingPathComponent("question-assets"),
+            batchPreparation: repeatedPreparation,
+            batches: try context.fetch(FetchDescriptor<QuestionBankBatchRecord>()),
+            sources: finalSources,
+            batchMaterialLinks: try context.fetch(FetchDescriptor<QuestionBankBatchMaterialLinkRecord>()),
+            batchQuestionLinks: try context.fetch(FetchDescriptor<QuestionBankBatchQuestionLinkRecord>()))
+        XCTAssertEqual(try context.fetch(FetchDescriptor<QuestionBankBatchSourceRecord>()).first?.importedAt,
+            originalImportDate, "Reimporting identical bytes and metadata must stay idempotent.")
+    }
+
+    func testFailedBatchReplacementPreservesSourceLedgerPaperDoodleAndAsset() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankBatchRollback-\(UUID().uuidString)", isDirectory: true)
+        let stage = temporaryRoot.appendingPathComponent("stage", isDirectory: true)
+        let assetRoot = temporaryRoot.appendingPathComponent("question-assets", isDirectory: true)
+        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: assetRoot.appendingPathComponent("old-generation/assets"),
+            withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let paper = batchTestPaper(id: "rollback-paper", title: "批次回滚")
+        let material = batchTestMaterial(id: "rollback-material", paperID: paper.id, text: "材料")
+        let question = batchTestQuestion(id: "rollback-question", paperID: paper.id,
+            materialID: material.id, stem: "题目", answer: "A", reordered: false)
+        let metadataV1 = batchMetadata(family: .national, sourceID: "rollback-source",
+            revision: "1", year: 2025, volumeID: "volume", volumeName: "主卷")
+        let planV1 = batchTestPlan(paper: paper, material: material, question: question,
+            stage: stage, metadata: metadataV1, sha: String(repeating: "a", count: 64))
+        let container = try makeBatchMemoryContainer()
+        let context = container.mainContext
+        let first = try QuestionBankBatchRepository.prepare(metadata: metadataV1,
+            plan: planV1, records: [], sourceRecords: [])
+        try QuestionBankRepository.commit(planV1, decision: .add, records: [], context: context,
+            assetRoot: assetRoot, batchPreparation: first)
+
+        let storedImage = Data([0x89, 0x50, 0x4E, 0x47, 0x10, 0x20])
+        let oldImageURL = assetRoot.appendingPathComponent("old-generation/assets/old.png")
+        try storedImage.write(to: oldImageURL)
+        let asset = QuestionBankAsset(id: "kept-image", paperID: paper.id,
+            ownerType: "question", ownerID: question.id, role: "题干整图",
+            path: "assets/old.png", mimeType: "image/png", fileName: "old.png", originalPage: "1")
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.assetKind, id: asset.id,
+            paperID: paper.id, value: asset, assetRelativePath: "old-generation/assets/old.png"))
+        let doodlePayload = Data("{\"drawing\":\"keep\"}".utf8)
+        context.insert(StoredRecord(collection: "doodles", recordID: "rollback-doodle", payload: doodlePayload))
+        try context.save()
+
+        let metadataV2 = batchMetadata(family: .national, sourceID: "rollback-source",
+            revision: "2", year: 2025, volumeID: "volume", volumeName: "主卷")
+        let planV2 = batchTestPlan(paper: paper, material: material, question: question,
+            stage: stage, metadata: metadataV2, sha: String(repeating: "b", count: 64))
+        let savedRows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        let savedSources = try context.fetch(FetchDescriptor<QuestionBankBatchSourceRecord>())
+        let savedBatches = try context.fetch(FetchDescriptor<QuestionBankBatchRecord>())
+        let savedMaterialLinks = try context.fetch(FetchDescriptor<QuestionBankBatchMaterialLinkRecord>())
+        let savedQuestionLinks = try context.fetch(FetchDescriptor<QuestionBankBatchQuestionLinkRecord>())
+        let next = try QuestionBankBatchRepository.prepare(metadata: metadataV2,
+            plan: planV2, records: savedRows, sourceRecords: savedSources,
+            replacingPaperID: paper.id)
+        var brokenPlan = planV2
+        brokenPlan.assets = [QuestionBankAsset(id: "missing-image", paperID: paper.id,
+            ownerType: "question", ownerID: question.id, role: "题干整图",
+            path: "assets/missing.png", mimeType: "image/png", fileName: "missing.png", originalPage: "1")]
+
+        XCTAssertThrowsError(try QuestionBankRepository.commit(brokenPlan, decision: .replaceExisting,
+            records: savedRows, context: context, assetRoot: assetRoot, batchPreparation: next,
+            batches: savedBatches, sources: savedSources, batchMaterialLinks: savedMaterialLinks,
+            batchQuestionLinks: savedQuestionLinks))
+        XCTAssertEqual(try context.fetch(FetchDescriptor<QuestionBankBatchSourceRecord>()).first?.revision, "1")
+        XCTAssertEqual(try context.fetch(FetchDescriptor<QuestionBankBatchSourceRecord>()).first?.sourceSHA256, planV1.sourceFileSHA256)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<QuestionBankRecord>())
+            .filter { $0.kind == QuestionBankRepository.questionKind }.count, 1)
+        XCTAssertEqual(try Data(contentsOf: oldImageURL), storedImage)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<StoredRecord>())
+            .first { $0.recordID == "rollback-doodle" }?.payload, doodlePayload)
+    }
+
+    func testAddingBatchModelsMigratesExistingPaperDoodleAndAssetWithoutDeletingThem() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankBatchMigration-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+        let storeURL = temporaryRoot.appendingPathComponent("ExistingQuestionBank.store")
+        let assetRoot = temporaryRoot.appendingPathComponent("QuestionBankAssets", isDirectory: true)
+        let oldAssetRelativePath = "legacy-generation/assets/figure.png"
+        let oldAssetURL = assetRoot.appendingPathComponent(oldAssetRelativePath)
+        try FileManager.default.createDirectory(at: oldAssetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let originalImageBytes = Data([0x89, 0x50, 0x4E, 0x47, 0x01, 0x02, 0x03])
+        try originalImageBytes.write(to: oldAssetURL)
+        let doodlePayload = Data("{\"recordID\":\"paper::question::q1\",\"pencilKitData\":\"kept-doodle\"}".utf8)
+        try seedPreBatchQuestionBankStore(storeURL: storeURL, assetRelativePath: oldAssetRelativePath,
+            doodlePayload: doodlePayload)
+
+        let migrated = try makeContainer(storeURL: storeURL)
+        let rows = try migrated.mainContext.fetch(FetchDescriptor<QuestionBankRecord>())
+        let existingQuestion = try XCTUnwrap(rows.first { $0.kind == QuestionBankRepository.questionKind })
+        XCTAssertEqual(existingQuestion.stableID, "q1")
+        let existingAsset = try XCTUnwrap(rows.first { $0.kind == QuestionBankRepository.assetKind })
+        XCTAssertEqual(existingAsset.assetRelativePath, oldAssetRelativePath)
+        XCTAssertEqual(try Data(contentsOf: oldAssetURL), originalImageBytes)
+        let stored = try migrated.mainContext.fetch(FetchDescriptor<StoredRecord>())
+        XCTAssertEqual(stored.first(where: { $0.collection == "doodles" })?.payload, doodlePayload)
+        XCTAssertTrue(try migrated.mainContext.fetch(FetchDescriptor<QuestionBankBatchRecord>()).isEmpty)
+        XCTAssertTrue(try migrated.mainContext.fetch(FetchDescriptor<QuestionBankBatchSourceRecord>()).isEmpty)
+    }
+
     private func makeContainer(storeURL: URL) throws -> ModelContainer {
-        let schema = Schema([StoredRecord.self, QuestionBankRecord.self])
+        let schema = Schema([
+            StoredRecord.self, QuestionBankRecord.self,
+            QuestionBankBatchRecord.self, QuestionBankBatchSourceRecord.self,
+            QuestionBankBatchMaterialLinkRecord.self, QuestionBankBatchQuestionLinkRecord.self
+        ])
         let configuration = ModelConfiguration(
             "QuestionBankImportTests",
             schema: schema,
@@ -1125,6 +1499,106 @@ final class QuestionBankImportTests: XCTestCase {
             cloudKitDatabase: .none
         )
         return try ModelContainer(for: schema, configurations: [configuration])
+    }
+
+    private func makeBatchMemoryContainer() throws -> ModelContainer {
+        let schema = Schema([
+            StoredRecord.self, QuestionBankRecord.self,
+            QuestionBankBatchRecord.self, QuestionBankBatchSourceRecord.self,
+            QuestionBankBatchMaterialLinkRecord.self, QuestionBankBatchQuestionLinkRecord.self
+        ])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        return try ModelContainer(for: schema, configurations: [configuration])
+    }
+
+    private func batchMetadata(family: QuestionBankBatchFamily, sourceID: String, revision: String,
+        year: Int, volumeID: String? = nil, volumeName: String? = nil,
+        sessionID: String? = nil, sessionName: String? = nil,
+        sourceProvinces: [QuestionBankSourceProvince]? = nil,
+        provinceCode: String? = nil, provinceName: String? = nil,
+        batchID: String? = nil, batchName: String? = nil) -> QuestionBankBatchMetadata {
+        QuestionBankBatchMetadata(family: family, sourceID: sourceID, revision: revision, year: year,
+            volumeID: volumeID, volumeName: volumeName, sessionID: sessionID, sessionName: sessionName,
+            sourceProvinces: sourceProvinces, provinceCode: provinceCode, provinceName: provinceName,
+            batchID: batchID, batchName: batchName)
+    }
+
+    private func batchTestPaper(id: String, title: String) -> QuestionBankPaper {
+        QuestionBankPaper(id: id, title: title, year: 2025, examType: "行测", volume: "",
+            source: "batch-test", importVersion: "1")
+    }
+
+    private func batchTestMaterial(id: String, paperID: String, text: String) -> QuestionBankMaterial {
+        QuestionBankMaterial(id: id, paperID: paperID, moduleID: "module-\(paperID)",
+            type: "文字材料", text: text, imageAssetID: "", applicableQuestions: "1", originalPage: "1")
+    }
+
+    private func batchTestQuestion(id: String, paperID: String, materialID: String,
+        stem: String, answer: String, reordered: Bool) -> QuestionBankQuestion {
+        let options: [QuestionBankOption]
+        if reordered {
+            options = [
+                QuestionBankOption(id: "A", text: "错误选项", imageAssetID: ""),
+                QuestionBankOption(id: "B", text: "正确选项", imageAssetID: ""),
+                QuestionBankOption(id: "C", text: "干扰选项三", imageAssetID: ""),
+                QuestionBankOption(id: "D", text: "干扰选项四", imageAssetID: "")
+            ]
+        } else {
+            options = [
+                QuestionBankOption(id: "A", text: "正确选项", imageAssetID: ""),
+                QuestionBankOption(id: "B", text: "错误选项", imageAssetID: ""),
+                QuestionBankOption(id: "C", text: "干扰选项三", imageAssetID: ""),
+                QuestionBankOption(id: "D", text: "干扰选项四", imageAssetID: "")
+            ]
+        }
+        return QuestionBankQuestion(id: id, paperID: paperID, moduleID: "module-\(paperID)",
+            number: 1, subject: "阅读理解", type: "单项选择题", materialID: materialID,
+            stem: stem, stemImageAssetID: "", options: options, answer: answer,
+            explanation: "", originalPage: "1")
+    }
+
+    private func batchTestPlan(paper: QuestionBankPaper, material: QuestionBankMaterial,
+        question: QuestionBankQuestion, stage: URL, metadata: QuestionBankBatchMetadata,
+        sha: String) -> QuestionBankImportPlan {
+        QuestionBankImportPlan(paper: paper, modules: [], materials: [material],
+            questions: [question], assets: [], errors: [], stagingDirectory: stage,
+            batchMetadata: metadata, sourceFileSHA256: sha)
+    }
+
+    private func batchTestRecord<Value: Encodable>(kind: String, id: String,
+        paperID: String, value: Value, assetRelativePath: String? = nil) throws -> QuestionBankRecord {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let paper = value as? QuestionBankPaper
+        return QuestionBankRecord(compoundID: "\(paperID)::\(kind)::\(id)",
+            paperID: paperID, kind: kind, stableID: id, year: paper?.year, examType: paper?.examType,
+            normalizedPaperKey: paper?.duplicateKey, title: paper?.title,
+            payload: try encoder.encode(value),
+            assetRelativePath: assetRelativePath)
+    }
+
+    private func seedPreBatchQuestionBankStore(storeURL: URL, assetRelativePath: String,
+        doodlePayload: Data) throws {
+        let schema = Schema([StoredRecord.self, QuestionBankRecord.self])
+        let configuration = ModelConfiguration("QuestionBankImportTests", schema: schema,
+            url: storeURL, cloudKitDatabase: .none)
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let context = container.mainContext
+        let paper = batchTestPaper(id: "paper-1", title: "旧纸卷")
+        let question = batchTestQuestion(id: "q1", paperID: paper.id, materialID: "",
+            stem: "旧题干", answer: "A", reordered: false)
+        let asset = QuestionBankAsset(id: "image-1", paperID: paper.id, ownerType: "question",
+            ownerID: question.id, role: "题干整图", path: "assets/figure.png",
+            mimeType: "image/png", fileName: "figure.png", originalPage: "1")
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.paperKind, id: paper.id,
+            paperID: paper.id, value: paper))
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.questionKind, id: question.id,
+            paperID: paper.id, value: question))
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.assetKind, id: asset.id,
+            paperID: paper.id, value: asset, assetRelativePath: assetRelativePath))
+        context.insert(StoredRecord(collection: "doodles", recordID: "paper::question::q1",
+            payload: doodlePayload))
+        try context.save()
     }
 
     private func readingQuestion(id: String, number: Int, materialID: String = "") -> QuestionBankQuestion {

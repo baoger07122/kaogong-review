@@ -17,16 +17,24 @@ struct KaogongReviewNativeApp: App {
         do {
             let container: ModelContainer
             if usesQuestionBankUITestFixture {
-                let schema = Schema([StoredRecord.self, QuestionBankRecord.self])
+                let schema = Schema([
+                    StoredRecord.self, QuestionBankRecord.self,
+                    QuestionBankBatchRecord.self, QuestionBankBatchSourceRecord.self,
+                    QuestionBankBatchMaterialLinkRecord.self, QuestionBankBatchQuestionLinkRecord.self
+                ])
                 let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
                 container = try ModelContainer(for: schema, configurations: [configuration])
                 #if DEBUG
                 try QuestionBankReaderUITestFixture.seed(in: container.mainContext)
                 #endif
             } else {
-                // Add the question bank as a separate additive entity; existing records
+                // Add question-bank and batch-index entities; existing records
                 // (including the legacy 套卷 score collection) remain unchanged.
-                container = try ModelContainer(for: StoredRecord.self, QuestionBankRecord.self)
+                container = try ModelContainer(
+                    for: StoredRecord.self, QuestionBankRecord.self,
+                    QuestionBankBatchRecord.self, QuestionBankBatchSourceRecord.self,
+                    QuestionBankBatchMaterialLinkRecord.self, QuestionBankBatchQuestionLinkRecord.self
+                )
                 try OneTimeLocalDataReset.runIfNeeded(in: container)
                 try TagPresetCleanupMigration.runIfNeeded(in: container)
             }
