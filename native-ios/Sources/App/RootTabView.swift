@@ -120,7 +120,7 @@ struct RootTabView: View {
                 .environment(\.rootTabContext, .review)
         case .questionBank:
             NavigationStack { QuestionBankView() }
-                .toolbar(.visible, for: .tabBar)
+                .environmentObject(libraryDoodleSession)
                 .environment(\.rootTabContext, .questionBank)
         case .settings:
             NavigationStack(path: $settingsPath) { SettingsView() }

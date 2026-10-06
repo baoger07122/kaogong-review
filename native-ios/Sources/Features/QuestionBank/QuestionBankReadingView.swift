@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import ImageIO
 
 struct QuestionBankReadingStep: Identifiable, Equatable {
     enum Kind: Equatable {
@@ -76,6 +77,13 @@ struct QuestionBankOverviewItem: Identifiable, Equatable {
     let id: String
     let number: Int
     let materialID: String
+    let type: String
+    let stem: String
+    let stemImageAssetID: String
+
+    var materialGroupLabel: String? {
+        materialID.isEmpty ? nil : "共用材料组"
+    }
 }
 
 private struct QuestionBankReadingItem: Identifiable {
@@ -84,7 +92,14 @@ private struct QuestionBankReadingItem: Identifiable {
 
     var id: String { record.stableID }
     var overviewItem: QuestionBankOverviewItem {
-        QuestionBankOverviewItem(id: id, number: question.number, materialID: question.materialID)
+        QuestionBankOverviewItem(
+            id: id,
+            number: question.number,
+            materialID: question.materialID,
+            type: question.type.isEmpty ? question.subject : question.type,
+            stem: question.stem,
+            stemImageAssetID: question.stemImageAssetID
+        )
     }
 }
 
@@ -127,6 +142,9 @@ private struct QuestionBankReaderViewportPreference: PreferenceKey {
 
 struct QuestionBankModuleView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var doodleSession: LibraryDoodleSession
     @Query private var records: [QuestionBankRecord]
 
     let paperID: String
@@ -138,24 +156,33 @@ struct QuestionBankModuleView: View {
     @State private var materialsByID: [String: QuestionBankMaterial] = [:]
     @State private var assetsByID: [String: QuestionBankRecord] = [:]
     @State private var activeSheet: QuestionBankReaderSheet?
-    @State private var splitMaterialID: String?
-    @State private var currentVisibleQuestionID: String?
     @State private var continuousAnchorQuestionID: String?
     @State private var pendingOverviewQuestionID: String?
     @State private var continuousScrollRequest: QuestionBankScrollRequest?
     @State private var splitScrollRequest: QuestionBankScrollRequest?
     @State private var snapshotRevision = 0
     @State private var didApplyInitialFocus = false
+    @State private var selectedOptionsByQuestionID: [String: String] = [:]
+    @SceneStorage private var storedSplitMaterialID: String?
+    @SceneStorage private var storedQuestionID: String?
+    @SceneStorage private var storedReadingMode: String
 
     init(paperID: String, moduleID: String, initialQuestionNumber: String) {
         self.paperID = paperID
         self.moduleID = moduleID
         self.initialQuestionNumber = initialQuestionNumber
-    }
-
-    private var paper: QuestionBankPaper? {
-        records.first { $0.paperID == paperID && $0.kind == QuestionBankRepository.paperKind }?
-            .decoded(QuestionBankPaper.self)
+        _storedSplitMaterialID = SceneStorage(
+            wrappedValue: nil,
+            "question-bank.split.\(paperID).\(moduleID)"
+        )
+        _storedQuestionID = SceneStorage(
+            wrappedValue: nil,
+            "question-bank.question.\(paperID).\(moduleID)"
+        )
+        _storedReadingMode = SceneStorage(
+            wrappedValue: QuestionBankReadingMode.reading.rawValue,
+            "question-bank.mode.\(paperID).\(moduleID)"
+        )
     }
 
     private var module: QuestionBankModule? {
@@ -169,39 +196,103 @@ struct QuestionBankModuleView: View {
         return readingItems.first { $0.question.number == number }?.id
     }
 
+    private var splitMaterialID: String? {
+        get { storedSplitMaterialID }
+        nonmutating set { storedSplitMaterialID = newValue }
+    }
+
+    private var currentVisibleQuestionID: String? {
+        get { storedQuestionID }
+        nonmutating set { storedQuestionID = newValue }
+    }
+
+    private var readingMode: QuestionBankReadingMode {
+        get { QuestionBankReadingMode(rawValue: storedReadingMode) ?? .reading }
+        nonmutating set { storedReadingMode = newValue.rawValue }
+    }
+
     private var overviewItems: [QuestionBankOverviewItem] {
         readingItems.map(\.overviewItem)
     }
 
     var body: some View {
         GeometryReader { geometry in
-            let canUseSplitLayout = horizontalSizeClass == .regular && geometry.size.width >= 860
+            let canOpenSplit = horizontalSizeClass == .regular && geometry.size.width >= 700
+            let splitOrientation = QuestionBankSplitLayout.orientation(
+                width: geometry.size.width,
+                height: geometry.size.height
+            )
             Group {
-                if canUseSplitLayout, let splitMaterialID {
-                    splitReader(materialID: splitMaterialID, width: geometry.size.width)
+                if let splitMaterialID {
+                    splitReader(
+                        materialID: splitMaterialID,
+                        width: geometry.size.width,
+                        height: geometry.size.height,
+                        orientation: splitOrientation
+                    )
                 } else {
-                    continuousReader(isWide: canUseSplitLayout)
+                    continuousReader(canOpenSplit: canOpenSplit)
                 }
             }
-            .onChange(of: canUseSplitLayout) { _, canUseSplitLayout in
-                if !canUseSplitLayout, splitMaterialID != nil {
-                    closeSplitReader()
+            .onChange(of: splitOrientation) { _, _ in
+                guard splitMaterialID != nil, let questionID = currentVisibleQuestionID else { return }
+                splitScrollRequest = QuestionBankScrollRequest(questionID: questionID, token: UUID())
+            }
+            .overlay {
+                QuestionBankDoodleAutosaveObserver(session: doodleSession, context: modelContext)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                switch phase {
+                case .inactive, .background:
+                    if let currentVisibleQuestionID { storedQuestionID = currentVisibleQuestionID }
+                    storedSplitMaterialID = splitMaterialID
+                case .active:
+                    restoreReaderPosition()
+                @unknown default:
+                    break
                 }
             }
         }
-        .background(AppTheme.groupedBackground)
-        .navigationTitle(module?.title ?? "模块阅读")
+        .background(Color.white)
+        .navigationTitle(module?.title ?? "真题阅读")
         .navigationBarTitleDisplayMode(.inline)
+        .background(NativeNavigationInteraction(blocked: doodleSession.isPresented))
         .secondaryPageTabBarHidden()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    activeSheet = QuestionBankReaderSheet(content: .overview)
-                } label: {
-                    Label("题号卡", systemImage: "square.grid.3x3")
+                HStack(spacing: 2) {
+                    Menu {
+                        ForEach(QuestionBankReadingMode.allCases) { mode in
+                            Button {
+                                readingMode = mode
+                            } label: {
+                                if readingMode == mode {
+                                    Label(mode.title, systemImage: "checkmark")
+                                } else {
+                                    Text(mode.title)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label(readingMode.title, systemImage: "chevron.down")
+                            .font(AppTheme.auxiliaryFont.weight(.medium))
+                            .padding(.horizontal, 8)
+                            .frame(height: 40)
+                    }
+                    .accessibilityIdentifier("question-bank-reading-mode")
+
+                    Button {
+                        activeSheet = QuestionBankReaderSheet(content: .overview)
+                    } label: {
+                        Image(systemName: "square.grid.3x3")
+                            .font(.system(size: 15, weight: .medium))
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("题号总览")
+                    .disabled(readingItems.isEmpty)
+                    .accessibilityIdentifier("question-bank-number-overview")
                 }
-                .disabled(readingItems.isEmpty)
-                .accessibilityIdentifier("question-bank-number-overview")
             }
         }
         .sheet(item: $activeSheet, onDismiss: handleReaderSheetDismissal) { sheet in
@@ -210,6 +301,7 @@ struct QuestionBankModuleView: View {
                 QuestionBankQuestionOverviewSheet(
                     items: overviewItems,
                     currentQuestionID: currentVisibleQuestionID,
+                    assetLookup: assetRecord(for:),
                     onSelect: handleOverviewSelection
                 )
                 .presentationDetents([.medium, .large])
@@ -218,26 +310,31 @@ struct QuestionBankModuleView: View {
                 materialPanel(for: materialID)
             }
         }
-        .onAppear(perform: refreshReaderSnapshot)
-        .onChange(of: records.count) { _, _ in refreshReaderSnapshot() }
+        .onAppear {
+            refreshReaderSnapshot()
+            restoreReaderState()
+        }
+        .onChange(of: records.count) { _, _ in
+            refreshReaderSnapshot()
+            restoreReaderState()
+        }
         .onChange(of: snapshotRevision) { _, _ in applyInitialFocusIfNeeded() }
     }
 
     @ViewBuilder
-    private func continuousReader(isWide: Bool) -> some View {
+    private func continuousReader(canOpenSplit: Bool) -> some View {
         if readingItems.isEmpty {
             emptyModuleState
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        readerContext
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(readingSteps) { step in
                                 switch step.kind {
                                 case .material(let materialID):
                                     if let material = materialsByID[materialID] {
-                                        materialSection(material, isWide: isWide)
+                                        materialSection(material, canOpenSplit: canOpenSplit)
                                             .id(step.id)
                                     }
                                 case .question(let questionID):
@@ -251,6 +348,8 @@ struct QuestionBankModuleView: View {
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
                 }
+                .scrollContentBackground(.hidden)
+                .background(Color.white)
                 .coordinateSpace(name: "question-bank-continuous-scroll")
                 .onPreferenceChange(QuestionBankReaderViewportPreference.self, perform: updateVisibleQuestion)
                 .onChange(of: continuousScrollRequest) { _, request in
@@ -263,99 +362,130 @@ struct QuestionBankModuleView: View {
     }
 
     @ViewBuilder
-    private func splitReader(materialID: String, width: CGFloat) -> some View {
+    private func splitReader(
+        materialID: String,
+        width: CGFloat,
+        height: CGFloat,
+        orientation: QuestionBankSplitOrientation
+    ) -> some View {
         if let material = materialsByID[materialID] {
             let groupedQuestions = readingItems.filter { $0.question.materialID == materialID }
-            let leftWidth = min(max(width * 0.40, 300), width - 480)
-            VStack(spacing: 0) {
-                readerContext
-                    .padding(.horizontal, 20)
-                    .padding(.top, 12)
-                HStack(spacing: 0) {
+            Group {
+                if orientation == .landscape {
+                    HStack(spacing: 0) {
+                        materialPane(material)
+                            .frame(width: QuestionBankSplitLayout.materialWidth(totalWidth: width))
+                        Rectangle()
+                            .fill(Color(uiColor: .separator).opacity(0.65))
+                            .frame(width: 1)
+                        questionPane(groupedQuestions)
+                            .frame(minWidth: QuestionBankSplitLayout.minimumQuestionPaneWidth)
+                    }
+                } else {
                     VStack(spacing: 0) {
-                        HStack {
-                            Text("共用材料").font(AppTheme.sectionTitleFont)
-                            Spacer(minLength: 8)
-                            Button(action: closeSplitReader) {
-                                Label("关闭分屏", systemImage: "rectangle.split.2x1")
-                                    .font(AppTheme.auxiliaryFont.weight(.medium))
-                            }
-                            .accessibilityIdentifier("question-bank-close-material-split")
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        Divider()
-                        ScrollView {
-                            QuestionBankMaterialBody(
-                                material: material,
-                                imageAsset: assetRecord(for: material.imageAssetID),
-                                showsHeading: false
-                            )
-                            .padding(16)
-                        }
+                        materialPane(material)
+                            .frame(height: QuestionBankSplitLayout.materialHeight(totalHeight: height))
+                        Rectangle()
+                            .fill(Color(uiColor: .separator).opacity(0.65))
+                            .frame(height: 1)
+                        questionPane(groupedQuestions)
                     }
-                    .frame(width: leftWidth)
-                    .frame(maxHeight: .infinity)
-
-                    Rectangle()
-                        .fill(Color(uiColor: .separator).opacity(0.6))
-                        .frame(width: 1)
-
-                    ScrollViewReader { proxy in
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 0) {
-                                ForEach(groupedQuestions) { item in
-                                    questionSection(item)
-                                }
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 8)
-                        }
-                        .coordinateSpace(name: "question-bank-continuous-scroll")
-                        .onPreferenceChange(QuestionBankReaderViewportPreference.self, perform: updateVisibleQuestion)
-                        .onChange(of: splitScrollRequest) { _, request in
-                            guard let request else { return }
-                            withAnimation(.easeInOut(duration: 0.25)) {
-                                proxy.scrollTo(request.questionID, anchor: .top)
-                            }
-                        }
-                        .onAppear {
-                            let target = splitScrollRequest?.questionID
-                                ?? groupedQuestions.first?.id
-                            if let target {
-                                Task { @MainActor in
-                                    await Task.yield()
-                                    proxy.scrollTo(target, anchor: .top)
-                                }
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color.white)
         } else {
             emptyModuleState
         }
     }
 
-    private var readerContext: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if let paper {
-                Text("\(String(paper.year)) · \(paper.examType) · \(paper.title)")
-                    .font(AppTheme.auxiliaryFont)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+    private func materialPane(_ material: QuestionBankMaterial) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text("共用材料").font(AppTheme.sectionTitleFont)
+                Spacer(minLength: 4)
+                Button {
+                    openMaterialDoodle(material.id)
+                } label: {
+                    Image(systemName: "pencil.and.scribble")
+                        .frame(width: 40, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("标注共用材料")
+                .accessibilityIdentifier("question-bank-doodle-material-\(material.id)")
+                Button(action: closeSplitReader) {
+                    Image(systemName: "rectangle.split.2x1")
+                        .frame(width: 40, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("关闭分屏")
+                .accessibilityIdentifier("question-bank-close-material-split")
             }
-            if let instruction = module?.instruction, !instruction.isEmpty {
-                Text(instruction)
-                    .font(AppTheme.auxiliaryFont)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 2)
+            Rectangle()
+                .fill(Color(uiColor: .separator).opacity(0.45))
+                .frame(height: 1)
+            ScrollView {
+                materialContent(material)
+                    .padding(16)
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.white)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.white)
+    }
+
+    private func questionPane(_ groupedQuestions: [QuestionBankReadingItem]) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(groupedQuestions) { item in
+                        questionSection(item)
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.white)
+            .coordinateSpace(name: "question-bank-continuous-scroll")
+            .onPreferenceChange(QuestionBankReaderViewportPreference.self, perform: updateVisibleQuestion)
+            .onChange(of: splitScrollRequest) { _, request in
+                guard let request else { return }
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    proxy.scrollTo(request.questionID, anchor: .top)
+                }
+            }
+            .onAppear {
+                let preferred = currentVisibleQuestionID ?? storedQuestionID
+                let target = groupedQuestions.first(where: { $0.id == preferred })?.id
+                    ?? splitScrollRequest?.questionID
+                    ?? groupedQuestions.first?.id
+                guard let target else { return }
+                Task { @MainActor in
+                    await Task.yield()
+                    proxy.scrollTo(target, anchor: .top)
+                }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func materialContent(_ material: QuestionBankMaterial, showsHeading: Bool = false) -> some View {
+        QuestionBankMaterialBody(
+            material: material,
+            imageAsset: assetRecord(for: material.imageAssetID),
+            showsHeading: showsHeading
+        )
+        .overlay {
+            LibraryDoodleContentLayer(
+                session: doodleSession,
+                targetRecordID: doodleRecordID(for: .material(material.id)),
+                minimumCanvasHeight: 0
+            )
+        }
     }
 
     private var emptyModuleState: some View {
@@ -380,9 +510,9 @@ struct QuestionBankModuleView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func materialSection(_ material: QuestionBankMaterial, isWide: Bool) -> some View {
+    private func materialSection(_ material: QuestionBankMaterial, canOpenSplit: Bool) -> some View {
         VStack(alignment: .leading, spacing: 9) {
-            HStack(alignment: .firstTextBaseline) {
+            HStack(spacing: 8) {
                 Text("共用材料")
                     .font(AppTheme.sectionTitleFont)
                 if !material.type.isEmpty {
@@ -392,18 +522,25 @@ struct QuestionBankModuleView: View {
                 }
                 Spacer(minLength: 8)
                 Button {
-                    openMaterial(material.id, isWide: isWide)
+                    openMaterialDoodle(material.id)
                 } label: {
-                    Label("分屏看材料", systemImage: "rectangle.split.2x1")
-                        .font(AppTheme.auxiliaryFont.weight(.medium))
+                    Image(systemName: "pencil.and.scribble")
+                        .frame(width: 40, height: 40)
+                        .contentShape(Rectangle())
                 }
+                .accessibilityLabel("标注共用材料")
+                .accessibilityIdentifier("question-bank-doodle-material-\(material.id)")
+                Button {
+                    openMaterial(material.id, canOpenSplit: canOpenSplit)
+                } label: {
+                    Image(systemName: "rectangle.split.2x1")
+                        .frame(width: 40, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel(canOpenSplit ? "分屏看材料" : "查看材料")
                 .accessibilityIdentifier("question-bank-split-material-\(material.id)")
             }
-            QuestionBankMaterialBody(
-                material: material,
-                imageAsset: assetRecord(for: material.imageAssetID),
-                showsHeading: false
-            )
+            materialContent(material)
         }
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -415,19 +552,30 @@ struct QuestionBankModuleView: View {
     }
 
     private func questionSection(_ item: QuestionBankReadingItem) -> some View {
+        let selectedOptionID = selectedOptionsByQuestionID[item.id]
+        let revealsAnswer = readingMode.revealsAnswer(afterSelecting: selectedOptionID)
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text("第\(String(item.question.number))题")
-                    .font(AppTheme.sectionTitleFont.weight(.semibold))
+                Text("\(String(item.question.number)).")
+                    .font(AppTheme.bodyFont.weight(.semibold))
                     .foregroundStyle(AppTheme.accent)
                 let subject = item.question.type.isEmpty ? item.question.subject : item.question.type
                 if !subject.isEmpty {
                     Text(subject)
                         .font(AppTheme.auxiliaryFont)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    .lineLimit(1)
                 }
                 Spacer(minLength: 0)
+                Button {
+                    openQuestionDoodle(item)
+                } label: {
+                    Image(systemName: "pencil.and.scribble")
+                        .frame(width: 40, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("标注第\(String(item.question.number))题")
+                .accessibilityIdentifier("question-bank-doodle-question-\(item.id)")
             }
             .padding(.bottom, 9)
 
@@ -440,7 +588,7 @@ struct QuestionBankModuleView: View {
             }
             if !item.question.stemImageAssetID.isEmpty,
                let asset = assetRecord(for: item.question.stemImageAssetID) {
-                QuestionBankLocalImage(asset: asset)
+                QuestionBankLocalImage(asset: asset, sizing: .stem)
                     .padding(.bottom, 10)
             }
 
@@ -448,24 +596,41 @@ struct QuestionBankModuleView: View {
                 QuestionBankOptionRow(
                     option: option,
                     answer: item.question.answer,
+                    readingMode: readingMode,
+                    selectedOptionID: selectedOptionID,
+                    revealsAnswer: revealsAnswer,
+                    onSelect: { selectedOptionsByQuestionID[item.id] = option.id },
                     assetLookup: assetRecord(for:)
                 )
             }
 
-            HStack(spacing: 7) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(AppTheme.success)
-                Text("正确答案")
-                    .foregroundStyle(.secondary)
-                Text(item.question.answer.isEmpty ? "未提供" : item.question.answer)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(AppTheme.success)
+            if readingMode == .reading {
+                HStack(spacing: 7) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(AppTheme.success)
+                    Text("正确答案")
+                        .foregroundStyle(.secondary)
+                    Text(item.question.answer.isEmpty ? "未提供" : item.question.answer)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(AppTheme.success)
+                }
+                .font(AppTheme.bodyFont)
+                .padding(.top, 12)
+            } else if let selectedOptionID {
+                HStack(spacing: 8) {
+                    Text("你的选择：\(selectedOptionID)")
+                        .foregroundStyle(selectedOptionID == item.question.answer ? AppTheme.success : AppTheme.danger)
+                    Spacer(minLength: 8)
+                    Text("正确答案：\(item.question.answer.isEmpty ? "未提供" : item.question.answer)")
+                        .fontWeight(.semibold)
+                        .foregroundStyle(AppTheme.success)
+                }
+                .font(AppTheme.auxiliaryFont)
+                .padding(.top, 12)
             }
-            .font(AppTheme.bodyFont)
-            .padding(.top, 12)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 18)
+        .padding(.vertical, 13)
         .background {
             GeometryReader { geometry in
                 let frame = geometry.frame(in: .named("question-bank-continuous-scroll"))
@@ -480,27 +645,40 @@ struct QuestionBankModuleView: View {
                 .fill(Color(uiColor: .separator).opacity(0.45))
                 .frame(height: 1)
         }
+        .overlay {
+            LibraryDoodleContentLayer(
+                session: doodleSession,
+                targetRecordID: doodleRecordID(for: .question(item.id)),
+                minimumCanvasHeight: 0
+            )
+        }
         .id(item.id)
         .accessibilityIdentifier("question-bank-question-\(item.id)")
     }
 
-    private func openMaterial(_ materialID: String, isWide: Bool) {
-        guard isWide else {
+    private func openMaterial(_ materialID: String, canOpenSplit: Bool) {
+        guard canOpenSplit else {
             activeSheet = QuestionBankReaderSheet(content: .material(materialID))
             return
         }
-        continuousAnchorQuestionID = currentVisibleQuestionID
+        continuousAnchorQuestionID = currentVisibleQuestionID ?? storedQuestionID
         splitMaterialID = materialID
+        storedSplitMaterialID = materialID
         let preferredQuestion = readingItems.first {
             $0.id == currentVisibleQuestionID && $0.question.materialID == materialID
         }
         let target = preferredQuestion?.id ?? readingItems.first { $0.question.materialID == materialID }?.id
-        if let target { splitScrollRequest = QuestionBankScrollRequest(questionID: target, token: UUID()) }
+        if let target {
+            currentVisibleQuestionID = target
+            storedQuestionID = target
+            splitScrollRequest = QuestionBankScrollRequest(questionID: target, token: UUID())
+        }
     }
 
     private func closeSplitReader() {
-        let returnTarget = continuousAnchorQuestionID ?? currentVisibleQuestionID
+        let returnTarget = currentVisibleQuestionID ?? continuousAnchorQuestionID ?? storedQuestionID
         splitMaterialID = nil
+        storedSplitMaterialID = nil
         guard let returnTarget else { return }
         continuousScrollRequest = QuestionBankScrollRequest(questionID: returnTarget, token: UUID())
     }
@@ -510,19 +688,24 @@ struct QuestionBankModuleView: View {
             if let material = materialsByID[materialID] {
                 NavigationStack {
                     ScrollView {
-                        QuestionBankMaterialBody(
-                            material: material,
-                            imageAsset: assetRecord(for: material.imageAssetID),
-                            showsHeading: true
-                        )
-                        .padding(20)
+                        materialContent(material)
+                            .padding(20)
                     }
-                    .background(AppTheme.groupedBackground)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.white)
                     .navigationTitle("共用材料")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
-                            Button("完成") { activeSheet = nil }
+                            HStack {
+                                Button {
+                                    openMaterialDoodle(material.id)
+                                } label: {
+                                    Image(systemName: "pencil.and.scribble")
+                                }
+                                .accessibilityLabel("标注共用材料")
+                                Button("完成") { activeSheet = nil }
+                            }
                         }
                     }
                 }
@@ -540,8 +723,11 @@ struct QuestionBankModuleView: View {
     private func handleOverviewSelection(_ item: QuestionBankOverviewItem) {
         pendingOverviewQuestionID = item.id
         continuousAnchorQuestionID = item.id
+        currentVisibleQuestionID = item.id
+        storedQuestionID = item.id
         if splitMaterialID != nil {
             splitMaterialID = item.materialID.isEmpty ? nil : item.materialID
+            storedSplitMaterialID = splitMaterialID
         }
     }
 
@@ -560,16 +746,80 @@ struct QuestionBankModuleView: View {
         guard let visible = frames
             .filter({ $0.value.bottom > 1 })
             .min(by: { $0.value.top < $1.value.top })?.key else { return }
+        guard currentVisibleQuestionID != visible else { return }
         currentVisibleQuestionID = visible
+        storedQuestionID = visible
         if splitMaterialID == nil { continuousAnchorQuestionID = visible }
     }
 
     private func applyInitialFocusIfNeeded() {
-        guard !didApplyInitialFocus, let questionID = initialFocusQuestionID else { return }
+        guard !didApplyInitialFocus else { return }
+        let restoredID = readingItems.first(where: { $0.id == storedQuestionID })?.id
+        guard let questionID = initialFocusQuestionID ?? restoredID else { return }
         didApplyInitialFocus = true
         currentVisibleQuestionID = questionID
         continuousAnchorQuestionID = questionID
-        continuousScrollRequest = QuestionBankScrollRequest(questionID: questionID, token: UUID())
+        if let splitMaterialID,
+           readingItem(for: questionID)?.question.materialID == splitMaterialID {
+            splitScrollRequest = QuestionBankScrollRequest(questionID: questionID, token: UUID())
+        } else if splitMaterialID == nil {
+            continuousScrollRequest = QuestionBankScrollRequest(questionID: questionID, token: UUID())
+        }
+    }
+
+    private func restoreReaderState() {
+        if let splitMaterialID, materialsByID[splitMaterialID] == nil {
+            self.splitMaterialID = nil
+        }
+        applyInitialFocusIfNeeded()
+    }
+
+    private func restoreReaderPosition() {
+        guard let questionID = readingItems.first(where: { $0.id == currentVisibleQuestionID })?.id
+                ?? readingItems.first(where: { $0.id == storedQuestionID })?.id else { return }
+        currentVisibleQuestionID = questionID
+        if splitMaterialID != nil,
+           readingItem(for: questionID)?.question.materialID == splitMaterialID {
+            splitScrollRequest = QuestionBankScrollRequest(questionID: questionID, token: UUID())
+        } else if splitMaterialID == nil {
+            continuousScrollRequest = QuestionBankScrollRequest(questionID: questionID, token: UUID())
+        }
+    }
+
+    private func doodleRecordID(for scope: QuestionBankDoodleScope) -> String {
+        QuestionBankDoodleRepository.recordID(paperID: paperID, scope: scope)
+    }
+
+    private func openMaterialDoodle(_ materialID: String) {
+        presentDoodle(for: .material(materialID))
+    }
+
+    private func openQuestionDoodle(_ item: QuestionBankReadingItem) {
+        presentDoodle(for: .question(item.id))
+    }
+
+    private func presentDoodle(for scope: QuestionBankDoodleScope) {
+        let recordID = doodleRecordID(for: scope)
+        do {
+            let drawingData = try QuestionBankDoodleRepository.drawingData(
+                recordID: recordID,
+                context: modelContext
+            )
+            doodleSession.present(
+                targetRecordID: recordID,
+                drawingData: drawingData,
+                legacyPreviewDataURL: "",
+                onSave: { drawingData, _ in
+                    QuestionBankDoodleRepository.save(
+                        recordID: recordID,
+                        drawingData: drawingData,
+                        context: modelContext
+                    )
+                }
+            )
+        } catch {
+            doodleSession.saveError = "涂鸦读取失败：\(error.localizedDescription)"
+        }
     }
 
     private func consumeContinuousScrollRequest(using proxy: ScrollViewProxy) {
@@ -631,47 +881,51 @@ struct QuestionBankModuleView: View {
 }
 
 private struct QuestionBankQuestionOverviewSheet: View {
+    private enum Presentation: String, CaseIterable, Identifiable, Hashable {
+        case numbers
+        case cards
+        var id: String { rawValue }
+        var title: String { self == .numbers ? "题号" : "卡片" }
+    }
+
     @Environment(\.dismiss) private var dismiss
+    @State private var presentation = Presentation.numbers
 
     let items: [QuestionBankOverviewItem]
     let currentQuestionID: String?
+    let assetLookup: (String) -> QuestionBankRecord?
     let onSelect: (QuestionBankOverviewItem) -> Void
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 54), spacing: 10)], spacing: 10) {
-                    ForEach(items) { item in
-                        let isCurrent = item.id == currentQuestionID
-                        Button {
-                            onSelect(item)
-                            dismiss()
-                        } label: {
-                            Text(String(item.number))
-                                .font(AppTheme.bodyFont.weight(isCurrent ? .semibold : .medium))
-                                .foregroundStyle(isCurrent ? AppTheme.accent : .primary)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 48)
-                                .background(
-                                    isCurrent ? AppTheme.accent.opacity(0.12) : AppTheme.secondaryBackground,
-                                    in: RoundedRectangle(cornerRadius: AppTheme.controlRadius)
-                                )
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: AppTheme.controlRadius)
-                                        .strokeBorder(
-                                            isCurrent ? AppTheme.accent : Color(uiColor: .separator).opacity(0.35),
-                                            lineWidth: isCurrent ? 1.5 : 0.7
-                                        )
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("第\(String(item.number))题")
-                        .accessibilityIdentifier("question-bank-number-card-\(item.number)")
+            VStack(spacing: 10) {
+                Picker("总览方式", selection: $presentation) {
+                    ForEach(Presentation.allCases) { option in
+                        Text(option.title).tag(option)
                     }
                 }
-                .padding(20)
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                .accessibilityIdentifier("question-bank-overview-presentation")
+
+                if presentation == .numbers {
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 7)], spacing: 7) {
+                            ForEach(items) { item in numberButton(item) }
+                        }
+                        .padding(16)
+                    }
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(items) { item in cardButton(item) }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
             }
-            .background(AppTheme.groupedBackground)
+            .background(Color.white)
             .navigationTitle("题目总览")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -680,6 +934,83 @@ private struct QuestionBankQuestionOverviewSheet: View {
                 }
             }
         }
+    }
+
+    private func numberButton(_ item: QuestionBankOverviewItem) -> some View {
+        let isCurrent = item.id == currentQuestionID
+        return Button {
+            onSelect(item)
+            dismiss()
+        } label: {
+            Text(String(item.number))
+                .font(AppTheme.bodyFont.weight(isCurrent ? .semibold : .regular))
+                .foregroundStyle(isCurrent ? AppTheme.accent : .primary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(isCurrent ? AppTheme.accent.opacity(0.10) : Color.clear)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(isCurrent ? AppTheme.accent : Color(uiColor: .separator).opacity(0.35))
+                        .frame(height: isCurrent ? 1.5 : 0.7)
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("第\(String(item.number))题")
+        .accessibilityIdentifier("question-bank-number-card-\(item.number)")
+    }
+
+    private func cardButton(_ item: QuestionBankOverviewItem) -> some View {
+        let isCurrent = item.id == currentQuestionID
+        return Button {
+            onSelect(item)
+            dismiss()
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text("\(String(item.number)).")
+                        .font(AppTheme.bodyFont.weight(.semibold))
+                        .foregroundStyle(isCurrent ? AppTheme.accent : .primary)
+                    if !item.type.isEmpty {
+                        Text(item.type)
+                            .font(AppTheme.auxiliaryFont)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    if isCurrent {
+                        Image(systemName: "location.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(AppTheme.accent)
+                    }
+                }
+                if let materialGroupLabel = item.materialGroupLabel {
+                    Text(materialGroupLabel)
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(.secondary)
+                }
+                if !item.stem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(item.stem)
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(.primary)
+                        .lineLimit(3)
+                        .multilineTextAlignment(.leading)
+                } else if let asset = assetLookup(item.stemImageAssetID) {
+                    QuestionBankLocalImage(asset: asset, sizing: .overview)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 12)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(isCurrent ? AppTheme.accent.opacity(0.75) : Color(uiColor: .separator).opacity(0.4))
+                    .frame(height: isCurrent ? 1.5 : 0.7)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("第\(String(item.number))题，\(item.type)")
+        .accessibilityIdentifier("question-bank-overview-item-\(item.id)")
     }
 }
 
@@ -706,7 +1037,7 @@ private struct QuestionBankMaterialBody: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             if let imageAsset {
-                QuestionBankLocalImage(asset: imageAsset)
+                QuestionBankLocalImage(asset: imageAsset, sizing: .material)
             }
             if material.text.isEmpty && material.imageAssetID.isEmpty {
                 Text("本材料暂无可显示内容")
@@ -721,63 +1052,92 @@ private struct QuestionBankMaterialBody: View {
 private struct QuestionBankOptionRow: View {
     let option: QuestionBankOption
     let answer: String
+    let readingMode: QuestionBankReadingMode
+    let selectedOptionID: String?
+    let revealsAnswer: Bool
+    let onSelect: () -> Void
     let assetLookup: (String) -> QuestionBankRecord?
 
     var body: some View {
+        Group {
+            if readingMode == .practice {
+                Button(action: onSelect) { row }
+                    .buttonStyle(.plain)
+            } else {
+                row
+            }
+        }
+        .accessibilityIdentifier("question-bank-option-\(option.id)")
+    }
+
+    private var row: some View {
         HStack(alignment: .top, spacing: 10) {
             Text(option.id)
                 .font(AppTheme.bodyFont.weight(.semibold))
-                .foregroundStyle(answer == option.id ? AppTheme.success : AppTheme.accent)
+                .foregroundStyle(letterColor)
                 .frame(width: 24, alignment: .leading)
             VStack(alignment: .leading, spacing: 8) {
-                if !option.text.isEmpty {
-                    Text(option.text)
+                if let displayText = QuestionBankOptionDisplay.text(for: option) {
+                    Text(displayText)
                         .font(AppTheme.bodyFont)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if !option.imageAssetID.isEmpty, let asset = assetLookup(option.imageAssetID) {
-                    QuestionBankLocalImage(asset: asset)
+                    QuestionBankLocalImage(asset: asset, sizing: .option)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if answer == option.id {
+            if revealsAnswer && answer == option.id {
                 Image(systemName: "checkmark")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(AppTheme.success)
                     .accessibilityLabel("正确选项")
+            } else if selectedOptionID == option.id && readingMode == .practice {
+                Image(systemName: "record.circle")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(letterColor)
+                    .accessibilityLabel("你的选择")
             }
         }
         .padding(.vertical, 10)
+        .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(selectedOptionID == option.id && readingMode == .practice
+            ? AppTheme.accent.opacity(0.06) : Color.clear)
+        .contentShape(Rectangle())
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Color(uiColor: .separator).opacity(0.35))
                 .frame(height: 0.7)
         }
     }
+
+    private var letterColor: Color {
+        guard revealsAnswer else { return AppTheme.accent }
+        if answer == option.id { return AppTheme.success }
+        if selectedOptionID == option.id { return AppTheme.danger }
+        return AppTheme.accent
+    }
 }
 
 private struct QuestionBankLocalImage: View {
+    enum Sizing: String {
+        case material
+        case stem
+        case option
+        case overview
+    }
+
     let asset: QuestionBankRecord
+    var sizing: Sizing = .material
 
     @State private var image: UIImage?
     @State private var failedToLoad = false
-    @State private var enlargedImage: QuestionBankImageSelection?
 
     var body: some View {
         Group {
             if let image {
-                Button {
-                    enlargedImage = QuestionBankImageSelection(id: asset.stableID, image: image)
-                } label: {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("放大查看图片")
+                imageView(image)
             } else if failedToLoad {
                 Label("图片无法读取", systemImage: "exclamationmark.triangle")
                     .font(AppTheme.auxiliaryFont)
@@ -790,7 +1150,7 @@ private struct QuestionBankLocalImage: View {
                     .frame(height: 72)
             }
         }
-        .task(id: asset.assetRelativePath) {
+        .task(id: "\(asset.assetRelativePath ?? "")|\(sizing.rawValue)") {
             image = nil
             failedToLoad = false
             guard let url = QuestionBankAssetStore.url(for: asset.assetRelativePath) else {
@@ -800,71 +1160,54 @@ private struct QuestionBankLocalImage: View {
             let data = await Task.detached(priority: .userInitiated) {
                 try? Data(contentsOf: url, options: [.mappedIfSafe])
             }.value
-            guard let data, let decodedImage = UIImage(data: data) else {
+            guard let data,
+                  let source = CGImageSourceCreateWithData(data as CFData, nil) else {
                 failedToLoad = true
                 return
             }
-            image = decodedImage
-        }
-        .fullScreenCover(item: $enlargedImage) { selection in
-            QuestionBankImageZoomView(image: selection.image)
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: maximumPixelDimension,
+                kCGImageSourceShouldCacheImmediately: true
+            ]
+            guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+                failedToLoad = true
+                return
+            }
+            image = UIImage(cgImage: thumbnail)
         }
     }
-}
 
-private struct QuestionBankImageSelection: Identifiable {
-    let id: String
-    let image: UIImage
-}
 
-private struct QuestionBankImageZoomView: View {
-    @Environment(\.dismiss) private var dismiss
-    let image: UIImage
-
-    @State private var scale: CGFloat = 1
-    @State private var settledScale: CGFloat = 1
-
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .topTrailing) {
-                Color.black
-                ScrollView([.horizontal, .vertical]) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(
-                            width: geometry.size.width * scale,
-                            height: geometry.size.height * scale
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture(count: 2) {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                scale = scale > 1 ? 1 : 2
-                                settledScale = scale
-                            }
-                        }
-                }
-                .simultaneousGesture(
-                    MagnifyGesture()
-                        .onChanged { value in
-                            scale = min(6, max(1, settledScale * value.magnification))
-                        }
-                        .onEnded { _ in settledScale = scale }
-                )
-                Button(action: { dismiss() }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
-                        .background(.ultraThinMaterial, in: Circle())
-                }
-                .accessibilityLabel("关闭图片")
-                .padding(.top, geometry.safeAreaInsets.top + 10)
-                .padding(.trailing, 18)
-            }
-            .ignoresSafeArea()
+    @ViewBuilder
+    private func imageView(_ image: UIImage) -> some View {
+        switch sizing {
+        case .material, .stem:
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case .option:
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 220, maxHeight: 126, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case .overview:
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 150, maxHeight: 86, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(.black)
+    }
+
+    private var maximumPixelDimension: Int {
+        switch sizing {
+        case .material, .stem: 2400
+        case .option: 900
+        case .overview: 420
+        }
     }
 }
 

@@ -190,12 +190,14 @@ struct LibraryDoodleOverlay: View {
 struct LibraryDoodleContentLayer: View {
     @ObservedObject var session: LibraryDoodleSession
     let targetRecordID: String
+    var minimumCanvasHeight: CGFloat = 260
     @ObservedObject private var canvas: LibraryDoodleCanvasState
     @ObservedObject private var controller: PencilDrawingController
 
-    init(session: LibraryDoodleSession, targetRecordID: String) {
+    init(session: LibraryDoodleSession, targetRecordID: String, minimumCanvasHeight: CGFloat = 260) {
         self.session = session
         self.targetRecordID = targetRecordID
+        self.minimumCanvasHeight = minimumCanvasHeight
         _canvas = ObservedObject(wrappedValue: session.canvas)
         _controller = ObservedObject(wrappedValue: session.canvas.controller)
     }
@@ -209,12 +211,14 @@ struct LibraryDoodleContentLayer: View {
                     transparentBackground: true,
                     toolbarAtTop: false,
                     isActive: session.isPresented,
+                    minimumCanvasHeight: minimumCanvasHeight,
                     controller: controller,
                     onClose: session.dismiss
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minHeight: minimumCanvasHeight)
             .contentShape(Rectangle())
             .opacity(session.isPresented ? 1 : 0)
             .allowsHitTesting(session.isPresented)

@@ -168,6 +168,120 @@ final class QuestionBankImportTests: XCTestCase {
         }, (111...115).map { "q-\($0)" })
     }
 
+    func testQuestionBankReaderLayoutModesAndOptionDisplay() {
+        XCTAssertEqual(
+            QuestionBankSplitLayout.orientation(width: 1194, height: 834),
+            .landscape
+        )
+        XCTAssertEqual(
+            QuestionBankSplitLayout.orientation(width: 834, height: 1194),
+            .portrait
+        )
+        XCTAssertEqual(QuestionBankSplitLayout.materialWidth(totalWidth: 1024), 568.32, accuracy: 0.01)
+        XCTAssertGreaterThanOrEqual(
+            960 - QuestionBankSplitLayout.materialWidth(totalWidth: 960) - 1,
+            QuestionBankSplitLayout.minimumQuestionPaneWidth
+        )
+
+        XCTAssertTrue(QuestionBankReadingMode.reading.revealsAnswer(afterSelecting: nil))
+        XCTAssertFalse(QuestionBankReadingMode.practice.revealsAnswer(afterSelecting: nil))
+        XCTAssertTrue(QuestionBankReadingMode.practice.revealsAnswer(afterSelecting: "B"))
+
+        XCTAssertNil(QuestionBankOptionDisplay.text(for: QuestionBankOption(id: "A", text: "A", imageAssetID: "")))
+        XCTAssertNil(QuestionBankOptionDisplay.text(for: QuestionBankOption(id: "A", text: " A\n", imageAssetID: "")))
+        XCTAssertEqual(QuestionBankOptionDisplay.text(for: QuestionBankOption(id: "A", text: "选项内容", imageAssetID: "")), "选项内容")
+    }
+
+    func testQuestionBankDoodlesRoundTripThroughGenericKeyValueBackup() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankDoodleBackup-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let paperID = "sample-paper"
+        let questionScope = QuestionBankDoodleScope.question("q-114")
+        let questionDoodleID = QuestionBankDoodleRepository.recordID(paperID: paperID, scope: questionScope)
+        XCTAssertEqual(
+            QuestionBankDoodleRepository.recordID(paperID: paperID, scope: questionScope),
+            questionDoodleID
+        )
+        XCTAssertNotEqual(
+            questionDoodleID,
+            QuestionBankDoodleRepository.recordID(paperID: paperID, scope: .question("q-115"))
+        )
+        XCTAssertNotEqual(
+            questionDoodleID,
+            QuestionBankDoodleRepository.recordID(paperID: paperID, scope: .material("q-114"))
+        )
+
+        let questionPayload = Data("{\"id\":\"q-114\",\"answer\":\"C\"}".utf8)
+        let container = try makeContainer(storeURL: temporaryRoot.appendingPathComponent("source.store"))
+        let context = container.mainContext
+        let question = QuestionBankRecord(
+            compoundID: "sample-paper::question::q-114",
+            paperID: paperID,
+            kind: QuestionBankRepository.questionKind,
+            stableID: "q-114",
+            moduleID: "data-analysis",
+            questionNumber: 114,
+            payload: questionPayload
+        )
+        context.insert(question)
+        try context.save()
+
+        XCTAssertNil(QuestionBankDoodleRepository.save(
+            recordID: questionDoodleID,
+            drawingData: "encoded-pencil-kit-drawing",
+            context: context
+        ))
+        XCTAssertEqual(question.payload, questionPayload, "A doodle save must leave imported question JSON untouched")
+
+        let storedRecords = try context.fetch(FetchDescriptor<StoredRecord>())
+        let doodle = try XCTUnwrap(storedRecords.first {
+            $0.collection == QuestionBankDoodleRepository.collection && $0.recordID == questionDoodleID
+        })
+        XCTAssertEqual(doodle.jsonObject?["key"] as? String, questionDoodleID)
+        XCTAssertEqual(
+            try QuestionBankDoodleRepository.drawingData(recordID: questionDoodleID, context: context),
+            "encoded-pencil-kit-drawing"
+        )
+        XCTAssertNil(QuestionBankDoodleRepository.save(
+            recordID: questionDoodleID,
+            drawingData: "updated-pencil-kit-drawing",
+            context: context
+        ))
+        XCTAssertEqual(try context.fetch(FetchDescriptor<StoredRecord>()).filter {
+            $0.collection == QuestionBankDoodleRepository.collection && $0.recordID == questionDoodleID
+        }.count, 1, "Updating a doodle must replace its stable record instead of duplicating it")
+
+        let updatedStoredRecords = try context.fetch(FetchDescriptor<StoredRecord>())
+        let backupData = try LegacyBackupExporter.makeData(records: updatedStoredRecords)
+        let package = try LegacyBackupImporter.parse(data: backupData)
+        let backupDoodle = try XCTUnwrap(package.records.first {
+            $0.collection == QuestionBankDoodleRepository.collection && $0.recordID == questionDoodleID
+        })
+        let backupPayloadObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: backupDoodle.payload) as? [String: Any]
+        )
+        XCTAssertEqual(backupPayloadObject["pencilKitData"] as? String, "updated-pencil-kit-drawing")
+
+        let restored = try makeContainer(storeURL: temporaryRoot.appendingPathComponent("restored.store"))
+        try LegacyBackupRestorer.replace(with: package, in: restored.mainContext)
+        let restoredDoodle = try XCTUnwrap(try restored.mainContext.fetch(FetchDescriptor<StoredRecord>()).first {
+            $0.collection == QuestionBankDoodleRepository.collection && $0.recordID == questionDoodleID
+        })
+        XCTAssertEqual(
+            try QuestionBankDoodleRepository.drawingData(recordID: questionDoodleID, context: restored.mainContext),
+            "updated-pencil-kit-drawing"
+        )
+
+        XCTAssertNil(QuestionBankDoodleRepository.save(recordID: questionDoodleID, drawingData: "", context: context))
+        XCTAssertFalse(try context.fetch(FetchDescriptor<StoredRecord>()).contains {
+            $0.collection == QuestionBankDoodleRepository.collection && $0.recordID == questionDoodleID
+        }, "Clearing a doodle must remove its separate saved record")
+        XCTAssertEqual(question.payload, questionPayload, "Saving or clearing a doodle must not mutate question JSON")
+    }
+
     func testQuestionNumberFilterTargetsOwningModuleAndQuestion() {
         let module = QuestionBankRecord(
             compoundID: "sample-paper::module::data",

@@ -210,6 +210,8 @@ jobs:
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testPickerInvalidResultsAreDistinctAndAllowReselection
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testAssetPathResolverRejectsTraversalAndSymlinkEscape
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testReadingSequenceGroupsSharedMaterialsOnceAndKeepsQuestionOrder
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankReaderLayoutModesAndOptionDisplay
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankDoodlesRoundTripThroughGenericKeyValueBackup
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionNumberFilterTargetsOwningModuleAndQuestion
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testSingleJSONPickerCallbackReachesPreviewAndConfirmedCommit
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testShenlunAdaptationBacksUpExactPayloadAndWritesOnce

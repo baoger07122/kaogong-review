@@ -147,6 +147,7 @@ struct NativePencilDrawingEditor: View {
     let transparentBackground: Bool
     let toolbarAtTop: Bool
     let isActive: Bool
+    let minimumCanvasHeight: CGFloat
     let onClose: (() -> Void)?
     @StateObject private var controller: PencilDrawingController
     @State private var eraserLocation: CGPoint?
@@ -157,6 +158,7 @@ struct NativePencilDrawingEditor: View {
         transparentBackground: Bool = false,
         toolbarAtTop: Bool = false,
         isActive: Bool = true,
+        minimumCanvasHeight: CGFloat = 260,
         controller: PencilDrawingController? = nil,
         onClose: (() -> Void)? = nil
     ) {
@@ -165,6 +167,7 @@ struct NativePencilDrawingEditor: View {
         self.transparentBackground = transparentBackground
         self.toolbarAtTop = toolbarAtTop
         self.isActive = isActive
+        self.minimumCanvasHeight = minimumCanvasHeight
         self.onClose = onClose
         _controller = StateObject(wrappedValue: controller ?? PencilDrawingController())
     }
@@ -284,7 +287,7 @@ struct NativePencilDrawingEditor: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .frame(minHeight: 260)
+        .frame(minHeight: minimumCanvasHeight)
     }
 
     private var penSettingsPanel: some View {
