@@ -198,7 +198,7 @@ struct QuestionBankView: View {
             case .preview(let plan):
                 QuestionBankImportPreview(
                     plan: plan,
-                    duplicateTitle: plan.paper.flatMap { QuestionBankRepository.duplicatePaper(for: $0, in: records)?.title },
+                    mergePreview: QuestionBankRepository.mergePreview(for: plan, in: records),
                     isImporting: isCommittingImport,
                     importFailure: $inlineImportFailure,
                     onImport: { decision in commitImport(plan, decision: decision) },
@@ -570,12 +570,24 @@ struct QuestionBankView: View {
         isCommittingImport = true
         inlineImportFailure = nil
         do {
-            try QuestionBankRepository.commit(plan, decision: decision, records: records, context: modelContext)
+            let result = try QuestionBankRepository.commit(
+                plan, decision: decision, records: records, context: modelContext
+            )
             isCommittingImport = false
             activeImportSheet = nil
             importLogger.info("atomic import committed: modules=\(plan.modules.count), questions=\(plan.questions.count), assets=\(plan.assets.count)")
-            importAlertTitle = "导入完成"
-            importAlertMessage = "已导入“\(plan.paper?.title ?? "试卷")”：\(plan.modules.count) 个模块、\(plan.questions.count) 道题目。套卷成绩记录和学习库数据未更改。"
+            let updatedConflicts = decision == .mergeUpdatingConflicts
+                ? result.conflicts.filter(\.canOverwrite).count : 0
+            importAlertTitle = result.hasExistingPaper ? "合并完成" : "导入完成"
+            let conflictSummary: String
+            if !result.hasExistingPaper || result.conflicts.isEmpty {
+                conflictSummary = "没有待处理冲突"
+            } else if decision == .mergePreservingConflicts {
+                conflictSummary = "保留 \(result.conflicts.count) 项本地冲突内容"
+            } else {
+                conflictSummary = "更新 \(updatedConflicts) 项冲突内容"
+            }
+            importAlertMessage = "“\(plan.paper?.title ?? "试卷")”：新增 \(result.addedQuestionCount) 道题，跳过 \(result.identicalQuestionCount) 道相同题目，\(conflictSummary)。导入包中未出现的本地题目、材料、图片和涂鸦均已保留。"
             showImportAlert = true
         } catch {
             isCommittingImport = false
@@ -620,13 +632,13 @@ private struct QuestionBankImportPreparingView: View {
 
 private struct QuestionBankImportPreview: View {
     let plan: QuestionBankImportPlan
-    let duplicateTitle: String?
+    let mergePreview: QuestionBankMergePreview
     let isImporting: Bool
     @Binding var importFailure: String?
     let onImport: (QuestionBankImportDecision) -> Void
     let onCancel: () -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var asksToReplace = false
+    @State private var asksToMerge = false
 
     var body: some View {
         NavigationStack {
@@ -646,6 +658,38 @@ private struct QuestionBankImportPreview: View {
                     LabeledContent("题目", value: "\(plan.questions.count) 道")
                     LabeledContent("图片", value: "\(plan.assets.count) 张")
                 }
+                Section(mergePreview.hasExistingPaper ? "合并预览" : "导入预览") {
+                    if mergePreview.hasExistingPaper {
+                        LabeledContent("本地试卷", value: mergePreview.existingPaperTitle ?? "已存在的试卷")
+                    }
+                    LabeledContent("已有题目", value: "\(mergePreview.existingQuestionCount) 道")
+                    LabeledContent("本包题目", value: "\(mergePreview.incomingQuestionCount) 道")
+                    LabeledContent("新增题目", value: "\(mergePreview.addedQuestionCount) 道")
+                    LabeledContent("相同跳过", value: "\(mergePreview.identicalQuestionCount) 道")
+                    LabeledContent("内容冲突", value: "\(mergePreview.conflictingQuestionCount) 道题；共 \(mergePreview.conflicts.count) 项")
+                    LabeledContent("共用材料", value: "已有 \(mergePreview.existingMaterialCount) 份 · 本包 \(mergePreview.incomingMaterialCount) 份")
+                    LabeledContent("图片资源", value: "已有 \(mergePreview.existingAssetCount) 张 · 本包 \(mergePreview.incomingAssetCount) 张")
+                    if !mergePreview.conflicts.isEmpty {
+                        ForEach(Array(mergePreview.conflicts.prefix(5))) { conflict in
+                            Label(conflict.description, systemImage: conflict.canOverwrite ? "arrow.triangle.2.circlepath" : "exclamationmark.triangle")
+                                .font(AppTheme.auxiliaryFont)
+                                .foregroundStyle(conflict.canOverwrite ? AppTheme.warning : AppTheme.danger)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if mergePreview.conflicts.count > 5 {
+                            Text("另有 \(mergePreview.conflicts.count - 5) 项冲突未展开。")
+                                .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                        }
+                    }
+                    if let blockingMessage = mergePreview.blockingMessage {
+                        Label(blockingMessage, systemImage: "xmark.octagon.fill")
+                            .font(AppTheme.bodyFont).foregroundStyle(AppTheme.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if mergePreview.hasExistingPaper {
+                        Text("未出现在本包中的本地题目、材料、图片和涂鸦会保留。冲突默认保留本地版本。")
+                            .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                    }
+                }
                 if !plan.errors.isEmpty {
                     Section("校验错误（修复后再导入）") {
                         ForEach(Array(plan.errors.enumerated()), id: \.offset) { _, error in
@@ -659,7 +703,7 @@ private struct QuestionBankImportPreview: View {
                     Section("校验结果") {
                         Label("结构、题号、答案、图片文件及关联均已通过检查", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(AppTheme.success)
-                        Text("图片将以文件保存；列表不会加载图片字节。导入只新增真题库内容，不生成解析或作答记录。")
+                        Text("图片将以文件保存；列表不会加载图片字节。导入不会生成解析或作答记录，也不会改动套卷成绩和学习库记录。")
                             .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
                     }
                 }
@@ -671,24 +715,29 @@ private struct QuestionBankImportPreview: View {
                     Button("取消", action: onCancel).disabled(isImporting)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isImporting ? "正在导入…" : "导入试卷") {
-                        if duplicateTitle != nil { asksToReplace = true }
+                    Button(isImporting ? "正在导入…" : (mergePreview.hasExistingPaper ? "合并试卷" : "导入试卷")) {
+                        if mergePreview.hasExistingPaper { asksToMerge = true }
                         else { onImport(.add) }
                     }
-                    .disabled(!plan.canImport || isImporting)
+                    .disabled(!plan.canImport || !mergePreview.canMerge || isImporting)
                 }
             }
             .confirmationDialog(
-                "检测到重复试卷",
-                isPresented: $asksToReplace,
+                "合并到已有试卷",
+                isPresented: $asksToMerge,
                 titleVisibility: .visible
             ) {
-                Button("替换已有的“\(duplicateTitle ?? "同名试卷")”", role: .destructive) {
-                    onImport(.replaceExisting)
+                Button("合并并保留本地冲突项") {
+                    onImport(.mergePreservingConflicts)
+                }
+                if mergePreview.canOverwriteConflicts {
+                    Button("合并并更新 \(mergePreview.conflicts.filter(\.canOverwrite).count) 项冲突", role: .destructive) {
+                        onImport(.mergeUpdatingConflicts)
+                    }
                 }
                 Button("取消导入", role: .cancel) { }
             } message: {
-                Text("按试卷ID或年份、考试类型、卷别和名称识别为同一套试卷。替换失败时仍保留原数据。")
+                Text("按稳定试卷 ID 或年份、考试类型、卷别和名称识别同卷。合并只新增或更新本包中的记录；本地多出的题目、材料、图片和涂鸦不会删除。")
             }
         }
         .presentationDetents([.medium, .large])

@@ -14,6 +14,26 @@ enum QuestionBankReadingMode: String, CaseIterable, Identifiable {
     }
 }
 
+struct QuestionBankDoodleToolbarTarget: Equatable {
+    let questionID: String
+    let questionNumber: Int
+    let materialID: String?
+
+    static func resolve(
+        visibleQuestionID: String?,
+        questions: [QuestionBankQuestion],
+        materialIDs: Set<String>
+    ) -> QuestionBankDoodleToolbarTarget? {
+        guard let visibleQuestionID,
+              let question = questions.first(where: { $0.id == visibleQuestionID }) else { return nil }
+        let materialID = !question.materialID.isEmpty && materialIDs.contains(question.materialID)
+            ? question.materialID : nil
+        return QuestionBankDoodleToolbarTarget(
+            questionID: question.id, questionNumber: question.number, materialID: materialID
+        )
+    }
+}
+
 enum QuestionBankSplitOrientation: Equatable {
     case landscape
     case portrait

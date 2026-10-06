@@ -72,6 +72,54 @@ struct QuestionBankAsset: Codable, Equatable, Sendable, Identifiable {
     var mimeType: String
     var fileName: String
     var originalPage: String
+    var contentSHA256: String
+
+    private enum CodingKeys: String, CodingKey {
+        case id, paperID, ownerType, ownerID, role, path, mimeType, fileName, originalPage, contentSHA256
+    }
+
+    init(id: String, paperID: String, ownerType: String, ownerID: String, role: String,
+         path: String, mimeType: String, fileName: String, originalPage: String,
+         contentSHA256: String = "") {
+        self.id = id
+        self.paperID = paperID
+        self.ownerType = ownerType
+        self.ownerID = ownerID
+        self.role = role
+        self.path = path
+        self.mimeType = mimeType
+        self.fileName = fileName
+        self.originalPage = originalPage
+        self.contentSHA256 = contentSHA256
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        paperID = try container.decode(String.self, forKey: .paperID)
+        ownerType = try container.decode(String.self, forKey: .ownerType)
+        ownerID = try container.decode(String.self, forKey: .ownerID)
+        role = try container.decode(String.self, forKey: .role)
+        path = try container.decode(String.self, forKey: .path)
+        mimeType = try container.decode(String.self, forKey: .mimeType)
+        fileName = try container.decode(String.self, forKey: .fileName)
+        originalPage = try container.decode(String.self, forKey: .originalPage)
+        contentSHA256 = (try? container.decode(String.self, forKey: .contentSHA256)) ?? ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(paperID, forKey: .paperID)
+        try container.encode(ownerType, forKey: .ownerType)
+        try container.encode(ownerID, forKey: .ownerID)
+        try container.encode(role, forKey: .role)
+        try container.encode(path, forKey: .path)
+        try container.encode(mimeType, forKey: .mimeType)
+        try container.encode(fileName, forKey: .fileName)
+        try container.encode(originalPage, forKey: .originalPage)
+        try container.encode(contentSHA256, forKey: .contentSHA256)
+    }
 }
 
 enum QuestionBankImportSource: Sendable, Equatable {
@@ -138,7 +186,7 @@ struct QuestionBankJSONAssetV1: Codable, Equatable, Sendable {
     var metadata: QuestionBankAsset {
         QuestionBankAsset(id: id, paperID: paperID, ownerType: ownerType, ownerID: ownerID,
                           role: role, path: path, mimeType: mimeType, fileName: fileName,
-                          originalPage: originalPage)
+                          originalPage: originalPage, contentSHA256: sha256)
     }
 }
 
@@ -300,12 +348,43 @@ struct QuestionBankStoredRow {
 
 enum QuestionBankImportDecision: Equatable {
     case add
-    case replaceExisting
+    case mergePreservingConflicts
+    case mergeUpdatingConflicts
+}
+
+struct QuestionBankMergePreview: Equatable {
+    struct Conflict: Equatable, Identifiable {
+        let id: String
+        let description: String
+        let canOverwrite: Bool
+    }
+
+    var existingQuestionCount = 0
+    var incomingQuestionCount = 0
+    var addedQuestionCount = 0
+    var identicalQuestionCount = 0
+    var conflictingQuestionCount = 0
+    var existingMaterialCount = 0
+    var incomingMaterialCount = 0
+    var existingAssetCount = 0
+    var incomingAssetCount = 0
+    var hasExistingPaper = false
+    var existingPaperTitle: String?
+    var conflicts: [Conflict] = []
+    var blockingMessage: String?
+
+    var canMerge: Bool { blockingMessage == nil }
+    var canOverwriteConflicts: Bool { canMerge && conflicts.contains(where: \.canOverwrite) }
 }
 
 enum QuestionBankImportFailure: LocalizedError {
     case invalidPlan
     case duplicatePaper(String)
+    case ambiguousPaperIdentity
+    case mismatchedPaperID(String)
+    case incompatibleMerge(String)
+    case stagedAssetChanged(String)
+    case invalidAssetDigest(String)
     case missingStagingFile(String)
     case unsafeAssetPath
 
@@ -314,7 +393,17 @@ enum QuestionBankImportFailure: LocalizedError {
         case .invalidPlan:
             "导入包没有通过完整校验，未写入真题库。"
         case .duplicatePaper(let title):
-            "已存在同一套试卷“\(title)”。请选择替换，或取消本次导入。"
+            "已存在同一套试卷“\(title)”。请选择合并，或取消本次导入。"
+        case .ambiguousPaperIdentity:
+            "本地存在多条可能对应的试卷记录，无法安全判断合并目标；原有数据未更改。"
+        case .mismatchedPaperID(let title):
+            "“\(title)”与本地试卷的年份、类型、卷别和名称相同，但稳定试卷 ID 不同。为避免生成重复卡片，本次未合并。"
+        case .incompatibleMerge(let detail):
+            detail
+        case .stagedAssetChanged(let name):
+            "导入期间图片“\(name)”的内容发生变化，未写入真题库。请重新选择文件。"
+        case .invalidAssetDigest(let name):
+            "图片“\(name)”缺少有效的内容摘要，不能安全导入。"
         case .missingStagingFile(let name):
             "导入时找不到图片文件：\(name)。原有数据未更改。"
         case .unsafeAssetPath:
@@ -425,27 +514,108 @@ enum QuestionBankRepository {
     static let assetKind = "asset"
 
     static func duplicatePaper(for paper: QuestionBankPaper, in records: [QuestionBankRecord]) -> QuestionBankRecord? {
-        records.first {
-            $0.kind == paperKind && ($0.stableID == paper.id || $0.normalizedPaperKey == paper.duplicateKey)
-        }
+        matchingPapers(for: paper, in: records).first
     }
 
-    /// Copies all image resources to an unreferenced generation directory first, then
-    /// replaces/creates all SwiftData rows in one transaction. The previous generation
-    /// is removed only after the database transaction has succeeded.
+    static func mergePreview(
+        for plan: QuestionBankImportPlan,
+        in records: [QuestionBankRecord],
+        assetRoot: URL? = nil
+    ) -> QuestionBankMergePreview {
+        var preview = QuestionBankMergePreview()
+        preview.incomingQuestionCount = plan.questions.count
+        preview.incomingMaterialCount = plan.materials.count
+        preview.incomingAssetCount = plan.assets.count
+        guard plan.canImport, let paper = plan.paper else {
+            preview.blockingMessage = "导入包未通过完整校验。"
+            return preview
+        }
+
+        let matchingPapers = matchingPapers(for: paper, in: records)
+        preview.hasExistingPaper = !matchingPapers.isEmpty
+        preview.existingPaperTitle = matchingPapers.first?.title
+        if matchingPapers.count > 1 {
+            preview.blockingMessage = QuestionBankImportFailure.ambiguousPaperIdentity.localizedDescription
+            return preview
+        }
+        let existingPaper = matchingPapers.first
+        let targetPaperID = existingPaper?.paperID ?? paper.id
+        let existingRows = records.filter { $0.paperID == targetPaperID }
+        preview.existingQuestionCount = existingRows.filter { $0.kind == questionKind }.count
+        preview.existingMaterialCount = existingRows.filter { $0.kind == materialKind }.count
+        preview.existingAssetCount = existingRows.filter { $0.kind == assetKind }.count
+
+        if let existingPaper, existingPaper.stableID != paper.id {
+            preview.blockingMessage = QuestionBankImportFailure.mismatchedPaperID(
+                existingPaper.title ?? paper.title
+            ).localizedDescription
+            return preview
+        }
+        guard targetPaperID == paper.id else {
+            preview.blockingMessage = QuestionBankImportFailure.incompatibleMerge(
+                "本地试卷记录的 ID 与内容中的 ID 不一致。"
+            ).localizedDescription
+            return preview
+        }
+
+        let incomingRows: [QuestionBankStoredRow]
+        do {
+            incomingRows = try makeRows(from: plan, generation: "preview")
+        } catch {
+            preview.blockingMessage = error.localizedDescription
+            return preview
+        }
+        let rowsByID = Dictionary(grouping: existingRows, by: \.compoundID)
+        for row in incomingRows {
+            if let collision = existingRows.first(where: {
+                $0.compoundID != row.compoundID && naturalIdentityConflict(row, $0) != nil
+            }), let detail = naturalIdentityConflict(row, collision) {
+                preview.conflicts.append(.init(id: row.compoundID, description: detail, canOverwrite: false))
+                if row.kind == questionKind { preview.conflictingQuestionCount += 1 }
+                if preview.blockingMessage == nil { preview.blockingMessage = detail }
+                continue
+            }
+
+            guard let existing = rowsByID[row.compoundID]?.first else {
+                if row.kind == questionKind { preview.addedQuestionCount += 1 }
+                continue
+            }
+            if rowsHaveSameContent(row, existing, assetRoot: assetRoot) {
+                if row.kind == questionKind { preview.identicalQuestionCount += 1 }
+            } else {
+                preview.conflicts.append(.init(
+                    id: row.compoundID,
+                    description: conflictDescription(for: row),
+                    canOverwrite: true
+                ))
+                if row.kind == questionKind { preview.conflictingQuestionCount += 1 }
+            }
+        }
+        return preview
+    }
+
+    /// Stages incoming images first, then adds or updates selected rows in one SwiftData
+    /// transaction. Rows absent from an incremental package and their image generations
+    /// are retained; a staged generation is discarded if no committed asset row uses it.
     @MainActor
+    @discardableResult
     static func commit(
         _ plan: QuestionBankImportPlan,
         decision: QuestionBankImportDecision,
         records: [QuestionBankRecord],
         context: ModelContext,
         assetRoot: URL? = nil
-    ) throws {
+    ) throws -> QuestionBankMergePreview {
         guard plan.canImport, let paper = plan.paper, let stage = plan.stagingDirectory else {
             throw QuestionBankImportFailure.invalidPlan
         }
-        let duplicate = duplicatePaper(for: paper, in: records)
-        if let duplicate, decision != .replaceExisting {
+        let previewAssetRoot = assetRoot ?? (try? QuestionBankAssetStore.root(create: false))
+        let preview = mergePreview(for: plan, in: records, assetRoot: previewAssetRoot)
+        if let blockingMessage = preview.blockingMessage {
+            throw QuestionBankImportFailure.incompatibleMerge(blockingMessage)
+        }
+        let duplicate = matchingPapers(for: paper, in: records).first
+        if let duplicate, decision == .add {
             throw QuestionBankImportFailure.duplicatePaper(duplicate.title ?? "未命名试卷")
         }
 
@@ -456,15 +626,8 @@ enum QuestionBankRepository {
         guard let generationURL = QuestionBankAssetStore.url(for: generation, under: root) else {
             throw QuestionBankImportFailure.unsafeAssetPath
         }
-        let previousPaperID = duplicate?.paperID
-        let replacingRows = records.filter { record in
-            guard let previousPaperID else { return record.paperID == paper.id }
-            return record.paperID == previousPaperID
-        }
-        let oldGenerations = Set(replacingRows.compactMap { record -> String? in
-            guard record.kind == assetKind, let path = record.assetRelativePath else { return nil }
-            return path.split(separator: "/").first.map(String.init)
-        })
+        let existingRows = records.filter { $0.paperID == paper.id }
+        var generationIsReferenced = false
 
         do {
             if !plan.assets.isEmpty {
@@ -473,6 +636,16 @@ enum QuestionBankRepository {
                     guard let source = QuestionBankAssetStore.url(for: asset.path, under: stage),
                           FileManager.default.fileExists(atPath: source.path) else {
                         throw QuestionBankImportFailure.missingStagingFile(asset.fileName)
+                    }
+                    guard !asset.contentSHA256.isEmpty else {
+                        throw QuestionBankImportFailure.invalidAssetDigest(asset.fileName)
+                    }
+                    guard let sourceData = try? Data(contentsOf: source, options: [.mappedIfSafe]) else {
+                        throw QuestionBankImportFailure.missingStagingFile(asset.fileName)
+                    }
+                    let sourceDigest = SHA256.hash(data: sourceData).map { String(format: "%02x", $0) }.joined()
+                    guard sourceDigest.caseInsensitiveCompare(asset.contentSHA256) == .orderedSame else {
+                        throw QuestionBankImportFailure.stagedAssetChanged(asset.fileName)
                     }
                     let destinationRelativePath = "\(generation)/\(asset.path)"
                     guard let destinationCandidate = QuestionBankAssetStore.url(
@@ -494,14 +667,25 @@ enum QuestionBankRepository {
             }
 
             let rows = try makeRows(from: plan, generation: generation)
-            let desiredIDs = Set(rows.map(\.compoundID))
-            let existingByID = Dictionary(uniqueKeysWithValues: replacingRows.map { ($0.compoundID, $0) })
-            try context.transaction {
-                for old in replacingRows where !desiredIDs.contains(old.compoundID) {
-                    context.delete(old)
+            let existingByID = Dictionary(grouping: existingRows, by: \.compoundID)
+            let selectedRows = rows.compactMap { row -> QuestionBankStoredRow? in
+                guard let existing = existingByID[row.compoundID]?.first else { return row }
+                if rowsHaveSameContent(row, existing, assetRoot: root) {
+                    guard needsAssetDigestUpgrade(row, existing), let existingPath = existing.assetRelativePath else {
+                        return nil
+                    }
+                    var upgraded = row
+                    upgraded.assetRelativePath = existingPath
+                    return upgraded
                 }
-                for row in rows {
-                    if let existing = existingByID[row.compoundID] {
+                return decision == .mergeUpdatingConflicts ? row : nil
+            }
+            generationIsReferenced = selectedRowsReferenceGeneration(
+                plan: plan, rows: rows, selectedRows: selectedRows, generation: generation
+            )
+            try context.transaction {
+                for row in selectedRows {
+                    if let existing = existingByID[row.compoundID]?.first {
                         existing.update(from: row)
                     } else {
                         context.insert(row.makeRecord())
@@ -514,9 +698,112 @@ enum QuestionBankRepository {
             throw error
         }
 
-        for oldGeneration in oldGenerations where oldGeneration != generation {
-            guard let oldGenerationURL = QuestionBankAssetStore.url(for: oldGeneration, under: root) else { continue }
-            try? FileManager.default.removeItem(at: oldGenerationURL)
+        if !generationIsReferenced {
+            try? FileManager.default.removeItem(at: generationURL)
+        }
+        return preview
+    }
+
+    private static func matchingPapers(for paper: QuestionBankPaper, in records: [QuestionBankRecord]) -> [QuestionBankRecord] {
+        records.filter {
+            $0.kind == paperKind && ($0.stableID == paper.id || $0.normalizedPaperKey == paper.duplicateKey)
+        }
+    }
+
+    private static func rowsHaveSameContent(
+        _ lhs: QuestionBankStoredRow,
+        _ rhs: QuestionBankRecord,
+        assetRoot: URL?
+    ) -> Bool {
+        let rowMetadataMatches = lhs.compoundID == rhs.compoundID && lhs.paperID == rhs.paperID && lhs.kind == rhs.kind
+            && lhs.stableID == rhs.stableID && lhs.moduleID == rhs.moduleID
+            && lhs.questionNumber == rhs.questionNumber && lhs.sequence == rhs.sequence
+            && lhs.year == rhs.year && lhs.examType == rhs.examType
+            && lhs.normalizedPaperKey == rhs.normalizedPaperKey && lhs.title == rhs.title
+            && lhs.searchText == rhs.searchText
+        guard rowMetadataMatches else { return false }
+        guard lhs.kind == assetKind else { return lhs.payload == rhs.payload }
+        guard var incomingAsset = try? JSONDecoder().decode(QuestionBankAsset.self, from: lhs.payload),
+              var storedAsset = try? JSONDecoder().decode(QuestionBankAsset.self, from: rhs.payload),
+              !incomingAsset.contentSHA256.isEmpty else { return false }
+        let incomingDigest = incomingAsset.contentSHA256.lowercased()
+        let storedDigest = storedAsset.contentSHA256.lowercased()
+        incomingAsset.contentSHA256 = ""
+        storedAsset.contentSHA256 = ""
+        guard incomingAsset == storedAsset,
+              let root = assetRoot ?? (try? QuestionBankAssetStore.root(create: false)),
+              let oldAssetURL = QuestionBankAssetStore.url(for: rhs.assetRelativePath, under: root),
+              FileManager.default.fileExists(atPath: oldAssetURL.path),
+              FileManager.default.isReadableFile(atPath: oldAssetURL.path) else { return false }
+        if !storedDigest.isEmpty { return storedDigest == incomingDigest }
+        guard let oldData = try? Data(contentsOf: oldAssetURL, options: [.mappedIfSafe]) else { return false }
+        let oldDigest = SHA256.hash(data: oldData).map { String(format: "%02x", $0) }.joined()
+        return oldDigest.caseInsensitiveCompare(incomingDigest) == .orderedSame
+    }
+
+    private static func needsAssetDigestUpgrade(_ incoming: QuestionBankStoredRow, _ existing: QuestionBankRecord) -> Bool {
+        guard incoming.kind == assetKind,
+              let incomingAsset = try? JSONDecoder().decode(QuestionBankAsset.self, from: incoming.payload),
+              let storedAsset = try? JSONDecoder().decode(QuestionBankAsset.self, from: existing.payload) else {
+            return false
+        }
+        return storedAsset.contentSHA256.isEmpty && !incomingAsset.contentSHA256.isEmpty
+    }
+
+    private static func naturalIdentityConflict(_ incoming: QuestionBankStoredRow, _ existing: QuestionBankRecord) -> String? {
+        guard incoming.kind == existing.kind else { return nil }
+        if incoming.kind == moduleKind,
+           let sequence = incoming.sequence, let existingSequence = existing.sequence,
+           sequence == existingSequence {
+            return "模块序号 \(sequence) 对应不同的稳定 ID。"
+        }
+        if incoming.kind == questionKind,
+           incoming.moduleID == existing.moduleID,
+           let number = incoming.questionNumber, let existingNumber = existing.questionNumber,
+           number == existingNumber {
+            return "第 \(number) 题对应不同的稳定 ID，无法安全更新题目及其图片关联。"
+        }
+        if incoming.kind == materialKind {
+            guard let old = try? JSONDecoder().decode(QuestionBankMaterial.self, from: existing.payload),
+                  let new = try? JSONDecoder().decode(QuestionBankMaterial.self, from: incoming.payload),
+                  old.moduleID == new.moduleID,
+                  !old.applicableQuestions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  old.applicableQuestions.trimmingCharacters(in: .whitespacesAndNewlines)
+                    == new.applicableQuestions.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+            return "同一模块、同一题号范围的共用材料使用了不同的稳定 ID。"
+        }
+        if incoming.kind == assetKind {
+            guard let old = try? JSONDecoder().decode(QuestionBankAsset.self, from: existing.payload),
+                  let new = try? JSONDecoder().decode(QuestionBankAsset.self, from: incoming.payload),
+                  old.ownerType == new.ownerType, old.ownerID == new.ownerID,
+                  !old.role.isEmpty, old.role == new.role else { return nil }
+            return "同一所属记录和图片角色使用了不同的资源 ID。"
+        }
+        return nil
+    }
+
+    private static func conflictDescription(for row: QuestionBankStoredRow) -> String {
+        switch row.kind {
+        case paperKind: "试卷名称或元数据与已有内容不同。"
+        case moduleKind: "模块“\(row.title ?? row.stableID)”与已有内容不同。"
+        case materialKind: "共用材料与已有内容不同。"
+        case questionKind: "第 \(row.questionNumber ?? 0) 题与已有内容不同。"
+        case assetKind: "图片“\(row.title ?? row.stableID)”与已有内容不同。"
+        default: "记录“\(row.stableID)”与已有内容不同。"
+        }
+    }
+
+    private static func selectedRowsReferenceGeneration(
+        plan: QuestionBankImportPlan,
+        rows: [QuestionBankStoredRow],
+        selectedRows: [QuestionBankStoredRow],
+        generation: String
+    ) -> Bool {
+        guard !plan.assets.isEmpty else { return false }
+        let selectedIDs = Set(selectedRows.map(\.compoundID))
+        return rows.contains {
+            selectedIDs.contains($0.compoundID) && $0.kind == assetKind
+                && $0.assetRelativePath?.split(separator: "/").first.map(String.init) == generation
         }
     }
 
@@ -658,7 +945,7 @@ enum QuestionBankPackageImporter {
                     ? try parseZIP(from: readableSource, into: stage)
                     : try parseJSON(from: readableSource)
             }
-            let imageAndReferenceErrors = try runPhase(.validatingImages, onProgress: onProgress) {
+            let validation = try runPhase(.validatingImages, onProgress: onProgress) {
                 var errors = parsed.errors
                 if !parsed.jsonAssets.isEmpty {
                     errors += try installAndValidateJSONAssets(parsed.jsonAssets, paper: parsed.paper,
@@ -668,14 +955,25 @@ enum QuestionBankPackageImporter {
                 errors += try validate(paper: parsed.paper, modules: parsed.modules,
                     materials: parsed.materials, questions: parsed.questions,
                     assets: parsed.assets, staging: stage)
-                return errors
+                var assetsWithDigests = parsed.assets
+                for index in assetsWithDigests.indices {
+                    guard let assetURL = QuestionBankAssetStore.url(
+                        for: assetsWithDigests[index].path, under: stage
+                    ), let data = try? Data(contentsOf: assetURL, options: [.mappedIfSafe]) else {
+                        errors.append("图片“\(assetsWithDigests[index].fileName)”无法读取摘要，不能安全合并。")
+                        continue
+                    }
+                    assetsWithDigests[index].contentSHA256 = SHA256.hash(data: data)
+                        .map { String(format: "%02x", $0) }.joined()
+                }
+                return (errors, assetsWithDigests)
             }
             return try runPhase(.preparingPreview, onProgress: onProgress) {
                 try checkCancellation()
-                logger.info("package validation finished; modules=\(parsed.modules.count), materials=\(parsed.materials.count), questions=\(parsed.questions.count), images=\(parsed.assets.count), errors=\(imageAndReferenceErrors.count)")
+                logger.info("package validation finished: modules=\(parsed.modules.count), materials=\(parsed.materials.count), questions=\(parsed.questions.count), images=\(validation.1.count), errors=\(validation.0.count)")
                 return QuestionBankImportPlan(paper: parsed.paper, modules: parsed.modules,
-                    materials: parsed.materials, questions: parsed.questions, assets: parsed.assets,
-                    errors: imageAndReferenceErrors, stagingDirectory: stage)
+                    materials: parsed.materials, questions: parsed.questions, assets: validation.1,
+                    errors: validation.0, stagingDirectory: stage)
             }
         } catch {
             logFailure("package preparation", error: error)

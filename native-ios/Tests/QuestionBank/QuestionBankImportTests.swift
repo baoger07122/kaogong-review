@@ -168,7 +168,7 @@ final class QuestionBankImportTests: XCTestCase {
         }, (111...115).map { "q-\($0)" })
     }
 
-    func testQuestionBankReaderLayoutModesAndOptionDisplay() {
+    func testQuestionBankReaderLayoutModesAndOptionDisplay() throws {
         XCTAssertEqual(
             QuestionBankSplitLayout.orientation(width: 1194, height: 834),
             .landscape
@@ -190,6 +190,42 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertNil(QuestionBankOptionDisplay.text(for: QuestionBankOption(id: "A", text: "A", imageAssetID: "")))
         XCTAssertNil(QuestionBankOptionDisplay.text(for: QuestionBankOption(id: "A", text: " A\n", imageAssetID: "")))
         XCTAssertEqual(QuestionBankOptionDisplay.text(for: QuestionBankOption(id: "A", text: "选项内容", imageAssetID: "")), "选项内容")
+
+        let legacyAssetPayload = Data(#"{"id":"asset-1","paperID":"paper-1","ownerType":"question","ownerID":"q-1","role":"题干整图","path":"assets/figure.png","mimeType":"image/png","fileName":"figure.png","originalPage":"1"}"#.utf8)
+        let legacyAsset = try JSONDecoder().decode(QuestionBankAsset.self, from: legacyAssetPayload)
+        XCTAssertEqual(legacyAsset.contentSHA256, "", "Older stored asset payloads must remain readable without a digest.")
+    }
+
+    func testQuestionBankDoodleToolbarTargetFollowsVisibleQuestionAndMaterial() {
+        let questions = [
+            readingQuestion(id: "q-one", number: 1, materialID: "material-one"),
+            readingQuestion(id: "q-two", number: 2, materialID: "material-two"),
+            readingQuestion(id: "q-three", number: 3)
+        ]
+
+        let firstTarget = QuestionBankDoodleToolbarTarget.resolve(
+            visibleQuestionID: "q-one", questions: questions,
+            materialIDs: ["material-one", "material-two"]
+        )
+        XCTAssertEqual(firstTarget, QuestionBankDoodleToolbarTarget(
+            questionID: "q-one", questionNumber: 1, materialID: "material-one"
+        ))
+
+        let switchedTarget = QuestionBankDoodleToolbarTarget.resolve(
+            visibleQuestionID: "q-two", questions: questions,
+            materialIDs: ["material-one", "material-two"]
+        )
+        XCTAssertEqual(switchedTarget?.questionID, "q-two")
+        XCTAssertEqual(switchedTarget?.materialID, "material-two")
+
+        let questionWithoutMaterial = QuestionBankDoodleToolbarTarget.resolve(
+            visibleQuestionID: "q-three", questions: questions, materialIDs: []
+        )
+        XCTAssertEqual(questionWithoutMaterial?.questionNumber, 3)
+        XCTAssertNil(questionWithoutMaterial?.materialID)
+        XCTAssertNil(QuestionBankDoodleToolbarTarget.resolve(
+            visibleQuestionID: "stale", questions: questions, materialIDs: []
+        ))
     }
 
     func testQuestionBankDoodlesRoundTripThroughGenericKeyValueBackup() throws {
@@ -635,12 +671,15 @@ final class QuestionBankImportTests: XCTestCase {
             var invalidPlan = plan
             invalidPlan.errors.append("测试缺图：必须拒绝提交")
             XCTAssertThrowsError(try QuestionBankRepository.commit(
-                invalidPlan, decision: .replaceExisting, records: imported, context: context, assetRoot: assetRoot
+                invalidPlan, decision: .mergePreservingConflicts, records: imported, context: context, assetRoot: assetRoot
             ))
             imported = try context.fetch(FetchDescriptor<QuestionBankRecord>())
             XCTAssertEqual(imported.filter { $0.kind == QuestionBankRepository.questionKind }.count, 7)
 
-            try QuestionBankRepository.commit(plan, decision: .replaceExisting, records: imported, context: context, assetRoot: assetRoot)
+            let identicalMerge = try QuestionBankRepository.commit(
+                plan, decision: .mergePreservingConflicts, records: imported, context: context, assetRoot: assetRoot
+            )
+            XCTAssertEqual(identicalMerge.identicalQuestionCount, 7)
             imported = try context.fetch(FetchDescriptor<QuestionBankRecord>())
             XCTAssertEqual(imported.filter { $0.kind == QuestionBankRepository.questionKind }.count, 7)
             XCTAssertEqual(imported.filter { $0.kind == QuestionBankRepository.moduleKind }.count, 5)
@@ -668,6 +707,287 @@ final class QuestionBankImportTests: XCTestCase {
             XCTAssertFalse(try Data(contentsOf: localURL).isEmpty)
         }
         XCTAssertEqual(try reopened.mainContext.fetch(FetchDescriptor<StoredRecord>()).first?.recordID, "existing-exam")
+    }
+
+    func testQuestionBankIncrementalMergeAddsWithoutDeletingOrDuplicatingAndKeepsDoodles() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankIncrementalMerge-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let sourcePlan = try QuestionBankPackageImporter.prepare(from: validationPackageURL())
+        defer { QuestionBankPackageImporter.cleanup(sourcePlan) }
+        let expandedPlan = plan(sourcePlan, containingQuestionCount: 130)
+        let storeURL = temporaryRoot.appendingPathComponent("QuestionBank.store")
+        let assetRoot = temporaryRoot.appendingPathComponent("assets", isDirectory: true)
+        let container = try makeContainer(storeURL: storeURL)
+        let context = container.mainContext
+
+        try QuestionBankRepository.commit(
+            sourcePlan, decision: .add, records: [], context: context, assetRoot: assetRoot
+        )
+        let existingRows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        let originalAssets = existingRows.filter { $0.kind == QuestionBankRepository.assetKind }
+        let originalAssetBytes = try Dictionary(uniqueKeysWithValues: originalAssets.map { record in
+            let path = try XCTUnwrap(record.assetRelativePath)
+            let url = try XCTUnwrap(QuestionBankAssetStore.url(for: path, under: assetRoot))
+            return (record.stableID, try Data(contentsOf: url))
+        })
+        let doodlePayload = Data([0x51, 0x42, 0x2D, 0x44])
+        let doodleID = QuestionBankDoodleRepository.recordID(
+            paperID: try XCTUnwrap(sourcePlan.paper).id, scope: .question("q-2019-071")
+        )
+        let doodle = StoredRecord(collection: QuestionBankDoodleRepository.collection,
+            recordID: doodleID, payload: doodlePayload)
+        context.insert(doodle)
+        try context.save()
+
+        let beforeMerge = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        let preview = QuestionBankRepository.mergePreview(
+            for: expandedPlan, in: beforeMerge, assetRoot: assetRoot
+        )
+        XCTAssertNil(preview.blockingMessage)
+        XCTAssertEqual(preview.existingQuestionCount, 7)
+        XCTAssertEqual(preview.incomingQuestionCount, 130)
+        XCTAssertEqual(preview.addedQuestionCount, 123)
+        XCTAssertEqual(preview.identicalQuestionCount, 7)
+        XCTAssertEqual(preview.conflictingQuestionCount, 0)
+
+        let firstMerge = try QuestionBankRepository.commit(
+            expandedPlan, decision: .mergePreservingConflicts,
+            records: beforeMerge, context: context, assetRoot: assetRoot
+        )
+        XCTAssertEqual(firstMerge.addedQuestionCount, 123)
+        var mergedRows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        XCTAssertEqual(mergedRows.filter { $0.kind == QuestionBankRepository.paperKind }.count, 1)
+        XCTAssertEqual(mergedRows.filter { $0.kind == QuestionBankRepository.questionKind }.count, 130)
+
+        let secondMerge = try QuestionBankRepository.commit(
+            expandedPlan, decision: .mergePreservingConflicts,
+            records: mergedRows, context: context, assetRoot: assetRoot
+        )
+        XCTAssertEqual(secondMerge.addedQuestionCount, 0)
+        XCTAssertEqual(secondMerge.identicalQuestionCount, 130)
+        mergedRows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        XCTAssertEqual(mergedRows.filter { $0.kind == QuestionBankRepository.paperKind }.count, 1)
+        XCTAssertEqual(mergedRows.filter { $0.kind == QuestionBankRepository.questionKind }.count, 130)
+
+        let reducedPackageMerge = try QuestionBankRepository.commit(
+            sourcePlan, decision: .mergePreservingConflicts,
+            records: mergedRows, context: context, assetRoot: assetRoot
+        )
+        XCTAssertEqual(reducedPackageMerge.identicalQuestionCount, 7)
+        XCTAssertEqual(reducedPackageMerge.addedQuestionCount, 0)
+        mergedRows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        XCTAssertEqual(mergedRows.filter { $0.kind == QuestionBankRepository.questionKind }.count, 130,
+            "A smaller incremental package must not delete local questions missing from the package.")
+
+        for asset in mergedRows.filter({ $0.kind == QuestionBankRepository.assetKind }) {
+            let path = try XCTUnwrap(asset.assetRelativePath)
+            let url = try XCTUnwrap(QuestionBankAssetStore.url(for: path, under: assetRoot))
+            let storedBytes = try Data(contentsOf: url)
+            XCTAssertEqual(storedBytes, try XCTUnwrap(originalAssetBytes[asset.stableID]))
+            XCTAssertNotNil(UIImage(data: storedBytes), "Merged image bytes should remain decodable.")
+        }
+        let doodles = try context.fetch(FetchDescriptor<StoredRecord>())
+            .filter { $0.collection == QuestionBankDoodleRepository.collection && $0.recordID == doodleID }
+        XCTAssertEqual(doodles.count, 1)
+        XCTAssertEqual(try XCTUnwrap(doodles.first).payload, doodlePayload)
+    }
+
+    func testQuestionBankMergeConflictsDefaultToLocalAndRequireExplicitOverwrite() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankMergeConflict-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let sourcePlan = try QuestionBankPackageImporter.prepare(from: validationPackageURL())
+        defer { QuestionBankPackageImporter.cleanup(sourcePlan) }
+        var conflictingPlan = sourcePlan
+        let originalQuestion = try XCTUnwrap(sourcePlan.questions.first)
+        var changedQuestion = originalQuestion
+        changedQuestion.stem += "（本包更新）"
+        conflictingPlan.questions[0] = changedQuestion
+
+        let assetRoot = temporaryRoot.appendingPathComponent("assets", isDirectory: true)
+        let container = try makeContainer(storeURL: temporaryRoot.appendingPathComponent("QuestionBank.store"))
+        let context = container.mainContext
+        try QuestionBankRepository.commit(
+            sourcePlan, decision: .add, records: [], context: context, assetRoot: assetRoot
+        )
+        var existingRows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        let preview = QuestionBankRepository.mergePreview(for: conflictingPlan, in: existingRows)
+        XCTAssertTrue(preview.canMerge)
+        XCTAssertEqual(preview.conflictingQuestionCount, 1)
+        XCTAssertTrue(preview.canOverwriteConflicts)
+
+        try QuestionBankRepository.commit(
+            conflictingPlan, decision: .mergePreservingConflicts,
+            records: existingRows, context: context, assetRoot: assetRoot
+        )
+        existingRows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        var storedQuestion = try XCTUnwrap(existingRows.first {
+            $0.kind == QuestionBankRepository.questionKind && $0.stableID == originalQuestion.id
+        })
+        XCTAssertEqual(try JSONDecoder().decode(QuestionBankQuestion.self, from: storedQuestion.payload).stem,
+            originalQuestion.stem)
+        XCTAssertEqual(existingRows.filter { $0.kind == QuestionBankRepository.questionKind }.count, 7)
+
+        try QuestionBankRepository.commit(
+            conflictingPlan, decision: .mergeUpdatingConflicts,
+            records: existingRows, context: context, assetRoot: assetRoot
+        )
+        existingRows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        storedQuestion = try XCTUnwrap(existingRows.first {
+            $0.kind == QuestionBankRepository.questionKind && $0.stableID == originalQuestion.id
+        })
+        XCTAssertEqual(try JSONDecoder().decode(QuestionBankQuestion.self, from: storedQuestion.payload).stem,
+            changedQuestion.stem)
+        XCTAssertEqual(existingRows.filter { $0.kind == QuestionBankRepository.questionKind }.count, 7)
+
+        var differentPaperIDPlan = sourcePlan
+        var differentIDPaper = try XCTUnwrap(sourcePlan.paper)
+        differentIDPaper.id += "-different"
+        differentPaperIDPlan.paper = differentIDPaper
+        let mismatchedPreview = QuestionBankRepository.mergePreview(for: differentPaperIDPlan, in: existingRows)
+        XCTAssertFalse(mismatchedPreview.canMerge)
+        XCTAssertTrue(mismatchedPreview.blockingMessage?.contains("稳定试卷 ID 不同") == true)
+        XCTAssertThrowsError(try QuestionBankRepository.commit(
+            differentPaperIDPlan, decision: .mergePreservingConflicts,
+            records: existingRows, context: context, assetRoot: assetRoot
+        ))
+        existingRows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        XCTAssertEqual(existingRows.filter { $0.kind == QuestionBankRepository.paperKind }.count, 1)
+        XCTAssertEqual(existingRows.filter { $0.kind == QuestionBankRepository.questionKind }.count, 7)
+    }
+
+    func testQuestionBankMergeDetectsChangedImageBytesAndOverwritesOnlyExplicitly() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankMergeImageConflict-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let sourcePlan = try QuestionBankPackageImporter.prepare(from: validationPackageURL())
+        defer { QuestionBankPackageImporter.cleanup(sourcePlan) }
+        let assetRoot = temporaryRoot.appendingPathComponent("assets", isDirectory: true)
+        let container = try makeContainer(storeURL: temporaryRoot.appendingPathComponent("QuestionBank.store"))
+        let context = container.mainContext
+        try QuestionBankRepository.commit(
+            sourcePlan, decision: .add, records: [], context: context, assetRoot: assetRoot
+        )
+        let originalRows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        let changedIndex = try XCTUnwrap(sourcePlan.assets.indices.first)
+        let oldAsset = sourcePlan.assets[changedIndex]
+        let replacementAsset = try XCTUnwrap(sourcePlan.assets.first {
+            $0.id != oldAsset.id && $0.mimeType == oldAsset.mimeType
+        })
+        let staging = try XCTUnwrap(sourcePlan.stagingDirectory)
+        let changedSourceURL = try XCTUnwrap(QuestionBankAssetStore.url(for: oldAsset.path, under: staging))
+        let replacementSourceURL = try XCTUnwrap(QuestionBankAssetStore.url(for: replacementAsset.path, under: staging))
+        let oldBytes = try Data(contentsOf: changedSourceURL)
+        let replacementBytes = try Data(contentsOf: replacementSourceURL)
+        XCTAssertNotEqual(oldBytes, replacementBytes)
+        let oldRecord = try XCTUnwrap(originalRows.first {
+            $0.kind == QuestionBankRepository.assetKind && $0.stableID == oldAsset.id
+        })
+        let oldRelativePath = try XCTUnwrap(oldRecord.assetRelativePath)
+        let oldStoredURL = try XCTUnwrap(QuestionBankAssetStore.url(for: oldRelativePath, under: assetRoot))
+
+        try replacementBytes.write(to: changedSourceURL, options: .atomic)
+        var changedPlan = sourcePlan
+        changedPlan.assets[changedIndex].contentSHA256 = SHA256.hash(data: replacementBytes)
+            .map { String(format: "%02x", $0) }.joined()
+        let preview = QuestionBankRepository.mergePreview(for: changedPlan, in: originalRows, assetRoot: assetRoot)
+        XCTAssertEqual(preview.conflictingQuestionCount, 0)
+        XCTAssertEqual(preview.conflicts.filter { $0.id == oldRecord.compoundID }.count, 1)
+
+        try QuestionBankRepository.commit(
+            changedPlan, decision: .mergePreservingConflicts,
+            records: originalRows, context: context, assetRoot: assetRoot
+        )
+        var rows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        var storedAsset = try XCTUnwrap(rows.first {
+            $0.kind == QuestionBankRepository.assetKind && $0.stableID == oldAsset.id
+        })
+        XCTAssertEqual(storedAsset.assetRelativePath, oldRelativePath)
+        XCTAssertEqual(try Data(contentsOf: oldStoredURL), oldBytes)
+
+        try QuestionBankRepository.commit(
+            changedPlan, decision: .mergeUpdatingConflicts,
+            records: rows, context: context, assetRoot: assetRoot
+        )
+        rows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        storedAsset = try XCTUnwrap(rows.first {
+            $0.kind == QuestionBankRepository.assetKind && $0.stableID == oldAsset.id
+        })
+        XCTAssertNotEqual(storedAsset.assetRelativePath, oldRelativePath)
+        let updatedURL = try XCTUnwrap(QuestionBankAssetStore.url(
+            for: storedAsset.assetRelativePath, under: assetRoot
+        ))
+        let updatedBytes = try Data(contentsOf: updatedURL)
+        XCTAssertEqual(updatedBytes, replacementBytes)
+        XCTAssertNotNil(UIImage(data: updatedBytes))
+        let storedMetadata = try JSONDecoder().decode(QuestionBankAsset.self, from: storedAsset.payload)
+        XCTAssertEqual(storedMetadata.contentSHA256, changedPlan.assets[changedIndex].contentSHA256)
+        XCTAssertEqual(rows.filter { $0.kind == QuestionBankRepository.paperKind }.count, 1)
+        XCTAssertEqual(rows.filter { $0.kind == QuestionBankRepository.questionKind }.count, 7)
+    }
+
+    func testQuestionBankMergeMissingImageOrInvalidPlanLeavesExistingRowsAndFilesUntouched() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankMergeRollback-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let plan = try QuestionBankPackageImporter.prepare(from: validationPackageURL())
+        defer { QuestionBankPackageImporter.cleanup(plan) }
+        let assetRoot = temporaryRoot.appendingPathComponent("assets", isDirectory: true)
+        let container = try makeContainer(storeURL: temporaryRoot.appendingPathComponent("QuestionBank.store"))
+        let context = container.mainContext
+        try QuestionBankRepository.commit(plan, decision: .add, records: [], context: context, assetRoot: assetRoot)
+        let originalRows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        let originalAssetPaths = Dictionary(uniqueKeysWithValues: originalRows
+            .filter { $0.kind == QuestionBankRepository.assetKind }
+            .compactMap { record -> (String, String)? in
+                guard let path = record.assetRelativePath else { return nil }
+                return (record.stableID, path)
+            })
+        let originalGenerationCount = try FileManager.default.contentsOfDirectory(
+            at: assetRoot, includingPropertiesForKeys: nil
+        ).count
+        let stagedMissingAsset = try XCTUnwrap(plan.assets.last)
+        let stagedMissingURL = try XCTUnwrap(QuestionBankAssetStore.url(
+            for: stagedMissingAsset.path, under: try XCTUnwrap(plan.stagingDirectory)
+        ))
+        try FileManager.default.removeItem(at: stagedMissingURL)
+
+        XCTAssertThrowsError(try QuestionBankRepository.commit(
+            plan, decision: .mergePreservingConflicts,
+            records: originalRows, context: context, assetRoot: assetRoot
+        )) { error in
+            XCTAssertTrue(error.localizedDescription.contains("找不到图片文件"))
+        }
+        var unchangedRows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        XCTAssertEqual(unchangedRows.count, originalRows.count)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(at: assetRoot, includingPropertiesForKeys: nil).count,
+            originalGenerationCount, "A partially copied generation must be removed when staging fails.")
+        for record in unchangedRows.filter({ $0.kind == QuestionBankRepository.assetKind }) {
+            let path = try XCTUnwrap(record.assetRelativePath)
+            XCTAssertEqual(path, originalAssetPaths[record.stableID])
+            let url = try XCTUnwrap(QuestionBankAssetStore.url(for: path, under: assetRoot))
+            XCTAssertFalse(try Data(contentsOf: url).isEmpty)
+        }
+
+        var invalidPlan = plan
+        invalidPlan.errors.append("测试：存在无效材料关联")
+        XCTAssertThrowsError(try QuestionBankRepository.commit(
+            invalidPlan, decision: .mergePreservingConflicts,
+            records: unchangedRows, context: context, assetRoot: assetRoot
+        ))
+        unchangedRows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        XCTAssertEqual(unchangedRows.count, originalRows.count)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(at: assetRoot, includingPropertiesForKeys: nil).count,
+            originalGenerationCount)
     }
 
     func testJSONV1PreservesVerifiedQuestionsAndPersistsWithoutBase64Payloads() throws {
@@ -909,6 +1229,22 @@ final class QuestionBankImportTests: XCTestCase {
         let remainingStaging = Set(try FileManager.default.contentsOfDirectory(at: stagingRoot, includingPropertiesForKeys: nil)
             .filter { $0.lastPathComponent.hasPrefix("QuestionBankImport-") })
         XCTAssertEqual(remainingStaging, previousStaging, "Rejected packages must not leave temporary staging directories.")
+    }
+
+    private func plan(_ source: QuestionBankImportPlan, containingQuestionCount count: Int) -> QuestionBankImportPlan {
+        var expanded = source
+        guard count > expanded.questions.count,
+              let paper = source.paper,
+              let moduleID = source.modules.first?.id else { return expanded }
+        for offset in 0..<(count - expanded.questions.count) {
+            let number = 1_001 + offset
+            expanded.questions.append(QuestionBankQuestion(
+                id: "synthetic-\(paper.id)-q-\(number)", paperID: paper.id, moduleID: moduleID,
+                number: number, subject: "", type: "", materialID: "", stem: "合成测试题 \(number)",
+                stemImageAssetID: "", options: [], answer: "", explanation: "", originalPage: "测试"
+            ))
+        }
+        return expanded
     }
 
     private func validationPackageURL() -> URL {

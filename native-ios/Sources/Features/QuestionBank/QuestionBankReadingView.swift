@@ -215,6 +215,14 @@ struct QuestionBankModuleView: View {
         readingItems.map(\.overviewItem)
     }
 
+    private var doodleToolbarTarget: QuestionBankDoodleToolbarTarget? {
+        QuestionBankDoodleToolbarTarget.resolve(
+            visibleQuestionID: currentVisibleQuestionID,
+            questions: readingItems.map(\.question),
+            materialIDs: Set(materialsByID.keys)
+        )
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let canOpenSplit = horizontalSizeClass == .regular && geometry.size.width >= 700
@@ -260,7 +268,7 @@ struct QuestionBankModuleView: View {
         .secondaryPageTabBarHidden()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 2) {
+                HStack(spacing: 0) {
                     Menu {
                         ForEach(QuestionBankReadingMode.allCases) { mode in
                             Button {
@@ -274,12 +282,53 @@ struct QuestionBankModuleView: View {
                             }
                         }
                     } label: {
-                        Label(readingMode.title, systemImage: "chevron.down")
-                            .font(AppTheme.auxiliaryFont.weight(.medium))
-                            .padding(.horizontal, 8)
-                            .frame(height: 40)
+                        HStack(spacing: 2) {
+                            Image(systemName: readingMode == .reading ? "book" : "checkmark.circle")
+                                .font(.system(size: 16, weight: .regular))
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8, weight: .semibold))
+                        }
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                     }
+                    .accessibilityLabel("阅读模式：\(readingMode.title)")
                     .accessibilityIdentifier("question-bank-reading-mode")
+
+                    if let target = doodleToolbarTarget {
+                        Button {
+                            guard let item = readingItem(for: target.questionID) else { return }
+                            openQuestionDoodle(item)
+                        } label: {
+                            Image(systemName: "pencil.and.scribble")
+                                .font(.system(size: 17, weight: .regular))
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("标注当前题（第\(target.questionNumber)题）")
+                        .accessibilityIdentifier("question-bank-doodle-current-question")
+
+                        if let materialID = target.materialID {
+                            Menu {
+                                Button {
+                                    openMaterialDoodle(materialID)
+                                } label: {
+                                    Label("标注共用材料", systemImage: "pencil.and.scribble")
+                                }
+                            } label: {
+                                HStack(spacing: 2) {
+                                    Image(systemName: "doc.text")
+                                        .font(.system(size: 16, weight: .regular))
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 8, weight: .semibold))
+                                }
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                            }
+                            .accessibilityLabel("标注共用材料")
+                            .accessibilityHint("打开当前题引用的共用材料标注选项")
+                            .accessibilityIdentifier("question-bank-doodle-material-menu-\(materialID)")
+                        }
+                    }
 
                     Button {
                         activeSheet = QuestionBankReaderSheet(content: .overview)
@@ -404,15 +453,6 @@ struct QuestionBankModuleView: View {
             HStack(spacing: 10) {
                 Text("共用材料").font(AppTheme.sectionTitleFont)
                 Spacer(minLength: 4)
-                Button {
-                    openMaterialDoodle(material.id)
-                } label: {
-                    Image(systemName: "pencil.and.scribble")
-                        .frame(width: 40, height: 40)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("标注共用材料")
-                .accessibilityIdentifier("question-bank-doodle-material-\(material.id)")
                 Button(action: closeSplitReader) {
                     Image(systemName: "rectangle.split.2x1")
                         .frame(width: 40, height: 40)
@@ -522,15 +562,6 @@ struct QuestionBankModuleView: View {
                 }
                 Spacer(minLength: 8)
                 Button {
-                    openMaterialDoodle(material.id)
-                } label: {
-                    Image(systemName: "pencil.and.scribble")
-                        .frame(width: 40, height: 40)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("标注共用材料")
-                .accessibilityIdentifier("question-bank-doodle-material-\(material.id)")
-                Button {
                     openMaterial(material.id, canOpenSplit: canOpenSplit)
                 } label: {
                     Image(systemName: "rectangle.split.2x1")
@@ -567,15 +598,6 @@ struct QuestionBankModuleView: View {
                     .lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Button {
-                    openQuestionDoodle(item)
-                } label: {
-                    Image(systemName: "pencil.and.scribble")
-                        .frame(width: 40, height: 40)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("标注第\(String(item.question.number))题")
-                .accessibilityIdentifier("question-bank-doodle-question-\(item.id)")
             }
             .padding(.bottom, 9)
 
