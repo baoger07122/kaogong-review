@@ -183,18 +183,20 @@ jobs:
           RUN_QUESTION_BANK: ${{ steps.simulator_scope.outputs.question_bank }}
         run: |
           if [ "$RUN_QUESTION_BANK" = "true" ]; then
+            # Hosted test schemes stage their bundles under the app PlugIns directory;
+            # isolate DerivedData so a later scheme build cannot remove an earlier bundle.
             xcodebuild build-for-testing \
               -project native-ios/KaogongReviewNative.xcodeproj \
               -scheme QuestionBankImport \
               -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-              -derivedDataPath build/NativeTestDerivedData \
+              -derivedDataPath build/QuestionBankImportDerivedData \
               -parallel-testing-enabled NO \
               CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
             xcodebuild build-for-testing \
               -project native-ios/KaogongReviewNative.xcodeproj \
               -scheme QuestionBankReaderInteraction \
               -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-              -derivedDataPath build/NativeTestDerivedData \
+              -derivedDataPath build/QuestionBankReaderInteractionDerivedData \
               -parallel-testing-enabled NO \
               CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
           else
@@ -218,9 +220,11 @@ jobs:
           xcrun simctl bootstatus "$SIMULATOR_ID" -b
           TEST_SCHEME=KaogongReviewNative
           RESULT_PATH=build/SpeedInteraction.xcresult
+          DERIVED_DATA_PATH=build/NativeTestDerivedData
           if [ "$RUN_QUESTION_BANK" = "true" ]; then
             TEST_SCHEME=QuestionBankImport
             RESULT_PATH=build/QuestionBankImport.xcresult
+            DERIVED_DATA_PATH=build/QuestionBankImportDerivedData
             TEST_ARGS=(
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testPickerDidPickThenDismissKeepsSelectionAndStartsOnce
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testPickerDismissThenDidPickAcceptsLateCallback
@@ -257,7 +261,7 @@ jobs:
             -project native-ios/KaogongReviewNative.xcodeproj \
             -scheme "$TEST_SCHEME" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-            -derivedDataPath build/NativeTestDerivedData \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
             -parallel-testing-enabled NO \
             -resultBundlePath "$RESULT_PATH" \
             "${TEST_ARGS[@]}" \
@@ -278,7 +282,7 @@ jobs:
             -project native-ios/KaogongReviewNative.xcodeproj \
             -scheme QuestionBankReaderInteraction \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-            -derivedDataPath build/NativeTestDerivedData \
+            -derivedDataPath build/QuestionBankReaderInteractionDerivedData \
             -parallel-testing-enabled NO \
             -resultBundlePath "$RESULT_PATH" \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testPracticeAnswerWaitsForConfirmationAndSurvivesReaderModeChanges \
