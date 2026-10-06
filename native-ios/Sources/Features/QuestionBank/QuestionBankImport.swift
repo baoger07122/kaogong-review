@@ -63,11 +63,13 @@ struct QuestionBankBatchMetadata: Codable, Equatable, Sendable {
         guard year > 0 else { return "batch.year 必须是明确的正整数年份。" }
         switch family {
         case .national:
-            guard !volumeID.trimmedNonempty.isEmpty, !volumeName.trimmedNonempty.isEmpty else {
+            guard let volumeID, let volumeName,
+                  !volumeID.trimmedNonempty.isEmpty, !volumeName.trimmedNonempty.isEmpty else {
                 return "国考批次必须明确提供 batch.volumeID 和 batch.volumeName。"
             }
         case .joint:
-            guard !sessionID.trimmedNonempty.isEmpty, !sessionName.trimmedNonempty.isEmpty else {
+            guard let sessionID, let sessionName,
+                  !sessionID.trimmedNonempty.isEmpty, !sessionName.trimmedNonempty.isEmpty else {
                 return "联考批次必须明确提供 batch.sessionID 和 batch.sessionName。"
             }
             let provinces = sourceProvinces ?? []
@@ -77,7 +79,8 @@ struct QuestionBankBatchMetadata: Codable, Equatable, Sendable {
                 return "联考批次必须提供非空且代码不重复的 batch.sourceProvinces。"
             }
         case .provincial:
-            guard !provinceCode.trimmedNonempty.isEmpty, !provinceName.trimmedNonempty.isEmpty,
+            guard let provinceCode, let provinceName, let batchID, let batchName,
+                  !provinceCode.trimmedNonempty.isEmpty, !provinceName.trimmedNonempty.isEmpty,
                   !batchID.trimmedNonempty.isEmpty, !batchName.trimmedNonempty.isEmpty else {
                 return "省考批次必须明确提供 provinceCode、provinceName、batchID 和 batchName。"
             }
