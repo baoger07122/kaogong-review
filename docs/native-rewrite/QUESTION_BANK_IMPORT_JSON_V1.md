@@ -15,8 +15,11 @@ JSON 顶层必须是对象，必需字段如下：
 | `materials` | array | `QuestionBankMaterial` 列表 |
 | `questions` | array | `QuestionBankQuestion` 列表 |
 | `assets` | array | 真题图片资源列表，见下文 |
+| `batch` | object | 可选；跨卷批次聚合元数据，详见[批次聚合合同](QUESTION_BANK_BATCH_AGGREGATION_CONTRACT.md)。旧 v1 文件省略时仍按单卷导入 |
 
 应用备份 JSON 缺少固定 `format` 标识，真题导入器会拒绝它；不会调用应用备份导入器，也不会把备份内容当作真题记录。
+
+`batch` 只接受合同规定的显式来源字段。应用不得从 `paper.title`、`paper.volume`、文件名或目录推断卷别、省份、批次或场次。缺失 `batch` 的既有 v1 文件兼容导入，不需要修改或重新生成。
 
 ## 记录字段
 
