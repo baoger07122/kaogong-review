@@ -365,7 +365,7 @@ struct QuestionBankModuleView: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .semibold))
             }
-            .frame(minWidth: 44, height: 44)
+            .frame(minWidth: 44, minHeight: 44)
             .contentShape(Rectangle())
         }
         .accessibilityLabel("展示方式：\(presentationMode.title)")
