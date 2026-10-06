@@ -252,29 +252,31 @@ struct LibraryDoodleContentLayer: View {
     }
 
     var body: some View {
-        if session.targetRecordID == targetRecordID {
-            GeometryReader { proxy in
-                NativePencilDrawingEditor(
-                    encodedData: $canvas.drawingData,
-                    legacyPreviewDataURL: canvas.legacyPreviewDataURL,
-                    transparentBackground: true,
-                    toolbarAtTop: false,
-                    isActive: session.isPresented,
-                    minimumCanvasHeight: minimumCanvasHeight,
-                    controller: controller,
-                    onClose: session.dismiss
-                )
-                .frame(width: proxy.size.width, height: proxy.size.height)
-                .preference(
-                    key: LibraryDoodleCanvasFramePreferenceKey.self,
-                    value: [targetRecordID: proxy.frame(in: .global)]
-                )
+        Group {
+            if session.targetRecordID == targetRecordID {
+                GeometryReader { proxy in
+                    NativePencilDrawingEditor(
+                        encodedData: $canvas.drawingData,
+                        legacyPreviewDataURL: canvas.legacyPreviewDataURL,
+                        transparentBackground: true,
+                        toolbarAtTop: false,
+                        isActive: session.isPresented,
+                        minimumCanvasHeight: minimumCanvasHeight,
+                        controller: controller,
+                        onClose: session.dismiss
+                    )
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .preference(
+                        key: LibraryDoodleCanvasFramePreferenceKey.self,
+                        value: [targetRecordID: proxy.frame(in: .global)]
+                    )
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minHeight: minimumCanvasHeight)
+                .contentShape(Rectangle())
+                .opacity(session.isPresented ? 1 : 0)
+                .allowsHitTesting(session.isPresented)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .frame(minHeight: minimumCanvasHeight)
-            .contentShape(Rectangle())
-            .opacity(session.isPresented ? 1 : 0)
-            .allowsHitTesting(session.isPresented)
         }
         .onPreferenceChange(LibraryDoodleCanvasFramePreferenceKey.self) { frames in
             guard session.targetRecordID == targetRecordID else { return }

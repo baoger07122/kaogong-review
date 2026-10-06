@@ -97,7 +97,11 @@ jobs:
               RUN_SIMULATOR=true
               RUN_QUESTION_BANK=true
             fi
-            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Sources/Features/Library/(LibraryRecordRepository\.swift|LibraryRecordModels\.swift|ShenlunAdaptationView\.swift)$'; then
+            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Sources/Features/Library/(LibraryRecordRepository\.swift|LibraryRecordModels\.swift|LibraryDoodleSession\.swift|ShenlunAdaptationView\.swift)$'; then
+              RUN_SIMULATOR=true
+              RUN_QUESTION_BANK=true
+            fi
+            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Sources/Features/Shared/NativePencilDrawingEditor\.swift$'; then
               RUN_SIMULATOR=true
               RUN_QUESTION_BANK=true
             fi
