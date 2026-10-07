@@ -390,13 +390,28 @@ struct QuestionBankModuleView: View {
 
     private var questionBankToolbar: some View {
         HStack(spacing: 0) {
-            questionDoodleToolbarItems
-            readerOptionsMenu
-            questionOverviewButton
+            if doodleSession.isPresented {
+                if doodleToolbarTarget != nil {
+                    Color.clear
+                        .frame(width: 44, height: 44)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+                Color.clear
+                    .frame(width: 44, height: 44)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                Color.clear
+                    .frame(width: 44, height: 44)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            } else {
+                questionDoodleToolbarItems
+                readerOptionsMenu
+                questionOverviewButton
+            }
         }
-        .opacity(doodleSession.isPresented ? 0 : 1)
-        .allowsHitTesting(!doodleSession.isPresented)
-        .accessibilityHidden(doodleSession.isPresented)
+        .frame(minHeight: 44)
     }
 
     private var readerOptionsMenu: some View {
@@ -444,9 +459,6 @@ struct QuestionBankModuleView: View {
         .accessibilityHint("打开菜单调整展示方式、答题方式和确认选项")
         .accessibilityIdentifier("question-bank-reader-options")
         .disabled(doodleSession.isPresented)
-        .opacity(doodleSession.isPresented ? 0 : 1)
-        .allowsHitTesting(!doodleSession.isPresented)
-        .accessibilityHidden(doodleSession.isPresented)
     }
 
     @ViewBuilder
@@ -485,14 +497,8 @@ struct QuestionBankModuleView: View {
                     guard !doodleSession.isPresented else { return }
                     openMaterialDoodle(materialID)
                 }
-                .opacity(doodleSession.isPresented ? 0 : 1)
-                .allowsHitTesting(!doodleSession.isPresented)
-                .accessibilityHidden(doodleSession.isPresented)
         } else {
             button
-                .opacity(doodleSession.isPresented ? 0 : 1)
-                .allowsHitTesting(!doodleSession.isPresented)
-                .accessibilityHidden(doodleSession.isPresented)
         }
     }
 
@@ -510,9 +516,6 @@ struct QuestionBankModuleView: View {
         .accessibilityLabel("题号总览")
         .disabled(readingItems.isEmpty || doodleSession.isPresented)
         .accessibilityIdentifier("question-bank-number-overview")
-        .opacity(doodleSession.isPresented ? 0 : 1)
-        .allowsHitTesting(!doodleSession.isPresented)
-        .accessibilityHidden(doodleSession.isPresented)
     }
 
     @ViewBuilder

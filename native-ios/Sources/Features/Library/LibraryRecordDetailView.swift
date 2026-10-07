@@ -92,26 +92,29 @@ struct LibraryRecordDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 8) {
-                    Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
-                        .accessibilityLabel("涂鸦")
-                        .opacity(doodleSession.isPresented ? 0 : 1)
-                        .allowsHitTesting(!doodleSession.isPresented)
-                        .accessibilityHidden(doodleSession.isPresented)
-                    Menu {
-                        Button {
-                            if noteSession.finish() { onEdit() }
-                        } label: {
-                            Label("编辑错题", systemImage: "pencil")
-                        }
-                        Button(role: .destructive) { if noteSession.finish() { showDelete = true } } label: { Label("删除错题", systemImage: "trash") }
-                    } label: { Image(systemName: "ellipsis") }
-                        .opacity(doodleSession.isPresented ? 0 : 1)
-                        .allowsHitTesting(!doodleSession.isPresented)
-                        .accessibilityHidden(doodleSession.isPresented)
+                    if doodleSession.isPresented {
+                        Color.clear
+                            .frame(width: 44, height: 44)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                        Color.clear
+                            .frame(width: 44, height: 44)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    } else {
+                        Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
+                            .accessibilityLabel("涂鸦")
+                        Menu {
+                            Button {
+                                if noteSession.finish() { onEdit() }
+                            } label: {
+                                Label("编辑错题", systemImage: "pencil")
+                            }
+                            Button(role: .destructive) { if noteSession.finish() { showDelete = true } } label: { Label("删除错题", systemImage: "trash") }
+                        } label: { Image(systemName: "ellipsis") }
+                    }
                 }
-                .opacity(doodleSession.isPresented ? 0 : 1)
-                .allowsHitTesting(!doodleSession.isPresented)
-                .accessibilityHidden(doodleSession.isPresented)
+                .frame(minHeight: 44)
             }
             .documentToolbarBackground()
         }
