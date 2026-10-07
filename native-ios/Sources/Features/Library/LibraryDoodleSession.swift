@@ -173,7 +173,6 @@ struct LibraryDoodleOverlay: View {
         }
         .ignoresSafeArea()
         .allowsHitTesting(session.isPresented)
-        .accessibilityIdentifier("library-doodle-root-overlay")
         .onChange(of: controller.canvasReady) { _, _ in session.noteCanvasInteractive() }
     }
 
