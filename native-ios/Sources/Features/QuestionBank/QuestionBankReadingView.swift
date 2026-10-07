@@ -1289,7 +1289,7 @@ struct QuestionBankModuleView: View {
                     recordID: recordID,
                     context: modelContext
                 )
-                doodleDrawingCache[recordID] = drawingData
+                cacheDoodleDrawing(drawingData, for: recordID)
             }
             doodleSession.present(
                 targetRecordID: recordID,
