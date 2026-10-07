@@ -1586,20 +1586,19 @@ private struct QuestionBankOptionRow: View {
     let assetLookup: (String) -> QuestionBankRecord?
 
     var body: some View {
-        Group {
-            if readingMode == .practice {
-                Button {
-                    guard !isInteractionBlocked else { return }
-                    onSelect()
-                } label: {
-                    row
-                }
-                .buttonStyle(.plain)
-            } else {
+        if readingMode == .practice {
+            Button {
+                guard !isInteractionBlocked else { return }
+                onSelect()
+            } label: {
                 row
             }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("question-bank-option-\(questionID)-\(option.id)")
+        } else {
+            row
+                .accessibilityIdentifier("question-bank-option-\(questionID)-\(option.id)")
         }
-        .accessibilityIdentifier("question-bank-option-\(questionID)-\(option.id)")
     }
 
     private var row: some View {
