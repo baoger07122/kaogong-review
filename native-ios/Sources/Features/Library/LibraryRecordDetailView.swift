@@ -115,6 +115,7 @@ struct LibraryRecordDetailView: View {
                     }
                 }
                 .frame(minHeight: 44)
+                .id(doodleSession.isPresented ? "record-toolbar-doodle" : "record-toolbar-detail")
             }
             .documentToolbarBackground()
         }

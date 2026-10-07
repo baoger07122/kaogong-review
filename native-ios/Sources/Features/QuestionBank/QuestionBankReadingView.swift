@@ -412,6 +412,7 @@ struct QuestionBankModuleView: View {
             }
         }
         .frame(minHeight: 44)
+        .id(doodleSession.isPresented ? "question-bank-toolbar-doodle" : "question-bank-toolbar-reader")
     }
 
     private var readerOptionsMenu: some View {
