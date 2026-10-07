@@ -985,7 +985,6 @@ struct QuestionBankModuleView: View {
             )
         }
         .id(item.id)
-        .accessibilityIdentifier("question-bank-question-\(item.id)")
     }
 
     private func questionDetailButton(for item: QuestionBankReadingItem) -> some View {
