@@ -86,6 +86,22 @@ final class LibraryDoodleSession: ObservableObject {
         }
     }
 
+    func noteCanvasFramePreference() {
+        guard isPresented, let presentationStartedAt else { return }
+        if !didLogCanvasFrame {
+            didLogCanvasFrame = true
+            LibraryPerformanceLog.mark("doodle.canvas-frame-preference", since: presentationStartedAt)
+        }
+        noteCanvasInteractive()
+    }
+
+    func noteCanvasInteractive() {
+        guard isPresented, !didLogCanvasInteractive, canvas.controller.canvasReady,
+              canvas.canvasFrameInGlobal != nil, let presentationStartedAt else { return }
+        didLogCanvasInteractive = true
+        LibraryPerformanceLog.mark("doodle.canvas-interactive", since: presentationStartedAt)
+    }
+
     private func finishDismissal() {
         canvas.controller.showSettings = false
 
@@ -113,22 +129,6 @@ struct LibraryDoodleOverlay: View {
         self.session = session
         _canvas = ObservedObject(wrappedValue: session.canvas)
         _controller = ObservedObject(wrappedValue: session.canvas.controller)
-    }
-
-    func noteCanvasFramePreference() {
-        guard isPresented, let presentationStartedAt else { return }
-        if !didLogCanvasFrame {
-            didLogCanvasFrame = true
-            LibraryPerformanceLog.mark("doodle.canvas-frame-preference", since: presentationStartedAt)
-        }
-        noteCanvasInteractive()
-    }
-
-    func noteCanvasInteractive() {
-        guard isPresented, !didLogCanvasInteractive, canvas.controller.canvasReady,
-              canvas.canvasFrameInGlobal != nil, let presentationStartedAt else { return }
-        didLogCanvasInteractive = true
-        LibraryPerformanceLog.mark("doodle.canvas-interactive", since: presentationStartedAt)
     }
 
     var body: some View {
