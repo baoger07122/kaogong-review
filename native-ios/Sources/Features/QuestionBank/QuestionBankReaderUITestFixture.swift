@@ -53,9 +53,9 @@ enum QuestionBankReaderUITestFixture {
             moduleID: moduleID,
             number: 1,
             subject: "阅读理解",
-            type: "单项选择题",
+            type: "纯文字",
             materialID: materialID,
-            stem: "下列哪项是本题正确答案？",
+            stem: "下列哪项是本题正确答案？____并保留连续空位__。",
             stemImageAssetID: "",
             options: [
                 QuestionBankOption(id: "A", text: "用于测试的错误选项", imageAssetID: ""),

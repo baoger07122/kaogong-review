@@ -18,6 +18,21 @@ enum QuestionBankReadingMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum QuestionBankQuestionHeading {
+    private static let internalClassification = "纯文字"
+
+    static func displayLabel(type: String, subject: String) -> String? {
+        let normalizedType = type.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedType.isEmpty, normalizedType != internalClassification {
+            return normalizedType
+        }
+
+        let normalizedSubject = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSubject.isEmpty, normalizedSubject != internalClassification else { return nil }
+        return normalizedSubject
+    }
+}
+
 enum QuestionBankReaderPreferences {
     static let confirmAnswerAfterSelectionKey = "question-bank.confirm-answer-after-selection"
 }
@@ -64,6 +79,26 @@ enum QuestionBankHorizontalSwipe {
         guard abs(horizontal) >= minimumDistance,
               abs(horizontal) > abs(vertical) * 1.25 else { return nil }
         return horizontal < 0 ? 1 : -1
+    }
+}
+
+struct QuestionBankPageTransitionMotion: Equatable {
+    enum Edge: Equatable {
+        case leading
+        case trailing
+    }
+
+    let insertion: Edge
+    let removal: Edge
+}
+
+enum QuestionBankPageTransition {
+    /// A positive direction is next: the new page enters from trailing as the old page exits leading.
+    static func motion(for direction: Int) -> QuestionBankPageTransitionMotion {
+        if direction < 0 {
+            return QuestionBankPageTransitionMotion(insertion: .leading, removal: .trailing)
+        }
+        return QuestionBankPageTransitionMotion(insertion: .trailing, removal: .leading)
     }
 }
 

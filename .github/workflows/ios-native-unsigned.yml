@@ -239,6 +239,8 @@ jobs:
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testReadingSequenceGroupsSharedMaterialsOnceAndKeepsQuestionOrder
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankReaderLayoutModesAndOptionDisplay
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankHorizontalSwipeRequiresHorizontalIntentAndMinimumDistance
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankPageTransitionMovesInDirectionOfNavigation
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankQuestionHeadingHidesInternalClassificationAndKeepsMeaningfulLabels
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankPresentationSwitchPreservesCurrentQuestionAndReadingMode
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankSingleQuestionNavigationStopsAtModuleBoundaries
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankPresentationModeSelectsOnlyTheCurrentVisibleQuestion
@@ -301,6 +303,28 @@ jobs:
             xcrun xcresulttool get test-results summary --path "$RESULT_PATH" || true
             exit 1
           fi
+
+      - name: Export doodle overlay simulator screenshot
+        if: steps.simulator_scope.outputs.question_bank == 'true'
+        shell: bash
+        run: |
+          RESULT_PATH=build/QuestionBankReaderInteraction.xcresult
+          OUTPUT_PATH=build/QuestionBankReaderDoodleScreenshot
+          mkdir -p "$OUTPUT_PATH"
+          xcrun xcresulttool export attachments --path "$RESULT_PATH" --output-path "$OUTPUT_PATH"
+          if ! find "$OUTPUT_PATH" -type f -iname '*.png' -print -quit | grep -q .; then
+            echo "No simulator screenshot attachment was exported"
+            exit 1
+          fi
+
+      - name: Upload doodle overlay simulator screenshot
+        if: steps.simulator_scope.outputs.question_bank == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: question-bank-doodle-overlay-screenshot
+          path: build/QuestionBankReaderDoodleScreenshot
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Measure primary tab bar geometry and preserve hidden secondary pages
         if: steps.simulator_scope.outputs.navigation == 'true'

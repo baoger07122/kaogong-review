@@ -98,6 +98,9 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
 
         let shield = element(app, identifier: "library-doodle-interaction-shield")
         XCTAssertTrue(shield.waitForExistence(timeout: 5))
+        XCTAssertFalse(element(app, identifier: "question-bank-reader-options").exists)
+        XCTAssertFalse(element(app, identifier: "question-bank-doodle-current-question").exists)
+        XCTAssertFalse(element(app, identifier: "question-bank-number-overview").exists)
         XCTAssertTrue(optionA.isEnabled, "The interaction shield must not dim or disable option content")
         coordinate(in: app, at: optionFrame).tap()
         let ready = XCTNSPredicateExpectation(
@@ -105,6 +108,17 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
             object: shield
         )
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
+        let loadingIndicator = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "正在载入涂鸦")).firstMatch
+        let loadingIndicatorDismissed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: loadingIndicator
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [loadingIndicatorDismissed], timeout: 2), .completed)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "question-bank-doodle-overlay"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
         coordinate(in: app, at: optionFrame).tap()
         coordinate(in: app, at: nextFrame).tap()
 
@@ -142,6 +156,17 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         )
         XCTAssertEqual(XCTWaiter.wait(for: [secondQuestionVisible], timeout: 5), .completed)
         XCTAssertTrue(app.buttons["question-bank-option-\(secondQuestion)-A"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["单项选择题"].exists)
+
+        let previousQuestion = app.buttons["question-bank-single-previous"].firstMatch
+        XCTAssertTrue(previousQuestion.waitForExistence(timeout: 5))
+        XCTAssertTrue(previousQuestion.isEnabled)
+        previousQuestion.tap()
+        let firstQuestionVisibleByButton = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "第1题"),
+            object: position
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [firstQuestionVisibleByButton], timeout: 5), .completed)
 
         scrollView.swipeRight()
         let firstQuestionVisible = XCTNSPredicateExpectation(
@@ -167,6 +192,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         continuousDetail.tap()
         XCTAssertTrue(app.navigationBars["第1题详情"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["用于检验共享材料分屏下的涂鸦命中区域。"].exists)
+        assertExactStemAndHiddenInternalType(in: app, questionID: reader.questionID)
         XCTAssertTrue(answerFeedback.exists)
         app.buttons["完成"].firstMatch.tap()
 
@@ -177,6 +203,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         overviewDetail.tap()
         XCTAssertTrue(app.navigationBars["第1题详情"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["用于检验共享材料分屏下的涂鸦命中区域。"].exists)
+        assertExactStemAndHiddenInternalType(in: app, questionID: reader.questionID)
         XCTAssertTrue(answerFeedback.exists, "The overview detail must retain the selected option state")
     }
 
@@ -207,9 +234,13 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
 
         let readerOptions = element(app, identifier: "question-bank-reader-options")
         XCTAssertTrue(readerOptions.waitForExistence(timeout: 10))
+        XCTAssertEqual(readerOptions.label, "阅读设置")
+        XCTAssertFalse(app.staticTexts["连续 · 看题"].exists)
         readerOptions.tap()
         app.buttons["刷题"].firstMatch.tap()
         XCTAssertTrue(app.buttons["question-bank-option-\(questionID)-A"].waitForExistence(timeout: 10))
+        XCTAssertTrue((readerOptions.value as? String)?.contains("答题方式：刷题") == true)
+        assertExactStemAndHiddenInternalType(in: app, questionID: questionID)
         return ReaderUITestContext(
             app: app,
             paperID: paperID,
@@ -221,6 +252,16 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
     @MainActor
     private func element(_ app: XCUIApplication, identifier: String) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    @MainActor
+    private func assertExactStemAndHiddenInternalType(in app: XCUIApplication, questionID: String) {
+        let stem = element(app, identifier: "question-bank-question-stem-\(questionID)")
+        XCTAssertTrue(stem.waitForExistence(timeout: 5))
+        XCTAssertEqual(stem.label, "下列哪项是本题正确答案？____并保留连续空位__。")
+        XCTAssertFalse(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "纯文字")).firstMatch.exists
+        )
     }
 
     @MainActor

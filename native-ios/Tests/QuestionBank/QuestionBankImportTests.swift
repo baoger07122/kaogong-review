@@ -209,6 +209,33 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertNil(QuestionBankHorizontalSwipe.direction(horizontal: 60, vertical: 70))
     }
 
+    func testQuestionBankPageTransitionMovesInDirectionOfNavigation() {
+        XCTAssertEqual(
+            QuestionBankPageTransition.motion(for: 1),
+            QuestionBankPageTransitionMotion(insertion: .trailing, removal: .leading)
+        )
+        XCTAssertEqual(
+            QuestionBankPageTransition.motion(for: -1),
+            QuestionBankPageTransitionMotion(insertion: .leading, removal: .trailing)
+        )
+    }
+
+    func testQuestionBankQuestionHeadingHidesInternalClassificationAndKeepsMeaningfulLabels() {
+        XCTAssertNil(QuestionBankQuestionHeading.displayLabel(type: "纯文字", subject: "纯文字"))
+        XCTAssertEqual(
+            QuestionBankQuestionHeading.displayLabel(type: "纯文字", subject: "阅读理解"),
+            "阅读理解"
+        )
+        XCTAssertEqual(
+            QuestionBankQuestionHeading.displayLabel(type: " 单项选择题 ", subject: "阅读理解"),
+            "单项选择题"
+        )
+        XCTAssertEqual(
+            QuestionBankQuestionHeading.displayLabel(type: "", subject: "阅读理解"),
+            "阅读理解"
+        )
+    }
+
     func testQuestionBankPresentationSwitchPreservesCurrentQuestionAndReadingMode() {
         let continuous = QuestionBankReaderPosition(
             presentationMode: .continuous,

@@ -124,6 +124,7 @@ struct LibraryDoodleOverlay: View {
     @ObservedObject var session: LibraryDoodleSession
     @ObservedObject private var canvas: LibraryDoodleCanvasState
     @ObservedObject private var controller: PencilDrawingController
+    @State private var showsDelayedLoadingIndicator = false
 
     init(session: LibraryDoodleSession) {
         self.session = session
@@ -135,6 +136,11 @@ struct LibraryDoodleOverlay: View {
         GeometryReader { proxy in
             let activeCanvasFrame = canvasPassThroughRect(in: proxy)
             ZStack(alignment: .topTrailing) {
+                Color.black.opacity(0.18)
+                    .contentShape(Rectangle())
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+
                 // The transparent shield blocks underlying controls while the
                 // canvas loads, then leaves only the active canvas target hittable.
                 LibraryDoodleInteractionShield(
@@ -149,7 +155,7 @@ struct LibraryDoodleOverlay: View {
                 if let message = controller.canvasLoadError {
                     statusMessage(message)
                         .allowsHitTesting(false)
-                } else if activeCanvasFrame == nil {
+                } else if showsDelayedLoadingIndicator {
                     ProgressView("正在载入涂鸦")
                         .padding(12)
                         .background(.regularMaterial, in: Capsule())
@@ -173,7 +179,46 @@ struct LibraryDoodleOverlay: View {
         }
         .ignoresSafeArea()
         .allowsHitTesting(session.isPresented)
+        .task(id: session.isPresented) {
+            await updateDelayedLoadingIndicator(for: session.isPresented)
+        }
         .onChange(of: controller.canvasReady) { _, _ in session.noteCanvasInteractive() }
+    }
+
+    @MainActor
+    private func updateDelayedLoadingIndicator(for isPresented: Bool) async {
+        showsDelayedLoadingIndicator = false
+        guard isPresented else { return }
+
+        do {
+            try await Task.sleep(nanoseconds: 180_000_000)
+        } catch {
+            return
+        }
+        guard !Task.isCancelled,
+              session.isPresented,
+              !controller.canvasReady,
+              controller.canvasLoadError == nil else { return }
+
+        showsDelayedLoadingIndicator = true
+        while session.isPresented,
+              !controller.canvasReady,
+              controller.canvasLoadError == nil {
+            do {
+                try await Task.sleep(nanoseconds: 20_000_000)
+            } catch {
+                return
+            }
+        }
+        guard !Task.isCancelled else { return }
+
+        do {
+            try await Task.sleep(nanoseconds: 160_000_000)
+        } catch {
+            return
+        }
+        guard !Task.isCancelled else { return }
+        showsDelayedLoadingIndicator = false
     }
 
     private var toolbar: some View {

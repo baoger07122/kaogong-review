@@ -96,7 +96,10 @@ private struct QuestionBankReadingItem: Identifiable {
             id: id,
             number: question.number,
             materialID: question.materialID,
-            type: question.type.isEmpty ? question.subject : question.type,
+            type: QuestionBankQuestionHeading.displayLabel(
+                type: question.type,
+                subject: question.subject
+            ) ?? "",
             stem: question.stem,
             stemImageAssetID: question.stemImageAssetID
         )
@@ -162,6 +165,7 @@ struct QuestionBankModuleView: View {
     @State private var pendingOverviewQuestionID: String?
     @State private var continuousScrollRequest: QuestionBankScrollRequest?
     @State private var splitScrollRequest: QuestionBankScrollRequest?
+    @State private var singleQuestionTransitionDirection = 1
     @State private var snapshotRevision = 0
     @State private var doodleDrawingCache = QuestionBankDoodleMemoryCache()
     @State private var didApplyInitialFocus = false
@@ -253,6 +257,16 @@ struct QuestionBankModuleView: View {
         )
     }
 
+    private var singleQuestionPageTransition: AnyTransition {
+        let motion = QuestionBankPageTransition.motion(for: singleQuestionTransitionDirection)
+        let insertionEdge: Edge = motion.insertion == .leading ? .leading : .trailing
+        let removalEdge: Edge = motion.removal == .leading ? .leading : .trailing
+        return .asymmetric(
+            insertion: .move(edge: insertionEdge),
+            removal: .move(edge: removalEdge)
+        )
+    }
+
     private var currentSingleItem: QuestionBankReadingItem? {
         let questionID = QuestionBankReaderTransition.displayedQuestionIDs(
             for: .single, currentID: currentVisibleQuestionID, orderedIDs: orderedQuestionIDs
@@ -293,6 +307,7 @@ struct QuestionBankModuleView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 questionBankToolbar
             }
+            .documentToolbarBackground()
         }
         .sheet(item: $activeSheet, onDismiss: handleReaderSheetDismissal) { sheet in
             switch sheet.content {
@@ -379,6 +394,9 @@ struct QuestionBankModuleView: View {
             readerOptionsMenu
             questionOverviewButton
         }
+        .opacity(doodleSession.isPresented ? 0 : 1)
+        .allowsHitTesting(!doodleSession.isPresented)
+        .accessibilityHidden(doodleSession.isPresented)
     }
 
     private var readerOptionsMenu: some View {
@@ -415,18 +433,13 @@ struct QuestionBankModuleView: View {
                     .accessibilityIdentifier("question-bank-confirm-answer-toggle")
             }
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 15, weight: .semibold))
-                Text("\(presentationMode.shortTitle) · \(readingMode.title)")
-                    .font(AppTheme.auxiliaryFont.weight(.medium))
-                    .lineLimit(1)
-            }
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .semibold))
             .frame(minWidth: 44, minHeight: 44)
             .contentShape(Rectangle())
             .foregroundStyle(AppTheme.accent)
         }
-        .accessibilityLabel("阅读设置，\(presentationMode.title)，\(readingMode.title)")
+        .accessibilityLabel("阅读设置")
         .accessibilityValue("展示方式：\(presentationMode.title)，答题方式：\(readingMode.title)")
         .accessibilityHint("打开菜单调整展示方式、答题方式和确认选项")
         .accessibilityIdentifier("question-bank-reader-options")
@@ -542,6 +555,8 @@ struct QuestionBankModuleView: View {
                         singleMaterialEntry(for: item, canOpenSplit: canOpenSplit)
                         questionSection(item)
                     }
+                    .id("single-question-page-\(item.id)")
+                    .transition(singleQuestionPageTransition)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
                 }
@@ -652,7 +667,11 @@ struct QuestionBankModuleView: View {
             ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(visibleQuestions) { item in
-                        questionSection(item, showsDetailButton: presentationMode == .continuous)
+                        questionSection(
+                            item,
+                            showsDetailButton: presentationMode == .continuous,
+                            appliesSingleQuestionTransition: presentationMode == .single
+                        )
                     }
                 }
                 .padding(.horizontal, 18)
@@ -678,8 +697,12 @@ struct QuestionBankModuleView: View {
                 let target = visibleQuestions.first(where: { $0.id == request.questionID })?.id
                     ?? visibleQuestions.first?.id
                 guard let target else { return }
-                withAnimation(.easeInOut(duration: 0.22)) {
+                if presentationMode == .single {
                     proxy.scrollTo(target, anchor: .top)
+                } else {
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        proxy.scrollTo(target, anchor: .top)
+                    }
                 }
             }
             .onAppear {
@@ -852,7 +875,8 @@ struct QuestionBankModuleView: View {
 
     private func questionSection(
         _ item: QuestionBankReadingItem,
-        showsDetailButton: Bool = false
+        showsDetailButton: Bool = false,
+        appliesSingleQuestionTransition: Bool = false
     ) -> some View {
         let selectedOptionID = selectedOptionsByQuestionID[item.id]
         let revealsAnswer = readingMode.revealsAnswer(
@@ -861,10 +885,12 @@ struct QuestionBankModuleView: View {
             requiresConfirmation: requiresAnswerConfirmation
         )
         return VStack(alignment: .leading, spacing: 0) {
-            let subject = item.question.type.isEmpty ? item.question.subject : item.question.type
-            if !subject.isEmpty {
+            if let heading = QuestionBankQuestionHeading.displayLabel(
+                type: item.question.type,
+                subject: item.question.subject
+            ) {
                 HStack(spacing: 8) {
-                    Text(subject)
+                    Text(heading)
                         .font(AppTheme.auxiliaryFont)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -888,11 +914,12 @@ struct QuestionBankModuleView: View {
 
                 VStack(alignment: .leading, spacing: 0) {
                     if !item.question.stem.isEmpty {
-                        Text(item.question.stem)
+                        Text(verbatim: item.question.stem)
                             .font(AppTheme.questionTextFont)
                             .lineSpacing(AppTheme.questionLineSpacing)
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.bottom, 10)
+                            .accessibilityIdentifier("question-bank-question-stem-\(item.id)")
                     }
                     if !item.question.stemImageAssetID.isEmpty,
                        let asset = assetRecord(for: item.question.stemImageAssetID) {
@@ -985,6 +1012,7 @@ struct QuestionBankModuleView: View {
             )
         }
         .id(item.id)
+        .transition(appliesSingleQuestionTransition ? singleQuestionPageTransition : .identity)
     }
 
     private func questionDetailButton(for item: QuestionBankReadingItem) -> some View {
@@ -1158,11 +1186,14 @@ struct QuestionBankModuleView: View {
             availableMaterialIDs: Set(materialsByID.keys),
             from: readerPosition
         )
-        applyReaderPosition(position)
-        continuousAnchorQuestionID = targetID
+        withAnimation(.easeInOut(duration: 0.32)) {
+            singleQuestionTransitionDirection = direction < 0 ? -1 : 1
+            applyReaderPosition(position)
+            continuousAnchorQuestionID = targetID
 
-        if hadSplitMaterial, splitMaterialID != nil {
-            splitScrollRequest = QuestionBankScrollRequest(questionID: targetID, token: UUID())
+            if hadSplitMaterial, position.splitMaterialID != nil {
+                splitScrollRequest = QuestionBankScrollRequest(questionID: targetID, token: UUID())
+            }
         }
     }
 
@@ -1194,13 +1225,12 @@ struct QuestionBankModuleView: View {
     private func scrollSingleQuestion(_ questionID: String, using proxy: ScrollViewProxy) {
         Task { @MainActor in
             await Task.yield()
-            withAnimation(.easeInOut(duration: 0.22)) {
-                proxy.scrollTo(questionID, anchor: .top)
-            }
+            proxy.scrollTo(questionID, anchor: .top)
         }
     }
 
     private func updateVisibleQuestion(_ frames: [String: QuestionBankReaderViewportFrame]) {
+        guard presentationMode == .continuous else { return }
         guard let visible = frames
             .filter({ $0.value.bottom > 1 })
             .min(by: { $0.value.top < $1.value.top })?.key else { return }
@@ -1473,6 +1503,7 @@ private struct QuestionBankQuestionOverviewSheet: View {
     private func cardButton(_ item: QuestionBankReadingItem) -> some View {
         let overview = item.overviewItem
         let isCurrent = item.id == currentQuestionID
+        let headingDescription = overview.type.isEmpty ? "" : "，\(overview.type)"
         return HStack(spacing: 4) {
             Button {
                 onSelect(item)
@@ -1502,7 +1533,7 @@ private struct QuestionBankQuestionOverviewSheet: View {
                             .foregroundStyle(.secondary)
                     }
                     if !overview.stem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(overview.stem)
+                        Text(verbatim: overview.stem)
                             .font(AppTheme.auxiliaryFont)
                             .foregroundStyle(.primary)
                             .lineLimit(3)
@@ -1516,7 +1547,7 @@ private struct QuestionBankQuestionOverviewSheet: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("第\(String(overview.number))题，\(overview.type)")
+            .accessibilityLabel("第\(String(overview.number))题\(headingDescription)")
             .accessibilityIdentifier("question-bank-overview-item-\(item.id)")
 
             NavigationLink(value: item.id) {
