@@ -1,0 +1,55 @@
+{
+  "sourcePdfSha256": "343C44A53F39CBC08D6CF4A54074B2AE2936ED0637EBF215285F9E5DA53EB5E8",
+  "expectedModuleCount": 5,
+  "expectedMaterialCount": 5,
+  "expectedQuestionCount": 130,
+  "expectedAssetCount": 30,
+  "logicBlankRange": [
+    21,
+    40
+  ],
+  "renderedAudit": {
+    "method": "PDF rendered at 200 dpi; each underline was checked visually against its question and insertion point.",
+    "pages": [
+      5,
+      6,
+      7,
+      8
+    ],
+    "textLayerLimitation": "The PDF text layer omits the drawn logic-blank lines. Counts and positions below are from manual review of the rendered source pages; the script only checks their adjacent text anchors and does not infer positions from punctuation."
+  },
+  "logicBlankQuestions": [
+    {"number": 21, "pdfPage": 5, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 1, "slots": [{"after": "中医药", "before": "。"}]},
+    {"number": 22, "pdfPage": 5, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 1, "slots": [{"after": "不能", "before": "，"}]},
+    {"number": 23, "pdfPage": 5, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 1, "slots": [{"after": "无异于", "before": "。"}]},
+    {"number": 24, "pdfPage": 6, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 2, "slots": [{"after": "智能制造也", "before": "。智能制造就是"}, {"after": "新一代信息技术", "before": "于设计"}]},
+    {"number": 25, "pdfPage": 6, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 2, "slots": [{"after": "越来越多地", "before": "体育运动"}, {"after": "职业化", "before": "的当下"}]},
+    {"number": 26, "pdfPage": 6, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 2, "slots": [{"after": "隔世兄弟，", "before": "。历史作为"}, {"after": "不光是", "before": "，可能还会走向对立"}]},
+    {"number": 27, "pdfPage": 6, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 2, "slots": [{"after": "脱贫攻坚必须", "before": "，一步一个脚印"}, {"after": "激励其", "before": "，激发其"}]},
+    {"number": 28, "pdfPage": 6, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 2, "slots": [{"after": "国内外已形成", "before": "的局面"}, {"after": "都将是", "before": "。"}]},
+    {"number": 29, "pdfPage": 6, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 2, "slots": [{"after": "不乏职能部门", "before": "。说到底"}, {"after": "程序正当得不到", "before": "，必然给"}]},
+    {"number": 30, "pdfPage": 7, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 2, "slots": [{"after": "短短数十年", "before": "。年龄大"}, {"after": "一种", "before": "。依次"}]},
+    {"number": 31, "pdfPage": 7, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 2, "slots": [{"after": "故能“", "before": "”；基层最看重"}, {"after": "实效，", "before": "不得人心"}]},
+    {"number": 32, "pdfPage": 7, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 2, "slots": [{"after": "一手消息都被", "before": "；书面的解释"}, {"after": "发展还是如此", "before": "。依次"}]},
+    {"number": 33, "pdfPage": 7, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 2, "slots": [{"after": "它注定不是", "before": "的市井常识"}, {"after": "智慧的不断", "before": "。依次"}]},
+    {"number": 34, "pdfPage": 7, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 2, "slots": [{"after": "愿意做", "before": "的事"}, {"after": "常会“雨中收伞”“", "before": "”，一些机构"}]},
+    {"number": 35, "pdfPage": 7, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 3, "slots": [{"after": "成功最重要的", "before": "。然而"}, {"after": "越来越为各大动漫公司所", "before": "。事实上"}, {"after": "摆脱了过去的", "before": "地位"}]},
+    {"number": 36, "pdfPage": 8, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 3, "slots": [{"after": "八个主要", "before": "，按照"}, {"after": "缺乏系统的", "before": "和深入"}, {"after": "不便和", "before": "。"}]},
+    {"number": 37, "pdfPage": 8, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 3, "slots": [{"after": "国内造车新势力", "before": "，传统"}, {"after": "略显", "before": "，具有"}, {"after": "过渡性产品", "before": "了当前的市场"}]},
+    {"number": 38, "pdfPage": 8, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 3, "slots": [{"after": "依靠时间“", "before": "”的美食"}, {"after": "腌制食品中", "before": "存在的亚硝酸盐"}, {"after": "有时候只是", "before": "。"}]},
+    {"number": 39, "pdfPage": 8, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 3, "slots": [{"after": "不可辨认的方式", "before": "，渐渐地"}, {"after": "进而影响甚至", "before": "我们的生活"}, {"after": "现实世界与网络世界", "before": "在一起的"}]},
+    {"number": 40, "pdfPage": 8, "visualAudit": "manually-verified-rendered-page", "visualBlankCount": 3, "slots": [{"after": "务实的越人", "before": "，开创了"}, {"after": "各行各业的面貌都", "before": "，古老"}, {"after": "过去的原始瓷", "before": "退出历史的舞台"}]}
+  ],
+  "sentenceInsertionQuestions": [
+    {
+      "number": 52,
+      "pdfPage": 11,
+      "visualAudit": "manually-verified-rendered-page",
+      "expectedPlaceholders": 1,
+      "after": "这项技术的突破，",
+      "before": "，特别是在地面",
+      "pdfAfter": "这项技术的突破,",
+      "pdfBefore": ",特别是在地面"
+    }
+  ]
+}

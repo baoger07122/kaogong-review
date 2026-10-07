@@ -238,6 +238,7 @@ jobs:
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testAssetPathResolverRejectsTraversalAndSymlinkEscape
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testReadingSequenceGroupsSharedMaterialsOnceAndKeepsQuestionOrder
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankReaderLayoutModesAndOptionDisplay
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankHorizontalSwipeRequiresHorizontalIntentAndMinimumDistance
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankPresentationSwitchPreservesCurrentQuestionAndReadingMode
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankSingleQuestionNavigationStopsAtModuleBoundaries
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankPresentationModeSelectsOnlyTheCurrentVisibleQuestion
@@ -245,6 +246,8 @@ jobs:
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankSelectedOptionsPersistByStableQuestionID
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankRevealedAnswersPersistByStableQuestionID
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankDoodleToolbarTargetFollowsVisibleQuestionAndMaterial
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankDoodleMemoryCacheIsBoundedAndInvalidated
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testPencilDrawingControllerReusesOnlyMatchingDecodedDrawingAndReloadsOnPresentation
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankDoodlesRoundTripThroughGenericKeyValueBackup
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionNumberFilterTargetsOwningModuleAndQuestion
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testSingleJSONPickerCallbackReachesPreviewAndConfirmedCommit
@@ -289,8 +292,11 @@ jobs:
             -derivedDataPath build/QuestionBankReaderInteractionDerivedData \
             -parallel-testing-enabled NO \
             -resultBundlePath "$RESULT_PATH" \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testPracticeAnswerWaitsForConfirmationAndSurvivesReaderModeChanges \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testPracticeAnswerRevealsOnSelectionByDefaultAndFollowsSelection \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testPracticeAnswerConfirmationTogglePersistsAcrossReaderModeChanges \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testDoodleBlocksOptionSelectionAndQuestionNavigationInMaterialSplit \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testSingleQuestionHorizontalSwipesRetainSelectionAndReturnToTop \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testQuestionDetailOpensFromContinuousCardAndOverviewCard \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
             xcrun xcresulttool get test-results summary --path "$RESULT_PATH" || true
             exit 1

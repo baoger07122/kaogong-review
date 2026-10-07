@@ -9,6 +9,9 @@ final class LibraryDoodleSession: ObservableObject {
     let canvas = LibraryDoodleCanvasState()
     private var saveHandler: ((String, Bool) -> String?)?
     private var isDismissing = false
+    private var presentationStartedAt: TimeInterval?
+    private var didLogCanvasFrame = false
+    private var didLogCanvasInteractive = false
 
     func present(
         targetRecordID: String,
@@ -17,8 +20,12 @@ final class LibraryDoodleSession: ObservableObject {
         onSave: @escaping (String, Bool) -> String?
     ) {
         guard !isPresented else { return }
+        let preparationStart = ProcessInfo.processInfo.systemUptime
         saveError = nil
         isDismissing = false
+        presentationStartedAt = preparationStart
+        didLogCanvasFrame = false
+        didLogCanvasInteractive = false
         self.targetRecordID = targetRecordID
         canvas.canvasFrameInGlobal = nil
         canvas.controller.canvasReady = false
@@ -26,7 +33,6 @@ final class LibraryDoodleSession: ObservableObject {
         canvas.drawingData = drawingData
         canvas.legacyPreviewDataURL = legacyPreviewDataURL
         saveHandler = onSave
-        let preparationStart = ProcessInfo.processInfo.systemUptime
         canvas.controller.prepareForPresentation()
         LibraryPerformanceLog.mark("doodle.present.prepare", since: preparationStart)
 
@@ -109,16 +115,28 @@ struct LibraryDoodleOverlay: View {
         _controller = ObservedObject(wrappedValue: session.canvas.controller)
     }
 
+    func noteCanvasFramePreference() {
+        guard isPresented, let presentationStartedAt else { return }
+        if !didLogCanvasFrame {
+            didLogCanvasFrame = true
+            LibraryPerformanceLog.mark("doodle.canvas-frame-preference", since: presentationStartedAt)
+        }
+        noteCanvasInteractive()
+    }
+
+    func noteCanvasInteractive() {
+        guard isPresented, !didLogCanvasInteractive, canvas.controller.canvasReady,
+              canvas.canvasFrameInGlobal != nil, let presentationStartedAt else { return }
+        didLogCanvasInteractive = true
+        LibraryPerformanceLog.mark("doodle.canvas-interactive", since: presentationStartedAt)
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let activeCanvasFrame = canvasPassThroughRect(in: proxy)
             ZStack(alignment: .topTrailing) {
-                // The transparent shield blocks every underlying control while the
+                // The transparent shield blocks underlying controls while the
                 // canvas loads, then leaves only the active canvas target hittable.
-                Color.black.opacity(0.18)
-                    .contentShape(Rectangle())
-                    .allowsHitTesting(false)
-
                 LibraryDoodleInteractionShield(
                     passThroughRect: activeCanvasFrame
                 )
@@ -156,6 +174,7 @@ struct LibraryDoodleOverlay: View {
         .ignoresSafeArea()
         .allowsHitTesting(session.isPresented)
         .accessibilityIdentifier("library-doodle-root-overlay")
+        .onChange(of: controller.canvasReady) { _, _ in session.noteCanvasInteractive() }
     }
 
     private var toolbar: some View {
@@ -243,6 +262,10 @@ struct LibraryDoodleContentLayer: View {
     @ObservedObject private var canvas: LibraryDoodleCanvasState
     @ObservedObject private var controller: PencilDrawingController
 
+    private var canvasFramePreferenceID: String {
+        "\(targetRecordID)|\(controller.drawingLoadRevision)"
+    }
+
     init(session: LibraryDoodleSession, targetRecordID: String, minimumCanvasHeight: CGFloat = 260) {
         self.session = session
         self.targetRecordID = targetRecordID
@@ -268,7 +291,7 @@ struct LibraryDoodleContentLayer: View {
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .preference(
                         key: LibraryDoodleCanvasFramePreferenceKey.self,
-                        value: [targetRecordID: proxy.frame(in: .global)]
+                        value: [canvasFramePreferenceID: proxy.frame(in: .global)]
                     )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -280,7 +303,12 @@ struct LibraryDoodleContentLayer: View {
         }
         .onPreferenceChange(LibraryDoodleCanvasFramePreferenceKey.self) { frames in
             guard session.targetRecordID == targetRecordID else { return }
-            session.canvas.canvasFrameInGlobal = frames[targetRecordID]
+            guard let frame = frames[canvasFramePreferenceID] else {
+                session.canvas.canvasFrameInGlobal = nil
+                return
+            }
+            session.canvas.canvasFrameInGlobal = frame
+            session.noteCanvasFramePreference()
         }
         .onDisappear {
             guard session.targetRecordID == targetRecordID else { return }

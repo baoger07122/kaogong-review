@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import PencilKit
 import SwiftData
 import UIKit
 import XCTest
@@ -185,12 +186,27 @@ final class QuestionBankImportTests: XCTestCase {
 
         XCTAssertTrue(QuestionBankReadingMode.reading.revealsAnswer(afterSelecting: nil, wasConfirmed: false))
         XCTAssertFalse(QuestionBankReadingMode.practice.revealsAnswer(afterSelecting: nil, wasConfirmed: true))
-        XCTAssertFalse(QuestionBankReadingMode.practice.revealsAnswer(afterSelecting: "B", wasConfirmed: false))
-        XCTAssertTrue(QuestionBankReadingMode.practice.revealsAnswer(afterSelecting: "B", wasConfirmed: true))
+        XCTAssertTrue(QuestionBankReadingMode.practice.revealsAnswer(afterSelecting: "B", wasConfirmed: false))
+        XCTAssertFalse(QuestionBankReadingMode.practice.revealsAnswer(
+            afterSelecting: "B", wasConfirmed: false, requiresConfirmation: true
+        ))
+        XCTAssertTrue(QuestionBankReadingMode.practice.revealsAnswer(
+            afterSelecting: "B", wasConfirmed: true, requiresConfirmation: true
+        ))
+        XCTAssertTrue(QuestionBankReadingMode.reading.revealsAnswer(
+            afterSelecting: nil, wasConfirmed: false, requiresConfirmation: true
+        ))
 
         XCTAssertNil(QuestionBankOptionDisplay.text(for: QuestionBankOption(id: "A", text: "A", imageAssetID: "")))
         XCTAssertNil(QuestionBankOptionDisplay.text(for: QuestionBankOption(id: "A", text: " A\n", imageAssetID: "")))
         XCTAssertEqual(QuestionBankOptionDisplay.text(for: QuestionBankOption(id: "A", text: "选项内容", imageAssetID: "")), "选项内容")
+    }
+
+    func testQuestionBankHorizontalSwipeRequiresHorizontalIntentAndMinimumDistance() {
+        XCTAssertEqual(QuestionBankHorizontalSwipe.direction(horizontal: -80, vertical: 12), 1)
+        XCTAssertEqual(QuestionBankHorizontalSwipe.direction(horizontal: 80, vertical: -8), -1)
+        XCTAssertNil(QuestionBankHorizontalSwipe.direction(horizontal: 20, vertical: 0))
+        XCTAssertNil(QuestionBankHorizontalSwipe.direction(horizontal: 60, vertical: 70))
     }
 
     func testQuestionBankPresentationSwitchPreservesCurrentQuestionAndReadingMode() {
@@ -337,6 +353,47 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertNil(QuestionBankDoodleToolbarTarget.resolve(
             visibleQuestionID: "stale", questions: questions, materialIDs: []
         ))
+    }
+
+    func testQuestionBankDoodleMemoryCacheIsBoundedAndInvalidated() {
+        var cache = QuestionBankDoodleMemoryCache(capacity: 2)
+        cache.store("drawing-a", for: "question-a")
+        cache.store("drawing-b", for: "question-b")
+        XCTAssertEqual(cache.drawingData(for: "question-a"), "drawing-a")
+        cache.store("drawing-c", for: "question-c")
+
+        XCTAssertNil(cache.drawingData(for: "question-b"), "The least-recently used record should be evicted")
+        XCTAssertEqual(cache.drawingData(for: "question-a"), "drawing-a")
+        XCTAssertEqual(cache.drawingData(for: "question-c"), "drawing-c")
+        XCTAssertNil(cache.drawingData(for: "material-a"), "Shared materials use their own record identity")
+
+        cache.invalidate()
+        XCTAssertNil(cache.drawingData(for: "question-a"))
+        XCTAssertNil(cache.drawingData(for: "question-c"))
+    }
+
+    func testPencilDrawingControllerReusesOnlyMatchingDecodedDrawingAndReloadsOnPresentation() {
+        let suite = "QuestionBankPencilCache-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let controller = PencilDrawingController(defaults: defaults)
+        let encoded = Data("drawing bytes".utf8).base64EncodedString()
+        let drawing = PKDrawing()
+        controller.remember(drawing, encoded: encoded)
+        XCTAssertNotNil(controller.cachedDrawing(for: encoded))
+        XCTAssertNil(controller.cachedDrawing(for: "replacement-drawing"))
+
+        let previousRevision = controller.drawingLoadRevision
+        controller.prepareForPresentation()
+        XCTAssertEqual(controller.drawingLoadRevision, previousRevision + 1)
+        XCTAssertNotNil(controller.cachedDrawing(for: encoded), "Reopening may reuse a content-identical drawing")
+
+        controller.remember(PKDrawing(), encoded: "")
+        XCTAssertNotNil(controller.cachedDrawing(for: ""), "Cleared drawings can be reattached as empty")
+        XCTAssertNil(controller.cachedDrawing(for: encoded), "A different drawing must not reuse stale decoded data")
+        controller.invalidateDecodedDrawing()
+        XCTAssertNil(controller.cachedDrawing(for: ""), "Foreground invalidation must drop decoded memory state")
     }
 
     func testQuestionBankDoodlesRoundTripThroughGenericKeyValueBackup() throws {

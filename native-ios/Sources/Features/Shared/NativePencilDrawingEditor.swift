@@ -48,12 +48,15 @@ final class PencilDrawingController: ObservableObject {
     @Published fileprivate(set) var hasPendingDrawingPublish = false
     @Published var canvasReady = false
     @Published var canvasLoadError: String?
+    @Published fileprivate(set) var drawingLoadRevision = 0
     @Published fileprivate var action: PencilAction?
 
     private let defaults: UserDefaults
     private var previousPenColor: UIColor
     private var previousPenWidth: CGFloat
     private var restoreLegacyOnNextUndo = false
+    private var decodedDrawingKey: String?
+    private var decodedDrawing: PKDrawing?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -127,6 +130,7 @@ final class PencilDrawingController: ObservableObject {
     }
 
     func prepareForPresentation() {
+        drawingLoadRevision += 1
         showSettings = false
         fingerDrawingEnabled = false
         legacyPreviewCleared = false
@@ -134,6 +138,21 @@ final class PencilDrawingController: ObservableObject {
         hasPendingDrawingPublish = false
         canvasReady = false
         canvasLoadError = nil
+    }
+
+    func cachedDrawing(for encoded: String) -> PKDrawing? {
+        guard decodedDrawingKey == encoded else { return nil }
+        return decodedDrawing
+    }
+
+    func remember(_ drawing: PKDrawing, encoded: String) {
+        decodedDrawingKey = encoded
+        decodedDrawing = drawing
+    }
+
+    func invalidateDecodedDrawing() {
+        decodedDrawingKey = nil
+        decodedDrawing = nil
     }
 
     private func persist() {
@@ -266,6 +285,7 @@ struct NativePencilDrawingEditor: View {
             PencilCanvasRepresentable(
                 encodedData: $encodedData,
                 controller: controller,
+                drawingLoadRevision: controller.drawingLoadRevision,
                 color: controller.color,
                 width: controller.width,
                 eraser: controller.eraser,
@@ -457,6 +477,7 @@ struct NativePencilDrawingEditor: View {
 private struct PencilCanvasRepresentable: UIViewRepresentable {
     @Binding var encodedData: String
     let controller: PencilDrawingController
+    let drawingLoadRevision: Int
     let color: UIColor
     let width: CGFloat
     let eraser: Bool
@@ -504,7 +525,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         canvas.addGestureRecognizer(eraserTracker)
         context.coordinator.eraserTracker = eraserTracker
 
-        context.coordinator.loadDrawing(encodedData, on: canvas)
+        context.coordinator.loadDrawing(encodedData, revision: drawingLoadRevision, on: canvas)
         updateTool(canvas)
         LibraryPerformanceLog.mark("doodle.canvas-create", since: canvasStart)
         return canvas
@@ -556,7 +577,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
                 action.completion?()
             }
         }
-        context.coordinator.loadDrawing(encodedData, on: canvas)
+        context.coordinator.loadDrawing(encodedData, revision: drawingLoadRevision, on: canvas)
     }
 
     private func updateTool(_ canvas: PKCanvasView) {
@@ -572,6 +593,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         var lastActionID: UUID?
         var drawingChanged = false
         private var requestedEncoded: String?
+        private var requestedRevision: Int?
         private var decodeToken = UUID()
         var canvasReady = false
         private var pendingPublish: DispatchWorkItem?
@@ -582,9 +604,10 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             self.controller = controller
         }
 
-        func loadDrawing(_ encoded: String, on canvas: InteractivePencilCanvasView) {
-            guard requestedEncoded != encoded else { return }
+        func loadDrawing(_ encoded: String, revision: Int, on canvas: InteractivePencilCanvasView) {
+            guard requestedEncoded != encoded || requestedRevision != revision else { return }
             requestedEncoded = encoded
+            requestedRevision = revision
             canvasReady = false
             controller.canvasReady = false
             controller.canvasLoadError = nil
@@ -598,7 +621,9 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             if encoded.isEmpty {
                 DispatchQueue.main.async { [weak self, weak canvas] in
                     guard let self, let canvas, self.decodeToken == token else { return }
-                    canvas.drawing = PKDrawing()
+                    let drawing = self.controller.cachedDrawing(for: encoded) ?? PKDrawing()
+                    self.controller.remember(drawing, encoded: encoded)
+                    canvas.drawing = drawing
                     self.lastEncoded = ""
                     self.canvasReady = true
                     self.controller.canvasReady = true
@@ -614,6 +639,23 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
                 return
             }
 
+            if let drawing = controller.cachedDrawing(for: encoded) {
+                DispatchQueue.main.async { [weak self, weak canvas] in
+                    guard let self, let canvas, self.decodeToken == token else { return }
+                    canvas.drawing = drawing
+                    self.lastEncoded = encoded
+                    self.canvasReady = true
+                    self.controller.canvasReady = true
+                    self.controller.canvasLoadError = nil
+                    canvas.isDrawingReady = true
+                    canvas.isUserInteractionEnabled = self.parent.isActive
+                    if self.parent.isActive { canvas.becomeFirstResponder() }
+                    self.controller.hasPendingDrawingPublish = false
+                    LibraryPerformanceLog.mark("doodle.canvas.cache-attach", since: decodeStart)
+                }
+                return
+            }
+
             DispatchQueue.global(qos: .userInitiated).async { [weak self, weak canvas] in
                 let drawing = Data(base64Encoded: encoded).flatMap { try? PKDrawing(data: $0) }
                 LibraryPerformanceLog.mark("doodle.canvas.decode", since: decodeStart)
@@ -624,6 +666,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
                         self.controller.canvasLoadError = "已有涂鸦无法载入；关闭后会保留原记录。"
                         return
                     }
+                    self.controller.remember(drawing, encoded: encoded)
                     canvas.drawing = drawing
                     self.lastEncoded = encoded
                     self.canvasReady = true
@@ -682,6 +725,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             pendingPublish?.cancel()
             pendingPublish = nil
             let value = canvas.drawing.dataRepresentation().base64EncodedString()
+            controller.remember(canvas.drawing, encoded: value)
             lastEncoded = value
             requestedEncoded = value
             parent.encodedData = value

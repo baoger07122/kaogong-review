@@ -9,8 +9,61 @@ enum QuestionBankReadingMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String { self == .reading ? "看题" : "刷题" }
 
-    func revealsAnswer(afterSelecting optionID: String?, wasConfirmed: Bool) -> Bool {
-        self == .reading || (optionID != nil && wasConfirmed)
+    func revealsAnswer(
+        afterSelecting optionID: String?,
+        wasConfirmed: Bool,
+        requiresConfirmation: Bool = false
+    ) -> Bool {
+        self == .reading || (optionID != nil && (!requiresConfirmation || wasConfirmed))
+    }
+}
+
+enum QuestionBankReaderPreferences {
+    static let confirmAnswerAfterSelectionKey = "question-bank.confirm-answer-after-selection"
+}
+
+struct QuestionBankDoodleMemoryCache {
+    private let capacity: Int
+    private var drawings: [String: String] = [:]
+    private var leastToMostRecent: [String] = []
+
+    init(capacity: Int = 4) {
+        self.capacity = max(1, capacity)
+    }
+
+    mutating func drawingData(for recordID: String) -> String? {
+        guard let data = drawings[recordID] else { return nil }
+        leastToMostRecent.removeAll { $0 == recordID }
+        leastToMostRecent.append(recordID)
+        return data
+    }
+
+    mutating func store(_ data: String, for recordID: String) {
+        drawings[recordID] = data
+        leastToMostRecent.removeAll { $0 == recordID }
+        leastToMostRecent.append(recordID)
+        while leastToMostRecent.count > capacity {
+            let evicted = leastToMostRecent.removeFirst()
+            drawings.removeValue(forKey: evicted)
+        }
+    }
+
+    mutating func invalidate() {
+        drawings.removeAll()
+        leastToMostRecent.removeAll()
+    }
+}
+
+enum QuestionBankHorizontalSwipe {
+    /// Returns 1 for a left swipe (next), -1 for a right swipe (previous).
+    static func direction(
+        horizontal: CGFloat,
+        vertical: CGFloat,
+        minimumDistance: CGFloat = 56
+    ) -> Int? {
+        guard abs(horizontal) >= minimumDistance,
+              abs(horizontal) > abs(vertical) * 1.25 else { return nil }
+        return horizontal < 0 ? 1 : -1
     }
 }
 
@@ -209,13 +262,32 @@ enum QuestionBankDoodleRepository {
     }
 
     static func drawingData(recordID: String, context: ModelContext) throws -> String {
+        let totalStart = ProcessInfo.processInfo.systemUptime
+        let fetchStart = ProcessInfo.processInfo.systemUptime
         let descriptor = descriptor(for: recordID)
-        guard let record = try context.fetch(descriptor).first else { return "" }
+        let record: StoredRecord?
+        do {
+            record = try context.fetch(descriptor).first
+        } catch {
+            LibraryPerformanceLog.mark("doodle.read.fetch", since: fetchStart)
+            LibraryPerformanceLog.mark("doodle.read.total", since: totalStart)
+            throw error
+        }
+        LibraryPerformanceLog.mark("doodle.read.fetch", since: fetchStart)
+        guard let record else {
+            LibraryPerformanceLog.mark("doodle.read.total", since: totalStart)
+            return ""
+        }
+        let payloadStart = ProcessInfo.processInfo.systemUptime
         guard let object = record.jsonObject,
               object["format"] as? String == recordIDPrefix,
               let data = object["pencilKitData"] as? String else {
+            LibraryPerformanceLog.mark("doodle.read.payload", since: payloadStart)
+            LibraryPerformanceLog.mark("doodle.read.total", since: totalStart)
             throw QuestionBankDoodleError.invalidSavedDrawing
         }
+        LibraryPerformanceLog.mark("doodle.read.payload", since: payloadStart)
+        LibraryPerformanceLog.mark("doodle.read.total", since: totalStart)
         return data
     }
 
@@ -226,17 +298,27 @@ enum QuestionBankDoodleRepository {
         drawingData: String,
         context: ModelContext
     ) -> String? {
+        let totalStart = ProcessInfo.processInfo.systemUptime
         do {
             let descriptor = descriptor(for: recordID)
+            let fetchStart = ProcessInfo.processInfo.systemUptime
             let existing = try context.fetch(descriptor).first
+            LibraryPerformanceLog.mark("doodle.save.fetch", since: fetchStart)
             if drawingData.isEmpty {
-                guard let existing else { return nil }
+                guard let existing else {
+                    LibraryPerformanceLog.mark("doodle.save.skipped-empty", since: totalStart)
+                    return nil
+                }
                 context.delete(existing)
+                let contextSaveStart = ProcessInfo.processInfo.systemUptime
                 try context.save()
+                LibraryPerformanceLog.mark("doodle.save.context", since: contextSaveStart)
+                LibraryPerformanceLog.mark("doodle.save.total", since: totalStart)
                 return nil
             }
             if let existing,
                existing.jsonObject?["pencilKitData"] as? String == drawingData {
+                LibraryPerformanceLog.mark("doodle.save.skipped-unchanged", since: totalStart)
                 return nil
             }
 
@@ -248,7 +330,9 @@ enum QuestionBankDoodleRepository {
                 "pencilKitData": drawingData,
                 "updatedAt": ISO8601DateFormatter().string(from: now)
             ]
+            let payloadStart = ProcessInfo.processInfo.systemUptime
             let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            LibraryPerformanceLog.mark("doodle.save.payload", since: payloadStart)
             if let existing {
                 existing.replacePayload(payload)
                 existing.updatedAt = now
@@ -262,9 +346,13 @@ enum QuestionBankDoodleRepository {
                     updatedAt: now
                 ))
             }
+            let contextSaveStart = ProcessInfo.processInfo.systemUptime
             try context.save()
+            LibraryPerformanceLog.mark("doodle.save.context", since: contextSaveStart)
+            LibraryPerformanceLog.mark("doodle.save.total", since: totalStart)
             return nil
         } catch {
+            LibraryPerformanceLog.mark("doodle.save.failed", since: totalStart)
             return "涂鸦未保存：\(error.localizedDescription)"
         }
     }
@@ -289,11 +377,17 @@ struct QuestionBankDoodleAutosaveObserver: View {
     @ObservedObject private var session: LibraryDoodleSession
     @ObservedObject private var canvas: LibraryDoodleCanvasState
     private let context: ModelContext
+    private let onSaved: (String, String, String?) -> Void
 
-    init(session: LibraryDoodleSession, context: ModelContext) {
+    init(
+        session: LibraryDoodleSession,
+        context: ModelContext,
+        onSaved: @escaping (String, String, String?) -> Void = { _, _, _ in }
+    ) {
         _session = ObservedObject(wrappedValue: session)
         _canvas = ObservedObject(wrappedValue: session.canvas)
         self.context = context
+        self.onSaved = onSaved
     }
 
     var body: some View {
@@ -302,11 +396,13 @@ struct QuestionBankDoodleAutosaveObserver: View {
                 guard session.isPresented,
                       let recordID = session.targetRecordID,
                       QuestionBankDoodleRepository.isDoodleRecordID(recordID) else { return }
-                session.saveError = QuestionBankDoodleRepository.save(
+                let error = QuestionBankDoodleRepository.save(
                     recordID: recordID,
                     drawingData: drawingData,
                     context: context
                 )
+                session.saveError = error
+                onSaved(recordID, drawingData, error)
             }
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)

@@ -9,7 +9,7 @@ private struct ReaderUITestContext {
 
 final class QuestionBankReaderInteractionUITests: XCTestCase {
     @MainActor
-    func testPracticeAnswerWaitsForConfirmationAndSurvivesReaderModeChanges() throws {
+    func testPracticeAnswerRevealsOnSelectionByDefaultAndFollowsSelection() throws {
         let reader = launchPracticeReader()
         let app = reader.app
         let answerFeedback = app.descendants(matching: .any)
@@ -19,28 +19,55 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         let optionA = app.buttons["question-bank-option-\(reader.questionID)-A"].firstMatch
         XCTAssertTrue(optionA.waitForExistence(timeout: 5))
         optionA.tap()
-        XCTAssertFalse(answerFeedback.exists, "Selecting an option must not reveal the answer")
-
-        let confirm = app.buttons["question-bank-confirm-answer-\(reader.questionID)"].firstMatch
-        XCTAssertTrue(confirm.isEnabled)
-        confirm.tap()
         XCTAssertTrue(answerFeedback.waitForExistence(timeout: 5))
         XCTAssertTrue(answerFeedback.label.contains("你的选择：A"))
         XCTAssertTrue(answerFeedback.label.contains("正确答案：B"))
+        XCTAssertFalse(app.buttons["question-bank-confirm-answer-\(reader.questionID)"].exists)
 
-        let presentationMenu = element(app, identifier: "question-bank-presentation-mode")
-        presentationMenu.tap()
+        app.buttons["question-bank-option-\(reader.questionID)-B"].tap()
+        XCTAssertTrue(answerFeedback.waitForExistence(timeout: 5))
+        XCTAssertTrue(answerFeedback.label.contains("你的选择：B"))
+    }
+
+    @MainActor
+    func testPracticeAnswerConfirmationTogglePersistsAcrossReaderModeChanges() throws {
+        let reader = launchPracticeReader()
+        let app = reader.app
+        let answerFeedback = app.descendants(matching: .any)
+            .matching(identifier: "question-bank-answer-feedback-\(reader.questionID)").firstMatch
+        let readerOptions = element(app, identifier: "question-bank-reader-options")
+        readerOptions.tap()
+        let confirmationToggle = element(app, identifier: "question-bank-confirm-answer-toggle")
+        XCTAssertTrue(confirmationToggle.waitForExistence(timeout: 5))
+        confirmationToggle.tap()
+        let practiceChoice = app.buttons["刷题"].firstMatch
+        if practiceChoice.waitForExistence(timeout: 1) { practiceChoice.tap() }
+
+        let optionA = app.buttons["question-bank-option-\(reader.questionID)-A"].firstMatch
+        let optionB = app.buttons["question-bank-option-\(reader.questionID)-B"].firstMatch
+        optionA.tap()
+        XCTAssertFalse(answerFeedback.exists, "Confirmation mode must wait for the confirm action")
+        let confirm = app.buttons["question-bank-confirm-answer-\(reader.questionID)"].firstMatch
+        XCTAssertTrue(confirm.isEnabled)
+        optionB.tap()
+        XCTAssertFalse(answerFeedback.exists, "Changing the selection before confirmation must keep the answer hidden")
+        confirm.tap()
+        XCTAssertTrue(answerFeedback.waitForExistence(timeout: 5))
+        XCTAssertTrue(answerFeedback.label.contains("你的选择：B"))
+
+        readerOptions.tap()
         app.buttons["单题模式"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["question-bank-single-position"].waitForExistence(timeout: 5))
-        XCTAssertTrue(answerFeedback.exists, "Revealed state must follow the stable question ID")
+        XCTAssertTrue(answerFeedback.exists, "Confirmed state must follow the stable question ID")
 
-        let readingMenu = element(app, identifier: "question-bank-reading-mode")
-        readingMenu.tap()
+        readerOptions.tap()
         app.buttons["看题"].firstMatch.tap()
-        readingMenu.tap()
+        readerOptions.tap()
         app.buttons["刷题"].firstMatch.tap()
         XCTAssertTrue(answerFeedback.waitForExistence(timeout: 5))
-        XCTAssertTrue(answerFeedback.label.contains("你的选择：A"))
+        XCTAssertTrue(answerFeedback.label.contains("你的选择：B"))
+
+        readerOptions.tap()
+        XCTAssertTrue(element(app, identifier: "question-bank-confirm-answer-toggle").waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -48,7 +75,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         let reader = launchPracticeReader()
         let app = reader.app
 
-        let presentationMenu = element(app, identifier: "question-bank-presentation-mode")
+        let presentationMenu = element(app, identifier: "question-bank-reader-options")
         presentationMenu.tap()
         app.buttons["单题模式"].firstMatch.tap()
         let materialEntry = app.buttons["question-bank-single-material-\(reader.materialID)"].firstMatch
@@ -71,6 +98,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
 
         let shield = element(app, identifier: "library-doodle-interaction-shield")
         XCTAssertTrue(shield.waitForExistence(timeout: 5))
+        XCTAssertTrue(optionA.isEnabled, "The interaction shield must not dim or disable option content")
         coordinate(in: app, at: optionFrame).tap()
         let ready = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "value == %@", "canvas-ready"),
@@ -85,9 +113,71 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertTrue(app.buttons["question-bank-single-next"].exists)
         let position = element(app, identifier: "question-bank-single-position")
         XCTAssertTrue(position.label.contains("第1题"), "Doodle taps must not advance to the next question")
-        let confirm = app.buttons["question-bank-confirm-answer-\(reader.questionID)"].firstMatch
-        XCTAssertTrue(confirm.exists)
-        XCTAssertFalse(confirm.isEnabled, "Doodle taps must not select an option")
+        XCTAssertFalse(app.images["你的选择"].exists, "Doodle taps must not select an option")
+    }
+
+    @MainActor
+    func testSingleQuestionHorizontalSwipesRetainSelectionAndReturnToTop() throws {
+        let reader = launchPracticeReader()
+        let app = reader.app
+        let readerOptions = element(app, identifier: "question-bank-reader-options")
+        readerOptions.tap()
+        app.buttons["单题模式"].firstMatch.tap()
+
+        let optionA = app.buttons["question-bank-option-\(reader.questionID)-A"].firstMatch
+        XCTAssertTrue(optionA.waitForExistence(timeout: 5))
+        optionA.tap()
+        let answerFeedback = app.descendants(matching: .any)
+            .matching(identifier: "question-bank-answer-feedback-\(reader.questionID)").firstMatch
+        XCTAssertTrue(answerFeedback.waitForExistence(timeout: 5))
+
+        let scrollView = app.scrollViews.firstMatch
+        XCTAssertTrue(scrollView.waitForExistence(timeout: 5))
+        scrollView.swipeLeft()
+        let position = element(app, identifier: "question-bank-single-position")
+        let secondQuestion = "\(reader.paperID)-question-2"
+        let secondQuestionVisible = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "第2题"),
+            object: position
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [secondQuestionVisible], timeout: 5), .completed)
+        XCTAssertTrue(app.buttons["question-bank-option-\(secondQuestion)-A"].waitForExistence(timeout: 5))
+
+        scrollView.swipeRight()
+        let firstQuestionVisible = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "第1题"),
+            object: position
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [firstQuestionVisible], timeout: 5), .completed)
+        XCTAssertTrue(answerFeedback.exists, "Returning to the prior question must restore its selected answer")
+        XCTAssertTrue(answerFeedback.label.contains("你的选择：A"))
+    }
+
+    @MainActor
+    func testQuestionDetailOpensFromContinuousCardAndOverviewCard() throws {
+        let reader = launchPracticeReader()
+        let app = reader.app
+        app.buttons["question-bank-option-\(reader.questionID)-A"].tap()
+        let answerFeedback = app.descendants(matching: .any)
+            .matching(identifier: "question-bank-answer-feedback-\(reader.questionID)").firstMatch
+        XCTAssertTrue(answerFeedback.waitForExistence(timeout: 5))
+
+        let continuousDetail = app.buttons["question-bank-question-detail-\(reader.questionID)"].firstMatch
+        XCTAssertTrue(continuousDetail.waitForExistence(timeout: 5))
+        continuousDetail.tap()
+        XCTAssertTrue(app.navigationBars["第1题详情"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["用于检验共享材料分屏下的涂鸦命中区域。"].exists)
+        XCTAssertTrue(answerFeedback.exists)
+        app.buttons["完成"].firstMatch.tap()
+
+        app.buttons["question-bank-number-overview"].tap()
+        app.buttons["卡片"].tap()
+        let overviewDetail = app.buttons["question-bank-overview-detail-\(reader.questionID)"].firstMatch
+        XCTAssertTrue(overviewDetail.waitForExistence(timeout: 5))
+        overviewDetail.tap()
+        XCTAssertTrue(app.navigationBars["第1题详情"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["用于检验共享材料分屏下的涂鸦命中区域。"].exists)
+        XCTAssertTrue(answerFeedback.exists, "The overview detail must retain the selected option state")
     }
 
     @MainActor
@@ -115,9 +205,9 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertTrue(module.waitForExistence(timeout: 10))
         module.tap()
 
-        let readingMode = element(app, identifier: "question-bank-reading-mode")
-        XCTAssertTrue(readingMode.waitForExistence(timeout: 10))
-        readingMode.tap()
+        let readerOptions = element(app, identifier: "question-bank-reader-options")
+        XCTAssertTrue(readerOptions.waitForExistence(timeout: 10))
+        readerOptions.tap()
         app.buttons["刷题"].firstMatch.tap()
         XCTAssertTrue(app.buttons["question-bank-option-\(questionID)-A"].waitForExistence(timeout: 10))
         return ReaderUITestContext(

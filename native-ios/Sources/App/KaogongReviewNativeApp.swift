@@ -14,6 +14,14 @@ struct KaogongReviewNativeApp: App {
         let usesQuestionBankUITestFixture = false
         #endif
 
+        #if DEBUG
+        if usesQuestionBankUITestFixture {
+            UserDefaults.standard.removeObject(
+                forKey: QuestionBankReaderPreferences.confirmAnswerAfterSelectionKey
+            )
+        }
+        #endif
+
         do {
             let container: ModelContainer
             if usesQuestionBankUITestFixture {
