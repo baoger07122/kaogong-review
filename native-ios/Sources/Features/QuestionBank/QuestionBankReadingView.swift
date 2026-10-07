@@ -444,6 +444,9 @@ struct QuestionBankModuleView: View {
         .accessibilityHint("打开菜单调整展示方式、答题方式和确认选项")
         .accessibilityIdentifier("question-bank-reader-options")
         .disabled(doodleSession.isPresented)
+        .opacity(doodleSession.isPresented ? 0 : 1)
+        .allowsHitTesting(!doodleSession.isPresented)
+        .accessibilityHidden(doodleSession.isPresented)
     }
 
     @ViewBuilder
@@ -482,8 +485,14 @@ struct QuestionBankModuleView: View {
                     guard !doodleSession.isPresented else { return }
                     openMaterialDoodle(materialID)
                 }
+                .opacity(doodleSession.isPresented ? 0 : 1)
+                .allowsHitTesting(!doodleSession.isPresented)
+                .accessibilityHidden(doodleSession.isPresented)
         } else {
             button
+                .opacity(doodleSession.isPresented ? 0 : 1)
+                .allowsHitTesting(!doodleSession.isPresented)
+                .accessibilityHidden(doodleSession.isPresented)
         }
     }
 
@@ -501,6 +510,9 @@ struct QuestionBankModuleView: View {
         .accessibilityLabel("题号总览")
         .disabled(readingItems.isEmpty || doodleSession.isPresented)
         .accessibilityIdentifier("question-bank-number-overview")
+        .opacity(doodleSession.isPresented ? 0 : 1)
+        .allowsHitTesting(!doodleSession.isPresented)
+        .accessibilityHidden(doodleSession.isPresented)
     }
 
     @ViewBuilder
