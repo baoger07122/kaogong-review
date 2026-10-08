@@ -896,22 +896,21 @@ private struct QuestionBankPaperSwipeRow<Content: View>: View {
 
     var body: some View {
         ZStack(alignment: .leading) {
-            Button {
-                withAnimation(.easeOut(duration: 0.18)) { revealOffset = 0 }
-                onDelete()
-            } label: {
-                Label("删除", systemImage: "trash")
-                    .font(AppTheme.auxiliaryFont.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 82)
-                    .frame(maxHeight: .infinity)
-                    .background(AppTheme.danger, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
+            if revealOffset > 0 {
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) { revealOffset = 0 }
+                    onDelete()
+                } label: {
+                    Label("删除", systemImage: "trash")
+                        .font(AppTheme.auxiliaryFont.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 82)
+                        .frame(maxHeight: .infinity)
+                        .background(AppTheme.danger, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("question-bank-paper-delete-action")
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("question-bank-paper-delete-action")
-            .opacity(revealOffset > 0 ? 1 : 0)
-            .allowsHitTesting(revealOffset > 0)
-            .accessibilityHidden(revealOffset <= 0)
 
             content
                 .offset(x: revealOffset)
