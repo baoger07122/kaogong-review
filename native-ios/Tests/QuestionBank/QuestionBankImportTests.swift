@@ -231,8 +231,10 @@ final class QuestionBankImportTests: XCTestCase {
             batchTestRecord(kind: QuestionBankRepository.paperKind, id: paper.id, paperID: paper.id, value: paper),
             batchTestRecord(kind: QuestionBankRepository.moduleKind, id: language.id, paperID: paper.id, value: language),
             batchTestRecord(kind: QuestionBankRepository.moduleKind, id: unknown.id, paperID: paper.id, value: unknown),
-            batchTestRecord(kind: QuestionBankRepository.questionKind, id: languageQuestion.id, paperID: paper.id, value: languageQuestion),
-            batchTestRecord(kind: QuestionBankRepository.questionKind, id: unknownQuestion.id, paperID: paper.id, value: unknownQuestion)
+            batchTestRecord(kind: QuestionBankRepository.questionKind, id: languageQuestion.id, paperID: paper.id,
+                            value: languageQuestion, searchText: "12 语境题"),
+            batchTestRecord(kind: QuestionBankRepository.questionKind, id: unknownQuestion.id, paperID: paper.id,
+                            value: unknownQuestion, searchText: "13 旧题")
         ]
         let index = QuestionBankHomeIndex(records: records)
 
@@ -1887,13 +1889,15 @@ final class QuestionBankImportTests: XCTestCase {
     }
 
     private func batchTestRecord<Value: Encodable>(kind: String, id: String,
-        paperID: String, value: Value, assetRelativePath: String? = nil) throws -> QuestionBankRecord {
+        paperID: String, value: Value, searchText: String = "",
+        assetRelativePath: String? = nil) throws -> QuestionBankRecord {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let paper = value as? QuestionBankPaper
         return QuestionBankRecord(compoundID: "\(paperID)::\(kind)::\(id)",
             paperID: paperID, kind: kind, stableID: id, year: paper?.year, examType: paper?.examType,
             normalizedPaperKey: paper?.duplicateKey, title: paper?.title,
+            searchText: searchText,
             payload: try encoder.encode(value),
             assetRelativePath: assetRelativePath)
     }
