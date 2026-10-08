@@ -1,5 +1,19 @@
 import Foundation
 
+enum QuestionBankModuleTitle {
+    static func normalized(_ title: String?) -> String {
+        var value = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        for pattern in [
+            "^[一二三四五六七八九十百]+[、.．)）]\\s*",
+            "^[0-9]+[、.．)）]\\s*",
+            "^[（(][一二三四五六七八九十百]+[）)]\\s*"
+        ] {
+            value = value.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+        }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 enum QuestionBankCoarseModule: String, CaseIterable, Identifiable, Sendable {
     case commonKnowledge = "常识判断"
     case language = "言语理解"
@@ -15,7 +29,7 @@ enum QuestionBankCoarseModule: String, CaseIterable, Identifiable, Sendable {
     }
 
     static func classify(explicitModuleTitle title: String?) -> Self {
-        switch title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" {
+        switch QuestionBankModuleTitle.normalized(title) {
         case "常识判断", "常识": .commonKnowledge
         case "言语理解", "言语理解与表达": .language
         case "数量关系": .quantity
@@ -57,6 +71,7 @@ struct QuestionBankHomeQuestion: Identifiable {
     let module: QuestionBankCoarseModule
     let questionTypeFilter: String
     let moduleID: String?
+    let moduleTitle: String?
     let moduleSequence: Int
 
     var id: String { record.compoundID }
@@ -116,6 +131,7 @@ struct QuestionBankHomeIndex {
                     module: coarse,
                     questionTypeFilter: coarse.questionTypeFilter(for: question.type),
                     moduleID: moduleID,
+                    moduleTitle: module?.title,
                     moduleSequence: module?.sequence ?? Int.max
                 )
             }

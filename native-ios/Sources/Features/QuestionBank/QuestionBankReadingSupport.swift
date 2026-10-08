@@ -20,17 +20,29 @@ enum QuestionBankReadingMode: String, CaseIterable, Identifiable {
 
 enum QuestionBankQuestionHeading {
     private static let internalClassification = "纯文字"
+    private static let genericSubjects: Set<String> = ["行测", "行政职业能力测验", "公务员考试"]
 
-    static func displayLabel(type: String, subject: String) -> String? {
+    static func displayLabel(type: String, subject: String, moduleTitle: String? = nil) -> String? {
         let normalizedType = type.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !normalizedType.isEmpty, normalizedType != internalClassification {
+        let comparableModule = QuestionBankModuleTitle.normalized(moduleTitle)
+        let comparableType = QuestionBankModuleTitle.normalized(normalizedType)
+        if !normalizedType.isEmpty, normalizedType != internalClassification,
+           comparableType != comparableModule, !genericSubjects.contains(comparableType) {
             return normalizedType
         }
 
         let normalizedSubject = subject.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedSubject.isEmpty, normalizedSubject != internalClassification else { return nil }
+        let comparableSubject = QuestionBankModuleTitle.normalized(normalizedSubject)
+        guard !normalizedSubject.isEmpty, normalizedSubject != internalClassification,
+              comparableSubject != comparableModule,
+              !genericSubjects.contains(comparableSubject) else { return nil }
         return normalizedSubject
     }
+}
+
+enum QuestionBankTypography {
+    static let contentFont = Font.system(size: 16, weight: .regular)
+    static let contentLineSpacing: CGFloat = 6
 }
 
 enum QuestionBankReaderPreferences {
@@ -79,6 +91,117 @@ enum QuestionBankHorizontalSwipe {
         guard abs(horizontal) >= minimumDistance,
               abs(horizontal) > abs(vertical) * 1.25 else { return nil }
         return horizontal < 0 ? 1 : -1
+    }
+}
+
+struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
+    let currentID: PageID
+    let previousID: PageID?
+    let nextID: PageID?
+    let isEnabled: Bool
+    let onCommit: (Int) -> Void
+    private let page: (PageID) -> Page
+    @State private var dragOffset: CGFloat = 0
+    @State private var isCommitting = false
+    @State private var commitTask: Task<Void, Never>?
+
+    init(
+        currentID: PageID,
+        previousID: PageID?,
+        nextID: PageID?,
+        isEnabled: Bool,
+        onCommit: @escaping (Int) -> Void,
+        @ViewBuilder page: @escaping (PageID) -> Page
+    ) {
+        self.currentID = currentID
+        self.previousID = previousID
+        self.nextID = nextID
+        self.isEnabled = isEnabled
+        self.onCommit = onCommit
+        self.page = page
+    }
+
+    private var previewID: PageID? {
+        guard abs(dragOffset) > 0 else { return nil }
+        return dragOffset < 0 ? nextID : previousID
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                if let previewID {
+                    page(previewID)
+                        .offset(x: dragOffset < 0 ? geometry.size.width + dragOffset : -geometry.size.width + dragOffset)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+                page(currentID)
+                    .offset(x: dragOffset)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 22, coordinateSpace: .local)
+                    .onChanged { value in
+                        guard isEnabled, !isCommitting else { return }
+                        let horizontal = value.translation.width
+                        let vertical = value.translation.height
+                        guard abs(horizontal) > abs(vertical) * 1.2, abs(horizontal) > 10 else {
+                            if abs(vertical) > abs(horizontal) { dragOffset = 0 }
+                            return
+                        }
+                        let width = max(1, geometry.size.width)
+                        if horizontal < 0 {
+                            dragOffset = nextID == nil
+                                ? max(-28, horizontal * 0.16)
+                                : max(-width, horizontal)
+                        } else {
+                            dragOffset = previousID == nil
+                                ? min(28, horizontal * 0.16)
+                                : min(width, horizontal)
+                        }
+                    }
+                    .onEnded { value in
+                        guard isEnabled, !isCommitting,
+                              let direction = QuestionBankHorizontalSwipe.direction(
+                                horizontal: value.translation.width,
+                                vertical: value.translation.height
+                              ) else {
+                            withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.86)) {
+                                dragOffset = 0
+                            }
+                            return
+                        }
+                        guard direction > 0 ? nextID != nil : previousID != nil else {
+                            withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.86)) {
+                                dragOffset = 0
+                            }
+                            return
+                        }
+                        isCommitting = true
+                        withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.86)) {
+                            dragOffset = direction > 0 ? -geometry.size.width : geometry.size.width
+                        }
+                        commitTask?.cancel()
+                        commitTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 260_000_000)
+                            guard !Task.isCancelled else { return }
+                            var transaction = Transaction(animation: nil)
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) {
+                                onCommit(direction)
+                                dragOffset = 0
+                                isCommitting = false
+                            }
+                        }
+                    }
+            )
+        }
+        .onChange(of: currentID) { _, _ in
+            if !isCommitting { dragOffset = 0 }
+        }
+        .onDisappear { commitTask?.cancel() }
     }
 }
 

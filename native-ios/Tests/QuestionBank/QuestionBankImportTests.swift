@@ -256,6 +256,160 @@ final class QuestionBankImportTests: XCTestCase {
         )).isEmpty, "A paper-title match must not bypass an active module filter.")
     }
 
+    func testQuestionBankHomeIndexMatchesNumberedValidationSampleModuleCounts() throws {
+        let paper = batchTestPaper(id: "numbered-sample-paper", title: "验证样例")
+        let moduleSpecs: [(QuestionBankCoarseModule, String, Int)] = [
+            (.commonKnowledge, "一、常识判断", 1),
+            (.language, "二、言语理解与表达", 0),
+            (.quantity, "三、数量关系", 0),
+            (.reasoning, "四、判断推理", 1),
+            (.dataAnalysis, "五、资料分析", 5)
+        ]
+        var records = [try batchTestRecord(
+            kind: QuestionBankRepository.paperKind, id: paper.id, paperID: paper.id, value: paper
+        )]
+        var nextQuestionNumber = 1
+
+        for (index, spec) in moduleSpecs.enumerated() {
+            let moduleID = "numbered-sample-module-\(index)"
+            let module = QuestionBankModule(
+                id: moduleID, paperID: paper.id, sequence: index + 1,
+                title: spec.1, instruction: "", originalPage: "1"
+            )
+            records.append(try batchTestRecord(
+                kind: QuestionBankRepository.moduleKind, id: moduleID, paperID: paper.id, value: module
+            ))
+            for _ in 0..<spec.2 {
+                var question = batchTestQuestion(
+                    id: "numbered-sample-question-\(nextQuestionNumber)",
+                    paperID: paper.id,
+                    materialID: "",
+                    stem: "验证样例第\(nextQuestionNumber)题",
+                    answer: "A",
+                    reordered: false
+                )
+                question.moduleID = moduleID
+                question.number = nextQuestionNumber
+                question.type = spec.0 == .commonKnowledge ? "其他常识" : "单项选择题"
+                records.append(try batchTestRecord(
+                    kind: QuestionBankRepository.questionKind,
+                    id: question.id,
+                    paperID: paper.id,
+                    value: question,
+                    searchText: "\(nextQuestionNumber) 验证样例"
+                ))
+                nextQuestionNumber += 1
+            }
+        }
+
+        let index = QuestionBankHomeIndex(records: records)
+        XCTAssertEqual(index.filteredQuestions(matching: QuestionBankHomeFilter()).count, 7)
+        for (module, title, expectedCount) in moduleSpecs {
+            XCTAssertEqual(QuestionBankCoarseModule.classify(explicitModuleTitle: title), module)
+            let filter = QuestionBankHomeFilter(module: module)
+            XCTAssertEqual(index.filteredQuestionCount(for: paper.id, matching: filter), expectedCount, title)
+            XCTAssertEqual(
+                index.visiblePapers(matching: filter).map(\.id),
+                expectedCount == 0 ? [] : [paper.id],
+                title
+            )
+        }
+    }
+
+    func testQuestionBankMetadataUpdatePreservesUnknownPayloadAndUpdatesIndexedFields() throws {
+        let paper = batchTestPaper(id: "metadata-paper", title: "原试卷")
+        let record = try batchTestRecord(
+            kind: QuestionBankRepository.paperKind, id: paper.id, paperID: paper.id, value: paper
+        )
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: record.payload) as? [String: Any])
+        payload["futureMetadata"] = ["source": "preserve-me"]
+        record.payload = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        let container = try makeBatchMemoryContainer()
+        let context = container.mainContext
+        context.insert(record)
+        try context.save()
+
+        try QuestionBankRepository.updatePaperMetadata(
+            record: record,
+            title: "调整后试卷",
+            year: 2024,
+            examType: "联考",
+            volume: "甲卷",
+            provinceCode: "AA",
+            provinceName: "甲省",
+            records: [record],
+            context: context
+        )
+
+        let updated = try XCTUnwrap(record.decoded(QuestionBankPaper.self))
+        let updatedPayload = try XCTUnwrap(JSONSerialization.jsonObject(with: record.payload) as? [String: Any])
+        XCTAssertEqual(updated.title, "调整后试卷")
+        XCTAssertEqual(updated.year, 2024)
+        XCTAssertEqual(updated.examType, "联考")
+        XCTAssertEqual(updated.volume, "甲卷")
+        XCTAssertEqual(record.title, updated.title)
+        XCTAssertEqual(record.year, updated.year)
+        XCTAssertEqual(record.examType, updated.examType)
+        XCTAssertEqual(record.normalizedPaperKey, updated.duplicateKey)
+        XCTAssertTrue(record.searchText.contains("调整后试卷"))
+        XCTAssertEqual((updatedPayload["futureMetadata"] as? [String: String])?["source"], "preserve-me")
+    }
+
+    func testQuestionBankMissingAnswerUpdatePreservesQuestionAndRejectsOverwrite() throws {
+        let question = batchTestQuestion(
+            id: "answer-edit-question", paperID: "answer-edit-paper", materialID: "",
+            stem: "待补答案题", answer: "", reordered: false
+        )
+        let record = try batchTestRecord(
+            kind: QuestionBankRepository.questionKind,
+            id: question.id,
+            paperID: question.paperID,
+            value: question,
+            searchText: "1 待补答案题"
+        )
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: record.payload) as? [String: Any])
+        payload["futureQuestionMetadata"] = "preserve-me"
+        record.payload = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        let container = try makeBatchMemoryContainer()
+        let context = container.mainContext
+        context.insert(record)
+        try context.save()
+        let originalCompoundID = record.compoundID
+        let originalQuestionNumber = record.questionNumber
+        let originalOptions = question.options
+        let originalModuleID = record.moduleID
+
+        XCTAssertThrowsError(try QuestionBankRepository.setMissingAnswer(
+            paperID: question.paperID, questionID: question.id, answer: "Z",
+            records: [record], context: context
+        ))
+        XCTAssertEqual(record.decoded(QuestionBankQuestion.self)?.answer, "")
+
+        try QuestionBankRepository.setMissingAnswer(
+            paperID: question.paperID, questionID: question.id, answer: "B",
+            records: [record], context: context
+        )
+        let updated = try XCTUnwrap(record.decoded(QuestionBankQuestion.self))
+        let updatedPayload = try XCTUnwrap(JSONSerialization.jsonObject(with: record.payload) as? [String: Any])
+        XCTAssertEqual(updated.answer, "B")
+        XCTAssertEqual(updated.options, originalOptions)
+        XCTAssertEqual(updated.paperID, question.paperID)
+        XCTAssertEqual(updated.moduleID, question.moduleID)
+        XCTAssertEqual(updated.number, question.number)
+        XCTAssertEqual(updated.stem, question.stem)
+        XCTAssertEqual(record.compoundID, originalCompoundID)
+        XCTAssertEqual(record.questionNumber, originalQuestionNumber)
+        XCTAssertEqual(record.moduleID, originalModuleID)
+        XCTAssertEqual(updatedPayload["futureQuestionMetadata"] as? String, "preserve-me")
+
+        let savedPayload = record.payload
+        XCTAssertThrowsError(try QuestionBankRepository.setMissingAnswer(
+            paperID: question.paperID, questionID: question.id, answer: "C",
+            records: [record], context: context
+        ))
+        XCTAssertEqual(record.payload, savedPayload, "An existing answer must never be overwritten through the missing-answer path")
+    }
+
     func testCanonicalJSONV1ProvenanceImportsAndPersistsWithoutChangingQuestions() throws {
         let temporaryRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("QuestionBankProvenanceTest-\(UUID().uuidString)", isDirectory: true)
@@ -473,6 +627,18 @@ final class QuestionBankImportTests: XCTestCase {
             QuestionBankQuestionHeading.displayLabel(type: "", subject: "阅读理解"),
             "阅读理解"
         )
+        XCTAssertNil(QuestionBankQuestionHeading.displayLabel(
+            type: "纯文字", subject: "五、资料分析", moduleTitle: "五、资料分析"
+        ))
+        XCTAssertNil(QuestionBankQuestionHeading.displayLabel(
+            type: "纯文字", subject: "资料分析", moduleTitle: "五、资料分析"
+        ))
+        XCTAssertNil(QuestionBankQuestionHeading.displayLabel(
+            type: "五、资料分析", subject: "行测", moduleTitle: "五、资料分析"
+        ))
+        XCTAssertNil(QuestionBankQuestionHeading.displayLabel(
+            type: "纯文字", subject: "行测", moduleTitle: "五、资料分析"
+        ))
     }
 
     func testQuestionBankPresentationSwitchPreservesCurrentQuestionAndReadingMode() {

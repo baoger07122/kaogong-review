@@ -55,13 +55,14 @@ struct QuestionBankView: View {
     @StateObject private var importProgress = QuestionBankImportProgressModel()
     @StateObject private var importSelection = QuestionBankImportSelectionCoordinator()
     @State private var searchText = ""
-    @State private var isSearchPresented = false
+    @State private var isSearchExpanded = false
+    @FocusState private var isSearchFocused: Bool
+    @State private var isFiltersExpanded = false
     @State private var selectedYear = ""
     @State private var selectedExamType = ""
     @State private var selectedProvince = ""
     @State private var selectedCoarseModule: QuestionBankCoarseModule?
     @State private var selectedQuestionType = ""
-    @State private var questionNumber = ""
     @State private var paperPendingDeletion: QuestionBankRecord?
     @State private var showsPaperDeletionConfirmation = false
     @State private var activeImportSheet: QuestionBankImportSheet?
@@ -90,9 +91,51 @@ struct QuestionBankView: View {
             year: selectedYear,
             examType: selectedExamType,
             province: selectedProvince,
-            search: searchText,
-            questionNumber: questionNumber
+            search: searchIndexQuery,
+            questionNumber: searchedQuestionNumber.map { String($0) } ?? ""
         )
+    }
+
+    private var searchedQuestionNumber: Int? {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let value = Int(query), value > 0 {
+            let isKnownPaperYear = records.contains {
+                $0.kind == QuestionBankRepository.paperKind && $0.year == value
+            }
+            return isKnownPaperYear ? nil : value
+        }
+        guard query.hasPrefix("第"), query.hasSuffix("题"), query.count > 2 else { return nil }
+        let digits = query.dropFirst().dropLast()
+        guard let value = Int(digits), value > 0 else { return nil }
+        return value
+    }
+
+    private var searchIndexQuery: String {
+        searchedQuestionNumber.map { String($0) } ?? searchText
+    }
+
+    private var hasActiveFilters: Bool {
+        selectedYear.isEmpty == false || selectedExamType.isEmpty == false
+            || selectedProvince.isEmpty == false || selectedCoarseModule != nil
+            || selectedQuestionType.isEmpty == false
+    }
+
+    private var activeFilterSummary: String {
+        var values: [String] = []
+        if !selectedYear.isEmpty { values.append(selectedYear) }
+        if !selectedExamType.isEmpty { values.append(selectedExamType) }
+        if !selectedProvince.isEmpty { values.append(selectedProvince) }
+        if let selectedCoarseModule { values.append(selectedCoarseModule.rawValue) }
+        if !selectedQuestionType.isEmpty { values.append(selectedQuestionType) }
+        return values.joined(separator: " · ")
+    }
+
+    private func clearFilters() {
+        selectedYear = ""
+        selectedExamType = ""
+        selectedProvince = ""
+        selectedCoarseModule = nil
+        selectedQuestionType = ""
     }
 
     var body: some View {
@@ -147,7 +190,17 @@ struct QuestionBankView: View {
                             }
                         }
                     }
-                    filterControls(index: index)
+                    if isSearchExpanded {
+                        searchField
+                    } else if !searchText.isEmpty {
+                        activeSearchSummary
+                    }
+
+                    if isFiltersExpanded {
+                        filterControls(index: index)
+                    } else if hasActiveFilters {
+                        activeFilterSummaryRow
+                    }
 
                     if selectedCoarseModule != nil {
                         NavigationLink {
@@ -201,24 +254,34 @@ struct QuestionBankView: View {
                     }
                 }
                 .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .background(Color.white)
             importButton
         }
-        .background(AppTheme.groupedBackground)
+        .background(Color.white)
         .navigationTitle("真题库")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, isPresented: $isSearchPresented,
-                    placement: .navigationBarDrawer(displayMode: .always),
-                    prompt: "试卷、题干、选项或题号")
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
-                    isSearchPresented = true
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        isSearchExpanded.toggle()
+                    }
+                    isSearchFocused = isSearchExpanded
                 } label: {
-                    Image(systemName: "magnifyingglass")
+                    Image(systemName: isSearchExpanded ? "magnifyingglass.circle.fill" : "magnifyingglass")
                 }
-                .accessibilityLabel("搜索真题")
+                .accessibilityLabel(isSearchExpanded ? "收起搜索" : "搜索真题")
                 .accessibilityIdentifier("question-bank-search")
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) { isFiltersExpanded.toggle() }
+                } label: {
+                    Image(systemName: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
+                }
+                .accessibilityLabel(isFiltersExpanded ? "收起筛选" : "筛选真题")
+                .accessibilityIdentifier("question-bank-filter-toggle")
 
                 Menu {
                     Button {
@@ -227,12 +290,7 @@ struct QuestionBankView: View {
                         Label("导入真题包", systemImage: "square.and.arrow.down")
                     }
                     Button {
-                        selectedYear = ""
-                        selectedExamType = ""
-                        selectedProvince = ""
-                        selectedCoarseModule = nil
-                        selectedQuestionType = ""
-                        questionNumber = ""
+                        clearFilters()
                         searchText = ""
                     } label: {
                         Label("清除筛选", systemImage: "line.3.horizontal.decrease.circle")
@@ -345,10 +403,101 @@ struct QuestionBankView: View {
         .padding(.bottom, 72)
     }
 
+    private var searchField: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("试卷、题干、选项或题号", text: $searchText)
+                .focused($isSearchFocused)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("question-bank-search-field")
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                    isSearchFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("清除搜索")
+                .accessibilityIdentifier("question-bank-search-clear")
+            }
+            Button {
+                isSearchExpanded = false
+                isSearchFocused = false
+            } label: {
+                Image(systemName: "xmark").foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("收起搜索")
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 42)
+        .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
+    }
+
+    private var activeSearchSummary: some View {
+        HStack(spacing: 8) {
+            Text("搜索：\(searchText)")
+                .font(AppTheme.auxiliaryFont)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Button("修改") {
+                isSearchExpanded = true
+                isSearchFocused = true
+            }
+            .font(AppTheme.auxiliaryFont.weight(.semibold))
+            Button {
+                searchText = ""
+            } label: {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("清除搜索")
+        }
+        .frame(minHeight: 28)
+    }
+
+    private var activeFilterSummaryRow: some View {
+        HStack(spacing: 8) {
+            Text("筛选：\(activeFilterSummary)")
+                .font(AppTheme.auxiliaryFont)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Button("修改") { isFiltersExpanded = true }
+                .font(AppTheme.auxiliaryFont.weight(.semibold))
+            Button {
+                clearFilters()
+            } label: {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("清除筛选")
+        }
+        .frame(minHeight: 28)
+    }
+
     private func filterControls(index: QuestionBankHomeIndex) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 7) {
+                    Button {
+                        selectedCoarseModule = nil
+                        selectedQuestionType = ""
+                    } label: {
+                        Text("全部")
+                            .font(AppTheme.auxiliaryFont.weight(.medium))
+                            .foregroundStyle(selectedCoarseModule == nil ? .white : Color.primary)
+                            .padding(.horizontal, 13)
+                            .frame(height: 34)
+                            .background(selectedCoarseModule == nil ? AppTheme.accent : AppTheme.secondaryBackground,
+                                        in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("question-bank-module-filter-all")
                     ForEach(QuestionBankCoarseModule.homeOrder) { module in
                         Button {
                             selectedCoarseModule = selectedCoarseModule == module ? nil : module
@@ -381,24 +530,10 @@ struct QuestionBankView: View {
             }
             HStack(spacing: 8) {
                 filterMenu(title: "年份", selection: $selectedYear, options: index.years)
-                filterMenu(title: "考试类型", selection: $selectedExamType, options: index.examTypes)
+                filterMenu(title: "考试类别", selection: $selectedExamType, options: index.examTypes)
                 filterMenu(title: "省份", selection: $selectedProvince, options: index.provinces)
                 Spacer(minLength: 0)
             }
-            HStack(spacing: 6) {
-                TextField("题号", text: $questionNumber)
-                    .keyboardType(.numberPad)
-                    .frame(width: 58)
-                if !questionNumber.isEmpty {
-                    Button { questionNumber = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 40)
-            .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
         }
     }
 
@@ -465,14 +600,14 @@ struct QuestionBankView: View {
             QuestionBankPaperView(
                 paperID: record.paperID,
                 initialModuleTitle: "",
-                initialQuestionNumber: questionNumber
+                initialQuestionNumber: searchedQuestionNumber.map { String($0) } ?? ""
             )
         }
     }
 
     private func questionTarget(for paperID: String) -> QuestionBankQuestionRouteTarget? {
         QuestionBankQuestionRoute.target(
-            questionNumber: Int(questionNumber),
+            questionNumber: searchedQuestionNumber,
             paperID: paperID,
             selectedModuleTitle: "",
             records: records
@@ -751,6 +886,7 @@ private struct QuestionBankPaperSwipeRow<Content: View>: View {
     let content: Content
     let onDelete: () -> Void
     @State private var revealOffset: CGFloat = 0
+    @State private var dragStartOffset: CGFloat?
 
     init(onDelete: @escaping () -> Void, @ViewBuilder content: () -> Content) {
         self.onDelete = onDelete
@@ -780,18 +916,28 @@ private struct QuestionBankPaperSwipeRow<Content: View>: View {
                 .contentShape(Rectangle())
                 .simultaneousGesture(
                     DragGesture(minimumDistance: 18, coordinateSpace: .local)
-                        .onEnded { value in
+                        .onChanged { value in
                             guard abs(value.translation.width) > abs(value.translation.height) * 1.25 else { return }
-                            withAnimation(.easeOut(duration: 0.18)) {
-                                if value.translation.width > 48 {
+                            if dragStartOffset == nil { dragStartOffset = revealOffset }
+                            let proposed = (dragStartOffset ?? revealOffset) + value.translation.width
+                            withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.88)) {
+                                revealOffset = min(82, max(0, proposed))
+                            }
+                        }
+                        .onEnded { value in
+                            defer { dragStartOffset = nil }
+                            guard abs(value.translation.width) > abs(value.translation.height) * 1.25 else { return }
+                            let finalOffset = (dragStartOffset ?? revealOffset) + value.translation.width
+                            withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.88)) {
+                                if finalOffset > 41 {
                                     revealOffset = 82
-                                } else if value.translation.width < -28 {
+                                } else {
                                     revealOffset = 0
                                 }
                             }
                         }
                 )
-                .accessibilityHint("向右滑动可删除")
+                .accessibilityHint("向右滑动以显示删除按钮")
         }
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardRadius))
     }
@@ -1167,10 +1313,20 @@ private struct QuestionBankImportPreview: View {
 }
 
 private struct QuestionBankPaperView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     @Query private var records: [QuestionBankRecord]
+    @Query private var batchSources: [QuestionBankBatchSourceRecord]
+    @Query private var batchMaterialLinks: [QuestionBankBatchMaterialLinkRecord]
+    @Query private var batchQuestionLinks: [QuestionBankBatchQuestionLinkRecord]
     let paperID: String
     @State private var selectedModuleTitle: String
     @State private var questionNumber: String
+    @State private var isPaperEditorPresented = false
+    @State private var showsPaperDeletionConfirmation = false
+    @State private var showsPaperActionAlert = false
+    @State private var paperActionAlertTitle = "操作未完成"
+    @State private var paperActionAlertMessage = ""
 
     init(paperID: String, initialModuleTitle: String, initialQuestionNumber: String) {
         self.paperID = paperID
@@ -1267,14 +1423,180 @@ private struct QuestionBankPaperView: View {
             }.padding(20)
         }
         .background(AppTheme.groupedBackground)
-        .navigationTitle("模块目录")
+        .navigationTitle(paper?.title ?? "模块目录")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        isPaperEditorPresented = true
+                    } label: {
+                        Label("重命名或编辑属性", systemImage: "pencil")
+                    }
+                    Button(role: .destructive) {
+                        showsPaperDeletionConfirmation = true
+                    } label: {
+                        Label("删除试卷", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .accessibilityLabel("试卷管理")
+                .accessibilityIdentifier("question-bank-paper-management-menu")
+            }
+        }
+        .sheet(isPresented: $isPaperEditorPresented) {
+            if let paper {
+                QuestionBankPaperMetadataEditor(paper: paper) { title, year, examType, volume, provinceCode, provinceName in
+                    guard let paperRecord else { throw QuestionBankPaperMetadataEditFailure.missingPaper }
+                    try QuestionBankRepository.updatePaperMetadata(
+                        record: paperRecord,
+                        title: title,
+                        year: year,
+                        examType: examType,
+                        volume: volume,
+                        provinceCode: provinceCode,
+                        provinceName: provinceName,
+                        records: records,
+                        context: modelContext
+                    )
+                }
+            }
+        }
+        .confirmationDialog("删除试卷？", isPresented: $showsPaperDeletionConfirmation, titleVisibility: .visible) {
+            Button("删除试卷及关联题目与图片", role: .destructive, action: deletePaperFromMenu)
+            Button("取消", role: .cancel) { }
+        } message: {
+            Text("将删除《\(paper?.title ?? "未命名试卷")》及其题目和纸卷图片。学习库笔记与涂鸦会保留；仍被批次来源索引引用的试卷不能删除。")
+        }
+        .alert(paperActionAlertTitle, isPresented: $showsPaperActionAlert) {
+            Button("好", role: .cancel) { }
+        } message: {
+            Text(paperActionAlertMessage)
+        }
         .secondaryPageTabBarHidden()
+    }
+
+    private func deletePaperFromMenu() {
+        do {
+            try QuestionBankRepository.deletePaper(
+                paperID: paperID,
+                records: records,
+                context: modelContext,
+                batchSources: batchSources,
+                batchMaterialLinks: batchMaterialLinks,
+                batchQuestionLinks: batchQuestionLinks
+            )
+            dismiss()
+        } catch {
+            paperActionAlertTitle = "删除未完成"
+            paperActionAlertMessage = error.localizedDescription
+            showsPaperActionAlert = true
+        }
     }
 
     private func filterLabel(_ value: String) -> some View {
         HStack(spacing: 5) { Text(value).lineLimit(1); Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)) }
             .font(AppTheme.auxiliaryFont.weight(.medium)).foregroundStyle(AppTheme.accent)
             .padding(.horizontal, 11).frame(height: 34).background(AppTheme.secondaryBackground, in: Capsule())
+    }
+}
+
+private struct QuestionBankPaperMetadataEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let onSave: (String, Int, String, String, String, String) throws -> Void
+    @State private var title: String
+    @State private var year: String
+    @State private var examType: String
+    @State private var volume: String
+    @State private var provinceCode: String
+    @State private var provinceName: String
+    @State private var errorMessage: String?
+
+    init(
+        paper: QuestionBankPaper,
+        onSave: @escaping (String, Int, String, String, String, String) throws -> Void
+    ) {
+        self.onSave = onSave
+        _title = State(initialValue: paper.title)
+        _year = State(initialValue: String(paper.year))
+        _examType = State(initialValue: paper.examType)
+        _volume = State(initialValue: paper.volume)
+        _provinceCode = State(initialValue: paper.provinceCode ?? "")
+        _provinceName = State(initialValue: paper.provinceName ?? "")
+    }
+
+    private var parsedYear: Int? {
+        guard let value = Int(year), (1900...2200).contains(value) else { return nil }
+        return value
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("试卷") {
+                    TextField("试卷名称", text: $title)
+                        .accessibilityIdentifier("question-bank-paper-title-field")
+                    TextField("年份", text: $year)
+                        .keyboardType(.numberPad)
+                        .accessibilityIdentifier("question-bank-paper-year-field")
+                    TextField("卷别", text: $volume)
+                        .accessibilityIdentifier("question-bank-paper-volume-field")
+                }
+                Section {
+                    TextField("考试类别（可自定义）", text: $examType)
+                        .accessibilityIdentifier("question-bank-paper-category-field")
+                    HStack(spacing: 8) {
+                        ForEach(["国考", "联考", "省考"], id: \.self) { value in
+                            Button(value) { examType = value }
+                                .buttonStyle(.bordered)
+                                .tint(examType == value ? AppTheme.accent : .secondary)
+                        }
+                    }
+                } header: {
+                    Text("考试类别")
+                } footer: {
+                    Text("这是试卷分类，和题目科目“行测”分开保存；首页筛选会使用这里的类别。")
+                }
+                Section("省份（可选）") {
+                    TextField("省份名称", text: $provinceName)
+                    TextField("省份代码", text: $provinceCode)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                }
+            }
+            .navigationTitle("编辑试卷")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存", action: save)
+                        .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || examType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || parsedYear == nil)
+                        .accessibilityIdentifier("question-bank-paper-save")
+                }
+            }
+            .alert("保存未完成", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("好", role: .cancel) { errorMessage = nil }
+            } message: {
+                Text(errorMessage ?? "")
+            }
+        }
+    }
+
+    private func save() {
+        guard let parsedYear else { return }
+        do {
+            try onSave(title, parsedYear, examType, volume, provinceCode, provinceName)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }

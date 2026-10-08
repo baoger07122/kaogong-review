@@ -250,6 +250,9 @@ jobs:
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testReadingSequenceGroupsSharedMaterialsOnceAndKeepsQuestionOrder
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankReaderLayoutModesAndOptionDisplay
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankHomeIndexUsesExplicitLabelsAndKeepsUnknownsVisible
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankHomeIndexMatchesNumberedValidationSampleModuleCounts
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankMetadataUpdatePreservesUnknownPayloadAndUpdatesIndexedFields
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankMissingAnswerUpdatePreservesQuestionAndRejectsOverwrite
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testCanonicalJSONV1ProvenanceImportsAndPersistsWithoutChangingQuestions
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testCanonicalJSONV1RejectsIncompleteSourceAndPageMappings
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testPaperDeletionLeavesOtherPaperAssetsAndReviewNotesUntouched
@@ -315,6 +318,9 @@ jobs:
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testDoodleBlocksOptionSelectionAndQuestionNavigationInMaterialSplit \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testSingleQuestionHorizontalSwipesRetainSelectionAndReturnToTop \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testQuestionDetailOpensFromContinuousCardAndOverviewCard \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testMissingAnswerCanBeAddedOnlyFromItsQuestionOptions \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testHomeSearchAndModuleFiltersStartCollapsedAndMatchNumberedModules \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testHomePaperRowSwipeRevealsDeleteActionWithoutOpeningPaper \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
             xcrun xcresulttool get test-results summary --path "$RESULT_PATH" || true
             exit 1

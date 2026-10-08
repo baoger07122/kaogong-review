@@ -604,6 +604,38 @@ enum QuestionBankAssetStore {
     }
 }
 
+enum QuestionBankPaperMetadataEditFailure: LocalizedError {
+    case missingPaper
+    case invalidMetadata
+    case duplicatePaper(String)
+    case invalidPayload
+
+    var errorDescription: String? {
+        switch self {
+        case .missingPaper: "找不到要编辑的试卷。"
+        case .invalidMetadata: "试卷名称、年份和考试类别不能为空或无效。"
+        case .duplicatePaper(let title): "编辑后的试卷属性与《\(title)》重复。"
+        case .invalidPayload: "试卷数据无法安全更新，原记录未更改。"
+        }
+    }
+}
+
+enum QuestionBankMissingAnswerEditFailure: LocalizedError {
+    case missingQuestion
+    case answerAlreadyExists
+    case invalidOption
+    case invalidPayload
+
+    var errorDescription: String? {
+        switch self {
+        case .missingQuestion: "找不到要补充答案的题目。"
+        case .answerAlreadyExists: "这道题已有答案，不能通过缺失答案入口覆盖。"
+        case .invalidOption: "请选择这道题实际存在的选项。"
+        case .invalidPayload: "题目数据无法安全更新，原记录未更改。"
+        }
+    }
+}
+
 enum QuestionBankRepository {
     static let paperKind = "paper"
     static let moduleKind = "module"
@@ -615,6 +647,101 @@ enum QuestionBankRepository {
         records.first {
             $0.kind == paperKind && ($0.stableID == paper.id || $0.normalizedPaperKey == paper.duplicateKey)
         }
+    }
+
+    @MainActor
+    static func updatePaperMetadata(
+        record: QuestionBankRecord,
+        title: String,
+        year: Int,
+        examType: String,
+        volume: String,
+        provinceCode: String,
+        provinceName: String,
+        records: [QuestionBankRecord],
+        context: ModelContext
+    ) throws {
+        guard record.kind == paperKind, var paper = record.decoded(QuestionBankPaper.self) else {
+            throw QuestionBankPaperMetadataEditFailure.missingPaper
+        }
+        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedType = examType.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTitle.isEmpty, year >= 1900, year <= 2200, !normalizedType.isEmpty else {
+            throw QuestionBankPaperMetadataEditFailure.invalidMetadata
+        }
+
+        paper.title = normalizedTitle
+        paper.year = year
+        paper.examType = normalizedType
+        paper.volume = volume.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedProvinceCode = provinceCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedProvinceName = provinceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        paper.provinceCode = normalizedProvinceCode.isEmpty ? nil : normalizedProvinceCode
+        paper.provinceName = normalizedProvinceName.isEmpty ? nil : normalizedProvinceName
+
+        if let duplicate = records.first(where: {
+            $0.compoundID != record.compoundID && $0.kind == paperKind
+                && ($0.stableID == paper.id || $0.normalizedPaperKey == paper.duplicateKey)
+        }) {
+            throw QuestionBankPaperMetadataEditFailure.duplicatePaper(duplicate.title ?? "未命名试卷")
+        }
+
+        guard let decodedObject = try? JSONSerialization.jsonObject(with: record.payload),
+              var object = decodedObject as? [String: Any] else {
+            throw QuestionBankPaperMetadataEditFailure.invalidPayload
+        }
+        object["title"] = paper.title
+        object["year"] = paper.year
+        object["examType"] = paper.examType
+        object["volume"] = paper.volume
+        if let provinceCode = paper.provinceCode { object["provinceCode"] = provinceCode }
+        else { object.removeValue(forKey: "provinceCode") }
+        if let provinceName = paper.provinceName { object["provinceName"] = provinceName }
+        else { object.removeValue(forKey: "provinceName") }
+        guard let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
+            throw QuestionBankPaperMetadataEditFailure.invalidPayload
+        }
+
+        try context.transaction {
+            record.title = paper.title
+            record.year = paper.year
+            record.examType = paper.examType
+            record.normalizedPaperKey = paper.duplicateKey
+            record.searchText = "\(paper.title) \(paper.year) \(paper.examType) \(paper.volume) \(paper.provinceName ?? "") \(paper.provinceCode ?? "")"
+            record.payload = payload
+        }
+    }
+
+    @MainActor
+    static func setMissingAnswer(
+        paperID: String,
+        questionID: String,
+        answer: String,
+        records: [QuestionBankRecord],
+        context: ModelContext
+    ) throws {
+        guard let record = records.first(where: {
+            $0.paperID == paperID && $0.kind == questionKind && $0.stableID == questionID
+        }), let question = record.decoded(QuestionBankQuestion.self) else {
+            throw QuestionBankMissingAnswerEditFailure.missingQuestion
+        }
+        guard question.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw QuestionBankMissingAnswerEditFailure.answerAlreadyExists
+        }
+        let normalizedAnswer = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedAnswer.isEmpty,
+              question.options.contains(where: { $0.id == normalizedAnswer }) else {
+            throw QuestionBankMissingAnswerEditFailure.invalidOption
+        }
+        guard let decodedObject = try? JSONSerialization.jsonObject(with: record.payload),
+              var object = decodedObject as? [String: Any] else {
+            throw QuestionBankMissingAnswerEditFailure.invalidPayload
+        }
+        object["answer"] = normalizedAnswer
+        guard let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
+            throw QuestionBankMissingAnswerEditFailure.invalidPayload
+        }
+        try context.transaction { record.payload = payload }
     }
 
     /// Copies all image resources to an unreferenced generation directory first, then

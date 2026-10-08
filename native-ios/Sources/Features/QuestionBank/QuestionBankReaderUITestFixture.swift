@@ -33,7 +33,7 @@ enum QuestionBankReaderUITestFixture {
             id: moduleID,
             paperID: paperID,
             sequence: 1,
-            title: "阅读理解",
+            title: "五、资料分析",
             instruction: "请选择正确选项。",
             originalPage: "1"
         )
@@ -44,7 +44,7 @@ enum QuestionBankReaderUITestFixture {
             type: "文字材料",
             text: "用于检验共享材料分屏下的涂鸦命中区域。",
             imageAssetID: "",
-            applicableQuestions: "1",
+            applicableQuestions: "1-2",
             originalPage: "1"
         )
         let question = QuestionBankQuestion(
@@ -52,7 +52,7 @@ enum QuestionBankReaderUITestFixture {
             paperID: paperID,
             moduleID: moduleID,
             number: 1,
-            subject: "阅读理解",
+            subject: "行测",
             type: "纯文字",
             materialID: materialID,
             stem: "下列哪项是本题正确答案？____并保留连续空位__。",
@@ -72,9 +72,9 @@ enum QuestionBankReaderUITestFixture {
             paperID: paperID,
             moduleID: moduleID,
             number: 2,
-            subject: "阅读理解",
+            subject: "行测",
             type: "单项选择题",
-            materialID: "",
+            materialID: materialID,
             stem: "用于检查涂鸦状态下不能跳到下一题。",
             stemImageAssetID: "",
             options: [
@@ -83,7 +83,7 @@ enum QuestionBankReaderUITestFixture {
                 QuestionBankOption(id: "C", text: "选项C", imageAssetID: ""),
                 QuestionBankOption(id: "D", text: "选项D", imageAssetID: "")
             ],
-            answer: "C",
+            answer: "",
             explanation: "交互测试夹具解析。",
             originalPage: "1"
         )
