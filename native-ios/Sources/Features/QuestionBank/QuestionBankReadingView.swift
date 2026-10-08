@@ -2466,7 +2466,11 @@ private struct QuestionBankOptionRow: View {
                 row
             }
             .buttonStyle(.plain)
-            .disabled(isInteractionBlocked || isSelectionLocked)
+            // Keep the underlying option enabled while a doodle canvas is open.
+            // The canvas interaction shield blocks the tap; leaving this button
+            // enabled keeps its accessibility state truthful and lets the
+            // shield own the interaction boundary.
+            .disabled(isSelectionLocked)
             .accessibilityHint(isSelectionLocked ? "答案已提交，不能更改选择" : "选择此选项")
             .accessibilityIdentifier("question-bank-option-\(questionID)-\(option.id)")
         } else {

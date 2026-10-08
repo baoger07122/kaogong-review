@@ -16,7 +16,9 @@ struct KaogongReviewNativeApp: App {
 
         #if DEBUG
         if usesQuestionBankUITestFixture {
-            UserDefaults.standard.removeObject(
+            // Reset explicitly because CI can reuse a simulator between UI tests.
+            UserDefaults.standard.set(
+                false,
                 forKey: QuestionBankReaderPreferences.confirmAnswerAfterSelectionKey
             )
         }
