@@ -209,7 +209,10 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertTrue(setAnswer.waitForExistence(timeout: 5))
         setAnswer.tap()
         XCTAssertTrue(app.alerts["答案更新"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.alerts["答案更新"].label.contains("答案已补录为 C"))
+        let confirmationMessage = app.alerts["答案更新"].staticTexts
+            .matching(NSPredicate(format: "label CONTAINS %@", "答案已补录为 C"))
+            .firstMatch
+        XCTAssertTrue(confirmationMessage.waitForExistence(timeout: 5))
         app.alerts.buttons["好"].tap()
         let missingAnswerActionDismissed = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == false"), object: missingAnswerMenu
@@ -240,7 +243,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         app.buttons["question-bank-search"].tap()
         app.buttons["question-bank-filter-toggle"].tap()
 
-        let dataAnalysisFilter = app.buttons["question-bank-module-filter-資料分析"].firstMatch
+        let dataAnalysisFilter = app.buttons["question-bank-module-filter-资料分析"].firstMatch
         XCTAssertTrue(dataAnalysisFilter.waitForExistence(timeout: 5))
         dataAnalysisFilter.tap()
         XCTAssertTrue(app.buttons["question-bank-paper-\(paperID)"].waitForExistence(timeout: 5))
