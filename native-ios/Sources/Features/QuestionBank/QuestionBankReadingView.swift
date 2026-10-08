@@ -221,8 +221,7 @@ struct QuestionBankModuleView: View {
     }
 
     private var paperData: QuestionBankPaper? {
-        records.first { $0.paperID == paperID && $0.kind == QuestionBankRepository.paperKind }
-            ?.decoded(QuestionBankPaper.self)
+        records.first { $0.paperID == paperID && $0.kind == QuestionBankRepository.paperKind }?.decoded(QuestionBankPaper.self)
     }
 
     private var splitMaterialID: String? {
