@@ -189,20 +189,30 @@ jobs:
           if [ "$RUN_QUESTION_BANK" = "true" ]; then
             # Hosted test schemes stage their bundles under the app PlugIns directory;
             # isolate DerivedData so a later scheme build cannot remove an earlier bundle.
-            xcodebuild build-for-testing \
+            if ! xcodebuild build-for-testing \
               -project native-ios/KaogongReviewNative.xcodeproj \
               -scheme QuestionBankImport \
               -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
               -derivedDataPath build/QuestionBankImportDerivedData \
               -parallel-testing-enabled NO \
-              CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
-            xcodebuild build-for-testing \
+              CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic \
+              2>&1 | tee build/QuestionBankImportBuild.log; then
+              (grep -E 'error:|fatal error:|BUILD FAILED|Command .* failed' build/QuestionBankImportBuild.log | tail -n 40 || true) \
+                | while IFS= read -r diagnostic; do printf '::error title=QuestionBankImport build diagnostic::%s\n' "$diagnostic"; done
+              exit 1
+            fi
+            if ! xcodebuild build-for-testing \
               -project native-ios/KaogongReviewNative.xcodeproj \
               -scheme QuestionBankReaderInteraction \
               -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
               -derivedDataPath build/QuestionBankReaderInteractionDerivedData \
               -parallel-testing-enabled NO \
-              CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
+              CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic \
+              2>&1 | tee build/QuestionBankReaderInteractionBuild.log; then
+              (grep -E 'error:|fatal error:|BUILD FAILED|Command .* failed' build/QuestionBankReaderInteractionBuild.log | tail -n 40 || true) \
+                | while IFS= read -r diagnostic; do printf '::error title=QuestionBankReaderInteraction build diagnostic::%s\n' "$diagnostic"; done
+              exit 1
+            fi
           else
             xcodebuild build-for-testing \
               -project native-ios/KaogongReviewNative.xcodeproj \
@@ -358,7 +368,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-focused-test-diagnostics
-          path: build/*.xcresult
+          path: |
+            build/*.xcresult
+            build/*Build.log
           if-no-files-found: ignore
           retention-days: 7
 
