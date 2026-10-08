@@ -239,6 +239,7 @@ struct QuestionBankView: View {
                                             paperCard(paper, questionCount: index.filteredQuestionCount(for: paper.id, matching: filter))
                                         }
                                         .buttonStyle(.plain)
+                                        .accessibilityIdentifier("question-bank-paper-\(paper.id)")
                                     } else {
                                         NavigationLink {
                                             paperDestination(for: paper.record)
@@ -246,9 +247,9 @@ struct QuestionBankView: View {
                                             paperCard(paper, questionCount: index.filteredQuestionCount(for: paper.id, matching: filter))
                                         }
                                         .buttonStyle(.plain)
+                                        .accessibilityIdentifier("question-bank-paper-\(paper.id)")
                                     }
                                 }
-                                .accessibilityIdentifier("question-bank-paper-\(paper.id)")
                             }
                         }
                     }
