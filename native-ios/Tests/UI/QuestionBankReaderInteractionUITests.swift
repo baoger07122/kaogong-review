@@ -40,7 +40,9 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         readerOptions.tap()
         let confirmationToggle = element(app, identifier: "question-bank-confirm-answer-toggle")
         XCTAssertTrue(confirmationToggle.waitForExistence(timeout: 5))
-        confirmationToggle.tap()
+        let confirmationOn = app.buttons["question-bank-confirm-answer-on"].firstMatch
+        XCTAssertTrue(confirmationOn.waitForExistence(timeout: 5))
+        confirmationOn.tap()
         let practiceChoice = app.buttons["question-bank-reading-mode-刷题"].firstMatch
         if practiceChoice.waitForExistence(timeout: 1) { practiceChoice.tap() }
 

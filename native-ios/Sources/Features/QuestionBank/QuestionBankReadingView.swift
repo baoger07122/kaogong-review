@@ -2421,8 +2421,14 @@ private struct QuestionBankConfirmationCapsuleToggleStyle: ToggleStyle {
         HStack(spacing: 8) {
             configuration.label
             HStack(spacing: 3) {
-                capsule("关闭", isSelected: !configuration.isOn) { configuration.isOn = false }
-                capsule("开启", isSelected: configuration.isOn) { configuration.isOn = true }
+                capsule("关闭", isSelected: !configuration.isOn,
+                        accessibilityIdentifier: "question-bank-confirm-answer-off") {
+                    configuration.isOn = false
+                }
+                capsule("开启", isSelected: configuration.isOn,
+                        accessibilityIdentifier: "question-bank-confirm-answer-on") {
+                    configuration.isOn = true
+                }
             }
             .padding(3)
             .background(Color(uiColor: .tertiarySystemGroupedBackground), in: Capsule())
@@ -2432,7 +2438,12 @@ private struct QuestionBankConfirmationCapsuleToggleStyle: ToggleStyle {
         .contentShape(Rectangle())
     }
 
-    private func capsule(_ title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private func capsule(
+        _ title: String,
+        isSelected: Bool,
+        accessibilityIdentifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Text(title)
                 .font(AppTheme.auxiliaryFont.weight(.medium))
@@ -2441,7 +2452,9 @@ private struct QuestionBankConfirmationCapsuleToggleStyle: ToggleStyle {
                 .background(isSelected ? AppTheme.accent : Color.clear, in: Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityHidden(true)
+        .accessibilityLabel(title)
+        .accessibilityValue(isSelected ? "已选" : "")
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 
