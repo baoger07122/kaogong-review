@@ -189,6 +189,7 @@ jobs:
           if [ "$RUN_QUESTION_BANK" = "true" ]; then
             # Hosted test schemes stage their bundles under the app PlugIns directory;
             # isolate DerivedData so a later scheme build cannot remove an earlier bundle.
+            mkdir -p build
             if ! xcodebuild build-for-testing \
               -project native-ios/KaogongReviewNative.xcodeproj \
               -scheme QuestionBankImport \
