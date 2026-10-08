@@ -9,7 +9,7 @@ private struct ReaderUITestContext {
 
 final class QuestionBankReaderInteractionUITests: XCTestCase {
     @MainActor
-    func testPracticeAnswerRevealsOnSelectionByDefaultAndFollowsSelection() throws {
+    func testPracticeAnswerRevealsOnSelectionByDefaultAndLocksSelection() throws {
         let reader = launchPracticeReader()
         let app = reader.app
         let answerFeedback = app.descendants(matching: .any)
@@ -24,9 +24,10 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertTrue(answerFeedback.label.contains("正确答案：B"))
         XCTAssertFalse(app.buttons["question-bank-confirm-answer-\(reader.questionID)"].exists)
 
-        app.buttons["question-bank-option-\(reader.questionID)-B"].tap()
+        let optionB = app.buttons["question-bank-option-\(reader.questionID)-B"].firstMatch
+        XCTAssertFalse(optionB.isEnabled, "A revealed answer must lock the submitted selection")
         XCTAssertTrue(answerFeedback.waitForExistence(timeout: 5))
-        XCTAssertTrue(answerFeedback.label.contains("你的选择：B"))
+        XCTAssertTrue(answerFeedback.label.contains("你的选择：A"))
     }
 
     @MainActor
@@ -54,6 +55,8 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         confirm.tap()
         XCTAssertTrue(answerFeedback.waitForExistence(timeout: 5))
         XCTAssertTrue(answerFeedback.label.contains("你的选择：B"))
+        XCTAssertFalse(optionA.isEnabled, "A confirmed answer must lock the submitted selection")
+        XCTAssertFalse(optionB.isEnabled, "A confirmed answer must lock the submitted selection")
 
         readerOptions.tap()
         app.buttons["单题模式"].firstMatch.tap()

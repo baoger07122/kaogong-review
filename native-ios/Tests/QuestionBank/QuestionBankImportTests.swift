@@ -202,6 +202,243 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertEqual(QuestionBankOptionDisplay.text(for: QuestionBankOption(id: "A", text: "选项内容", imageAssetID: "")), "选项内容")
     }
 
+    func testQuestionBankHomeIndexUsesExplicitLabelsAndKeepsUnknownsVisible() throws {
+        var paper = batchTestPaper(id: "home-paper", title: "2025年省考")
+        paper.provinceCode = "AA"
+        paper.provinceName = "甲省"
+        let language = QuestionBankModule(
+            id: "home-language", paperID: paper.id, sequence: 1,
+            title: "言语理解与表达", instruction: "", originalPage: "1"
+        )
+        let unknown = QuestionBankModule(
+            id: "home-unknown", paperID: paper.id, sequence: 2,
+            title: "未核对的模块名", instruction: "", originalPage: "2"
+        )
+        var languageQuestion = batchTestQuestion(
+            id: "home-q1", paperID: paper.id, materialID: "", stem: "语境题", answer: "A", reordered: false
+        )
+        languageQuestion.moduleID = language.id
+        languageQuestion.number = 12
+        languageQuestion.type = "逻辑填空"
+        var unknownQuestion = batchTestQuestion(
+            id: "home-q2", paperID: paper.id, materialID: "", stem: "旧题", answer: "B", reordered: false
+        )
+        unknownQuestion.moduleID = unknown.id
+        unknownQuestion.number = 13
+        unknownQuestion.type = "无法确认的类型"
+
+        let records = try [
+            batchTestRecord(kind: QuestionBankRepository.paperKind, id: paper.id, paperID: paper.id, value: paper),
+            batchTestRecord(kind: QuestionBankRepository.moduleKind, id: language.id, paperID: paper.id, value: language),
+            batchTestRecord(kind: QuestionBankRepository.moduleKind, id: unknown.id, paperID: paper.id, value: unknown),
+            batchTestRecord(kind: QuestionBankRepository.questionKind, id: languageQuestion.id, paperID: paper.id, value: languageQuestion),
+            batchTestRecord(kind: QuestionBankRepository.questionKind, id: unknownQuestion.id, paperID: paper.id, value: unknownQuestion)
+        ]
+        let index = QuestionBankHomeIndex(records: records)
+
+        XCTAssertEqual(QuestionBankCoarseModule.classify(explicitModuleTitle: "言语理解与表达"), .language)
+        XCTAssertEqual(QuestionBankCoarseModule.classify(explicitModuleTitle: "言语推理"), .uncategorized)
+        XCTAssertEqual(index.provinces, ["AA", "甲省"])
+        XCTAssertEqual(index.questionTypeOptions(for: .language), ["逻辑填空", "阅读与表达"])
+        XCTAssertEqual(index.questionTypeOptions(for: .uncategorized), [])
+
+        let languageFilter = QuestionBankHomeFilter(
+            module: .language, questionType: "逻辑填空", province: "甲省", search: "12"
+        )
+        XCTAssertEqual(index.filteredQuestions(matching: languageFilter).map(\.question.number), [12])
+        XCTAssertEqual(index.filteredQuestionCount(for: paper.id, matching: languageFilter), 1)
+        XCTAssertEqual(index.filteredQuestions(matching: QuestionBankHomeFilter(module: .uncategorized)).map(\.id), ["\(paper.id)::question::home-q2"])
+        XCTAssertTrue(index.visiblePapers(matching: QuestionBankHomeFilter(module: .quantity)).isEmpty)
+        XCTAssertTrue(index.visiblePapers(matching: QuestionBankHomeFilter(
+            module: .quantity, search: "2025年省考"
+        )).isEmpty, "A paper-title match must not bypass an active module filter.")
+    }
+
+    func testCanonicalJSONV1ProvenanceImportsAndPersistsWithoutChangingQuestions() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankProvenanceTest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let paper = batchTestPaper(id: "canonical-2025", title: "2025年甲省行测")
+        let module = QuestionBankModule(
+            id: "canonical-language", paperID: paper.id, sequence: 1,
+            title: "言语理解与表达", instruction: "", originalPage: "1"
+        )
+        var material = batchTestMaterial(id: "canonical-material", paperID: paper.id, text: "共同材料正文")
+        material.moduleID = module.id
+        material.provenance = [QuestionBankProvenance(
+            sourcePaperID: "source-a", provinceCode: "AA", provinceName: "甲省",
+            sourceQuestionNumbers: [18], originalPage: "4", evidence: "原卷第4页材料段"
+        )]
+        var question = batchTestQuestion(
+            id: "canonical-question", paperID: paper.id, materialID: material.id,
+            stem: "根据材料作答。", answer: "A", reordered: false
+        )
+        question.moduleID = module.id
+        question.number = 12
+        question.type = "逻辑填空"
+        question.provenance = [QuestionBankProvenance(
+            sourcePaperID: "source-a", provinceCode: "AA", provinceName: "甲省",
+            sourceQuestionNumber: 18, originalPage: "5", evidence: "题号与选项均可核"
+        )]
+        let source = QuestionBankSourcePaper(
+            id: "source-a", provinceCode: "AA", provinceName: "甲省",
+            batchID: "2025-joint", batchName: "2025联考", originalFileID: "file-a",
+            originalFileName: "2025-甲省.pdf", originalFileSHA256: String(repeating: "a", count: 64)
+        )
+        let document = QuestionBankImportJSONV1(
+            paper: paper, modules: [module], materials: [material], questions: [question],
+            assets: [], sourcePapers: [source]
+        )
+        let inputURL = temporaryRoot.appendingPathComponent("canonical.json")
+        try JSONEncoder().encode(document).write(to: inputURL, options: .atomic)
+
+        let plan = try QuestionBankPackageImporter.prepare(from: inputURL)
+        defer { QuestionBankPackageImporter.cleanup(plan) }
+        XCTAssertTrue(plan.canImport, plan.errors.joined(separator: "\n"))
+        XCTAssertEqual(plan.sourcePapers, [source])
+        XCTAssertEqual(plan.questions.count, 1, "The app stores the canonical question once and does not merge source papers.")
+
+        let container = try makeBatchMemoryContainer()
+        let context = container.mainContext
+        let assetRoot = temporaryRoot.appendingPathComponent("assets", isDirectory: true)
+        try QuestionBankRepository.commit(
+            plan, decision: .add, records: [], context: context, assetRoot: assetRoot
+        )
+        let persisted = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        let savedPaper = try XCTUnwrap(persisted.first { $0.kind == QuestionBankRepository.paperKind }?.decoded(QuestionBankPaper.self))
+        let savedQuestion = try XCTUnwrap(persisted.first { $0.kind == QuestionBankRepository.questionKind }?.decoded(QuestionBankQuestion.self))
+        let savedMaterial = try XCTUnwrap(persisted.first { $0.kind == QuestionBankRepository.materialKind }?.decoded(QuestionBankMaterial.self))
+        XCTAssertEqual(savedPaper.sourcePapers, [source])
+        XCTAssertEqual(savedQuestion.number, 12)
+        XCTAssertEqual(savedQuestion.provenance, question.provenance)
+        XCTAssertEqual(savedMaterial.provenance, material.provenance)
+    }
+
+    func testCanonicalJSONV1RejectsIncompleteSourceAndPageMappings() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankIncompleteProvenanceTest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let paper = batchTestPaper(id: "canonical-incomplete", title: "2025年甲省行测")
+        let module = QuestionBankModule(
+            id: "canonical-module", paperID: paper.id, sequence: 1,
+            title: "言语理解与表达", instruction: "", originalPage: "1"
+        )
+        var material = batchTestMaterial(id: "canonical-material", paperID: paper.id, text: "共同材料正文")
+        material.moduleID = module.id
+        material.provenance = [QuestionBankProvenance(sourcePaperID: "source-a")]
+        var question = batchTestQuestion(
+            id: "canonical-question", paperID: paper.id, materialID: material.id,
+            stem: "根据材料作答。", answer: "A", reordered: false
+        )
+        question.moduleID = module.id
+        question.provenance = [QuestionBankProvenance(sourcePaperID: "source-a")]
+        let source = QuestionBankSourcePaper(
+            id: "source-a", originalFileName: " ", originalFileSHA256: "not-a-sha256"
+        )
+        let document = QuestionBankImportJSONV1(
+            paper: paper, modules: [module], materials: [material], questions: [question],
+            assets: [], sourcePapers: [source]
+        )
+        let inputURL = temporaryRoot.appendingPathComponent("incomplete.json")
+        try JSONEncoder().encode(document).write(to: inputURL, options: .atomic)
+
+        let plan = try QuestionBankPackageImporter.prepare(from: inputURL)
+        defer { QuestionBankPackageImporter.cleanup(plan) }
+        XCTAssertFalse(plan.canImport)
+        XCTAssertTrue(plan.errors.contains { $0.contains("originalFileName") })
+        XCTAssertTrue(plan.errors.contains { $0.contains("originalFileSHA256") })
+        XCTAssertTrue(plan.errors.contains { $0.contains("originalPage") })
+        XCTAssertTrue(plan.errors.contains { $0.contains("题目 provenance 必须提供原始 sourceQuestionNumber") })
+        XCTAssertTrue(plan.errors.contains { $0.contains("材料 provenance 必须提供原始 sourceQuestionNumber") })
+    }
+
+    @MainActor
+    func testPaperDeletionLeavesOtherPaperAssetsAndReviewNotesUntouched() throws {
+        let container = try makeBatchMemoryContainer()
+        let context = container.mainContext
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankDeleteTest-\(UUID().uuidString)", isDirectory: true)
+        let ownedAssetURL = root.appendingPathComponent("generation-one/assets/figure.png")
+        let otherAssetURL = root.appendingPathComponent("generation-two/assets/figure.png")
+        try FileManager.default.createDirectory(at: ownedAssetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: otherAssetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: ownedAssetURL)
+        try Data([4, 5, 6]).write(to: otherAssetURL)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let deletedPaper = batchTestPaper(id: "delete-one", title: "待删除纸卷")
+        let keptPaper = batchTestPaper(id: "keep-two", title: "保留纸卷")
+        let deletedQuestion = batchTestQuestion(id: "same-question-id", paperID: deletedPaper.id, materialID: "", stem: "同题干", answer: "A", reordered: false)
+        let keptQuestion = batchTestQuestion(id: "same-question-id", paperID: keptPaper.id, materialID: "", stem: "同题干", answer: "A", reordered: false)
+        let deletedAsset = QuestionBankAsset(id: "same-asset-id", paperID: deletedPaper.id, ownerType: "question",
+            ownerID: deletedQuestion.id, role: "题干整图", path: "assets/figure.png", mimeType: "image/png",
+            fileName: "figure.png", originalPage: "1")
+        let keptAsset = QuestionBankAsset(id: "same-asset-id", paperID: keptPaper.id, ownerType: "question",
+            ownerID: keptQuestion.id, role: "题干整图", path: "assets/figure.png", mimeType: "image/png",
+            fileName: "figure.png", originalPage: "1")
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.paperKind, id: deletedPaper.id, paperID: deletedPaper.id, value: deletedPaper))
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.questionKind, id: deletedQuestion.id, paperID: deletedPaper.id, value: deletedQuestion))
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.assetKind, id: deletedAsset.id, paperID: deletedPaper.id, value: deletedAsset, assetRelativePath: "generation-one/assets/figure.png"))
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.paperKind, id: keptPaper.id, paperID: keptPaper.id, value: keptPaper))
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.questionKind, id: keptQuestion.id, paperID: keptPaper.id, value: keptQuestion))
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.assetKind, id: keptAsset.id, paperID: keptPaper.id, value: keptAsset, assetRelativePath: "generation-two/assets/figure.png"))
+        let doodleID = QuestionBankDoodleRepository.recordID(paperID: deletedPaper.id, scope: .question(deletedQuestion.id))
+        context.insert(StoredRecord(collection: "keyvalue", recordID: doodleID, payload: Data("doodle".utf8)))
+        context.insert(StoredRecord(collection: "review", recordID: "review-note", payload: Data("note".utf8)))
+        try context.save()
+
+        let allRecords = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        let result = try QuestionBankRepository.deletePaper(
+            paperID: deletedPaper.id, records: allRecords, context: context, assetRoot: root,
+            batchSources: [], batchMaterialLinks: [], batchQuestionLinks: []
+        )
+        XCTAssertFalse(result.assetCleanupPending)
+        let finalQuestionRows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        XCTAssertFalse(finalQuestionRows.contains { $0.paperID == deletedPaper.id })
+        XCTAssertTrue(finalQuestionRows.contains { $0.paperID == keptPaper.id && $0.stableID == keptQuestion.id })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: otherAssetURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ownedAssetURL.path))
+        let retainedNotes = try context.fetch(FetchDescriptor<StoredRecord>())
+        XCTAssertTrue(retainedNotes.contains { $0.recordID == doodleID })
+        XCTAssertTrue(retainedNotes.contains { $0.recordID == "review-note" })
+    }
+
+    @MainActor
+    func testPaperDeletionRefusesBatchReferencedPaperWithoutChangingBatchOrPaper() throws {
+        let container = try makeBatchMemoryContainer()
+        let context = container.mainContext
+        let paper = batchTestPaper(id: "batch-owned-paper", title: "批次来源纸卷")
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.paperKind, id: paper.id, paperID: paper.id, value: paper))
+        let batch = QuestionBankBatchRecord(
+            identityKey: "batch-a", family: "joint", year: paper.year, displayName: "测试批次",
+            metadataPayload: Data(), sourceCount: 1
+        )
+        context.insert(batch)
+        let source = QuestionBankBatchSourceRecord(
+            sourceID: "source-a", batchID: batch.identityKey, revision: "r1", sourceSHA256: "",
+            paperID: paper.id, importedAt: Date(), sourceQuestionCount: 0, sourceMaterialCount: 0,
+            uniqueQuestionCount: 0, duplicateQuestionCount: 0, pendingQuestionCount: 0,
+            uniqueMaterialCount: 0, duplicateMaterialCount: 0, pendingMaterialCount: 0
+        )
+        context.insert(source)
+        try context.save()
+
+        let rows = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        XCTAssertThrowsError(try QuestionBankRepository.deletePaper(
+            paperID: paper.id, records: rows, context: context,
+            batchSources: [source], batchMaterialLinks: [], batchQuestionLinks: []
+        )) { error in
+            XCTAssertEqual(error as? QuestionBankPaperDeletionError, .referencedByBatch)
+        }
+        XCTAssertTrue(try context.fetch(FetchDescriptor<QuestionBankRecord>()).contains { $0.paperID == paper.id })
+        XCTAssertTrue(try context.fetch(FetchDescriptor<QuestionBankBatchRecord>()).contains { $0.identityKey == batch.identityKey })
+        XCTAssertTrue(try context.fetch(FetchDescriptor<QuestionBankBatchSourceRecord>()).contains { $0.paperID == paper.id })
+    }
+
     func testQuestionBankHorizontalSwipeRequiresHorizontalIntentAndMinimumDistance() {
         XCTAssertEqual(QuestionBankHorizontalSwipe.direction(horizontal: -80, vertical: 12), 1)
         XCTAssertEqual(QuestionBankHorizontalSwipe.direction(horizontal: 80, vertical: -8), -1)

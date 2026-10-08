@@ -55,10 +55,15 @@ struct QuestionBankView: View {
     @StateObject private var importProgress = QuestionBankImportProgressModel()
     @StateObject private var importSelection = QuestionBankImportSelectionCoordinator()
     @State private var searchText = ""
+    @State private var isSearchPresented = false
     @State private var selectedYear = ""
     @State private var selectedExamType = ""
-    @State private var selectedModuleTitle = ""
+    @State private var selectedProvince = ""
+    @State private var selectedCoarseModule: QuestionBankCoarseModule?
+    @State private var selectedQuestionType = ""
     @State private var questionNumber = ""
+    @State private var paperPendingDeletion: QuestionBankRecord?
+    @State private var showsPaperDeletionConfirmation = false
     @State private var activeImportSheet: QuestionBankImportSheet?
     @State private var isPreparingImport = false
     @State private var isCancellingImport = false
@@ -74,67 +79,27 @@ struct QuestionBankView: View {
 
     private let importLogger = Logger(subsystem: "com.baoger07122.kaogongreview", category: "QuestionBankImportUI")
 
-    private var paperRecords: [QuestionBankRecord] {
-        records.filter { $0.kind == QuestionBankRepository.paperKind }
-    }
     private var sortedBatches: [QuestionBankBatchRecord] {
         batchIndexes.sorted { ($0.year, $0.displayName) > ($1.year, $1.displayName) }
     }
-    private var years: [String] {
-        Array(Set(paperRecords.compactMap(\.year).map(String.init))).sorted(by: >)
-    }
-    private var examTypes: [String] {
-        Array(Set(paperRecords.compactMap(\.examType))).sorted()
-    }
-    private var moduleTitles: [String] {
-        Array(Set(records.filter { $0.kind == QuestionBankRepository.moduleKind }
-            .compactMap { $0.decoded(QuestionBankModule.self)?.title })).sorted()
-    }
-    private var visiblePapers: [QuestionBankRecord] {
-        paperRecords.filter { paper in
-            guard let data = paper.decoded(QuestionBankPaper.self) else { return false }
-            if !selectedYear.isEmpty && String(data.year) != selectedYear { return false }
-            if !selectedExamType.isEmpty && data.examType != selectedExamType { return false }
-            if !selectedModuleTitle.isEmpty {
-                let containsModule = records.contains {
-                    $0.paperID == paper.paperID && $0.kind == QuestionBankRepository.moduleKind
-                        && $0.title == selectedModuleTitle
-                }
-                if !containsModule { return false }
-            }
-            if let number = Int(questionNumber), number > 0,
-               !records.contains(where: {
-                   $0.paperID == paper.paperID && $0.kind == QuestionBankRepository.questionKind
-                       && $0.questionNumber == number
-               }) { return false }
-            if let number = Int(questionNumber), number > 0, !selectedModuleTitle.isEmpty {
-                let selectedModuleIDs = Set(records.filter {
-                    $0.paperID == paper.paperID && $0.kind == QuestionBankRepository.moduleKind
-                        && $0.title == selectedModuleTitle
-                }.map(\.stableID))
-                if !records.contains(where: {
-                    $0.paperID == paper.paperID && $0.kind == QuestionBankRepository.questionKind
-                        && $0.questionNumber == number && selectedModuleIDs.contains($0.moduleID ?? "")
-                }) { return false }
-            }
-            if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-                let matchesPaper = paper.searchText.localizedCaseInsensitiveContains(query)
-                let matchesRecord = records.contains {
-                    $0.paperID == paper.paperID && $0.searchText.localizedCaseInsensitiveContains(query)
-                }
-                if !matchesPaper && !matchesRecord { return false }
-            }
-            return true
-        }
-        .sorted { left, right in
-            if left.year != right.year { return (left.year ?? 0) > (right.year ?? 0) }
-            return (left.title ?? "") < (right.title ?? "")
-        }
+
+    private var homeFilter: QuestionBankHomeFilter {
+        QuestionBankHomeFilter(
+            module: selectedCoarseModule,
+            questionType: selectedQuestionType,
+            year: selectedYear,
+            examType: selectedExamType,
+            province: selectedProvince,
+            search: searchText,
+            questionNumber: questionNumber
+        )
     }
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
+        let index = QuestionBankHomeIndex(records: records)
+        let filter = homeFilter
+        let visiblePapers = index.visiblePapers(matching: filter)
+        return ZStack(alignment: .bottomTrailing) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let importStatusMessage = importProgress.message {
@@ -158,7 +123,7 @@ struct QuestionBankView: View {
                     }
                     if !sortedBatches.isEmpty {
                         VStack(alignment: .leading, spacing: 9) {
-                            Text("跨卷批次").font(AppTheme.sectionTitleFont)
+                            Text("批次来源索引（非合卷）").font(AppTheme.sectionTitleFont)
                             ForEach(sortedBatches, id: \.identityKey) { batch in
                                 NavigationLink {
                                     QuestionBankBatchDetailView(batchID: batch.identityKey)
@@ -182,27 +147,55 @@ struct QuestionBankView: View {
                             }
                         }
                     }
-                    filterControls
+                    filterControls(index: index)
+
+                    if selectedCoarseModule != nil {
+                        NavigationLink {
+                            QuestionBankCrossPaperReaderView(filter: filter)
+                        } label: {
+                            Label("查看本范围全部题目（\(index.filteredQuestions(matching: filter).count) 题）", systemImage: "rectangle.stack")
+                                .font(AppTheme.bodyFont.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                                .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("question-bank-scope-all-questions")
+                    }
 
                     if visiblePapers.isEmpty {
                         NativeStatusCard(
-                            title: paperRecords.isEmpty ? "还没有导入真题" : "没有符合条件的试卷",
-                            detail: paperRecords.isEmpty
+                            title: index.papers.isEmpty ? "还没有导入真题" : "没有符合条件的试卷",
+                            detail: index.papers.isEmpty
                                 ? "优先导入单文件 JSON 真题包；旧版 ZIP 套卷也可继续使用。"
-                                : "调整年份、考试类型、模块、题号或搜索关键词后重试。",
+                                : "调整年份、考试类型、省份、模块、题型或搜索关键词后重试。",
                             systemImage: "books.vertical",
                             color: AppTheme.accent
                         )
                     } else {
                         LazyVStack(spacing: 10) {
-                            ForEach(visiblePapers, id: \.compoundID) { record in
-                                NavigationLink {
-                                    paperDestination(for: record)
-                                } label: {
-                                    paperCard(record)
+                            ForEach(visiblePapers) { paper in
+                                QuestionBankPaperSwipeRow(onDelete: {
+                                    paperPendingDeletion = paper.record
+                                    showsPaperDeletionConfirmation = true
+                                }) {
+                                    if selectedCoarseModule != nil {
+                                        NavigationLink {
+                                            QuestionBankCrossPaperReaderView(filter: filter, paperID: paper.id)
+                                        } label: {
+                                            paperCard(paper, questionCount: index.filteredQuestionCount(for: paper.id, matching: filter))
+                                        }
+                                        .buttonStyle(.plain)
+                                    } else {
+                                        NavigationLink {
+                                            paperDestination(for: paper.record)
+                                        } label: {
+                                            paperCard(paper, questionCount: index.filteredQuestionCount(for: paper.id, matching: filter))
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityIdentifier("question-bank-paper-\(record.stableID)")
+                                .accessibilityIdentifier("question-bank-paper-\(paper.id)")
                             }
                         }
                     }
@@ -214,6 +207,52 @@ struct QuestionBankView: View {
         .background(AppTheme.groupedBackground)
         .navigationTitle("真题库")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, isPresented: $isSearchPresented,
+                    placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "试卷、题干、选项或题号")
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    isSearchPresented = true
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                }
+                .accessibilityLabel("搜索真题")
+                .accessibilityIdentifier("question-bank-search")
+
+                Menu {
+                    Button {
+                        presentDocumentPicker()
+                    } label: {
+                        Label("导入真题包", systemImage: "square.and.arrow.down")
+                    }
+                    Button {
+                        selectedYear = ""
+                        selectedExamType = ""
+                        selectedProvince = ""
+                        selectedCoarseModule = nil
+                        selectedQuestionType = ""
+                        questionNumber = ""
+                        searchText = ""
+                    } label: {
+                        Label("清除筛选", systemImage: "line.3.horizontal.decrease.circle")
+                    }
+                    if !sortedBatches.isEmpty {
+                        Section("批次来源索引（非合卷）") {
+                            ForEach(sortedBatches, id: \.identityKey) { batch in
+                                NavigationLink(batch.displayName) {
+                                    QuestionBankBatchDetailView(batchID: batch.identityKey)
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .accessibilityLabel("纸卷管理与导入")
+                .accessibilityIdentifier("question-bank-management-menu")
+            }
+        }
         .rootTabBarContentInset()
         .sheet(item: $activeImportSheet, onDismiss: handleImportSheetDismissal) { sheet in
             switch sheet {
@@ -245,6 +284,18 @@ struct QuestionBankView: View {
             Button("好", role: .cancel) { }
         } message: {
             Text(importAlertMessage)
+        }
+        .confirmationDialog(
+            "删除试卷？",
+            isPresented: $showsPaperDeletionConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("删除试卷及关联题目与图片", role: .destructive) {
+                deletePendingPaper()
+            }
+            Button("取消", role: .cancel) { paperPendingDeletion = nil }
+        } message: {
+            Text("将删除《\(paperPendingDeletion?.title ?? paperPendingDeletion?.decoded(QuestionBankPaper.self)?.title ?? "未命名试卷")》及其题目和纸卷图片。学习库笔记与涂鸦会保留；仍被批次来源索引引用的试卷不能删除。")
         }
         .onAppear { NativePerformanceLog.event("question bank onAppear") }
         .onAppear(perform: processPendingExternalFileIfPossible)
@@ -294,38 +345,76 @@ struct QuestionBankView: View {
         .padding(.bottom, 72)
     }
 
-    private var filterControls: some View {
+    private func filterControls(index: QuestionBankHomeIndex) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                filterMenu(title: "年份", selection: $selectedYear, options: years)
-                filterMenu(title: "考试类型", selection: $selectedExamType, options: examTypes)
-                filterMenu(title: "模块", selection: $selectedModuleTitle, options: moduleTitles)
-                Spacer(minLength: 0)
-            }
-            HStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("搜索试卷、题干或选项", text: $searchText)
-                        .font(AppTheme.inputFont)
-                        .textInputAutocapitalization(.never)
-                }
-                .padding(.horizontal, 12)
-                .frame(height: 40)
-                .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
-                HStack(spacing: 6) {
-                    TextField("题号", text: $questionNumber)
-                        .keyboardType(.numberPad)
-                        .frame(width: 58)
-                    if !questionNumber.isEmpty {
-                        Button { questionNumber = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
-                            .buttonStyle(.plain)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    ForEach(QuestionBankCoarseModule.homeOrder) { module in
+                        Button {
+                            selectedCoarseModule = selectedCoarseModule == module ? nil : module
+                            selectedQuestionType = ""
+                        } label: {
+                            Text(module.rawValue)
+                                .font(AppTheme.auxiliaryFont.weight(.medium))
+                                .foregroundStyle(selectedCoarseModule == module ? .white : Color.primary)
+                                .padding(.horizontal, 13)
+                                .frame(height: 34)
+                                .background(selectedCoarseModule == module ? AppTheme.accent : AppTheme.secondaryBackground,
+                                            in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("模块：\(module.rawValue)")
+                        .accessibilityAddTraits(selectedCoarseModule == module ? .isSelected : [])
+                        .accessibilityIdentifier("question-bank-module-filter-\(module.id)")
                     }
                 }
-                .padding(.horizontal, 10)
-                .frame(height: 40)
-                .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
             }
+            if let module = selectedCoarseModule, !index.questionTypeOptions(for: module).isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 7) {
+                        typeFilterChip("全部", value: "")
+                        ForEach(index.questionTypeOptions(for: module), id: \.self) { type in
+                            typeFilterChip(type, value: type)
+                        }
+                    }
+                }
+            }
+            HStack(spacing: 8) {
+                filterMenu(title: "年份", selection: $selectedYear, options: index.years)
+                filterMenu(title: "考试类型", selection: $selectedExamType, options: index.examTypes)
+                filterMenu(title: "省份", selection: $selectedProvince, options: index.provinces)
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 6) {
+                TextField("题号", text: $questionNumber)
+                    .keyboardType(.numberPad)
+                    .frame(width: 58)
+                if !questionNumber.isEmpty {
+                    Button { questionNumber = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 40)
+            .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
         }
+    }
+
+    private func typeFilterChip(_ title: String, value: String) -> some View {
+        Button { selectedQuestionType = value } label: {
+            Text(title)
+                .font(AppTheme.auxiliaryFont.weight(.medium))
+                .foregroundStyle(selectedQuestionType == value ? .white : Color.primary)
+                .padding(.horizontal, 12)
+                .frame(height: 32)
+                .background(selectedQuestionType == value ? AppTheme.accent.opacity(0.88) : AppTheme.secondaryBackground,
+                            in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selectedQuestionType == value ? .isSelected : [])
+        .accessibilityIdentifier("question-bank-type-filter-\(value.isEmpty ? "all" : value)")
     }
 
     private func filterMenu(title: String, selection: Binding<String>, options: [String]) -> some View {
@@ -348,32 +437,19 @@ struct QuestionBankView: View {
         }
     }
 
-    private func paperCard(_ record: QuestionBankRecord) -> some View {
-        let paper = record.decoded(QuestionBankPaper.self)
-        let modules = records.filter { $0.paperID == record.paperID && $0.kind == QuestionBankRepository.moduleKind }
-            .sorted { ($0.sequence ?? 0) < ($1.sequence ?? 0) }
-        let questionCount = records.filter { $0.paperID == record.paperID && $0.kind == QuestionBankRepository.questionKind }.count
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(paper?.title ?? record.title ?? "未命名试卷")
-                    .font(AppTheme.cardTitleFont).foregroundStyle(.primary).lineLimit(2)
-                Spacer(minLength: 8)
-                Text(String(paper?.year ?? record.year ?? 0))
-                    .font(AppTheme.auxiliaryFont.weight(.medium)).foregroundStyle(.secondary)
-            }
-            HStack(spacing: 8) {
-                Text(paper?.examType ?? record.examType ?? "考试")
-                if let volume = paper?.volume, !volume.isEmpty { Text(volume) }
-                Text("\(questionCount) 道样题")
-                Text("\(modules.count) 个模块")
-            }
-            .font(AppTheme.auxiliaryFont)
-            .foregroundStyle(.secondary)
-            if let source = paper?.source, !source.isEmpty {
-                Text(source).font(AppTheme.auxiliaryFont).foregroundStyle(.secondary).lineLimit(1)
-            }
+    private func paperCard(_ paper: QuestionBankHomePaper, questionCount: Int) -> some View {
+        HStack(spacing: 12) {
+            Text(paper.title)
+                .font(AppTheme.cardTitleFont)
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("\(questionCount)题")
+                .font(AppTheme.auxiliaryFont.weight(.medium))
+                .foregroundStyle(.secondary)
+                .fixedSize()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
         .nativeCard(padding: 15)
     }
 
@@ -388,7 +464,7 @@ struct QuestionBankView: View {
         } else {
             QuestionBankPaperView(
                 paperID: record.paperID,
-                initialModuleTitle: selectedModuleTitle,
+                initialModuleTitle: "",
                 initialQuestionNumber: questionNumber
             )
         }
@@ -398,9 +474,33 @@ struct QuestionBankView: View {
         QuestionBankQuestionRoute.target(
             questionNumber: Int(questionNumber),
             paperID: paperID,
-            selectedModuleTitle: selectedModuleTitle,
+            selectedModuleTitle: "",
             records: records
         )
+    }
+
+    private func deletePendingPaper() {
+        guard let paper = paperPendingDeletion else { return }
+        do {
+            let result = try QuestionBankRepository.deletePaper(
+                paperID: paper.paperID,
+                records: records,
+                context: modelContext,
+                assetRoot: nil,
+                batchSources: batchSources,
+                batchMaterialLinks: batchMaterialLinks,
+                batchQuestionLinks: batchQuestionLinks
+            )
+            importAlertTitle = "删除完成"
+            importAlertMessage = result.assetCleanupPending
+                ? "试卷与题目已删除；少量已失去引用的图片文件暂未清理，不影响其他数据。学习库笔记和涂鸦已保留。"
+                : "试卷、题目及关联纸卷图片已删除。学习库笔记和涂鸦已保留。"
+        } catch {
+            importAlertTitle = "删除未完成"
+            importAlertMessage = error.localizedDescription
+        }
+        paperPendingDeletion = nil
+        showImportAlert = true
     }
 
     private func presentDocumentPicker() {
@@ -647,6 +747,56 @@ struct QuestionBankView: View {
 
 }
 
+private struct QuestionBankPaperSwipeRow<Content: View>: View {
+    let content: Content
+    let onDelete: () -> Void
+    @State private var revealOffset: CGFloat = 0
+
+    init(onDelete: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+        self.onDelete = onDelete
+        self.content = content()
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Button {
+                withAnimation(.easeOut(duration: 0.18)) { revealOffset = 0 }
+                onDelete()
+            } label: {
+                Label("删除", systemImage: "trash")
+                    .font(AppTheme.auxiliaryFont.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 82)
+                    .frame(maxHeight: .infinity)
+                    .background(AppTheme.danger, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("question-bank-paper-delete-action")
+            .opacity(revealOffset > 0 ? 1 : 0)
+            .allowsHitTesting(revealOffset > 0)
+
+            content
+                .offset(x: revealOffset)
+                .contentShape(Rectangle())
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 18, coordinateSpace: .local)
+                        .onEnded { value in
+                            guard abs(value.translation.width) > abs(value.translation.height) * 1.25 else { return }
+                            withAnimation(.easeOut(duration: 0.18)) {
+                                if value.translation.width > 48 {
+                                    revealOffset = 82
+                                } else if value.translation.width < -28 {
+                                    revealOffset = 0
+                                }
+                            }
+                        }
+                )
+                .accessibilityHint("向右滑动可删除")
+        }
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardRadius))
+    }
+}
+
 private struct QuestionBankImportPreparingView: View {
     let message: String
     let onCancel: () -> Void
@@ -785,6 +935,29 @@ private struct QuestionBankImportPreview: View {
         }
     }
 
+    private var replacementContinuityWarning: String? {
+        guard let oldPaper = replacementPaperRecord,
+              let incomingPaper = plan.paper else { return nil }
+        let oldRows = records.filter { $0.paperID == oldPaper.paperID }
+        let idSets: [(String, Set<String>, Set<String>)] = [
+            ("模块", Set(oldRows.filter { $0.kind == QuestionBankRepository.moduleKind }.map(\.stableID)), Set(plan.modules.map(\.id))),
+            ("题目", Set(oldRows.filter { $0.kind == QuestionBankRepository.questionKind }.map(\.stableID)), Set(plan.questions.map(\.id))),
+            ("材料", Set(oldRows.filter { $0.kind == QuestionBankRepository.materialKind }.map(\.stableID)), Set(plan.materials.map(\.id))),
+            ("图片", Set(oldRows.filter { $0.kind == QuestionBankRepository.assetKind }.map(\.stableID)), Set(plan.assets.map(\.id)))
+        ]
+        let changed = idSets.filter { $0.1 != $0.2 }.map(\.0)
+        let existingPaper = oldPaper.decoded(QuestionBankPaper.self)
+        let sourceMetadataChanged = (existingPaper?.sourcePapers ?? []) != plan.sourcePapers
+        guard incomingPaper.id != oldPaper.paperID || !changed.isEmpty || sourceMetadataChanged else { return nil }
+        let changedDescription = changed.isEmpty ? "无" : changed.joined(separator: "、")
+        let paperIDContinuity = incomingPaper.id == oldPaper.paperID ? "一致" : "不同"
+        let sourceContinuity = sourceMetadataChanged ? "来源卷元数据将更新或移除" : "来源卷元数据一致"
+        let inkWarning = incomingPaper.id != oldPaper.paperID || !changed.isEmpty
+            ? "应用不会迁移或删除旧涂鸦；题目/材料 ID 改变会让旧笔迹无法自动挂到新题，作答状态也不会迁移。"
+            : "稳定 ID 连续，旧涂鸦仍按原题目 ID 关联。"
+        return "替换包与现有记录有差异（纸卷ID：\(paperIDContinuity)，稳定ID变化：\(changedDescription)；\(sourceContinuity)）。\(inkWarning) 请先核对预览。"
+    }
+
     private func parseSourceProvinces() -> [QuestionBankSourceProvince] {
         return sourceProvinceLines.compactMap { line in
             let parts = line.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
@@ -852,6 +1025,41 @@ private struct QuestionBankImportPreview: View {
                     LabeledContent("共用材料", value: "\(plan.materials.count) 份")
                     LabeledContent("题目", value: "\(plan.questions.count) 道")
                     LabeledContent("图片", value: "\(plan.assets.count) 张")
+                    LabeledContent("来源卷", value: "\(plan.sourcePapers.count) 个")
+                    LabeledContent(
+                        plan.sourceFileFormat == "json" ? "JSON 大小" : "ZIP 大小",
+                        value: plan.sourceFileFormat == "json"
+                            ? "\(mib(plan.sourceFileByteCount)) / 64 MiB"
+                            : mib(plan.sourceFileByteCount)
+                    )
+                    LabeledContent("解码图片", value: "\(mib(plan.decodedImageByteCount)) / 48 MiB；单张最大 \(mib(plan.largestDecodedImageByteCount)) / 16 MiB")
+                    LabeledContent("题目来源映射", value: "\(plan.questions.reduce(0) { $0 + ($1.provenance?.count ?? 0) }) 条")
+                    LabeledContent("材料来源映射", value: "\(plan.materials.reduce(0) { $0 + ($1.provenance?.count ?? 0) }) 条")
+                    if !plan.sourcePapers.isEmpty {
+                        Text("单一规范纸卷；来源卷和题目/材料溯源只作为元数据保存，不在应用内拼接或去重正文。")
+                            .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                    }
+                    if let replacementContinuityWarning {
+                        Label(replacementContinuityWarning, systemImage: "exclamationmark.triangle.fill")
+                            .font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if !plan.sourcePapers.isEmpty {
+                    Section("来源 PDF") {
+                        ForEach(plan.sourcePapers) { source in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(sourceDisplayLabel(source))
+                                    .font(AppTheme.auxiliaryFont.weight(.semibold))
+                                Text("文件名：\(source.originalFileName ?? "缺失")")
+                                    .font(AppTheme.auxiliaryFont)
+                                Text("SHA-256：\(source.originalFileSHA256 ?? "缺失")")
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .textSelection(.enabled)
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 }
                 Section("跨卷批次") {
                     Toggle("加入跨卷批次", isOn: $includesBatch)
@@ -940,11 +1148,21 @@ private struct QuestionBankImportPreview: View {
                 }
                 Button("取消导入", role: .cancel) { }
             } message: {
-                Text("按来源标识的修订关系、试卷 ID，或年份、考试类型、卷别和名称识别替换目标。替换失败时仍保留原数据。")
+                Text("按来源标识的修订关系、试卷 ID，或年份、考试类型、卷别和名称识别替换目标。替换失败时仍保留原数据。\(replacementContinuityWarning ?? "替换包的稳定 ID 与现有数据一致，原涂鸦仍按原题目 ID 关联。")")
             }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    private func mib(_ bytes: Int64) -> String {
+        String(format: "%.1f MiB", Double(bytes) / 1_048_576)
+    }
+
+    private func sourceDisplayLabel(_ source: QuestionBankSourcePaper) -> String {
+        ([source.provinceName, source.batchName].compactMap { $0?.trimmedNonempty }
+            + [source.id.trimmedNonempty].filter { !$0.isEmpty })
+            .joined(separator: " · ")
     }
 }
 

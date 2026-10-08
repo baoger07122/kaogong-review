@@ -238,6 +238,11 @@ jobs:
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testAssetPathResolverRejectsTraversalAndSymlinkEscape
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testReadingSequenceGroupsSharedMaterialsOnceAndKeepsQuestionOrder
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankReaderLayoutModesAndOptionDisplay
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankHomeIndexUsesExplicitLabelsAndKeepsUnknownsVisible
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testCanonicalJSONV1ProvenanceImportsAndPersistsWithoutChangingQuestions
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testCanonicalJSONV1RejectsIncompleteSourceAndPageMappings
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testPaperDeletionLeavesOtherPaperAssetsAndReviewNotesUntouched
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testPaperDeletionRefusesBatchReferencedPaperWithoutChangingBatchOrPaper
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankHorizontalSwipeRequiresHorizontalIntentAndMinimumDistance
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankPageTransitionMovesInDirectionOfNavigation
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankQuestionHeadingHidesInternalClassificationAndKeepsMeaningfulLabels
@@ -294,7 +299,7 @@ jobs:
             -derivedDataPath build/QuestionBankReaderInteractionDerivedData \
             -parallel-testing-enabled NO \
             -resultBundlePath "$RESULT_PATH" \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testPracticeAnswerRevealsOnSelectionByDefaultAndFollowsSelection \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testPracticeAnswerRevealsOnSelectionByDefaultAndLocksSelection \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testPracticeAnswerConfirmationTogglePersistsAcrossReaderModeChanges \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testDoodleBlocksOptionSelectionAndQuestionNavigationInMaterialSplit \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testSingleQuestionHorizontalSwipesRetainSelectionAndReturnToTop \

@@ -12,10 +12,41 @@ struct QuestionBankPaper: Codable, Equatable, Sendable {
     var volume: String
     var source: String
     var importVersion: String
+    var provinceCode: String? = nil
+    var provinceName: String? = nil
+    /// Normalized and persisted from the JSON top-level `sourcePapers` list.
+    var sourcePapers: [QuestionBankSourcePaper]? = nil
 
     var duplicateKey: String {
         [String(year), examType, title, volume]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .joined(separator: "|")
+    }
+}
+
+struct QuestionBankSourcePaper: Codable, Equatable, Sendable, Identifiable {
+    var id: String
+    var provinceCode: String? = nil
+    var provinceName: String? = nil
+    var batchID: String? = nil
+    var batchName: String? = nil
+    var originalFileID: String? = nil
+    var originalFileName: String? = nil
+    var originalFileSHA256: String? = nil
+}
+
+struct QuestionBankProvenance: Codable, Equatable, Sendable, Identifiable {
+    var sourcePaperID: String
+    var provinceCode: String? = nil
+    var provinceName: String? = nil
+    var sourceQuestionNumber: Int? = nil
+    var sourceQuestionNumbers: [Int]? = nil
+    var originalPage: String? = nil
+    var evidence: String? = nil
+
+    var id: String {
+        [sourcePaperID, sourceQuestionNumber.map(String.init) ?? "",
+         (sourceQuestionNumbers ?? []).map(String.init).joined(separator: ","), originalPage ?? ""]
             .joined(separator: "|")
     }
 }
@@ -139,6 +170,7 @@ struct QuestionBankMaterial: Codable, Equatable, Sendable, Identifiable {
     var imageAssetID: String
     var applicableQuestions: String
     var originalPage: String
+    var provenance: [QuestionBankProvenance]? = nil
 }
 
 struct QuestionBankOption: Codable, Equatable, Sendable, Identifiable {
@@ -161,6 +193,7 @@ struct QuestionBankQuestion: Codable, Equatable, Sendable, Identifiable {
     var answer: String
     var explanation: String
     var originalPage: String
+    var provenance: [QuestionBankProvenance]? = nil
 }
 
 struct QuestionBankAsset: Codable, Equatable, Sendable, Identifiable {
@@ -245,13 +278,17 @@ struct QuestionBankJSONAssetV1: Codable, Equatable, Sendable {
 
 private struct QuestionBankJSONPaperFieldsV1: Decodable {
     let value: QuestionBankPaper
-    private enum CodingKeys: String, CodingKey { case id, title, year, examType, volume, source, importVersion }
+    private enum CodingKeys: String, CodingKey {
+        case id, title, year, examType, volume, source, importVersion, provinceCode, provinceName
+    }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         value = QuestionBankPaper(id: (try? c.decode(String.self, forKey: .id)) ?? "",
             title: try c.decode(String.self, forKey: .title), year: try c.decode(Int.self, forKey: .year),
             examType: try c.decode(String.self, forKey: .examType), volume: try c.decode(String.self, forKey: .volume),
-            source: try c.decode(String.self, forKey: .source), importVersion: try c.decode(String.self, forKey: .importVersion))
+            source: try c.decode(String.self, forKey: .source), importVersion: try c.decode(String.self, forKey: .importVersion),
+            provinceCode: try c.decodeIfPresent(String.self, forKey: .provinceCode),
+            provinceName: try c.decodeIfPresent(String.self, forKey: .provinceName))
     }
 }
 
@@ -269,7 +306,9 @@ private struct QuestionBankJSONModuleFieldsV1: Decodable {
 
 private struct QuestionBankJSONMaterialFieldsV1: Decodable {
     let value: QuestionBankMaterial
-    private enum CodingKeys: String, CodingKey { case id, paperID, moduleID, type, text, imageAssetID, applicableQuestions, originalPage }
+    private enum CodingKeys: String, CodingKey {
+        case id, paperID, moduleID, type, text, imageAssetID, applicableQuestions, originalPage, provenance
+    }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         value = QuestionBankMaterial(id: (try? c.decode(String.self, forKey: .id)) ?? "",
@@ -277,7 +316,8 @@ private struct QuestionBankJSONMaterialFieldsV1: Decodable {
             type: try c.decode(String.self, forKey: .type), text: try c.decode(String.self, forKey: .text),
             imageAssetID: try c.decode(String.self, forKey: .imageAssetID),
             applicableQuestions: try c.decode(String.self, forKey: .applicableQuestions),
-            originalPage: try c.decode(String.self, forKey: .originalPage))
+            originalPage: try c.decode(String.self, forKey: .originalPage),
+            provenance: try c.decodeIfPresent([QuestionBankProvenance].self, forKey: .provenance))
     }
 }
 
@@ -295,7 +335,7 @@ private struct QuestionBankJSONQuestionFieldsV1: Decodable {
     let value: QuestionBankQuestion
     private enum CodingKeys: String, CodingKey {
         case id, paperID, moduleID, number, subject, type, materialID, stem, stemImageAssetID
-        case options, answer, explanation, originalPage
+        case options, answer, explanation, originalPage, provenance
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -306,7 +346,8 @@ private struct QuestionBankJSONQuestionFieldsV1: Decodable {
             type: try c.decode(String.self, forKey: .type), materialID: try c.decode(String.self, forKey: .materialID),
             stem: try c.decode(String.self, forKey: .stem), stemImageAssetID: try c.decode(String.self, forKey: .stemImageAssetID),
             options: options, answer: try c.decode(String.self, forKey: .answer),
-            explanation: try c.decode(String.self, forKey: .explanation), originalPage: try c.decode(String.self, forKey: .originalPage))
+            explanation: try c.decode(String.self, forKey: .explanation), originalPage: try c.decode(String.self, forKey: .originalPage),
+            provenance: try c.decodeIfPresent([QuestionBankProvenance].self, forKey: .provenance))
     }
 }
 
@@ -322,16 +363,18 @@ struct QuestionBankImportJSONV1: Codable, Sendable {
     var questions: [QuestionBankQuestion]
     var assets: [QuestionBankJSONAssetV1]
     var batch: QuestionBankBatchMetadata?
+    var sourcePapers: [QuestionBankSourcePaper]?
 
     private enum CodingKeys: String, CodingKey {
-        case format, schemaVersion, paper, modules, materials, questions, assets, batch
+        case format, schemaVersion, paper, modules, materials, questions, assets, batch, sourcePapers
     }
 
     init(format: String = QuestionBankImportJSONV1.formatIdentifier,
-         schemaVersion: Int = QuestionBankImportJSONV1.currentSchemaVersion,
-         paper: QuestionBankPaper, modules: [QuestionBankModule], materials: [QuestionBankMaterial],
-         questions: [QuestionBankQuestion], assets: [QuestionBankJSONAssetV1],
-         batch: QuestionBankBatchMetadata? = nil) {
+          schemaVersion: Int = QuestionBankImportJSONV1.currentSchemaVersion,
+          paper: QuestionBankPaper, modules: [QuestionBankModule], materials: [QuestionBankMaterial],
+          questions: [QuestionBankQuestion], assets: [QuestionBankJSONAssetV1],
+          batch: QuestionBankBatchMetadata? = nil,
+          sourcePapers: [QuestionBankSourcePaper]? = nil) {
         self.format = format
         self.schemaVersion = schemaVersion
         self.paper = paper
@@ -340,6 +383,7 @@ struct QuestionBankImportJSONV1: Codable, Sendable {
         self.questions = questions
         self.assets = assets
         self.batch = batch
+        self.sourcePapers = sourcePapers
     }
 
     init(from decoder: Decoder) throws {
@@ -360,6 +404,7 @@ struct QuestionBankImportJSONV1: Codable, Sendable {
         questions = try container.decode([QuestionBankJSONQuestionFieldsV1].self, forKey: .questions).map(\.value)
         assets = try container.decode([QuestionBankJSONAssetV1].self, forKey: .assets)
         batch = try container.decodeIfPresent(QuestionBankBatchMetadata.self, forKey: .batch)
+        sourcePapers = try container.decodeIfPresent([QuestionBankSourcePaper].self, forKey: .sourcePapers)
     }
 }
 
@@ -374,6 +419,11 @@ struct QuestionBankImportPlan: Identifiable, Sendable {
     var stagingDirectory: URL?
     var batchMetadata: QuestionBankBatchMetadata? = nil
     var sourceFileSHA256: String = ""
+    var sourcePapers: [QuestionBankSourcePaper] = []
+    var sourceFileFormat: String = "json"
+    var sourceFileByteCount: Int64 = 0
+    var decodedImageByteCount: Int64 = 0
+    var largestDecodedImageByteCount: Int64 = 0
 
     var canImport: Bool { paper != nil && errors.isEmpty && stagingDirectory != nil }
 }
@@ -428,6 +478,36 @@ enum QuestionBankImportFailure: LocalizedError {
             "图片路径越出资源目录，未写入真题库。"
         }
     }
+}
+
+enum QuestionBankPaperDeletionError: LocalizedError, Equatable {
+    case missingPaper
+    case referencedByBatch
+    case unsafeAssetPath
+    case assetMoveFailed
+    case transactionFailed(String)
+    case assetRestoreFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .missingPaper:
+            "找不到这套试卷，未删除任何数据。"
+        case .referencedByBatch:
+            "这套试卷仍被批次来源索引引用。为保留批次/套卷记录，请先解除批次关联后再删除。"
+        case .unsafeAssetPath:
+            "检测到不安全的纸卷图片路径，删除已停止，原有数据未更改。"
+        case .assetMoveFailed:
+            "无法暂存纸卷图片，删除已停止，原有数据未更改。"
+        case .transactionFailed(let reason):
+            "删除事务失败，原有数据已回滚：\(reason)"
+        case .assetRestoreFailed:
+            "删除事务失败且图片回滚未完成。请保留应用数据并联系支持人员处理。"
+        }
+    }
+}
+
+struct QuestionBankPaperDeletionResult {
+    let assetCleanupPending: Bool
 }
 
 enum QuestionBankAssetStore {
@@ -654,6 +734,103 @@ enum QuestionBankRepository {
         }
     }
 
+    /// Deletes only rows and image generations owned by one standalone paper.
+    /// Review-library notes/doodles and batch records are intentionally separate;
+    /// deletion is refused while any batch index still refers to this paper.
+    @MainActor
+    static func deletePaper(
+        paperID: String,
+        records: [QuestionBankRecord],
+        context: ModelContext,
+        assetRoot: URL? = nil,
+        batchSources: [QuestionBankBatchSourceRecord],
+        batchMaterialLinks: [QuestionBankBatchMaterialLinkRecord],
+        batchQuestionLinks: [QuestionBankBatchQuestionLinkRecord]
+    ) throws -> QuestionBankPaperDeletionResult {
+        let paperRows = records.filter { $0.paperID == paperID }
+        guard paperRows.contains(where: { $0.kind == paperKind }) else {
+            throw QuestionBankPaperDeletionError.missingPaper
+        }
+        let hasBatchReference = batchSources.contains { $0.paperID == paperID }
+            || batchMaterialLinks.contains { $0.sourcePaperID == paperID || $0.canonicalPaperID == paperID }
+            || batchQuestionLinks.contains { $0.sourcePaperID == paperID || $0.canonicalPaperID == paperID }
+        guard !hasBatchReference else { throw QuestionBankPaperDeletionError.referencedByBatch }
+
+        let allGenerations = Set(paperRows.compactMap { record -> String? in
+            guard record.kind == assetKind, let path = record.assetRelativePath else { return nil }
+            return path.split(separator: "/").first.map(String.init)
+        })
+        let referencedElsewhere = Set(records.compactMap { record -> String? in
+            guard record.paperID != paperID, record.kind == assetKind,
+                  let path = record.assetRelativePath else { return nil }
+            return path.split(separator: "/").first.map(String.init)
+        })
+        let generationsToMove = allGenerations.subtracting(referencedElsewhere).sorted()
+        let root: URL? = generationsToMove.isEmpty
+            ? nil
+            : (try assetRoot ?? QuestionBankAssetStore.root(create: false))
+        var movedDirectories: [(source: URL, staged: URL)] = []
+
+        if let root {
+            for generation in generationsToMove {
+                guard let source = QuestionBankAssetStore.url(for: generation, under: root) else {
+                    if !restoreMovedDirectories(movedDirectories) {
+                        throw QuestionBankPaperDeletionError.assetRestoreFailed
+                    }
+                    throw QuestionBankPaperDeletionError.unsafeAssetPath
+                }
+                guard FileManager.default.fileExists(atPath: source.path) else { continue }
+                let stagedName = "delete-\(UUID().uuidString.lowercased())"
+                guard let staged = QuestionBankAssetStore.url(for: stagedName, under: root) else {
+                    let restored = restoreMovedDirectories(movedDirectories)
+                    if !restored { throw QuestionBankPaperDeletionError.assetRestoreFailed }
+                    throw QuestionBankPaperDeletionError.unsafeAssetPath
+                }
+                do {
+                    try FileManager.default.moveItem(at: source, to: staged)
+                    movedDirectories.append((source, staged))
+                } catch {
+                    let restored = restoreMovedDirectories(movedDirectories)
+                    if !restored { throw QuestionBankPaperDeletionError.assetRestoreFailed }
+                    throw QuestionBankPaperDeletionError.assetMoveFailed
+                }
+            }
+        }
+
+        do {
+            try context.transaction {
+                for row in paperRows { context.delete(row) }
+            }
+        } catch {
+            context.rollback()
+            let restored = restoreMovedDirectories(movedDirectories)
+            if !restored { throw QuestionBankPaperDeletionError.assetRestoreFailed }
+            throw QuestionBankPaperDeletionError.transactionFailed(error.localizedDescription)
+        }
+
+        var cleanupPending = false
+        for directory in movedDirectories {
+            do { try FileManager.default.removeItem(at: directory.staged) }
+            catch { cleanupPending = true }
+        }
+        return QuestionBankPaperDeletionResult(assetCleanupPending: cleanupPending)
+    }
+
+    @MainActor
+    private static func restoreMovedDirectories(_ moved: [(source: URL, staged: URL)]) -> Bool {
+        var succeeded = true
+        for directory in moved.reversed() {
+            do {
+                if FileManager.default.fileExists(atPath: directory.staged.path) {
+                    try FileManager.default.moveItem(at: directory.staged, to: directory.source)
+                }
+            } catch {
+                succeeded = false
+            }
+        }
+        return succeeded
+    }
+
     private static func makeRows(from plan: QuestionBankImportPlan, generation: String) throws -> [QuestionBankStoredRow] {
         guard let paper = plan.paper else { throw QuestionBankImportFailure.invalidPlan }
         var rows: [QuestionBankStoredRow] = []
@@ -671,8 +848,11 @@ enum QuestionBankRepository {
                 assetRelativePath: assetPath
             ))
         }
-        try append(kind: paperKind, id: paper.id, value: paper, title: paper.title,
-                    search: "\(paper.title) \(paper.year) \(paper.examType) \(paper.volume)", normalizedKey: paper.duplicateKey)
+        var persistedPaper = paper
+        if !plan.sourcePapers.isEmpty { persistedPaper.sourcePapers = plan.sourcePapers }
+        try append(kind: paperKind, id: paper.id, value: persistedPaper, title: paper.title,
+                    search: "\(paper.title) \(paper.year) \(paper.examType) \(paper.volume) \(paper.provinceName ?? "") \(paper.provinceCode ?? "")",
+                    normalizedKey: paper.duplicateKey)
         for module in plan.modules {
             try append(kind: moduleKind, id: module.id, value: module, moduleID: module.id,
                        sequence: module.sequence, title: module.title, search: "\(module.title) \(module.instruction)")
@@ -713,6 +893,7 @@ enum QuestionBankPackageImporter {
     private struct ParsedPackage {
         var paper: QuestionBankPaper?
         var batchMetadata: QuestionBankBatchMetadata?
+        var sourcePapers: [QuestionBankSourcePaper] = []
         var modules: [QuestionBankModule]
         var materials: [QuestionBankMaterial]
         var questions: [QuestionBankQuestion]
@@ -810,15 +991,30 @@ enum QuestionBankPackageImporter {
                 errors += try validate(paper: parsed.paper, modules: parsed.modules,
                     materials: parsed.materials, questions: parsed.questions,
                     assets: parsed.assets, staging: stage)
+                errors += validateSourceProvenance(
+                    sourcePapers: parsed.sourcePapers,
+                    materials: parsed.materials,
+                    questions: parsed.questions
+                )
                 return errors
             }
             return try runPhase(.preparingPreview, onProgress: onProgress) {
                 try checkCancellation()
+                let sourceFileByteCount = try fileSize(at: readableSource)
+                let decodedImageSizes = try parsed.assets.compactMap { asset -> Int64? in
+                    guard let url = QuestionBankAssetStore.url(for: asset.path, under: stage),
+                          FileManager.default.fileExists(atPath: url.path) else { return nil }
+                    return try fileSize(at: url)
+                }
                 logger.info("package validation finished; modules=\(parsed.modules.count), materials=\(parsed.materials.count), questions=\(parsed.questions.count), images=\(parsed.assets.count), errors=\(imageAndReferenceErrors.count)")
                 return QuestionBankImportPlan(paper: parsed.paper, modules: parsed.modules,
                     materials: parsed.materials, questions: parsed.questions, assets: parsed.assets,
                     errors: imageAndReferenceErrors, stagingDirectory: stage,
-                    batchMetadata: parsed.batchMetadata, sourceFileSHA256: sourceFileSHA256)
+                    batchMetadata: parsed.batchMetadata, sourceFileSHA256: sourceFileSHA256,
+                    sourcePapers: parsed.sourcePapers, sourceFileFormat: fileExtension,
+                    sourceFileByteCount: sourceFileByteCount,
+                    decodedImageByteCount: decodedImageSizes.reduce(0, +),
+                    largestDecodedImageByteCount: decodedImageSizes.max() ?? 0)
             }
         } catch {
             logFailure("package preparation", error: error)
@@ -1031,7 +1227,8 @@ enum QuestionBankPackageImporter {
             throw PackageError("真题 JSON 格式无效：\(error.localizedDescription)")
         }
         try checkCancellation()
-        return ParsedPackage(paper: document.paper, batchMetadata: document.batch, modules: document.modules,
+        return ParsedPackage(paper: document.paper, batchMetadata: document.batch,
+            sourcePapers: document.sourcePapers ?? [], modules: document.modules,
             materials: document.materials, questions: document.questions,
             assets: document.assets.map(\.metadata), jsonAssets: document.assets, errors: [])
     }
@@ -1289,6 +1486,75 @@ enum QuestionBankPackageImporter {
                                      fileName: row["文件名"].cleaned.isEmpty ? URL(fileURLWithPath: path).lastPathComponent : row["文件名"].cleaned,
                                      originalPage: row["原始页码"].cleaned)
         }
+    }
+
+    private static func validateSourceProvenance(
+        sourcePapers: [QuestionBankSourcePaper],
+        materials: [QuestionBankMaterial],
+        questions: [QuestionBankQuestion]
+    ) -> [String] {
+        let materialProvenance = materials.flatMap { $0.provenance ?? [] }
+        let questionProvenance = questions.flatMap { $0.provenance ?? [] }
+        let provenance = materialProvenance + questionProvenance
+        guard !sourcePapers.isEmpty || provenance.isEmpty else {
+            return ["题目或材料包含 provenance 时，必须同时提供顶层 sourcePapers 来源卷清单。"]
+        }
+        guard !sourcePapers.isEmpty else { return [] }
+
+        var errors: [String] = []
+        let ids = sourcePapers.map { $0.id.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if ids.contains(where: \.isEmpty) {
+            errors.append("sourcePapers 中每条来源卷记录都必须包含非空 id。")
+        }
+        if zip(sourcePapers.map(\.id), ids).contains(where: { pair in pair.0 != pair.1 }) {
+            errors.append("sourcePapers.id 前后不能包含空白字符。")
+        }
+        if Set(ids).count != ids.count {
+            errors.append("sourcePapers.id 必须唯一；同一来源卷只保留一条来源记录。")
+        }
+        for (index, source) in sourcePapers.enumerated() {
+            if source.originalFileName?.trimmedNonempty.isEmpty != false {
+                errors.append("sourcePapers 第\(index + 1) 条记录必须包含 originalFileName。")
+            } else if source.originalFileName != source.originalFileName?.trimmedNonempty {
+                errors.append("sourcePapers 第\(index + 1) 条记录的 originalFileName 前后不能包含空白字符。")
+            }
+            let fileSHA = source.originalFileSHA256?.trimmedNonempty ?? ""
+            if source.originalFileSHA256 != source.originalFileSHA256?.trimmedNonempty {
+                errors.append("sourcePapers 第\(index + 1) 条记录的 originalFileSHA256 前后不能包含空白字符。")
+            }
+            if fileSHA.count != 64 || !fileSHA.allSatisfy({ "0123456789abcdefABCDEF".contains($0) }) {
+                errors.append("sourcePapers 第\(index + 1) 条记录的 originalFileSHA256 必须是 64 位十六进制 SHA-256。")
+            }
+        }
+        let knownIDs = Set(ids.filter { !$0.isEmpty })
+        let indexedProvenance = Array(materialProvenance.enumerated()).map { ($0.offset, $0.element) }
+            + Array(questionProvenance.enumerated()).map { ($0.offset + materialProvenance.count, $0.element) }
+        for (index, entry) in indexedProvenance {
+            let sourcePaperID = entry.sourcePaperID.trimmedNonempty
+            if sourcePaperID.isEmpty || entry.sourcePaperID != sourcePaperID || !knownIDs.contains(sourcePaperID) {
+                errors.append("provenance 第\(index + 1) 条记录的 sourcePaperID 未出现在顶层 sourcePapers.id 中。")
+            }
+            if let number = entry.sourceQuestionNumber, number <= 0 {
+                errors.append("provenance.sourceQuestionNumber 只能是正整数。")
+            }
+            if let numbers = entry.sourceQuestionNumbers, numbers.contains(where: { $0 <= 0 }) {
+                errors.append("provenance.sourceQuestionNumbers 只能包含正整数。")
+            }
+            if entry.originalPage?.trimmedNonempty.isEmpty != false {
+                errors.append("provenance 第\(index + 1) 条记录必须提供原始 originalPage。")
+            } else if entry.originalPage != entry.originalPage?.trimmedNonempty {
+                errors.append("provenance 第\(index + 1) 条记录的 originalPage 前后不能包含空白字符。")
+            }
+        }
+        if questionProvenance.contains(where: { $0.sourceQuestionNumber == nil }) {
+            errors.append("题目 provenance 必须提供原始 sourceQuestionNumber。")
+        }
+        if materialProvenance.contains(where: {
+            $0.sourceQuestionNumber == nil && ($0.sourceQuestionNumbers?.isEmpty ?? true)
+        }) {
+            errors.append("材料 provenance 必须提供原始 sourceQuestionNumber 或非空 sourceQuestionNumbers。")
+        }
+        return errors
     }
 
     private static func validate(paper: QuestionBankPaper?, modules: [QuestionBankModule],
