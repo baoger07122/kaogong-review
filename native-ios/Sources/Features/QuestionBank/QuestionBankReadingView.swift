@@ -708,69 +708,70 @@ struct QuestionBankModuleView: View {
         .accessibilityIdentifier("question-bank-split-material-pane-\(material.id)")
     }
 
-    @ViewBuilder
     private func questionPane(_ groupedQuestions: [QuestionBankReadingItem]) -> some View {
-        if presentationMode == .single,
-           let item = currentVisibleQuestionID.flatMap({ readingItem(for: $0) }) ?? groupedQuestions.first {
-            QuestionBankInteractivePageDeck(
-                currentID: item.id,
-                previousID: QuestionBankReaderTransition.adjacentQuestionID(
-                    currentID: item.id, orderedIDs: orderedQuestionIDs, direction: -1
-                ),
-                nextID: QuestionBankReaderTransition.adjacentQuestionID(
-                    currentID: item.id, orderedIDs: orderedQuestionIDs, direction: 1
-                ),
-                isEnabled: !doodleSession.isPresented,
-                onCommit: navigateSingleQuestion(by:)
-            ) { pageID in
-                if let pageItem = readingItem(for: pageID) {
+        Group {
+            if presentationMode == .single,
+               let item = currentVisibleQuestionID.flatMap({ readingItem(for: $0) }) ?? groupedQuestions.first {
+                QuestionBankInteractivePageDeck(
+                    currentID: item.id,
+                    previousID: QuestionBankReaderTransition.adjacentQuestionID(
+                        currentID: item.id, orderedIDs: orderedQuestionIDs, direction: -1
+                    ),
+                    nextID: QuestionBankReaderTransition.adjacentQuestionID(
+                        currentID: item.id, orderedIDs: orderedQuestionIDs, direction: 1
+                    ),
+                    isEnabled: !doodleSession.isPresented,
+                    onCommit: navigateSingleQuestion(by:)
+                ) { pageID in
+                    if let pageItem = readingItem(for: pageID) {
+                        ScrollView {
+                            questionSection(pageItem, showsQuestionNumber: false)
+                                .padding(.horizontal, 18)
+                                .padding(.vertical, 10)
+                        }
+                        .scrollContentBackground(.hidden)
+                        .background(Color.white)
+                        .scrollDisabled(doodleSession.isPresented)
+                        .coordinateSpace(name: "question-bank-continuous-scroll")
+                    } else {
+                        Color.clear
+                    }
+                }
+            } else {
+                ScrollViewReader { proxy in
                     ScrollView {
-                        questionSection(pageItem, showsQuestionNumber: false)
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 10)
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(groupedQuestions) { item in
+                                questionSection(item, showsDetailButton: true)
+                            }
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 10)
                     }
                     .scrollContentBackground(.hidden)
                     .background(Color.white)
                     .scrollDisabled(doodleSession.isPresented)
                     .coordinateSpace(name: "question-bank-continuous-scroll")
-                } else {
-                    Color.clear
-                }
-            }
-        } else {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(groupedQuestions) { item in
-                            questionSection(item, showsDetailButton: true)
+                    .onPreferenceChange(QuestionBankReaderViewportPreference.self, perform: updateVisibleQuestion)
+                    .onChange(of: splitScrollRequest) { _, request in
+                        guard let request else { return }
+                        let target = groupedQuestions.first(where: { $0.id == request.questionID })?.id
+                            ?? groupedQuestions.first?.id
+                        guard let target else { return }
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            proxy.scrollTo(target, anchor: .top)
                         }
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
-                }
-                .scrollContentBackground(.hidden)
-                .background(Color.white)
-                .scrollDisabled(doodleSession.isPresented)
-                .coordinateSpace(name: "question-bank-continuous-scroll")
-                .onPreferenceChange(QuestionBankReaderViewportPreference.self, perform: updateVisibleQuestion)
-                .onChange(of: splitScrollRequest) { _, request in
-                    guard let request else { return }
-                    let target = groupedQuestions.first(where: { $0.id == request.questionID })?.id
-                        ?? groupedQuestions.first?.id
-                    guard let target else { return }
-                    withAnimation(.easeInOut(duration: 0.22)) {
-                        proxy.scrollTo(target, anchor: .top)
-                    }
-                }
-                .onAppear {
-                    let preferred = currentVisibleQuestionID
-                    let target = groupedQuestions.first(where: { $0.id == preferred })?.id
-                        ?? groupedQuestions.first(where: { $0.id == splitScrollRequest?.questionID })?.id
-                        ?? groupedQuestions.first?.id
-                    guard let target else { return }
-                    Task { @MainActor in
-                        await Task.yield()
-                        proxy.scrollTo(target, anchor: .top)
+                    .onAppear {
+                        let preferred = currentVisibleQuestionID
+                        let target = groupedQuestions.first(where: { $0.id == preferred })?.id
+                            ?? groupedQuestions.first(where: { $0.id == splitScrollRequest?.questionID })?.id
+                            ?? groupedQuestions.first?.id
+                        guard let target else { return }
+                        Task { @MainActor in
+                            await Task.yield()
+                            proxy.scrollTo(target, anchor: .top)
+                        }
                     }
                 }
             }
