@@ -41,7 +41,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         let confirmationToggle = element(app, identifier: "question-bank-confirm-answer-toggle")
         XCTAssertTrue(confirmationToggle.waitForExistence(timeout: 5))
         confirmationToggle.tap()
-        let practiceChoice = app.buttons["刷题"].firstMatch
+        let practiceChoice = app.buttons["question-bank-reading-mode-刷题"].firstMatch
         if practiceChoice.waitForExistence(timeout: 1) { practiceChoice.tap() }
 
         let optionA = app.buttons["question-bank-option-\(reader.questionID)-A"].firstMatch
@@ -59,13 +59,13 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertFalse(optionB.isEnabled, "A confirmed answer must lock the submitted selection")
 
         readerOptions.tap()
-        app.buttons["单题模式"].firstMatch.tap()
+        app.buttons["question-bank-presentation-单题"].firstMatch.tap()
         XCTAssertTrue(answerFeedback.exists, "Confirmed state must follow the stable question ID")
 
         readerOptions.tap()
-        app.buttons["看题"].firstMatch.tap()
+        app.buttons["question-bank-reading-mode-看题"].firstMatch.tap()
         readerOptions.tap()
-        app.buttons["刷题"].firstMatch.tap()
+        app.buttons["question-bank-reading-mode-刷题"].firstMatch.tap()
         XCTAssertTrue(answerFeedback.waitForExistence(timeout: 5))
         XCTAssertTrue(answerFeedback.label.contains("你的选择：B"))
 
@@ -80,7 +80,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
 
         let presentationMenu = element(app, identifier: "question-bank-reader-options")
         presentationMenu.tap()
-        app.buttons["单题模式"].firstMatch.tap()
+        app.buttons["question-bank-presentation-单题"].firstMatch.tap()
         let materialEntry = app.buttons["question-bank-single-material-\(reader.materialID)"].firstMatch
         XCTAssertTrue(materialEntry.waitForExistence(timeout: 5))
         materialEntry.tap()
@@ -139,7 +139,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         let app = reader.app
         let readerOptions = element(app, identifier: "question-bank-reader-options")
         readerOptions.tap()
-        app.buttons["单题模式"].firstMatch.tap()
+        app.buttons["question-bank-presentation-单题"].firstMatch.tap()
 
         let optionA = app.buttons["question-bank-option-\(reader.questionID)-A"].firstMatch
         XCTAssertTrue(optionA.waitForExistence(timeout: 5))
@@ -240,7 +240,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertEqual(readerOptions.label, "阅读设置")
         XCTAssertFalse(app.staticTexts["连续 · 看题"].exists)
         readerOptions.tap()
-        app.buttons["刷题"].firstMatch.tap()
+        app.buttons["question-bank-reading-mode-刷题"].firstMatch.tap()
         XCTAssertTrue(app.buttons["question-bank-option-\(questionID)-A"].waitForExistence(timeout: 10))
         XCTAssertTrue((readerOptions.value as? String)?.contains("答题方式：刷题") == true)
         assertExactStemAndHiddenInternalType(in: app, questionID: questionID)

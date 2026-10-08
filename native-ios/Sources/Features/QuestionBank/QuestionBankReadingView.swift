@@ -2264,6 +2264,8 @@ private struct QuestionBankMaterialBody: View {
 }
 
 private struct QuestionBankReaderOptionsPopover: View {
+    @Environment(\.dismiss) private var dismiss
+
     private struct Choice: Identifiable {
         let title: String
         let accessibilityLabel: String
@@ -2328,6 +2330,7 @@ private struct QuestionBankReaderOptionsPopover: View {
                 ForEach(options) { option in
                     Button {
                         onSelect(option.title)
+                        dismiss()
                     } label: {
                         Text(option.title)
                             .font(AppTheme.auxiliaryFont.weight(.medium))
