@@ -911,6 +911,7 @@ private struct QuestionBankPaperSwipeRow<Content: View>: View {
             .accessibilityIdentifier("question-bank-paper-delete-action")
             .opacity(revealOffset > 0 ? 1 : 0)
             .allowsHitTesting(revealOffset > 0)
+            .accessibilityHidden(revealOffset <= 0)
 
             content
                 .offset(x: revealOffset)
