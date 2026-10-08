@@ -915,31 +915,31 @@ private struct QuestionBankPaperSwipeRow<Content: View>: View {
             content
                 .offset(x: revealOffset)
                 .contentShape(Rectangle())
+                .highPriorityGesture(
+                    DragGesture(minimumDistance: 18, coordinateSpace: .local)
+                        .onChanged { value in
+                            guard abs(value.translation.width) > abs(value.translation.height) * 1.25 else { return }
+                            if dragStartOffset == nil { dragStartOffset = revealOffset }
+                            let proposed = (dragStartOffset ?? revealOffset) + value.translation.width
+                            withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.88)) {
+                                revealOffset = min(82, max(0, proposed))
+                            }
+                        }
+                        .onEnded { value in
+                            defer { dragStartOffset = nil }
+                            guard abs(value.translation.width) > abs(value.translation.height) * 1.25 else { return }
+                            let finalOffset = (dragStartOffset ?? revealOffset) + value.translation.width
+                            withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.88)) {
+                                if finalOffset > 41 {
+                                    revealOffset = 82
+                                } else {
+                                    revealOffset = 0
+                                }
+                            }
+                        }
+                )
         }
         .contentShape(Rectangle())
-        .highPriorityGesture(
-            DragGesture(minimumDistance: 18, coordinateSpace: .local)
-                .onChanged { value in
-                    guard abs(value.translation.width) > abs(value.translation.height) * 1.25 else { return }
-                    if dragStartOffset == nil { dragStartOffset = revealOffset }
-                    let proposed = (dragStartOffset ?? revealOffset) + value.translation.width
-                    withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.88)) {
-                        revealOffset = min(82, max(0, proposed))
-                    }
-                }
-                .onEnded { value in
-                    defer { dragStartOffset = nil }
-                    guard abs(value.translation.width) > abs(value.translation.height) * 1.25 else { return }
-                    let finalOffset = (dragStartOffset ?? revealOffset) + value.translation.width
-                    withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.88)) {
-                        if finalOffset > 41 {
-                            revealOffset = 82
-                        } else {
-                            revealOffset = 0
-                        }
-                    }
-                }
-        )
         .accessibilityHint("向右滑动以显示删除按钮")
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardRadius))
     }
