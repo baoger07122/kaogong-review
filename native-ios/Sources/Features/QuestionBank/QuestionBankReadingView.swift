@@ -709,6 +709,7 @@ struct QuestionBankModuleView: View {
             .scrollContentBackground(.hidden)
             .background(Color.white)
             .scrollDisabled(doodleSession.isPresented)
+            .accessibilityIdentifier("question-bank-material-panel-scroll")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.white)
@@ -1131,6 +1132,7 @@ struct QuestionBankModuleView: View {
                     .scrollContentBackground(.hidden)
                     .background(Color.white)
                     .scrollDisabled(doodleSession.isPresented)
+                    .accessibilityIdentifier("question-bank-material-panel-scroll")
                     .navigationTitle("共用材料")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {

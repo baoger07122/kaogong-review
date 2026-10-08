@@ -156,16 +156,36 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["五、资料分析"].exists)
         XCTAssertFalse(app.staticTexts["1."].exists)
 
-        let scrollView = app.scrollViews["question-bank-single-page-scroll"].firstMatch
-        XCTAssertTrue(scrollView.waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["question-bank-single-next"].exists)
         XCTAssertFalse(app.buttons["question-bank-single-previous"].exists)
 
+        let materialEntry = app.buttons["question-bank-single-material-\(reader.materialID)"].firstMatch
+        XCTAssertTrue(materialEntry.waitForExistence(timeout: 5))
+        materialEntry.tap()
+        let materialScroll = app.scrollViews["question-bank-material-panel-scroll"].firstMatch
+        XCTAssertTrue(materialScroll.waitForExistence(timeout: 5))
+        let longMaterial = materialScroll.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "长材料用于验证单题模式保留纵向阅读")
+        ).firstMatch
+        XCTAssertTrue(longMaterial.waitForExistence(timeout: 5))
+        let materialAtTop = longMaterial.frame.minY
+        materialScroll.swipeUp()
+        XCTAssertLessThan(longMaterial.frame.minY, materialAtTop, "Long material must remain vertically readable")
+
+        let closeSplit = app.buttons["question-bank-close-material-split"].firstMatch
+        if closeSplit.waitForExistence(timeout: 1) {
+            closeSplit.tap()
+        } else {
+            app.buttons["完成"].firstMatch.tap()
+        }
+
+        let scrollView = app.scrollViews["question-bank-single-page-scroll"].firstMatch
+        XCTAssertTrue(scrollView.waitForExistence(timeout: 5))
         let stem = element(app, identifier: "question-bank-question-stem-\(reader.questionID)")
         XCTAssertTrue(stem.waitForExistence(timeout: 5))
         let stemAtTop = stem.frame.minY
         scrollView.swipeUp()
-        XCTAssertTrue(stem.isHittable, "Long material should remain vertically readable in single mode")
+        XCTAssertTrue(stem.isHittable, "Long question stem should remain vertically readable in single mode")
         XCTAssertLessThan(stem.frame.minY, stemAtTop)
 
         let stemBeforeDiagonalDrag = stem.frame.minY
@@ -450,7 +470,16 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
             readerOptions.tap()
             app.buttons["question-bank-presentation-连续"].firstMatch.tap()
         }
-        assertExactStemAndHiddenInternalType(in: app, questionID: questionID)
+        if longContent {
+            let longStem = element(app, identifier: "question-bank-question-stem-\(questionID)")
+            XCTAssertTrue(longStem.waitForExistence(timeout: 5))
+            XCTAssertTrue(longStem.label.hasPrefix("长题干内容用于验证单题模式纵向阅读"))
+            XCTAssertFalse(
+                app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "纯文字")).firstMatch.exists
+            )
+        } else {
+            assertExactStemAndHiddenInternalType(in: app, questionID: questionID)
+        }
         return ReaderUITestContext(
             app: app,
             paperID: paperID,

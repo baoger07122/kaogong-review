@@ -23,9 +23,11 @@ enum QuestionBankReaderUITestFixture {
         let paperID = Self.paperID
         let moduleID = Self.moduleID
         let materialID = Self.materialID
+        let longPaperTitle = "2025年度中央机关及其直属机构公务员录用考试行政职业能力测验（市地级及以下职位真题试卷）"
+            + String(repeating: "长标题换行验证", count: 18)
         let paper = QuestionBankPaper(
             id: paperID,
-            title: "2025年度中央机关及其直属机构公务员录用考试行政职业能力测验（市地级及以下职位真题试卷长标题自动换行验证专用测试文本）",
+            title: longPaperTitle,
             year: 2025,
             examType: "测试",
             volume: "交互夹具",
@@ -40,9 +42,13 @@ enum QuestionBankReaderUITestFixture {
             instruction: "请选择正确选项。",
             originalPage: "1"
         )
-        let materialText = ProcessInfo.processInfo.arguments.contains(longContentArgument)
+        let usesLongContent = ProcessInfo.processInfo.arguments.contains(longContentArgument)
+        let materialText = usesLongContent
             ? String(repeating: "长材料用于验证单题模式保留纵向阅读；横向翻页时页面应锁定垂直位移。\n", count: 70)
             : "用于检验共享材料分屏下的涂鸦命中区域。"
+        let questionStem = usesLongContent
+            ? String(repeating: "长题干内容用于验证单题模式纵向阅读与横向翻页时垂直锁定。", count: 110)
+            : "下列哪项是本题正确答案？____并保留连续空位__。"
         let material = QuestionBankMaterial(
             id: materialID,
             paperID: paperID,
@@ -61,7 +67,7 @@ enum QuestionBankReaderUITestFixture {
             subject: "行测",
             type: "纯文字",
             materialID: materialID,
-            stem: "下列哪项是本题正确答案？____并保留连续空位__。",
+            stem: questionStem,
             stemImageAssetID: "",
             options: [
                 QuestionBankOption(id: "A", text: "用于测试的错误选项", imageAssetID: ""),
