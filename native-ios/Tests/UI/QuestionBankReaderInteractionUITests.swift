@@ -99,7 +99,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         let singleScroll = app.scrollViews["question-bank-single-page-scroll"].firstMatch
         XCTAssertTrue(singleScroll.waitForExistence(timeout: 5))
         let position = element(app, identifier: "question-bank-single-position")
-        XCTAssertEqual(position.label, "1/2")
+        XCTAssertTrue(position.label.contains("1/2"))
         XCTAssertFalse(app.buttons["question-bank-single-next"].exists)
         XCTAssertFalse(app.buttons["question-bank-single-previous"].exists)
 
@@ -138,17 +138,17 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
             forDuration: 0.05,
             thenDragTo: deckEnd
         )
-        XCTAssertEqual(position.label, "1/2", "Doodle mode must block page navigation")
+        XCTAssertTrue(position.label.contains("1/2"), "Doodle mode must block page navigation")
 
         app.buttons["library-doodle-close"].tap()
         XCTAssertFalse(closeSplit.exists, "Doodle taps must not reopen or replace the closed split")
-        XCTAssertEqual(position.label, "1/2", "Doodle taps must not advance to the next question")
+        XCTAssertTrue(position.label.contains("1/2"), "Doodle taps must not advance to the next question")
         XCTAssertFalse(app.images["你的选择"].exists, "Doodle taps must not select an option")
     }
 
     @MainActor
     func testSingleQuestionHorizontalSwipesRetainSelectionAndReturnToTop() throws {
-        let reader = launchPracticeReader()
+        let reader = launchPracticeReader(longContent: true)
         let app = reader.app
         let readerOptions = element(app, identifier: "question-bank-reader-options")
         readerOptions.tap()
@@ -156,31 +156,54 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["五、资料分析"].exists)
         XCTAssertFalse(app.staticTexts["1."].exists)
 
+        let scrollView = app.scrollViews["question-bank-single-page-scroll"].firstMatch
+        XCTAssertTrue(scrollView.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["question-bank-single-next"].exists)
+        XCTAssertFalse(app.buttons["question-bank-single-previous"].exists)
+
+        let stem = element(app, identifier: "question-bank-question-stem-\(reader.questionID)")
+        XCTAssertTrue(stem.waitForExistence(timeout: 5))
+        let stemAtTop = stem.frame.minY
+        scrollView.swipeUp()
+        XCTAssertTrue(stem.isHittable, "Long material should remain vertically readable in single mode")
+        XCTAssertLessThan(stem.frame.minY, stemAtTop)
+
+        let stemBeforeDiagonalDrag = stem.frame.minY
+        let diagonalStart = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.80, dy: 0.50))
+        let diagonalEnd = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.76, dy: 0.51))
+        diagonalStart.press(forDuration: 0.05, thenDragTo: diagonalEnd)
+        let position = element(app, identifier: "question-bank-single-position")
+        XCTAssertTrue(position.label.contains("1/2"), "A short diagonal drag should rebound on the same page")
+        XCTAssertLessThanOrEqual(
+            abs(stem.frame.minY - stemBeforeDiagonalDrag),
+            2,
+            "A horizontal drag must not move page content vertically"
+        )
+
         let optionA = app.buttons["question-bank-option-\(reader.questionID)-A"].firstMatch
-        XCTAssertTrue(optionA.waitForExistence(timeout: 5))
+        if !optionA.isHittable { scrollView.swipeUp() }
+        XCTAssertTrue(optionA.isHittable)
         optionA.tap()
         let answerFeedback = app.descendants(matching: .any)
             .matching(identifier: "question-bank-answer-feedback-\(reader.questionID)").firstMatch
         XCTAssertTrue(answerFeedback.waitForExistence(timeout: 5))
 
-        let scrollView = app.scrollViews["question-bank-single-page-scroll"].firstMatch
-        XCTAssertTrue(scrollView.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["question-bank-single-next"].exists)
-        XCTAssertFalse(app.buttons["question-bank-single-previous"].exists)
         scrollView.swipeLeft()
-        let position = element(app, identifier: "question-bank-single-position")
         let secondQuestion = "\(reader.paperID)-question-2"
         let secondQuestionVisible = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "label == %@", "2/2"),
+            predicate: NSPredicate(format: "label CONTAINS %@", "2/2"),
             object: position
         )
         XCTAssertEqual(XCTWaiter.wait(for: [secondQuestionVisible], timeout: 5), .completed)
-        XCTAssertTrue(app.buttons["question-bank-option-\(secondQuestion)-A"].waitForExistence(timeout: 5))
+        let secondOption = app.buttons["question-bank-option-\(secondQuestion)-A"].firstMatch
+        XCTAssertTrue(secondOption.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["单项选择题"].exists)
+        if !secondOption.isHittable { scrollView.swipeUp() }
+        XCTAssertTrue(secondOption.isHittable, "A long single-mode page must still scroll to its options")
 
         scrollView.swipeRight()
         let firstQuestionVisible = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "label == %@", "1/2"),
+            predicate: NSPredicate(format: "label CONTAINS %@", "1/2"),
             object: position
         )
         XCTAssertEqual(XCTWaiter.wait(for: [firstQuestionVisible], timeout: 5), .completed)
@@ -235,6 +258,21 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         tab.tap()
 
         XCTAssertTrue(app.buttons["question-bank-paper-\(paperID)"].waitForExistence(timeout: 10))
+        let longTitlePaper = element(app, identifier: "question-bank-paper-\(paperID)")
+        let compactPaper = element(app, identifier: "question-bank-paper-ui-test-\(sessionID)-compact-paper")
+        XCTAssertTrue(compactPaper.waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(
+            longTitlePaper.frame.height,
+            compactPaper.frame.height + 5,
+            "A two-line paper title should make its capsule taller than a one-line title"
+        )
+        XCTAssertFalse(element(app, identifier: "question-bank-import").exists)
+        let managementMenu = element(app, identifier: "question-bank-management-menu")
+        managementMenu.tap()
+        let importAction = element(app, identifier: "question-bank-import")
+        XCTAssertTrue(importAction.waitForExistence(timeout: 5), "Import should remain available from the top-right menu")
+        XCTAssertEqual(importAction.label, "导入真题包")
+        app.buttons["清除筛选"].tap()
         XCTAssertFalse(element(app, identifier: "question-bank-search-field").exists)
         XCTAssertFalse(element(app, identifier: "question-bank-module-filter-all").exists)
 
@@ -279,7 +317,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
     }
 
     @MainActor
-    func testQuestionDetailOpensFromContinuousCardAndOverviewCard() throws {
+    func testQuestionDetailOpensFromContinuousNumberAndSingleProgress() throws {
         let reader = launchPracticeReader()
         let app = reader.app
         app.buttons["question-bank-option-\(reader.questionID)-A"].tap()
@@ -298,18 +336,78 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
 
         app.buttons["question-bank-number-overview"].tap()
         app.buttons["卡片"].tap()
-        let overviewDetail = app.buttons["question-bank-overview-detail-\(reader.questionID)"].firstMatch
-        XCTAssertTrue(overviewDetail.waitForExistence(timeout: 5))
-        overviewDetail.tap()
+        XCTAssertFalse(app.buttons["question-bank-overview-detail-\(reader.questionID)"].exists)
+        let overviewItem = app.buttons["question-bank-overview-item-\(reader.questionID)"].firstMatch
+        XCTAssertTrue(overviewItem.waitForExistence(timeout: 5))
+        overviewItem.tap()
+
+        let singlePosition = app.buttons["question-bank-single-position"].firstMatch
+        XCTAssertTrue(singlePosition.waitForExistence(timeout: 5))
+        XCTAssertTrue(singlePosition.label.contains("1/2"))
+        singlePosition.tap()
         XCTAssertTrue(app.navigationBars["第1题详情"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["用于检验共享材料分屏下的涂鸦命中区域。"].exists)
         assertExactStemAndHiddenInternalType(in: app, questionID: reader.questionID)
-        XCTAssertTrue(answerFeedback.exists, "The overview detail must retain the selected option state")
+        XCTAssertTrue(answerFeedback.exists, "Switching presentation must retain the selected answer")
     }
 
     @MainActor
-    private func launchPracticeReader(expectAutomaticMaterialSplit: Bool = false) -> ReaderUITestContext {
+    func testPresentationModePreferenceSurvivesRestartAndOtherReaders() throws {
         let sessionID = UUID().uuidString
+        let reader = launchPracticeReader(sessionID: sessionID)
+        let app = reader.app
+        let readerOptions = element(app, identifier: "question-bank-reader-options")
+        readerOptions.tap()
+        app.buttons["question-bank-presentation-单题"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["question-bank-single-position"].waitForExistence(timeout: 5))
+
+        app.terminate()
+        app.launch()
+        let tab = app.buttons["root-tab-questionBank"].firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 15))
+        tab.tap()
+        app.buttons["question-bank-paper-\(reader.paperID)"].tap()
+        let firstModuleID = "ui-test-\(sessionID)-module"
+        app.buttons["question-bank-module-\(firstModuleID)"].tap()
+        let reopenedOptions = element(app, identifier: "question-bank-reader-options")
+        XCTAssertTrue(reopenedOptions.waitForExistence(timeout: 10))
+        XCTAssertTrue((reopenedOptions.value as? String)?.contains("浏览方式：单题") == true)
+        XCTAssertTrue(app.buttons["question-bank-single-position"].exists)
+
+        app.navigationBars.buttons.firstMatch.tap()
+        app.navigationBars.buttons.firstMatch.tap()
+        let compactPaperID = "ui-test-\(sessionID)-compact-paper"
+        app.buttons["question-bank-paper-\(compactPaperID)"].tap()
+        let compactModuleID = "ui-test-\(sessionID)-compact-module"
+        app.buttons["question-bank-module-\(compactModuleID)"].tap()
+        let otherPaperOptions = element(app, identifier: "question-bank-reader-options")
+        XCTAssertTrue(otherPaperOptions.waitForExistence(timeout: 10))
+        XCTAssertTrue((otherPaperOptions.value as? String)?.contains("浏览方式：单题") == true)
+
+        app.navigationBars.buttons.firstMatch.tap()
+        app.navigationBars.buttons.firstMatch.tap()
+        app.buttons["question-bank-filter-toggle"].tap()
+        let dataAnalysis = app.buttons["question-bank-module-filter-资料分析"].firstMatch
+        XCTAssertTrue(dataAnalysis.waitForExistence(timeout: 5))
+        dataAnalysis.tap()
+        app.buttons["question-bank-scope-all-questions"].tap()
+        let crossPaperOptions = element(app, identifier: "question-bank-reader-options")
+        XCTAssertTrue(crossPaperOptions.waitForExistence(timeout: 10))
+        XCTAssertTrue((crossPaperOptions.value as? String)?.contains("浏览方式：单题") == true)
+        let crossPaperPosition = app.buttons["question-bank-single-position"].firstMatch
+        XCTAssertTrue(crossPaperPosition.waitForExistence(timeout: 5))
+        XCTAssertTrue(crossPaperPosition.label.contains("/3"))
+        crossPaperPosition.tap()
+        XCTAssertTrue(app.navigationBars["第1题详情"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    private func launchPracticeReader(
+        expectAutomaticMaterialSplit: Bool = false,
+        longContent: Bool = false,
+        sessionID requestedSessionID: String? = nil
+    ) -> ReaderUITestContext {
+        let sessionID = requestedSessionID ?? UUID().uuidString
         let paperID = "ui-test-\(sessionID)-paper"
         let moduleID = "ui-test-\(sessionID)-module"
         let materialID = "ui-test-\(sessionID)-material"
@@ -319,6 +417,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
             "--question-bank-reader-ui-test",
             "--question-bank-reader-ui-test-session=\(sessionID)"
         ]
+        if longContent { app.launchArguments.append("--question-bank-reader-ui-test-long-content") }
         app.launch()
         let tab = app.buttons["root-tab-questionBank"].firstMatch
         XCTAssertTrue(tab.waitForExistence(timeout: 15))
@@ -347,6 +446,10 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertTrue((readerOptions.value as? String)?.contains("答题方式：刷题") == true)
         XCTAssertTrue(app.buttons["question-bank-option-\(questionID)-A"].waitForExistence(timeout: 10))
         XCTAssertTrue((readerOptions.value as? String)?.contains("答题方式：刷题") == true)
+        if (readerOptions.value as? String)?.contains("浏览方式：连续") != true {
+            readerOptions.tap()
+            app.buttons["question-bank-presentation-连续"].firstMatch.tap()
+        }
         assertExactStemAndHiddenInternalType(in: app, questionID: questionID)
         return ReaderUITestContext(
             app: app,

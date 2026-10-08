@@ -6,12 +6,15 @@ enum QuestionBankReaderUITestFixture {
     static let launchArgument = "--question-bank-reader-ui-test"
     static var isEnabled: Bool { ProcessInfo.processInfo.arguments.contains(launchArgument) }
     private static let sessionArgumentPrefix = "--question-bank-reader-ui-test-session="
+    private static let longContentArgument = "--question-bank-reader-ui-test-long-content"
     private static var sessionID: String {
         ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix(sessionArgumentPrefix) })
             .map { String($0.dropFirst(sessionArgumentPrefix.count)) } ?? "missing-session"
     }
     static var paperID: String { "ui-test-\(sessionID)-paper" }
     static var moduleID: String { "ui-test-\(sessionID)-module" }
+    static var compactPaperID: String { "ui-test-\(sessionID)-compact-paper" }
+    static var compactModuleID: String { "ui-test-\(sessionID)-compact-module" }
     static var materialID: String { "ui-test-\(sessionID)-material" }
     static var questionID: String { "ui-test-\(sessionID)-question-1" }
 
@@ -22,7 +25,7 @@ enum QuestionBankReaderUITestFixture {
         let materialID = Self.materialID
         let paper = QuestionBankPaper(
             id: paperID,
-            title: "交互测试题库",
+            title: "2025年度中央机关及其直属机构公务员录用考试行政职业能力测验（市地级及以下职位真题试卷长标题自动换行验证专用测试文本）",
             year: 2025,
             examType: "测试",
             volume: "交互夹具",
@@ -37,12 +40,15 @@ enum QuestionBankReaderUITestFixture {
             instruction: "请选择正确选项。",
             originalPage: "1"
         )
+        let materialText = ProcessInfo.processInfo.arguments.contains(longContentArgument)
+            ? String(repeating: "长材料用于验证单题模式保留纵向阅读；横向翻页时页面应锁定垂直位移。\n", count: 70)
+            : "用于检验共享材料分屏下的涂鸦命中区域。"
         let material = QuestionBankMaterial(
             id: materialID,
             paperID: paperID,
             moduleID: moduleID,
             type: "文字材料",
-            text: "用于检验共享材料分屏下的涂鸦命中区域。",
+            text: materialText,
             imageAssetID: "",
             applicableQuestions: "1-2",
             originalPage: "1"
@@ -87,6 +93,41 @@ enum QuestionBankReaderUITestFixture {
             explanation: "交互测试夹具解析。",
             originalPage: "1"
         )
+        let compactPaper = QuestionBankPaper(
+            id: Self.compactPaperID,
+            title: "2024国考真题",
+            year: 2024,
+            examType: "测试",
+            volume: "跨卷偏好夹具",
+            source: "ui-test",
+            importVersion: "1"
+        )
+        let compactModule = QuestionBankModule(
+            id: Self.compactModuleID,
+            paperID: Self.compactPaperID,
+            sequence: 1,
+            title: "五、资料分析",
+            instruction: "请选择正确选项。",
+            originalPage: "1"
+        )
+        let compactQuestion = QuestionBankQuestion(
+            id: "\(Self.compactPaperID)-question-1",
+            paperID: Self.compactPaperID,
+            moduleID: Self.compactModuleID,
+            number: 1,
+            subject: "资料分析",
+            type: "单项选择题",
+            materialID: "",
+            stem: "用于验证阅读方式偏好会应用到另一张试卷。",
+            stemImageAssetID: "",
+            options: [
+                QuestionBankOption(id: "A", text: "选项A", imageAssetID: ""),
+                QuestionBankOption(id: "B", text: "选项B", imageAssetID: "")
+            ],
+            answer: "A",
+            explanation: "跨试卷偏好夹具解析。",
+            originalPage: "1"
+        )
 
         try insert(paper, kind: QuestionBankRepository.paperKind, id: paperID,
                    year: paper.year, examType: paper.examType, title: paper.title,
@@ -102,6 +143,19 @@ enum QuestionBankReaderUITestFixture {
         try insert(nextQuestion, kind: QuestionBankRepository.questionKind, id: nextQuestion.id,
                    moduleID: moduleID, number: nextQuestion.number, title: "第2题",
                    searchText: nextQuestion.stem + " " + nextQuestion.options.map(\.text).joined(separator: " "), in: context)
+        try insert(compactPaper, kind: QuestionBankRepository.paperKind, id: Self.compactPaperID,
+                   paperID: Self.compactPaperID, year: compactPaper.year, examType: compactPaper.examType,
+                   title: compactPaper.title, searchText: compactPaper.title,
+                   normalizedPaperKey: compactPaper.duplicateKey, in: context)
+        try insert(compactModule, kind: QuestionBankRepository.moduleKind, id: Self.compactModuleID,
+                   paperID: Self.compactPaperID, moduleID: Self.compactModuleID,
+                   sequence: compactModule.sequence, title: compactModule.title,
+                   searchText: compactModule.title, in: context)
+        try insert(compactQuestion, kind: QuestionBankRepository.questionKind, id: compactQuestion.id,
+                   paperID: Self.compactPaperID, moduleID: Self.compactModuleID,
+                   number: compactQuestion.number, title: "第1题",
+                   searchText: compactQuestion.stem + " " + compactQuestion.options.map(\.text).joined(separator: " "),
+                   in: context)
         try context.save()
     }
 
@@ -109,6 +163,7 @@ enum QuestionBankReaderUITestFixture {
         _ value: Value,
         kind: String,
         id: String,
+        paperID: String? = nil,
         moduleID: String? = nil,
         number: Int? = nil,
         sequence: Int? = nil,
@@ -119,11 +174,12 @@ enum QuestionBankReaderUITestFixture {
         normalizedPaperKey: String? = nil,
         in context: ModelContext
     ) throws {
+        let resolvedPaperID = paperID ?? Self.paperID
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         context.insert(QuestionBankRecord(
-            compoundID: "\(paperID)::\(kind)::\(id)",
-            paperID: QuestionBankReaderUITestFixture.paperID,
+            compoundID: "\(resolvedPaperID)::\(kind)::\(id)",
+            paperID: resolvedPaperID,
             kind: kind,
             stableID: id,
             moduleID: moduleID,

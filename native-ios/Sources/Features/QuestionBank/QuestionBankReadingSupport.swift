@@ -47,6 +47,7 @@ enum QuestionBankTypography {
 
 enum QuestionBankReaderPreferences {
     static let confirmAnswerAfterSelectionKey = "question-bank.confirm-answer-after-selection"
+    static let presentationModeKey = "question-bank.presentation-mode"
 }
 
 struct QuestionBankDoodleMemoryCache {
@@ -83,6 +84,14 @@ struct QuestionBankDoodleMemoryCache {
 
 enum QuestionBankHorizontalSwipe {
     /// Returns 1 for a left swipe (next), -1 for a right swipe (previous).
+    static func isHorizontalIntent(
+        horizontal: CGFloat,
+        vertical: CGFloat,
+        minimumDistance: CGFloat = 8
+    ) -> Bool {
+        abs(horizontal) >= minimumDistance && abs(horizontal) > abs(vertical) * 1.2
+    }
+
     static func direction(
         horizontal: CGFloat,
         vertical: CGFloat,
@@ -100,9 +109,10 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
     let nextID: PageID?
     let isEnabled: Bool
     let onCommit: (Int) -> Void
-    private let page: (PageID) -> Page
+    private let page: (PageID, Bool) -> Page
     @State private var dragOffset: CGFloat = 0
     @State private var isCommitting = false
+    @State private var isHorizontalPagingDrag = false
     @State private var commitTask: Task<Void, Never>?
 
     init(
@@ -111,7 +121,7 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
         nextID: PageID?,
         isEnabled: Bool,
         onCommit: @escaping (Int) -> Void,
-        @ViewBuilder page: @escaping (PageID) -> Page
+        @ViewBuilder page: @escaping (PageID, Bool) -> Page
     ) {
         self.currentID = currentID
         self.previousID = previousID
@@ -130,27 +140,28 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 if let previewID {
-                    page(previewID)
+                    page(previewID, isHorizontalPagingDrag)
                         .offset(x: dragOffset < 0 ? geometry.size.width + dragOffset : -geometry.size.width + dragOffset)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
-                page(currentID)
+                page(currentID, isHorizontalPagingDrag)
                     .offset(x: dragOffset)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .clipped()
             .contentShape(Rectangle())
             .simultaneousGesture(
-                DragGesture(minimumDistance: 22, coordinateSpace: .local)
+                DragGesture(minimumDistance: 8, coordinateSpace: .local)
                     .onChanged { value in
                         guard isEnabled, !isCommitting else { return }
                         let horizontal = value.translation.width
                         let vertical = value.translation.height
-                        guard abs(horizontal) > abs(vertical) * 1.2, abs(horizontal) > 10 else {
-                            if abs(vertical) > abs(horizontal) { dragOffset = 0 }
-                            return
-                        }
+                        guard QuestionBankHorizontalSwipe.isHorizontalIntent(
+                            horizontal: horizontal,
+                            vertical: vertical
+                        ) else { return }
+                        isHorizontalPagingDrag = true
                         let width = max(1, geometry.size.width)
                         if horizontal < 0 {
                             dragOffset = nextID == nil
@@ -171,12 +182,14 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
                             withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.86)) {
                                 dragOffset = 0
                             }
+                            releaseHorizontalLockAfterRebound()
                             return
                         }
                         guard direction > 0 ? nextID != nil : previousID != nil else {
                             withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.86)) {
                                 dragOffset = 0
                             }
+                            releaseHorizontalLockAfterRebound()
                             return
                         }
                         isCommitting = true
@@ -193,15 +206,29 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
                                 onCommit(direction)
                                 dragOffset = 0
                                 isCommitting = false
+                                isHorizontalPagingDrag = false
                             }
                         }
                     }
             )
         }
         .onChange(of: currentID) { _, _ in
-            if !isCommitting { dragOffset = 0 }
+            if !isCommitting {
+                dragOffset = 0
+                isHorizontalPagingDrag = false
+            }
         }
         .onDisappear { commitTask?.cancel() }
+    }
+
+    private func releaseHorizontalLockAfterRebound() {
+        guard isHorizontalPagingDrag else { return }
+        commitTask?.cancel()
+        commitTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 260_000_000)
+            guard !Task.isCancelled else { return }
+            isHorizontalPagingDrag = false
+        }
     }
 }
 

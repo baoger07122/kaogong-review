@@ -596,6 +596,9 @@ final class QuestionBankImportTests: XCTestCase {
     }
 
     func testQuestionBankHorizontalSwipeRequiresHorizontalIntentAndMinimumDistance() {
+        XCTAssertTrue(QuestionBankHorizontalSwipe.isHorizontalIntent(horizontal: 12, vertical: 3))
+        XCTAssertFalse(QuestionBankHorizontalSwipe.isHorizontalIntent(horizontal: 12, vertical: 14))
+        XCTAssertFalse(QuestionBankHorizontalSwipe.isHorizontalIntent(horizontal: 7, vertical: 0))
         XCTAssertEqual(QuestionBankHorizontalSwipe.direction(horizontal: -80, vertical: 12), 1)
         XCTAssertEqual(QuestionBankHorizontalSwipe.direction(horizontal: 80, vertical: -8), -1)
         XCTAssertNil(QuestionBankHorizontalSwipe.direction(horizontal: 20, vertical: 0))

@@ -142,8 +142,7 @@ struct QuestionBankView: View {
         let index = QuestionBankHomeIndex(records: records)
         let filter = homeFilter
         let visiblePapers = index.visiblePapers(matching: filter)
-        return ZStack(alignment: .bottomTrailing) {
-            ScrollView {
+        return ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let importStatusMessage = importProgress.message {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -226,7 +225,7 @@ struct QuestionBankView: View {
                             color: AppTheme.accent
                         )
                     } else {
-                        LazyVStack(spacing: 10) {
+                        LazyVStack(spacing: 6) {
                             ForEach(visiblePapers) { paper in
                                 QuestionBankPaperSwipeRow(onDelete: {
                                     paperPendingDeletion = paper.record
@@ -256,9 +255,6 @@ struct QuestionBankView: View {
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .background(Color.white)
-            importButton
         }
         .background(Color.white)
         .navigationTitle("真题库")
@@ -290,6 +286,7 @@ struct QuestionBankView: View {
                     } label: {
                         Label("导入真题包", systemImage: "square.and.arrow.down")
                     }
+                    .accessibilityIdentifier("question-bank-import")
                     Button {
                         clearFilters()
                         searchText = ""
@@ -376,32 +373,6 @@ struct QuestionBankView: View {
         .onChange(of: showImportAlert) { _, isShowing in
             if !isShowing { processPendingExternalFileIfPossible() }
         }
-    }
-
-    private var importButton: some View {
-        Button {
-            presentDocumentPicker()
-        } label: {
-            Group {
-                if isPreparingImport || isCommittingImport {
-                    ProgressView()
-                        .tint(.white)
-                } else {
-                    Image(systemName: "plus")
-                        .font(.system(size: 23, weight: .medium))
-                        .foregroundStyle(.white)
-                }
-            }
-            .frame(width: 54, height: 54)
-            .background(AppTheme.accent, in: Circle())
-            .shadow(color: AppTheme.accent.opacity(0.28), radius: 12, y: 5)
-        }
-        .buttonStyle(NativePressButtonStyle())
-        .disabled(isPreparingImport || isCommittingImport)
-        .accessibilityLabel("导入真题包")
-        .accessibilityIdentifier("question-bank-import")
-        .padding(.trailing, 18)
-        .padding(.bottom, 72)
     }
 
     private var searchField: some View {
@@ -579,14 +550,22 @@ struct QuestionBankView: View {
                 .font(AppTheme.cardTitleFont)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text("\(questionCount)题")
                 .font(AppTheme.auxiliaryFont.weight(.medium))
                 .foregroundStyle(.secondary)
                 .fixedSize()
         }
-        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-        .nativeCard(padding: 15)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .background(Color.white, in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(Color(uiColor: .separator).opacity(0.2), lineWidth: 1)
+        }
+        .contentShape(Capsule())
     }
 
     @ViewBuilder
@@ -941,7 +920,7 @@ private struct QuestionBankPaperSwipeRow<Content: View>: View {
         }
         .contentShape(Rectangle())
         .accessibilityHint("向右滑动以显示删除按钮")
-        .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardRadius))
+        .clipShape(Capsule())
     }
 }
 
