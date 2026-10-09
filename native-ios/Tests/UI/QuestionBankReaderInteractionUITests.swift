@@ -625,7 +625,6 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         let paperRow = app.buttons["question-bank-paper-\(reader.paperID)"].firstMatch
         XCTAssertTrue(paperRow.waitForExistence(timeout: 5))
         paperRow.tap()
-        app.navigationBars.buttons.firstMatch.tap()
         let paperManagement = element(app, identifier: "question-bank-paper-management-menu")
         XCTAssertTrue(paperManagement.waitForExistence(timeout: 5))
         paperManagement.tap()
