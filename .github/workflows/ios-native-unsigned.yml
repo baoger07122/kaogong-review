@@ -92,35 +92,43 @@ jobs:
           RUN_NAVIGATION=false
           RUN_CONTRACTS=false
           if [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && [[ ! "$BEFORE_SHA" =~ ^0+$ ]]; then
-            CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")
-            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/Features/QuestionBank/|Tests/QuestionBank/)'; then
+            if ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+              echo "Previous commit is unavailable; running all focused simulator test groups."
               RUN_SIMULATOR=true
               RUN_QUESTION_BANK=true
-            fi
-            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Tests/UI/QuestionBankReaderInteractionUITests\.swift$'; then
-              RUN_SIMULATOR=true
-              RUN_QUESTION_BANK=true
-            fi
-            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Sources/Features/Library/(LibraryRecordRepository\.swift|LibraryRecordModels\.swift|LibraryDoodleSession\.swift|ShenlunAdaptationView\.swift)$'; then
-              RUN_SIMULATOR=true
-              RUN_QUESTION_BANK=true
-            fi
-            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Sources/Features/Shared/NativePencilDrawingEditor\.swift$'; then
-              RUN_SIMULATOR=true
-              RUN_QUESTION_BANK=true
-            fi
-            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/App/RootTabView\.swift|Sources/Features/Review/ReviewView\.swift|Tests/UI/SpeedInteractionUITests\.swift)$'; then
-              RUN_SIMULATOR=true
               RUN_NAVIGATION=true
-            fi
-            if echo "$CHANGED_FILES" | grep -Eq '^\.github/workflows/ios-native-unsigned\.yml$'; then
-              RUN_SIMULATOR=true
-              RUN_QUESTION_BANK=true
-            fi
-            # These source-only contracts cover keypad, form, and rich-text changes;
-            # unrelated feature releases should not spend time running them.
-            if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/Features/Speed/|Sources/Features/Library/LibraryRecordEditorView\.swift|Sources/Features/Shared/NativeRichTextEditor\.swift|Tests/(Animation/|Speed/|speed-feedback-contracts\.cjs|document-form-contracts\.cjs|rich-text-toolbar-contracts\.cjs))'; then
               RUN_CONTRACTS=true
+            else
+              CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")
+              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/Features/QuestionBank/|Tests/QuestionBank/)'; then
+                RUN_SIMULATOR=true
+                RUN_QUESTION_BANK=true
+              fi
+              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Tests/UI/QuestionBankReaderInteractionUITests\.swift$'; then
+                RUN_SIMULATOR=true
+                RUN_QUESTION_BANK=true
+              fi
+              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Sources/Features/Library/(LibraryRecordRepository\.swift|LibraryRecordModels\.swift|LibraryDoodleSession\.swift|ShenlunAdaptationView\.swift)$'; then
+                RUN_SIMULATOR=true
+                RUN_QUESTION_BANK=true
+              fi
+              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Sources/Features/Shared/NativePencilDrawingEditor\.swift$'; then
+                RUN_SIMULATOR=true
+                RUN_QUESTION_BANK=true
+              fi
+              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/App/RootTabView\.swift|Sources/Features/Review/ReviewView\.swift|Tests/UI/SpeedInteractionUITests\.swift)$'; then
+                RUN_SIMULATOR=true
+                RUN_NAVIGATION=true
+              fi
+              if echo "$CHANGED_FILES" | grep -Eq '^\.github/workflows/ios-native-unsigned\.yml$'; then
+                RUN_SIMULATOR=true
+                RUN_QUESTION_BANK=true
+              fi
+              # These source-only contracts cover keypad, form, and rich-text changes;
+              # unrelated feature releases should not spend time running them.
+              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/Features/Speed/|Sources/Features/Library/LibraryRecordEditorView\.swift|Sources/Features/Shared/NativeRichTextEditor\.swift|Tests/(Animation/|Speed/|speed-feedback-contracts\.cjs|document-form-contracts\.cjs|rich-text-toolbar-contracts\.cjs))'; then
+                RUN_CONTRACTS=true
+              fi
             fi
           fi
           echo "run=$RUN_SIMULATOR" >> "$GITHUB_OUTPUT"
