@@ -638,7 +638,6 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         app.alerts.buttons["好"].tap()
 
         app.navigationBars.buttons.firstMatch.tap()
-        app.buttons["question-bank-filter-toggle"].tap()
         let dataAnalysis = app.buttons["question-bank-module-filter-资料分析"].firstMatch
         XCTAssertTrue(dataAnalysis.waitForExistence(timeout: 5))
         dataAnalysis.tap()
