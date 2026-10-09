@@ -1358,6 +1358,9 @@ private struct QuestionBankPaperView: View {
                         } label: {
                             filterLabel(selectedModuleTitle.isEmpty ? "全部模块" : selectedModuleTitle)
                         }
+                        .accessibilityLabel(
+                            "本卷模块筛选：\(selectedModuleTitle.isEmpty ? "全部模块" : selectedModuleTitle)"
+                        )
                         .accessibilityIdentifier("question-bank-paper-module-filter-menu")
                         Spacer()
                     }

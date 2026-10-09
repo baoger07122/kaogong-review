@@ -394,7 +394,13 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertFalse(app.textFields["题号"].exists, "Paper management must not add a local question-number field")
         localFilterToggle.tap()
         XCTAssertTrue(element(app, identifier: "question-bank-paper-filter-panel").waitForExistence(timeout: 5))
-        XCTAssertTrue(element(app, identifier: "question-bank-paper-module-filter-menu").exists)
+        let localModuleFilter = app.buttons["本卷模块筛选：全部模块"].firstMatch
+        XCTAssertTrue(localModuleFilter.waitForExistence(timeout: 5))
+        localModuleFilter.tap()
+        let dataAnalysisModule = app.buttons["五、资料分析"].firstMatch
+        XCTAssertTrue(dataAnalysisModule.waitForExistence(timeout: 5))
+        dataAnalysisModule.tap()
+        XCTAssertTrue(app.buttons["本卷模块筛选：五、资料分析"].waitForExistence(timeout: 5))
         app.navigationBars.buttons.firstMatch.tap()
         app.buttons["question-bank-module-filter-常识判断"].tap()
         XCTAssertFalse(app.buttons["question-bank-paper-\(paperID)"].exists)
@@ -609,7 +615,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         app.buttons["完成"].firstMatch.tap()
 
         XCTAssertFalse(crossFeedback.exists)
-        XCTAssertTrue(question1Option.isEnabled, "Clearing one question in cross view must unlock it in single/module state")
+        XCTAssertTrue(question1Option.isEnabled, "Clearing one question in cross view must unlock it across readers")
         crossScroll.swipeLeft()
         XCTAssertFalse(question2Option.isEnabled, "Clearing question one must preserve question two's answer")
 
@@ -619,16 +625,6 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         let paperRow = app.buttons["question-bank-paper-\(reader.paperID)"].firstMatch
         XCTAssertTrue(paperRow.waitForExistence(timeout: 5))
         paperRow.tap()
-        let moduleID = reader.paperID.replacingOccurrences(of: "-paper", with: "-module")
-        app.buttons["question-bank-module-\(moduleID)"].tap()
-        XCTAssertTrue(question1Option.waitForExistence(timeout: 5))
-        XCTAssertTrue(question1Option.isEnabled)
-        XCTAssertTrue(app.scrollViews["question-bank-single-page-scroll"].waitForExistence(timeout: 5))
-        let moduleScroll = app.scrollViews["question-bank-single-page-scroll"].firstMatch
-        moduleScroll.swipeLeft()
-        XCTAssertTrue(question2Option.waitForExistence(timeout: 5))
-        XCTAssertFalse(question2Option.isEnabled, "The question-level clear must leave the second answer in the module")
-
         app.navigationBars.buttons.firstMatch.tap()
         let paperManagement = element(app, identifier: "question-bank-paper-management-menu")
         XCTAssertTrue(paperManagement.waitForExistence(timeout: 5))
@@ -642,16 +638,19 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertTrue(app.alerts["作答记录已清除"].waitForExistence(timeout: 5))
         app.alerts.buttons["好"].tap()
 
-        app.buttons["question-bank-module-\(moduleID)"].tap()
-        let clearedModuleScroll = app.scrollViews["question-bank-single-page-scroll"].firstMatch
-        XCTAssertTrue(clearedModuleScroll.waitForExistence(timeout: 5))
-        let clearedModulePosition = app.buttons["question-bank-single-position"].firstMatch
-        if !clearedModulePosition.label.contains("1/2") { clearedModuleScroll.swipeRight() }
+        app.navigationBars.buttons.firstMatch.tap()
+        app.buttons["question-bank-filter-toggle"].tap()
+        let dataAnalysis = app.buttons["question-bank-module-filter-资料分析"].firstMatch
+        XCTAssertTrue(dataAnalysis.waitForExistence(timeout: 5))
+        dataAnalysis.tap()
+        app.buttons["question-bank-scope-all-questions"].tap()
+        let clearedCrossScroll = app.scrollViews["question-bank-single-page-scroll"].firstMatch
+        XCTAssertTrue(clearedCrossScroll.waitForExistence(timeout: 5))
         XCTAssertTrue(question1Option.waitForExistence(timeout: 5))
         XCTAssertTrue(question1Option.isEnabled, "Paper-level clearing must clear question one")
-        clearedModuleScroll.swipeLeft()
+        clearedCrossScroll.swipeLeft()
         XCTAssertTrue(question2Option.waitForExistence(timeout: 5))
-        XCTAssertTrue(question2Option.isEnabled, "Paper-level clearing must clear question two across module state")
+        XCTAssertTrue(question2Option.isEnabled, "Paper-level clearing must clear question two across readers")
     }
 
     @MainActor
