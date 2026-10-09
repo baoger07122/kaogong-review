@@ -383,7 +383,10 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         dataAnalysisFilter.tap()
         let paperRow = app.buttons["question-bank-paper-\(paperID)"].firstMatch
         XCTAssertTrue(paperRow.waitForExistence(timeout: 5))
-        paperRow.tap()
+        app.buttons["清除筛选"].tap()
+        let unfilteredPaperRow = app.buttons["question-bank-paper-\(paperID)"].firstMatch
+        XCTAssertTrue(unfilteredPaperRow.waitForExistence(timeout: 5))
+        unfilteredPaperRow.tap()
         let localFilterToggle = element(app, identifier: "question-bank-paper-filter-toggle")
         XCTAssertTrue(localFilterToggle.waitForExistence(timeout: 5))
         XCTAssertFalse(element(app, identifier: "question-bank-paper-filter-panel").exists)
@@ -773,7 +776,9 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
 
     @MainActor
     private func element(_ app: XCUIApplication, identifier: String) -> XCUIElement {
-        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == %@", identifier))
+            .firstMatch
     }
 
     @MainActor
