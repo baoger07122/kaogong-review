@@ -114,6 +114,33 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         add(splitScreenshot)
         closeSplit.tap()
 
+        let continuousDoodle = app.buttons["question-bank-doodle-question-\(reader.questionID)"].firstMatch
+        XCTAssertTrue(continuousDoodle.waitForExistence(timeout: 5))
+        XCTAssertFalse(element(app, identifier: "question-bank-doodle-current-question").exists)
+        let continuousScroll = app.scrollViews["question-bank-continuous-scroll"].firstMatch
+        XCTAssertTrue(continuousScroll.waitForExistence(timeout: 5))
+        let continuousStem = element(app, identifier: "question-bank-question-stem-\(reader.questionID)")
+        let continuousOption = app.buttons["question-bank-option-\(reader.questionID)-A"].firstMatch
+        XCTAssertTrue(continuousStem.waitForExistence(timeout: 5))
+        XCTAssertTrue(continuousOption.waitForExistence(timeout: 5))
+        let continuousStemY = continuousStem.frame.minY
+        continuousDoodle.tap()
+        XCTAssertTrue(app.buttons["library-doodle-close"].waitForExistence(timeout: 5))
+        XCTAssertFalse(element(app, identifier: "question-bank-doodle-current-question").exists)
+        let continuousCanvas = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "library-doodle-content-layer-")
+        ).firstMatch
+        XCTAssertTrue(continuousCanvas.waitForExistence(timeout: 5))
+        XCTAssertLessThanOrEqual(continuousCanvas.frame.minY, continuousStem.frame.minY)
+        XCTAssertGreaterThanOrEqual(continuousCanvas.frame.maxY, continuousOption.frame.maxY)
+        continuousScroll.swipeUp()
+        XCTAssertLessThanOrEqual(
+            abs(continuousStem.frame.minY - continuousStemY),
+            2,
+            "The full-page doodle layer must keep the continuous reader from scrolling"
+        )
+        app.buttons["library-doodle-close"].tap()
+
         let presentationMenu = element(app, identifier: "question-bank-reader-options")
         presentationMenu.tap()
         app.buttons["question-bank-presentation-单题"].firstMatch.tap()
@@ -236,9 +263,18 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [secondQuestionVisible], timeout: 5), .completed)
         let secondOption = app.buttons["question-bank-option-\(secondQuestion)-A"].firstMatch
         XCTAssertTrue(secondOption.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["单项选择题"].exists)
+        let secondStem = element(app, identifier: "question-bank-question-stem-\(secondQuestion)")
+        XCTAssertTrue(secondStem.waitForExistence(timeout: 5))
+        XCTAssertEqual(secondStem.label, "用于检查涂鸦状态下不能跳到下一题。")
+        XCTAssertFalse(stem.exists, "The outgoing question must leave the accessible page after a left swipe")
+        XCTAssertFalse(app.staticTexts["单项选择题"].exists, "Question type labels are hidden in the reader")
         if !secondOption.isHittable { scrollView.swipeUp() }
         XCTAssertTrue(secondOption.isHittable, "A long single-mode page must still scroll to its options")
+
+        position.tap()
+        XCTAssertTrue(app.navigationBars["第2题详情"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["单项选择题"].exists, "Question type data remains visible in question details")
+        app.buttons["完成"].firstMatch.tap()
 
         scrollView.swipeRight()
         let firstQuestionVisible = XCTNSPredicateExpectation(
@@ -246,6 +282,8 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
             object: position
         )
         XCTAssertEqual(XCTWaiter.wait(for: [firstQuestionVisible], timeout: 5), .completed)
+        XCTAssertTrue(stem.exists, "The previous question must be restored after a right swipe")
+        XCTAssertFalse(secondStem.exists, "The outgoing question must leave the accessible page after a right swipe")
         XCTAssertTrue(answerFeedback.exists, "Returning to the prior question must restore its selected answer")
         XCTAssertTrue(answerFeedback.label.contains("你的选择：A"))
     }
@@ -343,7 +381,17 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         let dataAnalysisFilter = app.buttons["question-bank-module-filter-资料分析"].firstMatch
         XCTAssertTrue(dataAnalysisFilter.waitForExistence(timeout: 5))
         dataAnalysisFilter.tap()
-        XCTAssertTrue(app.buttons["question-bank-paper-\(paperID)"].waitForExistence(timeout: 5))
+        let paperRow = app.buttons["question-bank-paper-\(paperID)"].firstMatch
+        XCTAssertTrue(paperRow.waitForExistence(timeout: 5))
+        paperRow.tap()
+        let localFilterToggle = element(app, identifier: "question-bank-paper-filter-toggle")
+        XCTAssertTrue(localFilterToggle.waitForExistence(timeout: 5))
+        XCTAssertFalse(element(app, identifier: "question-bank-paper-filter-panel").exists)
+        XCTAssertFalse(app.textFields["题号"].exists, "Paper management must not add a local question-number field")
+        localFilterToggle.tap()
+        XCTAssertTrue(element(app, identifier: "question-bank-paper-filter-panel").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, identifier: "question-bank-paper-module-filter-menu").exists)
+        app.navigationBars.buttons.firstMatch.tap()
         app.buttons["question-bank-module-filter-常识判断"].tap()
         XCTAssertFalse(app.buttons["question-bank-paper-\(paperID)"].exists)
     }
@@ -379,6 +427,15 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
     func testQuestionDetailOpensFromContinuousNumberAndSingleProgress() throws {
         let reader = launchPracticeReader()
         let app = reader.app
+        let continuousScroll = app.scrollViews["question-bank-continuous-scroll"].firstMatch
+        XCTAssertTrue(continuousScroll.waitForExistence(timeout: 5))
+        let question2ID = "\(reader.paperID)-question-2"
+        if !app.buttons["question-bank-doodle-question-\(question2ID)"].isHittable {
+            continuousScroll.swipeUp()
+        }
+        XCTAssertTrue(app.buttons["question-bank-doodle-question-\(question2ID)"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["单项选择题"].exists, "Continuous reading hides the stored question type label")
+        continuousScroll.swipeDown()
         app.buttons["question-bank-option-\(reader.questionID)-A"].tap()
         let answerFeedback = app.descendants(matching: .any)
             .matching(identifier: "question-bank-answer-feedback-\(reader.questionID)").firstMatch
@@ -489,6 +546,106 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         app.swipeDown()
         XCTAssertFalse(crossFeedback.exists, "Redo should clear earlier questions in the same filtered group")
         XCTAssertTrue(optionA.isEnabled, "Redo should clear the earlier question shared with the paper reader")
+    }
+
+    @MainActor
+    func testQuestionAndPaperAnswerClearingStaySyncedAcrossReaders() throws {
+        let reader = launchPracticeReader()
+        let app = reader.app
+        let question2ID = "\(reader.paperID)-question-2"
+        let question1Option = app.buttons["question-bank-option-\(reader.questionID)-A"].firstMatch
+        let question2Option = app.buttons["question-bank-option-\(question2ID)-A"].firstMatch
+        question1Option.tap()
+        XCTAssertTrue(
+            element(app, identifier: "question-bank-answer-feedback-\(reader.questionID)")
+                .waitForExistence(timeout: 5)
+        )
+
+        let moduleOptions = element(app, identifier: "question-bank-reader-options")
+        moduleOptions.tap()
+        app.buttons["question-bank-presentation-单题"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["question-bank-single-position"].waitForExistence(timeout: 5))
+        XCTAssertFalse(question1Option.isEnabled)
+
+        app.navigationBars.buttons.firstMatch.tap()
+        app.navigationBars.buttons.firstMatch.tap()
+        app.buttons["question-bank-filter-toggle"].tap()
+        app.buttons["question-bank-module-filter-资料分析"].firstMatch.tap()
+        app.buttons["question-bank-scope-all-questions"].tap()
+
+        let crossQuestionRecordID = "\(reader.paperID)::question::\(reader.questionID)"
+        let crossFeedback = element(app, identifier: "question-bank-answer-feedback-\(crossQuestionRecordID)")
+        XCTAssertTrue(crossFeedback.waitForExistence(timeout: 5), "Single mode should read the module's saved answer")
+        let crossPosition = app.buttons["question-bank-single-position"].firstMatch
+        let crossScroll = app.scrollViews["question-bank-single-page-scroll"].firstMatch
+        XCTAssertTrue(crossScroll.waitForExistence(timeout: 5))
+        crossScroll.swipeLeft()
+        XCTAssertTrue(question2Option.waitForExistence(timeout: 5))
+        if !question2Option.isHittable { crossScroll.swipeUp() }
+        question2Option.tap()
+        XCTAssertFalse(question2Option.isEnabled, "The second question should retain its independent selected answer")
+        crossScroll.swipeRight()
+        let crossFirstQuestionVisible = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "1/3"),
+            object: crossPosition
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [crossFirstQuestionVisible], timeout: 5), .completed)
+        crossPosition.tap()
+        XCTAssertTrue(app.navigationBars["第1题详情"].waitForExistence(timeout: 5))
+
+        let questionActions = element(app, identifier: "question-bank-question-actions")
+        XCTAssertTrue(questionActions.waitForExistence(timeout: 5))
+        questionActions.tap()
+        let clearQuestion = element(app, identifier: "question-bank-clear-question-answer")
+        XCTAssertTrue(clearQuestion.waitForExistence(timeout: 5))
+        clearQuestion.tap()
+        let confirmQuestionClear = app.buttons["清除本题作答记录"].firstMatch
+        XCTAssertTrue(confirmQuestionClear.waitForExistence(timeout: 5))
+        confirmQuestionClear.tap()
+        app.buttons["完成"].firstMatch.tap()
+
+        XCTAssertFalse(crossFeedback.exists)
+        XCTAssertTrue(question1Option.isEnabled, "Clearing one question in cross view must unlock it in single/module state")
+        crossScroll.swipeLeft()
+        XCTAssertFalse(question2Option.isEnabled, "Clearing question one must preserve question two's answer")
+
+        app.navigationBars.buttons.firstMatch.tap()
+        let paperRow = app.buttons["question-bank-paper-\(reader.paperID)"].firstMatch
+        XCTAssertTrue(paperRow.waitForExistence(timeout: 5))
+        paperRow.tap()
+        let moduleID = reader.paperID.replacingOccurrences(of: "-paper", with: "-module")
+        app.buttons["question-bank-module-\(moduleID)"].tap()
+        XCTAssertTrue(question1Option.waitForExistence(timeout: 5))
+        XCTAssertTrue(question1Option.isEnabled)
+        XCTAssertTrue(app.scrollViews["question-bank-single-page-scroll"].waitForExistence(timeout: 5))
+        let moduleScroll = app.scrollViews["question-bank-single-page-scroll"].firstMatch
+        moduleScroll.swipeLeft()
+        XCTAssertTrue(question2Option.waitForExistence(timeout: 5))
+        XCTAssertFalse(question2Option.isEnabled, "The question-level clear must leave the second answer in the module")
+
+        app.navigationBars.buttons.firstMatch.tap()
+        let paperManagement = element(app, identifier: "question-bank-paper-management-menu")
+        XCTAssertTrue(paperManagement.waitForExistence(timeout: 5))
+        paperManagement.tap()
+        let clearPaper = element(app, identifier: "question-bank-clear-paper-answers")
+        XCTAssertTrue(clearPaper.waitForExistence(timeout: 5))
+        clearPaper.tap()
+        let confirmPaperClear = app.buttons["清除本卷作答记录"].firstMatch
+        XCTAssertTrue(confirmPaperClear.waitForExistence(timeout: 5))
+        confirmPaperClear.tap()
+        XCTAssertTrue(app.alerts["作答记录已清除"].waitForExistence(timeout: 5))
+        app.alerts.buttons["好"].tap()
+
+        app.buttons["question-bank-module-\(moduleID)"].tap()
+        let clearedModuleScroll = app.scrollViews["question-bank-single-page-scroll"].firstMatch
+        XCTAssertTrue(clearedModuleScroll.waitForExistence(timeout: 5))
+        let clearedModulePosition = app.buttons["question-bank-single-position"].firstMatch
+        if !clearedModulePosition.label.contains("1/2") { clearedModuleScroll.swipeRight() }
+        XCTAssertTrue(question1Option.waitForExistence(timeout: 5))
+        XCTAssertTrue(question1Option.isEnabled, "Paper-level clearing must clear question one")
+        clearedModuleScroll.swipeLeft()
+        XCTAssertTrue(question2Option.waitForExistence(timeout: 5))
+        XCTAssertTrue(question2Option.isEnabled, "Paper-level clearing must clear question two across module state")
     }
 
     @MainActor

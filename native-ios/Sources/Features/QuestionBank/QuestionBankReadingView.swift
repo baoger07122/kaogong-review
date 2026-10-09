@@ -170,6 +170,7 @@ struct QuestionBankModuleView: View {
     @State private var splitScrollRequest: QuestionBankScrollRequest?
     @State private var snapshotRevision = 0
     @State private var doodleDrawingCache = QuestionBankDoodleMemoryCache()
+    @State private var continuousQuestionDoodleRecordID: String?
     @State private var didApplyInitialFocus = false
     @State private var didApplyAutomaticDataAnalysisSplit = false
     @State private var missingAnswerEditError: String?
@@ -386,6 +387,12 @@ struct QuestionBankModuleView: View {
             restoreReaderState()
         }
         .onChange(of: snapshotRevision) { _, _ in applyInitialFocusIfNeeded() }
+        .onChange(of: presentationMode) { _, mode in
+            if mode != .continuous { continuousQuestionDoodleRecordID = nil }
+        }
+        .onChange(of: doodleSession.isPresented) { _, isPresented in
+            if !isPresented { continuousQuestionDoodleRecordID = nil }
+        }
         .alert("答案更新", isPresented: Binding(
             get: { missingAnswerEditError != nil || missingAnswerEditConfirmation != nil },
             set: {
@@ -427,6 +434,7 @@ struct QuestionBankModuleView: View {
                 continuousReader(canOpenSplit: canOpenSplit)
             }
         }
+        .frame(width: width, height: height)
         .onChange(of: splitOrientation) { _, _ in
             guard presentationMode == .continuous, splitMaterialID != nil,
                   let questionID = currentVisibleQuestionID else { return }
@@ -451,6 +459,18 @@ struct QuestionBankModuleView: View {
                 cacheDoodleDrawing(drawingData, for: recordID)
             }
         }
+        .overlay {
+            if presentationMode == .continuous,
+               doodleSession.isPresented,
+               let recordID = continuousQuestionDoodleRecordID,
+               doodleSession.targetRecordID == recordID {
+                LibraryDoodleContentLayer(
+                    session: doodleSession,
+                    targetRecordID: recordID,
+                    minimumCanvasHeight: height
+                )
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .inactive, .background:
@@ -471,7 +491,7 @@ struct QuestionBankModuleView: View {
     private var questionBankToolbar: some View {
         HStack(spacing: 0) {
             if doodleSession.isPresented {
-                if doodleToolbarTarget != nil {
+                if presentationMode == .single, doodleToolbarTarget != nil {
                     Color.clear
                         .frame(width: 44, height: 44)
                         .allowsHitTesting(false)
@@ -486,7 +506,7 @@ struct QuestionBankModuleView: View {
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             } else {
-                questionDoodleToolbarItems
+                if presentationMode == .single { questionDoodleToolbarItems }
                 redoPaperButton
                 questionOverviewButton
                 readerOptionsMenu
@@ -631,7 +651,12 @@ struct QuestionBankModuleView: View {
                                     }
                                 case .question(let questionID):
                                     if let item = readingItem(for: questionID) {
-                                        questionSection(item, showsDoodleButton: true)
+                                        questionSection(
+                                            item,
+                                            showsDoodleCanvas: false,
+                                            showsDoodleButton: true,
+                                            showsQuestionType: false
+                                        )
                                     }
                                 }
                             }
@@ -644,6 +669,7 @@ struct QuestionBankModuleView: View {
                 .background(Color.white)
                 .scrollDisabled(doodleSession.isPresented)
                 .coordinateSpace(name: "question-bank-continuous-scroll")
+                .accessibilityIdentifier("question-bank-continuous-scroll")
                 .onPreferenceChange(QuestionBankReaderViewportPreference.self, perform: updateVisibleQuestion)
                 .onChange(of: continuousScrollRequest) { _, request in
                     guard request != nil else { return }
@@ -668,7 +694,7 @@ struct QuestionBankModuleView: View {
                     currentID: item.id, orderedIDs: orderedQuestionIDs, direction: 1
                 ),
                 isEnabled: !doodleSession.isPresented,
-                onCommit: navigateSingleQuestion(by:)
+                onCommit: navigateSingleQuestion(to:)
             ) { pageID, isHorizontalPagingDrag in
                 if let pageItem = readingItem(for: pageID) {
                     ScrollView {
@@ -680,7 +706,8 @@ struct QuestionBankModuleView: View {
                             questionSection(
                                 pageItem,
                                 showsQuestionNumber: false,
-                                showsDoodleCanvas: false
+                                showsDoodleCanvas: false,
+                                showsQuestionType: false
                             )
                         }
                         .frame(maxWidth: .infinity, minHeight: height, alignment: .topLeading)
@@ -820,11 +847,16 @@ struct QuestionBankModuleView: View {
                         currentID: item.id, orderedIDs: orderedQuestionIDs, direction: 1
                     ),
                     isEnabled: !doodleSession.isPresented,
-                    onCommit: navigateSingleQuestion(by:)
+                    onCommit: navigateSingleQuestion(to:)
                 ) { pageID, isHorizontalPagingDrag in
                     if let pageItem = readingItem(for: pageID) {
                         ScrollView {
-                            questionSection(pageItem, showsQuestionNumber: false)
+                            questionSection(
+                                pageItem,
+                                showsQuestionNumber: false,
+                                showsDoodleCanvas: false,
+                                showsQuestionType: false
+                            )
                                 .padding(.horizontal, 18)
                                 .padding(.vertical, 10)
                         }
@@ -842,7 +874,12 @@ struct QuestionBankModuleView: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(groupedQuestions) { item in
-                                questionSection(item, showsDoodleButton: true)
+                                questionSection(
+                                    item,
+                                    showsDoodleCanvas: false,
+                                    showsDoodleButton: true,
+                                    showsQuestionType: false
+                                )
                             }
                         }
                         .padding(.horizontal, 18)
@@ -852,6 +889,7 @@ struct QuestionBankModuleView: View {
                     .background(Color.white)
                     .scrollDisabled(doodleSession.isPresented)
                     .coordinateSpace(name: "question-bank-continuous-scroll")
+                    .accessibilityIdentifier("question-bank-continuous-scroll")
                     .onPreferenceChange(QuestionBankReaderViewportPreference.self, perform: updateVisibleQuestion)
                     .onChange(of: splitScrollRequest) { _, request in
                         guard let request else { return }
@@ -954,7 +992,8 @@ struct QuestionBankModuleView: View {
         _ item: QuestionBankReadingItem,
         showsQuestionNumber: Bool = true,
         showsDoodleCanvas: Bool = true,
-        showsDoodleButton: Bool = false
+        showsDoodleButton: Bool = false,
+        showsQuestionType: Bool = true
     ) -> some View {
         let answerStateID = item.record.compoundID
         let selectedOptionID = selectedOptionsByQuestionID[answerStateID]
@@ -964,11 +1003,11 @@ struct QuestionBankModuleView: View {
             wasConfirmed: revealedAnswerQuestionIDs.contains(answerStateID),
             requiresConfirmation: requiresAnswerConfirmation
         )
-        let heading = QuestionBankQuestionHeading.displayLabel(
+        let heading = showsQuestionType ? QuestionBankQuestionHeading.displayLabel(
             type: item.question.type,
             subject: item.question.subject,
             moduleTitle: item.moduleTitle
-        )
+        ) : nil
         return VStack(alignment: .leading, spacing: 0) {
             if showsQuestionNumber || heading != nil {
                 HStack(spacing: 8) {
@@ -1156,6 +1195,7 @@ struct QuestionBankModuleView: View {
             title: "第\(item.question.number)题详情",
             isDoodlePresented: doodleSession.isPresented,
             onDone: { activeSheet = nil },
+            onClearAnswer: { clearAnswer(for: item.record.compoundID) },
             onSave: { stem, optionTexts in
                 try QuestionBankRepository.updateQuestionText(
                     paperID: paperID,
@@ -1326,13 +1366,15 @@ struct QuestionBankModuleView: View {
         )
     }
 
-    private func navigateSingleQuestion(by direction: Int) {
+    private func clearAnswer(for questionID: String) {
+        storedAnswerStateJSON = QuestionBankAnswerStateStorage.clearing(
+            [questionID], from: storedAnswerStateJSON
+        )
+    }
+
+    private func navigateSingleQuestion(to targetID: String) {
         guard presentationMode == .single, !doodleSession.isPresented else { return }
-        guard let targetID = QuestionBankReaderTransition.adjacentQuestionID(
-            currentID: currentVisibleQuestionID ?? currentSingleItem?.id,
-            orderedIDs: orderedQuestionIDs,
-            direction: direction
-        ), let target = readingItem(for: targetID) else { return }
+        guard let target = readingItem(for: targetID) else { return }
 
         let hadSplitMaterial = splitMaterialID != nil
         let position = QuestionBankReaderTransition.movingToQuestion(
@@ -1465,10 +1507,15 @@ struct QuestionBankModuleView: View {
     }
 
     private func openMaterialDoodle(_ materialID: String) {
+        continuousQuestionDoodleRecordID = nil
         presentDoodle(for: .material(materialID))
     }
 
     private func openQuestionDoodle(_ item: QuestionBankReadingItem) {
+        guard !doodleSession.isPresented else { return }
+        continuousQuestionDoodleRecordID = presentationMode == .continuous
+            ? doodleRecordID(for: .question(item.id))
+            : nil
         presentDoodle(for: .question(item.id))
     }
 
@@ -1614,6 +1661,7 @@ struct QuestionBankCrossPaperReaderView: View {
     @State private var groups: [QuestionBankCrossPaperGroup] = []
     @State private var showsReaderOptions = false
     @State private var showsOverview = false
+    @State private var continuousQuestionDoodleRecordID: String?
     @State private var missingAnswerEditError: String?
     @State private var missingAnswerEditConfirmation: String?
     @State private var showsRedoConfirmation = false
@@ -1744,6 +1792,18 @@ struct QuestionBankCrossPaperReaderView: View {
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
+            .overlay {
+                if presentationMode == .continuous,
+                   doodleSession.isPresented,
+                   let recordID = continuousQuestionDoodleRecordID,
+                   doodleSession.targetRecordID == recordID {
+                    LibraryDoodleContentLayer(
+                        session: doodleSession,
+                        targetRecordID: recordID,
+                        minimumCanvasHeight: geometry.size.height
+                    )
+                }
+            }
         }
         .overlay(alignment: .topTrailing) {
             if showsReaderOptions {
@@ -1753,6 +1813,12 @@ struct QuestionBankCrossPaperReaderView: View {
             }
         }
         .animation(.easeOut(duration: 0.16), value: showsReaderOptions)
+        .onChange(of: presentationMode) { _, mode in
+            if mode != .continuous { continuousQuestionDoodleRecordID = nil }
+        }
+        .onChange(of: doodleSession.isPresented) { _, isPresented in
+            if !isPresented { continuousQuestionDoodleRecordID = nil }
+        }
         .background(Color.white)
         .navigationTitle(presentationMode == .single ? "" : (paperTitle ?? filter.module?.rawValue ?? "多卷题目"))
         .navigationBarTitleDisplayMode(.inline)
@@ -1780,7 +1846,7 @@ struct QuestionBankCrossPaperReaderView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 0) {
-                    doodleButton
+                    if presentationMode == .single { doodleButton }
                     redoCurrentGroupButton
                     Button {
                         guard !doodleSession.isPresented else { return }
@@ -1846,6 +1912,7 @@ struct QuestionBankCrossPaperReaderView: View {
                     title: "第\(item.question.number)题详情",
                     isDoodlePresented: doodleSession.isPresented,
                     onDone: { activeQuestionDetail = nil },
+                    onClearAnswer: { clearAnswer(for: item.record.compoundID) },
                     onSave: { stem, optionTexts in
                         try QuestionBankRepository.updateQuestionText(
                             paperID: item.record.paperID,
@@ -2021,7 +2088,9 @@ struct QuestionBankCrossPaperReaderView: View {
                                     item,
                                     group: group,
                                     showsPaperHeading: false,
-                                    showsDoodleButton: true
+                                    showsDoodleButton: true,
+                                    showsDoodleCanvas: false,
+                                    showsQuestionType: false
                                 )
                             }
                         }
@@ -2052,7 +2121,7 @@ struct QuestionBankCrossPaperReaderView: View {
                 currentID: item.id, orderedIDs: ids, direction: 1
             ),
             isEnabled: !doodleSession.isPresented,
-            onCommit: moveQuestion(by:)
+            onCommit: moveQuestion(to:)
         ) { pageID, isHorizontalPagingDrag in
             if let pageItem = orderedItems.first(where: { $0.id == pageID }),
                let group = groups.first(where: { $0.paperID == pageItem.record.paperID }) {
@@ -2070,7 +2139,8 @@ struct QuestionBankCrossPaperReaderView: View {
                             group: group,
                             showsPaperHeading: false,
                             showsQuestionNumber: false,
-                            showsDoodleCanvas: false
+                            showsDoodleCanvas: false,
+                            showsQuestionType: false
                         )
                     }
                     .frame(maxWidth: .infinity, minHeight: pageHeight, alignment: .topLeading)
@@ -2159,7 +2229,8 @@ struct QuestionBankCrossPaperReaderView: View {
         showsPaperHeading: Bool,
         showsQuestionNumber: Bool = true,
         showsDoodleCanvas: Bool = true,
-        showsDoodleButton: Bool = false
+        showsDoodleButton: Bool = false,
+        showsQuestionType: Bool = true
     ) -> some View {
         let answerStateID = item.record.compoundID
         let selected = selectedOptionsByQuestionID[answerStateID]
@@ -2169,11 +2240,11 @@ struct QuestionBankCrossPaperReaderView: View {
             wasConfirmed: revealedAnswerQuestionIDs.contains(answerStateID),
             requiresConfirmation: requiresAnswerConfirmation
         )
-        let heading = QuestionBankQuestionHeading.displayLabel(
+        let heading = showsQuestionType ? QuestionBankQuestionHeading.displayLabel(
             type: item.question.type,
             subject: item.question.subject,
             moduleTitle: item.moduleTitle
-        )
+        ) : nil
         return VStack(alignment: .leading, spacing: 8) {
             if showsPaperHeading, group.questions.first?.id == item.id {
                 paperDivider(group.title, count: group.questions.count)
@@ -2318,11 +2389,9 @@ struct QuestionBankCrossPaperReaderView: View {
         .disabled(doodleSession.isPresented)
     }
 
-    private func moveQuestion(by direction: Int) {
+    private func moveQuestion(to target: String) {
         guard !doodleSession.isPresented,
-              let target = QuestionBankReaderTransition.adjacentQuestionID(
-                currentID: currentItem?.id, orderedIDs: orderedItems.map(\.id), direction: direction
-              ) else { return }
+              orderedItems.contains(where: { $0.id == target }) else { return }
         currentQuestionID = target
     }
 
@@ -2355,6 +2424,12 @@ struct QuestionBankCrossPaperReaderView: View {
         storedAnswerStateJSON = QuestionBankAnswerStateStorage.clearing(
             QuestionBankRedoScope.questionIDs(inCurrentGroup: orderedItems),
             from: storedAnswerStateJSON
+        )
+    }
+
+    private func clearAnswer(for questionID: String) {
+        storedAnswerStateJSON = QuestionBankAnswerStateStorage.clearing(
+            [questionID], from: storedAnswerStateJSON
         )
     }
 
@@ -2417,6 +2492,8 @@ struct QuestionBankCrossPaperReaderView: View {
         let recordID = QuestionBankDoodleRepository.recordID(
             paperID: item.record.paperID, scope: .question(item.question.id)
         )
+        guard !doodleSession.isPresented else { return }
+        continuousQuestionDoodleRecordID = presentationMode == .continuous ? recordID : nil
         do {
             let drawing = try QuestionBankDoodleRepository.drawingData(recordID: recordID, context: modelContext)
             doodleSession.present(
@@ -2611,15 +2688,18 @@ private struct QuestionBankQuestionDetailPanel<Content: View>: View {
     let title: String
     let isDoodlePresented: Bool
     let onDone: () -> Void
+    let onClearAnswer: () -> Void
     let onSave: (String, [String: String]) throws -> Void
     private let content: Content
     @State private var showsTextEditor = false
+    @State private var showsClearAnswerConfirmation = false
 
     init(
         question: QuestionBankQuestion,
         title: String,
         isDoodlePresented: Bool,
         onDone: @escaping () -> Void,
+        onClearAnswer: @escaping () -> Void,
         onSave: @escaping (String, [String: String]) throws -> Void,
         @ViewBuilder content: () -> Content
     ) {
@@ -2627,6 +2707,7 @@ private struct QuestionBankQuestionDetailPanel<Content: View>: View {
         self.title = title
         self.isDoodlePresented = isDoodlePresented
         self.onDone = onDone
+        self.onClearAnswer = onClearAnswer
         self.onSave = onSave
         self.content = content()
     }
@@ -2642,12 +2723,33 @@ private struct QuestionBankQuestionDetailPanel<Content: View>: View {
                             .accessibilityIdentifier("question-bank-edit-question")
                             .disabled(isDoodlePresented)
                     }
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Menu {
+                            Button("清除本题作答记录", role: .destructive) {
+                                showsClearAnswerConfirmation = true
+                            }
+                            .accessibilityIdentifier("question-bank-clear-question-answer")
+                        } label: {
+                            Image(systemName: "ellipsis")
+                        }
+                        .accessibilityLabel("题目操作")
+                        .accessibilityIdentifier("question-bank-question-actions")
+                        .disabled(isDoodlePresented)
                         Button("完成", action: onDone)
                     }
                 }
                 .sheet(isPresented: $showsTextEditor) {
                     QuestionBankQuestionTextEditor(question: question, onSave: onSave)
+                }
+                .confirmationDialog(
+                    "清除本题作答记录？",
+                    isPresented: $showsClearAnswerConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("清除本题作答记录", role: .destructive, action: onClearAnswer)
+                    Button("取消", role: .cancel) { }
+                } message: {
+                    Text("将清除本题已选选项和答案揭示状态，涂鸦及题目文字修改会保留。")
                 }
         }
         .presentationDetents([.large])

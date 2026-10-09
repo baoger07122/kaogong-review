@@ -108,18 +108,20 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
     let previousID: PageID?
     let nextID: PageID?
     let isEnabled: Bool
-    let onCommit: (Int) -> Void
+    let onCommit: (PageID) -> Void
     private let page: (PageID, Bool) -> Page
     @State private var dragOffset: CGFloat = 0
     @State private var isCommitting = false
     @State private var isHorizontalPagingDrag = false
+    @State private var pendingCommitID: PageID?
+    @State private var didFinishCommitMotion = false
 
     init(
         currentID: PageID,
         previousID: PageID?,
         nextID: PageID?,
         isEnabled: Bool,
-        onCommit: @escaping (Int) -> Void,
+        onCommit: @escaping (PageID) -> Void,
         @ViewBuilder page: @escaping (PageID, Bool) -> Page
     ) {
         self.currentID = currentID
@@ -136,6 +138,9 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
     }
 
     private var renderedPageIDs: [PageID] {
+        if didFinishCommitMotion, let pendingCommitID {
+            return pendingCommitID == currentID ? [currentID] : [currentID, pendingCommitID]
+        }
         guard let previewID else { return [currentID] }
         return [currentID, previewID]
     }
@@ -147,9 +152,11 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
                     page(pageID, isHorizontalPagingDrag)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .offset(x: horizontalOffset(for: pageID, width: geometry.size.width))
-                        .zIndex(pageID == currentID ? 0 : 1)
+                        .zIndex(didFinishCommitMotion
+                            ? (pageID == visiblePageID ? 1 : 0)
+                            : (pageID == currentID ? 0 : 1))
                         .allowsHitTesting(pageID == currentID && !isCommitting)
-                        .accessibilityHidden(pageID != currentID)
+                        .accessibilityHidden(pageID != visiblePageID)
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
@@ -190,6 +197,9 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
                             reboundToCurrentPage()
                             return
                         }
+                        guard let destinationID = direction > 0 ? nextID : previousID else { return }
+                        pendingCommitID = destinationID
+                        didFinishCommitMotion = false
                         isCommitting = true
                         withAnimation(
                             .interactiveSpring(response: 0.24, dampingFraction: 0.86),
@@ -200,26 +210,51 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
                             var transaction = Transaction(animation: nil)
                             transaction.disablesAnimations = true
                             withTransaction(transaction) {
-                                onCommit(direction)
-                                dragOffset = 0
-                                isCommitting = false
-                                isHorizontalPagingDrag = false
+                                didFinishCommitMotion = true
+                                onCommit(destinationID)
                             }
                         }
                     }
             )
         }
-        .onChange(of: currentID) { _, _ in
-            if !isCommitting {
+        .onChange(of: currentID) { _, newID in
+            if isCommitting, didFinishCommitMotion,
+               let pendingCommitID, pendingCommitID == newID {
+                finishCommitHandoff()
+            } else if !isCommitting {
                 dragOffset = 0
                 isHorizontalPagingDrag = false
             }
         }
     }
 
+    private var visiblePageID: PageID {
+        didFinishCommitMotion ? (pendingCommitID ?? currentID) : currentID
+    }
+
     private func horizontalOffset(for pageID: PageID, width: CGFloat) -> CGFloat {
+        if didFinishCommitMotion, let pendingCommitID,
+           pendingCommitID == currentID, pageID == currentID {
+            return 0
+        }
+        if didFinishCommitMotion, let pendingCommitID, pendingCommitID != currentID {
+            if pageID == pendingCommitID { return 0 }
+            if pageID == currentID { return dragOffset }
+        }
         guard pageID != currentID else { return dragOffset }
         return dragOffset < 0 ? width + dragOffset : -width + dragOffset
+    }
+
+    private func finishCommitHandoff() {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            dragOffset = 0
+            pendingCommitID = nil
+            didFinishCommitMotion = false
+            isCommitting = false
+            isHorizontalPagingDrag = false
+        }
     }
 
     private func releaseHorizontalLockAfterRebound() {

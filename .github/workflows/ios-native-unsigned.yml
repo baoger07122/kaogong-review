@@ -308,7 +308,7 @@ jobs:
 
       - name: Test question-bank reader interactions
         if: steps.simulator_scope.outputs.question_bank == 'true'
-        timeout-minutes: 12
+        timeout-minutes: 15
         shell: bash
         run: |
           xcrun simctl boot "$SIMULATOR_ID" || true
@@ -330,6 +330,7 @@ jobs:
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testMissingAnswerCanBeAddedOnlyFromItsQuestionOptions \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testHomeSearchAndModuleFiltersStartCollapsedAndMatchNumberedModules \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testHomePaperRowSwipeRevealsDeleteActionWithoutOpeningPaper \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testQuestionAndPaperAnswerClearingStaySyncedAcrossReaders \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
             xcrun xcresulttool get test-results summary --path "$RESULT_PATH" || true
             exit 1

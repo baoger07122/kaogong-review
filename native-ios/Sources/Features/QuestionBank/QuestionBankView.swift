@@ -1301,18 +1301,22 @@ private struct QuestionBankPaperView: View {
     @Query private var batchMaterialLinks: [QuestionBankBatchMaterialLinkRecord]
     @Query private var batchQuestionLinks: [QuestionBankBatchQuestionLinkRecord]
     let paperID: String
+    let initialQuestionNumber: String
     @State private var selectedModuleTitle: String
-    @State private var questionNumber: String
+    @State private var showsPaperFilters = false
     @State private var isPaperEditorPresented = false
     @State private var showsPaperDeletionConfirmation = false
+    @State private var showsClearPaperAnswersConfirmation = false
     @State private var showsPaperActionAlert = false
     @State private var paperActionAlertTitle = "操作未完成"
     @State private var paperActionAlertMessage = ""
+    @AppStorage(QuestionBankAnswerStateStorage.appStorageKey)
+    private var storedAnswerStateJSON = QuestionBankAnswerStateStorage.emptyValue
 
     init(paperID: String, initialModuleTitle: String, initialQuestionNumber: String) {
         self.paperID = paperID
+        self.initialQuestionNumber = initialQuestionNumber
         _selectedModuleTitle = State(initialValue: initialModuleTitle)
-        _questionNumber = State(initialValue: initialQuestionNumber)
     }
 
     private var paperRecord: QuestionBankRecord? {
@@ -1322,11 +1326,6 @@ private struct QuestionBankPaperView: View {
     private var modules: [QuestionBankRecord] {
         records.filter { $0.paperID == paperID && $0.kind == QuestionBankRepository.moduleKind }
             .filter { selectedModuleTitle.isEmpty || $0.title == selectedModuleTitle }
-            .filter { module in
-                guard let number = Int(questionNumber), number > 0 else { return true }
-                return records.contains { $0.paperID == paperID && $0.moduleID == module.stableID
-                    && $0.kind == QuestionBankRepository.questionKind && $0.questionNumber == number }
-            }
             .sorted { ($0.sequence ?? 0) < ($1.sequence ?? 0) }
     }
     private var allModuleTitles: [String] {
@@ -1347,31 +1346,36 @@ private struct QuestionBankPaperView: View {
                     }
                     .padding(.bottom, 2)
                 }
-                HStack(spacing: 8) {
-                    Menu {
-                        Button("全部模块") { selectedModuleTitle = "" }
-                        ForEach(allModuleTitles, id: \.self) { title in Button(title) { selectedModuleTitle = title } }
-                    } label: { filterLabel(selectedModuleTitle.isEmpty ? "全部模块" : selectedModuleTitle) }
-                    HStack(spacing: 6) {
-                        TextField("题号", text: $questionNumber).keyboardType(.numberPad).frame(width: 64)
-                        if !questionNumber.isEmpty {
-                            Button { questionNumber = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
-                                .buttonStyle(.plain)
+                if showsPaperFilters {
+                    HStack(spacing: 8) {
+                        Menu {
+                            Button("全部模块") { selectedModuleTitle = "" }
+                                .accessibilityIdentifier("question-bank-paper-module-filter-all")
+                            ForEach(allModuleTitles, id: \.self) { title in
+                                Button(title) { selectedModuleTitle = title }
+                                    .accessibilityIdentifier("question-bank-paper-module-filter-\(title)")
+                            }
+                        } label: {
+                            filterLabel(selectedModuleTitle.isEmpty ? "全部模块" : selectedModuleTitle)
                         }
+                        .accessibilityIdentifier("question-bank-paper-module-filter-menu")
+                        Spacer()
                     }
-                    .padding(.horizontal, 11).frame(height: 34)
-                    .background(AppTheme.secondaryBackground, in: Capsule())
-                    Spacer()
+                    .accessibilityIdentifier("question-bank-paper-filter-panel")
                 }
                 if modules.isEmpty {
-                    NativeStatusCard(title: "没有匹配模块", detail: "更改模块或题号筛选条件。", systemImage: "line.3.horizontal.decrease", color: AppTheme.accent)
+                    NativeStatusCard(title: "没有匹配模块", detail: "更改模块筛选条件。", systemImage: "line.3.horizontal.decrease", color: AppTheme.accent)
                 } else {
                     LazyVStack(spacing: 0) {
                         ForEach(modules, id: \.compoundID) { moduleRecord in
                             let module = moduleRecord.decoded(QuestionBankModule.self)
                             let count = records.filter { $0.paperID == paperID && $0.kind == QuestionBankRepository.questionKind && $0.moduleID == moduleRecord.stableID }.count
                             NavigationLink {
-                                QuestionBankModuleView(paperID: paperID, moduleID: moduleRecord.stableID, initialQuestionNumber: questionNumber)
+                                QuestionBankModuleView(
+                                    paperID: paperID,
+                                    moduleID: moduleRecord.stableID,
+                                    initialQuestionNumber: initialQuestionNumber
+                                )
                                 } label: {
                                     HStack(alignment: .top, spacing: 12) {
                                         Text(String(format: "%02d", module?.sequence ?? moduleRecord.sequence ?? 0))
@@ -1407,7 +1411,16 @@ private struct QuestionBankPaperView: View {
         .navigationTitle(paper?.title ?? "模块目录")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    showsPaperFilters.toggle()
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease")
+                }
+                .accessibilityLabel("筛选模块")
+                .accessibilityValue(showsPaperFilters ? "已展开" : "已收起")
+                .accessibilityIdentifier("question-bank-paper-filter-toggle")
+
                 Menu {
                     Button {
                         isPaperEditorPresented = true
@@ -1419,6 +1432,13 @@ private struct QuestionBankPaperView: View {
                     } label: {
                         Label("删除试卷", systemImage: "trash")
                     }
+                    Button(role: .destructive) {
+                        showsClearPaperAnswersConfirmation = true
+                    } label: {
+                        Label("清除本卷作答记录", systemImage: "arrow.counterclockwise")
+                    }
+                    .accessibilityIdentifier("question-bank-clear-paper-answers")
+                    .disabled(QuestionBankRedoScope.questionIDs(inPaper: paperID, records: records).isEmpty)
                 } label: {
                     Image(systemName: "ellipsis")
                 }
@@ -1450,6 +1470,12 @@ private struct QuestionBankPaperView: View {
         } message: {
             Text("将删除《\(paper?.title ?? "未命名试卷")》及其题目和纸卷图片。学习库笔记与涂鸦会保留；仍被批次来源索引引用的试卷不能删除。")
         }
+        .confirmationDialog("清除本卷作答记录？", isPresented: $showsClearPaperAnswersConfirmation, titleVisibility: .visible) {
+            Button("清除本卷作答记录", role: .destructive, action: clearPaperAnswers)
+            Button("取消", role: .cancel) { }
+        } message: {
+            Text("将清除本试卷所有题目的已选选项和答案揭示状态。涂鸦、题目文字修改及试卷数据会保留。")
+        }
         .alert(paperActionAlertTitle, isPresented: $showsPaperActionAlert) {
             Button("好", role: .cancel) { }
         } message: {
@@ -1474,6 +1500,16 @@ private struct QuestionBankPaperView: View {
             paperActionAlertMessage = error.localizedDescription
             showsPaperActionAlert = true
         }
+    }
+
+    private func clearPaperAnswers() {
+        let questionIDs = QuestionBankRedoScope.questionIDs(inPaper: paperID, records: records)
+        storedAnswerStateJSON = QuestionBankAnswerStateStorage.clearing(
+            questionIDs, from: storedAnswerStateJSON
+        )
+        paperActionAlertTitle = "作答记录已清除"
+        paperActionAlertMessage = "已清除本卷 \(questionIDs.count) 道题的作答记录。"
+        showsPaperActionAlert = true
     }
 
     private func filterLabel(_ value: String) -> some View {
