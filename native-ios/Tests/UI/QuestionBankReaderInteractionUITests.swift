@@ -383,6 +383,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         dataAnalysisFilter.tap()
         let paperRow = app.buttons["question-bank-paper-\(paperID)"].firstMatch
         XCTAssertTrue(paperRow.waitForExistence(timeout: 5))
+        managementMenu.tap()
         app.buttons["清除筛选"].tap()
         let unfilteredPaperRow = app.buttons["question-bank-paper-\(paperID)"].firstMatch
         XCTAssertTrue(unfilteredPaperRow.waitForExistence(timeout: 5))
@@ -613,6 +614,8 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertFalse(question2Option.isEnabled, "Clearing question one must preserve question two's answer")
 
         app.navigationBars.buttons.firstMatch.tap()
+        element(app, identifier: "question-bank-management-menu").tap()
+        app.buttons["清除筛选"].tap()
         let paperRow = app.buttons["question-bank-paper-\(reader.paperID)"].firstMatch
         XCTAssertTrue(paperRow.waitForExistence(timeout: 5))
         paperRow.tap()
