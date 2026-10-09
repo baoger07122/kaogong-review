@@ -563,7 +563,7 @@ struct QuestionBankView: View {
         .background(Color.white, in: Capsule())
         .overlay {
             Capsule()
-                .stroke(Color(uiColor: .separator).opacity(0.2), lineWidth: 1)
+                .stroke(Color(uiColor: .separator).opacity(0.4), lineWidth: 1)
         }
         .contentShape(Capsule())
     }
@@ -1275,7 +1275,7 @@ private struct QuestionBankImportPreview: View {
                 }
                 Button("取消导入", role: .cancel) { }
             } message: {
-                Text("按来源标识的修订关系、试卷 ID，或年份、考试类型、卷别和名称识别替换目标。替换失败时仍保留原数据。\(replacementContinuityWarning ?? "替换包的稳定 ID 与现有数据一致，原涂鸦仍按原题目 ID 关联。")")
+                Text("按来源标识的修订关系、试卷 ID，或年份、考试类型、卷别和名称识别替换目标。替换失败时仍保留原数据。\(replacementContinuityWarning ?? "替换包的稳定 ID 与现有数据一致，原涂鸦仍按原题目 ID 关联。")如果你手动编辑过题干或选项文字，替换试卷会覆盖本地修改。")
             }
         }
         .presentationDetents([.medium, .large])

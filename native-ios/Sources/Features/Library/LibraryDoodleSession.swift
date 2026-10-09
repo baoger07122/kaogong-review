@@ -343,6 +343,8 @@ struct LibraryDoodleContentLayer: View {
                 .contentShape(Rectangle())
                 .opacity(session.isPresented ? 1 : 0)
                 .allowsHitTesting(session.isPresented)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("library-doodle-content-layer-\(targetRecordID)")
             }
         }
         .onPreferenceChange(LibraryDoodleCanvasFramePreferenceKey.self) { frames in

@@ -636,6 +636,20 @@ enum QuestionBankMissingAnswerEditFailure: LocalizedError {
     }
 }
 
+enum QuestionBankQuestionTextEditFailure: LocalizedError {
+    case missingQuestion
+    case invalidOption(String)
+    case invalidPayload
+
+    var errorDescription: String? {
+        switch self {
+        case .missingQuestion: "找不到要编辑的题目。"
+        case .invalidOption(let optionID): "选项 \(optionID) 不属于这道题，未保存修改。"
+        case .invalidPayload: "题目数据无法安全更新，原记录未更改。"
+        }
+    }
+}
+
 enum QuestionBankRepository {
     static let paperKind = "paper"
     static let moduleKind = "module"
@@ -742,6 +756,59 @@ enum QuestionBankRepository {
             throw QuestionBankMissingAnswerEditFailure.invalidPayload
         }
         try context.transaction { record.payload = payload }
+    }
+
+    @MainActor
+    static func updateQuestionText(
+        paperID: String,
+        questionID: String,
+        stem: String,
+        optionTexts: [String: String],
+        records: [QuestionBankRecord],
+        context: ModelContext
+    ) throws {
+        guard let record = records.first(where: {
+            $0.paperID == paperID && $0.kind == questionKind && $0.stableID == questionID
+        }), let question = record.decoded(QuestionBankQuestion.self),
+              question.id == questionID, question.paperID == paperID else {
+            throw QuestionBankQuestionTextEditFailure.missingQuestion
+        }
+        guard let decodedObject = try? JSONSerialization.jsonObject(with: record.payload),
+              var object = decodedObject as? [String: Any],
+              var options = object["options"] as? [[String: Any]] else {
+            throw QuestionBankQuestionTextEditFailure.invalidPayload
+        }
+
+        let normalizedStem = stem.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedOptionTexts = optionTexts.mapValues {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        var seenOptionIDs = Set<String>()
+        for index in options.indices {
+            guard let optionID = options[index]["id"] as? String else {
+                throw QuestionBankQuestionTextEditFailure.invalidPayload
+            }
+            seenOptionIDs.insert(optionID)
+            if let text = normalizedOptionTexts[optionID] {
+                options[index]["text"] = text
+            }
+        }
+        if let unknownOption = normalizedOptionTexts.keys.first(where: { !seenOptionIDs.contains($0) }) {
+            throw QuestionBankQuestionTextEditFailure.invalidOption(unknownOption)
+        }
+        object["stem"] = normalizedStem
+        object["options"] = options
+        guard let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+              let updatedQuestion = try? JSONDecoder().decode(QuestionBankQuestion.self, from: payload) else {
+            throw QuestionBankQuestionTextEditFailure.invalidPayload
+        }
+        let searchText = ([String(updatedQuestion.number), updatedQuestion.stem]
+            + updatedQuestion.options.map(\.text)).joined(separator: " ")
+
+        try context.transaction {
+            record.payload = payload
+            record.searchText = searchText
+        }
     }
 
     /// Copies all image resources to an unreferenced generation directory first, then

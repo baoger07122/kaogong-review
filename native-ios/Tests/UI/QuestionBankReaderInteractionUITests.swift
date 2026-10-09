@@ -77,6 +77,30 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
     }
 
     @MainActor
+    func testReaderOptionsMenuTogglesAndClosesOnOutsideTap() throws {
+        let reader = launchPracticeReader()
+        let app = reader.app
+        let readerOptions = element(app, identifier: "question-bank-reader-options")
+        let tip = app.staticTexts["设置会立即应用到当前题目。"].firstMatch
+
+        readerOptions.tap()
+        XCTAssertTrue(tip.waitForExistence(timeout: 5))
+        readerOptions.tap()
+        let toggledClosed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"), object: tip
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [toggledClosed], timeout: 3), .completed)
+
+        readerOptions.tap()
+        XCTAssertTrue(tip.waitForExistence(timeout: 5))
+        element(app, identifier: "question-bank-question-stem-\(reader.questionID)").tap()
+        let outsideTapClosed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"), object: tip
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [outsideTapClosed], timeout: 3), .completed)
+    }
+
+    @MainActor
     func testDoodleBlocksOptionSelectionAndQuestionNavigationInMaterialSplit() throws {
         let reader = launchPracticeReader(expectAutomaticMaterialSplit: true)
         let app = reader.app
@@ -113,6 +137,14 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertFalse(element(app, identifier: "question-bank-reader-options").exists)
         XCTAssertFalse(element(app, identifier: "question-bank-doodle-current-question").exists)
         XCTAssertFalse(element(app, identifier: "question-bank-number-overview").exists)
+        let wholePageCanvas = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "library-doodle-content-layer-")
+        ).firstMatch
+        XCTAssertTrue(wholePageCanvas.waitForExistence(timeout: 5))
+        let materialText = app.staticTexts["用于检验共享材料分屏下的涂鸦命中区域。"].firstMatch
+        XCTAssertTrue(materialText.exists)
+        XCTAssertLessThanOrEqual(wholePageCanvas.frame.minY, materialText.frame.minY)
+        XCTAssertGreaterThanOrEqual(wholePageCanvas.frame.maxY, optionFrame.maxY)
         XCTAssertTrue(optionA.isEnabled, "The interaction shield must not dim or disable option content")
         coordinate(in: app, at: optionFrame).tap()
         let ready = XCTNSPredicateExpectation(
@@ -159,28 +191,15 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertFalse(app.buttons["question-bank-single-next"].exists)
         XCTAssertFalse(app.buttons["question-bank-single-previous"].exists)
 
-        let materialEntry = app.buttons["question-bank-single-material-\(reader.materialID)"].firstMatch
-        XCTAssertTrue(materialEntry.waitForExistence(timeout: 5))
-        materialEntry.tap()
-        let materialScroll = app.scrollViews["question-bank-material-panel-scroll"].firstMatch
-        XCTAssertTrue(materialScroll.waitForExistence(timeout: 5))
-        let longMaterial = materialScroll.staticTexts.matching(
+        let scrollView = app.scrollViews["question-bank-single-page-scroll"].firstMatch
+        XCTAssertTrue(scrollView.waitForExistence(timeout: 5))
+        let longMaterial = app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", "长材料用于验证单题模式保留纵向阅读")
         ).firstMatch
         XCTAssertTrue(longMaterial.waitForExistence(timeout: 5))
         let materialAtTop = longMaterial.frame.minY
-        materialScroll.swipeUp()
+        scrollView.swipeUp()
         XCTAssertLessThan(longMaterial.frame.minY, materialAtTop, "Long material must remain vertically readable")
-
-        let closeSplit = app.buttons["question-bank-close-material-split"].firstMatch
-        if closeSplit.waitForExistence(timeout: 1) {
-            closeSplit.tap()
-        } else {
-            app.buttons["完成"].firstMatch.tap()
-        }
-
-        let scrollView = app.scrollViews["question-bank-single-page-scroll"].firstMatch
-        XCTAssertTrue(scrollView.waitForExistence(timeout: 5))
         let stem = element(app, identifier: "question-bank-question-stem-\(reader.questionID)")
         XCTAssertTrue(stem.waitForExistence(timeout: 5))
         let stemAtTop = stem.frame.minY
@@ -229,6 +248,26 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [firstQuestionVisible], timeout: 5), .completed)
         XCTAssertTrue(answerFeedback.exists, "Returning to the prior question must restore its selected answer")
         XCTAssertTrue(answerFeedback.label.contains("你的选择：A"))
+    }
+
+    @MainActor
+    func testLeftEdgeSwipeRemainsAvailableForNavigationBack() throws {
+        let reader = launchPracticeReader()
+        let app = reader.app
+        let readerOptions = element(app, identifier: "question-bank-reader-options")
+        readerOptions.tap()
+        app.buttons["question-bank-presentation-单题"].firstMatch.tap()
+        XCTAssertTrue(element(app, identifier: "question-bank-single-position").waitForExistence(timeout: 5))
+
+        let edgeStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.005, dy: 0.5))
+        let swipeEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5))
+        edgeStart.press(forDuration: 0.05, thenDragTo: swipeEnd)
+
+        XCTAssertTrue(
+            app.buttons["question-bank-module-\(reader.paperID.replacingOccurrences(of: "-paper", with: "-module"))"]
+                .waitForExistence(timeout: 6),
+            "The system back gesture should keep priority at the left edge"
+        )
     }
 
     @MainActor
@@ -347,9 +386,11 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
 
         let continuousDetail = app.buttons["question-bank-question-detail-\(reader.questionID)"].firstMatch
         XCTAssertTrue(continuousDetail.waitForExistence(timeout: 5))
+        XCTAssertFalse(element(app, identifier: "question-bank-provenance-disclosure-题目来源").exists)
         continuousDetail.tap()
         XCTAssertTrue(app.navigationBars["第1题详情"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["用于检验共享材料分屏下的涂鸦命中区域。"].exists)
+        XCTAssertTrue(element(app, identifier: "question-bank-provenance-disclosure-题目来源").exists)
         assertExactStemAndHiddenInternalType(in: app, questionID: reader.questionID)
         XCTAssertTrue(answerFeedback.exists)
         app.buttons["完成"].firstMatch.tap()
@@ -369,6 +410,85 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["用于检验共享材料分屏下的涂鸦命中区域。"].exists)
         assertExactStemAndHiddenInternalType(in: app, questionID: reader.questionID)
         XCTAssertTrue(answerFeedback.exists, "Switching presentation must retain the selected answer")
+    }
+
+    @MainActor
+    func testQuestionDetailTextEditorKeepsNewlinesAndUpdatesSearchIndex() throws {
+        let reader = launchPracticeReader()
+        let app = reader.app
+        app.buttons["question-bank-question-detail-\(reader.questionID)"].tap()
+        XCTAssertTrue(app.buttons["question-bank-edit-question"].waitForExistence(timeout: 5))
+        app.buttons["question-bank-edit-question"].tap()
+
+        let stemEditor = element(app, identifier: "question-bank-edit-stem")
+        XCTAssertTrue(stemEditor.waitForExistence(timeout: 5))
+        stemEditor.tap()
+        stemEditor.typeText("\nEDITLINEONE\n\nEDITLINETHREE")
+        let optionEditor = element(app, identifier: "question-bank-edit-option-A")
+        XCTAssertTrue(optionEditor.waitForExistence(timeout: 5))
+        optionEditor.tap()
+        optionEditor.typeText("\nOPTIONLINEONE\n\nOPTIONLINETHREE")
+        app.buttons["question-bank-save-question-text"].tap()
+
+        let renderedStem = element(app, identifier: "question-bank-question-stem-\(reader.questionID)")
+        XCTAssertTrue(renderedStem.waitForExistence(timeout: 5))
+        XCTAssertTrue(renderedStem.label.contains("EDITLINEONE"))
+        XCTAssertTrue(renderedStem.label.contains("EDITLINETHREE"))
+        let renderedOption = app.buttons["question-bank-option-\(reader.questionID)-A"].firstMatch
+        XCTAssertTrue(renderedOption.waitForExistence(timeout: 5))
+        XCTAssertTrue(renderedOption.label.contains("OPTIONLINETHREE"))
+
+        app.buttons["完成"].firstMatch.tap()
+        app.navigationBars.buttons.firstMatch.tap()
+        app.navigationBars.buttons.firstMatch.tap()
+        let searchButton = element(app, identifier: "question-bank-search")
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 5))
+        searchButton.tap()
+        let searchField = element(app, identifier: "question-bank-search-field")
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
+        searchField.tap()
+        searchField.typeText("EDITLINETHREE")
+        XCTAssertTrue(
+            app.buttons["question-bank-paper-\(reader.paperID)"].waitForExistence(timeout: 5),
+            "The saved multiline text should be present in the question search index"
+        )
+    }
+
+    @MainActor
+    func testCrossPaperRedoUsesSharedStableAnswerStateAndClearsCurrentGroup() throws {
+        let reader = launchPracticeReader()
+        let app = reader.app
+        let optionA = app.buttons["question-bank-option-\(reader.questionID)-A"].firstMatch
+        optionA.tap()
+        let moduleFeedback = element(app, identifier: "question-bank-answer-feedback-\(reader.questionID)")
+        XCTAssertTrue(moduleFeedback.waitForExistence(timeout: 5))
+
+        app.navigationBars.buttons.firstMatch.tap()
+        app.navigationBars.buttons.firstMatch.tap()
+        app.buttons["question-bank-filter-toggle"].tap()
+        let dataAnalysis = app.buttons["question-bank-module-filter-资料分析"].firstMatch
+        XCTAssertTrue(dataAnalysis.waitForExistence(timeout: 5))
+        dataAnalysis.tap()
+        app.buttons["question-bank-scope-all-questions"].tap()
+
+        let crossQuestionRecordID = "\(reader.paperID)::question::\(reader.questionID)"
+        let crossFeedback = element(app, identifier: "question-bank-answer-feedback-\(crossQuestionRecordID)")
+        XCTAssertTrue(crossFeedback.waitForExistence(timeout: 5), "The answer must follow the stable question ID into the cross-paper reader")
+        let question2ID = "\(reader.paperID)-question-2"
+        let question2Option = app.buttons["question-bank-option-\(question2ID)-A"].firstMatch
+        XCTAssertTrue(question2Option.waitForExistence(timeout: 5))
+        if !question2Option.isHittable { app.swipeUp() }
+        question2Option.tap()
+        let question2RecordID = "\(reader.paperID)::question::\(question2ID)"
+        XCTAssertTrue(element(app, identifier: "question-bank-answer-feedback-\(question2RecordID)").waitForExistence(timeout: 5))
+
+        element(app, identifier: "question-bank-redo-filtered-group").tap()
+        app.buttons["清除当前题组作答记录"].tap()
+        XCTAssertFalse(element(app, identifier: "question-bank-answer-feedback-\(question2RecordID)").exists)
+        XCTAssertTrue(question2Option.isEnabled, "Redo should unlock the current question for another attempt")
+        app.swipeDown()
+        XCTAssertFalse(crossFeedback.exists, "Redo should clear earlier questions in the same filtered group")
+        XCTAssertTrue(optionA.isEnabled, "Redo should clear the earlier question shared with the paper reader")
     }
 
     @MainActor
@@ -451,6 +571,13 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertTrue(module.waitForExistence(timeout: 10))
         module.tap()
 
+        let readerOptions = element(app, identifier: "question-bank-reader-options")
+        XCTAssertTrue(readerOptions.waitForExistence(timeout: 10))
+        if (readerOptions.value as? String)?.contains("浏览方式：连续") != true {
+            readerOptions.tap()
+            app.buttons["question-bank-presentation-连续"].firstMatch.tap()
+        }
+
         let automaticSplit = app.buttons["question-bank-close-material-split"].firstMatch
         XCTAssertTrue(automaticSplit.waitForExistence(timeout: 10), "The data-analysis module should reveal its shared-material group on iPad")
         if expectAutomaticMaterialSplit {
@@ -459,7 +586,6 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
             automaticSplit.tap()
         }
 
-        let readerOptions = element(app, identifier: "question-bank-reader-options")
         XCTAssertTrue(readerOptions.waitForExistence(timeout: 10))
         XCTAssertEqual(readerOptions.label, "阅读设置")
         XCTAssertFalse(app.staticTexts["连续 · 看题"].exists)

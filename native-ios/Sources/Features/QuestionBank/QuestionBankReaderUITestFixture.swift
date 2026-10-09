@@ -77,7 +77,12 @@ enum QuestionBankReaderUITestFixture {
             ],
             answer: "B",
             explanation: "交互测试夹具解析。",
-            originalPage: "1"
+            originalPage: "1",
+            provenance: [QuestionBankProvenance(
+                sourcePaperID: "ui-test-source-paper",
+                sourceQuestionNumber: 17,
+                evidence: "用于验证题目来源仅在详情页显示。"
+            )]
         )
         let nextQuestion = QuestionBankQuestion(
             id: "\(paperID)-question-2",

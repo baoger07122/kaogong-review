@@ -113,7 +113,6 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
     @State private var dragOffset: CGFloat = 0
     @State private var isCommitting = false
     @State private var isHorizontalPagingDrag = false
-    @State private var commitTask: Task<Void, Never>?
 
     init(
         currentID: PageID,
@@ -136,17 +135,22 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
         return dragOffset < 0 ? nextID : previousID
     }
 
+    private var renderedPageIDs: [PageID] {
+        guard let previewID else { return [currentID] }
+        return [currentID, previewID]
+    }
+
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                if let previewID {
-                    page(previewID, isHorizontalPagingDrag)
-                        .offset(x: dragOffset < 0 ? geometry.size.width + dragOffset : -geometry.size.width + dragOffset)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
+                ForEach(renderedPageIDs, id: \.self) { pageID in
+                    page(pageID, isHorizontalPagingDrag)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .offset(x: horizontalOffset(for: pageID, width: geometry.size.width))
+                        .zIndex(pageID == currentID ? 0 : 1)
+                        .allowsHitTesting(pageID == currentID && !isCommitting)
+                        .accessibilityHidden(pageID != currentID)
                 }
-                page(currentID, isHorizontalPagingDrag)
-                    .offset(x: dragOffset)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .clipped()
@@ -154,7 +158,7 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
             .simultaneousGesture(
                 DragGesture(minimumDistance: 8, coordinateSpace: .local)
                     .onChanged { value in
-                        guard isEnabled, !isCommitting else { return }
+                        guard isEnabled, !isCommitting, value.startLocation.x > 28 else { return }
                         let horizontal = value.translation.width
                         let vertical = value.translation.height
                         guard QuestionBankHorizontalSwipe.isHorizontalIntent(
@@ -174,32 +178,25 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
                         }
                     }
                     .onEnded { value in
-                        guard isEnabled, !isCommitting,
+                        guard isEnabled, !isCommitting, value.startLocation.x > 28,
                               let direction = QuestionBankHorizontalSwipe.direction(
                                 horizontal: value.translation.width,
                                 vertical: value.translation.height
                               ) else {
-                            withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.86)) {
-                                dragOffset = 0
-                            }
-                            releaseHorizontalLockAfterRebound()
+                            reboundToCurrentPage()
                             return
                         }
                         guard direction > 0 ? nextID != nil : previousID != nil else {
-                            withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.86)) {
-                                dragOffset = 0
-                            }
-                            releaseHorizontalLockAfterRebound()
+                            reboundToCurrentPage()
                             return
                         }
                         isCommitting = true
-                        withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.86)) {
+                        withAnimation(
+                            .interactiveSpring(response: 0.24, dampingFraction: 0.86),
+                            completionCriteria: .removed
+                        ) {
                             dragOffset = direction > 0 ? -geometry.size.width : geometry.size.width
-                        }
-                        commitTask?.cancel()
-                        commitTask = Task { @MainActor in
-                            try? await Task.sleep(nanoseconds: 260_000_000)
-                            guard !Task.isCancelled else { return }
+                        } completion: {
                             var transaction = Transaction(animation: nil)
                             transaction.disablesAnimations = true
                             withTransaction(transaction) {
@@ -218,17 +215,27 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
                 isHorizontalPagingDrag = false
             }
         }
-        .onDisappear { commitTask?.cancel() }
+    }
+
+    private func horizontalOffset(for pageID: PageID, width: CGFloat) -> CGFloat {
+        guard pageID != currentID else { return dragOffset }
+        return dragOffset < 0 ? width + dragOffset : -width + dragOffset
     }
 
     private func releaseHorizontalLockAfterRebound() {
         guard isHorizontalPagingDrag else { return }
-        commitTask?.cancel()
-        commitTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 260_000_000)
-            guard !Task.isCancelled else { return }
+        withAnimation(
+            .interactiveSpring(response: 0.24, dampingFraction: 0.86),
+            completionCriteria: .removed
+        ) {
+            dragOffset = 0
+        } completion: {
             isHorizontalPagingDrag = false
         }
+    }
+
+    private func reboundToCurrentPage() {
+        releaseHorizontalLockAfterRebound()
     }
 }
 
@@ -358,6 +365,97 @@ enum QuestionBankRevealedAnswersStorage {
         guard let data = try? JSONEncoder().encode(questionIDs.sorted()),
               let value = String(data: data, encoding: .utf8) else { return "[]" }
         return value
+    }
+}
+
+struct QuestionBankAnswerState: Codable, Equatable {
+    var selectedOptions: [String: String] = [:]
+    var revealedQuestionIDs: Set<String> = []
+    var legacyResolvedQuestionIDs: Set<String> = []
+
+    private enum CodingKeys: String, CodingKey {
+        case selectedOptions, revealedQuestionIDs, legacyResolvedQuestionIDs
+    }
+
+    init(
+        selectedOptions: [String: String] = [:],
+        revealedQuestionIDs: Set<String> = [],
+        legacyResolvedQuestionIDs: Set<String> = []
+    ) {
+        self.selectedOptions = selectedOptions
+        self.revealedQuestionIDs = revealedQuestionIDs
+        self.legacyResolvedQuestionIDs = legacyResolvedQuestionIDs
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        selectedOptions = try values.decodeIfPresent([String: String].self, forKey: .selectedOptions) ?? [:]
+        revealedQuestionIDs = try values.decodeIfPresent(Set<String>.self, forKey: .revealedQuestionIDs) ?? []
+        legacyResolvedQuestionIDs = try values.decodeIfPresent(Set<String>.self, forKey: .legacyResolvedQuestionIDs) ?? []
+    }
+}
+
+enum QuestionBankAnswerStateStorage {
+    static let appStorageKey = "question-bank.answer-state.v1"
+    static let emptyValue = "{}"
+
+    static func decode(_ value: String) -> QuestionBankAnswerState {
+        guard let data = value.data(using: .utf8) else { return QuestionBankAnswerState() }
+        return (try? JSONDecoder().decode(QuestionBankAnswerState.self, from: data))
+            ?? QuestionBankAnswerState()
+    }
+
+    static func encode(_ state: QuestionBankAnswerState) -> String {
+        guard let data = try? JSONEncoder().encode(state),
+              let value = String(data: data, encoding: .utf8) else { return emptyValue }
+        return value
+    }
+
+    static func migratingLegacyState(
+        selectedOptionsJSON: String,
+        revealedAnswersJSON: String,
+        into storedValue: String
+    ) -> String {
+        let selected = QuestionBankSelectedOptionsStorage.decode(selectedOptionsJSON)
+        let revealed = QuestionBankRevealedAnswersStorage.decode(revealedAnswersJSON)
+        let legacyIDs = Set(selected.keys).union(revealed)
+        guard !legacyIDs.isEmpty else { return storedValue }
+
+        var state = decode(storedValue)
+        for questionID in legacyIDs where !state.legacyResolvedQuestionIDs.contains(questionID) {
+            guard state.selectedOptions[questionID] == nil,
+                  !state.revealedQuestionIDs.contains(questionID) else {
+                state.legacyResolvedQuestionIDs.insert(questionID)
+                continue
+            }
+            state.selectedOptions[questionID] = selected[questionID]
+            if revealed.contains(questionID) { state.revealedQuestionIDs.insert(questionID) }
+            state.legacyResolvedQuestionIDs.insert(questionID)
+        }
+        return encode(state)
+    }
+
+    static func clearing(_ questionIDs: some Sequence<String>, from storedValue: String) -> String {
+        var state = decode(storedValue)
+        for questionID in questionIDs {
+            state.selectedOptions.removeValue(forKey: questionID)
+            state.revealedQuestionIDs.remove(questionID)
+            state.legacyResolvedQuestionIDs.insert(questionID)
+        }
+        return encode(state)
+    }
+}
+
+enum QuestionBankRedoScope {
+    static func questionIDs(inPaper paperID: String, records: [QuestionBankRecord]) -> [String] {
+        records
+            .filter { $0.paperID == paperID && $0.kind == QuestionBankRepository.questionKind }
+            .map(\.compoundID)
+            .sorted()
+    }
+
+    static func questionIDs(inCurrentGroup items: [QuestionBankHomeQuestion]) -> [String] {
+        Array(Set(items.map { $0.record.compoundID })).sorted()
     }
 }
 

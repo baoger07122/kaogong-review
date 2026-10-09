@@ -410,6 +410,68 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertEqual(record.payload, savedPayload, "An existing answer must never be overwritten through the missing-answer path")
     }
 
+    func testQuestionBankTextEditPreservesQuestionStructureAndUpdatesSearchText() throws {
+        var question = batchTestQuestion(
+            id: "text-edit-question", paperID: "text-edit-paper", materialID: "shared-material",
+            stem: "原始题干", answer: "B", reordered: false
+        )
+        question.stemImageAssetID = "stem-image"
+        question.options[0].imageAssetID = "option-image-a"
+        question.provenance = [QuestionBankProvenance(
+            sourcePaperID: "source-paper", sourceQuestionNumber: 17, evidence: "原始来源"
+        )]
+        let record = try batchTestRecord(
+            kind: QuestionBankRepository.questionKind,
+            id: question.id,
+            paperID: question.paperID,
+            value: question,
+            searchText: "1 原始题干 正确选项"
+        )
+        var rawPayload = try XCTUnwrap(JSONSerialization.jsonObject(with: record.payload) as? [String: Any])
+        rawPayload["futureQuestionMetadata"] = ["source": "preserve-me"]
+        record.payload = try JSONSerialization.data(withJSONObject: rawPayload, options: [.sortedKeys])
+        let originalCompoundID = record.compoundID
+        let originalQuestionNumber = record.questionNumber
+        let container = try makeBatchMemoryContainer()
+        let context = container.mainContext
+        context.insert(record)
+        try context.save()
+
+        try QuestionBankRepository.updateQuestionText(
+            paperID: question.paperID,
+            questionID: question.id,
+            stem: "  新题干第一行\n\n新题干第三行  ",
+            optionTexts: ["A": "  新选项第一行\n\n新选项第三行  "],
+            records: [record],
+            context: context
+        )
+
+        let updated = try XCTUnwrap(record.decoded(QuestionBankQuestion.self))
+        let updatedRawPayload = try XCTUnwrap(JSONSerialization.jsonObject(with: record.payload) as? [String: Any])
+        XCTAssertEqual(updated.id, question.id)
+        XCTAssertEqual(updated.paperID, question.paperID)
+        XCTAssertEqual(updated.moduleID, question.moduleID)
+        XCTAssertEqual(updated.number, question.number)
+        XCTAssertEqual(updated.materialID, question.materialID)
+        XCTAssertEqual(updated.stem, "新题干第一行\n\n新题干第三行")
+        XCTAssertEqual(updated.stemImageAssetID, "stem-image")
+        XCTAssertEqual(updated.options.map(\.id), question.options.map(\.id))
+        XCTAssertEqual(updated.options[0].text, "新选项第一行\n\n新选项第三行")
+        XCTAssertEqual(updated.options[0].imageAssetID, "option-image-a")
+        XCTAssertEqual(Array(updated.options.dropFirst()), Array(question.options.dropFirst()))
+        XCTAssertEqual(updated.answer, question.answer)
+        XCTAssertEqual(updated.provenance, question.provenance)
+        XCTAssertEqual(record.compoundID, originalCompoundID)
+        XCTAssertEqual(record.questionNumber, originalQuestionNumber)
+        XCTAssertTrue(record.searchText.contains("新题干第三行"))
+        XCTAssertTrue(record.searchText.contains("新选项第三行"))
+        XCTAssertFalse(record.searchText.contains("原始题干"))
+        XCTAssertEqual(
+            (updatedRawPayload["futureQuestionMetadata"] as? [String: String])?["source"],
+            "preserve-me"
+        )
+    }
+
     func testCanonicalJSONV1ProvenanceImportsAndPersistsWithoutChangingQuestions() throws {
         let temporaryRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("QuestionBankProvenanceTest-\(UUID().uuidString)", isDirectory: true)
@@ -756,6 +818,76 @@ final class QuestionBankImportTests: XCTestCase {
             QuestionBankRevealedAnswersStorage.encode(confirmed)
         ), confirmed)
         XCTAssertEqual(QuestionBankRevealedAnswersStorage.decode("invalid"), [])
+    }
+
+    func testQuestionBankSharedAnswerStateMigratesAndRedoCannotRestoreLegacyAnswers() {
+        let legacySelections = QuestionBankSelectedOptionsStorage.encode(["q-one": "C", "q-two": "A"])
+        let legacyRevealed = QuestionBankRevealedAnswersStorage.encode(["q-one", "q-two"])
+        let migratedJSON = QuestionBankAnswerStateStorage.migratingLegacyState(
+            selectedOptionsJSON: legacySelections,
+            revealedAnswersJSON: legacyRevealed,
+            into: "{}"
+        )
+        let migrated = QuestionBankAnswerStateStorage.decode(migratedJSON)
+        XCTAssertEqual(migrated.selectedOptions, ["q-one": "C", "q-two": "A"])
+        XCTAssertEqual(migrated.revealedQuestionIDs, ["q-one", "q-two"])
+
+        let clearedJSON = QuestionBankAnswerStateStorage.clearing(["q-one"], from: migratedJSON)
+        let afterRedo = QuestionBankAnswerStateStorage.decode(clearedJSON)
+        XCTAssertNil(afterRedo.selectedOptions["q-one"])
+        XCTAssertFalse(afterRedo.revealedQuestionIDs.contains("q-one"))
+        XCTAssertEqual(afterRedo.selectedOptions["q-two"], "A")
+        XCTAssertTrue(afterRedo.revealedQuestionIDs.contains("q-two"))
+
+        let attemptedLegacyRestore = QuestionBankAnswerStateStorage.migratingLegacyState(
+            selectedOptionsJSON: legacySelections,
+            revealedAnswersJSON: legacyRevealed,
+            into: clearedJSON
+        )
+        XCTAssertNil(QuestionBankAnswerStateStorage.decode(attemptedLegacyRestore).selectedOptions["q-one"])
+        XCTAssertFalse(QuestionBankAnswerStateStorage.decode(attemptedLegacyRestore).revealedQuestionIDs.contains("q-one"))
+    }
+
+    func testQuestionBankRedoScopeCoversWholePaperAndOnlyCurrentCrossPaperGroup() throws {
+        let firstQuestion = batchTestQuestion(
+            id: "redo-one", paperID: "redo-paper", materialID: "", stem: "1", answer: "A", reordered: false
+        )
+        var secondQuestion = batchTestQuestion(
+            id: "redo-two", paperID: "redo-paper", materialID: "", stem: "2", answer: "A", reordered: false
+        )
+        secondQuestion.moduleID = "module-redo-paper-second"
+        let otherPaperQuestion = batchTestQuestion(
+            id: "redo-other-paper", paperID: "other-paper", materialID: "", stem: "3", answer: "A", reordered: false
+        )
+        let records = try [firstQuestion, secondQuestion, otherPaperQuestion].map { question in
+            try batchTestRecord(
+                kind: QuestionBankRepository.questionKind,
+                id: question.id,
+                paperID: question.paperID,
+                value: question
+            )
+        }
+        XCTAssertEqual(
+            Set(QuestionBankRedoScope.questionIDs(inPaper: "redo-paper", records: records)),
+            Set([records[0].compoundID, records[1].compoundID])
+        )
+
+        let crossPaperGroup = [
+            QuestionBankHomeQuestion(
+                record: records[0], question: firstQuestion, module: .dataAnalysis,
+                questionTypeFilter: "单项选择题", moduleID: firstQuestion.moduleID,
+                moduleTitle: "资料分析", moduleSequence: 1
+            ),
+            QuestionBankHomeQuestion(
+                record: records[2], question: otherPaperQuestion, module: .dataAnalysis,
+                questionTypeFilter: "单项选择题", moduleID: otherPaperQuestion.moduleID,
+                moduleTitle: "资料分析", moduleSequence: 1
+            )
+        ]
+        XCTAssertEqual(
+            Set(QuestionBankRedoScope.questionIDs(inCurrentGroup: crossPaperGroup)),
+            Set([records[0].compoundID, records[2].compoundID])
+        )
     }
 
     func testQuestionBankDoodleToolbarTargetFollowsVisibleQuestionAndMaterial() {
