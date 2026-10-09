@@ -1783,6 +1783,44 @@ struct QuestionBankCrossPaperReaderView: View {
     }
 
     var body: some View {
+        readerScreen
+            .onAppear {
+                migrateLegacyAnswerStateIfNeeded()
+                refreshGroups()
+                if currentQuestionID == nil { currentQuestionID = orderedItems.first?.id }
+            }
+            .onChange(of: readerRecordRevision) { _, _ in refreshGroups() }
+            .onChange(of: presentationMode) { _, mode in
+                if mode != .continuous { continuousQuestionDoodleRecordID = nil }
+            }
+            .onChange(of: doodleSession.isPresented) { _, isPresented in
+                if !isPresented { continuousQuestionDoodleRecordID = nil }
+            }
+            .alert("答案更新", isPresented: Binding(
+                get: { missingAnswerEditError != nil || missingAnswerEditConfirmation != nil },
+                set: {
+                    if !$0 {
+                        missingAnswerEditError = nil
+                        missingAnswerEditConfirmation = nil
+                    }
+                }
+            )) {
+                Button("好", role: .cancel) {
+                    missingAnswerEditError = nil
+                    missingAnswerEditConfirmation = nil
+                }
+            } message: {
+                Text(missingAnswerEditError ?? missingAnswerEditConfirmation ?? "")
+            }
+            .confirmationDialog("重新作答？", isPresented: $showsRedoConfirmation, titleVisibility: .visible) {
+                Button("清除当前题组作答记录", role: .destructive, action: redoCurrentGroupAnswers)
+                Button("取消", role: .cancel) { }
+            } message: {
+                Text("将清除当前筛选题组的选项和答案揭示状态。涂鸦、题干与选项的手动修改及考试数据会保留。")
+            }
+    }
+
+    private var readerScreen: some View {
         GeometryReader { geometry in
             readerPage(width: geometry.size.width, height: geometry.size.height)
         }
@@ -1794,18 +1832,18 @@ struct QuestionBankCrossPaperReaderView: View {
             }
         }
         .animation(.easeOut(duration: 0.16), value: showsReaderOptions)
-        .onChange(of: presentationMode) { _, mode in
-            if mode != .continuous { continuousQuestionDoodleRecordID = nil }
-        }
-        .onChange(of: doodleSession.isPresented) { _, isPresented in
-            if !isPresented { continuousQuestionDoodleRecordID = nil }
-        }
         .background(Color.white)
         .navigationTitle(presentationMode == .single ? "" : (paperTitle ?? filter.module?.rawValue ?? "多卷题目"))
         .navigationBarTitleDisplayMode(.inline)
         .background(NativeNavigationInteraction(blocked: doodleSession.isPresented))
         .secondaryPageTabBarHidden()
-        .toolbar {
+        .toolbar { readerToolbar }
+        .sheet(isPresented: $showsOverview) { questionOverviewSheet }
+        .sheet(item: $activeQuestionDetail) { questionDetailSheet(for: $0) }
+    }
+
+    @ToolbarContentBuilder
+    private var readerToolbar: some ToolbarContent {
             if presentationMode == .single {
                 ToolbarItem(placement: .principal) {
                     Button {
@@ -1846,8 +1884,9 @@ struct QuestionBankCrossPaperReaderView: View {
                 .id(doodleSession.isPresented ? "cross-paper-toolbar-doodle" : "cross-paper-toolbar-reader")
             }
             .documentToolbarBackground()
-        }
-        .sheet(isPresented: $showsOverview) {
+    }
+
+    private var questionOverviewSheet: some View {
             NavigationStack {
                 List {
                     ForEach(groups) { group in
@@ -1884,87 +1923,60 @@ struct QuestionBankCrossPaperReaderView: View {
                     }
                 }
             }
-        }
-        .sheet(item: $activeQuestionDetail) { route in
-            if let item = orderedItems.first(where: { $0.id == route.questionID }),
-               let group = groups.first(where: { $0.paperID == item.record.paperID }) {
-                QuestionBankQuestionDetailPanel(
-                    question: item.question,
-                    title: "第\(item.question.number)题详情",
-                    isDoodlePresented: doodleSession.isPresented,
-                    onDone: { activeQuestionDetail = nil },
-                    onClearAnswer: { clearAnswer(for: item.record.compoundID) },
-                    onSave: { stem, optionTexts in
-                        try QuestionBankRepository.updateQuestionText(
-                            paperID: item.record.paperID,
-                            questionID: item.question.id,
-                            stem: stem,
-                            optionTexts: optionTexts,
-                            records: records,
-                            context: modelContext
-                        )
-                    }
-                ) {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            if let material = group.materialsByID[item.question.materialID] {
-                                materialSection(
-                                    material,
-                                    paperID: group.paperID,
-                                    sourcePapers: group.sourcePapers
-                                )
-                            }
-                            questionSection(
-                                item,
-                                group: group,
-                                showsPaperHeading: false,
-                                showsQuestionNumber: false,
-                                showsDoodleCanvas: false
-                            )
-                            QuestionBankProvenanceDisclosure(
-                                title: "题目来源",
-                                entries: item.question.provenance ?? [],
+    }
+
+    @ViewBuilder
+    private func questionDetailSheet(for route: QuestionBankCrossPaperDetailRoute) -> some View {
+        if let item = orderedItems.first(where: { $0.id == route.questionID }),
+           let group = groups.first(where: { $0.paperID == item.record.paperID }) {
+            QuestionBankQuestionDetailPanel(
+                question: item.question,
+                title: "第\(item.question.number)题详情",
+                isDoodlePresented: doodleSession.isPresented,
+                onDone: { activeQuestionDetail = nil },
+                onClearAnswer: { clearAnswer(for: item.record.compoundID) },
+                onSave: { stem, optionTexts in
+                    try QuestionBankRepository.updateQuestionText(
+                        paperID: item.record.paperID,
+                        questionID: item.question.id,
+                        stem: stem,
+                        optionTexts: optionTexts,
+                        records: records,
+                        context: modelContext
+                    )
+                }
+            ) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if let material = group.materialsByID[item.question.materialID] {
+                            materialSection(
+                                material,
+                                paperID: group.paperID,
                                 sourcePapers: group.sourcePapers
                             )
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
+                        questionSection(
+                            item,
+                            group: group,
+                            showsPaperHeading: false,
+                            showsQuestionNumber: false,
+                            showsDoodleCanvas: false
+                        )
+                        QuestionBankProvenanceDisclosure(
+                            title: "题目来源",
+                            entries: item.question.provenance ?? [],
+                            sourcePapers: group.sourcePapers
+                        )
                     }
-                    .background(Color.white)
-                    .scrollDisabled(doodleSession.isPresented)
-                    .coordinateSpace(name: "question-bank-cross-paper-scroll")
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
                 }
-            } else {
-                ContentUnavailableView("题目不存在", systemImage: "doc.text.magnifyingglass")
+                .background(Color.white)
+                .scrollDisabled(doodleSession.isPresented)
+                .coordinateSpace(name: "question-bank-cross-paper-scroll")
             }
-        }
-        .onAppear {
-            migrateLegacyAnswerStateIfNeeded()
-            refreshGroups()
-            if currentQuestionID == nil { currentQuestionID = orderedItems.first?.id }
-        }
-        .onChange(of: readerRecordRevision) { _, _ in refreshGroups() }
-        .alert("答案更新", isPresented: Binding(
-            get: { missingAnswerEditError != nil || missingAnswerEditConfirmation != nil },
-            set: {
-                if !$0 {
-                    missingAnswerEditError = nil
-                    missingAnswerEditConfirmation = nil
-                }
-            }
-        )) {
-            Button("好", role: .cancel) {
-                missingAnswerEditError = nil
-                missingAnswerEditConfirmation = nil
-            }
-        } message: {
-            Text(missingAnswerEditError ?? missingAnswerEditConfirmation ?? "")
-        }
-        .confirmationDialog("重新作答？", isPresented: $showsRedoConfirmation, titleVisibility: .visible) {
-            Button("清除当前题组作答记录", role: .destructive, action: redoCurrentGroupAnswers)
-            Button("取消", role: .cancel) { }
-        } message: {
-            Text("将清除当前筛选题组的选项和答案揭示状态。涂鸦、题干与选项的手动修改及考试数据会保留。")
+        } else {
+            ContentUnavailableView("题目不存在", systemImage: "doc.text.magnifyingglass")
         }
     }
 
