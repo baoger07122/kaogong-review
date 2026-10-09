@@ -1784,26 +1784,7 @@ struct QuestionBankCrossPaperReaderView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            Group {
-                if presentationMode == .single, let item = currentItem {
-                    singleReader(item, pageHeight: geometry.size.height)
-                } else {
-                    continuousReader
-                }
-            }
-            .frame(width: geometry.size.width, height: geometry.size.height)
-            .overlay {
-                if presentationMode == .continuous,
-                   doodleSession.isPresented,
-                   let recordID = continuousQuestionDoodleRecordID,
-                   doodleSession.targetRecordID == recordID {
-                    LibraryDoodleContentLayer(
-                        session: doodleSession,
-                        targetRecordID: recordID,
-                        minimumCanvasHeight: geometry.size.height
-                    )
-                }
-            }
+            readerPage(width: geometry.size.width, height: geometry.size.height)
         }
         .overlay(alignment: .topTrailing) {
             if showsReaderOptions {
@@ -1987,6 +1968,32 @@ struct QuestionBankCrossPaperReaderView: View {
         }
     }
 
+    private func readerPage(width: CGFloat, height: CGFloat) -> some View {
+        Group {
+            if presentationMode == .single, let item = currentItem {
+                singleReader(item, pageHeight: height)
+            } else {
+                continuousReader
+            }
+        }
+        .frame(width: width, height: height)
+        .overlay { continuousQuestionDoodleLayer(height: height) }
+    }
+
+    @ViewBuilder
+    private func continuousQuestionDoodleLayer(height: CGFloat) -> some View {
+        if presentationMode == .continuous,
+           doodleSession.isPresented,
+           let recordID = continuousQuestionDoodleRecordID,
+           doodleSession.targetRecordID == recordID {
+            LibraryDoodleContentLayer(
+                session: doodleSession,
+                targetRecordID: recordID,
+                minimumCanvasHeight: height
+            )
+        }
+    }
+
     private var paperTitle: String? {
         guard let paperID else { return nil }
         return index.papers.first(where: { $0.id == paperID })?.title
@@ -2088,8 +2095,8 @@ struct QuestionBankCrossPaperReaderView: View {
                                     item,
                                     group: group,
                                     showsPaperHeading: false,
-                                    showsDoodleButton: true,
                                     showsDoodleCanvas: false,
+                                    showsDoodleButton: true,
                                     showsQuestionType: false
                                 )
                             }
