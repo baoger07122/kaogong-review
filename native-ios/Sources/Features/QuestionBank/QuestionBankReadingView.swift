@@ -1038,6 +1038,7 @@ struct QuestionBankModuleView: View {
             }
 
             VStack(alignment: .leading, spacing: 0) {
+                QuestionBankQuestionAnnotationBadges(question: item.question)
                 if !item.question.stem.isEmpty {
                     Text(verbatim: item.question.stem)
                         .font(QuestionBankTypography.contentFont)
@@ -1196,12 +1197,13 @@ struct QuestionBankModuleView: View {
             isDoodlePresented: doodleSession.isPresented,
             onDone: { activeSheet = nil },
             onClearAnswer: { clearAnswer(for: item.record.compoundID) },
-            onSave: { stem, optionTexts in
+            onSave: { stem, optionTexts, annotations in
                 try QuestionBankRepository.updateQuestionText(
                     paperID: paperID,
                     questionID: item.question.id,
                     stem: stem,
                     optionTexts: optionTexts,
+                    annotations: annotations,
                     records: records,
                     context: modelContext
                 )
@@ -1679,7 +1681,9 @@ struct QuestionBankCrossPaperReaderView: View {
         self.paperID = paperID
         let scope = [
             filter.module?.rawValue ?? "", filter.questionType, filter.year, filter.examType,
-            filter.province, filter.search, filter.questionNumber, paperID ?? "all"
+            filter.province, filter.search, filter.questionNumber,
+            String(filter.difficultOnly), String(filter.needsReviewOnly),
+            filter.knowledgePoint, filter.weaknessTag, paperID ?? "all"
         ].joined(separator: "|")
         let key = Data(scope.utf8).base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
@@ -1935,12 +1939,13 @@ struct QuestionBankCrossPaperReaderView: View {
                 isDoodlePresented: doodleSession.isPresented,
                 onDone: { activeQuestionDetail = nil },
                 onClearAnswer: { clearAnswer(for: item.record.compoundID) },
-                onSave: { stem, optionTexts in
+                onSave: { stem, optionTexts, annotations in
                     try QuestionBankRepository.updateQuestionText(
                         paperID: item.record.paperID,
                         questionID: item.question.id,
                         stem: stem,
                         optionTexts: optionTexts,
+                        annotations: annotations,
                         records: records,
                         context: modelContext
                     )
@@ -2295,6 +2300,7 @@ struct QuestionBankCrossPaperReaderView: View {
                 }
             }
             VStack(alignment: .leading, spacing: 9) {
+                QuestionBankQuestionAnnotationBadges(question: item.question)
                 if !item.question.stem.isEmpty {
                     Text(verbatim: item.question.stem)
                         .font(QuestionBankTypography.contentFont)
@@ -2708,7 +2714,7 @@ private struct QuestionBankQuestionDetailPanel<Content: View>: View {
     let isDoodlePresented: Bool
     let onDone: () -> Void
     let onClearAnswer: () -> Void
-    let onSave: (String, [String: String]) throws -> Void
+    let onSave: (String, [String: String], QuestionBankQuestionAnnotations) throws -> Void
     private let content: Content
     @State private var showsTextEditor = false
     @State private var showsClearAnswerConfirmation = false
@@ -2719,7 +2725,7 @@ private struct QuestionBankQuestionDetailPanel<Content: View>: View {
         isDoodlePresented: Bool,
         onDone: @escaping () -> Void,
         onClearAnswer: @escaping () -> Void,
-        onSave: @escaping (String, [String: String]) throws -> Void,
+        onSave: @escaping (String, [String: String], QuestionBankQuestionAnnotations) throws -> Void,
         @ViewBuilder content: () -> Content
     ) {
         self.question = question
@@ -2778,18 +2784,27 @@ private struct QuestionBankQuestionDetailPanel<Content: View>: View {
 private struct QuestionBankQuestionTextEditor: View {
     @Environment(\.dismiss) private var dismiss
     let question: QuestionBankQuestion
-    let onSave: (String, [String: String]) throws -> Void
+    let onSave: (String, [String: String], QuestionBankQuestionAnnotations) throws -> Void
     @State private var stem: String
     @State private var optionTexts: [String: String]
+    @State private var isDifficult: Bool
+    @State private var needsReview: Bool
+    @State private var knowledgePointsText: String
+    @State private var weaknessTagsText: String
     @State private var saveError: String?
 
     init(
         question: QuestionBankQuestion,
-        onSave: @escaping (String, [String: String]) throws -> Void
+        onSave: @escaping (String, [String: String], QuestionBankQuestionAnnotations) throws -> Void
     ) {
         self.question = question
         self.onSave = onSave
         _stem = State(initialValue: question.stem)
+        let annotations = QuestionBankQuestionAnnotations(question: question)
+        _isDifficult = State(initialValue: annotations.isDifficult)
+        _needsReview = State(initialValue: annotations.needsReview)
+        _knowledgePointsText = State(initialValue: annotations.knowledgePoints.joined(separator: "、"))
+        _weaknessTagsText = State(initialValue: annotations.weaknessTags.joined(separator: "、"))
         _optionTexts = State(initialValue: Dictionary(
             question.options.map { ($0.id, $0.text) },
             uniquingKeysWith: { first, _ in first }
@@ -2804,17 +2819,34 @@ private struct QuestionBankQuestionTextEditor: View {
                         .frame(minHeight: 150)
                         .accessibilityIdentifier("question-bank-edit-stem")
                 }
-                Section("选项文字") {
+                Section {
                     ForEach(question.options) { option in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("选项 \(option.id)")
+                        HStack(alignment: .top, spacing: 10) {
+                            Text(option.id)
                                 .font(AppTheme.auxiliaryFont.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                            TextEditor(text: optionBinding(for: option.id))
-                                .frame(minHeight: 68)
+                                .foregroundStyle(AppTheme.accent)
+                                .frame(width: 34, height: 30)
+                                .background(AppTheme.accent.opacity(0.10), in: Capsule())
+                            TextField("", text: optionBinding(for: option.id), axis: .vertical)
+                                .lineLimit(1...6)
+                                .font(QuestionBankTypography.contentFont)
+                                .padding(.vertical, 5)
+                                .accessibilityLabel("选项 \(option.id)")
                                 .accessibilityIdentifier("question-bank-edit-option-\(option.id)")
                         }
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                        .accessibilityElement(children: .contain)
                     }
+                }
+                Section("标记与知识点") {
+                    Toggle("难题", isOn: $isDifficult)
+                        .accessibilityIdentifier("question-bank-edit-difficult")
+                    Toggle("待复习", isOn: $needsReview)
+                        .accessibilityIdentifier("question-bank-edit-needs-review")
+                    TextField("知识点，用顿号分隔", text: $knowledgePointsText)
+                        .accessibilityIdentifier("question-bank-edit-knowledge-points")
+                    TextField("弱项标签，用顿号分隔", text: $weaknessTagsText)
+                        .accessibilityIdentifier("question-bank-edit-weakness-tags")
                 }
             }
             .navigationTitle("编辑题目")
@@ -2853,7 +2885,16 @@ private struct QuestionBankQuestionTextEditor: View {
                 uniquingKeysWith: { first, _ in first }
             )
             let editedOptionTexts = optionTexts.filter { originalOptionTexts[$0.key] != $0.value }
-            try onSave(stem, editedOptionTexts)
+            try onSave(
+                stem,
+                editedOptionTexts,
+                QuestionBankQuestionAnnotations(
+                    isDifficult: isDifficult,
+                    needsReview: needsReview,
+                    knowledgePoints: QuestionBankQuestionAnnotations.tags(from: knowledgePointsText),
+                    weaknessTags: QuestionBankQuestionAnnotations.tags(from: weaknessTagsText)
+                )
+            )
             dismiss()
         } catch {
             saveError = error.localizedDescription
@@ -3104,14 +3145,12 @@ private struct QuestionBankOptionRow: View {
             } label: {
                 row
             }
-            .buttonStyle(.plain)
-            // Keep the underlying option enabled while a doodle canvas is open.
-            // The canvas interaction shield blocks the tap; leaving this button
-            // enabled keeps its accessibility state truthful and lets the
-            // shield own the interaction boundary.
-            .disabled(isSelectionLocked)
+            .buttonStyle(QuestionBankOptionButtonStyle())
+            // The first choice remains locked semantically, while the custom
+            // style keeps that state from dimming the option text and marker.
             .accessibilityHint(isSelectionLocked ? "答案已提交，不能更改选择" : "选择此选项")
             .accessibilityIdentifier("question-bank-option-\(questionID)-\(option.id)")
+            .disabled(isSelectionLocked)
         } else {
             row
                 .accessibilityIdentifier("question-bank-option-\(questionID)-\(option.id)")
@@ -3123,11 +3162,17 @@ private struct QuestionBankOptionRow: View {
             Text(option.id)
                 .font(QuestionBankTypography.contentFont.weight(.semibold))
                 .foregroundStyle(letterColor)
-                .frame(width: 18, alignment: .leading)
+                .frame(width: 32, height: 32)
+                .background(selectionRingColor.opacity(isSelected ? 0.10 : 0), in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(selectionRingColor, lineWidth: isSelected ? 1.5 : 0)
+                }
             VStack(alignment: .leading, spacing: 8) {
                 if let displayText = QuestionBankOptionDisplay.text(for: option) {
                     Text(displayText)
                         .font(QuestionBankTypography.contentFont)
+                        .foregroundStyle(Color.primary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if !option.imageAssetID.isEmpty, let asset = assetLookup(option.imageAssetID) {
@@ -3140,18 +3185,12 @@ private struct QuestionBankOptionRow: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(AppTheme.success)
                     .accessibilityLabel("正确选项")
-            } else if selectedOptionID == option.id && readingMode == .practice {
-                Image(systemName: "record.circle")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(letterColor)
-                    .accessibilityLabel("你的选择")
             }
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(selectedOptionID == option.id && readingMode == .practice
-            ? AppTheme.accent.opacity(0.06) : Color.clear)
+        .background(isSelected ? selectionRingColor.opacity(0.045) : Color.clear)
         .contentShape(Rectangle())
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -3161,10 +3200,74 @@ private struct QuestionBankOptionRow: View {
     }
 
     private var letterColor: Color {
-        guard revealsAnswer else { return .primary }
-        if answer == option.id { return AppTheme.success }
-        if selectedOptionID == option.id { return AppTheme.danger }
+        if revealsAnswer, answer == option.id { return AppTheme.success }
+        if revealsAnswer, isSelected { return AppTheme.danger }
+        if isSelected { return AppTheme.accent }
         return .primary
+    }
+
+    private var isSelected: Bool {
+        readingMode == .practice && selectedOptionID == option.id
+    }
+
+    private var selectionRingColor: Color {
+        guard isSelected else { return .clear }
+        guard revealsAnswer else { return AppTheme.accent }
+        return answer == option.id ? AppTheme.success : AppTheme.danger
+    }
+}
+
+private struct QuestionBankOptionButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed && isEnabled ? 0.82 : 1)
+    }
+}
+
+private struct QuestionBankQuestionAnnotationBadges: View {
+    let question: QuestionBankQuestion
+
+    private var labels: [String] {
+        (question.isDifficult == true ? ["难题"] : [])
+            + (question.needsReview == true ? ["待复习"] : [])
+            + (question.knowledgePoints ?? [])
+            + (question.weaknessTags ?? [])
+    }
+
+    private var hasAnnotations: Bool {
+        question.isDifficult == true || question.needsReview == true
+            || !(question.knowledgePoints ?? []).isEmpty || !(question.weaknessTags ?? []).isEmpty
+    }
+
+    var body: some View {
+        if hasAnnotations {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    if question.isDifficult == true { badge("难题", color: AppTheme.danger) }
+                    if question.needsReview == true { badge("待复习", color: AppTheme.accent) }
+                    ForEach(question.knowledgePoints ?? [], id: \.self) { value in
+                        badge(value, color: AppTheme.success)
+                    }
+                    ForEach(question.weaknessTags ?? [], id: \.self) { value in
+                        badge(value, color: AppTheme.accent)
+                    }
+                }
+                .padding(.bottom, 8)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("题目标记：\(labels.joined(separator: "、"))")
+        }
+    }
+
+    private func badge(_ title: String, color: Color) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.09), in: Capsule())
     }
 }
 

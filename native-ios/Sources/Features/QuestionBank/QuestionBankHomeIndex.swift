@@ -63,6 +63,17 @@ struct QuestionBankHomeFilter: Equatable, Sendable {
     var province = ""
     var search = ""
     var questionNumber = ""
+    var difficultOnly = false
+    var needsReviewOnly = false
+    var knowledgePoint = ""
+    var weaknessTag = ""
+
+    var hasQuestionRestriction: Bool {
+        module != nil || !questionType.isEmpty
+            || (Int(questionNumber).map { $0 > 0 } ?? false)
+            || difficultOnly || needsReviewOnly
+            || !knowledgePoint.isEmpty || !weaknessTag.isEmpty
+    }
 }
 
 struct QuestionBankHomeQuestion: Identifiable {
@@ -153,6 +164,14 @@ struct QuestionBankHomeIndex {
         Array(Set(orderedPapers.flatMap { provinceLabels(for: $0.paper) })).sorted()
     }
 
+    var knowledgePoints: [String] {
+        Array(Set(allQuestions.flatMap { $0.question.knowledgePoints ?? [] })).sorted()
+    }
+
+    var weaknessTags: [String] {
+        Array(Set(allQuestions.flatMap { $0.question.weaknessTags ?? [] })).sorted()
+    }
+
     func questionTypeOptions(for module: QuestionBankCoarseModule) -> [String] {
         guard !module.allowedQuestionTypes.isEmpty else { return [] }
         let hasUnclassified = orderedPapers.contains { paper in
@@ -169,10 +188,7 @@ struct QuestionBankHomeIndex {
             let searchQuery = filter.search.trimmingCharacters(in: .whitespacesAndNewlines)
             let paperMatchesSearch = !searchQuery.isEmpty && matches(paper.record.searchText, query: searchQuery)
             let questionMatches = filteredQuestions(matching: filter, paperID: paper.id).isEmpty == false
-            let hasQuestionNumberFilter = Int(filter.questionNumber).map { $0 > 0 } ?? false
-            let hasQuestionRestriction = filter.module != nil || !filter.questionType.isEmpty
-                || hasQuestionNumberFilter
-            if hasQuestionRestriction { return questionMatches }
+            if filter.hasQuestionRestriction { return questionMatches }
             if searchQuery.isEmpty { return true }
             return paperMatchesSearch || questionMatches
         }
@@ -188,6 +204,12 @@ struct QuestionBankHomeIndex {
                 if let module = filter.module, item.module != module { continue }
                 if !filter.questionType.isEmpty, item.questionTypeFilter != filter.questionType { continue }
                 if let number = Int(filter.questionNumber), number > 0, item.question.number != number { continue }
+                if filter.difficultOnly, item.question.isDifficult != true { continue }
+                if filter.needsReviewOnly, item.question.needsReview != true { continue }
+                if !filter.knowledgePoint.isEmpty,
+                   !(item.question.knowledgePoints ?? []).contains(filter.knowledgePoint) { continue }
+                if !filter.weaknessTag.isEmpty,
+                   !(item.question.weaknessTags ?? []).contains(filter.weaknessTag) { continue }
                 if !paperMatchesSearch && !matches(item.record.searchText, query: filter.search) { continue }
                 result.append(item)
             }
@@ -213,6 +235,10 @@ struct QuestionBankHomeIndex {
 
     func records(for paperID: String) -> [QuestionBankRecord] {
         recordsByPaperID[paperID] ?? []
+    }
+
+    private var allQuestions: [QuestionBankHomeQuestion] {
+        questionsByPaperID.values.flatMap { $0 }
     }
 
     private func paperMatchesMetadata(_ paper: QuestionBankPaper, filter: QuestionBankHomeFilter) -> Bool {

@@ -63,6 +63,10 @@ struct QuestionBankView: View {
     @State private var selectedProvince = ""
     @State private var selectedCoarseModule: QuestionBankCoarseModule?
     @State private var selectedQuestionType = ""
+    @State private var selectedDifficultOnly = false
+    @State private var selectedNeedsReviewOnly = false
+    @State private var selectedKnowledgePoint = ""
+    @State private var selectedWeaknessTag = ""
     @State private var paperPendingDeletion: QuestionBankRecord?
     @State private var showsPaperDeletionConfirmation = false
     @State private var activeImportSheet: QuestionBankImportSheet?
@@ -92,7 +96,11 @@ struct QuestionBankView: View {
             examType: selectedExamType,
             province: selectedProvince,
             search: searchIndexQuery,
-            questionNumber: searchedQuestionNumber.map { String($0) } ?? ""
+            questionNumber: searchedQuestionNumber.map { String($0) } ?? "",
+            difficultOnly: selectedDifficultOnly,
+            needsReviewOnly: selectedNeedsReviewOnly,
+            knowledgePoint: selectedKnowledgePoint,
+            weaknessTag: selectedWeaknessTag
         )
     }
 
@@ -117,7 +125,8 @@ struct QuestionBankView: View {
     private var hasActiveFilters: Bool {
         selectedYear.isEmpty == false || selectedExamType.isEmpty == false
             || selectedProvince.isEmpty == false || selectedCoarseModule != nil
-            || selectedQuestionType.isEmpty == false
+            || selectedQuestionType.isEmpty == false || selectedDifficultOnly
+            || selectedNeedsReviewOnly || !selectedKnowledgePoint.isEmpty || !selectedWeaknessTag.isEmpty
     }
 
     private var activeFilterSummary: String {
@@ -127,6 +136,10 @@ struct QuestionBankView: View {
         if !selectedProvince.isEmpty { values.append(selectedProvince) }
         if let selectedCoarseModule { values.append(selectedCoarseModule.rawValue) }
         if !selectedQuestionType.isEmpty { values.append(selectedQuestionType) }
+        if selectedDifficultOnly { values.append("难题") }
+        if selectedNeedsReviewOnly { values.append("待复习") }
+        if !selectedKnowledgePoint.isEmpty { values.append("知识点：\(selectedKnowledgePoint)") }
+        if !selectedWeaknessTag.isEmpty { values.append("弱项：\(selectedWeaknessTag)") }
         return values.joined(separator: " · ")
     }
 
@@ -136,6 +149,10 @@ struct QuestionBankView: View {
         selectedProvince = ""
         selectedCoarseModule = nil
         selectedQuestionType = ""
+        selectedDifficultOnly = false
+        selectedNeedsReviewOnly = false
+        selectedKnowledgePoint = ""
+        selectedWeaknessTag = ""
     }
 
     var body: some View {
@@ -201,7 +218,7 @@ struct QuestionBankView: View {
                         activeFilterSummaryRow
                     }
 
-                    if selectedCoarseModule != nil {
+                    if filter.hasQuestionRestriction {
                         NavigationLink {
                             QuestionBankCrossPaperReaderView(filter: filter)
                         } label: {
@@ -231,7 +248,7 @@ struct QuestionBankView: View {
                                     paperPendingDeletion = paper.record
                                     showsPaperDeletionConfirmation = true
                                 }) {
-                                    if selectedCoarseModule != nil {
+                                    if filter.hasQuestionRestriction {
                                         NavigationLink {
                                             QuestionBankCrossPaperReaderView(filter: filter, paperID: paper.id)
                                         } label: {
@@ -506,7 +523,39 @@ struct QuestionBankView: View {
                 filterMenu(title: "省份", selection: $selectedProvince, options: index.provinces)
                 Spacer(minLength: 0)
             }
+            HStack(spacing: 7) {
+                questionTagFilterChip("难题", isSelected: $selectedDifficultOnly,
+                                      identifier: "question-bank-difficult-filter")
+                questionTagFilterChip("待复习", isSelected: $selectedNeedsReviewOnly,
+                                      identifier: "question-bank-review-filter")
+                if !index.knowledgePoints.isEmpty {
+                    filterMenu(title: "知识点", selection: $selectedKnowledgePoint, options: index.knowledgePoints)
+                }
+                if !index.weaknessTags.isEmpty {
+                    filterMenu(title: "弱项", selection: $selectedWeaknessTag, options: index.weaknessTags)
+                }
+                Spacer(minLength: 0)
+            }
         }
+    }
+
+    private func questionTagFilterChip(
+        _ title: String,
+        isSelected: Binding<Bool>,
+        identifier: String
+    ) -> some View {
+        Button { isSelected.wrappedValue.toggle() } label: {
+            Text(title)
+                .font(AppTheme.auxiliaryFont.weight(.medium))
+                .foregroundStyle(isSelected.wrappedValue ? .white : Color.primary)
+                .padding(.horizontal, 12)
+                .frame(height: 34)
+                .background(isSelected.wrappedValue ? AppTheme.accent : AppTheme.secondaryBackground,
+                            in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected.wrappedValue ? .isSelected : [])
+        .accessibilityIdentifier(identifier)
     }
 
     private func typeFilterChip(_ title: String, value: String) -> some View {

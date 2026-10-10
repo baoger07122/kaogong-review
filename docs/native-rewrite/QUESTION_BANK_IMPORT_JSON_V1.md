@@ -28,7 +28,7 @@ JSON 顶层必须是对象，必需字段如下：
 - `paper`：`id: string`、`title: string`、`year: integer`、`examType: string`、`volume: string`、`source: string`、`importVersion: string`。
 - 每条 `modules`：`id: string`、`paperID: string`、`sequence: integer`、`title: string`、`instruction: string`、`originalPage: string`。
 - 每条 `materials`：`id: string`、`paperID: string`、`moduleID: string`、`type: string`、`text: string`、`imageAssetID: string`、`applicableQuestions: string`、`originalPage: string`。
-- 每条 `questions`：`id: string`、`paperID: string`、`moduleID: string`、`number: integer`、`subject: string`、`type: string`、`materialID: string`、`stem: string`、`stemImageAssetID: string`、`options: array`、`answer: string`、`explanation: string`、`originalPage: string`。
+- 每条 `questions`：`id: string`、`paperID: string`、`moduleID: string`、`number: integer`、`subject: string`、`type: string`、`materialID: string`、`stem: string`、`stemImageAssetID: string`、`options: array`、`answer: string`、`explanation: string`、`originalPage: string`。可选标记字段为 `isDifficult: boolean`、`needsReview: boolean`、`knowledgePoints: string[]`、`weaknessTags: string[]`；旧版 v1 文件省略时默认视为未标记。后两项沿用错题记录中的字段名，作答和重做状态不会覆盖这些标记。
 - 每条 `options`：`id: string`、`text: string`、`imageAssetID: string`。选项 ID 属于每道题自己的命名空间，每题严格按 `A`、`B`、`C`、`D` 排列；不同题目之间可以重复这四个字母。图选项仍使用这三个原字段，不把图片字节放进题目记录。
 
 ## 图片资产字段与字节

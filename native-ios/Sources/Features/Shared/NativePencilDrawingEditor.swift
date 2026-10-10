@@ -173,7 +173,6 @@ struct NativePencilDrawingEditor: View {
     let minimumCanvasHeight: CGFloat
     let onClose: (() -> Void)?
     @StateObject private var controller: PencilDrawingController
-    @State private var eraserLocation: CGPoint?
 
     init(
         encodedData: Binding<String>,
@@ -202,15 +201,11 @@ struct NativePencilDrawingEditor: View {
                     .onPencilSqueeze { phase in
                         if case .ended(_) = phase {
                             controller.toggleEraser()
-                            eraserLocation = nil
                         }
                     }
             } else {
                 editorContent
             }
-        }
-        .onChange(of: controller.eraser) { _, enabled in
-            if !enabled { eraserLocation = nil }
         }
         .onChange(of: controller.action?.id) { _, _ in
             if case .clear? = controller.action?.kind {
@@ -293,22 +288,11 @@ struct NativePencilDrawingEditor: View {
                 fingerDrawingEnabled: controller.fingerDrawingEnabled,
                 scrollEnabled: !transparentBackground,
                 isActive: isActive,
-                eraserLocation: $eraserLocation,
                 action: $controller.action
             )
             .contentShape(Rectangle())
             .allowsHitTesting(true)
             .zIndex(1)
-
-            if controller.eraser, let eraserLocation {
-                Circle()
-                    .fill(Color.white.opacity(0.18))
-                    .overlay(Circle().stroke(Color.primary.opacity(0.62), lineWidth: 1.2))
-                    .frame(width: eraserCursorDiameter, height: eraserCursorDiameter)
-                    .position(eraserLocation)
-                    .allowsHitTesting(false)
-                    .zIndex(2)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(minHeight: minimumCanvasHeight)
@@ -332,7 +316,6 @@ struct NativePencilDrawingEditor: View {
                 ForEach([UIColor.black, .systemRed, .systemBlue, .systemGreen], id: \.description) { value in
                     Button {
                         controller.selectPen(color: value)
-                        eraserLocation = nil
                     } label: {
                         Circle()
                             .fill(Color(uiColor: value))
@@ -385,7 +368,6 @@ struct NativePencilDrawingEditor: View {
                     ForEach([UIColor.black, .systemRed, .systemBlue, .systemGreen], id: \.description) { value in
                         Button {
                             controller.selectPen(color: value)
-                            eraserLocation = nil
                         } label: {
                             Circle().fill(Color(uiColor: value)).frame(width: 23, height: 23)
                                 .overlay(
@@ -418,7 +400,6 @@ struct NativePencilDrawingEditor: View {
             }
             toolButton(controller.eraser ? "eraser.fill" : "eraser", active: controller.eraser, accessibilityLabel: "橡皮擦") {
                 controller.toggleEraser()
-                eraserLocation = nil
             }
             toolButton("arrow.uturn.backward", active: false, accessibilityLabel: "撤销") {
                 controller.undo()
@@ -443,18 +424,14 @@ struct NativePencilDrawingEditor: View {
     private var penWidthBinding: Binding<CGFloat> {
         Binding(get: { controller.width }, set: { value in
             controller.selectWidth(value)
-            eraserLocation = nil
         })
     }
 
     private var eraserWidthBinding: Binding<CGFloat> {
         Binding(get: { controller.eraserWidth }, set: { value in
             controller.selectEraserWidth(value)
-            eraserLocation = nil
         })
     }
-
-    private var eraserCursorDiameter: CGFloat { controller.eraserWidth }
 
     private func toolButton(
         _ image: String,
@@ -485,7 +462,6 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
     let fingerDrawingEnabled: Bool
     let scrollEnabled: Bool
     let isActive: Bool
-    @Binding var eraserLocation: CGPoint?
     @Binding var action: PencilAction?
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self, controller: controller) }
@@ -513,18 +489,6 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         canvas.alwaysBounceVertical = scrollEnabled
         canvas.isMultipleTouchEnabled = true
 
-        let eraserTracker = UILongPressGestureRecognizer(
-            target: context.coordinator,
-            action: #selector(Coordinator.trackEraser(_:))
-        )
-        eraserTracker.minimumPressDuration = 0
-        eraserTracker.allowableMovement = .greatestFiniteMagnitude
-        eraserTracker.cancelsTouchesInView = false
-        eraserTracker.delegate = context.coordinator
-        eraserTracker.isEnabled = eraser
-        canvas.addGestureRecognizer(eraserTracker)
-        context.coordinator.eraserTracker = eraserTracker
-
         context.coordinator.loadDrawing(encodedData, revision: drawingLoadRevision, on: canvas)
         updateTool(canvas)
         LibraryPerformanceLog.mark("doodle.canvas-create", since: canvasStart)
@@ -548,12 +512,12 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         canvas.alwaysBounceHorizontal = scrollEnabled
         canvas.alwaysBounceVertical = scrollEnabled
         canvas.isMultipleTouchEnabled = true
-        context.coordinator.eraserTracker?.isEnabled = eraser
         if canvas.window != nil, !canvas.isFirstResponder {
             DispatchQueue.main.async { canvas.becomeFirstResponder() }
         }
         if let action, context.coordinator.lastActionID != action.id {
             context.coordinator.lastActionID = action.id
+            var waitsForPublish = false
             switch action.kind {
             case .undo:
                 canvas.undoManager?.undo()
@@ -570,11 +534,17 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
                 canvas.drawing = PKDrawing()
                 context.coordinator.publish(canvas)
             case .commit:
-                context.coordinator.publish(canvas)
+                waitsForPublish = true
+                context.coordinator.publish(canvas) {
+                    self.action = nil
+                    action.completion?()
+                }
             }
-            DispatchQueue.main.async {
-                self.action = nil
-                action.completion?()
+            if !waitsForPublish {
+                DispatchQueue.main.async {
+                    self.action = nil
+                    action.completion?()
+                }
             }
         }
         context.coordinator.loadDrawing(encodedData, revision: drawingLoadRevision, on: canvas)
@@ -586,18 +556,19 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             : PKInkingTool(.pen, color: color, width: width)
     }
 
-    final class Coordinator: NSObject, PKCanvasViewDelegate, UIGestureRecognizerDelegate {
+    final class Coordinator: NSObject, PKCanvasViewDelegate {
         var parent: PencilCanvasRepresentable
         let controller: PencilDrawingController
         var lastEncoded = ""
         var lastActionID: UUID?
         var drawingChanged = false
+        private var drawingRevision = 0
         private var requestedEncoded: String?
         private var requestedRevision: Int?
         private var decodeToken = UUID()
         var canvasReady = false
         private var pendingPublish: DispatchWorkItem?
-        weak var eraserTracker: UILongPressGestureRecognizer?
+        private let publishQueue = DispatchQueue(label: "QuestionBank.PencilDrawing.publish", qos: .utility)
 
         init(parent: PencilCanvasRepresentable, controller: PencilDrawingController) {
             self.parent = parent
@@ -685,6 +656,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             drawingChanged = true
+            drawingRevision += 1
             controller.hasPendingDrawingPublish = true
             pendingPublish?.cancel()
             let work = DispatchWorkItem { [weak self, weak canvasView] in
@@ -692,7 +664,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
                 self.publish(canvasView)
             }
             pendingPublish = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
         }
 
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
@@ -701,36 +673,30 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             publish(canvasView)
         }
 
-        @objc func trackEraser(_ recognizer: UILongPressGestureRecognizer) {
-            guard parent.eraser else {
-                parent.eraserLocation = nil
-                return
-            }
-            switch recognizer.state {
-            case .began, .changed:
-                parent.eraserLocation = recognizer.location(in: recognizer.view)
-            default:
-                parent.eraserLocation = nil
-            }
-        }
-
-        func gestureRecognizer(
-            _ gestureRecognizer: UIGestureRecognizer,
-            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-        ) -> Bool {
-            true
-        }
-
-        func publish(_ canvas: PKCanvasView) {
+        func publish(_ canvas: PKCanvasView, completion: (() -> Void)? = nil) {
             pendingPublish?.cancel()
             pendingPublish = nil
-            let value = canvas.drawing.dataRepresentation().base64EncodedString()
-            controller.remember(canvas.drawing, encoded: value)
-            lastEncoded = value
-            requestedEncoded = value
-            parent.encodedData = value
-            drawingChanged = false
-            controller.hasPendingDrawingPublish = false
+            let drawing = canvas.drawing
+            let revision = drawingRevision
+            controller.hasPendingDrawingPublish = true
+            publishQueue.async { [weak self] in
+                let value = drawing.dataRepresentation().base64EncodedString()
+                DispatchQueue.main.async {
+                    guard let self else {
+                        completion?()
+                        return
+                    }
+                    self.controller.remember(drawing, encoded: value)
+                    self.lastEncoded = value
+                    self.requestedEncoded = value
+                    self.parent.encodedData = value
+                    if self.drawingRevision == revision {
+                        self.drawingChanged = false
+                        self.controller.hasPendingDrawingPublish = false
+                    }
+                    completion?()
+                }
+            }
         }
 
         func restore(_ drawing: PKDrawing, on canvas: PKCanvasView) {

@@ -194,6 +194,76 @@ struct QuestionBankQuestion: Codable, Equatable, Sendable, Identifiable {
     var explanation: String
     var originalPage: String
     var provenance: [QuestionBankProvenance]? = nil
+    var isDifficult: Bool? = nil
+    var needsReview: Bool? = nil
+    var knowledgePoints: [String]? = nil
+    var weaknessTags: [String]? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case id, paperID, moduleID, number, subject, type, materialID, stem, stemImageAssetID
+        case options, answer, explanation, originalPage, provenance
+        case isDifficult, needsReview, knowledgePoints, weaknessTags
+    }
+}
+
+struct QuestionBankQuestionAnnotations: Equatable, Sendable {
+    var isDifficult: Bool
+    var needsReview: Bool
+    var knowledgePoints: [String]
+    var weaknessTags: [String]
+
+    init(
+        isDifficult: Bool = false,
+        needsReview: Bool = false,
+        knowledgePoints: [String] = [],
+        weaknessTags: [String] = []
+    ) {
+        self.isDifficult = isDifficult
+        self.needsReview = needsReview
+        self.knowledgePoints = knowledgePoints
+        self.weaknessTags = weaknessTags
+    }
+
+    init(question: QuestionBankQuestion) {
+        self.init(
+            isDifficult: question.isDifficult ?? false,
+            needsReview: question.needsReview ?? false,
+            knowledgePoints: question.knowledgePoints ?? [],
+            weaknessTags: question.weaknessTags ?? []
+        )
+    }
+
+    static func tags(from text: String) -> [String] {
+        var seen = Set<String>()
+        return text
+            .components(separatedBy: CharacterSet(charactersIn: "、，,;；\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+}
+
+extension QuestionBankQuestion {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        paperID = try container.decode(String.self, forKey: .paperID)
+        moduleID = try container.decode(String.self, forKey: .moduleID)
+        number = try container.decode(Int.self, forKey: .number)
+        subject = try container.decode(String.self, forKey: .subject)
+        type = try container.decode(String.self, forKey: .type)
+        materialID = try container.decode(String.self, forKey: .materialID)
+        stem = try container.decode(String.self, forKey: .stem)
+        stemImageAssetID = try container.decode(String.self, forKey: .stemImageAssetID)
+        options = try container.decode([QuestionBankOption].self, forKey: .options)
+        answer = try container.decode(String.self, forKey: .answer)
+        explanation = try container.decode(String.self, forKey: .explanation)
+        originalPage = try container.decode(String.self, forKey: .originalPage)
+        provenance = try container.decodeIfPresent([QuestionBankProvenance].self, forKey: .provenance)
+        isDifficult = try container.decodeIfPresent(Bool.self, forKey: .isDifficult)
+        needsReview = try container.decodeIfPresent(Bool.self, forKey: .needsReview)
+        knowledgePoints = try container.decodeIfPresent([String].self, forKey: .knowledgePoints)
+        weaknessTags = try container.decodeIfPresent([String].self, forKey: .weaknessTags)
+    }
 }
 
 struct QuestionBankAsset: Codable, Equatable, Sendable, Identifiable {
@@ -336,6 +406,7 @@ private struct QuestionBankJSONQuestionFieldsV1: Decodable {
     private enum CodingKeys: String, CodingKey {
         case id, paperID, moduleID, number, subject, type, materialID, stem, stemImageAssetID
         case options, answer, explanation, originalPage, provenance
+        case isDifficult, needsReview, knowledgePoints, weaknessTags
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -347,7 +418,11 @@ private struct QuestionBankJSONQuestionFieldsV1: Decodable {
             stem: try c.decode(String.self, forKey: .stem), stemImageAssetID: try c.decode(String.self, forKey: .stemImageAssetID),
             options: options, answer: try c.decode(String.self, forKey: .answer),
             explanation: try c.decode(String.self, forKey: .explanation), originalPage: try c.decode(String.self, forKey: .originalPage),
-            provenance: try c.decodeIfPresent([QuestionBankProvenance].self, forKey: .provenance))
+            provenance: try c.decodeIfPresent([QuestionBankProvenance].self, forKey: .provenance),
+            isDifficult: try c.decodeIfPresent(Bool.self, forKey: .isDifficult),
+            needsReview: try c.decodeIfPresent(Bool.self, forKey: .needsReview),
+            knowledgePoints: try c.decodeIfPresent([String].self, forKey: .knowledgePoints),
+            weaknessTags: try c.decodeIfPresent([String].self, forKey: .weaknessTags))
     }
 }
 
@@ -764,6 +839,7 @@ enum QuestionBankRepository {
         questionID: String,
         stem: String,
         optionTexts: [String: String],
+        annotations: QuestionBankQuestionAnnotations = .init(),
         records: [QuestionBankRecord],
         context: ModelContext
     ) throws {
@@ -798,12 +874,17 @@ enum QuestionBankRepository {
         }
         object["stem"] = normalizedStem
         object["options"] = options
+        object["isDifficult"] = annotations.isDifficult
+        object["needsReview"] = annotations.needsReview
+        object["knowledgePoints"] = annotations.knowledgePoints
+        object["weaknessTags"] = annotations.weaknessTags
         guard let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let updatedQuestion = try? JSONDecoder().decode(QuestionBankQuestion.self, from: payload) else {
             throw QuestionBankQuestionTextEditFailure.invalidPayload
         }
         let searchText = ([String(updatedQuestion.number), updatedQuestion.stem]
-            + updatedQuestion.options.map(\.text)).joined(separator: " ")
+            + updatedQuestion.options.map(\.text)
+            + annotations.knowledgePoints + annotations.weaknessTags).joined(separator: " ")
 
         try context.transaction {
             record.payload = payload
@@ -1059,7 +1140,8 @@ enum QuestionBankRepository {
             let optionSearch = question.options.map(\.text).joined(separator: " ")
             try append(kind: questionKind, id: question.id, value: question, moduleID: question.moduleID,
                        number: question.number, title: "第\(question.number)题",
-                       search: "\(question.number) \(question.stem) \(optionSearch)")
+                       search: ([String(question.number), question.stem, optionSearch]
+                        + (question.knowledgePoints ?? []) + (question.weaknessTags ?? [])).joined(separator: " "))
         }
         for asset in plan.assets {
             try append(kind: assetKind, id: asset.id, value: asset,
