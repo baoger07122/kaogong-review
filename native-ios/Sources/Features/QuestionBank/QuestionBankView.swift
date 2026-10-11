@@ -210,7 +210,7 @@ struct QuestionBankView: View {
             importSheetContent(sheet)
         })
         content = AnyView(content.sheet(isPresented: $showsOrganizationManager) {
-            QuestionBankPaperOrganizationView(papers: index.papers, store: organizationStore)
+            QuestionBankPaperOrganizationView(store: organizationStore, papers: index.papers)
         })
         content = AnyView(content.sheet(isPresented: $showsBatchPackageManager) {
             QuestionBankBatchPackageManagerView(records: records, organizationStore: organizationStore)
