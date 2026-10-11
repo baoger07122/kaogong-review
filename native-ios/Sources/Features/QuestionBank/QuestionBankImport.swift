@@ -198,11 +198,22 @@ struct QuestionBankQuestion: Codable, Equatable, Sendable, Identifiable {
     var needsReview: Bool? = nil
     var knowledgePoints: [String]? = nil
     var weaknessTags: [String]? = nil
+    var errorCause: String? = nil
+    var pitfall: String? = nil
+    var quantityStructure: String? = nil
+    var graphRule: String? = nil
+    var recognition: String? = nil
+    var note: String? = nil
+    var linkedWordIDs: [String]? = nil
+    var linkedErrorRecordIDs: [String]? = nil
 
     private enum CodingKeys: String, CodingKey {
         case id, paperID, moduleID, number, subject, type, materialID, stem, stemImageAssetID
         case options, answer, explanation, originalPage, provenance
         case isDifficult, needsReview, knowledgePoints, weaknessTags
+        case errorCause, pitfall, quantityStructure, graphRule, recognition, note
+        case linkedWordIDs = "linkedWordIds"
+        case linkedErrorRecordIDs
     }
 }
 
@@ -263,6 +274,14 @@ extension QuestionBankQuestion {
         needsReview = try container.decodeIfPresent(Bool.self, forKey: .needsReview)
         knowledgePoints = try container.decodeIfPresent([String].self, forKey: .knowledgePoints)
         weaknessTags = try container.decodeIfPresent([String].self, forKey: .weaknessTags)
+        errorCause = try container.decodeIfPresent(String.self, forKey: .errorCause)
+        pitfall = try container.decodeIfPresent(String.self, forKey: .pitfall)
+        quantityStructure = try container.decodeIfPresent(String.self, forKey: .quantityStructure)
+        graphRule = try container.decodeIfPresent(String.self, forKey: .graphRule)
+        recognition = try container.decodeIfPresent(String.self, forKey: .recognition)
+        note = try container.decodeIfPresent(String.self, forKey: .note)
+        linkedWordIDs = try container.decodeIfPresent([String].self, forKey: .linkedWordIDs)
+        linkedErrorRecordIDs = try container.decodeIfPresent([String].self, forKey: .linkedErrorRecordIDs)
     }
 }
 
@@ -744,6 +763,32 @@ enum QuestionBankQuestionTextEditFailure: LocalizedError {
     }
 }
 
+enum QuestionBankQuestionAnalysisFailure: LocalizedError {
+    case missingQuestion
+    case invalidPayload
+    case invalidOption(String)
+    case missingLinkedWord(String)
+    case missingLinkedError(String)
+    case linkedToAnotherQuestion(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingQuestion: "找不到要编辑的真题。"
+        case .invalidPayload: "真题数据无法安全更新，原记录未更改。"
+        case .invalidOption(let value): "选项“\(value)”不属于这道题，未保存修改。"
+        case .missingLinkedWord(let id): "关联词语“\(id)”不存在，未保存修改。"
+        case .missingLinkedError(let id): "关联错题“\(id)”不存在，未保存修改。"
+        case .linkedToAnotherQuestion(let id): "错题“\(id)”已关联另一道真题，请先解除原关联。"
+        }
+    }
+}
+
+struct QuestionBankPreparedLinkedQuestionUpdate {
+    let record: QuestionBankRecord
+    let payload: Data
+    let searchText: String
+}
+
 enum QuestionBankRepository {
     static let paperKind = "paper"
     static let moduleKind = "module"
@@ -909,6 +954,284 @@ enum QuestionBankRepository {
             record.payload = payload
             record.searchText = searchText
         }
+    }
+
+    @MainActor
+    static func updateQuestionAnalysis(
+        record: QuestionBankRecord,
+        paperID: String,
+        questionID: String,
+        stem: String,
+        optionTexts: [String: String],
+        answerOptionID: String,
+        annotations: QuestionBankQuestionAnnotations,
+        analysis: QuestionBankQuestionAnalysisFields,
+        typeMapping: QuestionBankLibraryTypeMapping,
+        sourceRows: [String],
+        storedRecords: [StoredRecord],
+        context: ModelContext
+    ) throws {
+        guard record.paperID == paperID, record.kind == questionKind, record.stableID == questionID,
+              let question = record.decoded(QuestionBankQuestion.self),
+              question.id == questionID, question.paperID == paperID else {
+            throw QuestionBankQuestionAnalysisFailure.missingQuestion
+        }
+        guard let decoded = try? JSONSerialization.jsonObject(with: record.payload),
+              var object = decoded as? [String: Any],
+              var options = object["options"] as? [[String: Any]] else {
+            throw QuestionBankQuestionAnalysisFailure.invalidPayload
+        }
+
+        let normalizedStem = stem.trimmingCharacters(in: .whitespacesAndNewlines)
+        var seenOptionIDs = Set<String>()
+        for index in options.indices {
+            guard let optionID = options[index]["id"] as? String else {
+                throw QuestionBankQuestionAnalysisFailure.invalidPayload
+            }
+            seenOptionIDs.insert(optionID)
+            if let text = optionTexts[optionID] {
+                options[index]["text"] = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        if let unknownOption = optionTexts.keys.first(where: { !seenOptionIDs.contains($0) }) {
+            throw QuestionBankQuestionAnalysisFailure.invalidOption(unknownOption)
+        }
+        let normalizedAnswer = answerOptionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedAnswer.isEmpty || question.options.contains(where: { $0.id == normalizedAnswer }) else {
+            throw QuestionBankQuestionAnalysisFailure.invalidOption(normalizedAnswer)
+        }
+
+        object["stem"] = normalizedStem
+        object["options"] = options
+        object["answer"] = normalizedAnswer
+        object["isDifficult"] = annotations.isDifficult
+        object["needsReview"] = annotations.needsReview
+        object["knowledgePoints"] = annotations.knowledgePoints
+        object["weaknessTags"] = annotations.weaknessTags
+        object["errorCause"] = analysis.errorCause
+        object["pitfall"] = analysis.pitfall
+        object["quantityStructure"] = analysis.quantityStructure
+        object["graphRule"] = analysis.graphRule
+        object["recognition"] = analysis.recognition
+        object["note"] = analysis.note
+        let newLinkedWordIDs = orderedUnique(analysis.linkedWordIDs)
+        let availableWordIDs = Set(storedRecords.filter { $0.collection == "words" }.map(\.recordID))
+        if let missingWordID = newLinkedWordIDs.first(where: { !availableWordIDs.contains($0) }) {
+            throw QuestionBankQuestionAnalysisFailure.missingLinkedWord(missingWordID)
+        }
+        object["linkedWordIds"] = newLinkedWordIDs
+        let oldLinkedErrorIDs = object["linkedErrorRecordIDs"] as? [String]
+            ?? question.linkedErrorRecordIDs ?? []
+        let newLinkedErrorIDs = orderedUnique(analysis.linkedErrorRecordIDs)
+        object["linkedErrorRecordIDs"] = newLinkedErrorIDs
+
+        guard let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+              let updatedQuestion = try? JSONDecoder().decode(QuestionBankQuestion.self, from: payload) else {
+            throw QuestionBankQuestionAnalysisFailure.invalidPayload
+        }
+
+        let storedByID = Dictionary(
+            storedRecords.filter { $0.collection == "errors" }.map { ($0.recordID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        for errorID in newLinkedErrorIDs where storedByID[errorID] == nil {
+            throw QuestionBankQuestionAnalysisFailure.missingLinkedError(errorID)
+        }
+        var linkedUpdates: [(record: StoredRecord, payload: Data, subject: String?, module: String?)] = []
+        let affectedIDs = orderedUnique(oldLinkedErrorIDs + newLinkedErrorIDs)
+        for errorID in affectedIDs {
+            guard let errorRecord = storedByID[errorID], var errorObject = errorRecord.jsonObject else { continue }
+            let currentPaperID = errorObject["questionBankPaperID"] as? String ?? ""
+            let currentQuestionID = errorObject["questionBankQuestionID"] as? String ?? ""
+            let pointsHere = currentPaperID == paperID && currentQuestionID == questionID
+            let shouldLink = newLinkedErrorIDs.contains(errorID)
+            if shouldLink, (!currentPaperID.isEmpty || !currentQuestionID.isEmpty), !pointsHere {
+                throw QuestionBankQuestionAnalysisFailure.linkedToAnotherQuestion(errorID)
+            }
+            if shouldLink {
+                Self.synchronizeErrorBody(
+                    &errorObject,
+                    question: updatedQuestion,
+                    typeMapping: typeMapping,
+                    sourceRows: sourceRows
+                )
+                errorObject["questionBankPaperID"] = paperID
+                errorObject["questionBankQuestionID"] = questionID
+            } else if pointsHere {
+                errorObject.removeValue(forKey: "questionBankPaperID")
+                errorObject.removeValue(forKey: "questionBankQuestionID")
+            } else {
+                continue
+            }
+            linkedUpdates.append((
+                errorRecord,
+                try JSONSerialization.data(withJSONObject: errorObject, options: [.sortedKeys]),
+                shouldLink ? typeMapping.subject : errorRecord.subject,
+                shouldLink ? typeMapping.module : errorRecord.module
+            ))
+        }
+
+        let searchText = Self.questionSearchText(updatedQuestion)
+        try context.transaction {
+            record.payload = payload
+            record.searchText = searchText
+            for update in linkedUpdates {
+                update.record.replacePayload(update.payload)
+                update.record.subject = update.subject
+                update.record.module = update.module
+                update.record.updatedAt = .now
+            }
+        }
+    }
+
+    static func prepareQuestionUpdateFromLinkedError(
+        errorPayload: [String: Any],
+        context: ModelContext
+    ) throws -> QuestionBankPreparedLinkedQuestionUpdate? {
+        let paperID = errorPayload["questionBankPaperID"] as? String ?? ""
+        let questionID = errorPayload["questionBankQuestionID"] as? String ?? ""
+        guard !paperID.isEmpty, !questionID.isEmpty else { return nil }
+        let questionKindValue = questionKind
+        let descriptor = FetchDescriptor<QuestionBankRecord>(predicate: #Predicate {
+            $0.paperID == paperID && $0.kind == questionKindValue && $0.stableID == questionID
+        })
+        guard let record = try context.fetch(descriptor).first,
+              let decoded = try? JSONSerialization.jsonObject(with: record.payload),
+              var object = decoded as? [String: Any],
+              var options = object["options"] as? [[String: Any]] else {
+            // Stale links can exist after a paper is removed. Keep editing the
+            // user's wrong-question record without recreating the deleted paper.
+            return nil
+        }
+
+        if let stem = errorPayload["question"] as? String { object["stem"] = stem }
+        for index in options.indices {
+            guard let optionID = options[index]["id"] as? String else {
+                throw QuestionBankQuestionAnalysisFailure.invalidPayload
+            }
+            if let optionTexts = errorPayload["options"] as? [String],
+               optionTexts.indices.contains(index) {
+                options[index]["text"] = optionTexts[index]
+            } else if let rawOptionTexts = errorPayload["options"] as? [String: String],
+                      let text = rawOptionTexts[optionID] {
+                options[index]["text"] = text
+            }
+        }
+        if let selected = errorPayload["correctOption"] as? String {
+            let normalized = selected.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            if let scalar = normalized.unicodeScalars.first,
+               scalar.value >= 65,
+               Int(scalar.value - 65) < options.count,
+               let optionID = options[Int(scalar.value - 65)]["id"] as? String {
+                object["answer"] = optionID
+            } else {
+                object["answer"] = ""
+            }
+        }
+        object["options"] = options
+        let errorRecordID = errorPayload["id"] as? String ?? errorPayload["recordID"] as? String ?? ""
+        if !errorRecordID.isEmpty {
+            let linkedIDs = object["linkedErrorRecordIDs"] as? [String] ?? []
+            object["linkedErrorRecordIDs"] = orderedUnique(linkedIDs + [errorRecordID])
+        }
+        for key in ["errorCause", "pitfall", "quantityStructure", "graphRule", "recognition", "note"] {
+            if let value = errorPayload[key] as? String { object[key] = value }
+        }
+        for key in ["knowledgePoints", "weaknessTags", "linkedWordIds"] {
+            if let value = errorPayload[key] as? [String] { object[key] = value }
+        }
+        let normalized = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        guard let updatedQuestion = try? JSONDecoder().decode(QuestionBankQuestion.self, from: normalized) else {
+            throw QuestionBankQuestionAnalysisFailure.invalidPayload
+        }
+        return QuestionBankPreparedLinkedQuestionUpdate(
+            record: record,
+            payload: normalized,
+            searchText: Self.questionSearchText(updatedQuestion)
+        )
+    }
+
+    static func prepareQuestionUnlinkFromDeletedError(
+        errorPayload: [String: Any],
+        errorRecordID: String,
+        context: ModelContext
+    ) throws -> QuestionBankPreparedLinkedQuestionUpdate? {
+        let paperID = errorPayload["questionBankPaperID"] as? String ?? ""
+        let questionID = errorPayload["questionBankQuestionID"] as? String ?? ""
+        guard !paperID.isEmpty, !questionID.isEmpty else { return nil }
+        let questionKindValue = questionKind
+        let descriptor = FetchDescriptor<QuestionBankRecord>(predicate: #Predicate {
+            $0.paperID == paperID && $0.kind == questionKindValue && $0.stableID == questionID
+        })
+        guard let record = try context.fetch(descriptor).first,
+              let decoded = try? JSONSerialization.jsonObject(with: record.payload),
+              var object = decoded as? [String: Any] else {
+            // Deleting an orphaned wrong question must not depend on its source
+            // question still being present.
+            return nil
+        }
+        let currentIDs = object["linkedErrorRecordIDs"] as? [String] ?? []
+        guard currentIDs.contains(errorRecordID) else { return nil }
+        object["linkedErrorRecordIDs"] = currentIDs.filter { $0 != errorRecordID }
+        let normalized = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        guard let updatedQuestion = try? JSONDecoder().decode(QuestionBankQuestion.self, from: normalized) else {
+            throw QuestionBankQuestionAnalysisFailure.invalidPayload
+        }
+        return QuestionBankPreparedLinkedQuestionUpdate(
+            record: record,
+            payload: normalized,
+            searchText: Self.questionSearchText(updatedQuestion)
+        )
+    }
+
+    private static func synchronizeErrorBody(
+        _ object: inout [String: Any],
+        question: QuestionBankQuestion,
+        typeMapping: QuestionBankLibraryTypeMapping,
+        sourceRows: [String]
+    ) {
+        object["question"] = question.stem
+        object["options"] = question.options.map(\.text)
+        object["correctOption"] = displayAnswerLetter(question.answer, options: question.options)
+        object["questionSource"] = sourceRows.joined(separator: "\n")
+        object["questionNumber"] = String(question.number)
+        object["subject"] = typeMapping.subject
+        object["module"] = typeMapping.module
+        object["knowledgePoints"] = question.knowledgePoints ?? []
+        object["weaknessTags"] = question.weaknessTags ?? []
+        object["errorCause"] = question.errorCause ?? ""
+        object["pitfall"] = question.pitfall ?? ""
+        object["quantityStructure"] = question.quantityStructure ?? ""
+        object["graphRule"] = question.graphRule ?? ""
+        object["recognition"] = question.recognition ?? ""
+        object["linkedWordIds"] = question.linkedWordIDs ?? []
+        object["note"] = question.note ?? ""
+    }
+
+    private static func questionSearchText(_ question: QuestionBankQuestion) -> String {
+        ([String(question.number), question.stem]
+            + question.options.map(\.text)
+            + (question.knowledgePoints ?? [])
+            + (question.weaknessTags ?? [])
+            + [
+                question.errorCause ?? "",
+                question.pitfall ?? "",
+                question.quantityStructure ?? "",
+                question.graphRule ?? "",
+                question.recognition ?? "",
+                question.note ?? ""
+            ])
+            .joined(separator: " ")
+    }
+
+    private static func displayAnswerLetter(_ answer: String, options: [QuestionBankOption]) -> String {
+        guard let index = options.firstIndex(where: { $0.id == answer }), index < 26 else { return answer }
+        return String(UnicodeScalar(65 + index)!)
+    }
+
+    private static func orderedUnique(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.filter { seen.insert($0).inserted }
     }
 
     /// Copies all image resources to an unreferenced generation directory first, then

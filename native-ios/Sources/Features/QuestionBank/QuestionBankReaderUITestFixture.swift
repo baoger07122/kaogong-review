@@ -32,7 +32,12 @@ enum QuestionBankReaderUITestFixture {
             examType: "测试",
             volume: "交互夹具",
             source: "ui-test",
-            importVersion: "1"
+            importVersion: "1",
+            sourcePapers: [QuestionBankSourcePaper(
+                id: "ui-test-source-paper",
+                originalFileName: "2025年真题-网友回忆版.pdf",
+                originalFileSHA256: "test-only-provenance-hash"
+            )]
         )
         let module = QuestionBankModule(
             id: moduleID,

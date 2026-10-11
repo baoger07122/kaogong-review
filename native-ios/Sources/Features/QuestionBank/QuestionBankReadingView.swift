@@ -1191,33 +1191,67 @@ struct QuestionBankModuleView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    @ViewBuilder
     private func questionDetailPanel(for item: QuestionBankReadingItem) -> some View {
-        QuestionBankQuestionDetailPanel(
-            question: item.question,
-            title: "第\(item.question.number)题详情",
-            isDoodlePresented: doodleSession.isPresented,
-            onDone: { activeSheet = nil },
-            onClearAnswer: { clearAnswer(for: item.record.compoundID) },
-            onSave: { stem, optionTexts, annotations in
-                try QuestionBankRepository.updateQuestionText(
-                    paperID: paperID,
-                    questionID: item.question.id,
-                    stem: stem,
-                    optionTexts: optionTexts,
-                    annotations: annotations,
-                    records: records,
-                    context: modelContext
+        let detailContext = questionAnalysisContext(for: item)
+        if detailContext.typeMapping.subject == "申论" {
+            QuestionBankQuestionDetailPanel(
+                question: item.question,
+                title: "第\(item.question.number)题详情",
+                isDoodlePresented: doodleSession.isPresented,
+                onDone: { activeSheet = nil },
+                onClearAnswer: { clearAnswer(for: item.record.compoundID) },
+                onSave: { stem, optionTexts, annotations in
+                    try QuestionBankRepository.updateQuestionText(
+                        paperID: paperID,
+                        questionID: item.question.id,
+                        stem: stem,
+                        optionTexts: optionTexts,
+                        annotations: annotations,
+                        records: records,
+                        context: modelContext
+                    )
+                }
+            ) {
+                ScrollView {
+                    questionDetailContent(item)
+                }
+                .coordinateSpace(name: "question-bank-continuous-scroll")
+                .scrollContentBackground(.hidden)
+                .background(Color.white)
+                .scrollDisabled(doodleSession.isPresented)
+            }
+        } else {
+            NavigationStack {
+                LibraryRecordDetailView(
+                    questionBankContext: detailContext,
+                    onEdit: {},
+                    onClearAnswer: { clearAnswer(for: item.record.compoundID) },
+                    onDone: { activeSheet = nil }
                 )
             }
-        ) {
-            ScrollView {
-                questionDetailContent(item)
-            }
-            .coordinateSpace(name: "question-bank-continuous-scroll")
-            .scrollContentBackground(.hidden)
-            .background(Color.white)
-            .scrollDisabled(doodleSession.isPresented)
+            .presentationDetents([.large])
         }
+    }
+
+    private func questionAnalysisContext(for item: QuestionBankReadingItem) -> QuestionBankQuestionAnalysisContext {
+        let answerStateID = item.record.compoundID
+        let selectedOptionID = selectedOptionsByQuestionID[answerStateID]
+        let answerRevealed = readingMode == .reading || readingMode.revealsAnswer(
+            afterSelecting: selectedOptionID,
+            wasConfirmed: revealedAnswerQuestionIDs.contains(answerStateID),
+            requiresConfirmation: requiresAnswerConfirmation
+        )
+        return QuestionBankQuestionAnalysisContext(
+            record: item.record,
+            question: item.question,
+            moduleTitle: item.moduleTitle,
+            material: materialsByID[item.question.materialID],
+            sourcePapers: paperData?.sourcePapers ?? [],
+            assetsByID: assetsByID,
+            selectedOptionID: selectedOptionID,
+            isAnswerRevealed: answerRevealed
+        )
     }
 
     private func openMaterial(_ materialID: String, canOpenSplit: Bool) {
@@ -1974,56 +2008,98 @@ struct QuestionBankCrossPaperReaderView: View {
     private func questionDetailSheet(for route: QuestionBankCrossPaperDetailRoute) -> some View {
         if let item = orderedItems.first(where: { $0.id == route.questionID }),
            let group = groups.first(where: { $0.paperID == item.record.paperID }) {
-            QuestionBankQuestionDetailPanel(
-                question: item.question,
-                title: "第\(item.question.number)题详情",
-                isDoodlePresented: doodleSession.isPresented,
-                onDone: { activeQuestionDetail = nil },
-                onClearAnswer: { clearAnswer(for: item.record.compoundID) },
-                onSave: { stem, optionTexts, annotations in
-                    try QuestionBankRepository.updateQuestionText(
-                        paperID: item.record.paperID,
-                        questionID: item.question.id,
-                        stem: stem,
-                        optionTexts: optionTexts,
-                        annotations: annotations,
-                        records: records,
-                        context: modelContext
-                    )
-                }
-            ) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        if let material = group.materialsByID[item.question.materialID] {
-                            materialSection(
-                                material,
-                                paperID: group.paperID,
+            let detailContext = questionAnalysisContext(for: item, group: group)
+            if detailContext.typeMapping.subject == "申论" {
+                QuestionBankQuestionDetailPanel(
+                    question: item.question,
+                    title: "第\(item.question.number)题详情",
+                    isDoodlePresented: doodleSession.isPresented,
+                    onDone: { activeQuestionDetail = nil },
+                    onClearAnswer: { clearAnswer(for: item.record.compoundID) },
+                    onSave: { stem, optionTexts, annotations in
+                        try QuestionBankRepository.updateQuestionText(
+                            paperID: item.record.paperID,
+                            questionID: item.question.id,
+                            stem: stem,
+                            optionTexts: optionTexts,
+                            annotations: annotations,
+                            records: records,
+                            context: modelContext
+                        )
+                    }
+                ) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            if let material = group.materialsByID[item.question.materialID] {
+                                materialSection(
+                                    material,
+                                    paperID: group.paperID,
+                                    sourcePapers: group.sourcePapers
+                                )
+                            }
+                            questionSection(
+                                item,
+                                group: group,
+                                showsPaperHeading: false,
+                                showsQuestionNumber: false,
+                                showsDoodleCanvas: false
+                            )
+                            QuestionBankProvenanceDisclosure(
+                                title: "题目来源",
+                                entries: item.question.provenance ?? [],
                                 sourcePapers: group.sourcePapers
                             )
                         }
-                        questionSection(
-                            item,
-                            group: group,
-                            showsPaperHeading: false,
-                            showsQuestionNumber: false,
-                            showsDoodleCanvas: false
-                        )
-                        QuestionBankProvenanceDisclosure(
-                            title: "题目来源",
-                            entries: item.question.provenance ?? [],
-                            sourcePapers: group.sourcePapers
-                        )
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
+                    .background(Color.white)
+                    .scrollDisabled(doodleSession.isPresented)
+                    .coordinateSpace(name: "question-bank-cross-paper-scroll")
                 }
-                .background(Color.white)
-                .scrollDisabled(doodleSession.isPresented)
-                .coordinateSpace(name: "question-bank-cross-paper-scroll")
+            } else {
+                NavigationStack {
+                    LibraryRecordDetailView(
+                        questionBankContext: detailContext,
+                        onEdit: {},
+                        onClearAnswer: { clearAnswer(for: item.record.compoundID) },
+                        onDone: { activeQuestionDetail = nil }
+                    )
+                }
+                .presentationDetents([.large])
             }
         } else {
             ContentUnavailableView("题目不存在", systemImage: "doc.text.magnifyingglass")
         }
+    }
+
+    private func questionAnalysisContext(
+        for item: QuestionBankHomeQuestion,
+        group: QuestionBankCrossPaperGroup
+    ) -> QuestionBankQuestionAnalysisContext {
+        let answerStateID = item.record.compoundID
+        let selectedOptionID = selectedOptionsByQuestionID[answerStateID]
+        let answerRevealed = readingMode == .reading || readingMode.revealsAnswer(
+            afterSelecting: selectedOptionID,
+            wasConfirmed: revealedAnswerQuestionIDs.contains(answerStateID),
+            requiresConfirmation: requiresAnswerConfirmation
+        )
+        let assets = Dictionary(
+            records.filter {
+                $0.paperID == item.record.paperID && $0.kind == QuestionBankRepository.assetKind
+            }.map { ($0.stableID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return QuestionBankQuestionAnalysisContext(
+            record: item.record,
+            question: item.question,
+            moduleTitle: item.moduleTitle,
+            material: group.materialsByID[item.question.materialID],
+            sourcePapers: group.sourcePapers,
+            assetsByID: assets,
+            selectedOptionID: selectedOptionID,
+            isAnswerRevealed: answerRevealed
+        )
     }
 
     private func readerPage(width: CGFloat, height: CGFloat) -> some View {
@@ -3361,7 +3437,7 @@ private struct QuestionBankQuestionAnnotationBadges: View {
     }
 }
 
-private struct QuestionBankLocalImage: View {
+struct QuestionBankLocalImage: View {
     enum Sizing: String {
         case material
         case stem

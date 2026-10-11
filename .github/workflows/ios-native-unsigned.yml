@@ -279,6 +279,12 @@ jobs:
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testPencilDrawingControllerReusesOnlyMatchingDecodedDrawingAndReloadsOnPresentation
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankDoodlesRoundTripThroughGenericKeyValueBackup
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionNumberFilterTargetsOwningModuleAndQuestion
+              -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testTypeMappingUsesExistingSpecializedLibraryBranchesAndPreservesUnknownLabels
+              -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testSourceRowsStripRecallEditionAndPDFWithoutShowingAuditMetadata
+              -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testQuestionAnalysisWritesBackToQuestionPayloadAndOnlySyncsExplicitLinkedError
+              -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testMissingExplicitErrorLinkDoesNotCreateStoredRecordOrChangeQuestion
+              -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testEditingAnExplicitlyLinkedErrorWritesBackToTheTrueQuestionInOneSave
+              -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testStaleQuestionBankLinkDoesNotBlockEditingOrDeletingWrongQuestion
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testSingleJSONPickerCallbackReachesPreviewAndConfirmedCommit
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testShenlunAdaptationBacksUpExactPayloadAndWritesOnce
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testInvalidShenlunAdaptationLeavesPayloadAndBackupUntouched
@@ -326,6 +332,7 @@ jobs:
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testDoodleBlocksOptionSelectionAndQuestionNavigationInMaterialSplit \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testSingleQuestionHorizontalSwipesRetainSelectionAndReturnToTop \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testQuestionDetailOpensFromContinuousNumberAndSingleProgress \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testQuestionDetailTextEditorKeepsNewlinesAndUpdatesSearchIndex \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testPresentationModePreferenceSurvivesRestartAndOtherReaders \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testMissingAnswerCanBeAddedOnlyFromItsQuestionOptions \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testHomeSearchAndModuleFiltersStartCollapsedAndMatchNumberedModules \

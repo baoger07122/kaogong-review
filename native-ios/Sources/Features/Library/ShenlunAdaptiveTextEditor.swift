@@ -5,12 +5,19 @@ struct ShenlunAdaptiveTextEditor: View {
     @Binding var text: String
     let minimumHeight: CGFloat
     let growsWithContent: Bool
+    let accessibilityIdentifier: String?
     @State private var measuredHeight: CGFloat
 
-    init(text: Binding<String>, minimumHeight: CGFloat, growsWithContent: Bool) {
+    init(
+        text: Binding<String>,
+        minimumHeight: CGFloat,
+        growsWithContent: Bool,
+        accessibilityIdentifier: String? = nil
+    ) {
         _text = text
         self.minimumHeight = minimumHeight
         self.growsWithContent = growsWithContent
+        self.accessibilityIdentifier = accessibilityIdentifier
         _measuredHeight = State(initialValue: minimumHeight)
     }
 
@@ -21,7 +28,8 @@ struct ShenlunAdaptiveTextEditor: View {
                 height: $measuredHeight,
                 minimumHeight: minimumHeight,
                 growsWithContent: growsWithContent,
-                availableWidth: proxy.size.width
+                availableWidth: proxy.size.width,
+                accessibilityIdentifier: accessibilityIdentifier
             )
         }
         .frame(height: growsWithContent ? measuredHeight : minimumHeight)
@@ -40,6 +48,7 @@ struct ShenlunTextView: UIViewRepresentable {
     let minimumHeight: CGFloat
     let growsWithContent: Bool
     let availableWidth: CGFloat
+    let accessibilityIdentifier: String?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -51,6 +60,7 @@ struct ShenlunTextView: UIViewRepresentable {
         view.font = AppTheme.inputUIFont
         view.textColor = .label
         view.backgroundColor = .clear
+        view.accessibilityIdentifier = accessibilityIdentifier
         view.text = text
         view.textContainerInset = UIEdgeInsets(top: 9, left: 9, bottom: 9, right: 9)
         view.textContainer.lineFragmentPadding = 0
@@ -66,6 +76,7 @@ struct ShenlunTextView: UIViewRepresentable {
 
     func updateUIView(_ view: UITextView, context: Context) {
         context.coordinator.parent = self
+        view.accessibilityIdentifier = accessibilityIdentifier
         view.font = AppTheme.inputUIFont
         view.textContainer.widthTracksTextView = true
         view.textContainer.lineBreakMode = .byCharWrapping

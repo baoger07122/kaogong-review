@@ -3,6 +3,7 @@ import XCTest
 private struct ReaderUITestContext {
     let app: XCUIApplication
     let paperID: String
+    let moduleID: String
     let materialID: String
     let questionID: String
 }
@@ -457,7 +458,8 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         continuousDetail.tap()
         XCTAssertTrue(app.navigationBars["第1题详情"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["用于检验共享材料分屏下的涂鸦命中区域。"].exists)
-        XCTAssertTrue(element(app, identifier: "question-bank-provenance-disclosure-题目来源").exists)
+        XCTAssertTrue(app.staticTexts["2025年真题·第17题"].exists)
+        XCTAssertFalse(app.staticTexts["用于验证题目来源仅在详情页显示。"].exists)
         assertExactStemAndHiddenInternalType(in: app, questionID: reader.questionID)
         XCTAssertTrue(answerFeedback.exists)
         app.buttons["完成"].firstMatch.tap()
@@ -483,19 +485,24 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
     func testQuestionDetailTextEditorKeepsNewlinesAndUpdatesSearchIndex() throws {
         let reader = launchPracticeReader()
         let app = reader.app
+        app.buttons["question-bank-option-\(reader.questionID)-A"].tap()
+        let answerFeedback = element(app, identifier: "question-bank-answer-feedback-\(reader.questionID)")
+        XCTAssertTrue(answerFeedback.waitForExistence(timeout: 5))
         app.buttons["question-bank-question-detail-\(reader.questionID)"].tap()
         XCTAssertTrue(app.buttons["question-bank-edit-question"].waitForExistence(timeout: 5))
         app.buttons["question-bank-edit-question"].tap()
 
-        let stemEditor = element(app, identifier: "question-bank-edit-stem")
+        let stemEditor = element(app, identifier: "question-bank-analysis-stem")
         XCTAssertTrue(stemEditor.waitForExistence(timeout: 5))
         stemEditor.tap()
         stemEditor.typeText("\nEDITLINEONE\n\nEDITLINETHREE")
-        let optionEditor = element(app, identifier: "question-bank-edit-option-A")
+        let optionEditor = element(app, identifier: "question-bank-analysis-option-0")
         XCTAssertTrue(optionEditor.waitForExistence(timeout: 5))
         optionEditor.tap()
         optionEditor.typeText("\nOPTIONLINEONE\n\nOPTIONLINETHREE")
-        app.buttons["question-bank-save-question-text"].tap()
+        app.switches["question-bank-analysis-difficult"].tap()
+        app.switches["question-bank-analysis-needs-review"].tap()
+        app.buttons["question-bank-save-question-analysis"].tap()
 
         let renderedStem = element(app, identifier: "question-bank-question-stem-\(reader.questionID)")
         XCTAssertTrue(renderedStem.waitForExistence(timeout: 5))
@@ -504,7 +511,18 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         let renderedOption = app.buttons["question-bank-option-\(reader.questionID)-A"].firstMatch
         XCTAssertTrue(renderedOption.waitForExistence(timeout: 5))
         XCTAssertTrue(renderedOption.label.contains("OPTIONLINETHREE"))
+        XCTAssertTrue(app.staticTexts["难题"].exists)
+        XCTAssertTrue(app.staticTexts["待复习"].exists)
+        XCTAssertTrue(answerFeedback.exists, "Editing analysis must preserve the independent practice answer state")
 
+        app.buttons["完成"].firstMatch.tap()
+        app.navigationBars.buttons.firstMatch.tap()
+        app.buttons["question-bank-module-\(reader.moduleID)"].tap()
+        app.buttons["question-bank-question-detail-\(reader.questionID)"].tap()
+        XCTAssertTrue(element(app, identifier: "question-bank-question-stem-\(reader.questionID)").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, identifier: "question-bank-question-stem-\(reader.questionID)").label.contains("EDITLINETHREE"))
+        XCTAssertTrue(app.staticTexts["难题"].exists)
+        XCTAssertTrue(app.staticTexts["待复习"].exists)
         app.buttons["完成"].firstMatch.tap()
         app.navigationBars.buttons.firstMatch.tap()
         app.navigationBars.buttons.firstMatch.tap()
@@ -769,6 +787,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         return ReaderUITestContext(
             app: app,
             paperID: paperID,
+            moduleID: moduleID,
             materialID: materialID,
             questionID: questionID
         )

@@ -416,6 +416,16 @@ enum LibraryRecordRepository {
                 .map { ["name": $0.name, "meaning": $0.meaning, "wordId": $0.wordID, "entryKind": draft.wordEntryKind] }
         }
 
+        let linkedQuestionUpdate: QuestionBankPreparedLinkedQuestionUpdate?
+        if kind == .errors {
+            linkedQuestionUpdate = try QuestionBankRepository.prepareQuestionUpdateFromLinkedError(
+                errorPayload: object,
+                context: context
+            )
+        } else {
+            linkedQuestionUpdate = nil
+        }
+
         let payloadStart = ProcessInfo.processInfo.systemUptime
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         LibraryPerformanceLog.mark("record.save.payload", since: payloadStart)
@@ -447,6 +457,10 @@ enum LibraryRecordRepository {
             try syncArrayRelations(collection: "errors", arrayKey: "linkedWordIds", oldIDs: previousLinkedErrors, newIDs: draft.linkedErrorIDs, linkedID: id, records: records)
         case .stickies:
             break
+        }
+        if let linkedQuestionUpdate {
+            linkedQuestionUpdate.record.payload = linkedQuestionUpdate.payload
+            linkedQuestionUpdate.record.searchText = linkedQuestionUpdate.searchText
         }
         let contextSaveStart = ProcessInfo.processInfo.systemUptime
         try context.save()
@@ -585,6 +599,16 @@ enum LibraryRecordRepository {
     static func remove(kind: LibraryContentKind, id: String, records: [StoredRecord], context: ModelContext) throws {
         guard let record = records.first(where: { $0.collection == kind.collection && $0.recordID == id }) else { return }
         let object = record.jsonObject ?? [:]
+        let linkedQuestionUpdate: QuestionBankPreparedLinkedQuestionUpdate?
+        if kind == .errors {
+            linkedQuestionUpdate = try QuestionBankRepository.prepareQuestionUnlinkFromDeletedError(
+                errorPayload: object,
+                errorRecordID: id,
+                context: context
+            )
+        } else {
+            linkedQuestionUpdate = nil
+        }
         switch kind {
         case .errors:
             try syncSingleRelation(
@@ -615,6 +639,10 @@ enum LibraryRecordRepository {
             )
         case .stickies:
             break
+        }
+        if let linkedQuestionUpdate {
+            linkedQuestionUpdate.record.payload = linkedQuestionUpdate.payload
+            linkedQuestionUpdate.record.searchText = linkedQuestionUpdate.searchText
         }
         context.delete(record)
         try context.save()

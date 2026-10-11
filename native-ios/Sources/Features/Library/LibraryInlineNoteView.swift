@@ -11,7 +11,8 @@ final class LibraryInlineNoteSession: ObservableObject {
 struct LibraryInlineNoteView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
-    let record: StoredRecord
+    private let readNote: () -> String
+    private let writeNote: (String, ModelContext) throws -> Void
     let session: LibraryInlineNoteSession
     let title: String
     @State private var editing = false
@@ -23,17 +24,36 @@ struct LibraryInlineNoteView: View {
     private let noteCanvasMinimumHeight: CGFloat = 360
 
     init(record: StoredRecord, session: LibraryInlineNoteSession, title: String = "错题笔记") {
-        self.record = record
         self.session = session
         self.title = title
+        readNote = {
+            let object = record.jsonObject ?? [:]
+            if let note = object["note"] as? String { return note }
+            return ["content", "errorNote", "analysis"].compactMap { object[$0] as? String }.first ?? ""
+        }
+        writeNote = { draft, modelContext in
+            var object = record.jsonObject ?? [:]
+            object["note"] = draft
+            object["updatedAt"] = ISO8601DateFormatter().string(from: .now)
+            record.replacePayload(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
+            record.updatedAt = .now
+            try modelContext.save()
+        }
     }
 
-    private var storedNote: String {
-        let object = record.jsonObject ?? [:]
-        // An explicitly empty canonical field must not fall back to stale imported text.
-        if let note = object["note"] as? String { return note }
-        return ["content", "errorNote", "analysis"].compactMap { object[$0] as? String }.first ?? ""
+    init(
+        session: LibraryInlineNoteSession,
+        title: String,
+        readNote: @escaping () -> String,
+        writeNote: @escaping (String, ModelContext) throws -> Void
+    ) {
+        self.session = session
+        self.title = title
+        self.readNote = readNote
+        self.writeNote = writeNote
     }
+
+    private var storedNote: String { readNote() }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -112,12 +132,7 @@ struct LibraryInlineNoteView: View {
     @discardableResult private func save() -> Bool {
         guard editing, draft != saved else { return true }
         do {
-            var object = record.jsonObject ?? [:]
-            object["note"] = draft
-            object["updatedAt"] = ISO8601DateFormatter().string(from: .now)
-            record.replacePayload(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
-            record.updatedAt = .now
-            try modelContext.save()
+            try writeNote(draft, modelContext)
             saved = draft
             errorMessage = nil
             return true
