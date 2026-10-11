@@ -167,22 +167,12 @@ struct QuestionBankView: View {
     var body: some View {
         let index = QuestionBankHomeIndex(records: records)
         let filter = homeFilter
-        let unorganizedVisiblePapers = index.visiblePapers(matching: filter)
+        let candidates = index.visiblePapers(matching: filter)
         let visibleByID = Dictionary(
-            unorganizedVisiblePapers.map { ($0.id, $0) },
+            candidates.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        var organizationSections = organizationStore.sections(for: unorganizedVisiblePapers.map(\.id))
-        if organizationSections.reduce(0, { $0 + $1.paperIDs.count }) != unorganizedVisiblePapers.count {
-            organizationSections = unorganizedVisiblePapers.isEmpty ? [] : [
-                QuestionBankOrganizationSection(
-                    id: QuestionBankOrganizationSection.ungroupedID,
-                    groupID: nil,
-                    title: "未分组",
-                    paperIDs: unorganizedVisiblePapers.map(\.id)
-                )
-            ]
-        }
+        let organizationSections = makeOrganizationSections(for: candidates)
         let visiblePapers = organizationSections
             .flatMap(\.paperIDs)
             .compactMap { visibleByID[$0] }
@@ -269,51 +259,12 @@ struct QuestionBankView: View {
                             color: AppTheme.accent
                         )
                     } else {
-                        LazyVStack(alignment: .leading, spacing: 12) {
-                            ForEach(organizationSections) { section in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Button {
-                                        withAnimation(.easeInOut(duration: 0.16)) {
-                                            if collapsedOrganizationSections.contains(section.id) {
-                                                collapsedOrganizationSections.remove(section.id)
-                                            } else {
-                                                collapsedOrganizationSections.insert(section.id)
-                                            }
-                                        }
-                                    } label: {
-                                        HStack(spacing: 7) {
-                                            Image(systemName: collapsedOrganizationSections.contains(section.id)
-                                                ? "chevron.right" : "chevron.down")
-                                                .font(.system(size: 10, weight: .semibold))
-                                            Text(section.title)
-                                                .font(AppTheme.auxiliaryFont.weight(.semibold))
-                                            Text("\(section.paperIDs.count)")
-                                                .font(AppTheme.auxiliaryFont)
-                                                .foregroundStyle(.secondary)
-                                            Spacer(minLength: 0)
-                                        }
-                                        .foregroundStyle(.secondary)
-                                        .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-                                    .accessibilityLabel("\(section.title)，\(section.paperIDs.count)套试卷")
-                                    .accessibilityValue(collapsedOrganizationSections.contains(section.id) ? "已收起" : "已展开")
-                                    .accessibilityIdentifier("question-bank-paper-group-\(section.id)")
-
-                                    if !collapsedOrganizationSections.contains(section.id) {
-                                        ForEach(section.paperIDs, id: \.self) { paperID in
-                                            if let paper = visibleByID[paperID] {
-                                                paperRow(
-                                                    paper,
-                                                    questionCount: index.filteredQuestionCount(for: paper.id, matching: filter),
-                                                    filter: filter
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        paperSections(
+                            index: index,
+                            filter: filter,
+                            sections: organizationSections,
+                            visibleByID: visibleByID
+                        )
                     }
                 }
                 .padding(20)
@@ -735,6 +686,89 @@ struct QuestionBankView: View {
                         Button(group.name) {
                             organizationStore.movePaper(paper.id, to: group.id)
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    private func makeOrganizationSections(for candidates: [QuestionBankHomePaper]) -> [QuestionBankOrganizationSection] {
+        let paperIDs = candidates.map(\.id)
+        let sections = organizationStore.sections(for: paperIDs)
+        let assignedCount = sections.reduce(0) { total, section in total + section.paperIDs.count }
+        guard assignedCount == candidates.count else {
+            guard !candidates.isEmpty else { return [] }
+            return [QuestionBankOrganizationSection(
+                id: QuestionBankOrganizationSection.ungroupedID,
+                groupID: nil,
+                title: "未分组",
+                paperIDs: paperIDs
+            )]
+        }
+        return sections
+    }
+
+    private func paperSections(
+        index: QuestionBankHomeIndex,
+        filter: QuestionBankHomeFilter,
+        sections: [QuestionBankOrganizationSection],
+        visibleByID: [String: QuestionBankHomePaper]
+    ) -> some View {
+        LazyVStack(alignment: .leading, spacing: 12) {
+            ForEach(sections) { section in
+                paperSection(
+                    section,
+                    index: index,
+                    filter: filter,
+                    visibleByID: visibleByID
+                )
+            }
+        }
+    }
+
+    private func paperSection(
+        _ section: QuestionBankOrganizationSection,
+        index: QuestionBankHomeIndex,
+        filter: QuestionBankHomeFilter,
+        visibleByID: [String: QuestionBankHomePaper]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    if collapsedOrganizationSections.contains(section.id) {
+                        collapsedOrganizationSections.remove(section.id)
+                    } else {
+                        collapsedOrganizationSections.insert(section.id)
+                    }
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: collapsedOrganizationSections.contains(section.id)
+                        ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(section.title)
+                        .font(AppTheme.auxiliaryFont.weight(.semibold))
+                    Text("\(section.paperIDs.count)")
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(section.title)，\(section.paperIDs.count)套试卷")
+            .accessibilityValue(collapsedOrganizationSections.contains(section.id) ? "已收起" : "已展开")
+            .accessibilityIdentifier("question-bank-paper-group-\(section.id)")
+
+            if !collapsedOrganizationSections.contains(section.id) {
+                ForEach(section.paperIDs, id: \.self) { paperID in
+                    if let paper = visibleByID[paperID] {
+                        paperRow(
+                            paper,
+                            questionCount: index.filteredQuestionCount(for: paper.id, matching: filter),
+                            filter: filter
+                        )
                     }
                 }
             }

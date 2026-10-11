@@ -774,11 +774,15 @@ enum QuestionBankBatchPackageRepository {
                     try FileManager.default.createDirectory(at: generationURL, withIntermediateDirectories: true)
                     stagedGenerations.append(generationURL)
                     for assetID in includedAssetIDs {
-                        guard let asset = assetsByID[assetID],
-                              let source = QuestionBankAssetStore.url(for: asset.path, under: stage),
-                              FileManager.default.fileExists(atPath: source.path),
-                              let destination = QuestionBankAssetStore.url(for: "\(generation)/\(asset.path)", under: root) else {
+                        guard let asset = assetsByID[assetID] else {
+                            throw QuestionBankBatchPackageFailure.invalidTarget("缺少图片资源记录：\(assetID)。")
+                        }
+                        guard let source = QuestionBankAssetStore.url(for: asset.path, under: stage),
+                              FileManager.default.fileExists(atPath: source.path) else {
                             throw QuestionBankImportFailure.missingStagingFile(asset.fileName)
+                        }
+                        guard let destination = QuestionBankAssetStore.url(for: "\(generation)/\(asset.path)", under: root) else {
+                            throw QuestionBankBatchPackageFailure.unsafePath(asset.path)
                         }
                         try FileManager.default.createDirectory(
                             at: destination.deletingLastPathComponent(),

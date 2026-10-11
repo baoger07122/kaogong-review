@@ -182,7 +182,7 @@ final class QuestionBankOrganizationStore: ObservableObject {
         let selectedIDs = Set(paperIDs)
         let selectedPlacements = snapshot.placements.filter { selectedIDs.contains($0.paperID) }
         let groupIDs = Set(selectedPlacements.compactMap(\.groupID))
-        let groups = snapshot.groups.compactMap { group in
+        let groups = snapshot.groups.compactMap { group -> QuestionBankPaperGroup? in
             guard groupIDs.contains(group.id) else { return nil }
             return QuestionBankPaperGroup(id: group.id, name: group.name)
         }
