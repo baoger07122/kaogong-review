@@ -173,6 +173,7 @@ struct NativePencilDrawingEditor: View {
     let minimumCanvasHeight: CGFloat
     let onClose: (() -> Void)?
     @StateObject private var controller: PencilDrawingController
+    @State private var decodedLegacyImage: UIImage?
 
     init(
         encodedData: Binding<String>,
@@ -206,6 +207,18 @@ struct NativePencilDrawingEditor: View {
             } else {
                 editorContent
             }
+        }
+        .task(id: legacyPreviewDataURL) {
+            guard let marker = legacyPreviewDataURL.range(of: "base64,") else {
+                decodedLegacyImage = nil
+                return
+            }
+            let encoded = String(legacyPreviewDataURL[marker.upperBound...])
+            let imageData = await Task.detached(priority: .utility) {
+                Data(base64Encoded: encoded)
+            }.value
+            guard !Task.isCancelled else { return }
+            decodedLegacyImage = imageData.flatMap { UIImage(data: $0) }
         }
         .onChange(of: controller.action?.id) { _, _ in
             if case .clear? = controller.action?.kind {
@@ -242,7 +255,7 @@ struct NativePencilDrawingEditor: View {
                 Divider()
             }
             canvas
-            if legacyImage != nil, !controller.legacyPreviewCleared {
+            if decodedLegacyImage != nil, !controller.legacyPreviewCleared {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
                     Text("已载入 Web 旧涂鸦，可在底图上继续标注")
@@ -270,8 +283,8 @@ struct NativePencilDrawingEditor: View {
         ZStack {
             (transparentBackground ? Color.clear : Color.white)
                 .contentShape(Rectangle())
-            if let legacyImage, !controller.legacyPreviewCleared {
-                Image(uiImage: legacyImage)
+            if let decodedLegacyImage, !controller.legacyPreviewCleared {
+                Image(uiImage: decodedLegacyImage)
                     .resizable()
                     .scaledToFit()
                     .padding(8)
@@ -350,6 +363,9 @@ struct NativePencilDrawingEditor: View {
                     Text("大").tag(CGFloat(44))
                 }
                 .pickerStyle(.segmented)
+                Text("橡皮擦碰到一条笔画时会删除整条笔画。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
             .frame(maxWidth: 310)
         }
@@ -401,6 +417,7 @@ struct NativePencilDrawingEditor: View {
             toolButton(controller.eraser ? "eraser.fill" : "eraser", active: controller.eraser, accessibilityLabel: "橡皮擦") {
                 controller.toggleEraser()
             }
+            .accessibilityHint("碰到一条笔画会擦除整条笔画，避免残影")
             toolButton("arrow.uturn.backward", active: false, accessibilityLabel: "撤销") {
                 controller.undo()
             }
@@ -412,13 +429,6 @@ struct NativePencilDrawingEditor: View {
         .padding(.top, 8)
         .padding(.bottom, 10)
         .background(.ultraThinMaterial)
-    }
-
-    private var legacyImage: UIImage? {
-        guard let marker = legacyPreviewDataURL.range(of: "base64,") else { return nil }
-        let encoded = String(legacyPreviewDataURL[marker.upperBound...])
-        guard let data = Data(base64Encoded: encoded) else { return nil }
-        return UIImage(data: data)
     }
 
     private var penWidthBinding: Binding<CGFloat> {
@@ -552,7 +562,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
 
     private func updateTool(_ canvas: PKCanvasView) {
         canvas.tool = eraser
-            ? PKEraserTool(.bitmap, width: eraserWidth)
+            ? PKEraserTool(.vector, width: eraserWidth)
             : PKInkingTool(.pen, color: color, width: width)
     }
 
@@ -568,7 +578,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         private var decodeToken = UUID()
         var canvasReady = false
         private var pendingPublish: DispatchWorkItem?
-        private let publishQueue = DispatchQueue(label: "QuestionBank.PencilDrawing.publish", qos: .utility)
+        private let publishQueue = DispatchQueue(label: "QuestionBank.PencilDrawing.publish", qos: .userInitiated)
 
         init(parent: PencilCanvasRepresentable, controller: PencilDrawingController) {
             self.parent = parent

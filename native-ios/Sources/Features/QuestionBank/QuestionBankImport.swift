@@ -503,7 +503,26 @@ struct QuestionBankImportPlan: Identifiable, Sendable {
     var canImport: Bool { paper != nil && errors.isEmpty && stagingDirectory != nil }
 }
 
-struct QuestionBankStoredRow {
+enum QuestionBankPreparedImport: Sendable {
+    case single(QuestionBankImportPlan)
+    case batch(QuestionBankBatchPackagePlan)
+
+    var stagingDirectory: URL? {
+        switch self {
+        case .single(let plan): plan.stagingDirectory
+        case .batch(let plan): plan.stagingDirectory
+        }
+    }
+
+    func cleanup() {
+        switch self {
+        case .single(let plan): QuestionBankPackageImporter.cleanup(plan)
+        case .batch(let plan): QuestionBankBatchPackageImporter.cleanup(plan)
+        }
+    }
+}
+
+struct QuestionBankStoredRow: Sendable {
     var compoundID: String
     var paperID: String
     var kind: String
@@ -1106,7 +1125,7 @@ enum QuestionBankRepository {
         return succeeded
     }
 
-    private static func makeRows(from plan: QuestionBankImportPlan, generation: String) throws -> [QuestionBankStoredRow] {
+    static func makeRows(from plan: QuestionBankImportPlan, generation: String) throws -> [QuestionBankStoredRow] {
         guard let paper = plan.paper else { throw QuestionBankImportFailure.invalidPlan }
         var rows: [QuestionBankStoredRow] = []
         func append<T: Encodable>(kind: String, id: String, value: T, moduleID: String? = nil,
@@ -1152,7 +1171,7 @@ enum QuestionBankRepository {
         return rows
     }
 
-    private static func safePathComponent(_ value: String) -> String {
+    static func safePathComponent(_ value: String) -> String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         let result = value.unicodeScalars.map { allowed.contains($0) ? String($0) : "_" }.joined()
         return result.isEmpty ? "paper" : String(result.prefix(80))
@@ -1216,6 +1235,28 @@ enum QuestionBankPackageImporter {
 
     static func prepare(from sourceURL: URL) throws -> QuestionBankImportPlan {
         try prepare(from: sourceURL, source: .trustedLocalFile, onProgress: { _ in })
+    }
+
+    static func prepareSelection(
+        from sourceURL: URL,
+        source: QuestionBankImportSource,
+        onProgress: @escaping @Sendable (QuestionBankImportPhase) -> Void
+    ) throws -> QuestionBankPreparedImport {
+        guard sourceURL.pathExtension.lowercased() == "zip" else {
+            return .single(try prepare(from: sourceURL, source: source, onProgress: onProgress))
+        }
+        onProgress(.acquiringFile)
+        let readableSource = try makeReadableSource(from: sourceURL, source: source)
+        defer {
+            if readableSource != sourceURL { try? FileManager.default.removeItem(at: readableSource) }
+        }
+        if QuestionBankBatchPackageImporter.containsManifest(at: readableSource) {
+            return .batch(try QuestionBankBatchPackageImporter.prepare(
+                from: readableSource,
+                onProgress: onProgress
+            ))
+        }
+        return .single(try prepare(from: readableSource, source: .trustedLocalFile, onProgress: onProgress))
     }
 
     static func prepare(from sourceURL: URL, source: QuestionBankImportSource,
@@ -1348,7 +1389,7 @@ enum QuestionBankPackageImporter {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func makeReadableSource(from sourceURL: URL, source: QuestionBankImportSource) throws -> URL {
+    static func makeReadableSource(from sourceURL: URL, source: QuestionBankImportSource) throws -> URL {
         guard sourceURL.isFileURL else { throw PackageError("所选项目不是本地文件。") }
         if source == .filesOpenIn {
             return try coordinateExternalFile(from: sourceURL)
@@ -1764,7 +1805,7 @@ enum QuestionBankPackageImporter {
         }
     }
 
-    private static func validateSourceProvenance(
+    static func validateSourceProvenance(
         sourcePapers: [QuestionBankSourcePaper],
         materials: [QuestionBankMaterial],
         questions: [QuestionBankQuestion]
@@ -1833,7 +1874,7 @@ enum QuestionBankPackageImporter {
         return errors
     }
 
-    private static func validate(paper: QuestionBankPaper?, modules: [QuestionBankModule],
+    static func validate(paper: QuestionBankPaper?, modules: [QuestionBankModule],
                                  materials: [QuestionBankMaterial], questions: [QuestionBankQuestion],
                                  assets: [QuestionBankAsset], staging: URL) throws -> [String] {
         var errors: [String] = []
@@ -1843,6 +1884,7 @@ enum QuestionBankPackageImporter {
         if paper.year <= 1900 { errors.append("试卷年份无效。") }
         if paper.examType.isEmpty { errors.append("考试类型不能为空。") }
         if modules.isEmpty { errors.append("\(paper.title)：模块表至少需要一条模块记录。") }
+        let moduleTitleByID = Dictionary(modules.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
         reportDuplicates(modules.map(\.id), label: "模块ID", paper: paper.title, errors: &errors)
         reportDuplicates(modules.map(\.sequence), label: "模块序号", paper: paper.title, errors: &errors)
         reportDuplicates(materials.map(\.id), label: "材料ID", paper: paper.title, errors: &errors)
@@ -1906,6 +1948,22 @@ enum QuestionBankPackageImporter {
         for question in questions {
             try checkCancellation()
             let label = "\(paper.title)／第\(question.number)题"
+            let moduleTitle = moduleTitleByID[question.moduleID] ?? ""
+            let normalizedQuestionType = QuestionBankModuleTitle.normalized(
+                [question.type, question.subject].joined(separator: " ")
+            )
+            let isLogicFill = QuestionBankCoarseModule.classify(explicitModuleTitle: moduleTitle) == .language
+                && ["逻辑填空", "选词填空", "词语填空"].contains(where: { normalizedQuestionType.contains($0) })
+            let blankCount = logicFillBlankCount(in: question.stem)
+            if isLogicFill && blankCount > 1 {
+                let separators = CharacterSet(charactersIn: "；;")
+                for option in question.options where !option.text.trimmedNonempty.isEmpty {
+                    let separatorCount = option.text.unicodeScalars.filter(separators.contains).count
+                    if separatorCount < blankCount - 1 {
+                        errors.append("\(label)／选项\(option.id)：多空逻辑填空的词语边界未分开，请对照原卷核对后用“；”分隔；导入器不会猜测中文词语边界。")
+                    }
+                }
+            }
             if question.id.isEmpty { errors.append("\(label)：题目ID不能为空。") }
             if question.paperID != paper.id { errors.append("\(label)：试卷ID关联不匹配。") }
             if !moduleIDs.contains(question.moduleID) { errors.append("\(label)：所属模块“\(question.moduleID)”不存在。") }
@@ -1982,6 +2040,15 @@ enum QuestionBankPackageImporter {
             }
         }
         return errors
+    }
+
+    private static func logicFillBlankCount(in stem: String) -> Int {
+        let patterns = [#"(?:_{2,}|＿{2,})"#, #"[（(]\s*[）)]"#]
+        return patterns.reduce(0) { total, pattern in
+            guard let expression = try? NSRegularExpression(pattern: pattern) else { return total }
+            let range = NSRange(stem.startIndex..<stem.endIndex, in: stem)
+            return total + expression.numberOfMatches(in: stem, range: range)
+        }
     }
 
     private static func reportDuplicates<Value: Hashable>(_ values: [Value], label: String,

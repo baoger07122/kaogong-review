@@ -49,6 +49,16 @@ JSON 顶层必须是对象，必需字段如下：
 | `dataBase64` | string | 图片原始字节的纯 Base64；不得添加 `data:` 前缀或换行 |
 | `sha256` | string | 对解码后的原始图片字节计算的 SHA-256 十六进制摘要，不对 Base64 文本求摘要 |
 
+用途关联必须精确匹配引用记录：
+
+| 引用字段 | `ownerType` | `ownerID` | `role` |
+| --- | --- | --- | --- |
+| `question.stemImageAssetID` | `question` | 引用题目的 ID | `题干整图` |
+| `question.options[A-D].imageAssetID` | `option` | 引用题目的 ID | `选项A`、`选项B`、`选项C` 或 `选项D`，与选项 ID 一致 |
+| `material.imageAssetID` | `material` | 引用材料的 ID | `共用材料` |
+
+导入器会按引用者核对所属 ID 与用途字符串；项目导出预检还要求 `ownerType` 与题干图、选项图或材料图的实际用途一致。仅检查图片 ID 存在、Base64、哈希或 MIME 不足以证明关联可导入。
+
 导入器校验 Base64、SHA-256、MIME 与文件签名、路径、ID、所属关系和题目引用。验证通过后，`dataBase64` 解码到应用原有的本地图片文件路径；Base64 不写入题目列表记录或持久化的 `QuestionBankAsset` payload。图片字节只在生成并提交图片文件时使用，列表模型仍只持有既有稳定 ID 与本地资源路径。
 
 ## 文件及图片上限

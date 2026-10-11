@@ -96,6 +96,133 @@ struct QuestionBankHomePaper: Identifiable {
     var title: String { paper.title.isEmpty ? (record.title ?? "未命名试卷") : paper.title }
 }
 
+struct QuestionBankOverviewCandidate: Identifiable, Equatable {
+    let id: String
+    let paperID: String
+    let paperTitle: String
+    let questionNumber: Int
+    let moduleID: String
+    let moduleTitle: String
+    let moduleSequence: Int
+    let type: String
+    let subject: String
+}
+
+struct QuestionBankOverviewGroup: Identifiable, Equatable {
+    let id: String
+    let paperID: String
+    let paperTitle: String
+    let moduleID: String
+    let moduleTitle: String
+    let coarseQuestionType: String?
+    let questions: [QuestionBankOverviewCandidate]
+}
+
+enum QuestionBankOverviewGrouping {
+    private struct GroupKey: Hashable {
+        let paperID: String
+        let moduleID: String
+        let coarseQuestionType: String?
+    }
+
+    static func groups(from candidates: [QuestionBankOverviewCandidate]) -> [QuestionBankOverviewGroup] {
+        var paperOrder: [String: Int] = [:]
+        for candidate in candidates where paperOrder[candidate.paperID] == nil {
+            paperOrder[candidate.paperID] = paperOrder.count
+        }
+
+        let ordered = candidates.sorted { left, right in
+            let leftPaperOrder = paperOrder[left.paperID, default: Int.max]
+            let rightPaperOrder = paperOrder[right.paperID, default: Int.max]
+            if leftPaperOrder != rightPaperOrder { return leftPaperOrder < rightPaperOrder }
+            if left.moduleSequence != right.moduleSequence { return left.moduleSequence < right.moduleSequence }
+            if left.moduleID != right.moduleID { return left.moduleID < right.moduleID }
+            let leftType = coarseType(for: left)
+            let rightType = coarseType(for: right)
+            let leftTypeOrder = typeOrder(leftType, moduleTitle: left.moduleTitle)
+            let rightTypeOrder = typeOrder(rightType, moduleTitle: right.moduleTitle)
+            if leftTypeOrder != rightTypeOrder { return leftTypeOrder < rightTypeOrder }
+            if left.questionNumber != right.questionNumber { return left.questionNumber < right.questionNumber }
+            return left.id < right.id
+        }
+
+        var grouped: [GroupKey: [QuestionBankOverviewCandidate]] = [:]
+        var order: [GroupKey] = []
+        for candidate in ordered {
+            let type = coarseType(for: candidate)
+            let key = GroupKey(
+                paperID: candidate.paperID,
+                moduleID: candidate.moduleID,
+                coarseQuestionType: type
+            )
+            if grouped[key] == nil { order.append(key) }
+            grouped[key, default: []].append(candidate)
+        }
+
+        return order.compactMap { key in
+            guard let questions = grouped[key], let first = questions.first else { return nil }
+            let identity = Data(
+                "\(key.paperID)\u{0}\(key.moduleID)\u{0}\(key.coarseQuestionType ?? "")".utf8
+            ).base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+            return QuestionBankOverviewGroup(
+                id: identity,
+                paperID: first.paperID,
+                paperTitle: first.paperTitle,
+                moduleID: first.moduleID,
+                moduleTitle: first.moduleTitle.isEmpty ? "未分类" : first.moduleTitle,
+                coarseQuestionType: key.coarseQuestionType,
+                questions: questions
+            )
+        }
+    }
+
+    private static func coarseType(for candidate: QuestionBankOverviewCandidate) -> String? {
+        let module = QuestionBankCoarseModule.classify(explicitModuleTitle: candidate.moduleTitle)
+        let label = candidate.type.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? candidate.subject.trimmingCharacters(in: .whitespacesAndNewlines)
+            : candidate.type.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = QuestionBankModuleTitle.normalized(label)
+
+        switch module {
+        case .language:
+            if ["逻辑填空", "选词填空", "词语填空"].contains(where: { normalized.contains($0) }) {
+                return "逻辑填空"
+            }
+            let readingKinds = ["阅读", "主旨", "意图", "细节", "标题", "语句排序", "语句衔接", "下文推断", "词句理解"]
+            if readingKinds.contains(where: { normalized.contains($0) }) { return "片段阅读" }
+            return "未分类"
+        case .reasoning:
+            let types = ["图形推理", "定义判断", "类比推理", "逻辑判断"]
+            return types.first(where: { normalized == $0 || normalized.contains($0) }) ?? "未分类"
+        case .commonKnowledge:
+            if normalized.contains("政治理论") { return "政治理论" }
+            if ["常识", "常识判断", "其他常识"].contains(normalized) { return "常识" }
+            return "未分类"
+        case .quantity, .dataAnalysis:
+            return nil
+        case .uncategorized:
+            return "未分类"
+        }
+    }
+
+    private static func typeOrder(_ type: String?, moduleTitle: String) -> Int {
+        let module = QuestionBankCoarseModule.classify(explicitModuleTitle: moduleTitle)
+        let order: [String]
+        switch module {
+        case .language: order = ["逻辑填空", "片段阅读", "未分类"]
+        case .reasoning: order = ["图形推理", "定义判断", "类比推理", "逻辑判断", "未分类"]
+        case .commonKnowledge: order = ["政治理论", "常识", "未分类"]
+        case .quantity, .dataAnalysis: order = []
+        case .uncategorized: order = ["未分类"]
+        }
+        guard let type else { return 0 }
+        return order.firstIndex(of: type) ?? order.count
+    }
+}
+
 struct QuestionBankHomeIndex {
     private let papersByID: [String: QuestionBankHomePaper]
     private let recordsByPaperID: [String: [QuestionBankRecord]]

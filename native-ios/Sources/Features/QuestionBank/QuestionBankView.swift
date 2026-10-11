@@ -6,6 +6,7 @@ private enum QuestionBankImportSheet: Identifiable {
     case picker(UUID)
     case preparing(UUID)
     case preview(QuestionBankImportPlan)
+    case batchPreview(QuestionBankBatchPackagePlan)
 
     var id: String {
         // Keep one sheet owner across picker → preparation → preview. Replacing
@@ -54,6 +55,7 @@ struct QuestionBankView: View {
     @Query private var batchQuestionLinks: [QuestionBankBatchQuestionLinkRecord]
     @StateObject private var importProgress = QuestionBankImportProgressModel()
     @StateObject private var importSelection = QuestionBankImportSelectionCoordinator()
+    @StateObject private var organizationStore = QuestionBankOrganizationStore()
     @State private var searchText = ""
     @State private var isSearchExpanded = false
     @FocusState private var isSearchFocused: Bool
@@ -70,6 +72,9 @@ struct QuestionBankView: View {
     @State private var paperPendingDeletion: QuestionBankRecord?
     @State private var showsPaperDeletionConfirmation = false
     @State private var activeImportSheet: QuestionBankImportSheet?
+    @State private var showsBatchPackageManager = false
+    @State private var showsOrganizationManager = false
+    @State private var collapsedOrganizationSections: Set<String> = []
     @State private var isPreparingImport = false
     @State private var isCancellingImport = false
     @State private var isCommittingImport = false
@@ -80,12 +85,16 @@ struct QuestionBankView: View {
     @State private var importAlertMessage = ""
     @State private var activeImportID: UUID?
     @State private var importWorkerID: UUID?
-    @State private var importWorker: Task<QuestionBankImportPlan, Error>?
+    @State private var importWorker: Task<QuestionBankPreparedImport, Error>?
 
     private let importLogger = Logger(subsystem: "com.baoger07122.kaogongreview", category: "QuestionBankImportUI")
 
     private var sortedBatches: [QuestionBankBatchRecord] {
         batchIndexes.sorted { ($0.year, $0.displayName) > ($1.year, $1.displayName) }
+    }
+
+    private var allPaperIDs: [String] {
+        QuestionBankHomeIndex(records: records).papers.map(\.id)
     }
 
     private var homeFilter: QuestionBankHomeFilter {
@@ -158,7 +167,25 @@ struct QuestionBankView: View {
     var body: some View {
         let index = QuestionBankHomeIndex(records: records)
         let filter = homeFilter
-        let visiblePapers = index.visiblePapers(matching: filter)
+        let unorganizedVisiblePapers = index.visiblePapers(matching: filter)
+        let visibleByID = Dictionary(
+            unorganizedVisiblePapers.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var organizationSections = organizationStore.sections(for: unorganizedVisiblePapers.map(\.id))
+        if organizationSections.reduce(0, { $0 + $1.paperIDs.count }) != unorganizedVisiblePapers.count {
+            organizationSections = unorganizedVisiblePapers.isEmpty ? [] : [
+                QuestionBankOrganizationSection(
+                    id: QuestionBankOrganizationSection.ungroupedID,
+                    groupID: nil,
+                    title: "未分组",
+                    paperIDs: unorganizedVisiblePapers.map(\.id)
+                )
+            ]
+        }
+        let visiblePapers = organizationSections
+            .flatMap(\.paperIDs)
+            .compactMap { visibleByID[$0] }
         return ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let importStatusMessage = importProgress.message {
@@ -242,28 +269,47 @@ struct QuestionBankView: View {
                             color: AppTheme.accent
                         )
                     } else {
-                        LazyVStack(spacing: 6) {
-                            ForEach(visiblePapers) { paper in
-                                QuestionBankPaperSwipeRow(onDelete: {
-                                    paperPendingDeletion = paper.record
-                                    showsPaperDeletionConfirmation = true
-                                }) {
-                                    if filter.hasQuestionRestriction {
-                                        NavigationLink {
-                                            QuestionBankCrossPaperReaderView(filter: filter, paperID: paper.id)
-                                        } label: {
-                                            paperCard(paper, questionCount: index.filteredQuestionCount(for: paper.id, matching: filter))
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            ForEach(organizationSections) { section in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Button {
+                                        withAnimation(.easeInOut(duration: 0.16)) {
+                                            if collapsedOrganizationSections.contains(section.id) {
+                                                collapsedOrganizationSections.remove(section.id)
+                                            } else {
+                                                collapsedOrganizationSections.insert(section.id)
+                                            }
                                         }
-                                        .buttonStyle(.plain)
-                                        .accessibilityIdentifier("question-bank-paper-\(paper.id)")
-                                    } else {
-                                        NavigationLink {
-                                            paperDestination(for: paper.record)
-                                        } label: {
-                                            paperCard(paper, questionCount: index.filteredQuestionCount(for: paper.id, matching: filter))
+                                    } label: {
+                                        HStack(spacing: 7) {
+                                            Image(systemName: collapsedOrganizationSections.contains(section.id)
+                                                ? "chevron.right" : "chevron.down")
+                                                .font(.system(size: 10, weight: .semibold))
+                                            Text(section.title)
+                                                .font(AppTheme.auxiliaryFont.weight(.semibold))
+                                            Text("\(section.paperIDs.count)")
+                                                .font(AppTheme.auxiliaryFont)
+                                                .foregroundStyle(.secondary)
+                                            Spacer(minLength: 0)
                                         }
-                                        .buttonStyle(.plain)
-                                        .accessibilityIdentifier("question-bank-paper-\(paper.id)")
+                                        .foregroundStyle(.secondary)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("\(section.title)，\(section.paperIDs.count)套试卷")
+                                    .accessibilityValue(collapsedOrganizationSections.contains(section.id) ? "已收起" : "已展开")
+                                    .accessibilityIdentifier("question-bank-paper-group-\(section.id)")
+
+                                    if !collapsedOrganizationSections.contains(section.id) {
+                                        ForEach(section.paperIDs, id: \.self) { paperID in
+                                            if let paper = visibleByID[paperID] {
+                                                paperRow(
+                                                    paper,
+                                                    questionCount: index.filteredQuestionCount(for: paper.id, matching: filter),
+                                                    filter: filter
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -310,6 +356,18 @@ struct QuestionBankView: View {
                     } label: {
                         Label("清除筛选", systemImage: "line.3.horizontal.decrease.circle")
                     }
+                    Button {
+                        showsOrganizationManager = true
+                    } label: {
+                        Label("管理分组与排序", systemImage: "folder")
+                    }
+                    .accessibilityIdentifier("question-bank-organization-manager")
+                    Button {
+                        showsBatchPackageManager = true
+                    } label: {
+                        Label("批量导出/更新包", systemImage: "square.and.arrow.up.on.square")
+                    }
+                    .accessibilityIdentifier("question-bank-batch-package-manager")
                     if !sortedBatches.isEmpty {
                         Section("批次来源索引（非合卷）") {
                             ForEach(sortedBatches, id: \.identityKey) { batch in
@@ -351,7 +409,25 @@ struct QuestionBankView: View {
                     onImport: { decision, batchMetadata in commitImport(plan, decision: decision, batchMetadata: batchMetadata) },
                     onCancel: { activeImportSheet = nil }
                 )
+            case .batchPreview(let plan):
+                QuestionBankBatchPackageImportPreview(
+                    plan: plan,
+                    records: records,
+                    isImporting: isCommittingImport,
+                    importFailure: $inlineImportFailure,
+                    onImport: { keys in commitBatchImport(plan, confirmedNewQuestionKeys: keys) },
+                    onCancel: { activeImportSheet = nil }
+                )
             }
+        }
+        .sheet(isPresented: $showsOrganizationManager) {
+            QuestionBankPaperOrganizationView(papers: index.papers, store: organizationStore)
+        }
+        .sheet(isPresented: $showsBatchPackageManager) {
+            QuestionBankBatchPackageManagerView(
+                records: records,
+                organizationStore: organizationStore
+            )
         }
         .alert(importAlertTitle, isPresented: $showImportAlert) {
             Button("好", role: .cancel) { }
@@ -370,7 +446,13 @@ struct QuestionBankView: View {
         } message: {
             Text("将删除《\(paperPendingDeletion?.title ?? paperPendingDeletion?.decoded(QuestionBankPaper.self)?.title ?? "未命名试卷")》及其题目和纸卷图片。学习库笔记与涂鸦会保留；仍被批次来源索引引用的试卷不能删除。")
         }
-        .onAppear { NativePerformanceLog.event("question bank onAppear") }
+        .onAppear {
+            organizationStore.reconcile(paperIDs: allPaperIDs)
+            NativePerformanceLog.event("question bank onAppear")
+        }
+        .onChange(of: allPaperIDs) { _, paperIDs in
+            organizationStore.reconcile(paperIDs: paperIDs)
+        }
         .onAppear(perform: processPendingExternalFileIfPossible)
         .onDisappear {
             if isPreparingImport { cancelPreparingImport() }
@@ -617,6 +699,48 @@ struct QuestionBankView: View {
         .contentShape(Capsule())
     }
 
+    private func paperRow(
+        _ paper: QuestionBankHomePaper,
+        questionCount: Int,
+        filter: QuestionBankHomeFilter
+    ) -> some View {
+        QuestionBankPaperSwipeRow(onDelete: {
+            paperPendingDeletion = paper.record
+            showsPaperDeletionConfirmation = true
+        }) {
+            if filter.hasQuestionRestriction {
+                NavigationLink {
+                    QuestionBankCrossPaperReaderView(filter: filter, paperID: paper.id)
+                } label: {
+                    paperCard(paper, questionCount: questionCount)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("question-bank-paper-\(paper.id)")
+            } else {
+                NavigationLink {
+                    paperDestination(for: paper.record)
+                } label: {
+                    paperCard(paper, questionCount: questionCount)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("question-bank-paper-\(paper.id)")
+            }
+        }
+        .contextMenu {
+            Menu("移动到分组") {
+                Button("未分组") { organizationStore.movePaper(paper.id, to: nil) }
+                if !organizationStore.snapshot.groups.isEmpty {
+                    Divider()
+                    ForEach(organizationStore.snapshot.groups) { group in
+                        Button(group.name) {
+                            organizationStore.movePaper(paper.id, to: group.id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private func paperDestination(for record: QuestionBankRecord) -> some View {
         if let target = questionTarget(for: record.paperID) {
@@ -655,6 +779,7 @@ struct QuestionBankView: View {
                 batchMaterialLinks: batchMaterialLinks,
                 batchQuestionLinks: batchQuestionLinks
             )
+            organizationStore.removePaper(paper.paperID)
             importAlertTitle = "删除完成"
             importAlertMessage = result.assetCleanupPending
                 ? "试卷与题目已删除；少量已失去引用的图片文件暂未清理，不影响其他数据。学习库笔记和涂鸦已保留。"
@@ -799,7 +924,7 @@ struct QuestionBankView: View {
         importProgress.begin(runID: runID, fileName: url.lastPathComponent)
         let progress = importProgress
         let worker = Task.detached(priority: .utility) {
-            try QuestionBankPackageImporter.prepare(from: url, source: source) { phase in
+            try QuestionBankPackageImporter.prepareSelection(from: url, source: source) { phase in
                 Task { @MainActor in progress.update(runID: runID, phase: phase) }
             }
         }
@@ -819,19 +944,25 @@ struct QuestionBankView: View {
                 }
             }
             do {
-                let plan = try await worker.value
+                let prepared = try await worker.value
                 guard activeImportID == runID else {
-                    QuestionBankPackageImporter.cleanup(plan)
+                    prepared.cleanup()
                     return
                 }
                 if let pickerRequestID,
                    !importSelection.markPreviewReady(requestID: pickerRequestID) {
-                    QuestionBankPackageImporter.cleanup(plan)
+                    prepared.cleanup()
                     return
                 }
-                importLogger.info("package validation finished: modules=\(plan.modules.count), questions=\(plan.questions.count), assets=\(plan.assets.count), errors=\(plan.errors.count)")
-                importStagingDirectory = plan.stagingDirectory
-                activeImportSheet = .preview(plan)
+                importStagingDirectory = prepared.stagingDirectory
+                switch prepared {
+                case .single(let plan):
+                    importLogger.info("package validation finished: modules=\(plan.modules.count), questions=\(plan.questions.count), assets=\(plan.assets.count), errors=\(plan.errors.count)")
+                    activeImportSheet = .preview(plan)
+                case .batch(let plan):
+                    importLogger.info("batch package validation finished: papers=\(plan.paperPlans.count), assets=\(plan.manifest.assets.count)")
+                    activeImportSheet = .batchPreview(plan)
+                }
                 importProgress.finish(runID: runID)
             } catch is CancellationError {
                 if activeImportID == runID {
@@ -898,6 +1029,31 @@ struct QuestionBankView: View {
             isCommittingImport = false
             let errorType = String(reflecting: type(of: error))
             importLogger.error("atomic import failed and was rolled back (\(errorType, privacy: .public))")
+            inlineImportFailure = error.localizedDescription
+        }
+    }
+
+    private func commitBatchImport(
+        _ plan: QuestionBankBatchPackagePlan,
+        confirmedNewQuestionKeys: Set<QuestionBankBatchQuestionKey>
+    ) {
+        guard !isCommittingImport else { return }
+        isCommittingImport = true
+        inlineImportFailure = nil
+        do {
+            let result = try QuestionBankBatchPackageRepository.commit(
+                plan,
+                confirmedNewQuestionKeys: confirmedNewQuestionKeys,
+                records: records,
+                context: modelContext
+            )
+            isCommittingImport = false
+            activeImportSheet = nil
+            importAlertTitle = "批量更新完成"
+            importAlertMessage = "已更新 \(result.updatedPaperCount) 套试卷、\(result.updatedQuestionCount) 道题，新增 \(result.addedQuestionCount) 道已确认题目；\(result.pendingPaperCount) 套试卷因缺少精确 paperID 或存在冲突而待核。未列入更新的题目、作答记录、涂鸦、笔记和本机标记均已保留。更新前 payload 备份：\(result.payloadBackupFileName)（应用支持目录）。"
+            showImportAlert = true
+        } catch {
+            isCommittingImport = false
             inlineImportFailure = error.localizedDescription
         }
     }

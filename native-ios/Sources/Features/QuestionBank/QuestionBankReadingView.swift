@@ -90,6 +90,7 @@ private struct QuestionBankReadingItem: Identifiable {
     let record: QuestionBankRecord
     let question: QuestionBankQuestion
     let moduleTitle: String?
+    let moduleSequence: Int
 
     var id: String { record.stableID }
     var overviewItem: QuestionBankOverviewItem {
@@ -1586,7 +1587,12 @@ struct QuestionBankModuleView: View {
             }
             .compactMap { record -> QuestionBankReadingItem? in
                 guard let question = record.decoded(QuestionBankQuestion.self) else { return nil }
-                return QuestionBankReadingItem(record: record, question: question, moduleTitle: module?.title)
+                return QuestionBankReadingItem(
+                    record: record,
+                    question: question,
+                    moduleTitle: module?.title,
+                    moduleSequence: module?.sequence ?? Int.max
+                )
             }
             .sorted {
                 if $0.question.number != $1.question.number { return $0.question.number < $1.question.number }
@@ -1758,6 +1764,26 @@ struct QuestionBankCrossPaperReaderView: View {
 
     private var orderedItems: [QuestionBankHomeQuestion] { groups.flatMap(\.questions) }
 
+    private var overviewGroups: [QuestionBankOverviewGroup] {
+        let paperTitles = Dictionary(
+            index.papers.map { ($0.id, $0.title) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return QuestionBankOverviewGrouping.groups(from: orderedItems.map { item in
+            QuestionBankOverviewCandidate(
+                id: item.id,
+                paperID: item.record.paperID,
+                paperTitle: paperTitles[item.record.paperID] ?? "未命名试卷",
+                questionNumber: item.question.number,
+                moduleID: item.moduleID ?? item.question.moduleID,
+                moduleTitle: item.moduleTitle ?? "",
+                moduleSequence: item.moduleSequence,
+                type: item.question.type,
+                subject: item.question.subject
+            )
+        })
+    }
+
     private var currentItem: QuestionBankHomeQuestion? {
         orderedItems.first { $0.id == currentQuestionID } ?? orderedItems.first
     }
@@ -1893,18 +1919,19 @@ struct QuestionBankCrossPaperReaderView: View {
     private var questionOverviewSheet: some View {
             NavigationStack {
                 List {
-                    ForEach(groups) { group in
-                        Section(group.title) {
-                            ForEach(group.questions) { item in
+                    ForEach(overviewGroups) { group in
+                        Section {
+                            ForEach(group.questions) { candidate in
                                 Button {
                                     presentationMode = .single
-                                    currentQuestionID = item.id
+                                    currentQuestionID = candidate.id
                                     showsOverview = false
                                 } label: {
                                     HStack {
-                                        Text("第\(item.question.number)题")
+                                        Text("第\(candidate.questionNumber)题")
                                         Spacer()
-                                        if let heading = QuestionBankQuestionHeading.displayLabel(
+                                        if let item = orderedItems.first(where: { $0.id == candidate.id }),
+                                           let heading = QuestionBankQuestionHeading.displayLabel(
                                             type: item.question.type,
                                             subject: item.question.subject,
                                             moduleTitle: item.moduleTitle
@@ -1913,8 +1940,22 @@ struct QuestionBankCrossPaperReaderView: View {
                                         }
                                     }
                                 }
-                                .accessibilityLabel("\(group.title)，第\(item.question.number)题")
-                                .accessibilityIdentifier("question-bank-cross-paper-overview-\(item.id)")
+                                .accessibilityLabel("\(group.moduleTitle)，第\(candidate.questionNumber)题")
+                                .accessibilityIdentifier("question-bank-cross-paper-overview-\(candidate.id)")
+                            }
+                        } header: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                if paperID == nil {
+                                    Text(group.paperTitle)
+                                        .font(AppTheme.auxiliaryFont)
+                                }
+                                HStack(spacing: 6) {
+                                    Text(group.moduleTitle)
+                                    if let type = group.coarseQuestionType {
+                                        Text(type)
+                                    }
+                                }
+                                .font(AppTheme.auxiliaryFont.weight(.semibold))
                             }
                         }
                     }
@@ -2568,15 +2609,29 @@ private struct QuestionBankQuestionOverviewSheet: View {
 
                 if presentation == .numbers {
                     ScrollView {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 7)], spacing: 7) {
-                            ForEach(items) { item in numberButton(item) }
+                        LazyVStack(alignment: .leading, spacing: 16) {
+                            ForEach(overviewGroups) { group in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    groupHeading(group)
+                                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 7)], spacing: 7) {
+                                        ForEach(group.questions) { candidate in
+                                            if let item = itemsByID[candidate.id] { numberButton(item) }
+                                        }
+                                    }
+                                }
+                            }
                         }
                         .padding(16)
                     }
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(items) { item in cardButton(item) }
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(overviewGroups) { group in
+                                groupHeading(group)
+                                ForEach(group.questions) { candidate in
+                                    if let item = itemsByID[candidate.id] { cardButton(item) }
+                                }
+                            }
                         }
                         .padding(.horizontal, 16)
                     }
@@ -2591,6 +2646,41 @@ private struct QuestionBankQuestionOverviewSheet: View {
                 }
             }
         }
+    }
+
+    private var itemsByID: [String: QuestionBankReadingItem] {
+        Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    private var overviewGroups: [QuestionBankOverviewGroup] {
+        QuestionBankOverviewGrouping.groups(from: items.map { item in
+            QuestionBankOverviewCandidate(
+                id: item.id,
+                paperID: item.record.paperID,
+                paperTitle: item.record.title ?? "",
+                questionNumber: item.question.number,
+                moduleID: item.question.moduleID,
+                moduleTitle: item.moduleTitle ?? "",
+                moduleSequence: item.moduleSequence,
+                type: item.question.type,
+                subject: item.question.subject
+            )
+        })
+    }
+
+    private func groupHeading(_ group: QuestionBankOverviewGroup) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(group.moduleTitle)
+                .font(AppTheme.sectionTitleFont)
+                .foregroundStyle(.primary)
+            if let type = group.coarseQuestionType {
+                Text(type)
+                    .font(AppTheme.auxiliaryFont.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("question-bank-overview-group-\(group.id)")
     }
 
     private func numberButton(_ item: QuestionBankReadingItem) -> some View {
