@@ -113,7 +113,7 @@ struct LibraryRecordDetailView: View {
                 }
             }
             .sheet(isPresented: $showQuestionBankEditor) {
-                if questionBankContext != nil {
+                if let questionBankContext {
                     NavigationStack {
                         LibraryRecordEditorView(questionBankContext: questionBankContext)
                     }
