@@ -15,6 +15,7 @@ const doodlePersistence = read('Features/Library/LibraryDoodlePersistence.swift'
 const navigationStyle = read('DesignSystem/NativeDocumentStyle.swift');
 const theme = read('DesignSystem/AppTheme.swift');
 const libraryView = read('Features/Library/LibraryView.swift');
+const libraryModels = read('Features/Library/LibraryRecordModels.swift');
 const cards = read('Features/Library/LibraryComponents.swift');
 const models = read('Data/Models/StoredRecord.swift');
 const tagLibrary = read('Features/Home/TagLibraryRepository.swift');
@@ -63,9 +64,9 @@ const tests = {
     assert.match(form, /NativeDocumentProperty/);
     assert.match(form, /LibraryRelationSelectionDialog/);
   },
-  'no toolbar background and bitmap eraser preserved': () => {
+  'no toolbar background and vector eraser avoids residue': () => {
     assert.match(read('DesignSystem/NativeDocumentStyle.swift'), /sharedBackgroundVisibility\(\.hidden\)/);
-    assert.match(pencil, /PKEraserTool\(\.bitmap, width: eraserWidth\)/);
+    assert.match(pencil, /PKEraserTool\(\.vector, width: eraserWidth\)/);
     assert.match(pencil, /fingerDrawingEnabled \? \.anyInput : \.pencilOnly/);
   },
   'smart split is compact and preserves the final question paragraph': () => {
@@ -92,7 +93,7 @@ const tests = {
     assert.match(root, /@State private var libraryPath: \[LibraryRoute\] = \[\]/);
     assert.match(root, /NavigationStack\(path: \$libraryPath\) \{[\s\S]*?LibraryView\(navigationPath: \$libraryPath\)[\s\S]*?environmentObject\(libraryDoodleSession\)/);
     assert.match(root, /\.overlay \{[\s\S]*?LibraryDoodleOverlay\(session: libraryDoodleSession\)/);
-    assert.match(doodle, /drawing surface is mounted inside the detail ScrollView/);
+    assert.match(detail, /ScrollView\s*\{[\s\S]*?LibraryDoodleContentLayer\(/);
     assert.match(doodle, /Color\.black\.opacity\(0\.18\)/);
     assert.match(doodle, /NativePencilDrawingEditor/);
     assert.match(doodle, /targetRecordID/);
@@ -153,7 +154,7 @@ const tests = {
   },
   'analogy options are indexed for existing and new cards': () => {
     assert.match(models, /"linkedWordIds", "options"/);
-    assert.match(libraryView, /record\.indexObject\?\["options"\] == nil/);
+    assert.match(libraryModels, /options = \(object\["options"\] as\? \[String\] \?\? \[\]\)/);
     assert.match(cards, /if isAnalogyReasoning, !snapshot\.options\.isEmpty/);
   }
 };

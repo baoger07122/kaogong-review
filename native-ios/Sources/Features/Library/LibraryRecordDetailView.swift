@@ -120,15 +120,6 @@ struct LibraryRecordDetailView: View {
         .background(NativeNavigationInteraction(blocked: doodleSession.isPresented))
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
-            if questionBankContext != nil {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("编辑题目") {
-                        if noteSession.finish() { showQuestionBankEditor = true }
-                    }
-                    .accessibilityIdentifier("question-bank-edit-question")
-                    .disabled(doodleSession.isPresented)
-                }
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 8) {
                     if doodleSession.isPresented {
@@ -150,6 +141,13 @@ struct LibraryRecordDetailView: View {
                                 } label: {
                                     Label("编辑错题", systemImage: "pencil")
                                 }
+                            } else {
+                                Button {
+                                    if noteSession.finish() { showQuestionBankEditor = true }
+                                } label: {
+                                    Label("编辑题目", systemImage: "pencil")
+                                }
+                                .accessibilityIdentifier("question-bank-edit-question")
                             }
                             if questionBankContext != nil {
                                 Button {
