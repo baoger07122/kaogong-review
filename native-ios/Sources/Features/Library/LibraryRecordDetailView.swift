@@ -115,7 +115,13 @@ struct LibraryRecordDetailView: View {
             .sheet(isPresented: $showQuestionBankEditor) {
                 if let questionBankContext {
                     NavigationStack {
-                        LibraryRecordEditorView(questionBankContext: questionBankContext)
+                        LibraryRecordEditorView(
+                            questionBankContext: questionBankContext,
+                            onQuestionBankAnalysisSaved: {
+                                object = questionBankContext.detailObject
+                                showQuestionBankEditor = false
+                            }
+                        )
                     }
                 }
             }
@@ -295,8 +301,13 @@ struct LibraryRecordDetailView: View {
                 metadataTagLine("考点", values: knowledgePoints, emphasis: .strong)
                 metadataTagLine("弱项标签", values: weaknessTags, emphasis: .subtle)
             } else {
-                if let questionBankContext {
-                    metadataTextLine("题型", value: questionBankContext.currentQuestion.type)
+                if let questionBankContext,
+                   let questionType = QuestionBankQuestionHeading.displayLabel(
+                       type: questionBankContext.currentQuestion.type,
+                       subject: questionBankContext.currentQuestion.subject,
+                       moduleTitle: questionBankContext.moduleTitle
+                   ) {
+                    metadataTextLine("题型", value: questionType)
                 }
                 metadataTagLine(knowledgePointLabel, values: knowledgePoints, emphasis: .strong)
                 if isDataAnalysis || isAnalogyReasoning {
@@ -368,6 +379,10 @@ struct LibraryRecordDetailView: View {
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(detailBackground, in: RoundedRectangle(cornerRadius: 10))
+                .accessibilityIdentifier(
+                    questionBankContext.map { "question-bank-detail-stem-\($0.question.id)" }
+                        ?? "library-record-detail-stem"
+                )
         }
     }
 

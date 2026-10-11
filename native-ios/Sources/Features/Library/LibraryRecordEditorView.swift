@@ -29,6 +29,7 @@ struct LibraryRecordEditorView: View {
     let scope: LibraryScope
     let recordID: String?
     let onSaved: ((String) -> Void)?
+    let onQuestionBankAnalysisSaved: (() -> Void)?
     let dismissAfterSave: Bool
     let questionBankContext: QuestionBankQuestionAnalysisContext?
     @State private var draft: LibraryRecordDraft
@@ -64,6 +65,7 @@ struct LibraryRecordEditorView: View {
         self.kind = kind
         self.scope = scope
         self.onSaved = onSaved
+        onQuestionBankAnalysisSaved = nil
         self.dismissAfterSave = dismissAfterSave
         recordID = record?.recordID
         questionBankContext = nil
@@ -95,13 +97,17 @@ struct LibraryRecordEditorView: View {
         _questionBankNeedsReview = State(initialValue: false)
     }
 
-    init(questionBankContext: QuestionBankQuestionAnalysisContext) {
+    init(
+        questionBankContext: QuestionBankQuestionAnalysisContext,
+        onQuestionBankAnalysisSaved: @escaping () -> Void
+    ) {
         let mapping = questionBankContext.typeMapping
         kind = .errors
         scope = LibraryScope(subject: mapping.subject, module: mapping.module)
         recordID = questionBankContext.currentQuestion.id
         onSaved = nil
-        dismissAfterSave = true
+        self.onQuestionBankAnalysisSaved = onQuestionBankAnalysisSaved
+        dismissAfterSave = false
         self.questionBankContext = questionBankContext
         _draft = State(initialValue: questionBankContext.makeEditorDraft())
         _questionBankIsDifficult = State(initialValue: questionBankContext.currentQuestion.isDifficult ?? false)
@@ -1558,6 +1564,7 @@ struct LibraryRecordEditorView: View {
                         context: modelContext
                     )
                     isSaving = false
+                    onQuestionBankAnalysisSaved?()
                     if dismissAfterSave { dismiss() }
                 } else {
                     if kind == .errors || (kind == .notes && isQuantityRelations) {
