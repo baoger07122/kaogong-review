@@ -65,111 +65,14 @@ struct LibraryRecordDetailView: View {
     }
 
     var body: some View {
-        ZStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    metadata
-                    questionBankMaterialBlock
-                    questionBlock
-                    imagesBlock
-                    optionsBlock
-                    answerAndSource
-                    explanationBlock
-                    comparisonBlock
-                    linkedErrorBlock
-                    reviewBlock
-                    noteBlock
-                    dateBlock
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 5)
-                .padding(.bottom, 14)
-                .frame(maxWidth: 920, alignment: .leading)
-                .frame(maxWidth: .infinity)
-                .overlay {
-                    LibraryDoodleContentLayer(
-                        session: doodleSession,
-                        targetRecordID: activeRecordID
-                    )
-                }
-            }
-            .background(Color.white)
-
-            if showDelete {
-                NativeDeleteDialog(
-                    title: "删除错题",
-                    message: "删除后无法在 App 内恢复。",
-                    onDelete: { showDelete = false; onDelete() },
-                    onCancel: { showDelete = false }
-                )
-            } else if showWordSelection {
-                LibraryRelationSelectionDialog(
-                    collection: "words",
-                    candidates: records,
-                    selection: linkedWordSelection,
-                    onClose: { showWordSelection = false },
-                    onCreateWord: { category in
-                        showWordSelection = false
-                        linkedWordCreationCategory = category
-                    }
-                )
-            }
-        }
-        .navigationTitle(questionBankContext.map { "第\($0.question.number)题详情" } ?? "错题详情")
+        detailContent
+        .navigationTitle(detailNavigationTitle)
         .navigationBarTitleDisplayMode(.inline)
         .background(NativeNavigationInteraction(blocked: doodleSession.isPresented))
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 8) {
-                    if doodleSession.isPresented {
-                        Color.clear
-                            .frame(width: 44, height: 44)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                        Color.clear
-                            .frame(width: 44, height: 44)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    } else {
-                        Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
-                            .accessibilityLabel("涂鸦")
-                        Menu {
-                            if questionBankContext == nil {
-                                Button {
-                                    if noteSession.finish() { onEdit() }
-                                } label: {
-                                    Label("编辑错题", systemImage: "pencil")
-                                }
-                            } else {
-                                Button {
-                                    if noteSession.finish() { showQuestionBankEditor = true }
-                                } label: {
-                                    Label("编辑题目", systemImage: "pencil")
-                                }
-                                .accessibilityIdentifier("question-bank-edit-question")
-                            }
-                            if questionBankContext != nil {
-                                Button {
-                                    if noteSession.finish() { showClearAnswer = true }
-                                } label: {
-                                    Label("清除本题作答记录", systemImage: "arrow.counterclockwise")
-                                }
-                                .accessibilityIdentifier("question-bank-clear-question-answer")
-                            } else {
-                                Button(role: .destructive) { if noteSession.finish() { showDelete = true } } label: { Label("删除错题", systemImage: "trash") }
-                            }
-                        } label: { Image(systemName: "ellipsis") }
-                            .accessibilityLabel("题目操作")
-                            .accessibilityIdentifier("question-bank-question-actions")
-                    }
-                    if let onDone, questionBankContext != nil {
-                        Button("完成", action: onDone)
-                            .disabled(doodleSession.isPresented)
-                    }
-                }
-                .frame(minHeight: 44)
-                .id(doodleSession.isPresented ? "record-toolbar-doodle" : "record-toolbar-detail")
+                detailToolbar
             }
             .documentToolbarBackground()
         }
@@ -210,7 +113,140 @@ struct LibraryRecordDetailView: View {
         } message: {
             Text("将清除本题已选选项和答案揭示状态，题目、笔记和涂鸦会保留。")
         }
+    }
 
+    private var detailNavigationTitle: String {
+        guard let questionBankContext else { return "错题详情" }
+        return "第\(questionBankContext.question.number)题详情"
+    }
+
+    private var detailContent: some View {
+        ZStack {
+            detailScrollView
+            detailModal
+        }
+    }
+
+    private var detailScrollView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                metadata
+                questionBankMaterialBlock
+                questionBlock
+                imagesBlock
+                optionsBlock
+                answerAndSource
+                explanationBlock
+                comparisonBlock
+                linkedErrorBlock
+                reviewBlock
+                noteBlock
+                dateBlock
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 5)
+            .padding(.bottom, 14)
+            .frame(maxWidth: 920, alignment: .leading)
+            .frame(maxWidth: .infinity)
+            .overlay {
+                LibraryDoodleContentLayer(
+                    session: doodleSession,
+                    targetRecordID: activeRecordID
+                )
+            }
+        }
+        .background(Color.white)
+    }
+
+    @ViewBuilder
+    private var detailModal: some View {
+        if showDelete {
+            NativeDeleteDialog(
+                title: "删除错题",
+                message: "删除后无法在 App 内恢复。",
+                onDelete: { showDelete = false; onDelete() },
+                onCancel: { showDelete = false }
+            )
+        } else if showWordSelection {
+            LibraryRelationSelectionDialog(
+                collection: "words",
+                candidates: records,
+                selection: linkedWordSelection,
+                onClose: { showWordSelection = false },
+                onCreateWord: { category in
+                    showWordSelection = false
+                    linkedWordCreationCategory = category
+                }
+            )
+        }
+    }
+
+    private var detailToolbar: some View {
+        HStack(spacing: 8) {
+            detailToolbarActions
+        }
+        .frame(minHeight: 44)
+        .id(doodleSession.isPresented ? "record-toolbar-doodle" : "record-toolbar-detail")
+    }
+
+    @ViewBuilder
+    private var detailToolbarActions: some View {
+        if doodleSession.isPresented {
+            toolbarPlaceholder
+            toolbarPlaceholder
+        } else {
+            Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
+                .accessibilityLabel("涂鸦")
+            questionActionsMenu
+        }
+        if let onDone, questionBankContext != nil {
+            Button("完成", action: onDone)
+                .disabled(doodleSession.isPresented)
+        }
+    }
+
+    private var toolbarPlaceholder: some View {
+        Color.clear
+            .frame(width: 44, height: 44)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    private var questionActionsMenu: some View {
+        Menu {
+            if questionBankContext == nil {
+                Button {
+                    if noteSession.finish() { onEdit() }
+                } label: {
+                    Label("编辑错题", systemImage: "pencil")
+                }
+            } else {
+                Button {
+                    if noteSession.finish() { showQuestionBankEditor = true }
+                } label: {
+                    Label("编辑题目", systemImage: "pencil")
+                }
+                .accessibilityIdentifier("question-bank-edit-question")
+            }
+            if questionBankContext != nil {
+                Button {
+                    if noteSession.finish() { showClearAnswer = true }
+                } label: {
+                    Label("清除本题作答记录", systemImage: "arrow.counterclockwise")
+                }
+                .accessibilityIdentifier("question-bank-clear-question-answer")
+            } else {
+                Button(role: .destructive) {
+                    if noteSession.finish() { showDelete = true }
+                } label: {
+                    Label("删除错题", systemImage: "trash")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+        }
+        .accessibilityLabel("题目操作")
+        .accessibilityIdentifier("question-bank-question-actions")
     }
 
     private var metadata: some View {

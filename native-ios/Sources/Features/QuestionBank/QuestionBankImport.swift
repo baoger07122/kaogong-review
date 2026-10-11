@@ -1209,19 +1209,19 @@ enum QuestionBankRepository {
     }
 
     private static func questionSearchText(_ question: QuestionBankQuestion) -> String {
-        ([String(question.number), question.stem]
-            + question.options.map(\.text)
-            + (question.knowledgePoints ?? [])
-            + (question.weaknessTags ?? [])
-            + [
-                question.errorCause ?? "",
-                question.pitfall ?? "",
-                question.quantityStructure ?? "",
-                question.graphRule ?? "",
-                question.recognition ?? "",
-                question.note ?? ""
-            ])
-            .joined(separator: " ")
+        var components = [String]()
+        components.append(String(question.number))
+        components.append(question.stem)
+        components.append(contentsOf: question.options.map(\.text))
+        components.append(contentsOf: question.knowledgePoints ?? [])
+        components.append(contentsOf: question.weaknessTags ?? [])
+        components.append(question.errorCause ?? "")
+        components.append(question.pitfall ?? "")
+        components.append(question.quantityStructure ?? "")
+        components.append(question.graphRule ?? "")
+        components.append(question.recognition ?? "")
+        components.append(question.note ?? "")
+        return components.joined(separator: " ")
     }
 
     private static func displayAnswerLetter(_ answer: String, options: [QuestionBankOption]) -> String {
