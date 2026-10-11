@@ -855,7 +855,7 @@ struct LibraryRecordDetailView: View {
     }
     private func saveDrawing(_ drawingData: String, legacyPreviewCleared: Bool) -> String? {
         guard let record else { return nil }
-        LibraryDoodlePersistence.save(
+        return LibraryDoodlePersistence.save(
             record: record,
             context: modelContext,
             drawingData: drawingData,
