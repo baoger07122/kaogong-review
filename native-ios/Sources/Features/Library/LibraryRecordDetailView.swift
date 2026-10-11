@@ -65,54 +65,78 @@ struct LibraryRecordDetailView: View {
     }
 
     var body: some View {
-        detailContent
-        .navigationTitle(detailNavigationTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .background(NativeNavigationInteraction(blocked: doodleSession.isPresented))
-        .toolbar(.visible, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                detailToolbar
+        detailBehavior
+    }
+
+    private var detailBehavior: some View {
+        detailStateTracking
+            .confirmationDialog("清除本题作答记录？", isPresented: $showClearAnswer, titleVisibility: .visible) {
+                Button("清除本题作答记录", role: .destructive) { onClearAnswer?() }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("将清除本题已选选项和答案揭示状态，题目、笔记和涂鸦会保留。")
             }
-            .documentToolbarBackground()
-        }
-        .sheet(item: $linkedWordCreationCategory) { category in
-            NavigationStack {
-                LibraryRecordEditorView(
-                    kind: .words,
-                    scope: LibraryScope(subject: "言语理解", module: "逻辑填空"),
-                    preferredType: category.rawValue,
-                    onSaved: linkNewWord
-                )
+    }
+
+    private var detailStateTracking: some View {
+        detailNavigationDestination
+            .onChange(of: record?.updatedAt) { _, _ in
+                if let record { object = record.jsonObject ?? [:] }
             }
-        }
-        .sheet(isPresented: $showQuestionBankEditor) {
-            if questionBankContext != nil {
-                NavigationStack {
-                    LibraryRecordEditorView(questionBankContext: questionBankContext)
+            .onChange(of: questionBankContext?.record.payload) { _, _ in
+                if let questionBankContext { object = questionBankContext.detailObject }
+            }
+            .onChange(of: questionBankContext?.answerStateKey) { _, _ in
+                if let questionBankContext { object = questionBankContext.detailObject }
+            }
+    }
+
+    private var detailNavigationDestination: some View {
+        detailSheets
+            .navigationDestination(item: $linkedWordDetailTarget) { target in
+                if let word = records.first(where: { $0.collection == "words" && $0.recordID == target.recordID }) {
+                    WordLibraryRecordDetailView(record: word)
                 }
             }
-        }
-        .navigationDestination(item: $linkedWordDetailTarget) { target in
-            if let word = records.first(where: { $0.collection == "words" && $0.recordID == target.recordID }) {
-                WordLibraryRecordDetailView(record: word)
+    }
+
+    private var detailSheets: some View {
+        detailToolbarContainer
+            .sheet(item: $linkedWordCreationCategory) { category in
+                NavigationStack {
+                    LibraryRecordEditorView(
+                        kind: .words,
+                        scope: LibraryScope(subject: "言语理解", module: "逻辑填空"),
+                        preferredType: category.rawValue,
+                        onSaved: linkNewWord
+                    )
+                }
             }
-        }
-        .onChange(of: record?.updatedAt) { _, _ in
-            if let record { object = record.jsonObject ?? [:] }
-        }
-        .onChange(of: questionBankContext?.record.payload) { _, _ in
-            if let questionBankContext { object = questionBankContext.detailObject }
-        }
-        .onChange(of: questionBankContext?.answerStateKey) { _, _ in
-            if let questionBankContext { object = questionBankContext.detailObject }
-        }
-        .confirmationDialog("清除本题作答记录？", isPresented: $showClearAnswer, titleVisibility: .visible) {
-            Button("清除本题作答记录", role: .destructive) { onClearAnswer?() }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("将清除本题已选选项和答案揭示状态，题目、笔记和涂鸦会保留。")
-        }
+            .sheet(isPresented: $showQuestionBankEditor) {
+                if questionBankContext != nil {
+                    NavigationStack {
+                        LibraryRecordEditorView(questionBankContext: questionBankContext)
+                    }
+                }
+            }
+    }
+
+    private var detailToolbarContainer: some View {
+        detailNavigationContainer
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    detailToolbar
+                }
+                .documentToolbarBackground()
+            }
+    }
+
+    private var detailNavigationContainer: some View {
+        detailContent
+            .navigationTitle(detailNavigationTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .background(NativeNavigationInteraction(blocked: doodleSession.isPresented))
+            .toolbar(.visible, for: .navigationBar)
     }
 
     private var detailNavigationTitle: String {
@@ -484,7 +508,7 @@ struct LibraryRecordDetailView: View {
 
     private var noteBlock: some View {
         Group {
-            if let questionBankContext {
+            if questionBankContext != nil {
                 LibraryInlineNoteView(
                     session: noteSession,
                     title: "题目笔记",
