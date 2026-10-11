@@ -184,7 +184,7 @@ struct LibraryRecordDetailView: View {
             }
         }
         .sheet(isPresented: $showQuestionBankEditor) {
-            if let questionBankContext {
+            if questionBankContext != nil {
                 NavigationStack {
                     LibraryRecordEditorView(questionBankContext: questionBankContext)
                 }
@@ -808,11 +808,11 @@ struct LibraryRecordDetailView: View {
     }
 
     private var activeSubject: String {
-        questionBankContext?.typeMapping.subject ?? record?.subject ?? scope.subject
+        questionBankContext?.typeMapping.subject ?? record?.subject ?? scope.subject ?? ""
     }
 
     private var activeModule: String {
-        questionBankContext?.typeMapping.module ?? record?.module ?? scope.module
+        questionBankContext?.typeMapping.module ?? record?.module ?? scope.module ?? ""
     }
 
     private var questionBankAnalysisFields: QuestionBankQuestionAnalysisFields {
