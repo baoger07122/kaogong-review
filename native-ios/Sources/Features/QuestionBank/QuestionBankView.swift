@@ -176,103 +176,16 @@ struct QuestionBankView: View {
         let visiblePapers = organizationSections
             .flatMap(\.paperIDs)
             .compactMap { visibleByID[$0] }
-        return ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if let importStatusMessage = importProgress.message {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            if isPreparingImport {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Image(systemName: "info.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                            Text(importStatusMessage)
-                                .font(AppTheme.auxiliaryFont)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                            if isPreparingImport && !isCancellingImport {
-                                Button("取消", action: cancelPreparingImport)
-                                    .font(AppTheme.auxiliaryFont.weight(.semibold))
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    if !sortedBatches.isEmpty {
-                        VStack(alignment: .leading, spacing: 9) {
-                            Text("批次来源索引（非合卷）").font(AppTheme.sectionTitleFont)
-                            ForEach(sortedBatches, id: \.identityKey) { batch in
-                                NavigationLink {
-                                    QuestionBankBatchDetailView(batchID: batch.identityKey)
-                                } label: {
-                                    HStack(spacing: 12) {
-                                        Image(systemName: "rectangle.stack.fill")
-                                            .foregroundStyle(AppTheme.accent)
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(batch.displayName).font(AppTheme.cardTitleFont).foregroundStyle(.primary)
-                                            Text("\(batch.sourceCount) 个来源 · \(batch.uniqueQuestionCount) 道唯一题 · \(batch.pendingCount) 条待核")
-                                                .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
-                                        }
-                                        Spacer(minLength: 0)
-                                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .nativeCard(padding: 13)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityIdentifier("question-bank-batch-\(batch.identityKey)")
-                            }
-                        }
-                    }
-                    if isSearchExpanded {
-                        searchField
-                    } else if !searchText.isEmpty {
-                        activeSearchSummary
-                    }
-
-                    if isFiltersExpanded {
-                        filterControls(index: index)
-                    } else if hasActiveFilters {
-                        activeFilterSummaryRow
-                    }
-
-                    if filter.hasQuestionRestriction {
-                        NavigationLink {
-                            QuestionBankCrossPaperReaderView(filter: filter)
-                        } label: {
-                            Label("查看本范围全部题目（\(index.filteredQuestions(matching: filter).count) 题）", systemImage: "rectangle.stack")
-                                .font(AppTheme.bodyFont.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity, minHeight: 48)
-                                .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("question-bank-scope-all-questions")
-                    }
-
-                    if visiblePapers.isEmpty {
-                        NativeStatusCard(
-                            title: index.papers.isEmpty ? "还没有导入真题" : "没有符合条件的试卷",
-                            detail: index.papers.isEmpty
-                                ? "优先导入单文件 JSON 真题包；旧版 ZIP 套卷也可继续使用。"
-                                : "调整年份、考试类型、省份、模块、题型或搜索关键词后重试。",
-                            systemImage: "books.vertical",
-                            color: AppTheme.accent
-                        )
-                    } else {
-                        paperSections(
-                            index: index,
-                            filter: filter,
-                            sections: organizationSections,
-                            visibleByID: visibleByID
-                        )
-                    }
-                }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .background(Color.white)
-        .navigationTitle("真题库")
-        .navigationBarTitleDisplayMode(.inline)
+        return questionBankScrollContent(
+            index: index,
+            filter: filter,
+            organizationSections: organizationSections,
+            visiblePapers: visiblePapers,
+            visibleByID: visibleByID
+        )
+            .background(Color.white)
+            .navigationTitle("真题库")
+            .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -423,6 +336,110 @@ struct QuestionBankView: View {
         .onChange(of: showImportAlert) { _, isShowing in
             if !isShowing { processPendingExternalFileIfPossible() }
         }
+    }
+
+    private func questionBankScrollContent(
+        index: QuestionBankHomeIndex,
+        filter: QuestionBankHomeFilter,
+        organizationSections: [QuestionBankOrganizationSection],
+        visiblePapers: [QuestionBankHomePaper],
+        visibleByID: [String: QuestionBankHomePaper]
+    ) -> AnyView {
+        return AnyView(ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let importStatusMessage = importProgress.message {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            if isPreparingImport {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "info.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text(importStatusMessage)
+                                .font(AppTheme.auxiliaryFont)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if isPreparingImport && !isCancellingImport {
+                                Button("取消", action: cancelPreparingImport)
+                                    .font(AppTheme.auxiliaryFont.weight(.semibold))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if !sortedBatches.isEmpty {
+                        VStack(alignment: .leading, spacing: 9) {
+                            Text("批次来源索引（非合卷）").font(AppTheme.sectionTitleFont)
+                            ForEach(sortedBatches, id: \.identityKey) { batch in
+                                NavigationLink {
+                                    QuestionBankBatchDetailView(batchID: batch.identityKey)
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "rectangle.stack.fill")
+                                            .foregroundStyle(AppTheme.accent)
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(batch.displayName).font(AppTheme.cardTitleFont).foregroundStyle(.primary)
+                                            Text("\(batch.sourceCount) 个来源 · \(batch.uniqueQuestionCount) 道唯一题 · \(batch.pendingCount) 条待核")
+                                                .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                                        }
+                                        Spacer(minLength: 0)
+                                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .nativeCard(padding: 13)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("question-bank-batch-\(batch.identityKey)")
+                            }
+                        }
+                    }
+                    if isSearchExpanded {
+                        searchField
+                    } else if !searchText.isEmpty {
+                        activeSearchSummary
+                    }
+
+                    if isFiltersExpanded {
+                        filterControls(index: index)
+                    } else if hasActiveFilters {
+                        activeFilterSummaryRow
+                    }
+
+                    if filter.hasQuestionRestriction {
+                        NavigationLink {
+                            QuestionBankCrossPaperReaderView(filter: filter)
+                        } label: {
+                            Label("查看本范围全部题目（\(index.filteredQuestions(matching: filter).count) 题）", systemImage: "rectangle.stack")
+                                .font(AppTheme.bodyFont.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                                .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("question-bank-scope-all-questions")
+                    }
+
+                    if visiblePapers.isEmpty {
+                        NativeStatusCard(
+                            title: index.papers.isEmpty ? "还没有导入真题" : "没有符合条件的试卷",
+                            detail: index.papers.isEmpty
+                                ? "优先导入单文件 JSON 真题包；旧版 ZIP 套卷也可继续使用。"
+                                : "调整年份、考试类型、省份、模块、题型或搜索关键词后重试。",
+                            systemImage: "books.vertical",
+                            color: AppTheme.accent
+                        )
+                    } else {
+                        paperSections(
+                            index: index,
+                            filter: filter,
+                            sections: organizationSections,
+                            visibleByID: visibleByID
+                        )
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        )
     }
 
     private var searchField: some View {
