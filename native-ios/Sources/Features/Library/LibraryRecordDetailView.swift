@@ -295,6 +295,9 @@ struct LibraryRecordDetailView: View {
                 metadataTagLine("考点", values: knowledgePoints, emphasis: .strong)
                 metadataTagLine("弱项标签", values: weaknessTags, emphasis: .subtle)
             } else {
+                if let questionBankContext {
+                    metadataTextLine("题型", value: questionBankContext.currentQuestion.type)
+                }
                 metadataTagLine(knowledgePointLabel, values: knowledgePoints, emphasis: .strong)
                 if isDataAnalysis || isAnalogyReasoning {
                     metadataTextLine(errorCauseLabel, value: firstText(["errorCause", "cause", "reason"]) ?? "")

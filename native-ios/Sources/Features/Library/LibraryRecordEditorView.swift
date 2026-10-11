@@ -1557,6 +1557,8 @@ struct LibraryRecordEditorView: View {
                         storedRecords: records,
                         context: modelContext
                     )
+                    isSaving = false
+                    if dismissAfterSave { dismiss() }
                 } else {
                     if kind == .errors || (kind == .notes && isQuantityRelations) {
                         try TagLibraryRepository.add(
