@@ -176,17 +176,91 @@ struct QuestionBankView: View {
         let visiblePapers = organizationSections
             .flatMap(\.paperIDs)
             .compactMap { visibleByID[$0] }
-        return questionBankScrollContent(
+        return questionBankConfiguredContent(
             index: index,
             filter: filter,
             organizationSections: organizationSections,
             visiblePapers: visiblePapers,
             visibleByID: visibleByID
         )
+    }
+
+    private func questionBankConfiguredContent(
+        index: QuestionBankHomeIndex,
+        filter: QuestionBankHomeFilter,
+        organizationSections: [QuestionBankOrganizationSection],
+        visiblePapers: [QuestionBankHomePaper],
+        visibleByID: [String: QuestionBankHomePaper]
+    ) -> AnyView {
+        var content = AnyView(
+            questionBankScrollContent(
+                index: index,
+                filter: filter,
+                organizationSections: organizationSections,
+                visiblePapers: visiblePapers,
+                visibleByID: visibleByID
+            )
             .background(Color.white)
             .navigationTitle("真题库")
             .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
+        )
+        content = AnyView(content.toolbar { questionBankToolbar() })
+        content = AnyView(content.rootTabBarContentInset())
+        content = AnyView(content.sheet(item: $activeImportSheet, onDismiss: handleImportSheetDismissal) { sheet in
+            importSheetContent(sheet)
+        })
+        content = AnyView(content.sheet(isPresented: $showsOrganizationManager) {
+            QuestionBankPaperOrganizationView(papers: index.papers, store: organizationStore)
+        })
+        content = AnyView(content.sheet(isPresented: $showsBatchPackageManager) {
+            QuestionBankBatchPackageManagerView(records: records, organizationStore: organizationStore)
+        })
+        content = AnyView(content.alert(importAlertTitle, isPresented: $showImportAlert) {
+            Button("好", role: .cancel) { }
+        } message: {
+            Text(importAlertMessage)
+        })
+        content = AnyView(content.confirmationDialog(
+            "删除试卷？",
+            isPresented: $showsPaperDeletionConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("删除试卷及关联题目与图片", role: .destructive) { deletePendingPaper() }
+            Button("取消", role: .cancel) { paperPendingDeletion = nil }
+        } message: {
+            Text("将删除《\(paperPendingDeletion?.title ?? paperPendingDeletion?.decoded(QuestionBankPaper.self)?.title ?? "未命名试卷")》及其题目和纸卷图片。学习库笔记与涂鸦会保留；仍被批次来源索引引用的试卷不能删除。")
+        })
+        content = AnyView(content.onAppear {
+            organizationStore.reconcile(paperIDs: allPaperIDs)
+            NativePerformanceLog.event("question bank onAppear")
+        })
+        content = AnyView(content.onChange(of: allPaperIDs) { _, paperIDs in
+            organizationStore.reconcile(paperIDs: paperIDs)
+        })
+        content = AnyView(content.onAppear(perform: processPendingExternalFileIfPossible))
+        content = AnyView(content.onDisappear {
+            if isPreparingImport { cancelPreparingImport() }
+        })
+        content = AnyView(content.onChange(of: importRouter.pendingRequestIDs) { _, _ in
+            processPendingExternalFileIfPossible()
+        })
+        content = AnyView(content.onChange(of: rootTabSelection.wrappedValue) { _, selectedTab in
+            if selectedTab == .questionBank { processPendingExternalFileIfPossible() }
+        })
+        content = AnyView(content.onChange(of: isPreparingImport) { _, isPreparing in
+            if !isPreparing { processPendingExternalFileIfPossible() }
+        })
+        content = AnyView(content.onChange(of: isCommittingImport) { _, isCommitting in
+            if !isCommitting { processPendingExternalFileIfPossible() }
+        })
+        content = AnyView(content.onChange(of: showImportAlert) { _, isShowing in
+            if !isShowing { processPendingExternalFileIfPossible() }
+        })
+        return content
+    }
+
+    @ToolbarContentBuilder
+    private func questionBankToolbar() -> some ToolbarContent {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
                     withAnimation(.easeInOut(duration: 0.18)) {
@@ -248,8 +322,9 @@ struct QuestionBankView: View {
                 .accessibilityIdentifier("question-bank-management-menu")
             }
         }
-        .rootTabBarContentInset()
-        .sheet(item: $activeImportSheet, onDismiss: handleImportSheetDismissal) { sheet in
+
+    @ViewBuilder
+    private func importSheetContent(_ sheet: QuestionBankImportSheet) -> some View {
             switch sheet {
             case .picker(let requestID):
                 QuestionBankDocumentPicker(
@@ -284,59 +359,6 @@ struct QuestionBankView: View {
                 )
             }
         }
-        .sheet(isPresented: $showsOrganizationManager) {
-            QuestionBankPaperOrganizationView(papers: index.papers, store: organizationStore)
-        }
-        .sheet(isPresented: $showsBatchPackageManager) {
-            QuestionBankBatchPackageManagerView(
-                records: records,
-                organizationStore: organizationStore
-            )
-        }
-        .alert(importAlertTitle, isPresented: $showImportAlert) {
-            Button("好", role: .cancel) { }
-        } message: {
-            Text(importAlertMessage)
-        }
-        .confirmationDialog(
-            "删除试卷？",
-            isPresented: $showsPaperDeletionConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("删除试卷及关联题目与图片", role: .destructive) {
-                deletePendingPaper()
-            }
-            Button("取消", role: .cancel) { paperPendingDeletion = nil }
-        } message: {
-            Text("将删除《\(paperPendingDeletion?.title ?? paperPendingDeletion?.decoded(QuestionBankPaper.self)?.title ?? "未命名试卷")》及其题目和纸卷图片。学习库笔记与涂鸦会保留；仍被批次来源索引引用的试卷不能删除。")
-        }
-        .onAppear {
-            organizationStore.reconcile(paperIDs: allPaperIDs)
-            NativePerformanceLog.event("question bank onAppear")
-        }
-        .onChange(of: allPaperIDs) { _, paperIDs in
-            organizationStore.reconcile(paperIDs: paperIDs)
-        }
-        .onAppear(perform: processPendingExternalFileIfPossible)
-        .onDisappear {
-            if isPreparingImport { cancelPreparingImport() }
-        }
-        .onChange(of: importRouter.pendingRequestIDs) { _, _ in
-            processPendingExternalFileIfPossible()
-        }
-        .onChange(of: rootTabSelection.wrappedValue) { _, selectedTab in
-            if selectedTab == .questionBank { processPendingExternalFileIfPossible() }
-        }
-        .onChange(of: isPreparingImport) { _, isPreparing in
-            if !isPreparing { processPendingExternalFileIfPossible() }
-        }
-        .onChange(of: isCommittingImport) { _, isCommitting in
-            if !isCommitting { processPendingExternalFileIfPossible() }
-        }
-        .onChange(of: showImportAlert) { _, isShowing in
-            if !isShowing { processPendingExternalFileIfPossible() }
-        }
-    }
 
     private func questionBankScrollContent(
         index: QuestionBankHomeIndex,
