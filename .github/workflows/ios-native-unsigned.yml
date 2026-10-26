@@ -99,7 +99,14 @@ jobs:
               RUN_NAVIGATION=true
               RUN_CONTRACTS=true
             else
-              CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")
+              SCOPE_BASE=$(git describe --tags --match 'native-v*' --abbrev=0 "$BEFORE_SHA" 2>/dev/null || true)
+              if [ -z "$SCOPE_BASE" ]; then
+                SCOPE_BASE="$BEFORE_SHA"
+                echo "No prior native release tag found; using the previous push commit for test scope."
+              else
+                echo "Selecting focused simulator tests from changes since the last native release: $SCOPE_BASE"
+              fi
+              CHANGED_FILES=$(git diff --name-only "$SCOPE_BASE" "$GITHUB_SHA")
               if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/Features/QuestionBank/|Tests/QuestionBank/)'; then
                 RUN_SIMULATOR=true
                 RUN_QUESTION_BANK=true

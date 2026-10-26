@@ -10,11 +10,6 @@ struct KaogongReviewNativeApp: App {
     init() {
         #if DEBUG
         let usesQuestionBankUITestFixture = QuestionBankReaderUITestFixture.isEnabled
-        #else
-        let usesQuestionBankUITestFixture = false
-        #endif
-
-        #if DEBUG
         if usesQuestionBankUITestFixture {
             // Reset explicitly because CI can reuse a simulator between UI tests.
             UserDefaults.standard.set(
@@ -26,6 +21,7 @@ struct KaogongReviewNativeApp: App {
 
         do {
             let container: ModelContainer
+            #if DEBUG
             if usesQuestionBankUITestFixture {
                 let schema = Schema([
                     StoredRecord.self, QuestionBankRecord.self,
@@ -39,10 +35,9 @@ struct KaogongReviewNativeApp: App {
                     cloudKitDatabase: .none
                 )
                 container = try ModelContainer(for: schema, configurations: [configuration])
-                #if DEBUG
                 try QuestionBankReaderUITestFixture.seed(in: container.mainContext)
-                #endif
             } else {
+            #endif
                 // Add question-bank and batch-index entities; existing records
                 // (including the legacy 套卷 score collection) remain unchanged.
                 container = try ModelContainer(
@@ -52,7 +47,9 @@ struct KaogongReviewNativeApp: App {
                 )
                 try OneTimeLocalDataReset.runIfNeeded(in: container)
                 try TagPresetCleanupMigration.runIfNeeded(in: container)
+            #if DEBUG
             }
+            #endif
             modelContainer = container
         } catch {
             fatalError("无法初始化原生数据库：\(error.localizedDescription)")
