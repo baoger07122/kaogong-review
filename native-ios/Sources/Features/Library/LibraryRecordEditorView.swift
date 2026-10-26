@@ -260,7 +260,7 @@ struct LibraryRecordEditorView: View {
                 .accessibilityIdentifier("library-draft-save-exit")
             Button("放弃草稿", role: .destructive) { discardDraftAndExit() }
                 .accessibilityIdentifier("library-draft-discard")
-            Button("继续编辑", role: .cancel) {}
+            Button("继续编辑") {}
                 .accessibilityIdentifier("library-draft-continue")
         } message: {
             Text("继续编辑会保留草稿；保存并退出会保存当前记录；只有选择“放弃草稿”才会清除本分类和作用域的草稿。")
