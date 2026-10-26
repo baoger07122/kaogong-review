@@ -123,6 +123,7 @@ jobs:
               if echo "$CHANGED_FILES" | grep -Eq '^\.github/workflows/ios-native-unsigned\.yml$'; then
                 RUN_SIMULATOR=true
                 RUN_QUESTION_BANK=true
+                RUN_NAVIGATION=true
               fi
               # These source-only contracts cover keypad, form, and rich-text changes;
               # unrelated feature releases should not spend time running them.

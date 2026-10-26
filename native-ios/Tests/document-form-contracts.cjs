@@ -77,7 +77,11 @@ const tests = {
   },
   'no toolbar background and vector eraser avoids residue': () => {
     assert.match(read('DesignSystem/NativeDocumentStyle.swift'), /sharedBackgroundVisibility\(\.hidden\)/);
-    assert.match(pencil, /PKEraserTool\(\.vector, width: eraserWidth\)/);
+    assert.match(pencil, /PKEraserTool\(\.vector, width: parent\.eraserWidth\)/);
+    assert.match(pencil, /configuredEraserWidth == parent\.eraserWidth/);
+    assert.match(pencil, /fileprivate\(set\) var hasPendingDrawingPublish/);
+    assert.doesNotMatch(pencil, /@Published var hasPendingDrawingPublish/);
+    assert.match(pencil, /if !controller\.hasPendingDrawingPublish \{\s+controller\.hasPendingDrawingPublish = true/);
     assert.match(pencil, /fingerDrawingEnabled \? \.anyInput : \.pencilOnly/);
   },
   'smart split is compact and preserves the final question paragraph': () => {
@@ -116,8 +120,8 @@ const tests = {
     assert.match(doodle, /accessibilityIdentifier\("library-doodle-close"\)/);
     assert.match(read('DesignSystem/NativeDocumentStyle.swift'), /background\(\.regularMaterial, in: Capsule\(\)\)/);
   },
-  'root uses the official tab container with unchanged tab symbols': () => {
-    assert.doesNotMatch(root, /hidesBottomBar|onPreferenceChange/);
+  'root uses TabView with a fixed custom tab bar and unchanged tab symbols': () => {
+    assert.doesNotMatch(root, /hidesBottomBar/);
     assert.match(root, /window\.safeAreaInsets\.top/);
     assert.match(navigationStyle, /padding\(\.top, windowTop\)/);
     assert.match(navigationStyle, /ignoresSafeArea\(\.container, edges: \.top\)/);
@@ -127,8 +131,10 @@ const tests = {
     for (const symbol of ['house', 'square.stack.3d.up.fill', 'checkmark.seal.fill', 'books.vertical.fill', 'gearshape']) {
       assert.match(root, new RegExp(`"${symbol.replaceAll('.', '\\.')}"`));
     }
-    assert.doesNotMatch(root, /NativeBottomTabBar\(selection:/);
-    assert.doesNotMatch(root, /safeAreaInset\(edge: \.bottom/);
+    assert.match(root, /NativeBottomTabBar\(selection: tabSelectionBinding\)/);
+    assert.match(root, /safeAreaInset\(edge: \.bottom, spacing: 0\)/);
+    assert.match(root, /RootTabBarVisibilityPreferenceKey\.self, value: \[\.home: homePath\.isEmpty\]/);
+    assert.match(root, /if rootTabBarVisibility\[selection\] \?\? true/);
     const rootTabModifier = navigationStyle.split('func rootTabBarContentInset()')[1].split('func secondaryPageTabBarHidden()')[0];
     assert.doesNotMatch(rootTabModifier, /toolbar\(\.visible, for: \.tabBar\)/);
     assert.match(navigationStyle, /func stableRootNavigationBar\(\)/);

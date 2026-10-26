@@ -162,7 +162,9 @@ const tests = {
   },
   'the full speed module hides the global tab bar and practice tools are consistent': () => {
     assert.doesNotMatch(page, /RootBottomBarHiddenPreferenceKey/);
-    assert.match(root, /toolbar\(homePath\.isEmpty \? \.visible : \.hidden, for: \.tabBar\)/);
+    assert.match(root, /preference\(key: RootTabBarVisibilityPreferenceKey\.self, value: \[\.home: homePath\.isEmpty\]\)/);
+    assert.match(root, /if rootTabBarVisibility\[selection\] \?\? true/);
+    assert.match(root, /safeAreaInset\(edge: \.bottom, spacing: 0\)/);
     assert.match(root, /NavigationStack\(path: \$homePath\)/);
     assert.doesNotMatch(page, /toolbar\(\.hidden, for: \.tabBar\)/);
     assert.match(page, /localBack: screen == \.home \? nil : navigateBack/);
