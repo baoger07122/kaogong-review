@@ -1012,7 +1012,7 @@ final class QuestionBankImportTests: XCTestCase {
             "knowledgePoints": ["本机分析"]
         ], options: [.sortedKeys])
 
-        let merged = try QuestionBankBatchPackageImporter.mergedPayload(
+        let merged = try QuestionBankBatchPackageRepository.mergedPayload(
             incoming: incoming,
             existing: existing,
             kind: QuestionBankRepository.questionKind
@@ -1022,7 +1022,7 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertEqual(object["isDifficult"] as? Bool, true)
         XCTAssertEqual(object["knowledgePoints"] as? [String], ["本机分析"])
 
-        let incomingOnly = try QuestionBankBatchPackageImporter.mergedPayload(
+        let incomingOnly = try QuestionBankBatchPackageRepository.mergedPayload(
             incoming: incoming,
             existing: try JSONSerialization.data(withJSONObject: ["id": "merge-q"]),
             kind: QuestionBankRepository.questionKind
