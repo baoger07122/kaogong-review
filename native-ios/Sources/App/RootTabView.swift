@@ -79,19 +79,7 @@ struct RootTabView: View {
     var body: some View {
         GeometryReader { window in
             TabView(selection: tabSelectionBinding) {
-                ForEach(RootTab.allCases) { tab in
-                    tabContent(tab)
-                        .modifier(RootTabFirstFrameMarker(
-                            tab: tab,
-                            isSelected: selection == tab,
-                            generation: selectionGeneration
-                        ))
-                        .tabItem {
-                            Label(tab.title, systemImage: tab.systemImage)
-                                .accessibilityIdentifier("root-tab-\(tab.rawValue)")
-                        }
-                        .tag(tab)
-                }
+                tabPages
             }
             .toolbar(.hidden, for: .tabBar)
             .environment(\.rootWindowTopInset, window.safeAreaInsets.top)
@@ -127,6 +115,22 @@ struct RootTabView: View {
         }
         .onChange(of: questionBankImportRouter.pendingRequestIDs) { _, _ in
             selectQuestionBankForIncomingFiles()
+        }
+    }
+
+    private var tabPages: some View {
+        ForEach(RootTab.allCases) { tab in
+            tabContent(tab)
+                .modifier(RootTabFirstFrameMarker(
+                    tab: tab,
+                    isSelected: selection == tab,
+                    generation: selectionGeneration
+                ))
+                .tabItem {
+                    Label(tab.title, systemImage: tab.systemImage)
+                        .accessibilityIdentifier("root-tab-\(tab.rawValue)")
+                }
+                .tag(tab)
         }
     }
 
