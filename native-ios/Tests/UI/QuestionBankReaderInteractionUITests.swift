@@ -87,9 +87,9 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
     func testOverviewCirclesReportConfirmedCorrectWrongAndUnansweredStates() throws {
         let reader = launchPracticeReader()
         let app = reader.app
-        let firstQuestionCard = app.buttons["question-bank-number-card-\(reader.questionID)"].firstMatch
+        let firstQuestionCard = element(app, identifier: "question-bank-number-card-\(reader.questionID)")
         let secondQuestionID = "\(reader.paperID)-question-2"
-        let secondQuestionCard = app.buttons["question-bank-number-card-\(secondQuestionID)"].firstMatch
+        let secondQuestionCard = element(app, identifier: "question-bank-number-card-\(secondQuestionID)")
         let overview = app.buttons["question-bank-number-overview"].firstMatch
         XCTAssertTrue(overview.waitForExistence(timeout: 5))
         overview.tap()
@@ -121,7 +121,7 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
             app.navigationBars["题目总览"].waitForExistence(timeout: 5),
             "Correct-answer feedback should not block the number overview. Accessibility tree:\n\(app.debugDescription)"
         )
-        let firstQuestionCard = app.buttons["question-bank-number-card-\(reader.questionID)"].firstMatch
+        let firstQuestionCard = element(app, identifier: "question-bank-number-card-\(reader.questionID)")
         XCTAssertTrue(firstQuestionCard.waitForExistence(timeout: 5), "Number overview accessibility tree:\n\(app.debugDescription)")
         XCTAssertEqual(firstQuestionCard.value as? String, "已答正确")
     }
@@ -758,8 +758,12 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         let firstDetailNavigationBar = app.navigationBars["第1题详情"]
         element(app, identifier: "question-bank-detail-done").tap()
         XCTAssertTrue(firstDetailNavigationBar.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(firstQuestionDetail.waitForExistence(timeout: 5))
+        XCTAssertTrue(firstQuestionDetail.isHittable)
         firstQuestionDetail.tap()
         XCTAssertTrue(firstDetailNavigationBar.waitForExistence(timeout: 5), "The question detail should reopen before checking its note")
+        let reopenedDetailStem = element(app, identifier: "question-bank-detail-stem-\(reader.questionID)")
+        XCTAssertTrue(reopenedDetailStem.waitForExistence(timeout: 10), "The reopened detail content must finish loading before checking its note")
         let notePlaceholderVisibleAfterReopen = app.staticTexts["点击添加错题笔记"].exists
         XCTAssertTrue(
             savedNote.waitForExistence(timeout: 5),
@@ -770,6 +774,10 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         element(app, identifier: "question-bank-detail-done").tap()
 
         app.terminate()
+        app.launchArguments = [
+            "--question-bank-reader-ui-test",
+            "--question-bank-reader-ui-test-session=\(sessionID)"
+        ]
         app.launch()
         let tab = app.buttons["root-tab-questionBank"].firstMatch
         XCTAssertTrue(tab.waitForExistence(timeout: 15))

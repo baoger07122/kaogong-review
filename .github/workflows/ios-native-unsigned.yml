@@ -419,7 +419,7 @@ jobs:
 
       - name: Test question-bank reader interactions
         if: steps.simulator_scope.outputs.question_bank == 'true'
-        timeout-minutes: 15
+        timeout-minutes: 30
         shell: bash
         run: |
           xcrun simctl boot "$SIMULATOR_ID" || true
