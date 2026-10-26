@@ -5,7 +5,24 @@ import UIKit
 final class LibraryDoodleSession: ObservableObject {
     fileprivate static var lastUITestPresenterToken: String?
     fileprivate let sessionInstanceToken = String(UUID().uuidString.prefix(8))
-    @Published var isPresented = false
+    @Published var isPresented = false {
+        didSet {
+#if DEBUG
+            if QuestionBankReaderUITestFixture.isEnabled, oldValue != isPresented {
+                let callStack = Thread.callStackSymbols.dropFirst().prefix(8).joined(separator: " | ")
+                NSLog(
+                    "[QuestionBankReaderUITest] doodle.isPresented %@->%@ source=%@ session=%@ target=%@ stack=%@",
+                    oldValue ? "true" : "false",
+                    isPresented ? "true" : "false",
+                    presentationSource,
+                    sessionInstanceToken,
+                    targetRecordID ?? "none",
+                    callStack
+                )
+            }
+#endif
+        }
+    }
     @Published var saveError: String?
     @Published private(set) var isLoadingDrawing = false
     @Published private(set) var targetRecordID: String?
@@ -194,7 +211,7 @@ struct LibraryDoodleOverlay: View {
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(interactionShieldLabel)
-                .accessibilityValue(activeCanvasFrame == nil ? "canvas-loading" : "canvas-ready")
+                .accessibilityValue("presented=\(session.isPresented)|\(activeCanvasFrame == nil ? "canvas-loading" : "canvas-ready")")
                 .accessibilityIdentifier("library-doodle-interaction-shield")
 
                 if let message = controller.canvasLoadError {
@@ -346,7 +363,7 @@ struct LibraryDoodleOverlay: View {
 #if DEBUG
         if QuestionBankReaderUITestFixture.isEnabled {
             let presenterToken = LibraryDoodleSession.lastUITestPresenterToken ?? "none"
-            return "\(label)（\(session.presentationSource)|overlay=\(session.sessionInstanceToken)|caller=\(presenterToken)）"
+            return "\(label)（presented=\(session.isPresented)|\(session.presentationSource)|overlay=\(session.sessionInstanceToken)|caller=\(presenterToken)）"
         }
 #endif
         return label
