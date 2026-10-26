@@ -38,7 +38,7 @@ struct LibrarySidebar: View {
                     )
                 }
                 .buttonStyle(.plain)
-                .accessibilityIdentifier("library-subject-\(subject.name)")
+                .accessibilityIdentifier("library-scope-all")
 
                 ForEach(SubjectDefinition.all) { subject in
                     subjectSection(subject)
@@ -76,6 +76,7 @@ struct LibrarySidebar: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("library-subject-\(subject.name)")
 
         if expanded && !subject.isFlat {
             VStack(spacing: 1) {

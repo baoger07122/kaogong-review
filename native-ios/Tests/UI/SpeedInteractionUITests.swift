@@ -7,6 +7,24 @@ final class SpeedInteractionUITests: XCTestCase {
     }
 
     @MainActor
+    func testRootTabSelectionTracksCustomBarButtons() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launch()
+
+        let home = app.buttons["root-tab-home"].firstMatch
+        XCTAssertTrue(home.waitForExistence(timeout: 15))
+        XCTAssertTrue(home.isSelected)
+        for tab in ["library", "review", "questionBank", "settings"] {
+            let button = app.buttons["root-tab-\(tab)"].firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 5), "Missing root tab: \(tab)")
+            button.tap()
+            XCTAssertTrue(button.isSelected, "Tab should expose selected state after tapping: \(tab)")
+            XCTAssertFalse(home.isSelected, "Home should clear selection after switching to: \(tab)")
+        }
+    }
+
+    @MainActor
     func testRootTabBarFrameBaselineDiagnostics() async throws {
         try await measureRootTabBarGeometry(assertStable: false)
     }

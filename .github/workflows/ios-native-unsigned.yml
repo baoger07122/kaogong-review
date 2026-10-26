@@ -232,6 +232,7 @@ jobs:
         shell: bash
         env:
           RUN_QUESTION_BANK: ${{ steps.simulator_scope.outputs.question_bank }}
+          RUN_NAVIGATION: ${{ steps.simulator_scope.outputs.navigation }}
         run: |
           if [ "$RUN_QUESTION_BANK" = "true" ]; then
             # Hosted test schemes stage their bundles under the app PlugIns directory;
@@ -261,7 +262,9 @@ jobs:
                 | while IFS= read -r diagnostic; do printf '::error title=QuestionBankReaderInteraction build diagnostic::%s\n' "$diagnostic"; done
               exit 1
             fi
-          else
+          fi
+          if [ "$RUN_NAVIGATION" = "true" ]; then
+            mkdir -p build
             xcodebuild build-for-testing \
               -project native-ios/KaogongReviewNative.xcodeproj \
               -scheme KaogongReviewNative \
@@ -484,6 +487,7 @@ jobs:
             -parallel-testing-enabled NO \
             -resultBundlePath "$RESULT_PATH" \
             -only-testing:SpeedInteractionUITests/SpeedInteractionUITests/testRootTabBarFrameStaysStableOnFirstAndRepeatedSwitches \
+            -only-testing:SpeedInteractionUITests/SpeedInteractionUITests/testRootTabSelectionTracksCustomBarButtons \
             -only-testing:SpeedInteractionUITests/SpeedInteractionUITests/testNavigationEdgeAndPageOwnedTabBar \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
             xcrun xcresulttool get test-results summary --path "$RESULT_PATH" || true
