@@ -218,8 +218,10 @@ struct LibraryRecordSnapshot: Identifiable {
             ? ["question", "title"]
             : ["judgmentHint", "commonMeaning", "compareNote", "content", "note", "errorNote", "meaning", "myUnderstanding", "relation", "coreDifference", "question"]
         summary = Self.firstText(in: object, keys: summaryKeys).map(Self.plainText) ?? ""
+        let categoryValue = Self.firstText(in: object, keys: ["category", "type"])
+            ?? WordCategory.idiomDefinition.rawValue
         if record.collection == "words" {
-            let bodyKeys = WordCategory(rawValue: category)?.isComparison == true
+            let bodyKeys = WordCategory(rawValue: categoryValue)?.isComparison == true
                 ? ["judgmentHint", "compareNote", "coreDifference", "commonMeaning", "meaning"]
                 : ["commonMeaning", "meaning", "content", "note"]
             wordCardBody = Self.firstText(in: object, keys: bodyKeys) ?? ""
@@ -230,7 +232,7 @@ struct LibraryRecordSnapshot: Identifiable {
         colorHex = Self.firstText(in: object, keys: ["color", "colorHex"])
         isPinned = (object["pinned"] as? Bool) ?? (object["pinned"] as? NSNumber)?.boolValue ?? false
         createdAt = record.createdAt ?? Self.date(in: object, keys: ["createdAt", "date", "updatedAt"])
-        category = Self.firstText(in: object, keys: ["category", "type"]) ?? WordCategory.idiomDefinition.rawValue
+        category = categoryValue
         sentiment = Self.firstText(in: object, keys: ["sentiment"]) ?? ""
         var entryKinds: [String] = []
         if let value = object["entryKind"] as? String, !value.isEmpty { entryKinds.append(value) }

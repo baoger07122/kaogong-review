@@ -20,6 +20,7 @@ final class SpeedInteractionUITests: XCTestCase {
             XCTAssertTrue(button.waitForExistence(timeout: 5), "Missing root tab: \(tab)")
             button.tap()
             XCTAssertTrue(button.isSelected, "Tab should expose selected state after tapping: \(tab)")
+            XCTAssertTrue(button.isHittable, "Selected tab should remain interactive: \(tab)")
             XCTAssertFalse(home.isSelected, "Home should clear selection after switching to: \(tab)")
         }
     }
