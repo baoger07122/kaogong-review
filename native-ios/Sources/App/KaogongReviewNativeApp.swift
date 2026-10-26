@@ -20,7 +20,6 @@ struct KaogongReviewNativeApp: App {
         #endif
 
         do {
-            let container: ModelContainer
             #if DEBUG
             if usesQuestionBankUITestFixture {
                 let schema = Schema([
@@ -34,26 +33,30 @@ struct KaogongReviewNativeApp: App {
                     url: try QuestionBankReaderUITestFixture.storeURL(),
                     cloudKitDatabase: .none
                 )
-                container = try ModelContainer(for: schema, configurations: [configuration])
+                let container = try ModelContainer(for: schema, configurations: [configuration])
                 try QuestionBankReaderUITestFixture.seed(in: container.mainContext)
+                modelContainer = container
             } else {
-            #endif
-                // Add question-bank and batch-index entities; existing records
-                // (including the legacy 套卷 score collection) remain unchanged.
-                container = try ModelContainer(
-                    for: StoredRecord.self, QuestionBankRecord.self,
-                    QuestionBankBatchRecord.self, QuestionBankBatchSourceRecord.self,
-                    QuestionBankBatchMaterialLinkRecord.self, QuestionBankBatchQuestionLinkRecord.self
-                )
-                try OneTimeLocalDataReset.runIfNeeded(in: container)
-                try TagPresetCleanupMigration.runIfNeeded(in: container)
-            #if DEBUG
+                modelContainer = try Self.makeDefaultModelContainer()
             }
-            #endif
-            modelContainer = container
+            #else
+            modelContainer = try Self.makeDefaultModelContainer()
         } catch {
             fatalError("无法初始化原生数据库：\(error.localizedDescription)")
         }
+    }
+
+    private static func makeDefaultModelContainer() throws -> ModelContainer {
+        // Add question-bank and batch-index entities; existing records
+        // (including the legacy 套卷 score collection) remain unchanged.
+        let container = try ModelContainer(
+            for: StoredRecord.self, QuestionBankRecord.self,
+            QuestionBankBatchRecord.self, QuestionBankBatchSourceRecord.self,
+            QuestionBankBatchMaterialLinkRecord.self, QuestionBankBatchQuestionLinkRecord.self
+        )
+        try OneTimeLocalDataReset.runIfNeeded(in: container)
+        try TagPresetCleanupMigration.runIfNeeded(in: container)
+        return container
     }
 
     var body: some Scene {
