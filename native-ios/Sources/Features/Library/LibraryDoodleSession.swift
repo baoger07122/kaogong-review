@@ -190,8 +190,8 @@ struct LibraryDoodleOverlay: View {
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(controller.canvasLoadError ?? "涂鸦交互遮罩")
-                .accessibilityValue(interactionShieldValue(for: activeCanvasFrame))
+                .accessibilityLabel(interactionShieldLabel)
+                .accessibilityValue(activeCanvasFrame == nil ? "canvas-loading" : "canvas-ready")
                 .accessibilityIdentifier("library-doodle-interaction-shield")
 
                 if let message = controller.canvasLoadError {
@@ -338,14 +338,14 @@ struct LibraryDoodleOverlay: View {
         return visibleFrame.isNull || visibleFrame.isEmpty ? nil : visibleFrame
     }
 
-    private func interactionShieldValue(for activeCanvasFrame: CGRect?) -> String {
-        let state = activeCanvasFrame == nil ? "canvas-loading" : "canvas-ready"
+    private var interactionShieldLabel: String {
+        let label = controller.canvasLoadError ?? "涂鸦交互遮罩"
 #if DEBUG
         if QuestionBankReaderUITestFixture.isEnabled {
-            return "\(state); source=\(session.presentationSource)"
+            return "\(label)（\(session.presentationSource)）"
         }
 #endif
-        return state
+        return label
     }
 }
 

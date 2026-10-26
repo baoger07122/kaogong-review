@@ -1583,7 +1583,7 @@ struct QuestionBankModuleView: View {
             drawingData: cached ?? "",
             legacyPreviewDataURL: "",
             isLoadingDrawing: cached == nil,
-            source: "QuestionBankModuleView.presentDoodle",
+            source: "question-bank-module",
             onSave: { drawingData, _ in
                 let error = QuestionBankDoodleRepository.save(
                     recordID: recordID,
@@ -2741,7 +2741,7 @@ struct QuestionBankCrossPaperReaderView: View {
             drawingData: "",
             legacyPreviewDataURL: "",
             isLoadingDrawing: true,
-            source: "QuestionBankCrossPaperReaderView.presentDoodle",
+            source: "question-bank-cross-paper",
             onSave: { drawingData, _ in
                 QuestionBankDoodleRepository.save(
                     recordID: recordID, drawingData: drawingData, context: modelContext

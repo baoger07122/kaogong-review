@@ -875,7 +875,7 @@ struct LibraryRecordDetailView: View {
             legacyPreviewDataURL: questionBankContext == nil && currentDrawing.isEmpty
                 ? (firstText(["drawingPreview", "doodle", "drawingDataURL"]) ?? "") : "",
             isLoadingDrawing: needsBackgroundLoad,
-            source: "LibraryRecordDetailView.openDoodle",
+            source: "library-record-detail",
             onSave: { updatedDrawing, legacyPreviewCleared in
                 if questionBankContext != nil {
                     return QuestionBankDoodleRepository.save(
