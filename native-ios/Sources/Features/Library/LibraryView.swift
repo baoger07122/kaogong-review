@@ -423,7 +423,7 @@ struct LibraryView: View {
 
             HStack(spacing: 1) {
                 ForEach(LibraryCardSize.allCases) { size in
-                    Button(size.rawValue) { cardSize = size }
+                    Button(size.rawValue) { storedCardSize = size.rawValue }
                         .font(AppTheme.auxiliaryFont.weight(cardSize == size ? .semibold : .regular))
                         .foregroundStyle(cardSize == size ? AppTheme.accent : Color.secondary)
                         .frame(width: 27, height: 28)

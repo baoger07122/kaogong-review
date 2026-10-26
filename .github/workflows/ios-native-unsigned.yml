@@ -116,7 +116,7 @@ jobs:
                 RUN_SIMULATOR=true
                 RUN_QUESTION_BANK=true
               fi
-              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/App/(RootTabView|NativeBottomTabBar)\.swift|Sources/DesignSystem/NativeDocumentStyle\.swift|Sources/Features/Review/ReviewView\.swift|Tests/UI/SpeedInteractionUITests\.swift)$'; then
+              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/App/(RootTabView|NativeBottomTabBar)\.swift|Sources/DesignSystem/NativeDocumentStyle\.swift|Sources/Features/Library/LibraryView\.swift|Sources/Features/Review/ReviewView\.swift|Tests/UI/SpeedInteractionUITests\.swift)$'; then
                 RUN_SIMULATOR=true
                 RUN_NAVIGATION=true
               fi
