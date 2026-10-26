@@ -315,6 +315,8 @@ struct LibraryRecordDetailView: View {
                        moduleTitle: questionBankContext.moduleTitle
                    ) {
                     metadataTextLine("题型", value: questionType)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("question-bank-detail-question-type")
                 }
                 metadataTagLine(knowledgePointLabel, values: knowledgePoints, emphasis: .strong)
                 if isDataAnalysis || isAnalogyReasoning {

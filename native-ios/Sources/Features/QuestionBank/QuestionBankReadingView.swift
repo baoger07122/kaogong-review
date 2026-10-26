@@ -2914,6 +2914,7 @@ private struct QuestionBankQuestionOverviewSheet: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("第\(String(displayNumber(for: item)))题")
         .accessibilityValue(answerStatus(for: item).accessibilityValue)
         .accessibilityIdentifier("question-bank-number-card-\(item.id)")

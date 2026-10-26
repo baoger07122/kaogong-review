@@ -130,10 +130,10 @@ struct LibraryInlineNoteView: View {
             NativeRichTextDisplay(
                 html: storedNote,
                 minHeight: noteCanvasMinimumHeight,
+                accessibilityIdentifier: "library-inline-note-display",
                 onFallback: { displayWarning = "富文本预览已降级，原笔记内容仍保留" }
             )
                 .frame(maxWidth: .infinity, alignment: .topLeading)
-                .accessibilityIdentifier("library-inline-note-display")
         }
     }
 

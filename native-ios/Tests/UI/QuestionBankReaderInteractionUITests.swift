@@ -36,14 +36,15 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertFalse(app.buttons["草稿选项"].exists, "Word drafts must not show the old discard menu")
         title.tap()
         title.typeText("临时词条")
+        XCTAssertEqual(title.value as? String, "临时词条", "The word title should be in the draft before leaving")
 
         let back = app.buttons["library-editor-back"].firstMatch
         XCTAssertTrue(back.waitForExistence(timeout: 5))
         back.tap()
-        let continueEditing = app.buttons["继续编辑"].firstMatch
+        let continueEditing = app.buttons["library-draft-continue"].firstMatch
         XCTAssertTrue(continueEditing.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["保存并退出"].exists)
-        XCTAssertTrue(app.buttons["放弃草稿"].exists)
+        XCTAssertTrue(app.buttons["library-draft-save-exit"].exists)
+        XCTAssertTrue(app.buttons["library-draft-discard"].exists)
         continueEditing.tap()
         XCTAssertEqual(title.value as? String, "临时词条")
 
@@ -436,8 +437,10 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
 
         position.tap()
         XCTAssertTrue(app.navigationBars["第2题详情"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["单项选择题"].exists, "Question type data remains visible in question details")
-        app.buttons["完成"].firstMatch.tap()
+        let questionType = element(app, identifier: "question-bank-detail-question-type")
+        XCTAssertTrue(questionType.waitForExistence(timeout: 5), "Question type data remains visible in question details")
+        XCTAssertTrue(questionType.label.contains("单项选择题"))
+        element(app, identifier: "question-bank-detail-done").tap()
 
         scrollView.swipeRight()
         let firstQuestionVisible = XCTNSPredicateExpectation(
@@ -662,6 +665,8 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertTrue(stemEditor.waitForExistence(timeout: 5))
         stemEditor.tap()
         stemEditor.typeText("\nEDITLINEONE\n\nEDITLINETHREE")
+        let editedStemValue = String(describing: stemEditor.value ?? "")
+        XCTAssertTrue(editedStemValue.contains("EDITLINETHREE"), "Editor buffer before save: \(editedStemValue)")
         let optionEditor = element(app, identifier: "question-bank-analysis-option-0")
         XCTAssertTrue(optionEditor.waitForExistence(timeout: 5))
         optionEditor.tap()
@@ -778,7 +783,10 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         let adjacentNote = element(app, identifier: "library-inline-note-display")
         XCTAssertTrue(adjacentNote.waitForExistence(timeout: 5))
         XCTAssertTrue(adjacentNote.label.contains("相邻题富文本回归"))
-        XCTAssertTrue(app.staticTexts["单项选择题"].exists, "The adjacent question details must remain intact")
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "单项选择题")).firstMatch.exists,
+            "The adjacent question type must remain visible in its detail"
+        )
     }
 
     @MainActor

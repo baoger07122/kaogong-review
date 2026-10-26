@@ -406,6 +406,7 @@ struct NativeRichTextEditor: View {
 struct NativeRichTextDisplay: UIViewRepresentable {
     let html: String
     var minHeight: CGFloat = 0
+    var accessibilityIdentifier: String? = nil
     var onFallback: (() -> Void)? = nil
 
     final class Coordinator {
@@ -418,6 +419,8 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView(usingTextLayoutManager: true)
         view.backgroundColor = .clear
+        view.isAccessibilityElement = true
+        view.accessibilityIdentifier = accessibilityIdentifier
         view.isEditable = false
         view.isSelectable = false
         view.isScrollEnabled = false
@@ -432,6 +435,8 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
+        view.isAccessibilityElement = true
+        view.accessibilityIdentifier = accessibilityIdentifier
         guard context.coordinator.lastHTML != html else { return }
         applyContent(to: view, coordinator: context.coordinator)
         context.coordinator.lastHTML = html

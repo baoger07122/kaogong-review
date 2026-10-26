@@ -257,8 +257,11 @@ struct LibraryRecordEditorView: View {
         .confirmationDialog("未保存的\(kind.rawValue)草稿", isPresented: $showDiscardDraftConfirmation, titleVisibility: .visible) {
             Button("保存并退出") { save() }
                 .disabled(!canSave || isSaving)
+                .accessibilityIdentifier("library-draft-save-exit")
             Button("放弃草稿", role: .destructive) { discardDraftAndExit() }
+                .accessibilityIdentifier("library-draft-discard")
             Button("继续编辑", role: .cancel) {}
+                .accessibilityIdentifier("library-draft-continue")
         } message: {
             Text("继续编辑会保留草稿；保存并退出会保存当前记录；只有选择“放弃草稿”才会清除本分类和作用域的草稿。")
         }
