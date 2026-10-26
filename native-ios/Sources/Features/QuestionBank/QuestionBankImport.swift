@@ -559,7 +559,8 @@ enum QuestionBankMultiBlankImportCorrection {
             plan.modules.map { ($0.id, $0.title) },
             uniquingKeysWith: { first, _ in first }
         )
-        return plan.questions.flatMap { question in
+        var corrections: [QuestionBankImportOptionCorrection] = []
+        for question in plan.questions {
             let moduleTitle = moduleTitles[question.moduleID] ?? ""
             let type = QuestionBankModuleTitle.normalized(
                 [question.type, question.subject].joined(separator: " ")
@@ -567,22 +568,23 @@ enum QuestionBankMultiBlankImportCorrection {
             let isLogicFill = QuestionBankCoarseModule.classify(explicitModuleTitle: moduleTitle) == .language
                 && ["逻辑填空", "选词填空", "词语填空"].contains { type.contains($0) }
             let blankCount = QuestionBankMultiBlankOptionText.blankCount(in: question.stem)
-            guard isLogicFill, blankCount > 1 else { return [] }
-            return question.options.compactMap { option in
+            guard isLogicFill, blankCount > 1 else { continue }
+            for option in question.options {
                 guard !option.text.trimmedNonempty.isEmpty,
                       QuestionBankMultiBlankOptionText.validationMessage(
                         for: option.text,
                         blankCount: blankCount
-                      ) != nil else { return nil }
-                return QuestionBankImportOptionCorrection(
+                      ) != nil else { continue }
+                corrections.append(QuestionBankImportOptionCorrection(
                     questionID: question.id,
                     questionNumber: question.number,
                     optionID: option.id,
                     currentText: option.text,
                     blankCount: blankCount
-                )
+                ))
             }
         }
+        return corrections
     }
 
     static func apply(
