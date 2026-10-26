@@ -87,7 +87,11 @@ struct RootTabView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if rootTabBarVisibility[selection] ?? true {
                     NativeBottomTabBar(selection: tabSelectionBinding)
-                        .background(.ultraThinMaterial.ignoresSafeArea(edges: .bottom))
+                        .background {
+                            Rectangle()
+                                .fill(.ultraThinMaterial)
+                                .ignoresSafeArea(edges: .bottom)
+                        }
                         .accessibilityHidden(libraryDoodleSession.isPresented)
                         .allowsHitTesting(!libraryDoodleSession.isPresented)
                 }
