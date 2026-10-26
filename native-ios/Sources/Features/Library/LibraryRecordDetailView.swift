@@ -6,6 +6,7 @@ struct LibraryRecordDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var doodleSession: LibraryDoodleSession
     @Query(filter: #Predicate<StoredRecord> { record in record.collection == "words" || record.collection == "errors" }) private var records: [StoredRecord]
+    @Query private var linkedQuestionBankRecords: [QuestionBankRecord]
     let kind: LibraryContentKind
     let scope: LibraryScope
     let record: StoredRecord?
@@ -34,6 +35,10 @@ struct LibraryRecordDetailView: View {
         onDelete: @escaping () -> Void,
         onOpenLinkedWord: ((String) -> Void)? = nil
     ) {
+        let linkedPaperID = record.jsonObject?["questionBankPaperID"] as? String ?? ""
+        _linkedQuestionBankRecords = Query(filter: #Predicate<QuestionBankRecord> {
+            $0.paperID == linkedPaperID
+        })
         self.kind = kind
         self.scope = scope
         self.record = record
@@ -51,6 +56,7 @@ struct LibraryRecordDetailView: View {
         onDone: @escaping () -> Void,
         onOpenLinkedWord: ((String) -> Void)? = nil
     ) {
+        _linkedQuestionBankRecords = Query(filter: #Predicate<QuestionBankRecord> { $0.paperID == "" })
         let mapping = questionBankContext.typeMapping
         kind = .errors
         scope = LibraryScope(subject: mapping.subject, module: mapping.module)
@@ -232,6 +238,7 @@ struct LibraryRecordDetailView: View {
         if let onDone, questionBankContext != nil {
             Button("完成", action: onDone)
                 .disabled(doodleSession.isPresented)
+                .accessibilityIdentifier("question-bank-detail-done")
         }
     }
 
@@ -325,7 +332,7 @@ struct LibraryRecordDetailView: View {
     }
 
     @ViewBuilder private var questionBankMaterialBlock: some View {
-        if let questionBankContext, let material = questionBankContext.material {
+        if let context = displayQuestionBankContext, let material = context.material {
             VStack(alignment: .leading, spacing: 9) {
                 Text("共用材料")
                     .font(AppTheme.sectionTitleFont)
@@ -336,10 +343,10 @@ struct LibraryRecordDetailView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if !material.imageAssetID.isEmpty,
-                   let asset = questionBankContext.assetsByID[material.imageAssetID] {
+                   let asset = context.assetsByID[material.imageAssetID] {
                     QuestionBankLocalImage(asset: asset, sizing: .material)
                 }
-                ForEach(Array(questionBankContext.materialSourceRows.enumerated()), id: \.offset) { _, row in
+                ForEach(Array(context.materialSourceRows.enumerated()), id: \.offset) { _, row in
                     supportingLine("材料来源", value: row, systemImage: "books.vertical.fill")
                 }
             }
@@ -350,9 +357,9 @@ struct LibraryRecordDetailView: View {
     }
 
     @ViewBuilder private var imagesBlock: some View {
-        if let questionBankContext {
-            if !questionBankContext.currentQuestion.stemImageAssetID.isEmpty,
-               let asset = questionBankContext.assetsByID[questionBankContext.currentQuestion.stemImageAssetID] {
+        if let context = displayQuestionBankContext {
+            if !context.currentQuestion.stemImageAssetID.isEmpty,
+               let asset = context.assetsByID[context.currentQuestion.stemImageAssetID] {
                 QuestionBankLocalImage(asset: asset, sizing: .stem)
                     .padding(.top, 3)
             }
@@ -389,6 +396,7 @@ struct LibraryRecordDetailView: View {
     @ViewBuilder private var optionsBlock: some View {
         let options = stringArray("options") ?? []
         let optionImages = optionImageValues
+        let bankContext = self.displayQuestionBankContext
         let optionCount = max(options.count, optionImages.count)
         if optionCount > 0 {
             VStack(spacing: 8) {
@@ -414,8 +422,8 @@ struct LibraryRecordDetailView: View {
                                     .lineSpacing(5.5)
                             }
                             if !optionImage.isEmpty {
-                                if let questionBankContext,
-                                   let asset = questionBankContext.assetsByID[optionImage] {
+                                if let bankContext,
+                                   let asset = bankContext.assetsByID[optionImage] {
                                     QuestionBankLocalImage(asset: asset, sizing: .option)
                                 } else if questionBankContext == nil {
                                     LibraryDetailImage(
@@ -702,6 +710,21 @@ struct LibraryRecordDetailView: View {
         if let values = stringArray("knowledgePoints"), !values.isEmpty { return values }
         return textValues(["knowledgePoint", "point", "topic"])
             .flatMap { $0.split(whereSeparator: { "、,，".contains($0) }).map(String.init) }
+    }
+
+    private var displayQuestionBankContext: QuestionBankQuestionAnalysisContext? {
+        if let questionBankContext { return questionBankContext }
+        guard kind == .errors,
+              let record,
+              let payload = record.jsonObject,
+              let paperID = payload["questionBankPaperID"] as? String,
+              let questionID = payload["questionBankQuestionID"] as? String else { return nil }
+        return QuestionBankQuestionAnalysisContext.linkedErrorContext(
+            paperID: paperID,
+            questionID: questionID,
+            selectedOption: payload["userOption"] as? String ?? "",
+            records: linkedQuestionBankRecords
+        )
     }
 
     private var imageValues: [String] {

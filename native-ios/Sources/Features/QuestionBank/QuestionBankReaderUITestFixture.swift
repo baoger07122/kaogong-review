@@ -11,6 +11,13 @@ enum QuestionBankReaderUITestFixture {
         ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix(sessionArgumentPrefix) })
             .map { String($0.dropFirst(sessionArgumentPrefix.count)) } ?? "missing-session"
     }
+    static func storeURL() throws -> URL {
+        let safeSessionID = String(sessionID.filter { $0.isLetter || $0.isNumber || $0 == "-" }.prefix(80))
+        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("QuestionBankReaderUITests", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root.appendingPathComponent("\(safeSessionID.isEmpty ? "missing-session" : safeSessionID).store")
+    }
     static var paperID: String { "ui-test-\(sessionID)-paper" }
     static var moduleID: String { "ui-test-\(sessionID)-module" }
     static var compactPaperID: String { "ui-test-\(sessionID)-compact-paper" }
@@ -21,6 +28,10 @@ enum QuestionBankReaderUITestFixture {
     @MainActor
     static func seed(in context: ModelContext) throws {
         let paperID = Self.paperID
+        let existingPaperRows = try context.fetch(FetchDescriptor<QuestionBankRecord>(predicate: #Predicate {
+            $0.paperID == paperID
+        }))
+        guard existingPaperRows.isEmpty else { return }
         let moduleID = Self.moduleID
         let materialID = Self.materialID
         let longPaperTitle = "2025年度中央机关及其直属机构公务员录用考试行政职业能力测验（市地级及以下职位真题试卷）"
@@ -107,7 +118,8 @@ enum QuestionBankReaderUITestFixture {
             ],
             answer: "",
             explanation: "交互测试夹具解析。",
-            originalPage: "1"
+            originalPage: "1",
+            note: "<p>相邻题富文本回归<strong>安全预览</strong>。</p>"
         )
         let compactPaper = QuestionBankPaper(
             id: Self.compactPaperID,

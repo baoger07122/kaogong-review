@@ -38,6 +38,7 @@ struct LibrarySidebar: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("library-subject-\(subject.name)")
 
                 ForEach(SubjectDefinition.all) { subject in
                     subjectSection(subject)
@@ -126,6 +127,7 @@ struct LibrarySidebar: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("library-module-\(subject.name)-\(module)")
                 }
             }
         }
@@ -206,6 +208,7 @@ struct LibrarySidebar: View {
 struct LibraryRecordCard: View {
     let snapshot: LibraryRecordSnapshot
     let kind: LibraryContentKind
+    let size: LibraryCardSize
     var hiddenTags: Set<String> = []
 
     var body: some View {
@@ -219,7 +222,8 @@ struct LibraryRecordCard: View {
                     Spacer()
                 }
             }
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if kind != .words {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
                 if let firstTag = visibleTags.first, !(kind == .words && isComparisonRecord) {
                     Text(firstTag)
                         .font(AppTheme.auxiliaryFont.weight(.semibold))
@@ -238,12 +242,13 @@ struct LibraryRecordCard: View {
                         .font(AppTheme.auxiliaryFont)
                         .foregroundStyle(.tertiary)
                 }
+                }
             }
 
             Text(snapshot.title)
                 .font(AppTheme.bodyFont)
                 .foregroundStyle(.primary)
-                .lineLimit(kind == .errors ? 5 : 3)
+                .lineLimit(kind == .errors ? 5 : (kind == .words ? size.questionLineLimit : 3))
 
             if isQuantityRelations, !snapshot.quantityStructure.isEmpty {
                 quantityPlainField(label: "结构", value: snapshot.quantityStructure)
@@ -252,14 +257,20 @@ struct LibraryRecordCard: View {
                 quantityTagLine(label: "考点", values: snapshot.knowledgePoints)
             }
 
-            if !snapshot.summary.isEmpty && snapshot.summary != snapshot.title {
+            if kind == .words, !snapshot.wordCardBody.isEmpty, snapshot.wordCardBody != snapshot.title {
+                Text(verbatim: LibraryWordCardPreviewText.render(snapshot.wordCardBody))
+                    .font(AppTheme.auxiliaryFont)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(size.questionLineLimit)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if !snapshot.summary.isEmpty && snapshot.summary != snapshot.title {
                 Text(snapshot.summary)
                     .font(AppTheme.auxiliaryFont)
                     .foregroundStyle(.secondary)
                     .lineLimit(4)
             }
 
-            if visibleTags.count > 1 {
+            if kind != .words, visibleTags.count > 1 {
                 Text(visibleTags.dropFirst().joined(separator: " · "))
                     .font(AppTheme.auxiliaryFont)
                     .foregroundStyle(.secondary)
@@ -644,7 +655,7 @@ struct LibraryMasonryGrid: View {
             if kind == .errors {
                 LibraryErrorRecordCard(snapshot: record, size: cardSize)
             } else {
-                LibraryRecordCard(snapshot: record, kind: kind, hiddenTags: hiddenTags)
+                LibraryRecordCard(snapshot: record, kind: kind, size: cardSize, hiddenTags: hiddenTags)
             }
         }
         .buttonStyle(LibraryCardPressStyle(animated: kind == .errors))

@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import XCTest
+import UIKit
 @testable import KaogongReviewNative
 
 @MainActor
@@ -212,6 +213,120 @@ final class QuestionBankAnalysisAdapterTests: XCTestCase {
                        ["水到渠成", "融汇贯通"])
     }
 
+    func testSavingNoteDoesNotRejectOrRewriteLegacyConcatenatedMultiBlankOptions() throws {
+        let container = try makeMemoryContainer()
+        let context = container.mainContext
+        let questionRecord = try makeQuestionRecord()
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: questionRecord.payload) as? [String: Any])
+        object["stem"] = "在（ ）与（ ）之间选择"
+        var options = try XCTUnwrap(object["options"] as? [[String: Any]])
+        options[0]["text"] = "水到渠成融汇贯通"
+        options[1]["text"] = "鱼贯而入一气呵成"
+        object["options"] = options
+        questionRecord.replacePayload(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
+        context.insert(questionRecord)
+        try context.save()
+
+        var analysis = QuestionBankQuestionAnalysisFields()
+        analysis.note = "<p>普通中文笔记<b>保留格式</b></p>"
+        let before = try XCTUnwrap(questionRecord.decoded(QuestionBankQuestion.self))
+
+        try QuestionBankRepository.updateQuestionAnalysis(
+            record: questionRecord,
+            paperID: "paper-1",
+            questionID: "question-1",
+            stem: before.stem,
+            optionTexts: Dictionary(before.options.map { ($0.id, $0.text) }, uniquingKeysWith: { first, _ in first }),
+            answerOptionID: before.answer,
+            annotations: QuestionBankQuestionAnnotations(question: before),
+            analysis: analysis,
+            typeMapping: QuestionBankLibraryTypeMapping(subject: "言语理解", module: "逻辑填空"),
+            sourceRows: [],
+            storedRecords: [],
+            context: context
+        )
+
+        let after = try XCTUnwrap(questionRecord.decoded(QuestionBankQuestion.self))
+        XCTAssertEqual(after.stem, before.stem)
+        XCTAssertEqual(after.options, before.options)
+        XCTAssertEqual(after.note, analysis.note)
+    }
+
+    func testRichQuestionNoteSurvivesClosingAndReopeningTheSwiftDataStore() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankRichNoteRestart-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storeURL = root.appendingPathComponent("QuestionBank.store")
+
+        do {
+            let schema = Schema([StoredRecord.self, QuestionBankRecord.self])
+            let configuration = ModelConfiguration(
+                "QuestionBankRichNoteRestart",
+                schema: schema,
+                url: storeURL,
+                cloudKitDatabase: .none
+            )
+            let container = try ModelContainer(for: schema, configurations: [configuration])
+            let context = container.mainContext
+            let questionRecord = try makeQuestionRecord()
+            context.insert(questionRecord)
+            try context.save()
+
+            let question = try XCTUnwrap(questionRecord.decoded(QuestionBankQuestion.self))
+            var analysis = QuestionBankQuestionAnalysisFields()
+            analysis.note = "<p>普通中文<b>富文本笔记</b>\n第二行</p>"
+            try QuestionBankRepository.updateQuestionAnalysis(
+                record: questionRecord,
+                paperID: "paper-1",
+                questionID: "question-1",
+                stem: question.stem,
+                optionTexts: Dictionary(question.options.map { ($0.id, $0.text) }, uniquingKeysWith: { first, _ in first }),
+                answerOptionID: question.answer,
+                annotations: QuestionBankQuestionAnnotations(question: question),
+                analysis: analysis,
+                typeMapping: QuestionBankLibraryTypeMapping(subject: "言语理解", module: "逻辑填空"),
+                sourceRows: [],
+                storedRecords: [],
+                context: context
+            )
+        }
+
+        let schema = Schema([StoredRecord.self, QuestionBankRecord.self])
+        let configuration = ModelConfiguration(
+            "QuestionBankRichNoteRestart",
+            schema: schema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        let reopened = try ModelContainer(for: schema, configurations: [configuration])
+        let persisted = try XCTUnwrap(
+            reopened.mainContext.fetch(FetchDescriptor<QuestionBankRecord>()).first
+        )
+        XCTAssertEqual(
+            persisted.decoded(QuestionBankQuestion.self)?.note,
+            "<p>普通中文<b>富文本笔记</b>\n第二行</p>"
+        )
+    }
+
+    func testRichTextDisplayRendersFormattedTextAndSafelyFallsBackForOversizedMarkup() throws {
+        let formatted = NativeRichTextDisplayRenderer.render("<p>短中文<b>加粗内容</b></p>")
+        XCTAssertFalse(formatted.usedSafeFallback)
+        XCTAssertTrue(formatted.attributedText.string.contains("短中文"))
+        XCTAssertTrue(formatted.attributedText.string.contains("加粗内容"))
+        let boldRange = try XCTUnwrap(formatted.attributedText.string.range(of: "加粗内容"))
+        let nsRange = NSRange(boldRange, in: formatted.attributedText.string)
+        let font = try XCTUnwrap(formatted.attributedText.attribute(.font, at: nsRange.location, effectiveRange: nil) as? UIFont)
+        XCTAssertTrue(font.fontDescriptor.symbolicTraits.contains(.traitBold))
+
+        let oversized = "<p>原始笔记保留</p>" + String(repeating: "长文本", count: 90_000)
+        let fallback = NativeRichTextDisplayRenderer.render(oversized)
+        XCTAssertTrue(fallback.usedSafeFallback)
+        XCTAssertTrue(fallback.attributedText.string.contains("原始笔记保留"))
+        XCTAssertTrue(fallback.attributedText.string.contains("原内容仍保留"))
+        XCTAssertTrue(oversized.contains("<p>原始笔记保留</p>"), "Display fallback must not mutate the saved payload")
+    }
+
     func testReferenceAccuracyWritesAndClearsWithoutAcceptingOutOfRangeValues() throws {
         let container = try makeMemoryContainer()
         let context = container.mainContext
@@ -271,6 +386,140 @@ final class QuestionBankAnalysisAdapterTests: XCTestCase {
         XCTAssertEqual(questionRecord.stableID, "question-1")
         XCTAssertEqual(try context.fetch(FetchDescriptor<StoredRecord>()).count, 1)
         XCTAssertEqual(error.jsonObject?["reviewCount"] as? Int, 6)
+    }
+
+    func testQuestionBankErrorRecordIdentityIsStableAndSeparatesCategories() {
+        let wrongID = QuestionBankErrorBookIdentity.recordID(
+            paperID: "paper-1", questionID: "question-1", category: .wrong
+        )
+        XCTAssertEqual(wrongID, QuestionBankErrorBookIdentity.recordID(
+            paperID: "paper-1", questionID: "question-1", category: .wrong
+        ))
+        XCTAssertNotEqual(wrongID, QuestionBankErrorBookIdentity.recordID(
+            paperID: "paper-1", questionID: "question-1", category: .uncertain
+        ))
+        XCTAssertNotEqual(wrongID, QuestionBankErrorBookIdentity.recordID(
+            paperID: "paper-2", questionID: "question-1", category: .wrong
+        ))
+    }
+
+    func testOneTapErrorBookAddPreservesQuestionAssetsAndIsIdempotent() throws {
+        let container = try makeMemoryContainer()
+        let context = container.mainContext
+        let questionRecord = try makeQuestionRecord()
+        var questionObject = try XCTUnwrap(JSONSerialization.jsonObject(with: questionRecord.payload) as? [String: Any])
+        questionObject["materialID"] = "material-1"
+        questionObject["note"] = "<p>原有<b>复盘笔记</b></p>"
+        questionObject["knowledgePoints"] = ["语境辨析"]
+        questionRecord.replacePayload(try JSONSerialization.data(withJSONObject: questionObject, options: [.sortedKeys]))
+        let module = QuestionBankRecord(
+            compoundID: "paper-1::module::module-1", paperID: "paper-1",
+            kind: QuestionBankRepository.moduleKind, stableID: "module-1",
+            title: "逻辑填空", payload: Data("{}".utf8)
+        )
+        let material = QuestionBankRecord(
+            compoundID: "paper-1::material::material-1", paperID: "paper-1",
+            kind: QuestionBankRepository.materialKind, stableID: "material-1",
+            moduleID: "module-1", title: "共用材料",
+            payload: try JSONEncoder().encode(QuestionBankMaterial(
+                id: "material-1", paperID: "paper-1", moduleID: "module-1",
+                type: "材料", text: "材料正文", imageAssetID: "material-image",
+                applicableQuestions: "17", originalPage: "3"
+            ))
+        )
+        let paper = QuestionBankRecord(
+            compoundID: "paper-1::paper::paper-1", paperID: "paper-1",
+            kind: QuestionBankRepository.paperKind, stableID: "paper-1",
+            title: "2025 国考", payload: try JSONEncoder().encode(QuestionBankPaper(
+                id: "paper-1", title: "2025 国考", year: 2025,
+                examType: "国考", volume: "", source: "fixture", importVersion: "1"
+            ))
+        )
+        let assets = ["stem-image", "option-image-a", "option-image-b", "material-image"].map { id in
+            QuestionBankRecord(
+                compoundID: "paper-1::asset::\(id)", paperID: "paper-1",
+                kind: QuestionBankRepository.assetKind, stableID: id,
+                payload: Data("{}".utf8), assetRelativePath: "paper-1/assets/\(id).png"
+            )
+        }
+        for record in [questionRecord, module, material, paper] { context.insert(record) }
+        for record in assets { context.insert(record) }
+        try context.save()
+
+        let bankRecords = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        let analysis = try XCTUnwrap(QuestionBankQuestionAnalysisContext.linkedErrorContext(
+            paperID: "paper-1", questionID: "question-1", selectedOption: "A", records: bankRecords
+        ))
+        XCTAssertEqual(analysis.material?.text, "材料正文")
+        XCTAssertEqual(analysis.assetsByID["material-image"]?.assetRelativePath, "paper-1/assets/material-image.png")
+
+        let result = try QuestionBankErrorBookRepository.add(
+            analysis: analysis, category: .wrong, context: context
+        )
+        let expectedID = QuestionBankErrorBookIdentity.recordID(
+            paperID: "paper-1", questionID: "question-1", category: .wrong
+        )
+        XCTAssertEqual(result, .added(recordID: expectedID))
+
+        let savedError = try XCTUnwrap(context.fetch(FetchDescriptor<StoredRecord>()).first {
+            $0.collection == "errors" && $0.recordID == expectedID
+        })
+        let saved = try XCTUnwrap(savedError.jsonObject)
+        XCTAssertEqual(saved["type"] as? String, "错题")
+        XCTAssertEqual(saved["status"] as? String, "未掌握")
+        XCTAssertEqual(saved["questionBankPaperID"] as? String, "paper-1")
+        XCTAssertEqual(saved["questionBankQuestionID"] as? String, "question-1")
+        XCTAssertEqual(saved["question"] as? String, "原始题干")
+        XCTAssertEqual(saved["options"] as? [String], ["原 A", "原 B"])
+        XCTAssertEqual(saved["correctOption"] as? String, "B")
+        XCTAssertEqual(saved["userOption"] as? String, "A")
+        XCTAssertEqual(saved["images"] as? [String], ["stem-image"])
+        XCTAssertEqual(saved["optionImages"] as? [String], ["option-image-a", "option-image-b"])
+        XCTAssertEqual(saved["materialID"] as? String, "material-1")
+        XCTAssertEqual(saved["note"] as? String, "<p>原有<b>复盘笔记</b></p>")
+        XCTAssertEqual(saved["knowledgePoints"] as? [String], ["语境辨析"])
+        XCTAssertEqual(saved["reviewCount"] as? Int, 0)
+
+        let updatedQuestion = try XCTUnwrap(questionRecord.decoded(QuestionBankQuestion.self))
+        XCTAssertEqual(updatedQuestion.linkedErrorRecordIDs, [expectedID])
+        XCTAssertEqual(updatedQuestion.note, "<p>原有<b>复盘笔记</b></p>")
+        XCTAssertEqual(updatedQuestion.options.map(\.imageAssetID), ["option-image-a", "option-image-b"])
+        XCTAssertEqual(try context.fetch(FetchDescriptor<StoredRecord>()).filter { $0.collection == "errors" }.count, 1)
+
+        XCTAssertEqual(
+            try QuestionBankErrorBookRepository.add(analysis: analysis, category: .wrong, context: context),
+            .alreadyAdded(recordID: expectedID)
+        )
+        XCTAssertEqual(try context.fetch(FetchDescriptor<StoredRecord>()).filter { $0.collection == "errors" }.count, 1)
+
+        var secondQuestionObject = questionObject
+        secondQuestionObject["id"] = "question-2"
+        secondQuestionObject["number"] = 18
+        let secondQuestionRecord = QuestionBankRecord(
+            compoundID: "paper-1::question::question-2", paperID: "paper-1",
+            kind: QuestionBankRepository.questionKind, stableID: "question-2",
+            moduleID: "module-1", questionNumber: 18,
+            payload: try JSONSerialization.data(withJSONObject: secondQuestionObject, options: [.sortedKeys])
+        )
+        context.insert(secondQuestionRecord)
+        try context.save()
+        let correctAnalysis = try XCTUnwrap(QuestionBankQuestionAnalysisContext.linkedErrorContext(
+            paperID: "paper-1", questionID: "question-2", selectedOption: "B",
+            records: try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        ))
+        let uncertainResult = try QuestionBankErrorBookRepository.add(
+            analysis: correctAnalysis, category: .uncertain, context: context
+        )
+        let uncertainID = QuestionBankErrorBookIdentity.recordID(
+            paperID: "paper-1", questionID: "question-2", category: .uncertain
+        )
+        XCTAssertEqual(uncertainResult, .added(recordID: uncertainID))
+        let uncertainRecord = try XCTUnwrap(context.fetch(FetchDescriptor<StoredRecord>()).first {
+            $0.collection == "errors" && $0.recordID == uncertainID
+        })
+        XCTAssertEqual(uncertainRecord.jsonObject?["type"] as? String, "不确定题")
+        XCTAssertEqual(uncertainRecord.jsonObject?["userOption"] as? String, "B")
+        XCTAssertEqual(try context.fetch(FetchDescriptor<StoredRecord>()).filter { $0.collection == "errors" }.count, 2)
     }
 
     func testStaleQuestionBankLinkDoesNotBlockEditingOrDeletingWrongQuestion() throws {

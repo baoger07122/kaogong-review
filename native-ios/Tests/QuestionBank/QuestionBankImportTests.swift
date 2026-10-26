@@ -8,6 +8,25 @@ import XCTest
 
 @MainActor
 final class QuestionBankImportTests: XCTestCase {
+    func testOverviewAnswerStatusOnlyMarksConfirmedSelections() {
+        XCTAssertEqual(
+            QuestionBankOverviewAnswerStatus.resolve(selectedOptionID: nil, answer: "A", isConfirmed: true),
+            .unanswered
+        )
+        XCTAssertEqual(
+            QuestionBankOverviewAnswerStatus.resolve(selectedOptionID: "B", answer: "A", isConfirmed: false),
+            .unanswered
+        )
+        XCTAssertEqual(
+            QuestionBankOverviewAnswerStatus.resolve(selectedOptionID: "A", answer: "A", isConfirmed: true),
+            .correct
+        )
+        XCTAssertEqual(
+            QuestionBankOverviewAnswerStatus.resolve(selectedOptionID: "B", answer: "A", isConfirmed: true),
+            .incorrect
+        )
+    }
+
     func testPickerDidPickThenDismissKeepsSelectionAndStartsOnce() throws {
         let coordinator = QuestionBankImportSelectionCoordinator()
         let pickerID = coordinator.beginPicker()
@@ -393,10 +412,13 @@ final class QuestionBankImportTests: XCTestCase {
                 type: "阅读与表达", subject: "言语理解"
             )
         ]
-        let groups = QuestionBankOverviewGrouping.groups(from: candidates)
-        XCTAssertEqual(groups.flatMap(\.questions).map(\.id), ["q-a", "q-b", "q-c"])
-        XCTAssertEqual(groups.map(\.coarseQuestionType), ["片段阅读", "逻辑填空", "片段阅读"])
-        XCTAssertEqual(groups.map(\.startsModule), [true, false, false])
+        let orderedIDs = QuestionBankModulePracticeOrdering.orderedQuestionIDs(from: candidates)
+        XCTAssertEqual(orderedIDs, ["q-b", "q-a", "q-c"])
+        let orderedCandidates = orderedIDs.compactMap { id in candidates.first { $0.id == id } }
+        let groups = QuestionBankOverviewGrouping.groups(from: orderedCandidates)
+        XCTAssertEqual(groups.flatMap(\.questions).map(\.id), orderedIDs)
+        XCTAssertEqual(groups.map(\.coarseQuestionType), ["逻辑填空", "片段阅读"])
+        XCTAssertEqual(groups.map(\.startsModule), [true, false])
         XCTAssertEqual(QuestionBankDisplayNumber.resolve(
             originalNumber: 9, localOrdinal: 1, usesLocalOrdinal: true
         ), 1)
@@ -950,6 +972,62 @@ final class QuestionBankImportTests: XCTestCase {
             for: "水到渠成融汇贯通",
             blankCount: 1
         ))
+    }
+
+    func testImportPreviewRequiresManualWordGroupsBeforeCorrectingGluedOptions() throws {
+        let question = QuestionBankQuestion(
+            id: "q-17", paperID: "paper-1", moduleID: "module-1", number: 17,
+            subject: "言语理解", type: "逻辑填空", materialID: "",
+            stem: "在（ ）和（ ）之间选择", stemImageAssetID: "",
+            options: [
+                QuestionBankOption(id: "A", text: "行云流水万事俱备", imageAssetID: ""),
+                QuestionBankOption(id: "B", text: "蓄势待发守望相助", imageAssetID: "")
+            ],
+            answer: "A", explanation: "", originalPage: "2"
+        )
+        let plan = QuestionBankImportPlan(
+            paper: QuestionBankPaper(
+                id: "paper-1", title: "fixture", year: 2025, examType: "国考",
+                volume: "", source: "fixture", importVersion: "1"
+            ),
+            modules: [QuestionBankModule(
+                id: "module-1", paperID: "paper-1", sequence: 1,
+                title: "逻辑填空", instruction: "", originalPage: "1"
+            )],
+            materials: [],
+            questions: [question],
+            assets: [],
+            errors: [
+                "fixture／第17题／选项A：多空逻辑填空：请核对词语边界。",
+                "fixture／第17题／选项B：多空逻辑填空：请核对词语边界。"
+            ],
+            stagingDirectory: FileManager.default.temporaryDirectory
+        )
+
+        let pending = QuestionBankMultiBlankImportCorrection.pendingOptions(in: plan)
+        XCTAssertEqual(pending.map(\.id), ["q-17::A", "q-17::B"])
+        XCTAssertNil(QuestionBankMultiBlankImportCorrection.apply(
+            to: plan,
+            correctedTextByOptionID: ["q-17::A": "行云流水    万事俱备"]
+        ), "A partial correction must not silently accept the remaining glued option")
+
+        let corrected = try XCTUnwrap(QuestionBankMultiBlankImportCorrection.apply(
+            to: plan,
+            correctedTextByOptionID: [
+                "q-17::A": "行云流水    万事俱备",
+                "q-17::B": "蓄势待发    守望相助"
+            ]
+        ))
+        XCTAssertTrue(corrected.canImport)
+        XCTAssertEqual(corrected.questions[0].options.map(\.text), [
+            "行云流水    万事俱备", "蓄势待发    守望相助"
+        ])
+        XCTAssertEqual(QuestionBankMultiBlankOptionText.parse(
+            corrected.questions[0].options[0].text,
+            blankCount: 2
+        )?.groups, ["行云流水", "万事俱备"])
+        XCTAssertEqual(plan.questions[0].options.map(\.text), ["行云流水万事俱备", "蓄势待发守望相助"])
+        XCTAssertFalse(plan.canImport, "The original import plan must remain unchanged")
     }
 
     func testMultiBlankOptionTextCountsAsciiAndFullWidthBlanks() {

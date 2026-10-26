@@ -11,6 +11,16 @@ private struct RootWindowTopInsetKey: EnvironmentKey {
 private struct RootTabContextKey: EnvironmentKey {
     static let defaultValue: RootTab = .home
 }
+
+struct RootTabBarVisibilityPreferenceKey: PreferenceKey {
+    static var defaultValue: [RootTab: Bool] = [:]
+
+    static func reduce(value: inout [RootTab: Bool], nextValue: () -> [RootTab: Bool]) {
+        for (tab, isVisible) in nextValue() {
+            value[tab] = (value[tab] ?? true) && isVisible
+        }
+    }
+}
 extension EnvironmentValues {
     var rootTabSelection: Binding<RootTab> {
         get { self[RootTabSelectionKey.self] }
@@ -60,6 +70,7 @@ struct RootTabView: View {
     @EnvironmentObject private var questionBankImportRouter: QuestionBankImportRouter
     @State private var selection: RootTab = .home
     @State private var selectionGeneration = 0
+    @State private var rootTabBarVisibility: [RootTab: Bool] = [:]
     @State private var homePath: [AppRoute] = []
     @State private var libraryPath: [LibraryRoute] = []
     @State private var settingsPath: [SettingsRoute] = []
@@ -82,9 +93,20 @@ struct RootTabView: View {
                         .tag(tab)
                 }
             }
+            .toolbar(.hidden, for: .tabBar)
             .environment(\.rootWindowTopInset, window.safeAreaInsets.top)
             .environment(\.rootTabSelection, $selection)
-            .accessibilityHidden(libraryDoodleSession.isPresented)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if rootTabBarVisibility[selection] ?? true {
+                    NativeBottomTabBar(selection: tabSelectionBinding)
+                        .background(.ultraThinMaterial.ignoresSafeArea(edges: .bottom))
+                        .accessibilityHidden(libraryDoodleSession.isPresented)
+                        .allowsHitTesting(!libraryDoodleSession.isPresented)
+                }
+            }
+            .onPreferenceChange(RootTabBarVisibilityPreferenceKey.self) { value in
+                rootTabBarVisibility = value
+            }
         }
         .tint(AppTheme.accent)
         .overlay {
@@ -132,26 +154,29 @@ struct RootTabView: View {
         switch tab {
         case .home:
             NavigationStack(path: $homePath) { HomeView() }
-                .toolbar(homePath.isEmpty ? .visible : .hidden, for: .tabBar)
+                .toolbar(.hidden, for: .tabBar)
+                .preference(key: RootTabBarVisibilityPreferenceKey.self, value: [.home: homePath.isEmpty])
                 .environment(\.rootTabContext, .home)
         case .library:
             NavigationStack(path: $libraryPath) {
                 LibraryView(navigationPath: $libraryPath)
             }
-                .toolbar(.visible, for: .tabBar)
+                .toolbar(.hidden, for: .tabBar)
                 .environmentObject(libraryDoodleSession)
                 .environment(\.rootTabContext, .library)
         case .review:
             NavigationStack { ReviewView() }
-                .toolbar(.visible, for: .tabBar)
+                .toolbar(.hidden, for: .tabBar)
                 .environment(\.rootTabContext, .review)
         case .questionBank:
             NavigationStack { QuestionBankView() }
+                .toolbar(.hidden, for: .tabBar)
                 .environmentObject(libraryDoodleSession)
                 .environment(\.rootTabContext, .questionBank)
         case .settings:
             NavigationStack(path: $settingsPath) { SettingsView() }
-                .toolbar(settingsPath.isEmpty ? .visible : .hidden, for: .tabBar)
+                .toolbar(.hidden, for: .tabBar)
+                .preference(key: RootTabBarVisibilityPreferenceKey.self, value: [.settings: settingsPath.isEmpty])
                 .environment(\.rootTabContext, .settings)
         }
     }

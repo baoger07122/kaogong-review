@@ -22,17 +22,37 @@ extension View {
             .toolbarBackground(.hidden, for: .navigationBar)
     }
 
-    /// Root tabs use TabView's natural visibility. Forcing `.visible` here
-    /// overrides pushed destinations that correctly request a hidden tab bar.
+    /// Root pages keep the custom tab bar visible while reporting visibility to
+    /// the root container; pushed destinations can opt out independently.
     func rootTabBarContentInset() -> some View {
-        self
+        modifier(RootTabBarRootVisibilityModifier())
     }
 
     /// Push destinations never own the app tab bar. Keeping this rule on the
     /// destination avoids an inherited root-level `.visible` winning during a
     /// navigation transition.
     func secondaryPageTabBarHidden() -> some View {
-        toolbar(.hidden, for: .tabBar)
+        modifier(RootTabBarHiddenModifier())
+    }
+}
+
+private struct RootTabBarRootVisibilityModifier: ViewModifier {
+    @Environment(\.rootTabContext) private var tab
+
+    func body(content: Content) -> some View {
+        content
+            .toolbar(.hidden, for: .tabBar)
+            .preference(key: RootTabBarVisibilityPreferenceKey.self, value: [tab: true])
+    }
+}
+
+private struct RootTabBarHiddenModifier: ViewModifier {
+    @Environment(\.rootTabContext) private var tab
+
+    func body(content: Content) -> some View {
+        content
+            .toolbar(.hidden, for: .tabBar)
+            .preference(key: RootTabBarVisibilityPreferenceKey.self, value: [tab: false])
     }
 }
 

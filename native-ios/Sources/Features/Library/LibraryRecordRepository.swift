@@ -705,6 +705,94 @@ enum LibraryRecordRepository {
     private static func iso(_ date: Date) -> String { ISO8601DateFormatter().string(from: date) }
 }
 
+enum QuestionBankErrorBookCategory: String, CaseIterable {
+    case wrong = "错题"
+    case uncertain = "不确定题"
+}
+
+enum QuestionBankErrorBookIdentity {
+    static func recordID(paperID: String, questionID: String, category: QuestionBankErrorBookCategory) -> String {
+        let source = ["question-bank-error-v1", paperID, questionID, category.rawValue].joined(separator: "\u{0}")
+        return "qbe_v1_" + Data(source.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+}
+
+enum QuestionBankErrorBookAddResult: Equatable {
+    case added(recordID: String)
+    case alreadyAdded(recordID: String)
+}
+
+enum QuestionBankErrorBookAddFailure: LocalizedError {
+    case identityConflict
+
+    var errorDescription: String? {
+        switch self {
+        case .identityConflict:
+            "错题记录标识已被其他记录使用，未写入。"
+        }
+    }
+}
+
+enum QuestionBankErrorBookRepository {
+    static func add(
+        analysis: QuestionBankQuestionAnalysisContext,
+        category: QuestionBankErrorBookCategory,
+        context: ModelContext
+    ) throws -> QuestionBankErrorBookAddResult {
+        let question = analysis.currentQuestion
+        let descriptor = FetchDescriptor<StoredRecord>()
+        let records = try context.fetch(descriptor)
+        let linkedRecord = records.first { record in
+            guard record.collection == LibraryContentKind.errors.collection,
+                  let payload = record.jsonObject else { return false }
+            return payload["questionBankPaperID"] as? String == question.paperID
+                && payload["questionBankQuestionID"] as? String == question.id
+        }
+        if let linkedRecord {
+            return .alreadyAdded(recordID: linkedRecord.recordID)
+        }
+
+        let id = QuestionBankErrorBookIdentity.recordID(
+            paperID: question.paperID,
+            questionID: question.id,
+            category: category
+        )
+        if let collision = records.first(where: {
+            $0.collection == LibraryContentKind.errors.collection && $0.recordID == id
+        }) {
+            guard let payload = collision.jsonObject,
+                  payload["questionBankPaperID"] as? String == question.paperID,
+                  payload["questionBankQuestionID"] as? String == question.id else {
+                throw QuestionBankErrorBookAddFailure.identityConflict
+            }
+            return .alreadyAdded(recordID: id)
+        }
+
+        let validLinkedIDs = (question.linkedErrorRecordIDs ?? []).filter { linkedID in
+            records.contains { record in
+                guard record.collection == LibraryContentKind.errors.collection,
+                      record.recordID == linkedID,
+                      let payload = record.jsonObject else { return false }
+                return payload["questionBankPaperID"] as? String == question.paperID
+                    && payload["questionBankQuestionID"] as? String == question.id
+            }
+        }
+        var draft = analysis.makeEditorDraft()
+        draft.id = id
+        draft.type = category.rawValue
+        draft.status = "未掌握"
+        draft.original["questionBankPaperID"] = question.paperID
+        draft.original["questionBankQuestionID"] = question.id
+        draft.original["linkedErrorRecordIDs"] = validLinkedIDs
+        draft.accuracy = question.accuracy.map { String($0) } ?? ""
+        _ = try LibraryRecordRepository.save(kind: .errors, draft: draft, records: records, context: context)
+        return .added(recordID: id)
+    }
+}
+
 private struct QuestionSourceMetadata {
     let year: String?
     let examType: String?

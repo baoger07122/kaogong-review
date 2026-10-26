@@ -35,7 +35,7 @@ struct NativeBottomTabBar: View {
             if reduceMotion {
                 selection = tab
             } else {
-                withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+                withAnimation(.easeInOut(duration: 0.24)) {
                     selection = tab
                 }
             }

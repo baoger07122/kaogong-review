@@ -543,6 +543,80 @@ struct QuestionBankImportPlan: Identifiable, Sendable {
     var canImport: Bool { paper != nil && errors.isEmpty && stagingDirectory != nil }
 }
 
+struct QuestionBankImportOptionCorrection: Identifiable, Equatable {
+    let questionID: String
+    let questionNumber: Int
+    let optionID: String
+    let currentText: String
+    let blankCount: Int
+
+    var id: String { "\(questionID)::\(optionID)" }
+}
+
+enum QuestionBankMultiBlankImportCorrection {
+    static func pendingOptions(in plan: QuestionBankImportPlan) -> [QuestionBankImportOptionCorrection] {
+        let moduleTitles = Dictionary(
+            plan.modules.map { ($0.id, $0.title) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return plan.questions.flatMap { question in
+            let moduleTitle = moduleTitles[question.moduleID] ?? ""
+            let type = QuestionBankModuleTitle.normalized(
+                [question.type, question.subject].joined(separator: " ")
+            )
+            let isLogicFill = QuestionBankCoarseModule.classify(explicitModuleTitle: moduleTitle) == .language
+                && ["逻辑填空", "选词填空", "词语填空"].contains { type.contains($0) }
+            let blankCount = QuestionBankMultiBlankOptionText.blankCount(in: question.stem)
+            guard isLogicFill, blankCount > 1 else { return [] }
+            return question.options.compactMap { option in
+                guard !option.text.trimmedNonempty.isEmpty,
+                      QuestionBankMultiBlankOptionText.validationMessage(
+                        for: option.text,
+                        blankCount: blankCount
+                      ) != nil else { return nil }
+                return QuestionBankImportOptionCorrection(
+                    questionID: question.id,
+                    questionNumber: question.number,
+                    optionID: option.id,
+                    currentText: option.text,
+                    blankCount: blankCount
+                )
+            }
+        }
+    }
+
+    static func apply(
+        to plan: QuestionBankImportPlan,
+        correctedTextByOptionID: [String: String]
+    ) -> QuestionBankImportPlan? {
+        let pending = pendingOptions(in: plan)
+        guard !pending.isEmpty,
+              pending.allSatisfy({ correction in
+                  guard let text = correctedTextByOptionID[correction.id] else { return false }
+                  return QuestionBankMultiBlankOptionText.validationMessage(
+                    for: text,
+                    blankCount: correction.blankCount
+                  ) == nil
+              }) else { return nil }
+
+        var correctedPlan = plan
+        correctedPlan.questions = plan.questions.map { question in
+            var updated = question
+            updated.options = question.options.map { option in
+                guard let correction = pending.first(where: {
+                    $0.questionID == question.id && $0.optionID == option.id
+                }), let text = correctedTextByOptionID[correction.id] else { return option }
+                var updatedOption = option
+                updatedOption.text = text
+                return updatedOption
+            }
+            return updated
+        }
+        correctedPlan.errors = plan.errors.filter { !$0.contains("多空逻辑填空：") }
+        return correctedPlan
+    }
+}
+
 enum QuestionBankPreparedImport: Sendable {
     case single(QuestionBankImportPlan)
     case batch(QuestionBankBatchPackagePlan)
@@ -1093,7 +1167,10 @@ enum QuestionBankRepository {
               let updatedQuestion = try? JSONDecoder().decode(QuestionBankQuestion.self, from: payload) else {
             throw QuestionBankQuestionAnalysisFailure.invalidPayload
         }
-        if let detail = multiBlankOptionError(for: updatedQuestion, moduleTitle: typeMapping.module) {
+        let questionTextChanged = updatedQuestion.stem != question.stem
+            || updatedQuestion.options != question.options
+        if questionTextChanged,
+           let detail = multiBlankOptionError(for: updatedQuestion, moduleTitle: typeMapping.module) {
             throw QuestionBankQuestionAnalysisFailure.invalidMultiBlankOption(detail)
         }
 

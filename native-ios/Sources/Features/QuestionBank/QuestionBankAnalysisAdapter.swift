@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 struct QuestionBankLibraryTypeMapping: Equatable {
     let subject: String
@@ -194,8 +195,10 @@ struct QuestionBankQuestionAnalysisContext {
         draft.module = mapping.module
         draft.title = question.stem
         draft.options = question.options.map(\.text)
+        draft.images = question.stemImageAssetID.isEmpty ? [] : [question.stemImageAssetID]
+        draft.optionImages = question.options.map(\.imageAssetID)
         draft.correctOption = displayOptionLetter(for: question.answer)
-        draft.userOption = ""
+        draft.userOption = selectedOptionID.map { displayOptionLetter(for: $0) } ?? ""
         draft.errorCause = question.errorCause ?? ""
         draft.pitfall = question.pitfall ?? ""
         draft.quantityStructure = question.quantityStructure ?? ""
@@ -211,6 +214,55 @@ struct QuestionBankQuestionAnalysisContext {
         draft.type = ""
         draft.status = ""
         return draft
+    }
+
+    static func linkedErrorContext(
+        paperID: String,
+        questionID: String,
+        selectedOption: String,
+        records: [QuestionBankRecord]
+    ) -> QuestionBankQuestionAnalysisContext? {
+        guard let questionRecord = records.first(where: {
+            $0.paperID == paperID && $0.kind == QuestionBankRepository.questionKind
+                && $0.stableID == questionID
+        }), let question = questionRecord.decoded(QuestionBankQuestion.self) else {
+            return nil
+        }
+        let module = records.first(where: {
+            $0.paperID == paperID && $0.kind == QuestionBankRepository.moduleKind
+                && $0.stableID == question.moduleID
+        })?.decoded(QuestionBankModule.self)
+        let material = question.materialID.isEmpty ? nil : records.first(where: {
+            $0.paperID == paperID && $0.kind == QuestionBankRepository.materialKind
+                && $0.stableID == question.materialID
+        })?.decoded(QuestionBankMaterial.self)
+        let sourcePapers = records.first(where: {
+            $0.paperID == paperID && $0.kind == QuestionBankRepository.paperKind
+        })?.decoded(QuestionBankPaper.self)?.sourcePapers ?? []
+        let assetsByID = Dictionary(
+            records.filter { $0.paperID == paperID && $0.kind == QuestionBankRepository.assetKind }
+                .map { ($0.stableID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let selectedOptionID: String?
+        let normalizedSelection = selectedOption.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if let scalar = normalizedSelection.unicodeScalars.first,
+           scalar.value >= 65,
+           Int(scalar.value - 65) < question.options.count {
+            selectedOptionID = question.options[Int(scalar.value - 65)].id
+        } else {
+            selectedOptionID = question.options.first(where: { $0.id == normalizedSelection })?.id
+        }
+        return QuestionBankQuestionAnalysisContext(
+            record: questionRecord,
+            question: question,
+            moduleTitle: module?.title,
+            material: material,
+            sourcePapers: sourcePapers,
+            assetsByID: assetsByID,
+            selectedOptionID: selectedOptionID,
+            isAnswerRevealed: true
+        )
     }
 
     func optionID(forLibraryAnswer value: String) -> String {

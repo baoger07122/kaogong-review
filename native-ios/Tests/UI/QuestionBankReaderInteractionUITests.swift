@@ -10,6 +10,55 @@ private struct ReaderUITestContext {
 
 final class QuestionBankReaderInteractionUITests: XCTestCase {
     @MainActor
+    func testWordDraftBackConfirmsContinueAndExplicitDiscard() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launch()
+
+        let library = app.buttons["root-tab-library"].firstMatch
+        XCTAssertTrue(library.waitForExistence(timeout: 15))
+        library.tap()
+        let language = app.buttons["library-subject-言语理解"].firstMatch
+        XCTAssertTrue(language.waitForExistence(timeout: 10))
+        language.tap()
+        let logicFill = app.buttons["library-module-言语理解-逻辑填空"].firstMatch
+        XCTAssertTrue(logicFill.waitForExistence(timeout: 5))
+        logicFill.tap()
+        let words = app.buttons["library-kind-词语库"].firstMatch
+        XCTAssertTrue(words.waitForExistence(timeout: 5))
+        words.tap()
+        let add = app.buttons["library-add-record"].firstMatch
+        XCTAssertTrue(add.waitForExistence(timeout: 5))
+        add.tap()
+
+        let title = app.textFields["library-word-title"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["草稿选项"].exists, "Word drafts must not show the old discard menu")
+        title.tap()
+        title.typeText("临时词条")
+
+        let back = app.buttons["library-editor-back"].firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 5))
+        back.tap()
+        let continueEditing = app.buttons["继续编辑"].firstMatch
+        XCTAssertTrue(continueEditing.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["保存并退出"].exists)
+        XCTAssertTrue(app.buttons["放弃草稿"].exists)
+        continueEditing.tap()
+        XCTAssertEqual(title.value as? String, "临时词条")
+
+        back.tap()
+        let discard = app.buttons["放弃草稿"].firstMatch
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        discard.tap()
+        XCTAssertTrue(add.waitForExistence(timeout: 5))
+        add.tap()
+        let reopenedTitle = app.textFields["library-word-title"].firstMatch
+        XCTAssertTrue(reopenedTitle.waitForExistence(timeout: 10))
+        XCTAssertNotEqual(reopenedTitle.value as? String, "临时词条", "Explicit discard must clear only this draft")
+    }
+
+    @MainActor
     func testPracticeAnswerRevealsOnSelectionByDefaultAndLocksSelection() throws {
         let reader = launchPracticeReader()
         let app = reader.app
@@ -34,12 +83,114 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
     }
 
     @MainActor
+    func testOverviewCirclesReportConfirmedCorrectWrongAndUnansweredStates() throws {
+        let reader = launchPracticeReader()
+        let app = reader.app
+        let firstQuestionCard = app.buttons["question-bank-number-card-\(reader.questionID)"].firstMatch
+        let secondQuestionID = "\(reader.paperID)-question-2"
+        let secondQuestionCard = app.buttons["question-bank-number-card-\(secondQuestionID)"].firstMatch
+        let overview = element(app, identifier: "question-bank-number-overview")
+        XCTAssertTrue(overview.waitForExistence(timeout: 5))
+        overview.tap()
+        XCTAssertTrue(firstQuestionCard.waitForExistence(timeout: 5))
+        XCTAssertTrue(secondQuestionCard.waitForExistence(timeout: 5))
+        XCTAssertEqual(firstQuestionCard.value as? String, "未判定")
+        XCTAssertEqual(secondQuestionCard.value as? String, "未判定")
+        app.buttons["完成"].firstMatch.tap()
+
+        app.buttons["question-bank-option-\(reader.questionID)-A"].tap()
+        overview.tap()
+        XCTAssertEqual(firstQuestionCard.value as? String, "已答错误")
+        XCTAssertEqual(secondQuestionCard.value as? String, "未判定")
+        app.buttons["完成"].firstMatch.tap()
+    }
+
+    @MainActor
+    func testOverviewCircleReportsConfirmedCorrectAnswer() throws {
+        let reader = launchPracticeReader()
+        let app = reader.app
+        app.buttons["question-bank-option-\(reader.questionID)-B"].tap()
+        element(app, identifier: "question-bank-number-overview").tap()
+        let firstQuestionCard = app.buttons["question-bank-number-card-\(reader.questionID)"].firstMatch
+        XCTAssertTrue(firstQuestionCard.waitForExistence(timeout: 5))
+        XCTAssertEqual(firstQuestionCard.value as? String, "已答正确")
+    }
+
+    @MainActor
+    func testReferenceAccuracyHidesEditPencilUntilLongPressAndRestoresItAfterClear() throws {
+        let reader = launchPracticeReader()
+        let app = reader.app
+        app.buttons["question-bank-option-\(reader.questionID)-B"].tap()
+        let scroll = app.scrollViews["question-bank-continuous-scroll"].firstMatch
+        XCTAssertTrue(scroll.waitForExistence(timeout: 5))
+        let edit = app.buttons["question-bank-reference-accuracy-edit-\(reader.questionID)"].firstMatch
+        for _ in 0..<4 where !edit.isHittable { scroll.swipeUp() }
+        XCTAssertTrue(edit.waitForExistence(timeout: 5))
+        edit.tap()
+
+        let editor = app.textFields["question-bank-reference-accuracy-value"].firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        editor.tap()
+        editor.typeText("37.5")
+        app.buttons["question-bank-reference-accuracy-save"].tap()
+
+        let value = app.descendants(matching: .any)
+            .matching(identifier: "question-bank-reference-accuracy-value-\(reader.questionID)").firstMatch
+        XCTAssertTrue(value.waitForExistence(timeout: 5))
+        XCTAssertEqual(value.value as? String, "37.5%")
+        XCTAssertFalse(edit.exists, "A recorded percentage must not show an edit pencil")
+        value.press(forDuration: 1.2)
+        let clear = app.buttons["question-bank-reference-accuracy-clear"].firstMatch
+        XCTAssertTrue(clear.waitForExistence(timeout: 5))
+        clear.tap()
+        XCTAssertTrue(edit.waitForExistence(timeout: 5), "Clearing the value must restore the edit pencil")
+    }
+
+    @MainActor
     func testCorrectPracticeSelectionIsAnnouncedSeparatelyFromWrongSelection() throws {
         let reader = launchPracticeReader()
         let optionB = reader.app.buttons["question-bank-option-\(reader.questionID)-B"].firstMatch
         XCTAssertTrue(optionB.waitForExistence(timeout: 5))
         optionB.tap()
         XCTAssertEqual(optionB.value as? String, "已选择，回答正确")
+    }
+
+    @MainActor
+    func testConfirmedWrongAnswerCanBeAddedToErrorBookWithOneTap() throws {
+        let reader = launchPracticeReader()
+        let app = reader.app
+        let optionA = app.buttons["question-bank-option-\(reader.questionID)-A"].firstMatch
+        XCTAssertTrue(optionA.waitForExistence(timeout: 5))
+        optionA.tap()
+
+        let addAction = app.buttons["question-bank-error-book-action-\(reader.questionID)"].firstMatch
+        let scroll = app.scrollViews["question-bank-continuous-scroll"].firstMatch
+        XCTAssertTrue(scroll.waitForExistence(timeout: 5))
+        for _ in 0..<4 where !addAction.isHittable { scroll.swipeUp() }
+        XCTAssertTrue(addAction.waitForExistence(timeout: 5))
+        XCTAssertTrue(addAction.label.contains("加入错题本"))
+        addAction.tap()
+        XCTAssertTrue(addAction.waitForExistence(timeout: 5))
+        XCTAssertTrue(addAction.label.contains("已加入错题本"))
+        XCTAssertFalse(addAction.isEnabled, "An already linked question must not create a duplicate error record")
+    }
+
+    @MainActor
+    func testConfirmedCorrectAnswerCanBeAddedAsAnUncertainQuestion() throws {
+        let reader = launchPracticeReader()
+        let app = reader.app
+        let optionB = app.buttons["question-bank-option-\(reader.questionID)-B"].firstMatch
+        XCTAssertTrue(optionB.waitForExistence(timeout: 5))
+        optionB.tap()
+
+        let addAction = app.buttons["question-bank-error-book-action-\(reader.questionID)"].firstMatch
+        let scroll = app.scrollViews["question-bank-continuous-scroll"].firstMatch
+        XCTAssertTrue(scroll.waitForExistence(timeout: 5))
+        for _ in 0..<4 where !addAction.isHittable { scroll.swipeUp() }
+        XCTAssertTrue(addAction.waitForExistence(timeout: 5))
+        XCTAssertTrue(addAction.label.contains("加入不确定题"))
+        addAction.tap()
+        XCTAssertTrue(addAction.label.contains("已加入错题本"))
     }
 
     @MainActor
@@ -556,7 +707,82 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
     }
 
     @MainActor
-    func testCrossPaperRedoUsesSharedStableAnswerStateAndClearsCurrentGroup() throws {
+    func testQuestionDetailInlineNoteSurvivesReopenRestartAndKeepsAdjacentRichNoteReadable() throws {
+        let sessionID = UUID().uuidString
+        let reader = launchPracticeReader(sessionID: sessionID)
+        let app = reader.app
+        let firstQuestionDetail = app.buttons["question-bank-question-detail-\(reader.questionID)"].firstMatch
+        XCTAssertTrue(firstQuestionDetail.waitForExistence(timeout: 5))
+        firstQuestionDetail.tap()
+        XCTAssertTrue(app.navigationBars["第1题详情"].waitForExistence(timeout: 5))
+
+        let notePlaceholder = app.staticTexts["点击添加错题笔记"].firstMatch
+        let detailScroll = app.scrollViews.firstMatch
+        for _ in 0..<5 where !notePlaceholder.isHittable { detailScroll.swipeUp() }
+        XCTAssertTrue(notePlaceholder.waitForExistence(timeout: 5))
+        XCTAssertTrue(notePlaceholder.isHittable)
+        notePlaceholder.tap()
+
+        let editor = app.textViews.firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        editor.tap()
+        editor.typeText("短中文笔记")
+        let bold = app.buttons["bold"].firstMatch
+        XCTAssertTrue(bold.waitForExistence(timeout: 5))
+        bold.tap()
+        editor.typeText("富文本")
+        let finishNote = element(app, identifier: "library-inline-note-finish")
+        XCTAssertTrue(finishNote.waitForExistence(timeout: 5))
+        finishNote.tap()
+
+        let savedNote = element(app, identifier: "library-inline-note-display")
+        XCTAssertTrue(savedNote.waitForExistence(timeout: 5))
+        XCTAssertTrue(savedNote.label.contains("短中文笔记"))
+        XCTAssertTrue(savedNote.label.contains("富文本"))
+        XCTAssertFalse(app.staticTexts["笔记未保存，请勿离开"].exists)
+
+        element(app, identifier: "question-bank-detail-done").tap()
+        firstQuestionDetail.tap()
+        XCTAssertTrue(savedNote.waitForExistence(timeout: 5))
+        XCTAssertTrue(savedNote.label.contains("短中文笔记"), "Closing and reopening the same question must keep the note")
+        XCTAssertTrue(savedNote.label.contains("富文本"))
+        element(app, identifier: "question-bank-detail-done").tap()
+
+        app.terminate()
+        app.launch()
+        let tab = app.buttons["root-tab-questionBank"].firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 15))
+        tab.tap()
+        app.buttons["question-bank-paper-\(reader.paperID)"].tap()
+        app.buttons["question-bank-module-\(reader.moduleID)"].tap()
+        let closeSplit = app.buttons["question-bank-close-material-split"].firstMatch
+        if closeSplit.waitForExistence(timeout: 5) { closeSplit.tap() }
+
+        let reopenedFirstDetail = app.buttons["question-bank-question-detail-\(reader.questionID)"].firstMatch
+        XCTAssertTrue(reopenedFirstDetail.waitForExistence(timeout: 5))
+        reopenedFirstDetail.tap()
+        XCTAssertTrue(app.navigationBars["第1题详情"].waitForExistence(timeout: 5))
+        let reopenedNote = element(app, identifier: "library-inline-note-display")
+        XCTAssertTrue(reopenedNote.waitForExistence(timeout: 5))
+        XCTAssertTrue(reopenedNote.label.contains("短中文笔记"), "The note must survive an app-process restart")
+        XCTAssertTrue(reopenedNote.label.contains("富文本"))
+        element(app, identifier: "question-bank-detail-done").tap()
+
+        let secondQuestionID = "\(reader.paperID)-question-2"
+        let secondQuestionDetail = app.buttons["question-bank-question-detail-\(secondQuestionID)"].firstMatch
+        let readerScroll = app.scrollViews["question-bank-continuous-scroll"].firstMatch
+        for _ in 0..<5 where !secondQuestionDetail.isHittable { readerScroll.swipeUp() }
+        XCTAssertTrue(secondQuestionDetail.waitForExistence(timeout: 5))
+        secondQuestionDetail.tap()
+        XCTAssertTrue(app.navigationBars["第2题详情"].waitForExistence(timeout: 5))
+        let adjacentNote = element(app, identifier: "library-inline-note-display")
+        XCTAssertTrue(adjacentNote.waitForExistence(timeout: 5))
+        XCTAssertTrue(adjacentNote.label.contains("相邻题富文本回归"))
+        XCTAssertTrue(app.staticTexts["单项选择题"].exists, "The adjacent question details must remain intact")
+    }
+
+    @MainActor
+    func testAnswerStateStaysSharedAcrossReadersWithoutReaderLevelBulkClear() throws {
         let reader = launchPracticeReader()
         let app = reader.app
         let optionA = app.buttons["question-bank-option-\(reader.questionID)-A"].firstMatch
@@ -583,13 +809,15 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         let question2RecordID = "\(reader.paperID)::question::\(question2ID)"
         XCTAssertTrue(element(app, identifier: "question-bank-answer-feedback-\(question2RecordID)").waitForExistence(timeout: 5))
 
-        element(app, identifier: "question-bank-redo-filtered-group").tap()
-        app.buttons["清除当前题组作答记录"].tap()
-        XCTAssertFalse(element(app, identifier: "question-bank-answer-feedback-\(question2RecordID)").exists)
-        XCTAssertTrue(question2Option.isEnabled, "Redo should unlock the current question for another attempt")
+        XCTAssertFalse(element(app, identifier: "question-bank-redo-filtered-group").exists)
+        XCTAssertTrue(
+            element(app, identifier: "question-bank-answer-feedback-\(question2RecordID)").exists,
+            "The cross-paper reader must retain the answer saved in the module reader"
+        )
+        XCTAssertFalse(question2Option.isEnabled)
         app.swipeDown()
-        XCTAssertFalse(crossFeedback.exists, "Redo should clear earlier questions in the same filtered group")
-        XCTAssertTrue(optionA.isEnabled, "Redo should clear the earlier question shared with the paper reader")
+        XCTAssertTrue(crossFeedback.exists)
+        XCTAssertFalse(optionA.isEnabled)
     }
 
     @MainActor

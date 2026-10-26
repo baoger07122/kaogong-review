@@ -190,14 +190,13 @@ struct ReviewView: View {
             .navigationTitle("复习")
             .navigationBarTitleDisplayMode(.inline)
             .rootTabBarContentInset()
-            .toolbar(.visible, for: .tabBar)
             .navigationDestination(isPresented: $isSession) {
                 sessionView
                     .background(AppTheme.groupedBackground)
                     .navigationTitle("复习训练")
                     .navigationBarTitleDisplayMode(.inline)
                     .rootTabBarContentInset()
-                    .toolbar(.hidden, for: .tabBar)
+                    .secondaryPageTabBarHidden()
             }
             .onAppear {
                 restoreSession()

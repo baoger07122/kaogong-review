@@ -177,7 +177,6 @@ struct QuestionBankModuleView: View {
     @State private var didApplyAutomaticDataAnalysisSplit = false
     @State private var missingAnswerEditError: String?
     @State private var missingAnswerEditConfirmation: String?
-    @State private var showsRedoConfirmation = false
     @SceneStorage private var storedSplitMaterialID: String
     @SceneStorage private var storedQuestionID: String
     @SceneStorage private var storedReadingMode: String
@@ -370,6 +369,7 @@ struct QuestionBankModuleView: View {
                 QuestionBankQuestionOverviewSheet(
                     items: readingItems,
                     currentQuestionID: currentVisibleQuestionID,
+                    answerState: cachedAnswerState,
                     assetLookup: assetRecord(for:),
                     onSelect: { handleOverviewSelection($0.overviewItem) }
                 )
@@ -422,12 +422,6 @@ struct QuestionBankModuleView: View {
             }
         } message: {
             Text(missingAnswerEditError ?? missingAnswerEditConfirmation ?? "")
-        }
-        .confirmationDialog("重新作答？", isPresented: $showsRedoConfirmation, titleVisibility: .visible) {
-            Button("清除整卷作答记录", role: .destructive, action: redoPaperAnswers)
-            Button("取消", role: .cancel) { }
-        } message: {
-            Text("将清除本试卷所有模块的选项和答案揭示状态。涂鸦、题干与选项的手动修改及考试数据会保留。")
         }
     }
 
@@ -521,7 +515,6 @@ struct QuestionBankModuleView: View {
                     .accessibilityHidden(true)
             } else {
                 if presentationMode == .single { questionDoodleToolbarItems }
-                redoPaperButton
                 questionOverviewButton
                 readerOptionsMenu
             }
@@ -546,23 +539,6 @@ struct QuestionBankModuleView: View {
         .accessibilityHint("打开设置，调整浏览方式、答题方式和答案确认")
         .accessibilityIdentifier("question-bank-reader-options")
         .disabled(doodleSession.isPresented)
-    }
-
-    private var redoPaperButton: some View {
-        Button {
-            guard !doodleSession.isPresented else { return }
-            showsRedoConfirmation = true
-        } label: {
-            Image(systemName: "arrow.counterclockwise")
-                .font(.system(size: 15, weight: .medium))
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-                .foregroundStyle(AppTheme.accent.opacity(0.86))
-        }
-        .accessibilityLabel("整卷重新作答")
-        .accessibilityHint("清除本试卷所有题目的选择和答案揭示状态")
-        .accessibilityIdentifier("question-bank-redo-paper")
-        .disabled(doodleSession.isPresented || readingItems.isEmpty)
     }
 
     private var readerOptionsOverlay: some View {
@@ -1116,6 +1092,8 @@ struct QuestionBankModuleView: View {
                     .padding(.top, 12)
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("question-bank-answer-feedback-\(item.id)")
+                    QuestionBankAnswerFollowUpAction(analysis: questionAnalysisContext(for: item))
+                        .padding(.top, 7)
                 } else if requiresAnswerConfirmation {
                     HStack {
                         Spacer(minLength: 0)
@@ -1431,13 +1409,6 @@ struct QuestionBankModuleView: View {
         didMigrateLegacyAnswerState = true
     }
 
-    private func redoPaperAnswers() {
-        replaceAnswerStateJSON(QuestionBankAnswerStateStorage.clearing(
-            QuestionBankRedoScope.questionIDs(inPaper: paperID, records: records),
-            from: storedAnswerStateJSON
-        ))
-    }
-
     private func clearAnswer(for questionID: String) {
         replaceAnswerStateJSON(QuestionBankAnswerStateStorage.clearing(
             [questionID], from: storedAnswerStateJSON
@@ -1692,6 +1663,22 @@ struct QuestionBankModuleView: View {
                 if $0.question.number != $1.question.number { return $0.question.number < $1.question.number }
                 return $0.id < $1.id
             }
+        let overviewCandidates = questions.map { item in
+            QuestionBankOverviewCandidate(
+                id: item.id,
+                paperID: item.record.paperID,
+                paperTitle: item.record.title ?? "",
+                questionNumber: item.question.number,
+                moduleID: item.question.moduleID,
+                moduleTitle: item.moduleTitle ?? "",
+                moduleSequence: item.moduleSequence,
+                type: item.question.type,
+                subject: item.question.subject
+            )
+        }
+        let questionByID = Dictionary(questions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        questions = QuestionBankModulePracticeOrdering.orderedQuestionIDs(from: overviewCandidates)
+            .compactMap { questionByID[$0] }
         for index in questions.indices {
             questions[index].localOrdinal = index + 1
         }
@@ -1771,7 +1758,6 @@ struct QuestionBankCrossPaperReaderView: View {
     @State private var continuousQuestionDoodleRecordID: String?
     @State private var missingAnswerEditError: String?
     @State private var missingAnswerEditConfirmation: String?
-    @State private var showsRedoConfirmation = false
     @SceneStorage private var selectedOptionsJSON: String
     @SceneStorage private var revealedAnswersJSON: String
     @AppStorage(QuestionBankAnswerStateStorage.appStorageKey)
@@ -1957,12 +1943,6 @@ struct QuestionBankCrossPaperReaderView: View {
             } message: {
                 Text(missingAnswerEditError ?? missingAnswerEditConfirmation ?? "")
             }
-            .confirmationDialog("重新作答？", isPresented: $showsRedoConfirmation, titleVisibility: .visible) {
-                Button("清除当前题组作答记录", role: .destructive, action: redoCurrentGroupAnswers)
-                Button("取消", role: .cancel) { }
-            } message: {
-                Text("将清除当前筛选题组的选项和答案揭示状态。涂鸦、题干与选项的手动修改及考试数据会保留。")
-            }
     }
 
     private var readerScreen: some View {
@@ -2018,7 +1998,6 @@ struct QuestionBankCrossPaperReaderView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 0) {
                     if presentationMode == .single { doodleButton }
-                    redoCurrentGroupButton
                     Button {
                         guard !doodleSession.isPresented else { return }
                         showsOverview = true
@@ -2052,6 +2031,14 @@ struct QuestionBankCrossPaperReaderView: View {
                                     showsOverview = false
                                 } label: {
                                     HStack {
+                                        if let item = orderedItems.first(where: { $0.id == candidate.id }) {
+                                            QuestionBankNumberStatusCircle(
+                                                number: candidate.questionNumber,
+                                                status: overviewAnswerStatus(for: item),
+                                                isCurrent: item.id == currentQuestionID,
+                                                diameter: 30
+                                            )
+                                        }
                                         Text("第\(candidate.questionNumber)题")
                                         Spacer()
                                         if let item = orderedItems.first(where: { $0.id == candidate.id }),
@@ -2065,6 +2052,8 @@ struct QuestionBankCrossPaperReaderView: View {
                                     }
                                 }
                                 .accessibilityLabel("\(group.moduleTitle)，第\(candidate.questionNumber)题")
+                                .accessibilityValue(orderedItems.first(where: { $0.id == candidate.id })
+                                    .map { overviewAnswerStatus(for: $0).accessibilityValue } ?? "未判定")
                                 .accessibilityIdentifier("question-bank-cross-paper-overview-\(candidate.id)")
                             }
                         } header: {
@@ -2252,23 +2241,6 @@ struct QuestionBankCrossPaperReaderView: View {
         .accessibilityValue("浏览方式：\(presentationMode.title)，答题方式：\(readingMode.title)，选择后确认答案：\(requiresAnswerConfirmation ? "开启" : "关闭")")
         .accessibilityIdentifier("question-bank-reader-options")
         .disabled(doodleSession.isPresented)
-    }
-
-    private var redoCurrentGroupButton: some View {
-        Button {
-            guard !doodleSession.isPresented else { return }
-            showsRedoConfirmation = true
-        } label: {
-            Image(systemName: "arrow.counterclockwise")
-                .font(.system(size: 15, weight: .medium))
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-                .foregroundStyle(AppTheme.accent.opacity(0.86))
-        }
-        .accessibilityLabel("当前题组重新作答")
-        .accessibilityHint("清除当前筛选题组所有题目的选择和答案揭示状态")
-        .accessibilityIdentifier("question-bank-redo-filtered-group")
-        .disabled(doodleSession.isPresented || orderedItems.isEmpty)
     }
 
     private var readerOptionsOverlay: some View {
@@ -2558,6 +2530,10 @@ struct QuestionBankCrossPaperReaderView: View {
                 .padding(.top, 6)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("question-bank-answer-feedback-\(item.id)")
+                QuestionBankAnswerFollowUpAction(
+                    analysis: questionAnalysisContext(for: item, group: group)
+                )
+                .padding(.top, 7)
             } else if readingMode == .practice && requiresAnswerConfirmation {
                 HStack {
                     Spacer()
@@ -2642,6 +2618,14 @@ struct QuestionBankCrossPaperReaderView: View {
         )
     }
 
+    private func overviewAnswerStatus(for item: QuestionBankHomeQuestion) -> QuestionBankOverviewAnswerStatus {
+        QuestionBankOverviewAnswerStatus.resolve(
+            selectedOptionID: selectedOptionsByQuestionID[item.record.compoundID],
+            answer: item.question.answer,
+            isConfirmed: revealedAnswerQuestionIDs.contains(item.record.compoundID)
+        )
+    }
+
     private func moveQuestion(to target: String) {
         guard !doodleSession.isPresented,
               orderedItems.contains(where: { $0.id == target }) else { return }
@@ -2672,13 +2656,6 @@ struct QuestionBankCrossPaperReaderView: View {
         selectedOptionsJSON = "{}"
         revealedAnswersJSON = "[]"
         didMigrateLegacyAnswerState = true
-    }
-
-    private func redoCurrentGroupAnswers() {
-        replaceAnswerStateJSON(QuestionBankAnswerStateStorage.clearing(
-            QuestionBankRedoScope.questionIDs(inCurrentGroup: orderedItems),
-            from: storedAnswerStateJSON
-        ))
     }
 
     private func clearAnswer(for questionID: String) {
@@ -2809,6 +2786,7 @@ private struct QuestionBankQuestionOverviewSheet: View {
 
     let items: [QuestionBankReadingItem]
     let currentQuestionID: String?
+    let answerState: QuestionBankAnswerState
     let assetLookup: (String) -> QuestionBankRecord?
     let onSelect: (QuestionBankReadingItem) -> Void
 
@@ -2894,6 +2872,14 @@ private struct QuestionBankQuestionOverviewSheet: View {
         )
     }
 
+    private func answerStatus(for item: QuestionBankReadingItem) -> QuestionBankOverviewAnswerStatus {
+        QuestionBankOverviewAnswerStatus.resolve(
+            selectedOptionID: answerState.selectedOptions[item.record.compoundID],
+            answer: item.question.answer,
+            isConfirmed: answerState.revealedQuestionIDs.contains(item.record.compoundID)
+        )
+    }
+
     private func groupHeading(_ group: QuestionBankOverviewGroup) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             if group.startsModule {
@@ -2917,21 +2903,19 @@ private struct QuestionBankQuestionOverviewSheet: View {
             onSelect(item)
             dismiss()
         } label: {
-            Text(String(displayNumber(for: item)))
-                .font(AppTheme.bodyFont.weight(isCurrent ? .semibold : .regular))
-                .foregroundStyle(isCurrent ? AppTheme.accent : .primary)
+            QuestionBankNumberStatusCircle(
+                number: displayNumber(for: item),
+                status: answerStatus(for: item),
+                isCurrent: isCurrent,
+                diameter: 36
+            )
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
-                .background(isCurrent ? AppTheme.accent.opacity(0.10) : Color.clear)
-                .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(isCurrent ? AppTheme.accent : Color(uiColor: .separator).opacity(0.35))
-                        .frame(height: isCurrent ? 1.5 : 0.7)
-                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("第\(String(displayNumber(for: item)))题")
+        .accessibilityValue(answerStatus(for: item).accessibilityValue)
         .accessibilityIdentifier("question-bank-number-card-\(item.id)")
     }
 
@@ -2945,9 +2929,12 @@ private struct QuestionBankQuestionOverviewSheet: View {
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
-                    Text("\(String(displayNumber(for: item))).")
-                        .font(AppTheme.bodyFont.weight(.semibold))
-                        .foregroundStyle(isCurrent ? AppTheme.accent : .primary)
+                    QuestionBankNumberStatusCircle(
+                        number: displayNumber(for: item),
+                        status: answerStatus(for: item),
+                        isCurrent: isCurrent,
+                        diameter: 32
+                    )
                     if !overview.type.isEmpty {
                         Text(overview.type)
                             .font(AppTheme.auxiliaryFont)
@@ -2982,6 +2969,7 @@ private struct QuestionBankQuestionOverviewSheet: View {
         .contentShape(Rectangle())
         .buttonStyle(.plain)
         .accessibilityLabel("第\(String(displayNumber(for: item)))题\(headingDescription)")
+        .accessibilityValue(answerStatus(for: item).accessibilityValue)
         .accessibilityIdentifier("question-bank-overview-item-\(item.id)")
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -3444,7 +3432,7 @@ private struct QuestionBankMissingAnswerMenu: View {
 }
 
 private struct QuestionBankOptionRow: View {
-    @ScaledMetric(relativeTo: .body) private var markerDiameter: CGFloat = 32
+    @ScaledMetric(relativeTo: .body) private var markerDiameter: CGFloat = 26
 
     let questionID: String
     let option: QuestionBankOption
@@ -3481,7 +3469,7 @@ private struct QuestionBankOptionRow: View {
     }
 
     private var row: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
+        HStack(alignment: .top, spacing: 7) {
             Text(option.id)
                 .font(QuestionBankTypography.contentFont.weight(.semibold))
                 .foregroundStyle(letterColor)
@@ -3490,9 +3478,6 @@ private struct QuestionBankOptionRow: View {
                 .overlay {
                     Circle()
                         .stroke(selectionOutlineColor, lineWidth: isSelected && !showsKnownAnswer ? 1.5 : 0)
-                }
-                .alignmentGuide(.firstTextBaseline) { dimensions in
-                    dimensions[.bottom] - dimensions.height / 2
                 }
             VStack(alignment: .leading, spacing: 8) {
                 if let displayText = QuestionBankOptionDisplay.text(for: option) {
@@ -3506,7 +3491,6 @@ private struct QuestionBankOptionRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .alignmentGuide(.firstTextBaseline) { dimensions in dimensions[.firstTextBaseline] }
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 8)
@@ -3604,6 +3588,74 @@ private struct QuestionBankQuestionAnnotationBadges: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(color.opacity(0.09), in: Capsule())
+    }
+}
+
+private struct QuestionBankAnswerFollowUpAction: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query(filter: #Predicate<StoredRecord> { $0.collection == "errors" })
+    private var errorRecords: [StoredRecord]
+
+    let analysis: QuestionBankQuestionAnalysisContext
+
+    @State private var isSaving = false
+    @State private var statusMessage = ""
+    @State private var errorMessage = ""
+
+    private var question: QuestionBankQuestion { analysis.currentQuestion }
+    private var category: QuestionBankErrorBookCategory {
+        analysis.selectedOptionID == question.answer ? .uncertain : .wrong
+    }
+
+    private var existingRecord: StoredRecord? {
+        errorRecords.first { record in
+            guard let payload = record.jsonObject else { return false }
+            return payload["questionBankPaperID"] as? String == question.paperID
+                && payload["questionBankQuestionID"] as? String == question.id
+        }
+    }
+
+    private var buttonTitle: String {
+        if existingRecord != nil || !statusMessage.isEmpty { return "已加入错题本" }
+        return category == .wrong ? "加入错题本" : "加入不确定题"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button(action: addToErrorBook) {
+                Label(buttonTitle, systemImage: existingRecord == nil ? "plus.circle" : "checkmark.circle.fill")
+                    .font(AppTheme.auxiliaryFont.weight(.medium))
+            }
+            .buttonStyle(.bordered)
+            .disabled(existingRecord != nil || !statusMessage.isEmpty || isSaving)
+            .accessibilityIdentifier("question-bank-error-book-action-\(question.id)")
+
+            if !errorMessage.isEmpty {
+                Text(errorMessage)
+                    .font(AppTheme.auxiliaryFont)
+                    .foregroundStyle(AppTheme.danger)
+                    .accessibilityIdentifier("question-bank-error-book-error-\(question.id)")
+            }
+        }
+    }
+
+    private func addToErrorBook() {
+        guard existingRecord == nil, !isSaving else { return }
+        isSaving = true
+        errorMessage = ""
+        defer { isSaving = false }
+        do {
+            switch try QuestionBankErrorBookRepository.add(
+                analysis: analysis,
+                category: category,
+                context: modelContext
+            ) {
+            case .added, .alreadyAdded:
+                statusMessage = "已加入错题本"
+            }
+        } catch {
+            errorMessage = "加入失败：\(error.localizedDescription)"
+        }
     }
 }
 

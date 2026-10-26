@@ -406,9 +406,11 @@ struct NativeRichTextEditor: View {
 struct NativeRichTextDisplay: UIViewRepresentable {
     let html: String
     var minHeight: CGFloat = 0
+    var onFallback: (() -> Void)? = nil
 
     final class Coordinator {
         var lastHTML = ""
+        var fallbackReportedHTML: String?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -424,21 +426,107 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         view.textContainer.lineFragmentPadding = 0
         view.adjustsFontForContentSizeCategory = false
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        view.attributedText = RichTextTextView.attributed(from: html)
+        applyContent(to: view, coordinator: context.coordinator)
         context.coordinator.lastHTML = html
         return view
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
         guard context.coordinator.lastHTML != html else { return }
-        view.attributedText = RichTextTextView.attributed(from: html)
+        applyContent(to: view, coordinator: context.coordinator)
         context.coordinator.lastHTML = html
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
-        guard let width = proposal.width else { return nil }
-        let fitting = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-        return CGSize(width: width, height: max(minHeight, ceil(fitting.height)))
+        guard let width = proposal.width, width.isFinite, width > 0 else { return nil }
+        let fitting = uiView.sizeThatFits(CGSize(width: width, height: 65_536))
+        let height = fitting.height.isFinite ? max(minHeight, ceil(fitting.height)) : minHeight
+        return CGSize(width: width, height: height)
+    }
+
+    private func applyContent(to view: UITextView, coordinator: Coordinator) {
+        let rendered = NativeRichTextDisplayRenderer.render(html)
+        view.attributedText = rendered.attributedText
+        view.accessibilityLabel = rendered.attributedText.string
+        guard rendered.usedSafeFallback, coordinator.fallbackReportedHTML != html else { return }
+        coordinator.fallbackReportedHTML = html
+        DispatchQueue.main.async { onFallback?() }
+    }
+}
+
+struct NativeRichTextDisplayRenderResult {
+    let attributedText: NSAttributedString
+    let usedSafeFallback: Bool
+}
+
+enum NativeRichTextDisplayRenderer {
+    private static let maximumImportedHTMLBytes = 512 * 1024
+    private static let maximumFallbackCharacters = 10_000
+    private static let maximumScannedCharacters = 512 * 1024
+
+    static func render(_ html: String) -> NativeRichTextDisplayRenderResult {
+        guard html.utf8.count <= maximumImportedHTMLBytes else {
+            return fallback(html)
+        }
+        let attributed = RichTextTextView.attributed(from: html)
+        guard html.contains("<"), attributed.string == html else {
+            return NativeRichTextDisplayRenderResult(attributedText: attributed, usedSafeFallback: false)
+        }
+        return fallback(html)
+    }
+
+    private static func fallback(_ html: String) -> NativeRichTextDisplayRenderResult {
+        let plainText = plainTextPreview(from: html)
+        return NativeRichTextDisplayRenderResult(
+            attributedText: NSAttributedString(
+                string: plainText,
+                attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]
+            ),
+            usedSafeFallback: true
+        )
+    }
+
+    private static func plainTextPreview(from html: String) -> String {
+        var output = String()
+        output.reserveCapacity(min(html.count, maximumFallbackCharacters))
+        var isTag = false
+        var tag = String()
+
+        for (index, character) in html.enumerated() {
+            if index >= maximumScannedCharacters { break }
+            if isTag {
+                if character == ">" {
+                    let normalizedTag = tag.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    if normalizedTag.hasPrefix("br") || normalizedTag.hasPrefix("/p")
+                        || normalizedTag.hasPrefix("/div") || normalizedTag.hasPrefix("/li") {
+                        if output.last != "\n" { output.append("\n") }
+                    }
+                    isTag = false
+                    tag.removeAll(keepingCapacity: true)
+                } else {
+                    if tag.count < 512 { tag.append(character) }
+                }
+                continue
+            }
+            if character == "<" {
+                isTag = true
+                tag.removeAll(keepingCapacity: true)
+                continue
+            }
+            output.append(character)
+            if output.count >= maximumFallbackCharacters { break }
+        }
+
+        let decoded = output
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&#160;", with: " ")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&amp;", with: "&")
+        guard html.count > maximumFallbackCharacters else { return decoded }
+        return decoded + "\n…（预览已截断，原内容仍保留）"
     }
 }
 

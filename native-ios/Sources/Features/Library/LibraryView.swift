@@ -18,7 +18,7 @@ struct LibraryView: View {
     @State private var searchText = ""
     @State private var selectedStatus = ""
     @State private var selectedTag = ""
-    @State private var cardSize: LibraryCardSize = .medium
+    @AppStorage("native.library.card-size.v1") private var storedCardSize = LibraryCardSize.medium.rawValue
     @State private var showNewNoteType = false
     @State private var noteTypeDraft = ""
     @State private var noteTypeColor = NoteTypeRepository.colors[0]
@@ -319,6 +319,7 @@ struct LibraryView: View {
                 }
                 .buttonStyle(NativePressButtonStyle())
                 .accessibilityLabel("新增\(kind.rawValue)")
+                .accessibilityIdentifier("library-add-record")
                 .padding(.trailing, 18)
                 .padding(.bottom, 72)
             }
@@ -366,6 +367,7 @@ struct LibraryView: View {
                     }
                     .buttonStyle(.plain)
                     .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("library-kind-\(value.rawValue)")
                 }
             }
             .padding(3)
@@ -490,6 +492,10 @@ struct LibraryView: View {
     }
 
     private var isQuantityContext: Bool { scope.subject == "数量关系" && scope.module == nil }
+    private var cardSize: LibraryCardSize {
+        get { LibraryCardSize(rawValue: storedCardSize) ?? .medium }
+        set { storedCardSize = newValue.rawValue }
+    }
     private var isGraphReasoningContext: Bool {
         kind == .errors && scope.subject == "判断推理" && scope.module == "图形推理"
     }

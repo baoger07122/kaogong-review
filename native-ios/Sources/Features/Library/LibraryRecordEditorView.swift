@@ -215,6 +215,7 @@ struct LibraryRecordEditorView: View {
         editorContent
         .navigationTitle(isQuestionBank ? "编辑题目" : (recordID == nil ? "新增\(kind.rawValue)" : "编辑\(kind.rawValue)"))
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(recordID == nil)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
@@ -223,15 +224,23 @@ struct LibraryRecordEditorView: View {
                     .accessibilityIdentifier(isQuestionBank ? "question-bank-save-question-analysis" : "library-record-save")
             }
             if recordID == nil {
-                ToolbarItem(placement: .topBarLeading) {
-                    Menu {
-                        Button("放弃草稿", role: .destructive) {
-                            showDiscardDraftConfirmation = true
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
+                ToolbarItemGroup(placement: .topBarLeading) {
+                    Button(action: requestBackFromNewRecord) {
+                        Label("返回", systemImage: "chevron.left")
+                            .labelStyle(.iconOnly)
                     }
-                    .accessibilityLabel("草稿选项")
+                    .accessibilityLabel("返回")
+                    .accessibilityIdentifier("library-editor-back")
+                    if kind != .words {
+                        Menu {
+                            Button("放弃草稿", role: .destructive) {
+                                showDiscardDraftConfirmation = true
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .accessibilityLabel("草稿选项")
+                    }
                 }
             }
             if recordID != nil, kind != .errors {
@@ -245,14 +254,13 @@ struct LibraryRecordEditorView: View {
             Button("删除", role: .destructive, action: remove)
             Button("取消", role: .cancel) {}
         } message: { Text("删除后无法在 App 内恢复。") }
-        .confirmationDialog("放弃未保存的\(kind.rawValue)草稿？", isPresented: $showDiscardDraftConfirmation, titleVisibility: .visible) {
-            Button("放弃草稿", role: .destructive) {
-                LibraryDraftStore.clear(kind: kind, scope: scope, category: draft.type)
-                dismiss()
-            }
+        .confirmationDialog("未保存的\(kind.rawValue)草稿", isPresented: $showDiscardDraftConfirmation, titleVisibility: .visible) {
+            Button("保存并退出") { save() }
+                .disabled(!canSave || isSaving)
+            Button("放弃草稿", role: .destructive) { discardDraftAndExit() }
             Button("继续编辑", role: .cancel) {}
         } message: {
-            Text("放弃后，此分类和作用域下保存的草稿会被清除。")
+            Text("继续编辑会保留草稿；保存并退出会保存当前记录；只有选择“放弃草稿”才会清除本分类和作用域的草稿。")
         }
     }
 
@@ -1223,6 +1231,7 @@ struct LibraryRecordEditorView: View {
                 HStack(spacing: 8) {
                     wordEntryKindPicker(selection: $draft.wordEntryKind)
                     compactWordTextField("词语 / 常见搭配", text: $draft.title)
+                        .accessibilityIdentifier("library-word-title")
                 }
                 compactWordTextField("拼音（可选）", text: $draft.pinyin)
             }
@@ -1533,6 +1542,19 @@ struct LibraryRecordEditorView: View {
     }
 
     private var draftSnapshot: LibraryDraftSnapshot { LibraryDraftSnapshot(draft) }
+
+    private func requestBackFromNewRecord() {
+        guard draftSnapshot.hasUserContent else {
+            dismiss()
+            return
+        }
+        showDiscardDraftConfirmation = true
+    }
+
+    private func discardDraftAndExit() {
+        LibraryDraftStore.clear(kind: kind, scope: scope, category: draft.type)
+        dismiss()
+    }
 
     private var noteTypes: [NoteTypeDefinition] {
         NoteTypeRepository.types(subject: draft.subject, module: draft.subject == "资料分析" ? "" : draft.module, records: records)

@@ -45,4 +45,9 @@ final class LibraryDraftStoreTests: XCTestCase {
         emptyDraft.wordCompareTerms = [emptyTerm, WordComparisonTermDraft()]
         XCTAssertFalse(LibraryDraftSnapshot(emptyDraft).hasUserContent)
     }
+
+    func testWordCardPreviewKeepsParagraphsBreaksAndActualNewlines() {
+        let preview = LibraryWordCardPreviewText.render("<p>第一行</p><p>第二<br>行\n用户换行</p>")
+        XCTAssertEqual(preview, "第一行\n第二\n行\n用户换行")
+    }
 }

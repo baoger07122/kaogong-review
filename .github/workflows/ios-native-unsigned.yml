@@ -108,7 +108,7 @@ jobs:
                 RUN_SIMULATOR=true
                 RUN_QUESTION_BANK=true
               fi
-              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Sources/Features/Library/(LibraryRecordRepository\.swift|LibraryRecordModels\.swift|LibraryRecordDetailView\.swift|LibraryRecordEditorView\.swift|LibraryDoodleSession\.swift|ShenlunAdaptationView\.swift)$'; then
+              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Sources/Features/Library/(LibraryRecordRepository\.swift|LibraryRecordModels\.swift|LibraryRecordDetailView\.swift|LibraryRecordEditorView\.swift|LibraryDoodleSession\.swift|LibraryComponents\.swift|LibraryView\.swift|ShenlunAdaptationView\.swift)$'; then
                 RUN_SIMULATOR=true
                 RUN_QUESTION_BANK=true
               fi
@@ -116,7 +116,7 @@ jobs:
                 RUN_SIMULATOR=true
                 RUN_QUESTION_BANK=true
               fi
-              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/App/RootTabView\.swift|Sources/Features/Review/ReviewView\.swift|Tests/UI/SpeedInteractionUITests\.swift)$'; then
+              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/App/(RootTabView|NativeBottomTabBar)\.swift|Sources/DesignSystem/NativeDocumentStyle\.swift|Sources/Features/Review/ReviewView\.swift|Tests/UI/SpeedInteractionUITests\.swift)$'; then
                 RUN_SIMULATOR=true
                 RUN_NAVIGATION=true
               fi
@@ -161,30 +161,68 @@ jobs:
           SIMULATOR_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next(d["udid"] for runtime,devices in sorted(data["devices"].items(), reverse=True) if "iOS" in runtime for d in devices if "iPad" in d["name"]))')
           echo "SIMULATOR_ID=$SIMULATOR_ID" >> "$GITHUB_ENV"
 
-      - name: Measure released tab bar geometry before changes
+      - name: Compute tab bar baseline proof key
+        id: baseline_key
         if: steps.simulator_scope.outputs.navigation == 'true'
-        timeout-minutes: 25
         shell: bash
         run: |
-          BASELINE_DIR="$RUNNER_TEMP/native-tabbar-baseline"
-          git worktree add --detach "$BASELINE_DIR" native-v10.5.4
-          cp native-ios/Tests/UI/SpeedInteractionUITests.swift "$BASELINE_DIR/native-ios/Tests/UI/SpeedInteractionUITests.swift"
-          (cd "$BASELINE_DIR/native-ios" && xcodegen generate)
-          xcrun simctl boot "$SIMULATOR_ID" || true
-          xcrun simctl bootstatus "$SIMULATOR_ID" -b
-          mkdir -p build
-          RESULT_PATH=build/TabBarBaseline.xcresult
-          if ! xcodebuild test \
-            -project "$BASELINE_DIR/native-ios/KaogongReviewNative.xcodeproj" \
-            -scheme KaogongReviewNative \
-            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-            -derivedDataPath build/TabBarBaselineDerivedData \
-            -parallel-testing-enabled NO \
-            -resultBundlePath "$RESULT_PATH" \
-            -only-testing:SpeedInteractionUITests/SpeedInteractionUITests/testRootTabBarFrameBaselineDiagnostics \
-            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
-            xcrun xcresulttool get test-results summary --path "$RESULT_PATH" || true
-            exit 1
+          BASELINE_COMMIT=$(git rev-parse 'native-v10.5.4^{commit}')
+          XCODE_VERSION=$(xcodebuild -version | sed -n '1p')
+          XCODE_BUILD=$(xcodebuild -version | sed -n '2p')
+          SIMULATOR_RUNTIME=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; data=json.load(sys.stdin); udid=sys.argv[1]; print(next(runtime for runtime,devices in data["devices"].items() if any(device["udid"] == udid for device in devices)))' "$SIMULATOR_ID")
+          SPEED_TEST_SHA=$(shasum -a 256 native-ios/Tests/UI/SpeedInteractionUITests.swift | awk '{print $1}')
+          BASELINE_SCRIPT_SHA=$(shasum -a 256 native-ios/scripts/run-tabbar-baseline.sh | awk '{print $1}')
+          PROOF_DIGEST=$(printf '%s\n' "$BASELINE_COMMIT" "$XCODE_VERSION" "$XCODE_BUILD" "$SIMULATOR_RUNTIME" "$SPEED_TEST_SHA" "$BASELINE_SCRIPT_SHA" | shasum -a 256 | awk '{print $1}')
+          {
+            printf 'BASELINE_COMMIT=%s\n' "$BASELINE_COMMIT"
+            printf 'BASELINE_XCODE_VERSION=%s\n' "$XCODE_VERSION"
+            printf 'BASELINE_XCODE_BUILD=%s\n' "$XCODE_BUILD"
+            printf 'BASELINE_SIMULATOR_RUNTIME=%s\n' "$SIMULATOR_RUNTIME"
+            printf 'BASELINE_SPEED_TEST_SHA=%s\n' "$SPEED_TEST_SHA"
+            printf 'BASELINE_SCRIPT_SHA=%s\n' "$BASELINE_SCRIPT_SHA"
+          } >> "$GITHUB_ENV"
+          echo "digest=$PROOF_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Restore tab bar baseline proof
+        id: baseline_cache
+        if: steps.simulator_scope.outputs.navigation == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: build/native-tabbar-baseline-proof
+          key: native-tabbar-baseline-${{ steps.baseline_key.outputs.digest }}
+
+      - name: Verify tab bar baseline proof
+        id: baseline_proof
+        if: steps.simulator_scope.outputs.navigation == 'true'
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.baseline_cache.outputs.cache-hit }}
+        run: |
+          PROOF_FILE=build/native-tabbar-baseline-proof/manifest.json
+          if [ "$CACHE_HIT" = "true" ] && [ -f "$PROOF_FILE" ] && python3 - "$PROOF_FILE" <<'PY'
+          import json
+          import os
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              proof = json.load(stream)
+          expected = {
+              "result": "passed",
+              "baseline_commit": os.environ["BASELINE_COMMIT"],
+              "xcode_version": os.environ["BASELINE_XCODE_VERSION"],
+              "xcode_build": os.environ["BASELINE_XCODE_BUILD"],
+              "simulator_runtime": os.environ["BASELINE_SIMULATOR_RUNTIME"],
+              "speed_test_sha256": os.environ["BASELINE_SPEED_TEST_SHA"],
+              "baseline_script_sha256": os.environ["BASELINE_SCRIPT_SHA"],
+          }
+          sys.exit(0 if proof == expected else 1)
+          PY
+          then
+            echo 'valid=true' >> "$GITHUB_OUTPUT"
+            echo "Using a passing baseline proof for $BASELINE_COMMIT on $BASELINE_SIMULATOR_RUNTIME."
+          else
+            echo 'valid=false' >> "$GITHUB_OUTPUT"
+            echo 'No exact passing baseline proof; the baseline test will run after compilation.'
           fi
 
       - name: Compile native App and focused tests
@@ -232,6 +270,43 @@ jobs:
               CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic
           fi
 
+      - name: Measure released tab bar geometry after compilation
+        if: steps.simulator_scope.outputs.navigation == 'true' && steps.baseline_proof.outputs.valid != 'true'
+        timeout-minutes: 25
+        shell: bash
+        run: bash native-ios/scripts/run-tabbar-baseline.sh
+
+      - name: Record passing tab bar baseline proof
+        if: steps.simulator_scope.outputs.navigation == 'true' && steps.baseline_proof.outputs.valid != 'true'
+        shell: bash
+        run: |
+          mkdir -p build/native-tabbar-baseline-proof
+          python3 - build/native-tabbar-baseline-proof/manifest.json <<'PY'
+          import json
+          import os
+          import sys
+
+          proof = {
+              "result": "passed",
+              "baseline_commit": os.environ["BASELINE_COMMIT"],
+              "xcode_version": os.environ["BASELINE_XCODE_VERSION"],
+              "xcode_build": os.environ["BASELINE_XCODE_BUILD"],
+              "simulator_runtime": os.environ["BASELINE_SIMULATOR_RUNTIME"],
+              "speed_test_sha256": os.environ["BASELINE_SPEED_TEST_SHA"],
+              "baseline_script_sha256": os.environ["BASELINE_SCRIPT_SHA"],
+          }
+          with open(sys.argv[1], "w", encoding="utf-8") as stream:
+              json.dump(proof, stream, sort_keys=True)
+              stream.write("\n")
+          PY
+
+      - name: Save passing tab bar baseline proof
+        if: steps.simulator_scope.outputs.navigation == 'true' && steps.baseline_proof.outputs.valid != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build/native-tabbar-baseline-proof
+          key: native-tabbar-baseline-${{ steps.baseline_key.outputs.digest }}
+
       - name: Test changed navigation, speed controls and inline note
         if: steps.simulator_scope.outputs.run == 'true'
         timeout-minutes: 12
@@ -276,6 +351,9 @@ jobs:
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankHomeIndexStoreRebuildsOnlyForRecordRevisionChanges
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankOrganizationDefaultsToCurrentPaperOrderAndResetsAfterManualReorder
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankOverviewKeepsReaderIDOrderAndShowsModuleTitleOnlyAtModuleStart
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testOverviewAnswerStatusOnlyMarksConfirmedSelections
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testImportPreviewRequiresManualWordGroupsBeforeCorrectingGluedOptions
+              -only-testing:QuestionBankImportTests/LibraryDraftStoreTests/testWordCardPreviewKeepsParagraphsBreaksAndActualNewlines
               -only-testing:QuestionBankImportTests/LibraryDraftStoreTests/testWordComparisonTermsPersistByCategoryAndScopeWithoutTitle
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankPresentationSwitchPreservesCurrentQuestionAndReadingMode
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankSingleQuestionNavigationStopsAtModuleBoundaries
@@ -294,6 +372,11 @@ jobs:
               -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testMissingExplicitErrorLinkDoesNotCreateStoredRecordOrChangeQuestion
               -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testMultiBlankQuestionEditRejectsConcatenatedOptionUntilItsBoundaryIsExplicit
               -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testReferenceAccuracyWritesAndClearsWithoutAcceptingOutOfRangeValues
+              -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testQuestionBankErrorRecordIdentityIsStableAndSeparatesCategories
+              -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testOneTapErrorBookAddPreservesQuestionAssetsAndIsIdempotent
+              -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testSavingNoteDoesNotRejectOrRewriteLegacyConcatenatedMultiBlankOptions
+              -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testRichQuestionNoteSurvivesClosingAndReopeningTheSwiftDataStore
+              -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testRichTextDisplayRendersFormattedTextAndSafelyFallsBackForOversizedMarkup
               -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testEditingAnExplicitlyLinkedErrorWritesBackToTheTrueQuestionInOneSave
               -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testStaleQuestionBankLinkDoesNotBlockEditingOrDeletingWrongQuestion
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testSingleJSONPickerCallbackReachesPreviewAndConfirmedCommit
@@ -340,6 +423,13 @@ jobs:
             -resultBundlePath "$RESULT_PATH" \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testPracticeAnswerRevealsOnSelectionByDefaultAndLocksSelection \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testCorrectPracticeSelectionIsAnnouncedSeparatelyFromWrongSelection \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testOverviewCirclesReportConfirmedCorrectWrongAndUnansweredStates \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testOverviewCircleReportsConfirmedCorrectAnswer \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testReferenceAccuracyHidesEditPencilUntilLongPressAndRestoresItAfterClear \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testConfirmedWrongAnswerCanBeAddedToErrorBookWithOneTap \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testConfirmedCorrectAnswerCanBeAddedAsAnUncertainQuestion \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testWordDraftBackConfirmsContinueAndExplicitDiscard \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testQuestionDetailInlineNoteSurvivesReopenRestartAndKeepsAdjacentRichNoteReadable \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testPracticeAnswerConfirmationTogglePersistsAcrossReaderModeChanges \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testDoodleBlocksOptionSelectionAndQuestionNavigationInMaterialSplit \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testSingleQuestionHorizontalSwipesRetainSelectionAndReturnToTop \

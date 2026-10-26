@@ -372,7 +372,9 @@ struct QuestionBankView: View {
                     batchSources: batchSources,
                     isImporting: isCommittingImport,
                     importFailure: $inlineImportFailure,
-                    onImport: { decision, batchMetadata in commitImport(plan, decision: decision, batchMetadata: batchMetadata) },
+                    onImport: { correctedPlan, decision, batchMetadata in
+                        commitImport(correctedPlan, decision: decision, batchMetadata: batchMetadata)
+                    },
                     onCancel: { activeImportSheet = nil }
                 )
             case .batchPreview(let plan):
@@ -1264,7 +1266,7 @@ private struct QuestionBankImportPreview: View {
     let records: [QuestionBankRecord]
     let batchSources: [QuestionBankBatchSourceRecord]
     @Binding var importFailure: String?
-    let onImport: (QuestionBankImportDecision, QuestionBankBatchMetadata?) -> Void
+    let onImport: (QuestionBankImportPlan, QuestionBankImportDecision, QuestionBankBatchMetadata?) -> Void
     let onCancel: () -> Void
     @State private var asksToReplace = false
     @State private var includesBatch: Bool
@@ -1281,11 +1283,13 @@ private struct QuestionBankImportPreview: View {
     @State private var provinceName: String
     @State private var batchID: String
     @State private var batchName: String
+    @State private var correctedPlan: QuestionBankImportPlan?
+    @State private var optionGroupsByID: [String: [String]] = [:]
 
     init(plan: QuestionBankImportPlan, records: [QuestionBankRecord],
          batchSources: [QuestionBankBatchSourceRecord], isImporting: Bool,
          importFailure: Binding<String?>,
-         onImport: @escaping (QuestionBankImportDecision, QuestionBankBatchMetadata?) -> Void,
+         onImport: @escaping (QuestionBankImportPlan, QuestionBankImportDecision, QuestionBankBatchMetadata?) -> Void,
          onCancel: @escaping () -> Void) {
         self.plan = plan
         self.records = records
@@ -1294,6 +1298,7 @@ private struct QuestionBankImportPreview: View {
         self._importFailure = importFailure
         self.onImport = onImport
         self.onCancel = onCancel
+        _correctedPlan = State(initialValue: nil)
         let metadata = plan.batchMetadata
         _includesBatch = State(initialValue: metadata != nil)
         _family = State(initialValue: metadata?.family)
@@ -1340,11 +1345,32 @@ private struct QuestionBankImportPreview: View {
         }
     }
 
+    private var effectivePlan: QuestionBankImportPlan { correctedPlan ?? plan }
+
+    private var pendingOptionCorrections: [QuestionBankImportOptionCorrection] {
+        QuestionBankMultiBlankImportCorrection.pendingOptions(in: effectivePlan)
+    }
+
+    private var canApplyOptionCorrections: Bool {
+        !pendingOptionCorrections.isEmpty && pendingOptionCorrections.allSatisfy { correction in
+            let groups = optionGroupsByID[correction.id] ?? []
+            guard groups.count == correction.blankCount,
+                  groups.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+                return false
+            }
+            let joined = groups.joined(separator: QuestionBankMultiBlankOptionText.canonicalSeparator)
+            return QuestionBankMultiBlankOptionText.validationMessage(
+                for: joined,
+                blankCount: correction.blankCount
+            ) == nil
+        }
+    }
+
     private var batchPreparationResult: Result<QuestionBankBatchPreparation, Error>? {
-        guard plan.canImport, let metadata = currentBatchMetadata, metadata.validationError == nil else { return nil }
+        guard effectivePlan.canImport, let metadata = currentBatchMetadata, metadata.validationError == nil else { return nil }
         let duplicate = replacementPaperRecord
         return Result {
-            try QuestionBankBatchRepository.prepare(metadata: metadata, plan: plan, records: records,
+            try QuestionBankBatchRepository.prepare(metadata: metadata, plan: effectivePlan, records: records,
                 sourceRecords: batchSources, replacingPaperID: duplicate?.paperID)
         }
     }
@@ -1421,7 +1447,38 @@ private struct QuestionBankImportPreview: View {
     }
 
     private func submit(_ decision: QuestionBankImportDecision) {
-        onImport(decision, currentBatchMetadata)
+        onImport(effectivePlan, decision, currentBatchMetadata)
+    }
+
+    private func optionGroupBinding(
+        for correction: QuestionBankImportOptionCorrection,
+        index: Int
+    ) -> Binding<String> {
+        Binding(
+            get: {
+                let groups = optionGroupsByID[correction.id] ?? []
+                return groups.indices.contains(index) ? groups[index] : ""
+            },
+            set: { value in
+                var groups = optionGroupsByID[correction.id] ?? Array(repeating: "", count: correction.blankCount)
+                guard groups.indices.contains(index) else { return }
+                groups[index] = value
+                optionGroupsByID[correction.id] = groups
+            }
+        )
+    }
+
+    private func applyOptionCorrections() {
+        let corrections = Dictionary(uniqueKeysWithValues: pendingOptionCorrections.map { correction in
+            let groups = optionGroupsByID[correction.id] ?? []
+            return (correction.id, groups.joined(separator: QuestionBankMultiBlankOptionText.canonicalSeparator))
+        })
+        guard let revised = QuestionBankMultiBlankImportCorrection.apply(
+            to: effectivePlan,
+            correctedTextByOptionID: corrections
+        ) else { return }
+        correctedPlan = revised
+        optionGroupsByID = [:]
     }
 
     var body: some View {
@@ -1542,9 +1599,49 @@ private struct QuestionBankImportPreview: View {
                             .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
                     }
                 }
-                if !plan.errors.isEmpty {
+                if !pendingOptionCorrections.isEmpty {
+                    Section("多空逻辑填空选项校对") {
+                        Text("这些多空选项没有明确的词语边界。请对照原卷，逐项填写每个空对应的词语；应用不会猜测中文边界。")
+                            .font(AppTheme.auxiliaryFont)
+                            .foregroundStyle(.secondary)
+                        ForEach(pendingOptionCorrections) { correction in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("第\(correction.questionNumber)题 · 选项\(correction.optionID)")
+                                    .font(AppTheme.bodyFont.weight(.semibold))
+                                Text("原始选项：\(correction.currentText)")
+                                    .font(AppTheme.auxiliaryFont)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                                ForEach(0..<correction.blankCount, id: \.self) { index in
+                                    TextField(
+                                        "第\(index + 1)个空的词语",
+                                        text: optionGroupBinding(for: correction, index: index)
+                                    )
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                                    .accessibilityIdentifier(
+                                        "question-bank-import-correction-\(correction.questionID)-\(correction.optionID)-\(index)"
+                                    )
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        Button("应用校对并重新校验", action: applyOptionCorrections)
+                            .disabled(!canApplyOptionCorrections)
+                            .accessibilityIdentifier("question-bank-import-apply-option-corrections")
+                    }
+                } else if correctedPlan != nil {
+                    Section("选项校对") {
+                        Label("已按人工校对结果分开多空选项词语", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(AppTheme.success)
+                        Text("导入文件本身未被修改。")
+                            .font(AppTheme.auxiliaryFont)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if !effectivePlan.errors.isEmpty {
                     Section("校验错误（修复后再导入）") {
-                        ForEach(Array(plan.errors.enumerated()), id: \.offset) { _, error in
+                        ForEach(Array(effectivePlan.errors.enumerated()), id: \.offset) { _, error in
                             Label(error, systemImage: "exclamationmark.triangle.fill")
                                 .font(AppTheme.bodyFont)
                                 .foregroundStyle(AppTheme.danger)
@@ -1571,7 +1668,7 @@ private struct QuestionBankImportPreview: View {
                         if replacementTitle != nil { asksToReplace = true }
                         else { submit(.add) }
                     }
-                    .disabled(!plan.canImport || isImporting
+                    .disabled(!effectivePlan.canImport || isImporting
                         || (includesBatch && (metadataError != nil || preparedBatch == nil)))
                 }
             }

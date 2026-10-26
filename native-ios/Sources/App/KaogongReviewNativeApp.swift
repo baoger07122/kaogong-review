@@ -32,7 +32,12 @@ struct KaogongReviewNativeApp: App {
                     QuestionBankBatchRecord.self, QuestionBankBatchSourceRecord.self,
                     QuestionBankBatchMaterialLinkRecord.self, QuestionBankBatchQuestionLinkRecord.self
                 ])
-                let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+                let configuration = ModelConfiguration(
+                    "QuestionBankReaderUITests-\(QuestionBankReaderUITestFixture.paperID)",
+                    schema: schema,
+                    url: try QuestionBankReaderUITestFixture.storeURL(),
+                    cloudKitDatabase: .none
+                )
                 container = try ModelContainer(for: schema, configurations: [configuration])
                 #if DEBUG
                 try QuestionBankReaderUITestFixture.seed(in: container.mainContext)

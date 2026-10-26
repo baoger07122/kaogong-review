@@ -578,6 +578,57 @@ enum QuestionBankAnswerFeedbackPalette {
     static let incorrect = AppTheme.danger
 }
 
+enum QuestionBankOverviewAnswerStatus: Equatable {
+    case unanswered
+    case correct
+    case incorrect
+
+    static func resolve(selectedOptionID: String?, answer: String, isConfirmed: Bool) -> Self {
+        let answer = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isConfirmed, !answer.isEmpty, let selectedOptionID else { return .unanswered }
+        return selectedOptionID == answer ? .correct : .incorrect
+    }
+
+    var fill: Color {
+        switch self {
+        case .unanswered: Color(uiColor: .systemGray5)
+        case .correct: QuestionBankAnswerFeedbackPalette.correct
+        case .incorrect: QuestionBankAnswerFeedbackPalette.incorrect
+        }
+    }
+
+    var foreground: Color { self == .unanswered ? .primary : .white }
+
+    var accessibilityValue: String {
+        switch self {
+        case .unanswered: "未判定"
+        case .correct: "已答正确"
+        case .incorrect: "已答错误"
+        }
+    }
+}
+
+struct QuestionBankNumberStatusCircle: View {
+    let number: Int
+    let status: QuestionBankOverviewAnswerStatus
+    let isCurrent: Bool
+    var diameter: CGFloat = 36
+
+    var body: some View {
+        Text(String(number))
+            .font(AppTheme.bodyFont.weight(isCurrent ? .semibold : .medium))
+            .foregroundStyle(status.foreground)
+            .frame(width: diameter, height: diameter)
+            .background(status.fill, in: Circle())
+            .overlay {
+                Circle()
+                    .stroke(isCurrent ? AppTheme.accent : .clear, lineWidth: 2)
+                    .padding(-2)
+            }
+            .accessibilityHidden(true)
+    }
+}
+
 struct QuestionBankReferenceAccuracyControl: View {
     @Environment(\.modelContext) private var modelContext
     let record: QuestionBankRecord
@@ -595,25 +646,32 @@ struct QuestionBankReferenceAccuracyControl: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            Text("参考正确率：")
-                .foregroundStyle(.secondary)
-            Text(QuestionBankReferenceAccuracyFormat.percentageText(accuracy))
-                .fontWeight(.semibold)
-                .foregroundStyle(accuracy == nil ? Color.secondary : Color.primary)
-            Button {
-                editingValue = accuracy.map(QuestionBankReferenceAccuracyFormat.numberText) ?? ""
-                errorMessage = nil
-                isEditing = true
-            } label: {
-                Image(systemName: "pencil")
-                    .font(.system(size: 10, weight: .semibold))
-                    .frame(width: 24, height: 24)
+            if let accuracy {
+                Text("参考正确率：\(QuestionBankReferenceAccuracyFormat.percentageText(accuracy))")
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Color.primary)
                     .contentShape(Rectangle())
+                    .onLongPressGesture(perform: beginEditing)
+                    .accessibilityElement()
+                    .accessibilityLabel("参考正确率")
+                    .accessibilityValue(QuestionBankReferenceAccuracyFormat.percentageText(accuracy))
+                    .accessibilityHint("长按编辑或清除")
+                    .accessibilityAction(named: Text("编辑或清除参考正确率"), beginEditing)
+                    .accessibilityIdentifier("question-bank-reference-accuracy-value-\(record.stableID)")
+            } else {
+                Text("参考正确率：未录入")
+                    .foregroundStyle(.secondary)
+                Button(action: beginEditing) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 10, weight: .semibold))
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(AppTheme.accent)
+                .accessibilityLabel("编辑参考正确率")
+                .accessibilityIdentifier("question-bank-reference-accuracy-edit-\(record.stableID)")
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(AppTheme.accent)
-            .accessibilityLabel("编辑参考正确率")
-            .accessibilityIdentifier("question-bank-reference-accuracy-edit-\(record.stableID)")
         }
         .font(AppTheme.auxiliaryFont)
         .popover(isPresented: $isEditing, arrowEdge: .top) {
@@ -653,6 +711,12 @@ struct QuestionBankReferenceAccuracyControl: View {
         .onChange(of: accuracy) { _, value in
             if !isEditing { editingValue = value.map(QuestionBankReferenceAccuracyFormat.numberText) ?? "" }
         }
+    }
+
+    private func beginEditing() {
+        editingValue = accuracy.map(QuestionBankReferenceAccuracyFormat.numberText) ?? ""
+        errorMessage = nil
+        isEditing = true
     }
 
     private func save() {

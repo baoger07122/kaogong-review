@@ -301,8 +301,9 @@ enum QuestionBankOverviewGrouping {
         }
     }
 
-    private static func coarseType(for candidate: QuestionBankOverviewCandidate) -> String? {
-        let module = QuestionBankCoarseModule.classify(explicitModuleTitle: candidate.moduleTitle)
+    static func coarseType(for candidate: QuestionBankOverviewCandidate) -> String? {
+        let moduleTitle = candidate.moduleTitle.isEmpty ? candidate.subject : candidate.moduleTitle
+        let module = QuestionBankCoarseModule.classify(explicitModuleTitle: moduleTitle)
         let label = candidate.type.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? candidate.subject.trimmingCharacters(in: .whitespacesAndNewlines)
             : candidate.type.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -315,7 +316,7 @@ enum QuestionBankOverviewGrouping {
             }
             let readingKinds = ["阅读", "主旨", "意图", "细节", "标题", "语句排序", "语句衔接", "下文推断", "词句理解"]
             if readingKinds.contains(where: { normalized.contains($0) }) { return "片段阅读" }
-            return "未分类"
+            return "片段阅读"
         case .reasoning:
             let types = ["图形推理", "定义判断", "类比推理", "逻辑判断"]
             return types.first(where: { normalized == $0 || normalized.contains($0) }) ?? "未分类"
@@ -330,6 +331,23 @@ enum QuestionBankOverviewGrouping {
         }
     }
 
+}
+
+enum QuestionBankModulePracticeOrdering {
+    static func orderedQuestionIDs(from candidates: [QuestionBankOverviewCandidate]) -> [String] {
+        guard let first = candidates.first else { return [] }
+        let moduleTitle = first.moduleTitle.isEmpty ? first.subject : first.moduleTitle
+        guard QuestionBankCoarseModule.classify(explicitModuleTitle: moduleTitle) == .language,
+              candidates.allSatisfy({ $0.paperID == first.paperID && $0.moduleID == first.moduleID }) else {
+            return candidates.map(\.id)
+        }
+
+        return candidates.enumerated().sorted { left, right in
+            let leftPriority = QuestionBankOverviewGrouping.coarseType(for: left.element) == "逻辑填空" ? 0 : 1
+            let rightPriority = QuestionBankOverviewGrouping.coarseType(for: right.element) == "逻辑填空" ? 0 : 1
+            return leftPriority == rightPriority ? left.offset < right.offset : leftPriority < rightPriority
+        }.map { $0.element.id }
+    }
 }
 
 struct QuestionBankHomeIndex {

@@ -177,6 +177,7 @@ struct LibraryRecordSnapshot: Identifiable {
     let record: StoredRecord
     let title: String
     let summary: String
+    let wordCardBody: String
     let tags: [String]
     let status: String?
     let createdAt: Date?
@@ -217,6 +218,14 @@ struct LibraryRecordSnapshot: Identifiable {
             ? ["question", "title"]
             : ["judgmentHint", "commonMeaning", "compareNote", "content", "note", "errorNote", "meaning", "myUnderstanding", "relation", "coreDifference", "question"]
         summary = Self.firstText(in: object, keys: summaryKeys).map(Self.plainText) ?? ""
+        if record.collection == "words" {
+            let bodyKeys = WordCategory(rawValue: category)?.isComparison == true
+                ? ["judgmentHint", "compareNote", "coreDifference", "commonMeaning", "meaning"]
+                : ["commonMeaning", "meaning", "content", "note"]
+            wordCardBody = Self.firstText(in: object, keys: bodyKeys) ?? ""
+        } else {
+            wordCardBody = ""
+        }
         status = Self.firstText(in: object, keys: ["status", "masteryStatus"])
         colorHex = Self.firstText(in: object, keys: ["color", "colorHex"])
         isPinned = (object["pinned"] as? Bool) ?? (object["pinned"] as? NSNumber)?.boolValue ?? false
@@ -330,5 +339,29 @@ struct LibraryRecordSnapshot: Identifiable {
             if let value = object[key] as? Double { return Date(timeIntervalSince1970: value > 10_000_000_000 ? value / 1000 : value) }
         }
         return nil
+    }
+}
+
+enum LibraryWordCardPreviewText {
+    static func render(_ source: String) -> String {
+        source
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "<style[\\s\\S]*?</style>|<script[\\s\\S]*?</script>", with: "", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"<\s*(br|/p|/div|/li)\b[^>]*>"#, with: "\n", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"<\s*p\b[^>]*>"#, with: "", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"<[^>]*>"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&#160;", with: " ")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .components(separatedBy: "\n")
+            .map { $0.replacingOccurrences(of: #"[\t ]+"#, with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines) }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .newlines)
     }
 }

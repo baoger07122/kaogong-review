@@ -45,7 +45,10 @@ final class PencilDrawingController: ObservableObject {
     @Published var fingerDrawingEnabled = false
     @Published var showSettings = false
     @Published var legacyPreviewCleared = false
-    @Published fileprivate(set) var hasPendingDrawingPublish = false
+    // This is a save barrier read by LibraryDoodleSession, not display state.
+    // Publishing every PencilKit point caused SwiftUI to re-run updateUIView
+    // for the active canvas throughout a stroke.
+    fileprivate(set) var hasPendingDrawingPublish = false
     @Published var canvasReady = false
     @Published var canvasLoadError: String?
     @Published fileprivate(set) var drawingLoadRevision = 0
@@ -507,7 +510,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         canvas.isMultipleTouchEnabled = true
 
         context.coordinator.loadDrawing(encodedData, revision: drawingLoadRevision, on: canvas)
-        updateTool(canvas)
+        context.coordinator.updateTool(canvas)
         LibraryPerformanceLog.mark("doodle.canvas-create", since: canvasStart)
         return canvas
     }
@@ -520,7 +523,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             canvas.resignFirstResponder()
             return
         }
-        updateTool(canvas)
+        context.coordinator.updateTool(canvas)
         canvas.drawingPolicy = fingerDrawingEnabled ? .anyInput : .pencilOnly
         if #available(iOS 18.0, *) { canvas.isDrawingEnabled = true }
         canvas.isScrollEnabled = scrollEnabled
@@ -567,12 +570,6 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         context.coordinator.loadDrawing(encodedData, revision: drawingLoadRevision, on: canvas)
     }
 
-    private func updateTool(_ canvas: PKCanvasView) {
-        canvas.tool = eraser
-            ? PKEraserTool(.vector, width: eraserWidth)
-            : PKInkingTool(.pen, color: color, width: width)
-    }
-
     final class Coordinator: NSObject, PKCanvasViewDelegate {
         var parent: PencilCanvasRepresentable
         let controller: PencilDrawingController
@@ -586,10 +583,29 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         var canvasReady = false
         private var pendingPublish: DispatchWorkItem?
         private let publishQueue = DispatchQueue(label: "QuestionBank.PencilDrawing.publish", qos: .userInitiated)
+        private var configuredEraser: Bool?
+        private var configuredColor: UIColor?
+        private var configuredWidth: CGFloat?
+        private var configuredEraserWidth: CGFloat?
 
         init(parent: PencilCanvasRepresentable, controller: PencilDrawingController) {
             self.parent = parent
             self.controller = controller
+        }
+
+        func updateTool(_ canvas: PKCanvasView) {
+            let unchanged = configuredEraser == parent.eraser
+                && configuredColor?.isEqual(parent.color) == true
+                && configuredWidth == parent.width
+                && configuredEraserWidth == parent.eraserWidth
+            guard !unchanged else { return }
+            canvas.tool = parent.eraser
+                ? PKEraserTool(.vector, width: parent.eraserWidth)
+                : PKInkingTool(.pen, color: parent.color, width: parent.width)
+            configuredEraser = parent.eraser
+            configuredColor = parent.color
+            configuredWidth = parent.width
+            configuredEraserWidth = parent.eraserWidth
         }
 
         func loadDrawing(_ encoded: String, revision: Int, on canvas: InteractivePencilCanvasView) {
@@ -677,7 +693,9 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             drawingChanged = true
             drawingRevision += 1
-            controller.hasPendingDrawingPublish = true
+            if !controller.hasPendingDrawingPublish {
+                controller.hasPendingDrawingPublish = true
+            }
             pendingPublish?.cancel()
             let work = DispatchWorkItem { [weak self, weak canvasView] in
                 guard let self, let canvasView, self.drawingChanged else { return }

@@ -20,6 +20,7 @@ struct LibraryInlineNoteView: View {
     @State private var saved = ""
     @State private var saveTask: Task<Void, Never>?
     @State private var errorMessage: String?
+    @State private var displayWarning: String?
 
     private let noteCanvasMinimumHeight: CGFloat = 360
 
@@ -61,7 +62,11 @@ struct LibraryInlineNoteView: View {
                 Label(title, systemImage: "note.text")
                     .font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
                 Spacer()
-                if editing { Button("完成") { finishEditing() }.font(.system(size: 12)) }
+                if editing {
+                    Button("完成") { finishEditing() }
+                        .font(.system(size: 12))
+                        .accessibilityIdentifier("library-inline-note-finish")
+                }
             }
             if editing {
                 NativeRichTextEditor(
@@ -70,6 +75,7 @@ struct LibraryInlineNoteView: View {
                     documentStyle: true,
                     focusOnAppear: true
                 )
+                .accessibilityIdentifier("library-inline-note-editor")
                 .padding(.horizontal, 8)
             } else {
                 noteDisplay
@@ -82,8 +88,19 @@ struct LibraryInlineNoteView: View {
                     }
             }
             if let errorMessage {
-                Button("\(errorMessage) · 点击重试") { save() }
-                    .font(.system(size: 11)).foregroundStyle(AppTheme.danger)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(errorMessage)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("重试保存") { save() }
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(AppTheme.danger)
+            } else if let displayWarning, !editing {
+                Text(displayWarning)
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppTheme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .onAppear { session.finishEditing = finishEditing }
@@ -110,8 +127,13 @@ struct LibraryInlineNoteView: View {
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, minHeight: noteCanvasMinimumHeight, alignment: .topLeading)
         } else {
-            NativeRichTextDisplay(html: storedNote, minHeight: noteCanvasMinimumHeight)
+            NativeRichTextDisplay(
+                html: storedNote,
+                minHeight: noteCanvasMinimumHeight,
+                onFallback: { displayWarning = "富文本预览已降级，原笔记内容仍保留" }
+            )
                 .frame(maxWidth: .infinity, alignment: .topLeading)
+                .accessibilityIdentifier("library-inline-note-display")
         }
     }
 
@@ -137,7 +159,7 @@ struct LibraryInlineNoteView: View {
             errorMessage = nil
             return true
         } catch {
-            errorMessage = "笔记未保存，请勿离开"
+            errorMessage = "笔记未保存，原内容未更改：\(error.localizedDescription)"
             return false
         }
     }
