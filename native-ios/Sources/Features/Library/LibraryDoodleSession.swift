@@ -3,6 +3,8 @@ import UIKit
 
 @MainActor
 final class LibraryDoodleSession: ObservableObject {
+    fileprivate static var lastUITestPresenterToken: String?
+    fileprivate let sessionInstanceToken = String(UUID().uuidString.prefix(8))
     @Published var isPresented = false
     @Published var saveError: String?
     @Published private(set) var isLoadingDrawing = false
@@ -28,8 +30,9 @@ final class LibraryDoodleSession: ObservableObject {
         guard !isPresented else { return }
 #if DEBUG
         if QuestionBankReaderUITestFixture.isEnabled {
+            Self.lastUITestPresenterToken = sessionInstanceToken
             let callStack = Thread.callStackSymbols.dropFirst(2).prefix(10).joined(separator: " | ")
-            NSLog("[QuestionBankReaderUITest] doodle.present target=%@ source=%@ stack=%@", targetRecordID, source, callStack)
+            NSLog("[QuestionBankReaderUITest] doodle.present target=%@ source=%@ session=%@ stack=%@", targetRecordID, source, sessionInstanceToken, callStack)
         }
 #endif
         let preparationStart = ProcessInfo.processInfo.systemUptime
@@ -342,7 +345,8 @@ struct LibraryDoodleOverlay: View {
         let label = controller.canvasLoadError ?? "涂鸦交互遮罩"
 #if DEBUG
         if QuestionBankReaderUITestFixture.isEnabled {
-            return "\(label)（\(session.presentationSource)）"
+            let presenterToken = LibraryDoodleSession.lastUITestPresenterToken ?? "none"
+            return "\(label)（\(session.presentationSource)|overlay=\(session.sessionInstanceToken)|caller=\(presenterToken)）"
         }
 #endif
         return label
