@@ -85,8 +85,15 @@ enum QuestionBankSourceDisplay {
     }
 
     static func cleanedFileName(_ value: String) -> String {
-        var name = value.replacingOccurrences(of: "网友回忆版", with: "")
+        let pathNormalized = value.replacingOccurrences(of: "\\", with: "/")
+        var name = pathNormalized.split(separator: "/").last.map(String.init) ?? pathNormalized
+        name = name.replacingOccurrences(of: "网友回忆版", with: "")
         name = name.replacingOccurrences(of: "\\.pdf$", with: "", options: [.regularExpression, .caseInsensitive])
+        name = name.replacingOccurrences(
+            of: #"\(\s*\)|（\s*）|\[\s*\]|【\s*】"#,
+            with: "",
+            options: .regularExpression
+        )
         return name.trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: " .·_-—"))
     }

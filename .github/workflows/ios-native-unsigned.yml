@@ -268,6 +268,15 @@ jobs:
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankHorizontalSwipeRequiresHorizontalIntentAndMinimumDistance
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankPageTransitionMovesInDirectionOfNavigation
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankQuestionHeadingHidesInternalClassificationAndKeepsMeaningfulLabels
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testMultiBlankOptionTextAcceptsCanonicalAndRecognizedLegacySeparators
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testMultiBlankOptionTextRejectsGuessedOrMalformedBoundaries
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankSourceDisplayKeepsOnlyCleanFileName
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankReferenceAccuracyIsOptionalAndAcceptsLegacyPercentText
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testBatchQuestionMergePreservesLocalReferenceAccuracy
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankHomeIndexStoreRebuildsOnlyForRecordRevisionChanges
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankOrganizationDefaultsToCurrentPaperOrderAndResetsAfterManualReorder
+              -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankOverviewKeepsReaderIDOrderAndShowsModuleTitleOnlyAtModuleStart
+              -only-testing:QuestionBankImportTests/LibraryDraftStoreTests/testWordComparisonTermsPersistByCategoryAndScopeWithoutTitle
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankPresentationSwitchPreservesCurrentQuestionAndReadingMode
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankSingleQuestionNavigationStopsAtModuleBoundaries
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testQuestionBankPresentationModeSelectsOnlyTheCurrentVisibleQuestion
@@ -283,6 +292,8 @@ jobs:
               -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testSourceRowsStripRecallEditionAndPDFWithoutShowingAuditMetadata
               -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testQuestionAnalysisWritesBackToQuestionPayloadAndOnlySyncsExplicitLinkedError
               -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testMissingExplicitErrorLinkDoesNotCreateStoredRecordOrChangeQuestion
+              -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testMultiBlankQuestionEditRejectsConcatenatedOptionUntilItsBoundaryIsExplicit
+              -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testReferenceAccuracyWritesAndClearsWithoutAcceptingOutOfRangeValues
               -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testEditingAnExplicitlyLinkedErrorWritesBackToTheTrueQuestionInOneSave
               -only-testing:QuestionBankImportTests/QuestionBankAnalysisAdapterTests/testStaleQuestionBankLinkDoesNotBlockEditingOrDeletingWrongQuestion
               -only-testing:QuestionBankImportTests/QuestionBankImportTests/testSingleJSONPickerCallbackReachesPreviewAndConfirmedCommit
@@ -328,6 +339,7 @@ jobs:
             -parallel-testing-enabled NO \
             -resultBundlePath "$RESULT_PATH" \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testPracticeAnswerRevealsOnSelectionByDefaultAndLocksSelection \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testCorrectPracticeSelectionIsAnnouncedSeparatelyFromWrongSelection \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testPracticeAnswerConfirmationTogglePersistsAcrossReaderModeChanges \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testDoodleBlocksOptionSelectionAndQuestionNavigationInMaterialSplit \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testSingleQuestionHorizontalSwipesRetainSelectionAndReturnToTop \

@@ -24,11 +24,22 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertTrue(answerFeedback.label.contains("你的选择：A"))
         XCTAssertTrue(answerFeedback.label.contains("正确答案：B"))
         XCTAssertFalse(app.buttons["question-bank-confirm-answer-\(reader.questionID)"].exists)
+        XCTAssertEqual(optionA.value as? String, "已选择，回答错误")
 
         let optionB = app.buttons["question-bank-option-\(reader.questionID)-B"].firstMatch
+        XCTAssertEqual(optionB.value as? String, "正确答案")
         XCTAssertFalse(optionB.isEnabled, "A revealed answer must lock the submitted selection")
         XCTAssertTrue(answerFeedback.waitForExistence(timeout: 5))
         XCTAssertTrue(answerFeedback.label.contains("你的选择：A"))
+    }
+
+    @MainActor
+    func testCorrectPracticeSelectionIsAnnouncedSeparatelyFromWrongSelection() throws {
+        let reader = launchPracticeReader()
+        let optionB = reader.app.buttons["question-bank-option-\(reader.questionID)-B"].firstMatch
+        XCTAssertTrue(optionB.waitForExistence(timeout: 5))
+        optionB.tap()
+        XCTAssertEqual(optionB.value as? String, "已选择，回答正确")
     }
 
     @MainActor

@@ -53,6 +53,7 @@ struct LibraryRecordEditorView: View {
     @State private var isCurrentAffairsSupplementExpanded = false
     @State private var isSaving = false
     @State private var saveErrorMessage: String?
+    @State private var showDiscardDraftConfirmation = false
 
     init(
         kind: LibraryContentKind,
@@ -70,11 +71,17 @@ struct LibraryRecordEditorView: View {
         recordID = record?.recordID
         questionBankContext = nil
         var initialDraft = LibraryRecordDraft(kind: kind, scope: scope, record: record)
-        if record == nil, kind != .words, let saved = LibraryDraftStore.load(kind: kind, scope: scope) {
+        if record == nil, !preferredType.isEmpty {
+            initialDraft.type = preferredType
+        }
+        if record == nil, kind == .words,
+           let saved = LibraryDraftStore.load(kind: kind, scope: scope, category: initialDraft.type) {
             saved.applying(to: &initialDraft)
             _restoredDraft = State(initialValue: true)
-        } else if record == nil, !preferredType.isEmpty {
-            initialDraft.type = preferredType
+        } else if record == nil, kind != .words,
+                  let saved = LibraryDraftStore.load(kind: kind, scope: scope) {
+            saved.applying(to: &initialDraft)
+            _restoredDraft = State(initialValue: true)
         }
         if kind == .errors, !["错题", "不确定题"].contains(initialDraft.type) {
             initialDraft.type = "错题"
@@ -116,7 +123,7 @@ struct LibraryRecordEditorView: View {
 
     var body: some View {
         Group {
-            if recordID == nil, kind != .words {
+            if recordID == nil {
                 configuredEditor
                     .onChange(of: draftSnapshot) { _, snapshot in
                         LibraryDraftStore.save(snapshot, kind: kind, scope: scope)
@@ -215,6 +222,18 @@ struct LibraryRecordEditorView: View {
                     .disabled(!canSave || isSaving)
                     .accessibilityIdentifier(isQuestionBank ? "question-bank-save-question-analysis" : "library-record-save")
             }
+            if recordID == nil {
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Button("放弃草稿", role: .destructive) {
+                            showDiscardDraftConfirmation = true
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("草稿选项")
+                }
+            }
             if recordID != nil, kind != .errors {
                 ToolbarItemGroup(placement: .bottomBar) {
                     Spacer()
@@ -226,6 +245,15 @@ struct LibraryRecordEditorView: View {
             Button("删除", role: .destructive, action: remove)
             Button("取消", role: .cancel) {}
         } message: { Text("删除后无法在 App 内恢复。") }
+        .confirmationDialog("放弃未保存的\(kind.rawValue)草稿？", isPresented: $showDiscardDraftConfirmation, titleVisibility: .visible) {
+            Button("放弃草稿", role: .destructive) {
+                LibraryDraftStore.clear(kind: kind, scope: scope, category: draft.type)
+                dismiss()
+            }
+            Button("继续编辑", role: .cancel) {}
+        } message: {
+            Text("放弃后，此分类和作用域下保存的草稿会被清除。")
+        }
     }
 
     @ViewBuilder private var editorDialogs: some View {
@@ -1589,7 +1617,9 @@ struct LibraryRecordEditorView: View {
                     }
                     // 思维误区是普通文字，不写入标签库。
                     let savedID = try LibraryRecordRepository.save(kind: kind, draft: draft, records: records, context: modelContext)
-                    if recordID == nil { LibraryDraftStore.clear(kind: kind, scope: scope) }
+                    if recordID == nil {
+                        LibraryDraftStore.clear(kind: kind, scope: scope, category: draft.type)
+                    }
                     isSaving = false
                     onSaved?(savedID)
                     if dismissAfterSave { dismiss() }

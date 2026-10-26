@@ -88,6 +88,136 @@ struct QuestionBankHomeQuestion: Identifiable {
     var id: String { record.compoundID }
 }
 
+struct QuestionBankHomeIndexRevision: Hashable, Sendable {
+    let compoundID: String
+    let paperID: String
+    let kind: String
+    let stableID: String
+    let moduleID: String?
+    let questionNumber: Int?
+    let sequence: Int?
+    let year: Int?
+    let title: String?
+    let contentRevision: Int
+    let assetRelativePath: String?
+
+    init(record: QuestionBankRecord) {
+        compoundID = record.compoundID
+        paperID = record.paperID
+        kind = record.kind
+        stableID = record.stableID
+        moduleID = record.moduleID
+        questionNumber = record.questionNumber
+        sequence = record.sequence
+        year = record.year
+        title = record.title
+        contentRevision = record.contentRevision
+        assetRelativePath = record.assetRelativePath
+    }
+
+    static func make(records: [QuestionBankRecord]) -> [QuestionBankHomeIndexRevision] {
+        records.map { QuestionBankHomeIndexRevision(record: $0) }
+            .sorted { $0.compoundID < $1.compoundID }
+    }
+}
+
+struct QuestionBankHomeIndexInput: Sendable {
+    let revision: QuestionBankHomeIndexRevision
+    let payload: Data
+    let searchText: String
+
+    init(record: QuestionBankRecord) {
+        revision = QuestionBankHomeIndexRevision(record: record)
+        payload = record.payload
+        searchText = record.searchText
+    }
+}
+
+struct QuestionBankHomeIndexSnapshot: Sendable {
+    struct Paper: Sendable {
+        let compoundID: String
+        let paperID: String
+        let title: String?
+        let searchText: String
+        let value: QuestionBankPaper
+    }
+
+    struct Question: Sendable {
+        let compoundID: String
+        let paperID: String
+        let value: QuestionBankQuestion
+        let moduleTitle: String?
+        let moduleSequence: Int
+    }
+
+    let revision: [QuestionBankHomeIndexRevision]
+    let papers: [Paper]
+    let questionsByPaperID: [String: [Question]]
+    let materialsByPaperID: [String: [QuestionBankMaterial]]
+
+    static func build(records: [QuestionBankHomeIndexInput]) -> QuestionBankHomeIndexSnapshot {
+        let decoder = JSONDecoder()
+        let groupedRecords = Dictionary(grouping: records, by: { $0.revision.paperID })
+        var papers: [Paper] = []
+        var questionsByPaperID: [String: [Question]] = [:]
+        var materialsByPaperID: [String: [QuestionBankMaterial]] = [:]
+
+        for (paperID, paperRecords) in groupedRecords {
+            var modules: [String: QuestionBankModule] = [:]
+            for input in paperRecords where input.revision.kind == QuestionBankRepository.moduleKind {
+                guard let module = try? decoder.decode(QuestionBankModule.self, from: input.payload) else { continue }
+                modules[input.revision.stableID] = module
+            }
+
+            for input in paperRecords {
+                switch input.revision.kind {
+                case QuestionBankRepository.paperKind:
+                    guard let value = try? decoder.decode(QuestionBankPaper.self, from: input.payload) else { continue }
+                    papers.append(Paper(
+                        compoundID: input.revision.compoundID,
+                        paperID: paperID,
+                        title: input.revision.title,
+                        searchText: input.searchText,
+                        value: value
+                    ))
+                case QuestionBankRepository.questionKind:
+                    guard let value = try? decoder.decode(QuestionBankQuestion.self, from: input.payload) else { continue }
+                    let moduleID = value.moduleID.isEmpty ? input.revision.moduleID : value.moduleID
+                    let module = moduleID.flatMap { modules[$0] }
+                    questionsByPaperID[paperID, default: []].append(Question(
+                        compoundID: input.revision.compoundID,
+                        paperID: paperID,
+                        value: value,
+                        moduleTitle: module?.title,
+                        moduleSequence: module?.sequence ?? Int.max
+                    ))
+                case QuestionBankRepository.materialKind:
+                    guard let value = try? decoder.decode(QuestionBankMaterial.self, from: input.payload) else { continue }
+                    materialsByPaperID[paperID, default: []].append(value)
+                default:
+                    continue
+                }
+            }
+        }
+
+        return QuestionBankHomeIndexSnapshot(
+            revision: records.map(\.revision).sorted { $0.compoundID < $1.compoundID },
+            papers: papers,
+            questionsByPaperID: questionsByPaperID,
+            materialsByPaperID: materialsByPaperID
+        )
+    }
+}
+
+struct QuestionBankHomeFilterResult {
+    let visiblePapers: [QuestionBankHomePaper]
+    let questionsByPaperID: [String: [QuestionBankHomeQuestion]]
+
+    func questionCount(for paperID: String) -> Int {
+        questionsByPaperID[paperID]?.count ?? 0
+    }
+}
+
 struct QuestionBankHomePaper: Identifiable {
     let record: QuestionBankRecord
     let paper: QuestionBankPaper
@@ -115,6 +245,7 @@ struct QuestionBankOverviewGroup: Identifiable, Equatable {
     let moduleID: String
     let moduleTitle: String
     let coarseQuestionType: String?
+    let startsModule: Bool
     let questions: [QuestionBankOverviewCandidate]
 }
 
@@ -126,28 +257,12 @@ enum QuestionBankOverviewGrouping {
     }
 
     static func groups(from candidates: [QuestionBankOverviewCandidate]) -> [QuestionBankOverviewGroup] {
-        var paperOrder: [String: Int] = [:]
-        for candidate in candidates where paperOrder[candidate.paperID] == nil {
-            paperOrder[candidate.paperID] = paperOrder.count
-        }
+        // `candidates` already follows the reader's canonical ordered question IDs.
+        // Sorting again here can send an overview jump to a different visible order.
+        let ordered = candidates
 
-        let ordered = candidates.sorted { left, right in
-            let leftPaperOrder = paperOrder[left.paperID, default: Int.max]
-            let rightPaperOrder = paperOrder[right.paperID, default: Int.max]
-            if leftPaperOrder != rightPaperOrder { return leftPaperOrder < rightPaperOrder }
-            if left.moduleSequence != right.moduleSequence { return left.moduleSequence < right.moduleSequence }
-            if left.moduleID != right.moduleID { return left.moduleID < right.moduleID }
-            let leftType = coarseType(for: left)
-            let rightType = coarseType(for: right)
-            let leftTypeOrder = typeOrder(leftType, moduleTitle: left.moduleTitle)
-            let rightTypeOrder = typeOrder(rightType, moduleTitle: right.moduleTitle)
-            if leftTypeOrder != rightTypeOrder { return leftTypeOrder < rightTypeOrder }
-            if left.questionNumber != right.questionNumber { return left.questionNumber < right.questionNumber }
-            return left.id < right.id
-        }
-
-        var grouped: [GroupKey: [QuestionBankOverviewCandidate]] = [:]
-        var order: [GroupKey] = []
+        var groupKeys: [GroupKey] = []
+        var groupQuestions: [[QuestionBankOverviewCandidate]] = []
         for candidate in ordered {
             let type = coarseType(for: candidate)
             let key = GroupKey(
@@ -155,14 +270,18 @@ enum QuestionBankOverviewGrouping {
                 moduleID: candidate.moduleID,
                 coarseQuestionType: type
             )
-            if grouped[key] == nil { order.append(key) }
-            grouped[key, default: []].append(candidate)
+            if groupKeys.last == key {
+                groupQuestions[groupQuestions.count - 1].append(candidate)
+            } else {
+                groupKeys.append(key)
+                groupQuestions.append([candidate])
+            }
         }
 
-        return order.compactMap { key in
-            guard let questions = grouped[key], let first = questions.first else { return nil }
+        return groupKeys.enumerated().compactMap { groupIndex, key in
+            guard let first = groupQuestions[groupIndex].first else { return nil }
             let identity = Data(
-                "\(key.paperID)\u{0}\(key.moduleID)\u{0}\(key.coarseQuestionType ?? "")".utf8
+                "\(key.paperID)\u{0}\(key.moduleID)\u{0}\(key.coarseQuestionType ?? "")\u{0}\(groupIndex)".utf8
             ).base64EncodedString()
                 .replacingOccurrences(of: "+", with: "-")
                 .replacingOccurrences(of: "/", with: "_")
@@ -174,7 +293,10 @@ enum QuestionBankOverviewGrouping {
                 moduleID: first.moduleID,
                 moduleTitle: first.moduleTitle.isEmpty ? "未分类" : first.moduleTitle,
                 coarseQuestionType: key.coarseQuestionType,
-                questions: questions
+                startsModule: groupIndex == 0
+                    || groupKeys[groupIndex - 1].paperID != key.paperID
+                    || groupKeys[groupIndex - 1].moduleID != key.moduleID,
+                questions: groupQuestions[groupIndex]
             )
         }
     }
@@ -208,35 +330,33 @@ enum QuestionBankOverviewGrouping {
         }
     }
 
-    private static func typeOrder(_ type: String?, moduleTitle: String) -> Int {
-        let module = QuestionBankCoarseModule.classify(explicitModuleTitle: moduleTitle)
-        let order: [String]
-        switch module {
-        case .language: order = ["逻辑填空", "片段阅读", "未分类"]
-        case .reasoning: order = ["图形推理", "定义判断", "类比推理", "逻辑判断", "未分类"]
-        case .commonKnowledge: order = ["政治理论", "常识", "未分类"]
-        case .quantity, .dataAnalysis: order = []
-        case .uncategorized: order = ["未分类"]
-        }
-        guard let type else { return 0 }
-        return order.firstIndex(of: type) ?? order.count
-    }
 }
 
 struct QuestionBankHomeIndex {
     private let papersByID: [String: QuestionBankHomePaper]
     private let recordsByPaperID: [String: [QuestionBankRecord]]
     private let questionsByPaperID: [String: [QuestionBankHomeQuestion]]
+    private let materialsByPaperID: [String: [QuestionBankMaterial]]
     private let orderedPapers: [QuestionBankHomePaper]
+    let revision: [QuestionBankHomeIndexRevision]
 
     init(records: [QuestionBankRecord]) {
+        self.init(
+            snapshot: .build(records: records.map { QuestionBankHomeIndexInput(record: $0) }),
+            records: records
+        )
+    }
+
+    init(snapshot: QuestionBankHomeIndexSnapshot, records: [QuestionBankRecord]) {
+        let recordsByID = Dictionary(records.map { ($0.compoundID, $0) }, uniquingKeysWith: { first, _ in first })
         let groupedRecords = Dictionary(grouping: records, by: \.paperID)
+        revision = snapshot.revision
         recordsByPaperID = groupedRecords
 
         var papers: [String: QuestionBankHomePaper] = [:]
-        for record in records where record.kind == QuestionBankRepository.paperKind {
-            guard let paper = record.decoded(QuestionBankPaper.self) else { continue }
-            papers[record.paperID] = QuestionBankHomePaper(record: record, paper: paper)
+        for indexed in snapshot.papers {
+            guard let record = recordsByID[indexed.compoundID] else { continue }
+            papers[indexed.paperID] = QuestionBankHomePaper(record: record, paper: indexed.value)
         }
         papersByID = papers
         orderedPapers = papers.values.sorted { left, right in
@@ -247,34 +367,33 @@ struct QuestionBankHomeIndex {
         }
 
         var byPaper: [String: [QuestionBankHomeQuestion]] = [:]
-        for (paperID, paperRecords) in groupedRecords {
-            let modules = Dictionary(
-                paperRecords
-                    .filter { $0.kind == QuestionBankRepository.moduleKind }
-                    .compactMap { record -> (String, QuestionBankModule)? in
-                        guard let module = record.decoded(QuestionBankModule.self) else { return nil }
-                        return (record.stableID, module)
-                    },
-                uniquingKeysWith: { first, _ in first }
-            )
-            byPaper[paperID] = paperRecords.compactMap { record in
-                guard record.kind == QuestionBankRepository.questionKind,
-                      let question = record.decoded(QuestionBankQuestion.self) else { return nil }
-                let moduleID = question.moduleID.isEmpty ? record.moduleID : question.moduleID
-                let module = moduleID.flatMap { modules[$0] }
-                let coarse = QuestionBankCoarseModule.classify(explicitModuleTitle: module?.title)
+        for (paperID, indexedQuestions) in snapshot.questionsByPaperID {
+            byPaper[paperID] = indexedQuestions.compactMap { indexed in
+                guard let record = recordsByID[indexed.compoundID] else { return nil }
+                let moduleID = indexed.value.moduleID.isEmpty ? record.moduleID : indexed.value.moduleID
+                let coarse = QuestionBankCoarseModule.classify(explicitModuleTitle: indexed.moduleTitle)
                 return QuestionBankHomeQuestion(
                     record: record,
-                    question: question,
+                    question: indexed.value,
                     module: coarse,
-                    questionTypeFilter: coarse.questionTypeFilter(for: question.type),
+                    questionTypeFilter: coarse.questionTypeFilter(for: indexed.value.type),
                     moduleID: moduleID,
-                    moduleTitle: module?.title,
-                    moduleSequence: module?.sequence ?? Int.max
+                    moduleTitle: indexed.moduleTitle,
+                    moduleSequence: indexed.moduleSequence
                 )
             }
         }
         questionsByPaperID = byPaper
+        materialsByPaperID = snapshot.materialsByPaperID
+    }
+
+    static func defaultPaperIDs(records: [QuestionBankRecord]) -> [String] {
+        records.filter { $0.kind == QuestionBankRepository.paperKind }.sorted { left, right in
+            if left.year != right.year { return (left.year ?? 0) > (right.year ?? 0) }
+            let titleOrder = (left.title ?? "未命名试卷").localizedStandardCompare(right.title ?? "未命名试卷")
+            if titleOrder == .orderedSame { return left.paperID < right.paperID }
+            return titleOrder == .orderedAscending
+        }.map(\.paperID)
     }
 
     var papers: [QuestionBankHomePaper] { orderedPapers }
@@ -310,15 +429,22 @@ struct QuestionBankHomeIndex {
     }
 
     func visiblePapers(matching filter: QuestionBankHomeFilter) -> [QuestionBankHomePaper] {
-        orderedPapers.filter { paper in
+        filtered(matching: filter).visiblePapers
+    }
+
+    func filtered(matching filter: QuestionBankHomeFilter) -> QuestionBankHomeFilterResult {
+        let questions = filteredQuestions(matching: filter)
+        let grouped = Dictionary(grouping: questions, by: { $0.record.paperID })
+        let searchQuery = filter.search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let papers = orderedPapers.filter { paper in
             guard paperMatchesMetadata(paper.paper, filter: filter) else { return false }
-            let searchQuery = filter.search.trimmingCharacters(in: .whitespacesAndNewlines)
             let paperMatchesSearch = !searchQuery.isEmpty && matches(paper.record.searchText, query: searchQuery)
-            let questionMatches = filteredQuestions(matching: filter, paperID: paper.id).isEmpty == false
+            let questionMatches = !(grouped[paper.id] ?? []).isEmpty
             if filter.hasQuestionRestriction { return questionMatches }
             if searchQuery.isEmpty { return true }
             return paperMatchesSearch || questionMatches
         }
+        return QuestionBankHomeFilterResult(visiblePapers: papers, questionsByPaperID: grouped)
     }
 
     func filteredQuestions(matching filter: QuestionBankHomeFilter, paperID: String? = nil) -> [QuestionBankHomeQuestion] {
@@ -362,6 +488,10 @@ struct QuestionBankHomeIndex {
 
     func records(for paperID: String) -> [QuestionBankRecord] {
         recordsByPaperID[paperID] ?? []
+    }
+
+    func materials(for paperID: String) -> [QuestionBankMaterial] {
+        materialsByPaperID[paperID] ?? []
     }
 
     private var allQuestions: [QuestionBankHomeQuestion] {

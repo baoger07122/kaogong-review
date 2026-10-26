@@ -18,6 +18,7 @@ final class QuestionBankRecord {
     var title: String?
     var searchText: String
     var payload: Data
+    var contentRevision: Int = 0
     /// Relative to Application Support/QuestionBankAssets; image bytes stay on disk.
     var assetRelativePath: String?
 
@@ -35,6 +36,7 @@ final class QuestionBankRecord {
         title: String? = nil,
         searchText: String = "",
         payload: Data,
+        contentRevision: Int = 0,
         assetRelativePath: String? = nil
     ) {
         self.compoundID = compoundID
@@ -50,7 +52,13 @@ final class QuestionBankRecord {
         self.title = title
         self.searchText = searchText
         self.payload = payload
+        self.contentRevision = contentRevision
         self.assetRelativePath = assetRelativePath
+    }
+
+    func replacePayload(_ value: Data) {
+        payload = value
+        contentRevision &+= 1
     }
 
     func update(from row: QuestionBankStoredRow) {
@@ -66,6 +74,7 @@ final class QuestionBankRecord {
         title = row.title
         searchText = row.searchText
         payload = row.payload
+        contentRevision &+= 1
         assetRelativePath = row.assetRelativePath
     }
 }

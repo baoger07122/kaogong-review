@@ -194,17 +194,42 @@ struct LibraryDraftSnapshot: Codable, Equatable {
             || !questionSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !score.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !totalScore.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(pinyin ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(sentiment ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(partOfSpeech ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(example ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(myUnderstanding ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(collocations ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(wordSource ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(compareNote ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(commonMeaning ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || (wordCompareTerms ?? []).contains {
+                !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !$0.meaning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !$0.wordID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || $0.entryKind != WordEntryKind.word.rawValue
+            }
     }
 }
 
 enum LibraryDraftStore {
-    static func load(kind: LibraryContentKind, scope: LibraryScope) -> LibraryDraftSnapshot? {
-        guard let data = UserDefaults.standard.data(forKey: key(kind: kind, scope: scope)) else { return nil }
-        return try? JSONDecoder().decode(LibraryDraftSnapshot.self, from: data)
+    static func load(kind: LibraryContentKind, scope: LibraryScope, category: String = "") -> LibraryDraftSnapshot? {
+        let storageKey = key(kind: kind, scope: scope, category: category)
+        if let data = UserDefaults.standard.data(forKey: storageKey),
+           let snapshot = try? JSONDecoder().decode(LibraryDraftSnapshot.self, from: data) {
+            return snapshot
+        }
+        guard kind == .words, !category.isEmpty,
+              let legacyData = UserDefaults.standard.data(forKey: legacyKey(kind: kind, scope: scope)),
+              let legacySnapshot = try? JSONDecoder().decode(LibraryDraftSnapshot.self, from: legacyData),
+              legacySnapshot.type == category else { return nil }
+        save(legacySnapshot, kind: kind, scope: scope)
+        UserDefaults.standard.removeObject(forKey: legacyKey(kind: kind, scope: scope))
+        return legacySnapshot
     }
 
     static func save(_ snapshot: LibraryDraftSnapshot, kind: LibraryContentKind, scope: LibraryScope) {
-        let storageKey = key(kind: kind, scope: scope)
+        let storageKey = key(kind: kind, scope: scope, category: snapshot.type)
         guard snapshot.hasUserContent, let data = try? JSONEncoder().encode(snapshot) else {
             UserDefaults.standard.removeObject(forKey: storageKey)
             return
@@ -212,11 +237,18 @@ enum LibraryDraftStore {
         UserDefaults.standard.set(data, forKey: storageKey)
     }
 
-    static func clear(kind: LibraryContentKind, scope: LibraryScope) {
-        UserDefaults.standard.removeObject(forKey: key(kind: kind, scope: scope))
+    static func clear(kind: LibraryContentKind, scope: LibraryScope, category: String = "") {
+        UserDefaults.standard.removeObject(forKey: key(kind: kind, scope: scope, category: category))
     }
 
-    private static func key(kind: LibraryContentKind, scope: LibraryScope) -> String {
+    private static func key(kind: LibraryContentKind, scope: LibraryScope, category: String = "") -> String {
+        let subject = scope.subject ?? "all"
+        let module = scope.module ?? "subject"
+        let categoryKey = kind == .words ? ".category.\(category.isEmpty ? "unselected" : category)" : ""
+        return "native.library.draft.\(kind.rawValue).\(subject).\(module)\(categoryKey)"
+    }
+
+    private static func legacyKey(kind: LibraryContentKind, scope: LibraryScope) -> String {
         let subject = scope.subject ?? "all"
         let module = scope.module ?? "subject"
         return "native.library.draft.\(kind.rawValue).\(subject).\(module)"

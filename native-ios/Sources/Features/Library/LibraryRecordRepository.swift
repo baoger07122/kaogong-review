@@ -459,7 +459,7 @@ enum LibraryRecordRepository {
             break
         }
         if let linkedQuestionUpdate {
-            linkedQuestionUpdate.record.payload = linkedQuestionUpdate.payload
+            linkedQuestionUpdate.record.replacePayload(linkedQuestionUpdate.payload)
             linkedQuestionUpdate.record.searchText = linkedQuestionUpdate.searchText
         }
         let contextSaveStart = ProcessInfo.processInfo.systemUptime
@@ -641,7 +641,7 @@ enum LibraryRecordRepository {
             break
         }
         if let linkedQuestionUpdate {
-            linkedQuestionUpdate.record.payload = linkedQuestionUpdate.payload
+            linkedQuestionUpdate.record.replacePayload(linkedQuestionUpdate.payload)
             linkedQuestionUpdate.record.searchText = linkedQuestionUpdate.searchText
         }
         context.delete(record)

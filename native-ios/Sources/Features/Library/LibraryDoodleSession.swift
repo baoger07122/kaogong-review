@@ -5,10 +5,13 @@ import UIKit
 final class LibraryDoodleSession: ObservableObject {
     @Published var isPresented = false
     @Published var saveError: String?
+    @Published private(set) var isLoadingDrawing = false
     @Published private(set) var targetRecordID: String?
     let canvas = LibraryDoodleCanvasState()
     private var saveHandler: ((String, Bool) -> String?)?
     private var isDismissing = false
+    private var drawingLoadFailed = false
+    private var drawingLoadDataReceived = false
     private var presentationStartedAt: TimeInterval?
     private var didLogCanvasFrame = false
     private var didLogCanvasInteractive = false
@@ -17,12 +20,16 @@ final class LibraryDoodleSession: ObservableObject {
         targetRecordID: String,
         drawingData: String,
         legacyPreviewDataURL: String,
+        isLoadingDrawing: Bool = false,
         onSave: @escaping (String, Bool) -> String?
     ) {
         guard !isPresented else { return }
         let preparationStart = ProcessInfo.processInfo.systemUptime
         saveError = nil
         isDismissing = false
+        drawingLoadFailed = false
+        drawingLoadDataReceived = false
+        self.isLoadingDrawing = isLoadingDrawing
         presentationStartedAt = preparationStart
         didLogCanvasFrame = false
         didLogCanvasInteractive = false
@@ -42,8 +49,29 @@ final class LibraryDoodleSession: ObservableObject {
         LibraryPerformanceLog.mark("doodle.overlay-state", since: preparationStart)
     }
 
+    func completeDrawingLoad(_ drawingData: String) {
+        guard isPresented, isLoadingDrawing else { return }
+        drawingLoadDataReceived = true
+        canvas.controller.beginDrawingReload()
+        canvas.drawingData = drawingData
+        noteCanvasInteractive()
+    }
+
+    func failDrawingLoad(_ message: String) {
+        guard isPresented, isLoadingDrawing else { return }
+        isLoadingDrawing = false
+        drawingLoadFailed = true
+        canvas.controller.canvasLoadError = message
+    }
+
     func dismiss() {
         guard isPresented, !isDismissing else { return }
+        guard !isLoadingDrawing else { return }
+        if drawingLoadFailed {
+            saveHandler = nil
+            finishDismissal()
+            return
+        }
         isDismissing = true
         saveError = nil
         let handler = saveHandler
@@ -98,12 +126,17 @@ final class LibraryDoodleSession: ObservableObject {
     func noteCanvasInteractive() {
         guard isPresented, !didLogCanvasInteractive, canvas.controller.canvasReady,
               canvas.canvasFrameInGlobal != nil, let presentationStartedAt else { return }
+        guard !isLoadingDrawing || drawingLoadDataReceived else { return }
+        isLoadingDrawing = false
         didLogCanvasInteractive = true
         LibraryPerformanceLog.mark("doodle.canvas-interactive", since: presentationStartedAt)
     }
 
     private func finishDismissal() {
         canvas.controller.showSettings = false
+        isLoadingDrawing = false
+        drawingLoadFailed = false
+        drawingLoadDataReceived = false
 
         var transaction = Transaction()
         transaction.disablesAnimations = true
@@ -134,7 +167,7 @@ struct LibraryDoodleOverlay: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let activeCanvasFrame = canvasPassThroughRect(in: proxy)
+            let activeCanvasFrame = session.isLoadingDrawing ? nil : canvasPassThroughRect(in: proxy)
             ZStack(alignment: .topTrailing) {
                 Color.black.opacity(0.18)
                     .contentShape(Rectangle())
@@ -197,12 +230,12 @@ struct LibraryDoodleOverlay: View {
         }
         guard !Task.isCancelled,
               session.isPresented,
-              !controller.canvasReady,
+              session.isLoadingDrawing || !controller.canvasReady,
               controller.canvasLoadError == nil else { return }
 
         showsDelayedLoadingIndicator = true
         while session.isPresented,
-              !controller.canvasReady,
+              (session.isLoadingDrawing || !controller.canvasReady),
               controller.canvasLoadError == nil {
             do {
                 try await Task.sleep(nanoseconds: 20_000_000)
@@ -223,7 +256,7 @@ struct LibraryDoodleOverlay: View {
 
     private var toolbar: some View {
         NativeDoodleToolbarCapsule {
-            toolbarButton("xmark", label: "退出涂鸦", action: session.dismiss)
+            toolbarButton("xmark", label: "退出涂鸦", disabled: session.isLoadingDrawing, action: session.dismiss)
                 .accessibilityIdentifier("library-doodle-close")
             toolbarButton(
                 controller.eraser ? "eraser.fill" : "eraser",
@@ -256,6 +289,7 @@ struct LibraryDoodleOverlay: View {
         _ systemImage: String,
         label: String,
         active: Bool = false,
+        disabled: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -266,6 +300,7 @@ struct LibraryDoodleOverlay: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(disabled)
         .accessibilityLabel(label)
     }
 

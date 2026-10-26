@@ -14,6 +14,7 @@ const doodle = read('Features/Library/LibraryDoodleSession.swift');
 const doodlePersistence = read('Features/Library/LibraryDoodlePersistence.swift');
 const navigationStyle = read('DesignSystem/NativeDocumentStyle.swift');
 const theme = read('DesignSystem/AppTheme.swift');
+const questionReader = read('Features/QuestionBank/QuestionBankReadingView.swift');
 const libraryView = read('Features/Library/LibraryView.swift');
 const libraryModels = read('Features/Library/LibraryRecordModels.swift');
 const cards = read('Features/Library/LibraryComponents.swift');
@@ -27,6 +28,16 @@ const tests = {
     assert.match(detail, /\.font\(AppTheme\.questionTextFont\)/);
     assert.match(detail, /\.lineSpacing\(AppTheme\.questionLineSpacing\)/);
     assert.match(detail, /\.padding\(\.top, 5\)/);
+  },
+  'question editor options stay inline and compact': () => {
+    const editor = questionReader.split('private struct QuestionBankQuestionTextEditor')[1]
+      .split('private struct QuestionBankProvenanceDisclosure')[0];
+    assert.match(editor, /Text\(option\.id\)[\s\S]*?background\(AppTheme\.accent\.opacity\(0\.10\), in: Capsule\(\)\)/);
+    assert.match(editor, /TextField\("", text: optionBinding\(for: option\.id\), axis: \.vertical\)/);
+    assert.match(editor, /\.lineLimit\(1\.\.\.4\)/);
+    assert.match(editor, /\.listRowInsets\(EdgeInsets\(top: 3, leading: 16, bottom: 3, trailing: 16\)\)/);
+    assert.match(editor, /\.listSectionSpacing\(8\)/);
+    assert.doesNotMatch(editor, /Text\("选项/);
   },
   'empty metadata keeps its label': () => {
     const metadata = detail.split('private var metadata:')[1].split('@ViewBuilder private var imagesBlock')[0];
@@ -110,7 +121,8 @@ const tests = {
     assert.match(root, /window\.safeAreaInsets\.top/);
     assert.match(navigationStyle, /padding\(\.top, windowTop\)/);
     assert.match(navigationStyle, /ignoresSafeArea\(\.container, edges: \.top\)/);
-    assert.match(root, /TabView\(selection: \$selection\)/);
+    assert.match(root, /TabView\(selection: tabSelectionBinding\)/);
+    assert.match(root, /private var tabSelectionBinding:[\s\S]*?set: \{ selectTab\(\$0\) \}/);
     assert.match(root, /Label\(tab\.title, systemImage: tab\.systemImage\)/);
     for (const symbol of ['house', 'square.stack.3d.up.fill', 'checkmark.seal.fill', 'books.vertical.fill', 'gearshape']) {
       assert.match(root, new RegExp(`"${symbol.replaceAll('.', '\\.')}"`));

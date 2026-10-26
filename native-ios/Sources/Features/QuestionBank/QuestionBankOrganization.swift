@@ -17,6 +17,8 @@ struct QuestionBankPaperPlacement: Codable, Equatable, Identifiable, Sendable {
 struct QuestionBankOrganizationSnapshot: Codable, Equatable, Sendable {
     var groups: [QuestionBankPaperGroup] = []
     var placements: [QuestionBankPaperPlacement] = []
+    /// Missing in older snapshots means every group follows the current default paper order.
+    var manualOrderGroupIDs: [String]? = nil
 }
 
 struct QuestionBankOrganizationSection: Identifiable, Equatable, Sendable {
@@ -34,6 +36,7 @@ final class QuestionBankOrganizationStore: ObservableObject {
 
     @Published private(set) var snapshot: QuestionBankOrganizationSnapshot
     private let defaults: UserDefaults
+    private var defaultPaperOrder: [String: Int] = [:]
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -46,6 +49,10 @@ final class QuestionBankOrganizationStore: ObservableObject {
     }
 
     func reconcile(paperIDs: [String]) {
+        defaultPaperOrder = Dictionary(
+            paperIDs.enumerated().map { ($1, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let validIDs = Set(paperIDs)
         var next = snapshot
         next.placements.removeAll { !validIDs.contains($0.paperID) }
@@ -84,13 +91,32 @@ final class QuestionBankOrganizationStore: ObservableObject {
     }
 
     func orderedPaperIDs(in groupID: String?) -> [String] {
-        snapshot.placements
+        let placements = snapshot.placements
             .filter { $0.groupID == groupID }
-            .sorted { left, right in
+        if isManuallyOrdered(in: groupID) {
+            return placements.sorted { left, right in
                 if left.order != right.order { return left.order < right.order }
                 return left.paperID < right.paperID
-            }
-            .map(\.paperID)
+            }.map(\.paperID)
+        }
+        return placements.map(\.paperID).sorted { left, right in
+            let leftOrder = defaultPaperOrder[left] ?? Int.max
+            let rightOrder = defaultPaperOrder[right] ?? Int.max
+            if leftOrder != rightOrder { return leftOrder < rightOrder }
+            return left < right
+        }
+    }
+
+    func isManuallyOrdered(in groupID: String?) -> Bool {
+        let key = groupID ?? QuestionBankOrganizationSection.ungroupedID
+        return (snapshot.manualOrderGroupIDs ?? []).contains(key)
+    }
+
+    func resetOrder(in groupID: String?) {
+        let key = groupID ?? QuestionBankOrganizationSection.ungroupedID
+        var next = snapshot
+        next.manualOrderGroupIDs = (next.manualOrderGroupIDs ?? []).filter { $0 != key }
+        commit(next)
     }
 
     @discardableResult
@@ -157,18 +183,18 @@ final class QuestionBankOrganizationStore: ObservableObject {
 
     func movePapers(in groupID: String?, fromOffsets: IndexSet, toOffset: Int) {
         var next = snapshot
-        var ids = next.placements
-            .filter { $0.groupID == groupID }
-            .sorted {
-                if $0.order != $1.order { return $0.order < $1.order }
-                return $0.paperID < $1.paperID
-            }
-            .map(\.paperID)
+        let previousIDs = orderedPaperIDs(in: groupID)
+        var ids = previousIDs
         ids.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        guard ids != previousIDs else { return }
         for index in next.placements.indices where next.placements[index].groupID == groupID {
             guard let order = ids.firstIndex(of: next.placements[index].paperID) else { continue }
             next.placements[index].order = order
         }
+        let key = groupID ?? QuestionBankOrganizationSection.ungroupedID
+        var manuallyOrdered = Set(next.manualOrderGroupIDs ?? [])
+        manuallyOrdered.insert(key)
+        next.manualOrderGroupIDs = manuallyOrdered.sorted()
         commit(next)
     }
 
@@ -246,6 +272,8 @@ final class QuestionBankOrganizationStore: ObservableObject {
         var seenGroups = Set<String>()
         result.groups = result.groups.filter { !$0.id.isEmpty && seenGroups.insert($0.id).inserted }
         let groupIDs = Set(result.groups.map(\.id))
+        let validOrderIDs = groupIDs.union([QuestionBankOrganizationSection.ungroupedID])
+        result.manualOrderGroupIDs = Array(Set(result.manualOrderGroupIDs ?? []).intersection(validOrderIDs)).sorted()
         var seenPapers = Set<String>()
         result.placements = result.placements
             .filter { !$0.paperID.isEmpty && seenPapers.insert($0.paperID).inserted }

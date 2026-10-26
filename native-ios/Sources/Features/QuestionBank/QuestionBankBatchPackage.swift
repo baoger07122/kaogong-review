@@ -872,7 +872,7 @@ enum QuestionBankBatchPackageRepository {
         }
     }
 
-    private static func mergedPayload(incoming: Data, existing: Data, kind: String) throws -> Data {
+    static func mergedPayload(incoming: Data, existing: Data, kind: String) throws -> Data {
         guard let oldObject = try JSONSerialization.jsonObject(with: existing) as? [String: Any],
               let newObject = try JSONSerialization.jsonObject(with: incoming) as? [String: Any] else {
             throw QuestionBankBatchPackageFailure.invalidTarget("题库 payload 无法解析；未写入数据。")
@@ -888,6 +888,9 @@ enum QuestionBankBatchPackageRepository {
                 } else {
                     merged.removeValue(forKey: key)
                 }
+            }
+            if let localAccuracy = oldObject["accuracy"] {
+                merged["accuracy"] = localAccuracy
             }
         }
         return try JSONSerialization.data(withJSONObject: merged, options: [.sortedKeys])
@@ -934,7 +937,7 @@ enum QuestionBankBatchPackageExporter {
         records: [QuestionBankRecord],
         organizationStore: QuestionBankOrganizationStore
     ) throws -> QuestionBankBatchPackageExportSnapshot {
-        let allPaperIDs = QuestionBankHomeIndex(records: records).papers.map(\.id)
+        let allPaperIDs = QuestionBankHomeIndex.defaultPaperIDs(records: records)
         let organization = organizationStore.exportOrganization(for: allPaperIDs)
         var exportedPlacements = organization.placements
         var ungroupedOrder = exportedPlacements.filter { $0.groupID == nil }.count

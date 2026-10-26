@@ -114,7 +114,9 @@ struct QuestionBankBatchPackageManagerView: View {
     @State private var exportError: String?
 
     private var paperCount: Int {
-        QuestionBankHomeIndex(records: records).papers.count
+        records.reduce(into: 0) { count, record in
+            if record.kind == QuestionBankRepository.paperKind { count += 1 }
+        }
     }
 
     var body: some View {

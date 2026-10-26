@@ -206,11 +206,13 @@ struct QuestionBankQuestion: Codable, Equatable, Sendable, Identifiable {
     var note: String? = nil
     var linkedWordIDs: [String]? = nil
     var linkedErrorRecordIDs: [String]? = nil
+    var accuracy: Double? = nil
 
     private enum CodingKeys: String, CodingKey {
         case id, paperID, moduleID, number, subject, type, materialID, stem, stemImageAssetID
         case options, answer, explanation, originalPage, provenance
         case isDifficult, needsReview, knowledgePoints, weaknessTags
+        case accuracy
         case errorCause, pitfall, quantityStructure, graphRule, recognition, note
         case linkedWordIDs = "linkedWordIds"
         case linkedErrorRecordIDs
@@ -282,6 +284,15 @@ extension QuestionBankQuestion {
         note = try container.decodeIfPresent(String.self, forKey: .note)
         linkedWordIDs = try container.decodeIfPresent([String].self, forKey: .linkedWordIDs)
         linkedErrorRecordIDs = try container.decodeIfPresent([String].self, forKey: .linkedErrorRecordIDs)
+        if let value = try? container.decode(Double.self, forKey: .accuracy) {
+            accuracy = value
+        } else if let value = try? container.decode(String.self, forKey: .accuracy) {
+            let normalized = value.replacingOccurrences(of: "%", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            accuracy = Double(normalized)
+        } else {
+            accuracy = nil
+        }
     }
 }
 
@@ -426,10 +437,19 @@ private struct QuestionBankJSONQuestionFieldsV1: Decodable {
         case id, paperID, moduleID, number, subject, type, materialID, stem, stemImageAssetID
         case options, answer, explanation, originalPage, provenance
         case isDifficult, needsReview, knowledgePoints, weaknessTags
+        case accuracy
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let options = try c.decode([QuestionBankJSONOptionFieldsV1].self, forKey: .options).map(\.value)
+        let accuracy: Double?
+        if let value = try? c.decode(Double.self, forKey: .accuracy) {
+            accuracy = value
+        } else if let value = try? c.decode(String.self, forKey: .accuracy) {
+            accuracy = Double(value.replacingOccurrences(of: "%", with: "").trimmingCharacters(in: .whitespacesAndNewlines))
+        } else {
+            accuracy = nil
+        }
         value = QuestionBankQuestion(id: (try? c.decode(String.self, forKey: .id)) ?? "",
             paperID: try c.decode(String.self, forKey: .paperID), moduleID: try c.decode(String.self, forKey: .moduleID),
             number: try c.decode(Int.self, forKey: .number), subject: try c.decode(String.self, forKey: .subject),
@@ -441,7 +461,8 @@ private struct QuestionBankJSONQuestionFieldsV1: Decodable {
             isDifficult: try c.decodeIfPresent(Bool.self, forKey: .isDifficult),
             needsReview: try c.decodeIfPresent(Bool.self, forKey: .needsReview),
             knowledgePoints: try c.decodeIfPresent([String].self, forKey: .knowledgePoints),
-            weaknessTags: try c.decodeIfPresent([String].self, forKey: .weaknessTags))
+            weaknessTags: try c.decodeIfPresent([String].self, forKey: .weaknessTags),
+            accuracy: accuracy)
     }
 }
 
@@ -752,12 +773,14 @@ enum QuestionBankMissingAnswerEditFailure: LocalizedError {
 enum QuestionBankQuestionTextEditFailure: LocalizedError {
     case missingQuestion
     case invalidOption(String)
+    case invalidMultiBlankOption(String)
     case invalidPayload
 
     var errorDescription: String? {
         switch self {
         case .missingQuestion: "找不到要编辑的题目。"
         case .invalidOption(let optionID): "选项 \(optionID) 不属于这道题，未保存修改。"
+        case .invalidMultiBlankOption(let detail): "多空逻辑填空：\(detail)"
         case .invalidPayload: "题目数据无法安全更新，原记录未更改。"
         }
     }
@@ -767,6 +790,7 @@ enum QuestionBankQuestionAnalysisFailure: LocalizedError {
     case missingQuestion
     case invalidPayload
     case invalidOption(String)
+    case invalidMultiBlankOption(String)
     case missingLinkedWord(String)
     case missingLinkedError(String)
     case linkedToAnotherQuestion(String)
@@ -776,9 +800,22 @@ enum QuestionBankQuestionAnalysisFailure: LocalizedError {
         case .missingQuestion: "找不到要编辑的真题。"
         case .invalidPayload: "真题数据无法安全更新，原记录未更改。"
         case .invalidOption(let value): "选项“\(value)”不属于这道题，未保存修改。"
+        case .invalidMultiBlankOption(let detail): "多空逻辑填空：\(detail)"
         case .missingLinkedWord(let id): "关联词语“\(id)”不存在，未保存修改。"
         case .missingLinkedError(let id): "关联错题“\(id)”不存在，未保存修改。"
         case .linkedToAnotherQuestion(let id): "错题“\(id)”已关联另一道真题，请先解除原关联。"
+        }
+    }
+}
+
+enum QuestionBankReferenceAccuracyFailure: LocalizedError {
+    case invalidValue
+    case invalidPayload
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidValue: "参考正确率必须在 0% 到 100% 之间。"
+        case .invalidPayload: "题目数据无法安全更新，原记录未更改。"
         }
     }
 }
@@ -795,6 +832,27 @@ enum QuestionBankRepository {
     static let materialKind = "material"
     static let questionKind = "question"
     static let assetKind = "asset"
+
+    private static func multiBlankOptionError(
+        for question: QuestionBankQuestion,
+        moduleTitle: String? = nil
+    ) -> String? {
+        let type = QuestionBankModuleTitle.normalized(
+            [question.type, question.subject, moduleTitle ?? ""].joined(separator: " ")
+        )
+        guard ["逻辑填空", "选词填空", "词语填空"].contains(where: { type.contains($0) }) else { return nil }
+        let blankCount = QuestionBankMultiBlankOptionText.blankCount(in: question.stem)
+        guard blankCount > 1 else { return nil }
+        for option in question.options where !option.text.trimmedNonempty.isEmpty {
+            if let message = QuestionBankMultiBlankOptionText.validationMessage(
+                for: option.text,
+                blankCount: blankCount
+            ) {
+                return "选项\(option.id)：\(message)"
+            }
+        }
+        return nil
+    }
 
     static func duplicatePaper(for paper: QuestionBankPaper, in records: [QuestionBankRecord]) -> QuestionBankRecord? {
         records.first {
@@ -861,7 +919,7 @@ enum QuestionBankRepository {
             record.examType = paper.examType
             record.normalizedPaperKey = paper.duplicateKey
             record.searchText = "\(paper.title) \(paper.year) \(paper.examType) \(paper.volume) \(paper.provinceName ?? "") \(paper.provinceCode ?? "")"
-            record.payload = payload
+            record.replacePayload(payload)
         }
     }
 
@@ -894,7 +952,7 @@ enum QuestionBankRepository {
         guard let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
             throw QuestionBankMissingAnswerEditFailure.invalidPayload
         }
-        try context.transaction { record.payload = payload }
+        try context.transaction { record.replacePayload(payload) }
     }
 
     @MainActor
@@ -946,12 +1004,18 @@ enum QuestionBankRepository {
               let updatedQuestion = try? JSONDecoder().decode(QuestionBankQuestion.self, from: payload) else {
             throw QuestionBankQuestionTextEditFailure.invalidPayload
         }
+        let moduleTitle = records.first {
+            $0.paperID == paperID && $0.kind == moduleKind && $0.stableID == updatedQuestion.moduleID
+        }?.title
+        if let detail = multiBlankOptionError(for: updatedQuestion, moduleTitle: moduleTitle) {
+            throw QuestionBankQuestionTextEditFailure.invalidMultiBlankOption(detail)
+        }
         let searchText = ([String(updatedQuestion.number), updatedQuestion.stem]
             + updatedQuestion.options.map(\.text)
             + annotations.knowledgePoints + annotations.weaknessTags).joined(separator: " ")
 
         try context.transaction {
-            record.payload = payload
+            record.replacePayload(payload)
             record.searchText = searchText
         }
     }
@@ -1029,6 +1093,9 @@ enum QuestionBankRepository {
               let updatedQuestion = try? JSONDecoder().decode(QuestionBankQuestion.self, from: payload) else {
             throw QuestionBankQuestionAnalysisFailure.invalidPayload
         }
+        if let detail = multiBlankOptionError(for: updatedQuestion, moduleTitle: typeMapping.module) {
+            throw QuestionBankQuestionAnalysisFailure.invalidMultiBlankOption(detail)
+        }
 
         let storedByID = Dictionary(
             storedRecords.filter { $0.collection == "errors" }.map { ($0.recordID, $0) },
@@ -1073,7 +1140,7 @@ enum QuestionBankRepository {
 
         let searchText = Self.questionSearchText(updatedQuestion)
         try context.transaction {
-            record.payload = payload
+            record.replacePayload(payload)
             record.searchText = searchText
             for update in linkedUpdates {
                 update.record.replacePayload(update.payload)
@@ -1082,6 +1149,31 @@ enum QuestionBankRepository {
                 update.record.updatedAt = .now
             }
         }
+    }
+
+    @MainActor
+    static func updateReferenceAccuracy(
+        record: QuestionBankRecord,
+        accuracy: Double?,
+        context: ModelContext
+    ) throws {
+        guard record.kind == questionKind,
+              let decoded = try? JSONSerialization.jsonObject(with: record.payload),
+              var object = decoded as? [String: Any] else {
+            throw QuestionBankReferenceAccuracyFailure.invalidPayload
+        }
+        if let accuracy {
+            guard accuracy.isFinite, (0...100).contains(accuracy) else {
+                throw QuestionBankReferenceAccuracyFailure.invalidValue
+            }
+            object["accuracy"] = accuracy
+        } else {
+            object.removeValue(forKey: "accuracy")
+        }
+        guard let payload = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
+            throw QuestionBankReferenceAccuracyFailure.invalidPayload
+        }
+        try context.transaction { record.replacePayload(payload) }
     }
 
     static func prepareQuestionUpdateFromLinkedError(
@@ -2277,13 +2369,14 @@ enum QuestionBankPackageImporter {
             )
             let isLogicFill = QuestionBankCoarseModule.classify(explicitModuleTitle: moduleTitle) == .language
                 && ["逻辑填空", "选词填空", "词语填空"].contains(where: { normalizedQuestionType.contains($0) })
-            let blankCount = logicFillBlankCount(in: question.stem)
+            let blankCount = QuestionBankMultiBlankOptionText.blankCount(in: question.stem)
             if isLogicFill && blankCount > 1 {
-                let separators = CharacterSet(charactersIn: "；;")
                 for option in question.options where !option.text.trimmedNonempty.isEmpty {
-                    let separatorCount = option.text.unicodeScalars.filter(separators.contains).count
-                    if separatorCount < blankCount - 1 {
-                        errors.append("\(label)／选项\(option.id)：多空逻辑填空的词语边界未分开，请对照原卷核对后用“；”分隔；导入器不会猜测中文词语边界。")
+                    if let message = QuestionBankMultiBlankOptionText.validationMessage(
+                        for: option.text,
+                        blankCount: blankCount
+                    ) {
+                        errors.append("\(label)／选项\(option.id)：\(message)")
                     }
                 }
             }
@@ -2363,15 +2456,6 @@ enum QuestionBankPackageImporter {
             }
         }
         return errors
-    }
-
-    private static func logicFillBlankCount(in stem: String) -> Int {
-        let patterns = [#"(?:_{2,}|＿{2,})"#, #"[（(]\s*[）)]"#]
-        return patterns.reduce(0) { total, pattern in
-            guard let expression = try? NSRegularExpression(pattern: pattern) else { return total }
-            let range = NSRange(stem.startIndex..<stem.endIndex, in: stem)
-            return total + expression.numberOfMatches(in: stem, range: range)
-        }
     }
 
     private static func reportDuplicates<Value: Hashable>(_ values: [Value], label: String,

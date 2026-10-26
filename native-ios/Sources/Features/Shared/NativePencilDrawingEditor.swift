@@ -140,6 +140,13 @@ final class PencilDrawingController: ObservableObject {
         canvasLoadError = nil
     }
 
+    func beginDrawingReload() {
+        drawingLoadRevision += 1
+        hasPendingDrawingPublish = false
+        canvasReady = false
+        canvasLoadError = nil
+    }
+
     func cachedDrawing(for encoded: String) -> PKDrawing? {
         guard decodedDrawingKey == encoded else { return nil }
         return decodedDrawing
@@ -601,7 +608,8 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
 
             if encoded.isEmpty {
                 DispatchQueue.main.async { [weak self, weak canvas] in
-                    guard let self, let canvas, self.decodeToken == token else { return }
+                    guard let self, let canvas, self.decodeToken == token,
+                          self.controller.drawingLoadRevision == revision else { return }
                     let drawing = self.controller.cachedDrawing(for: encoded) ?? PKDrawing()
                     self.controller.remember(drawing, encoded: encoded)
                     canvas.drawing = drawing
@@ -622,7 +630,8 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
 
             if let drawing = controller.cachedDrawing(for: encoded) {
                 DispatchQueue.main.async { [weak self, weak canvas] in
-                    guard let self, let canvas, self.decodeToken == token else { return }
+                    guard let self, let canvas, self.decodeToken == token,
+                          self.controller.drawingLoadRevision == revision else { return }
                     canvas.drawing = drawing
                     self.lastEncoded = encoded
                     self.canvasReady = true
@@ -641,7 +650,8 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
                 let drawing = Data(base64Encoded: encoded).flatMap { try? PKDrawing(data: $0) }
                 LibraryPerformanceLog.mark("doodle.canvas.decode", since: decodeStart)
                 DispatchQueue.main.async {
-                    guard let self, let canvas, self.decodeToken == token else { return }
+                    guard let self, let canvas, self.decodeToken == token,
+                          self.controller.drawingLoadRevision == revision else { return }
                     guard let drawing else {
                         self.controller.canvasReady = false
                         self.controller.canvasLoadError = "已有涂鸦无法载入；关闭后会保留原记录。"

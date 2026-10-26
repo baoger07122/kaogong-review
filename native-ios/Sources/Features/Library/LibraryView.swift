@@ -30,6 +30,7 @@ struct LibraryView: View {
     @State private var renderLimit = 40
     @State private var selectedQuantityType = ""
     @State private var snapshotCache = LibrarySnapshotCache()
+    @State private var recordListCache = LibraryRecordListCache()
     @AppStorage("native.library.graphDisplayMode") private var graphDisplayMode = "cards"
     @AppStorage("native.library.legacyIndexMigrationVersion") private var legacyIndexMigrationVersion = 0
 
@@ -474,19 +475,7 @@ struct LibraryView: View {
     }
 
     private var scopedRecords: [StoredRecord] {
-        records.filter { record in
-            guard record.collection == kind.collection, scope.contains(record) else { return false }
-            if isQuantityContext, kind == .errors || kind == .notes {
-                if selectedQuantityType == "未分类" {
-                    guard !quantityQuestionTypes.contains(record.module ?? "") else { return false }
-                } else if !selectedQuantityType.isEmpty {
-                    guard record.module == selectedQuantityType else { return false }
-                }
-            }
-            if kind == .stickies && !scope.hasModuleContext { return false }
-            if kind == .words && !scope.isLogicFill { return false }
-            return true
-        }
+        sortedScopedRecords
     }
 
     private var snapshots: [LibraryRecordSnapshot] {
@@ -504,24 +493,15 @@ struct LibraryView: View {
     private var isGraphReasoningContext: Bool {
         kind == .errors && scope.subject == "判断推理" && scope.module == "图形推理"
     }
-    private var quantityQuestionTypes: [String] { QuantityQuestionTypeRepository.types(records: records) }
+    private var quantityQuestionTypes: [String] { recordListCache.quantityTypes(records: records) }
 
     private var sortedScopedRecords: [StoredRecord] {
-        scopedRecords.sorted { left, right in
-            let leftDate = orderingDate(for: left)
-            let rightDate = orderingDate(for: right)
-            if leftDate != rightDate { return leftDate > rightDate }
-            return left.recordID > right.recordID
-        }
-    }
-
-    private func orderingDate(for record: StoredRecord) -> Date {
-        if kind == .errors {
-            // Wrong-question lists are ordered by when a question was added. Editing
-            // an older question must not move it ahead of newly created questions.
-            return record.createdAt ?? record.updatedAt ?? .distantPast
-        }
-        return record.updatedAt ?? record.createdAt ?? .distantPast
+        recordListCache.sortedScopedRecords(
+            records: records,
+            kind: kind,
+            scope: scope,
+            selectedQuantityType: selectedQuantityType
+        )
     }
 
     private var hasMoreRecords: Bool { renderLimit < scopedRecords.count }

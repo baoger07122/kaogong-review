@@ -445,8 +445,15 @@ struct LibraryRecordDetailView: View {
 
     private var answerAndSource: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let accuracy = formattedAccuracy {
-                supportingLine("全站正确率", value: accuracy, systemImage: "chart.bar.fill")
+            if let questionBankContext {
+                if questionBankShowsAnswer {
+                    QuestionBankReferenceAccuracyControl(
+                        record: questionBankContext.record,
+                        accuracy: questionBankContext.currentQuestion.accuracy
+                    )
+                }
+            } else if let accuracy = formattedAccuracy {
+                supportingLine("参考正确率", value: accuracy, systemImage: "chart.bar.fill")
             }
             if let source = firstText(["questionSource", "source"]), !clean(source).isEmpty {
                 if let questionBankContext {
@@ -835,22 +842,14 @@ struct LibraryRecordDetailView: View {
         let openStart = ProcessInfo.processInfo.systemUptime
         let drawingData = firstText(["pencilKitData", "drawingData"]) ?? ""
         let targetID = activeRecordID
-        let currentDrawing: String
-        if questionBankContext != nil {
-            do {
-                currentDrawing = try QuestionBankDoodleRepository.drawingData(recordID: targetID, context: modelContext)
-            } catch {
-                doodleSession.saveError = "涂鸦读取失败：\(error.localizedDescription)"
-                return
-            }
-        } else {
-            currentDrawing = drawingData
-        }
+        let needsBackgroundLoad = questionBankContext != nil
+        let currentDrawing = needsBackgroundLoad ? "" : drawingData
         doodleSession.present(
             targetRecordID: targetID,
             drawingData: currentDrawing,
             legacyPreviewDataURL: questionBankContext == nil && currentDrawing.isEmpty
                 ? (firstText(["drawingPreview", "doodle", "drawingDataURL"]) ?? "") : "",
+            isLoadingDrawing: needsBackgroundLoad,
             onSave: { updatedDrawing, legacyPreviewCleared in
                 if questionBankContext != nil {
                     return QuestionBankDoodleRepository.save(
@@ -863,6 +862,26 @@ struct LibraryRecordDetailView: View {
             }
         )
         LibraryPerformanceLog.mark("doodle.tap-to-present", since: openStart)
+        if needsBackgroundLoad {
+            let container = modelContext.container
+            Task { @MainActor in
+                do {
+                    let loadedDrawing = try await QuestionBankDoodleRepository.drawingData(
+                        recordID: targetID,
+                        container: container
+                    )
+                    LibraryPerformanceLog.mark("doodle.read.background-result", since: openStart)
+                    guard doodleSession.isPresented,
+                          doodleSession.targetRecordID == targetID,
+                          doodleSession.isLoadingDrawing else { return }
+                    doodleSession.completeDrawingLoad(loadedDrawing)
+                } catch {
+                    guard doodleSession.isPresented,
+                          doodleSession.targetRecordID == targetID else { return }
+                    doodleSession.failDrawingLoad("涂鸦读取失败：\(error.localizedDescription)")
+                }
+            }
+        }
         // Let the overlay render first. Finishing an active rich-text note can
         // serialize the whole record, so it must not sit in the tap's critical
         // path before the drawing tools become visible.

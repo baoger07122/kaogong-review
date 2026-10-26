@@ -316,6 +316,95 @@ final class QuestionBankImportTests: XCTestCase {
         }
     }
 
+    func testQuestionBankHomeIndexStoreRebuildsOnlyForRecordRevisionChanges() async throws {
+        let paper = batchTestPaper(id: "index-cache-paper", title: "缓存验证")
+        let paperRecord = try batchTestRecord(
+            kind: QuestionBankRepository.paperKind, id: paper.id, paperID: paper.id, value: paper
+        )
+        var question = batchTestQuestion(
+            id: "index-cache-question", paperID: paper.id, materialID: "",
+            stem: "未标记题", answer: "A", reordered: false
+        )
+        question.type = "逻辑判断"
+        let questionRecord = try batchTestRecord(
+            kind: QuestionBankRepository.questionKind, id: question.id,
+            paperID: paper.id, value: question, searchText: question.stem
+        )
+        let records = [paperRecord, questionRecord]
+        let store = QuestionBankHomeIndexStore()
+        let firstRevision = QuestionBankHomeIndexRevision.make(records: records)
+        await store.load(records: records, revision: firstRevision)
+        XCTAssertEqual(store.index?.filteredQuestions(matching: QuestionBankHomeFilter()).count, 1)
+        XCTAssertTrue(store.index?.filteredQuestions(matching: QuestionBankHomeFilter(difficultOnly: true)).isEmpty == true)
+
+        question.isDifficult = true
+        question.knowledgePoints = ["近义词辨析"]
+        question.weaknessTags = ["易混词"]
+        questionRecord.replacePayload(try JSONEncoder().encode(question))
+        questionRecord.searchText = "未标记题 难题 近义词辨析 易混词"
+        let updatedRevision = QuestionBankHomeIndexRevision.make(records: records)
+        XCTAssertNotEqual(firstRevision, updatedRevision)
+        await store.load(records: records, revision: updatedRevision)
+        XCTAssertEqual(store.index?.filteredQuestions(matching: QuestionBankHomeFilter(difficultOnly: true)).count, 1)
+        XCTAssertEqual(store.index?.filteredQuestions(matching: QuestionBankHomeFilter(knowledgePoint: "近义词辨析")).count, 1)
+        XCTAssertEqual(store.index?.filteredQuestions(matching: QuestionBankHomeFilter(weaknessTag: "易混词")).count, 1)
+
+        await store.load(records: records, revision: updatedRevision)
+        XCTAssertEqual(store.index?.revision, updatedRevision)
+    }
+
+    @MainActor
+    func testQuestionBankOrganizationDefaultsToCurrentPaperOrderAndResetsAfterManualReorder() throws {
+        let suiteName = "QuestionBankOrganizationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = QuestionBankOrganizationStore(defaults: defaults)
+        store.reconcile(paperIDs: ["2024", "2025", "2023"])
+        store.reconcile(paperIDs: ["2025", "2024", "2023"])
+        XCTAssertEqual(store.orderedPaperIDs(in: nil), ["2025", "2024", "2023"])
+
+        store.movePapers(in: nil, fromOffsets: IndexSet(integer: 0), toOffset: 3)
+        XCTAssertEqual(store.orderedPaperIDs(in: nil), ["2024", "2023", "2025"])
+        XCTAssertTrue(store.isManuallyOrdered(in: nil))
+
+        let restored = QuestionBankOrganizationStore(defaults: defaults)
+        restored.reconcile(paperIDs: ["2025", "2024", "2023"])
+        XCTAssertEqual(restored.orderedPaperIDs(in: nil), ["2024", "2023", "2025"])
+        restored.resetOrder(in: nil)
+        XCTAssertEqual(restored.orderedPaperIDs(in: nil), ["2025", "2024", "2023"])
+        XCTAssertFalse(restored.isManuallyOrdered(in: nil))
+    }
+
+    func testQuestionBankOverviewKeepsReaderIDOrderAndShowsModuleTitleOnlyAtModuleStart() {
+        let candidates = [
+            QuestionBankOverviewCandidate(
+                id: "q-a", paperID: "paper", paperTitle: "试卷", questionNumber: 9,
+                moduleID: "language", moduleTitle: "言语理解", moduleSequence: 1,
+                type: "阅读与表达", subject: "言语理解"
+            ),
+            QuestionBankOverviewCandidate(
+                id: "q-b", paperID: "paper", paperTitle: "试卷", questionNumber: 12,
+                moduleID: "language", moduleTitle: "言语理解", moduleSequence: 1,
+                type: "逻辑填空", subject: "言语理解"
+            ),
+            QuestionBankOverviewCandidate(
+                id: "q-c", paperID: "paper", paperTitle: "试卷", questionNumber: 15,
+                moduleID: "language", moduleTitle: "言语理解", moduleSequence: 1,
+                type: "阅读与表达", subject: "言语理解"
+            )
+        ]
+        let groups = QuestionBankOverviewGrouping.groups(from: candidates)
+        XCTAssertEqual(groups.flatMap(\.questions).map(\.id), ["q-a", "q-b", "q-c"])
+        XCTAssertEqual(groups.map(\.coarseQuestionType), ["片段阅读", "逻辑填空", "片段阅读"])
+        XCTAssertEqual(groups.map(\.startsModule), [true, false, false])
+        XCTAssertEqual(QuestionBankDisplayNumber.resolve(
+            originalNumber: 9, localOrdinal: 1, usesLocalOrdinal: true
+        ), 1)
+        XCTAssertEqual(QuestionBankDisplayNumber.resolve(
+            originalNumber: 9, localOrdinal: 1, usesLocalOrdinal: false
+        ), 9)
+    }
+
     func testQuestionBankMetadataUpdatePreservesUnknownPayloadAndUpdatesIndexedFields() throws {
         let paper = batchTestPaper(id: "metadata-paper", title: "原试卷")
         let record = try batchTestRecord(
@@ -820,6 +909,128 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertEqual(QuestionBankRevealedAnswersStorage.decode("invalid"), [])
     }
 
+    func testMultiBlankOptionTextAcceptsCanonicalAndRecognizedLegacySeparators() throws {
+        let canonical = try XCTUnwrap(QuestionBankMultiBlankOptionText.parse(
+            "水到渠成    融汇贯通",
+            blankCount: 2
+        ))
+        XCTAssertEqual(canonical.groups, ["水到渠成", "融汇贯通"])
+        XCTAssertEqual(canonical.format, .fourSpaces)
+
+        let legacy2019 = try XCTUnwrap(QuestionBankMultiBlankOptionText.parse(
+            "水到渠成 融汇贯通",
+            blankCount: 2
+        ))
+        XCTAssertEqual(legacy2019.groups, ["水到渠成", "融汇贯通"])
+        XCTAssertEqual(legacy2019.format, .legacySingleSpace)
+
+        let semicolonLegacy = try XCTUnwrap(QuestionBankMultiBlankOptionText.parse(
+            "水到渠成；融汇贯通",
+            blankCount: 2
+        ))
+        XCTAssertEqual(semicolonLegacy.groups, ["水到渠成", "融汇贯通"])
+        XCTAssertEqual(semicolonLegacy.format, .legacySemicolon)
+    }
+
+    func testMultiBlankOptionTextRejectsGuessedOrMalformedBoundaries() {
+        for invalid in [
+            "水到渠成融汇贯通",
+            "水到渠成    融汇    贯通",
+            "水到渠成     融汇贯通",
+            "水到渠成；融汇贯通；锦上添花",
+            "水到渠成    融汇贯通；锦上添花"
+        ] {
+            XCTAssertNil(QuestionBankMultiBlankOptionText.parse(invalid, blankCount: 2), invalid)
+            XCTAssertNotNil(
+                QuestionBankMultiBlankOptionText.validationMessage(for: invalid, blankCount: 2),
+                invalid
+            )
+        }
+        XCTAssertNil(QuestionBankMultiBlankOptionText.validationMessage(
+            for: "水到渠成融汇贯通",
+            blankCount: 1
+        ))
+    }
+
+    func testMultiBlankOptionTextCountsAsciiAndFullWidthBlanks() {
+        XCTAssertEqual(QuestionBankMultiBlankOptionText.blankCount(in: "在（ ）中寻找答案，再填____"), 2)
+        XCTAssertEqual(QuestionBankMultiBlankOptionText.blankCount(in: "无空位题干"), 0)
+    }
+
+    func testQuestionBankSourceDisplayKeepsOnlyCleanFileName() {
+        XCTAssertEqual(
+            QuestionBankSourceDisplay.cleanedFileName("C:\\papers\\2019国考（网友回忆版）.PDF"),
+            "2019国考"
+        )
+        XCTAssertEqual(
+            QuestionBankSourceDisplay.cleanedFileName("2020国考【 】.pdf"),
+            "2020国考"
+        )
+        let rows = QuestionBankSourceDisplay.rows(
+            entries: [QuestionBankProvenance(sourcePaperID: "source", sourceQuestionNumber: 23)],
+            sourcePapers: [QuestionBankSourcePaper(
+                id: "source",
+                originalFileName: "C:\\papers\\2019国考（网友回忆版）.PDF"
+            )]
+        )
+        XCTAssertEqual(rows, ["2019国考·第23题"])
+    }
+
+    func testQuestionBankReferenceAccuracyIsOptionalAndAcceptsLegacyPercentText() throws {
+        var question = batchTestQuestion(
+            id: "accuracy-question", paperID: "accuracy-paper", materialID: "",
+            stem: "参考率", answer: "A", reordered: false
+        )
+        question.accuracy = 48.5
+        let encoded = try JSONEncoder().encode(question)
+        let decoded = try JSONDecoder().decode(QuestionBankQuestion.self, from: encoded)
+        XCTAssertEqual(decoded.accuracy, 48.5)
+        XCTAssertEqual(QuestionBankReferenceAccuracyFormat.percentageText(decoded.accuracy), "48.5%")
+
+        var legacyObject = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        legacyObject["accuracy"] = "67.25%"
+        let legacyPayload = try JSONSerialization.data(withJSONObject: legacyObject, options: [.sortedKeys])
+        XCTAssertEqual(try JSONDecoder().decode(QuestionBankQuestion.self, from: legacyPayload).accuracy, 67.25)
+        XCTAssertEqual(QuestionBankReferenceAccuracyFormat.percentageText(nil), "未录入")
+        XCTAssertEqual(QuestionBankReferenceAccuracyFormat.parse("0"), 0)
+        XCTAssertEqual(QuestionBankReferenceAccuracyFormat.parse("100%"), 100)
+        XCTAssertNil(QuestionBankReferenceAccuracyFormat.parse("100.1"))
+        XCTAssertNil(QuestionBankReferenceAccuracyFormat.parse("未知"))
+    }
+
+    func testBatchQuestionMergePreservesLocalReferenceAccuracy() throws {
+        let incoming = try JSONSerialization.data(withJSONObject: [
+            "id": "merge-q",
+            "accuracy": 42,
+            "isDifficult": false,
+            "knowledgePoints": ["新导入点"]
+        ], options: [.sortedKeys])
+        let existing = try JSONSerialization.data(withJSONObject: [
+            "id": "merge-q",
+            "accuracy": 76.5,
+            "isDifficult": true,
+            "knowledgePoints": ["本机分析"]
+        ], options: [.sortedKeys])
+
+        let merged = try QuestionBankBatchPackageImporter.mergedPayload(
+            incoming: incoming,
+            existing: existing,
+            kind: QuestionBankRepository.questionKind
+        )
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: merged) as? [String: Any])
+        XCTAssertEqual((object["accuracy"] as? NSNumber)?.doubleValue, 76.5)
+        XCTAssertEqual(object["isDifficult"] as? Bool, true)
+        XCTAssertEqual(object["knowledgePoints"] as? [String], ["本机分析"])
+
+        let incomingOnly = try QuestionBankBatchPackageImporter.mergedPayload(
+            incoming: incoming,
+            existing: try JSONSerialization.data(withJSONObject: ["id": "merge-q"]),
+            kind: QuestionBankRepository.questionKind
+        )
+        let incomingObject = try XCTUnwrap(JSONSerialization.jsonObject(with: incomingOnly) as? [String: Any])
+        XCTAssertEqual((incomingObject["accuracy"] as? NSNumber)?.doubleValue, 42)
+    }
+
     func testQuestionBankSharedAnswerStateMigratesAndRedoCannotRestoreLegacyAnswers() {
         let legacySelections = QuestionBankSelectedOptionsStorage.encode(["q-one": "C", "q-two": "A"])
         let legacyRevealed = QuestionBankRevealedAnswersStorage.encode(["q-one", "q-two"])
@@ -950,6 +1161,14 @@ final class QuestionBankImportTests: XCTestCase {
         controller.remember(drawing, encoded: encoded)
         XCTAssertNotNil(controller.cachedDrawing(for: encoded))
         XCTAssertNil(controller.cachedDrawing(for: "replacement-drawing"))
+
+        controller.canvasReady = true
+        controller.canvasLoadError = "stale"
+        let loadRevision = controller.drawingLoadRevision
+        controller.beginDrawingReload()
+        XCTAssertEqual(controller.drawingLoadRevision, loadRevision + 1)
+        XCTAssertFalse(controller.canvasReady)
+        XCTAssertNil(controller.canvasLoadError)
 
         let previousRevision = controller.drawingLoadRevision
         controller.prepareForPresentation()

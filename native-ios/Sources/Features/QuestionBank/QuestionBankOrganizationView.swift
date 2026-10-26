@@ -58,12 +58,14 @@ struct QuestionBankPaperOrganizationView: View {
                     Section {
                         paperRows(in: group.id)
                     } header: {
-                        Text(group.name)
+                        orderHeader(group.name, groupID: group.id)
                     }
                 }
 
-                Section("未分组") {
+                Section {
                     paperRows(in: nil)
+                } header: {
+                    orderHeader("未分组", groupID: nil)
                 }
             }
             .navigationTitle("分组与排序")
@@ -148,6 +150,21 @@ struct QuestionBankPaperOrganizationView: View {
             groupEditor = nil
         } else {
             groupEditorError = "分组名称不能为空或已存在。"
+        }
+    }
+
+    @ViewBuilder
+    private func orderHeader(_ title: String, groupID: String?) -> some View {
+        HStack {
+            Text(title)
+            Spacer(minLength: 8)
+            if store.isManuallyOrdered(in: groupID) {
+                Button("恢复默认") {
+                    store.resetOrder(in: groupID)
+                }
+                .font(AppTheme.auxiliaryFont)
+                .accessibilityLabel("恢复\(title)试卷默认顺序")
+            }
         }
     }
 

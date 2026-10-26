@@ -39,6 +39,22 @@ private struct ReviewOverview {
     static let empty = ReviewOverview(due: [], pool: [], mastered: 0, subjectCounts: [:], moduleStats: [])
 }
 
+private struct ReviewRecordInput: Sendable {
+    let recordID: String
+    let subject: String?
+    let module: String?
+    let indexPayload: Data?
+    let createdAt: Date?
+
+    init(record: StoredRecord) {
+        recordID = record.recordID
+        subject = record.subject
+        module = record.module
+        indexPayload = record.indexPayload
+        createdAt = record.createdAt
+    }
+}
+
 private struct ReviewRecordSnapshot: Sendable {
     let recordID: String
     let subject: String
@@ -48,26 +64,25 @@ private struct ReviewRecordSnapshot: Sendable {
     let createdAt: Date
     let isShenlun: Bool
 
-    init(record: StoredRecord) {
-        // Overview construction intentionally reads only the lightweight index
-        // payload. Large question bodies and images stay out of the tab switch
-        // path; the legacy index migration repairs old records separately.
+    init(input: ReviewRecordInput) {
+        // This pure value conversion runs with the aggregate on a detached
+        // executor. SwiftData models never cross the actor boundary.
         let object: [String: Any]
-        if let indexPayload = record.indexPayload,
+        if let indexPayload = input.indexPayload,
            let value = try? JSONSerialization.jsonObject(with: indexPayload) as? [String: Any] {
             object = value
         } else {
             object = [:]
         }
         let indexedSubject = (object["subject"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let storedSubject = record.subject?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let storedSubject = input.subject?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let subject = storedSubject.isEmpty ? indexedSubject : storedSubject
-        self.recordID = record.recordID
+        self.recordID = input.recordID
         self.subject = subject.isEmpty && (object["isShenlun"] as? Bool) == true ? "申论" : (subject.isEmpty ? "未分类" : subject)
-        self.module = record.module ?? (object["module"] as? String ?? "")
+        self.module = input.module ?? (object["module"] as? String ?? "")
         self.status = object["status"] as? String ?? ""
         self.lastReviewDate = Self.parseDate(object["lastReviewDate"])
-        self.createdAt = record.createdAt ?? .distantPast
+        self.createdAt = input.createdAt ?? .distantPast
         self.isShenlun = subject == "申论" || (object["isShenlun"] as? Bool) == true
     }
 
@@ -277,8 +292,9 @@ struct ReviewView: View {
     @MainActor
     private func refreshOverview() async {
         let started = ProcessInfo.processInfo.systemUptime
-        let snapshots = records.map(ReviewRecordSnapshot.init)
+        let inputs = records.map(ReviewRecordInput.init)
         let values = await Task.detached(priority: .utility) {
+            let snapshots = inputs.map(ReviewRecordSnapshot.init)
             ReviewOverviewCalculator.make(from: snapshots)
         }.value
         guard !Task.isCancelled else { return }
@@ -290,7 +306,7 @@ struct ReviewView: View {
             subjectCounts: values.subjectCounts,
             moduleStats: values.moduleStats
         )
-        NativePerformanceLog.mark("review overview records=\(snapshots.count)", since: started)
+        NativePerformanceLog.mark("review overview records=\(inputs.count)", since: started)
     }
 
     private func isDue(_ record: StoredRecord, now: Date) -> Bool {

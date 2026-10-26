@@ -91,6 +91,7 @@ private struct QuestionBankReadingItem: Identifiable {
     let question: QuestionBankQuestion
     let moduleTitle: String?
     let moduleSequence: Int
+    var localOrdinal = 0
 
     var id: String { record.stableID }
     var overviewItem: QuestionBankOverviewItem {
@@ -186,6 +187,8 @@ struct QuestionBankModuleView: View {
     @SceneStorage private var storedRevealedAnswersJSON: String
     @AppStorage(QuestionBankAnswerStateStorage.appStorageKey)
     private var storedAnswerStateJSON = QuestionBankAnswerStateStorage.emptyValue
+    @State private var cachedAnswerState = QuestionBankAnswerState()
+    @State private var cachedAnswerStateJSON = QuestionBankAnswerStateStorage.emptyValue
     @AppStorage("question-bank.answer-state-migrated.default")
     private var didMigrateLegacyAnswerState = false
     @AppStorage(QuestionBankReaderPreferences.confirmAnswerAfterSelectionKey)
@@ -215,6 +218,15 @@ struct QuestionBankModuleView: View {
             wrappedValue: "[]",
             "question-bank.revealed-answers.\(paperID).\(moduleID)"
         )
+        let answerStateJSON = UserDefaults.standard.string(
+            forKey: QuestionBankAnswerStateStorage.appStorageKey
+        ) ?? QuestionBankAnswerStateStorage.emptyValue
+        _storedAnswerStateJSON = AppStorage(
+            wrappedValue: answerStateJSON,
+            QuestionBankAnswerStateStorage.appStorageKey
+        )
+        _cachedAnswerState = State(initialValue: QuestionBankAnswerStateStorage.decode(answerStateJSON))
+        _cachedAnswerStateJSON = State(initialValue: answerStateJSON)
         _didMigrateLegacyAnswerState = AppStorage(
             wrappedValue: false,
             "question-bank.answer-state-migrated.\(paperID).\(moduleID)"
@@ -257,20 +269,16 @@ struct QuestionBankModuleView: View {
     }
 
     private var selectedOptionsByQuestionID: [String: String] {
-        get { QuestionBankAnswerStateStorage.decode(storedAnswerStateJSON).selectedOptions }
+        get { cachedAnswerState.selectedOptions }
         nonmutating set {
-            var state = QuestionBankAnswerStateStorage.decode(storedAnswerStateJSON)
-            state.selectedOptions = newValue
-            storedAnswerStateJSON = QuestionBankAnswerStateStorage.encode(state)
+            updateAnswerState { $0.selectedOptions = newValue }
         }
     }
 
     private var revealedAnswerQuestionIDs: Set<String> {
-        get { QuestionBankAnswerStateStorage.decode(storedAnswerStateJSON).revealedQuestionIDs }
+        get { cachedAnswerState.revealedQuestionIDs }
         nonmutating set {
-            var state = QuestionBankAnswerStateStorage.decode(storedAnswerStateJSON)
-            state.revealedQuestionIDs = newValue
-            storedAnswerStateJSON = QuestionBankAnswerStateStorage.encode(state)
+            updateAnswerState { $0.revealedQuestionIDs = newValue }
         }
     }
 
@@ -300,7 +308,7 @@ struct QuestionBankModuleView: View {
         var hasher = Hasher()
         for record in records.filter({ $0.paperID == paperID }).sorted(by: { $0.compoundID < $1.compoundID }) {
             hasher.combine(record.compoundID)
-            hasher.combine(record.payload)
+            hasher.combine(record.contentRevision)
             hasher.combine(record.assetRelativePath)
         }
         return hasher.finalize()
@@ -344,7 +352,7 @@ struct QuestionBankModuleView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(currentSingleItem.map {
-                        "打开第\($0.question.number)题详情，当前进度\(singlePositionText)"
+                        "打开第\(displayNumber(for: $0))题详情，当前进度\(singlePositionText)"
                     } ?? "当前题进度")
                     .accessibilityHint("打开当前题目详情")
                     .accessibilityIdentifier("question-bank-single-position")
@@ -393,6 +401,11 @@ struct QuestionBankModuleView: View {
         }
         .onChange(of: doodleSession.isPresented) { _, isPresented in
             if !isPresented { continuousQuestionDoodleRecordID = nil }
+        }
+        .onChange(of: storedAnswerStateJSON) { _, value in
+            guard value != cachedAnswerStateJSON else { return }
+            cachedAnswerStateJSON = value
+            cachedAnswerState = QuestionBankAnswerStateStorage.decode(value)
         }
         .alert("答案更新", isPresented: Binding(
             get: { missingAnswerEditError != nil || missingAnswerEditConfirmation != nil },
@@ -999,6 +1012,9 @@ struct QuestionBankModuleView: View {
         let answerStateID = item.record.compoundID
         let selectedOptionID = selectedOptionsByQuestionID[answerStateID]
         let hasAnswer = !item.question.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let showsGraphLayout = QuestionBankCoarseModule.classify(
+            explicitModuleTitle: item.moduleTitle
+        ) == .reasoning
         let revealsAnswer = readingMode.revealsAnswer(
             afterSelecting: selectedOptionID,
             wasConfirmed: revealedAnswerQuestionIDs.contains(answerStateID),
@@ -1029,7 +1045,7 @@ struct QuestionBankModuleView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(AppTheme.accent)
-                        .accessibilityLabel("标注第\(item.question.number)题")
+                        .accessibilityLabel("标注第\(displayNumber(for: item))题")
                         .accessibilityHint("仅标注这道题")
                         .accessibilityIdentifier("question-bank-doodle-question-\(item.id)")
                         .disabled(doodleSession.isPresented)
@@ -1050,7 +1066,7 @@ struct QuestionBankModuleView: View {
                 }
                 if !item.question.stemImageAssetID.isEmpty,
                    let asset = assetRecord(for: item.question.stemImageAssetID) {
-                    QuestionBankLocalImage(asset: asset, sizing: .stem)
+                    QuestionBankLocalImage(asset: asset, sizing: showsGraphLayout ? .graph : .stem)
                         .padding(.bottom, 10)
                 }
             }
@@ -1066,6 +1082,7 @@ struct QuestionBankModuleView: View {
                     revealsAnswer: revealsAnswer,
                     isSelectionLocked: readingMode == .practice && selectedOptionID != nil,
                     isInteractionBlocked: doodleSession.isPresented,
+                    showsGraphLayout: showsGraphLayout,
                     onSelect: { selectOption(option.id, for: answerStateID) },
                     assetLookup: assetRecord(for:)
                 )
@@ -1074,12 +1091,12 @@ struct QuestionBankModuleView: View {
             if readingMode == .reading, hasAnswer {
                 HStack(spacing: 7) {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(AppTheme.success)
+                        .foregroundStyle(QuestionBankAnswerFeedbackPalette.correct)
                     Text("正确答案")
                         .foregroundStyle(.secondary)
                     Text(item.question.answer.isEmpty ? "未提供" : item.question.answer)
                         .fontWeight(.semibold)
-                        .foregroundStyle(AppTheme.success)
+                        .foregroundStyle(QuestionBankAnswerFeedbackPalette.correct)
                 }
                 .font(QuestionBankTypography.contentFont)
                 .padding(.top, 12)
@@ -1087,11 +1104,13 @@ struct QuestionBankModuleView: View {
                 if revealsAnswer, let selectedOptionID, hasAnswer {
                     HStack(spacing: 8) {
                         Text("你的选择：\(selectedOptionID)")
-                            .foregroundStyle(selectedOptionID == item.question.answer ? AppTheme.success : AppTheme.danger)
+                            .foregroundStyle(selectedOptionID == item.question.answer
+                                ? QuestionBankAnswerFeedbackPalette.correct
+                                : QuestionBankAnswerFeedbackPalette.incorrect)
                         Spacer(minLength: 8)
                         Text("正确答案：\(item.question.answer.isEmpty ? "未提供" : item.question.answer)")
                             .fontWeight(.semibold)
-                            .foregroundStyle(AppTheme.success)
+                            .foregroundStyle(QuestionBankAnswerFeedbackPalette.correct)
                     }
                     .font(AppTheme.auxiliaryFont)
                     .padding(.top, 12)
@@ -1114,6 +1133,11 @@ struct QuestionBankModuleView: View {
                     }
                     .padding(.top, 12)
                 }
+            }
+            if hasAnswer && (readingMode == .reading || revealsAnswer) {
+                QuestionBankReferenceAccuracyControl(record: item.record, accuracy: item.question.accuracy)
+                    .padding(.top, 7)
+                    .transition(.opacity)
             }
             if !hasAnswer {
                 QuestionBankMissingAnswerMenu(questionID: item.id, options: item.question.options) { answer in
@@ -1147,25 +1171,35 @@ struct QuestionBankModuleView: View {
                 )
             }
         }
+        .animation(.easeOut(duration: 0.16), value: revealsAnswer)
         .id(item.id)
     }
 
     private func questionNumberButton(for item: QuestionBankReadingItem) -> some View {
+        let displayNumber = displayNumber(for: item)
         Button {
             guard !doodleSession.isPresented else { return }
             activeSheet = QuestionBankReaderSheet(content: .questionDetail(item.id))
         } label: {
-            Text("\(item.question.number).")
+            Text("\(displayNumber).")
                 .font(AppTheme.auxiliaryFont.weight(.semibold))
                 .foregroundStyle(AppTheme.accent)
                 .frame(minWidth: 44, minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("打开第\(item.question.number)题详情")
+        .accessibilityLabel("打开第\(displayNumber)题详情")
         .accessibilityHint("查看题干、选项和解析")
         .accessibilityIdentifier("question-bank-question-detail-\(item.id)")
         .disabled(doodleSession.isPresented)
+    }
+
+    private func displayNumber(for item: QuestionBankReadingItem) -> Int {
+        QuestionBankDisplayNumber.resolve(
+            originalNumber: item.question.number,
+            localOrdinal: item.localOrdinal,
+            usesLocalOrdinal: true
+        )
     }
 
     private func questionDetailContent(_ item: QuestionBankReadingItem) -> some View {
@@ -1386,27 +1420,43 @@ struct QuestionBankModuleView: View {
         let migratedRevealed = QuestionBankRevealedAnswersStorage.encode(Set(
             oldRevealed.map { questionStateIDs[$0] ?? $0 }
         ))
-        storedAnswerStateJSON = QuestionBankAnswerStateStorage.migratingLegacyState(
+        let migratedState = QuestionBankAnswerStateStorage.migratingLegacyState(
             selectedOptionsJSON: QuestionBankSelectedOptionsStorage.encode(migratedSelections),
             revealedAnswersJSON: migratedRevealed,
             into: storedAnswerStateJSON
         )
+        replaceAnswerStateJSON(migratedState)
         storedSelectedOptionsJSON = "{}"
         storedRevealedAnswersJSON = "[]"
         didMigrateLegacyAnswerState = true
     }
 
     private func redoPaperAnswers() {
-        storedAnswerStateJSON = QuestionBankAnswerStateStorage.clearing(
+        replaceAnswerStateJSON(QuestionBankAnswerStateStorage.clearing(
             QuestionBankRedoScope.questionIDs(inPaper: paperID, records: records),
             from: storedAnswerStateJSON
-        )
+        ))
     }
 
     private func clearAnswer(for questionID: String) {
-        storedAnswerStateJSON = QuestionBankAnswerStateStorage.clearing(
+        replaceAnswerStateJSON(QuestionBankAnswerStateStorage.clearing(
             [questionID], from: storedAnswerStateJSON
-        )
+        ))
+    }
+
+    private func updateAnswerState(_ update: (inout QuestionBankAnswerState) -> Void) {
+        var state = cachedAnswerState
+        update(&state)
+        let encoded = QuestionBankAnswerStateStorage.encode(state)
+        cachedAnswerState = state
+        cachedAnswerStateJSON = encoded
+        storedAnswerStateJSON = encoded
+    }
+
+    private func replaceAnswerStateJSON(_ value: String) {
+        cachedAnswerState = QuestionBankAnswerStateStorage.decode(value)
+        cachedAnswerStateJSON = value
+        storedAnswerStateJSON = value
     }
 
     private func navigateSingleQuestion(to targetID: String) {
@@ -1433,11 +1483,11 @@ struct QuestionBankModuleView: View {
               readingMode == .practice,
               !revealedAnswerQuestionIDs.contains(questionID) else { return }
         guard selectedOptionsByQuestionID[questionID] == nil else { return }
-        selectedOptionsByQuestionID[questionID] = optionID
-        if !requiresAnswerConfirmation {
-            var revealed = revealedAnswerQuestionIDs
-            revealed.insert(questionID)
-            revealedAnswerQuestionIDs = revealed
+        withAnimation(.easeOut(duration: 0.16)) {
+            updateAnswerState { state in
+                state.selectedOptions[questionID] = optionID
+                if !requiresAnswerConfirmation { state.revealedQuestionIDs.insert(questionID) }
+            }
         }
     }
 
@@ -1445,18 +1495,20 @@ struct QuestionBankModuleView: View {
         guard !doodleSession.isPresented else { return }
         requiresAnswerConfirmation = enabled
         if !enabled {
-            var revealed = revealedAnswerQuestionIDs
-            revealed.formUnion(selectedOptionsByQuestionID.keys)
-            revealedAnswerQuestionIDs = revealed
+            withAnimation(.easeOut(duration: 0.16)) {
+                updateAnswerState { state in
+                    state.revealedQuestionIDs.formUnion(state.selectedOptions.keys)
+                }
+            }
         }
     }
 
     private func confirmAnswer(for questionID: String) {
         guard !doodleSession.isPresented,
               selectedOptionsByQuestionID[questionID] != nil else { return }
-        var revealed = revealedAnswerQuestionIDs
-        revealed.insert(questionID)
-        revealedAnswerQuestionIDs = revealed
+        withAnimation(.easeOut(duration: 0.16)) {
+            updateAnswerState { $0.revealedQuestionIDs.insert(questionID) }
+        }
     }
 
     private func setMissingAnswer(_ answer: String, for item: QuestionBankReadingItem) {
@@ -1558,35 +1610,43 @@ struct QuestionBankModuleView: View {
 
     private func presentDoodle(for scope: QuestionBankDoodleScope) {
         let recordID = doodleRecordID(for: scope)
-        do {
-            let readStart = ProcessInfo.processInfo.systemUptime
-            let drawingData: String
-            if let cached = cachedDoodleDrawing(for: recordID) {
-                drawingData = cached
-                LibraryPerformanceLog.mark("doodle.read.cache-hit", since: readStart)
-            } else {
-                drawingData = try QuestionBankDoodleRepository.drawingData(
+        let readStart = ProcessInfo.processInfo.systemUptime
+        let cached = cachedDoodleDrawing(for: recordID)
+        if cached != nil { LibraryPerformanceLog.mark("doodle.read.cache-hit", since: readStart) }
+        doodleSession.present(
+            targetRecordID: recordID,
+            drawingData: cached ?? "",
+            legacyPreviewDataURL: "",
+            isLoadingDrawing: cached == nil,
+            onSave: { drawingData, _ in
+                let error = QuestionBankDoodleRepository.save(
                     recordID: recordID,
+                    drawingData: drawingData,
                     context: modelContext
                 )
-                cacheDoodleDrawing(drawingData, for: recordID)
+                if error == nil { cacheDoodleDrawing(drawingData, for: recordID) }
+                return error
             }
-            doodleSession.present(
-                targetRecordID: recordID,
-                drawingData: drawingData,
-                legacyPreviewDataURL: "",
-                onSave: { drawingData, _ in
-                    let error = QuestionBankDoodleRepository.save(
-                        recordID: recordID,
-                        drawingData: drawingData,
-                        context: modelContext
-                    )
-                    if error == nil { cacheDoodleDrawing(drawingData, for: recordID) }
-                    return error
-                }
-            )
-        } catch {
-            doodleSession.saveError = "涂鸦读取失败：\(error.localizedDescription)"
+        )
+        guard cached == nil else { return }
+        let container = modelContext.container
+        Task { @MainActor in
+            do {
+                let drawingData = try await QuestionBankDoodleRepository.drawingData(
+                    recordID: recordID,
+                    container: container
+                )
+                LibraryPerformanceLog.mark("doodle.read.background-result", since: readStart)
+                guard doodleSession.isPresented,
+                      doodleSession.targetRecordID == recordID,
+                      doodleSession.isLoadingDrawing else { return }
+                cacheDoodleDrawing(drawingData, for: recordID)
+                doodleSession.completeDrawingLoad(drawingData)
+            } catch {
+                guard doodleSession.isPresented,
+                      doodleSession.targetRecordID == recordID else { return }
+                doodleSession.failDrawingLoad("涂鸦读取失败：\(error.localizedDescription)")
+            }
         }
     }
 
@@ -1614,7 +1674,7 @@ struct QuestionBankModuleView: View {
     }
 
     private func refreshReaderSnapshot() {
-        let questions = records
+        var questions = records
             .filter {
                 $0.paperID == paperID && $0.moduleID == moduleID
                     && $0.kind == QuestionBankRepository.questionKind
@@ -1632,6 +1692,9 @@ struct QuestionBankModuleView: View {
                 if $0.question.number != $1.question.number { return $0.question.number < $1.question.number }
                 return $0.id < $1.id
             }
+        for index in questions.indices {
+            questions[index].localOrdinal = index + 1
+        }
         readingItems = questions
         readingSteps = QuestionBankReadingSequence.steps(for: questions.map(\.question))
         materialsByID = Dictionary(
@@ -1691,6 +1754,7 @@ struct QuestionBankCrossPaperReaderView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var doodleSession: LibraryDoodleSession
     @Query private var records: [QuestionBankRecord]
+    @StateObject private var homeIndexStore = QuestionBankHomeIndexStore()
 
     let filter: QuestionBankHomeFilter
     let paperID: String?
@@ -1701,6 +1765,7 @@ struct QuestionBankCrossPaperReaderView: View {
     @State private var currentQuestionID: String?
     @State private var activeQuestionDetail: QuestionBankCrossPaperDetailRoute?
     @State private var groups: [QuestionBankCrossPaperGroup] = []
+    @State private var localOrdinalByID: [String: Int] = [:]
     @State private var showsReaderOptions = false
     @State private var showsOverview = false
     @State private var continuousQuestionDoodleRecordID: String?
@@ -1711,6 +1776,8 @@ struct QuestionBankCrossPaperReaderView: View {
     @SceneStorage private var revealedAnswersJSON: String
     @AppStorage(QuestionBankAnswerStateStorage.appStorageKey)
     private var storedAnswerStateJSON = QuestionBankAnswerStateStorage.emptyValue
+    @State private var cachedAnswerState = QuestionBankAnswerState()
+    @State private var cachedAnswerStateJSON = QuestionBankAnswerStateStorage.emptyValue
     @AppStorage("question-bank.scope.answer-state-migrated.default")
     private var didMigrateLegacyAnswerState = false
     @AppStorage(QuestionBankReaderPreferences.confirmAnswerAfterSelectionKey)
@@ -1735,36 +1802,35 @@ struct QuestionBankCrossPaperReaderView: View {
             wrappedValue: false,
             "question-bank.scope.answer-state-migrated.\(key)"
         )
+        let answerStateJSON = UserDefaults.standard.string(
+            forKey: QuestionBankAnswerStateStorage.appStorageKey
+        ) ?? QuestionBankAnswerStateStorage.emptyValue
+        _storedAnswerStateJSON = AppStorage(
+            wrappedValue: answerStateJSON,
+            QuestionBankAnswerStateStorage.appStorageKey
+        )
+        _cachedAnswerState = State(initialValue: QuestionBankAnswerStateStorage.decode(answerStateJSON))
+        _cachedAnswerStateJSON = State(initialValue: answerStateJSON)
     }
 
-    private var index: QuestionBankHomeIndex { QuestionBankHomeIndex(records: records) }
+    private var index: QuestionBankHomeIndex? { homeIndexStore.index }
 
     private var presentationMode: QuestionBankPresentationMode {
         get { QuestionBankPresentationMode(rawValue: storedPresentationMode) ?? .continuous }
         nonmutating set { storedPresentationMode = newValue.rawValue }
     }
 
-    private var readerRecordRevision: Int {
-        var hasher = Hasher()
-        for record in records.sorted(by: { $0.compoundID < $1.compoundID }) {
-            hasher.combine(record.compoundID)
-            hasher.combine(record.payload)
-            hasher.combine(record.assetRelativePath)
-        }
-        return hasher.finalize()
+    private var readerRecordRevision: [QuestionBankHomeIndexRevision] {
+        QuestionBankHomeIndexRevision.make(records: records)
     }
 
-    private func makeGroups() -> [QuestionBankCrossPaperGroup] {
-        let homeIndex = index
+    private func makeGroups(using homeIndex: QuestionBankHomeIndex) -> [QuestionBankCrossPaperGroup] {
         let scoped = homeIndex.filteredQuestions(matching: filter, paperID: paperID)
         let grouped = Dictionary(grouping: scoped, by: { $0.record.paperID })
         return homeIndex.papers.compactMap { paper in
             guard let questions = grouped[paper.id], !questions.isEmpty else { return nil }
             let materials = Dictionary(
-                records
-                    .filter { $0.paperID == paper.id && $0.kind == QuestionBankRepository.materialKind }
-                    .compactMap { $0.decoded(QuestionBankMaterial.self) }
-                    .map { ($0.id, $0) },
+                homeIndex.materials(for: paper.id).map { ($0.id, $0) },
                 uniquingKeysWith: { first, _ in first }
             )
             var emittedMaterials = Set<String>()
@@ -1790,7 +1856,17 @@ struct QuestionBankCrossPaperReaderView: View {
     }
 
     private func refreshGroups() {
-        groups = makeGroups()
+        guard let index else {
+            groups = []
+            localOrdinalByID = [:]
+            currentQuestionID = nil
+            return
+        }
+        groups = makeGroups(using: index)
+        localOrdinalByID = Dictionary(
+            groups.flatMap(\.questions).enumerated().map { ($1.id, $0 + 1) },
+            uniquingKeysWith: { first, _ in first }
+        )
         if !groups.flatMap(\.questions).contains(where: { $0.id == currentQuestionID }) {
             currentQuestionID = groups.first?.questions.first?.id
         }
@@ -1799,6 +1875,7 @@ struct QuestionBankCrossPaperReaderView: View {
     private var orderedItems: [QuestionBankHomeQuestion] { groups.flatMap(\.questions) }
 
     private var overviewGroups: [QuestionBankOverviewGroup] {
+        guard let index else { return [] }
         let paperTitles = Dictionary(
             index.papers.map { ($0.id, $0.title) },
             uniquingKeysWith: { first, _ in first }
@@ -1808,7 +1885,7 @@ struct QuestionBankCrossPaperReaderView: View {
                 id: item.id,
                 paperID: item.record.paperID,
                 paperTitle: paperTitles[item.record.paperID] ?? "未命名试卷",
-                questionNumber: item.question.number,
+                questionNumber: displayNumber(for: item),
                 moduleID: item.moduleID ?? item.question.moduleID,
                 moduleTitle: item.moduleTitle ?? "",
                 moduleSequence: item.moduleSequence,
@@ -1829,20 +1906,16 @@ struct QuestionBankCrossPaperReaderView: View {
     }
 
     private var selectedOptionsByQuestionID: [String: String] {
-        get { QuestionBankAnswerStateStorage.decode(storedAnswerStateJSON).selectedOptions }
+        get { cachedAnswerState.selectedOptions }
         nonmutating set {
-            var state = QuestionBankAnswerStateStorage.decode(storedAnswerStateJSON)
-            state.selectedOptions = newValue
-            storedAnswerStateJSON = QuestionBankAnswerStateStorage.encode(state)
+            updateAnswerState { $0.selectedOptions = newValue }
         }
     }
 
     private var revealedAnswerQuestionIDs: Set<String> {
-        get { QuestionBankAnswerStateStorage.decode(storedAnswerStateJSON).revealedQuestionIDs }
+        get { cachedAnswerState.revealedQuestionIDs }
         nonmutating set {
-            var state = QuestionBankAnswerStateStorage.decode(storedAnswerStateJSON)
-            state.revealedQuestionIDs = newValue
-            storedAnswerStateJSON = QuestionBankAnswerStateStorage.encode(state)
+            updateAnswerState { $0.revealedQuestionIDs = newValue }
         }
     }
 
@@ -1850,10 +1923,18 @@ struct QuestionBankCrossPaperReaderView: View {
         readerScreen
             .onAppear {
                 migrateLegacyAnswerStateIfNeeded()
-                refreshGroups()
-                if currentQuestionID == nil { currentQuestionID = orderedItems.first?.id }
             }
-            .onChange(of: readerRecordRevision) { _, _ in refreshGroups() }
+            .task(id: readerRecordRevision) {
+                await homeIndexStore.load(records: records, revision: readerRecordRevision)
+                refreshGroups()
+            }
+            .onChange(of: homeIndexStore.index?.revision) { _, _ in refreshGroups() }
+            .onChange(of: filter) { _, _ in refreshGroups() }
+            .onChange(of: storedAnswerStateJSON) { _, value in
+                guard value != cachedAnswerStateJSON else { return }
+                cachedAnswerStateJSON = value
+                cachedAnswerState = QuestionBankAnswerStateStorage.decode(value)
+            }
             .onChange(of: presentationMode) { _, mode in
                 if mode != .continuous { continuousQuestionDoodleRecordID = nil }
             }
@@ -1885,8 +1966,15 @@ struct QuestionBankCrossPaperReaderView: View {
     }
 
     private var readerScreen: some View {
-        GeometryReader { geometry in
-            readerPage(width: geometry.size.width, height: geometry.size.height)
+        Group {
+            if index == nil {
+                ProgressView("正在准备题目…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                GeometryReader { geometry in
+                    readerPage(width: geometry.size.width, height: geometry.size.height)
+                }
+            }
         }
         .overlay(alignment: .topTrailing) {
             if showsReaderOptions {
@@ -1920,7 +2008,7 @@ struct QuestionBankCrossPaperReaderView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(currentItem.map {
-                        "打开第\($0.question.number)题详情，当前进度\(singlePositionText)"
+                        "打开第\(displayNumber(for: $0))题详情，当前进度\(singlePositionText)"
                     } ?? "当前题进度")
                     .accessibilityHint("打开当前题目详情")
                     .accessibilityIdentifier("question-bank-single-position")
@@ -1953,7 +2041,9 @@ struct QuestionBankCrossPaperReaderView: View {
     private var questionOverviewSheet: some View {
             NavigationStack {
                 List {
-                    ForEach(overviewGroups) { group in
+                    ForEach(overviewGroups.indices, id: \.self) { index in
+                        let group = overviewGroups[index]
+                        let startsPaper = index == 0 || overviewGroups[index - 1].paperID != group.paperID
                         Section {
                             ForEach(group.questions) { candidate in
                                 Button {
@@ -1979,12 +2069,12 @@ struct QuestionBankCrossPaperReaderView: View {
                             }
                         } header: {
                             VStack(alignment: .leading, spacing: 3) {
-                                if paperID == nil {
+                                if paperID == nil && startsPaper {
                                     Text(group.paperTitle)
                                         .font(AppTheme.auxiliaryFont)
                                 }
                                 HStack(spacing: 6) {
-                                    Text(group.moduleTitle)
+                                    if group.startsModule { Text(group.moduleTitle) }
                                     if let type = group.coarseQuestionType {
                                         Text(type)
                                     }
@@ -2130,7 +2220,7 @@ struct QuestionBankCrossPaperReaderView: View {
 
     private var paperTitle: String? {
         guard let paperID else { return nil }
-        return index.papers.first(where: { $0.id == paperID })?.title
+        return index?.papers.first(where: { $0.id == paperID })?.title
     }
 
     private var doodleButton: some View {
@@ -2143,7 +2233,7 @@ struct QuestionBankCrossPaperReaderView: View {
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
-        .accessibilityLabel(currentItem.map { "标注当前题（第\($0.question.number)题）" } ?? "标注当前题")
+        .accessibilityLabel(currentItem.map { "标注当前题（第\(displayNumber(for: $0))题）" } ?? "标注当前题")
         .accessibilityIdentifier("question-bank-doodle-current-question")
         .disabled(currentItem == nil || doodleSession.isPresented)
     }
@@ -2376,6 +2466,9 @@ struct QuestionBankCrossPaperReaderView: View {
         let answerStateID = item.record.compoundID
         let selected = selectedOptionsByQuestionID[answerStateID]
         let hasAnswer = !item.question.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let showsGraphLayout = QuestionBankCoarseModule.classify(
+            explicitModuleTitle: item.moduleTitle
+        ) == .reasoning
         let reveals = readingMode.revealsAnswer(
             afterSelecting: selected,
             wasConfirmed: revealedAnswerQuestionIDs.contains(answerStateID),
@@ -2409,7 +2502,7 @@ struct QuestionBankCrossPaperReaderView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(AppTheme.accent)
-                        .accessibilityLabel("标注第\(item.question.number)题")
+                        .accessibilityLabel("标注第\(displayNumber(for: item))题")
                         .accessibilityHint("仅标注这道题")
                         .accessibilityIdentifier("question-bank-doodle-question-\(item.id)")
                         .disabled(doodleSession.isPresented)
@@ -2426,7 +2519,7 @@ struct QuestionBankCrossPaperReaderView: View {
                 }
                 if !item.question.stemImageAssetID.isEmpty,
                    let asset = assetRecord(for: item.question.stemImageAssetID, paperID: item.record.paperID) {
-                    QuestionBankLocalImage(asset: asset, sizing: .stem)
+                    QuestionBankLocalImage(asset: asset, sizing: showsGraphLayout ? .graph : .stem)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2440,6 +2533,7 @@ struct QuestionBankCrossPaperReaderView: View {
                     revealsAnswer: reveals,
                     isSelectionLocked: readingMode == .practice && selected != nil,
                     isInteractionBlocked: doodleSession.isPresented,
+                    showsGraphLayout: showsGraphLayout,
                     onSelect: { selectOption(option.id, item: item) },
                     assetLookup: { assetRecord(for: $0, paperID: item.record.paperID) }
                 )
@@ -2447,16 +2541,18 @@ struct QuestionBankCrossPaperReaderView: View {
             if readingMode == .reading, hasAnswer {
                 Label("正确答案：\(item.question.answer.isEmpty ? "未提供" : item.question.answer)", systemImage: "checkmark.circle.fill")
                     .font(QuestionBankTypography.contentFont)
-                    .foregroundStyle(AppTheme.success)
+                    .foregroundStyle(QuestionBankAnswerFeedbackPalette.correct)
                     .padding(.top, 6)
             } else if reveals, let selected, hasAnswer {
                 HStack(spacing: 8) {
                     Text("你的选择：\(selected)")
-                        .foregroundStyle(selected == item.question.answer ? AppTheme.success : AppTheme.danger)
+                        .foregroundStyle(selected == item.question.answer
+                            ? QuestionBankAnswerFeedbackPalette.correct
+                            : QuestionBankAnswerFeedbackPalette.incorrect)
                     Spacer(minLength: 8)
                     Text("正确答案：\(item.question.answer.isEmpty ? "未提供" : item.question.answer)")
                         .fontWeight(.semibold)
-                        .foregroundStyle(AppTheme.success)
+                        .foregroundStyle(QuestionBankAnswerFeedbackPalette.correct)
                 }
                 .font(AppTheme.auxiliaryFont)
                 .padding(.top, 6)
@@ -2472,6 +2568,11 @@ struct QuestionBankCrossPaperReaderView: View {
                         .accessibilityIdentifier("question-bank-confirm-answer-\(item.id)")
                 }
                 .padding(.top, 6)
+            }
+            if hasAnswer && (readingMode == .reading || reveals) {
+                QuestionBankReferenceAccuracyControl(record: item.record, accuracy: item.question.accuracy)
+                    .padding(.top, 5)
+                    .transition(.opacity)
             }
             if !hasAnswer {
                 QuestionBankMissingAnswerMenu(questionID: item.id, options: item.question.options) { answer in
@@ -2510,25 +2611,35 @@ struct QuestionBankCrossPaperReaderView: View {
                 )
             }
         }
+        .animation(.easeOut(duration: 0.16), value: reveals)
         .id(item.id)
     }
 
     private func questionNumberButton(for item: QuestionBankHomeQuestion) -> some View {
+        let displayNumber = displayNumber(for: item)
         Button {
             guard !doodleSession.isPresented else { return }
             activeQuestionDetail = QuestionBankCrossPaperDetailRoute(questionID: item.id)
         } label: {
-            Text("\(item.question.number).")
+            Text("\(displayNumber).")
                 .font(AppTheme.auxiliaryFont.weight(.semibold))
                 .foregroundStyle(AppTheme.accent)
                 .frame(minWidth: 44, minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("打开第\(item.question.number)题详情")
+        .accessibilityLabel("打开第\(displayNumber)题详情")
         .accessibilityHint("查看题干、选项和解析")
         .accessibilityIdentifier("question-bank-question-detail-\(item.id)")
         .disabled(doodleSession.isPresented)
+    }
+
+    private func displayNumber(for item: QuestionBankHomeQuestion) -> Int {
+        QuestionBankDisplayNumber.resolve(
+            originalNumber: item.question.number,
+            localOrdinal: localOrdinalByID[item.id],
+            usesLocalOrdinal: paperID != nil && (filter.module != nil || !filter.questionType.isEmpty)
+        )
     }
 
     private func moveQuestion(to target: String) {
@@ -2552,27 +2663,43 @@ struct QuestionBankCrossPaperReaderView: View {
         let migratedRevealed = QuestionBankRevealedAnswersStorage.encode(Set(
             oldRevealed.map { legacyQuestionIDs[$0] ?? $0 }
         ))
-        storedAnswerStateJSON = QuestionBankAnswerStateStorage.migratingLegacyState(
+        let migratedState = QuestionBankAnswerStateStorage.migratingLegacyState(
             selectedOptionsJSON: QuestionBankSelectedOptionsStorage.encode(migratedSelections),
             revealedAnswersJSON: migratedRevealed,
             into: storedAnswerStateJSON
         )
+        replaceAnswerStateJSON(migratedState)
         selectedOptionsJSON = "{}"
         revealedAnswersJSON = "[]"
         didMigrateLegacyAnswerState = true
     }
 
     private func redoCurrentGroupAnswers() {
-        storedAnswerStateJSON = QuestionBankAnswerStateStorage.clearing(
+        replaceAnswerStateJSON(QuestionBankAnswerStateStorage.clearing(
             QuestionBankRedoScope.questionIDs(inCurrentGroup: orderedItems),
             from: storedAnswerStateJSON
-        )
+        ))
     }
 
     private func clearAnswer(for questionID: String) {
-        storedAnswerStateJSON = QuestionBankAnswerStateStorage.clearing(
+        replaceAnswerStateJSON(QuestionBankAnswerStateStorage.clearing(
             [questionID], from: storedAnswerStateJSON
-        )
+        ))
+    }
+
+    private func updateAnswerState(_ update: (inout QuestionBankAnswerState) -> Void) {
+        var state = cachedAnswerState
+        update(&state)
+        let encoded = QuestionBankAnswerStateStorage.encode(state)
+        cachedAnswerState = state
+        cachedAnswerStateJSON = encoded
+        storedAnswerStateJSON = encoded
+    }
+
+    private func replaceAnswerStateJSON(_ value: String) {
+        cachedAnswerState = QuestionBankAnswerStateStorage.decode(value)
+        cachedAnswerStateJSON = value
+        storedAnswerStateJSON = value
     }
 
     private func selectOption(_ optionID: String, item: QuestionBankHomeQuestion) {
@@ -2580,13 +2707,11 @@ struct QuestionBankCrossPaperReaderView: View {
         guard !doodleSession.isPresented, readingMode == .practice,
               !revealedAnswerQuestionIDs.contains(answerStateID) else { return }
         guard selectedOptionsByQuestionID[answerStateID] == nil else { return }
-        var selected = selectedOptionsByQuestionID
-        selected[answerStateID] = optionID
-        selectedOptionsByQuestionID = selected
-        if !requiresAnswerConfirmation {
-            var revealed = revealedAnswerQuestionIDs
-            revealed.insert(answerStateID)
-            revealedAnswerQuestionIDs = revealed
+        withAnimation(.easeOut(duration: 0.16)) {
+            updateAnswerState { state in
+                state.selectedOptions[answerStateID] = optionID
+                if !requiresAnswerConfirmation { state.revealedQuestionIDs.insert(answerStateID) }
+            }
         }
     }
 
@@ -2594,17 +2719,19 @@ struct QuestionBankCrossPaperReaderView: View {
         guard !doodleSession.isPresented else { return }
         requiresAnswerConfirmation = enabled
         if !enabled {
-            var revealed = revealedAnswerQuestionIDs
-            revealed.formUnion(selectedOptionsByQuestionID.keys)
-            revealedAnswerQuestionIDs = revealed
+            withAnimation(.easeOut(duration: 0.16)) {
+                updateAnswerState { state in
+                    state.revealedQuestionIDs.formUnion(state.selectedOptions.keys)
+                }
+            }
         }
     }
 
     private func confirmAnswer(for questionID: String) {
         guard !doodleSession.isPresented, selectedOptionsByQuestionID[questionID] != nil else { return }
-        var revealed = revealedAnswerQuestionIDs
-        revealed.insert(questionID)
-        revealedAnswerQuestionIDs = revealed
+        withAnimation(.easeOut(duration: 0.16)) {
+            updateAnswerState { $0.revealedQuestionIDs.insert(questionID) }
+        }
     }
 
     private func setMissingAnswer(_ answer: String, for item: QuestionBankHomeQuestion) {
@@ -2636,20 +2763,35 @@ struct QuestionBankCrossPaperReaderView: View {
         )
         guard !doodleSession.isPresented else { return }
         continuousQuestionDoodleRecordID = presentationMode == .continuous ? recordID : nil
-        do {
-            let drawing = try QuestionBankDoodleRepository.drawingData(recordID: recordID, context: modelContext)
-            doodleSession.present(
-                targetRecordID: recordID,
-                drawingData: drawing,
-                legacyPreviewDataURL: "",
-                onSave: { drawingData, _ in
-                    QuestionBankDoodleRepository.save(
-                        recordID: recordID, drawingData: drawingData, context: modelContext
-                    )
-                }
-            )
-        } catch {
-            doodleSession.saveError = "涂鸦读取失败：\(error.localizedDescription)"
+        let readStart = ProcessInfo.processInfo.systemUptime
+        doodleSession.present(
+            targetRecordID: recordID,
+            drawingData: "",
+            legacyPreviewDataURL: "",
+            isLoadingDrawing: true,
+            onSave: { drawingData, _ in
+                QuestionBankDoodleRepository.save(
+                    recordID: recordID, drawingData: drawingData, context: modelContext
+                )
+            }
+        )
+        let container = modelContext.container
+        Task { @MainActor in
+            do {
+                let drawing = try await QuestionBankDoodleRepository.drawingData(
+                    recordID: recordID,
+                    container: container
+                )
+                LibraryPerformanceLog.mark("doodle.read.background-result", since: readStart)
+                guard doodleSession.isPresented,
+                      doodleSession.targetRecordID == recordID,
+                      doodleSession.isLoadingDrawing else { return }
+                doodleSession.completeDrawingLoad(drawing)
+            } catch {
+                guard doodleSession.isPresented,
+                      doodleSession.targetRecordID == recordID else { return }
+                doodleSession.failDrawingLoad("涂鸦读取失败：\(error.localizedDescription)")
+            }
         }
     }
 }
@@ -2734,7 +2876,7 @@ private struct QuestionBankQuestionOverviewSheet: View {
                 id: item.id,
                 paperID: item.record.paperID,
                 paperTitle: item.record.title ?? "",
-                questionNumber: item.question.number,
+                questionNumber: displayNumber(for: item),
                 moduleID: item.question.moduleID,
                 moduleTitle: item.moduleTitle ?? "",
                 moduleSequence: item.moduleSequence,
@@ -2744,11 +2886,21 @@ private struct QuestionBankQuestionOverviewSheet: View {
         })
     }
 
+    private func displayNumber(for item: QuestionBankReadingItem) -> Int {
+        QuestionBankDisplayNumber.resolve(
+            originalNumber: item.question.number,
+            localOrdinal: item.localOrdinal,
+            usesLocalOrdinal: true
+        )
+    }
+
     private func groupHeading(_ group: QuestionBankOverviewGroup) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(group.moduleTitle)
-                .font(AppTheme.sectionTitleFont)
-                .foregroundStyle(.primary)
+            if group.startsModule {
+                Text(group.moduleTitle)
+                    .font(AppTheme.sectionTitleFont)
+                    .foregroundStyle(.primary)
+            }
             if let type = group.coarseQuestionType {
                 Text(type)
                     .font(AppTheme.auxiliaryFont.weight(.medium))
@@ -2765,7 +2917,7 @@ private struct QuestionBankQuestionOverviewSheet: View {
             onSelect(item)
             dismiss()
         } label: {
-            Text(String(item.question.number))
+            Text(String(displayNumber(for: item)))
                 .font(AppTheme.bodyFont.weight(isCurrent ? .semibold : .regular))
                 .foregroundStyle(isCurrent ? AppTheme.accent : .primary)
                 .frame(maxWidth: .infinity)
@@ -2779,8 +2931,8 @@ private struct QuestionBankQuestionOverviewSheet: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("第\(String(item.question.number))题")
-        .accessibilityIdentifier("question-bank-number-card-\(item.question.number)")
+        .accessibilityLabel("第\(String(displayNumber(for: item)))题")
+        .accessibilityIdentifier("question-bank-number-card-\(item.id)")
     }
 
     private func cardButton(_ item: QuestionBankReadingItem) -> some View {
@@ -2793,7 +2945,7 @@ private struct QuestionBankQuestionOverviewSheet: View {
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
-                    Text("\(String(overview.number)).")
+                    Text("\(String(displayNumber(for: item))).")
                         .font(AppTheme.bodyFont.weight(.semibold))
                         .foregroundStyle(isCurrent ? AppTheme.accent : .primary)
                     if !overview.type.isEmpty {
@@ -2829,7 +2981,7 @@ private struct QuestionBankQuestionOverviewSheet: View {
         .padding(.vertical, 12)
         .contentShape(Rectangle())
         .buttonStyle(.plain)
-        .accessibilityLabel("第\(String(overview.number))题\(headingDescription)")
+        .accessibilityLabel("第\(String(displayNumber(for: item)))题\(headingDescription)")
         .accessibilityIdentifier("question-bank-overview-item-\(item.id)")
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -2987,20 +3139,20 @@ private struct QuestionBankQuestionTextEditor: View {
                 }
                 Section {
                     ForEach(question.options) { option in
-                        HStack(alignment: .top, spacing: 10) {
+                        HStack(alignment: .top, spacing: 8) {
                             Text(option.id)
                                 .font(AppTheme.auxiliaryFont.weight(.semibold))
                                 .foregroundStyle(AppTheme.accent)
-                                .frame(width: 34, height: 30)
+                                .frame(width: 32, height: 28)
                                 .background(AppTheme.accent.opacity(0.10), in: Capsule())
                             TextField("", text: optionBinding(for: option.id), axis: .vertical)
-                                .lineLimit(1...6)
+                                .lineLimit(1...4)
                                 .font(QuestionBankTypography.contentFont)
-                                .padding(.vertical, 5)
+                                .padding(.vertical, 2)
                                 .accessibilityLabel("选项 \(option.id)")
                                 .accessibilityIdentifier("question-bank-edit-option-\(option.id)")
                         }
-                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                        .listRowInsets(EdgeInsets(top: 3, leading: 16, bottom: 3, trailing: 16))
                         .accessibilityElement(children: .contain)
                     }
                 }
@@ -3015,6 +3167,7 @@ private struct QuestionBankQuestionTextEditor: View {
                         .accessibilityIdentifier("question-bank-edit-weakness-tags")
                 }
             }
+            .listSectionSpacing(8)
             .navigationTitle("编辑题目")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -3175,7 +3328,7 @@ private struct QuestionBankProvenanceDisclosure: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("来源 \(index + 1)")
                                 .font(AppTheme.auxiliaryFont.weight(.semibold))
-                            Text(detail(for: entry))
+                            Text(detail(for: entry, sourcePapers: sourcePapers))
                                 .font(AppTheme.auxiliaryFont)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -3186,12 +3339,6 @@ private struct QuestionBankProvenanceDisclosure: View {
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             if let source = sourcePapers.first(where: { $0.id == entry.sourcePaperID }) {
-                                if let fileName = source.originalFileName, !fileName.isEmpty {
-                                    Text("原始文件：\(fileName)")
-                                        .font(AppTheme.auxiliaryFont)
-                                        .foregroundStyle(.secondary)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
                                 if let sha256 = source.originalFileSHA256, !sha256.isEmpty {
                                     Text("SHA-256：\(sha256)")
                                         .font(.system(.caption2, design: .monospaced))
@@ -3210,8 +3357,13 @@ private struct QuestionBankProvenanceDisclosure: View {
         }
     }
 
-    private func detail(for entry: QuestionBankProvenance) -> String {
-        var parts = ["来源卷 \(entry.sourcePaperID)"]
+    private func detail(
+        for entry: QuestionBankProvenance,
+        sourcePapers: [QuestionBankSourcePaper]
+    ) -> String {
+        let source = sourcePapers.first(where: { $0.id == entry.sourcePaperID })
+        let fileName = QuestionBankSourceDisplay.cleanedFileName(source?.originalFileName ?? "")
+        var parts = [fileName.isEmpty ? "来源卷 \(entry.sourcePaperID)" : fileName]
         if let province = entry.provinceName ?? entry.provinceCode, !province.isEmpty {
             parts.append(province)
         }
@@ -3292,6 +3444,8 @@ private struct QuestionBankMissingAnswerMenu: View {
 }
 
 private struct QuestionBankOptionRow: View {
+    @ScaledMetric(relativeTo: .body) private var markerDiameter: CGFloat = 32
+
     let questionID: String
     let option: QuestionBankOption
     let answer: String
@@ -3300,6 +3454,7 @@ private struct QuestionBankOptionRow: View {
     let revealsAnswer: Bool
     let isSelectionLocked: Bool
     let isInteractionBlocked: Bool
+    var showsGraphLayout = false
     let onSelect: () -> Void
     let assetLookup: (String) -> QuestionBankRecord?
 
@@ -3314,25 +3469,30 @@ private struct QuestionBankOptionRow: View {
             .buttonStyle(QuestionBankOptionButtonStyle())
             // The first choice remains locked semantically, while the custom
             // style keeps that state from dimming the option text and marker.
+            .accessibilityValue(optionAccessibilityValue)
             .accessibilityHint(isSelectionLocked ? "答案已提交，不能更改选择" : "选择此选项")
             .accessibilityIdentifier("question-bank-option-\(questionID)-\(option.id)")
             .disabled(isSelectionLocked)
         } else {
             row
+                .accessibilityValue(optionAccessibilityValue)
                 .accessibilityIdentifier("question-bank-option-\(questionID)-\(option.id)")
         }
     }
 
     private var row: some View {
-        HStack(alignment: .top, spacing: 4) {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
             Text(option.id)
                 .font(QuestionBankTypography.contentFont.weight(.semibold))
                 .foregroundStyle(letterColor)
-                .frame(width: 32, height: 32)
-                .background(selectionRingColor.opacity(isSelected ? 0.10 : 0), in: Circle())
+                .frame(width: markerDiameter, height: markerDiameter)
+                .background(markerFillColor ?? .clear, in: Circle())
                 .overlay {
                     Circle()
-                        .stroke(selectionRingColor, lineWidth: isSelected ? 1.5 : 0)
+                        .stroke(selectionOutlineColor, lineWidth: isSelected && !showsKnownAnswer ? 1.5 : 0)
+                }
+                .alignmentGuide(.firstTextBaseline) { dimensions in
+                    dimensions[.bottom] - dimensions.height / 2
                 }
             VStack(alignment: .leading, spacing: 8) {
                 if let displayText = QuestionBankOptionDisplay.text(for: option) {
@@ -3342,21 +3502,15 @@ private struct QuestionBankOptionRow: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if !option.imageAssetID.isEmpty, let asset = assetLookup(option.imageAssetID) {
-                    QuestionBankLocalImage(asset: asset, sizing: .option)
+                    QuestionBankLocalImage(asset: asset, sizing: showsGraphLayout ? .graph : .option)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if revealsAnswer && answer == option.id {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(AppTheme.success)
-                    .accessibilityLabel("正确选项")
-            }
+            .alignmentGuide(.firstTextBaseline) { dimensions in dimensions[.firstTextBaseline] }
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isSelected ? selectionRingColor.opacity(0.045) : Color.clear)
         .contentShape(Rectangle())
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -3366,21 +3520,37 @@ private struct QuestionBankOptionRow: View {
     }
 
     private var letterColor: Color {
-        if revealsAnswer, answer == option.id { return AppTheme.success }
-        if revealsAnswer, isSelected { return AppTheme.danger }
+        if markerFillColor != nil { return .white }
         if isSelected { return AppTheme.accent }
         return .primary
+    }
+
+    private var markerFillColor: Color? {
+        guard showsKnownAnswer else { return nil }
+        if answer == option.id { return QuestionBankAnswerFeedbackPalette.correct }
+        if isSelected { return AppTheme.danger }
+        return nil
+    }
+
+    private var selectionOutlineColor: Color {
+        isSelected && !showsKnownAnswer ? AppTheme.accent : .clear
+    }
+
+    private var showsKnownAnswer: Bool {
+        revealsAnswer && !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var optionAccessibilityValue: String {
+        guard showsKnownAnswer else { return isSelected ? "已选择" : "未选择" }
+        if answer == option.id { return isSelected ? "已选择，回答正确" : "正确答案" }
+        if isSelected { return "已选择，回答错误" }
+        return "未选择，非正确答案"
     }
 
     private var isSelected: Bool {
         readingMode == .practice && selectedOptionID == option.id
     }
 
-    private var selectionRingColor: Color {
-        guard isSelected else { return .clear }
-        guard revealsAnswer else { return AppTheme.accent }
-        return answer == option.id ? AppTheme.success : AppTheme.danger
-    }
 }
 
 private struct QuestionBankOptionButtonStyle: ButtonStyle {
@@ -3442,6 +3612,7 @@ struct QuestionBankLocalImage: View {
         case material
         case stem
         case option
+        case graph
         case overview
     }
 
@@ -3482,6 +3653,16 @@ struct QuestionBankLocalImage: View {
                 failedToLoad = true
                 return
             }
+            if sizing == .graph {
+                guard let fullResolutionImage = CGImageSourceCreateImageAtIndex(source, 0, [
+                    kCGImageSourceShouldCacheImmediately: true
+                ] as CFDictionary) else {
+                    failedToLoad = true
+                    return
+                }
+                image = UIImage(cgImage: fullResolutionImage)
+                return
+            }
             let options: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceThumbnailMaxPixelSize: maximumPixelDimension,
@@ -3510,6 +3691,11 @@ struct QuestionBankLocalImage: View {
                 .scaledToFit()
                 .frame(maxWidth: 220, maxHeight: 126, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        case .graph:
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity, alignment: .leading)
         case .overview:
             Image(uiImage: image)
                 .resizable()
@@ -3523,6 +3709,7 @@ struct QuestionBankLocalImage: View {
         switch sizing {
         case .material, .stem: 2400
         case .option: 900
+        case .graph: Int.max
         case .overview: 420
         }
     }

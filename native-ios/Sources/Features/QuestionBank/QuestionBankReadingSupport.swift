@@ -377,6 +377,13 @@ enum QuestionBankReaderTransition {
     }
 }
 
+enum QuestionBankDisplayNumber {
+    static func resolve(originalNumber: Int, localOrdinal: Int?, usesLocalOrdinal: Bool) -> Int {
+        guard usesLocalOrdinal, let localOrdinal, localOrdinal > 0 else { return originalNumber }
+        return localOrdinal
+    }
+}
+
 enum QuestionBankSelectedOptionsStorage {
     static func decode(_ value: String) -> [String: String] {
         guard let data = value.data(using: .utf8) else { return [:] }
@@ -544,6 +551,137 @@ enum QuestionBankOptionDisplay {
     }
 }
 
+enum QuestionBankReferenceAccuracyFormat {
+    static func numberText(_ value: Double) -> String {
+        if value.isFinite, value.rounded() == value, value > Double(Int.min), value < Double(Int.max) {
+            return String(Int(value))
+        }
+        return String(value)
+    }
+
+    static func percentageText(_ value: Double?) -> String {
+        guard let value, value.isFinite, (0...100).contains(value) else { return "未录入" }
+        return "\(numberText(value))%"
+    }
+
+    static func parse(_ rawValue: String) -> Double? {
+        let value = rawValue
+            .replacingOccurrences(of: "%", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let number = Double(value), number.isFinite, (0...100).contains(number) else { return nil }
+        return number
+    }
+}
+
+enum QuestionBankAnswerFeedbackPalette {
+    static let correct = Color(red: 52.0 / 255.0, green: 199.0 / 255.0, blue: 89.0 / 255.0)
+    static let incorrect = AppTheme.danger
+}
+
+struct QuestionBankReferenceAccuracyControl: View {
+    @Environment(\.modelContext) private var modelContext
+    let record: QuestionBankRecord
+    let accuracy: Double?
+
+    @State private var isEditing = false
+    @State private var editingValue = ""
+    @State private var errorMessage: String?
+
+    init(record: QuestionBankRecord, accuracy: Double?) {
+        self.record = record
+        self.accuracy = accuracy
+        _editingValue = State(initialValue: accuracy.map(QuestionBankReferenceAccuracyFormat.numberText) ?? "")
+    }
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Text("参考正确率：")
+                .foregroundStyle(.secondary)
+            Text(QuestionBankReferenceAccuracyFormat.percentageText(accuracy))
+                .fontWeight(.semibold)
+                .foregroundStyle(accuracy == nil ? Color.secondary : Color.primary)
+            Button {
+                editingValue = accuracy.map(QuestionBankReferenceAccuracyFormat.numberText) ?? ""
+                errorMessage = nil
+                isEditing = true
+            } label: {
+                Image(systemName: "pencil")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(AppTheme.accent)
+            .accessibilityLabel("编辑参考正确率")
+            .accessibilityIdentifier("question-bank-reference-accuracy-edit-\(record.stableID)")
+        }
+        .font(AppTheme.auxiliaryFont)
+        .popover(isPresented: $isEditing, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 11) {
+                Text("参考正确率")
+                    .font(AppTheme.inputFont.weight(.semibold))
+                HStack(spacing: 6) {
+                    TextField("0–100", text: $editingValue)
+                        .keyboardType(.decimalPad)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("参考正确率百分比")
+                        .accessibilityIdentifier("question-bank-reference-accuracy-value")
+                    Text("%")
+                        .foregroundStyle(.secondary)
+                }
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(AppTheme.danger)
+                }
+                HStack(spacing: 8) {
+                    if accuracy != nil {
+                        Button("清除", role: .destructive, action: clear)
+                            .accessibilityIdentifier("question-bank-reference-accuracy-clear")
+                    }
+                    Spacer(minLength: 4)
+                    Button("取消") { isEditing = false }
+                    Button("保存", action: save)
+                        .fontWeight(.semibold)
+                        .accessibilityIdentifier("question-bank-reference-accuracy-save")
+                }
+            }
+            .padding(15)
+            .frame(width: 260)
+            .presentationCompactAdaptation(.popover)
+        }
+        .onChange(of: accuracy) { _, value in
+            if !isEditing { editingValue = value.map(QuestionBankReferenceAccuracyFormat.numberText) ?? "" }
+        }
+    }
+
+    private func save() {
+        guard let value = QuestionBankReferenceAccuracyFormat.parse(editingValue) else {
+            errorMessage = "请输入 0 到 100 之间的数字，例如 48.5。"
+            return
+        }
+        persist(value)
+    }
+
+    private func clear() {
+        persist(nil)
+    }
+
+    private func persist(_ value: Double?) {
+        do {
+            try QuestionBankRepository.updateReferenceAccuracy(
+                record: record,
+                accuracy: value,
+                context: modelContext
+            )
+            errorMessage = nil
+            isEditing = false
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
 enum QuestionBankDoodleScope: Equatable {
     case question(String)
     case material(String)
@@ -607,6 +745,13 @@ enum QuestionBankDoodleRepository {
         LibraryPerformanceLog.mark("doodle.read.payload", since: payloadStart)
         LibraryPerformanceLog.mark("doodle.read.total", since: totalStart)
         return data
+    }
+
+    static func drawingData(recordID: String, container: ModelContainer) async throws -> String {
+        try await Task.detached(priority: .userInitiated) {
+            let context = ModelContext(container)
+            return try drawingData(recordID: recordID, context: context)
+        }.value
     }
 
     @MainActor

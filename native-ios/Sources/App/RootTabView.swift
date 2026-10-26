@@ -1,4 +1,6 @@
 import SwiftUI
+import QuartzCore
+import UIKit
 
 private struct RootTabSelectionKey: EnvironmentKey {
     static let defaultValue: Binding<RootTab> = .constant(.home)
@@ -57,6 +59,7 @@ enum RootTab: String, CaseIterable, Identifiable {
 struct RootTabView: View {
     @EnvironmentObject private var questionBankImportRouter: QuestionBankImportRouter
     @State private var selection: RootTab = .home
+    @State private var selectionGeneration = 0
     @State private var homePath: [AppRoute] = []
     @State private var libraryPath: [LibraryRoute] = []
     @State private var settingsPath: [SettingsRoute] = []
@@ -64,10 +67,14 @@ struct RootTabView: View {
 
     var body: some View {
         GeometryReader { window in
-            TabView(selection: $selection) {
+            TabView(selection: tabSelectionBinding) {
                 ForEach(RootTab.allCases) { tab in
                     tabContent(tab)
-                        .modifier(RootTabFirstFrameMarker(tab: tab))
+                        .modifier(RootTabFirstFrameMarker(
+                            tab: tab,
+                            isSelected: selection == tab,
+                            generation: selectionGeneration
+                        ))
                         .tabItem {
                             Label(tab.title, systemImage: tab.systemImage)
                                 .accessibilityIdentifier("root-tab-\(tab.rawValue)")
@@ -90,15 +97,34 @@ struct RootTabView: View {
                 .accessibilityHidden(!libraryDoodleSession.isPresented)
         }
         .onAppear {
-            NativePerformanceLog.beginTabSelection(selection)
-            selectQuestionBankForIncomingFiles()
-        }
-        .onChange(of: selection) { _, selected in
-            NativePerformanceLog.beginTabSelection(selected)
+            if questionBankImportRouter.pendingRequestIDs.isEmpty {
+                beginTabFrameMeasurement(for: selection)
+            } else {
+                selectQuestionBankForIncomingFiles()
+            }
         }
         .onChange(of: questionBankImportRouter.pendingRequestIDs) { _, _ in
             selectQuestionBankForIncomingFiles()
         }
+    }
+
+    private var tabSelectionBinding: Binding<RootTab> {
+        Binding(
+            get: { selection },
+            set: { selectTab($0) }
+        )
+    }
+
+    private func selectTab(_ tab: RootTab) {
+        guard selection != tab else { return }
+        NativePerformanceLog.beginTabSelection(tab)
+        selectionGeneration &+= 1
+        selection = tab
+    }
+
+    private func beginTabFrameMeasurement(for tab: RootTab) {
+        NativePerformanceLog.beginTabSelection(tab)
+        selectionGeneration &+= 1
     }
 
     @ViewBuilder
@@ -132,14 +158,92 @@ struct RootTabView: View {
 
     private func selectQuestionBankForIncomingFiles() {
         guard !questionBankImportRouter.pendingRequestIDs.isEmpty else { return }
-        selection = .questionBank
+        selectTab(.questionBank)
     }
 }
 
 private struct RootTabFirstFrameMarker: ViewModifier {
     let tab: RootTab
+    let isSelected: Bool
+    let generation: Int
 
     func body(content: Content) -> some View {
-        content.onAppear { NativePerformanceLog.markTabFirstFrame(tab) }
+        content.overlay(alignment: .topLeading) {
+            RootTabFrameCommitProbe(tab: tab, isSelected: isSelected, generation: generation)
+                .frame(width: 1, height: 1)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+private struct RootTabFrameCommitProbe: UIViewRepresentable {
+    let tab: RootTab
+    let isSelected: Bool
+    let generation: Int
+
+    func makeUIView(context: Context) -> ProbeView {
+        ProbeView(frame: .zero)
+    }
+
+    func updateUIView(_ uiView: ProbeView, context: Context) {
+        uiView.markCommittedFrame(tab: tab, isSelected: isSelected, generation: generation)
+    }
+
+    final class ProbeView: UIView {
+        private var lastGeneration: Int?
+        private var pendingTab: RootTab?
+        private var pendingGeneration: Int?
+        private var displayLink: CADisplayLink?
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            backgroundColor = .clear
+            isUserInteractionEnabled = false
+            isAccessibilityElement = false
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window == nil {
+                displayLink?.invalidate()
+                displayLink = nil
+                pendingTab = nil
+                pendingGeneration = nil
+            }
+        }
+
+        func markCommittedFrame(tab: RootTab, isSelected: Bool, generation: Int) {
+            guard isSelected else {
+                if pendingGeneration != nil {
+                    displayLink?.invalidate()
+                    displayLink = nil
+                    pendingTab = nil
+                    pendingGeneration = nil
+                }
+                return
+            }
+            guard lastGeneration != generation else { return }
+            lastGeneration = generation
+            pendingTab = tab
+            pendingGeneration = generation
+            displayLink?.invalidate()
+            let displayLink = CADisplayLink(target: self, selector: #selector(displayLinkDidFire(_:)))
+            displayLink.add(to: .main, forMode: .common)
+            self.displayLink = displayLink
+        }
+
+        @objc private func displayLinkDidFire(_ link: CADisplayLink) {
+            guard window != nil, let tab = pendingTab, pendingGeneration == lastGeneration else { return }
+            pendingTab = nil
+            pendingGeneration = nil
+            displayLink?.invalidate()
+            displayLink = nil
+            NativePerformanceLog.markTabFirstFrame(tab)
+        }
     }
 }

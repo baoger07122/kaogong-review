@@ -56,6 +56,7 @@ struct QuestionBankView: View {
     @StateObject private var importProgress = QuestionBankImportProgressModel()
     @StateObject private var importSelection = QuestionBankImportSelectionCoordinator()
     @StateObject private var organizationStore = QuestionBankOrganizationStore()
+    @StateObject private var homeIndexStore = QuestionBankHomeIndexStore()
     @State private var searchText = ""
     @State private var isSearchExpanded = false
     @FocusState private var isSearchFocused: Bool
@@ -94,7 +95,11 @@ struct QuestionBankView: View {
     }
 
     private var allPaperIDs: [String] {
-        QuestionBankHomeIndex(records: records).papers.map(\.id)
+        QuestionBankHomeIndex.defaultPaperIDs(records: records)
+    }
+
+    private var homeIndexRevision: [QuestionBankHomeIndexRevision] {
+        QuestionBankHomeIndexRevision.make(records: records)
     }
 
     private var homeFilter: QuestionBankHomeFilter {
@@ -165,29 +170,67 @@ struct QuestionBankView: View {
     }
 
     var body: some View {
-        let index = QuestionBankHomeIndex(records: records)
-        let filter = homeFilter
-        let candidates = index.visiblePapers(matching: filter)
-        let visibleByID = Dictionary(
-            candidates.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let organizationSections = makeOrganizationSections(for: candidates)
-        let visiblePapers = organizationSections
-            .flatMap(\.paperIDs)
-            .compactMap { visibleByID[$0] }
-        return questionBankConfiguredContent(
-            index: index,
-            filter: filter,
-            organizationSections: organizationSections,
-            visiblePapers: visiblePapers,
-            visibleByID: visibleByID
-        )
+        Group {
+            if let index = homeIndexStore.index, index.revision == homeIndexRevision {
+                let filter = homeFilter
+                let result = index.filtered(matching: filter)
+                let candidates = result.visiblePapers
+                let visibleByID = Dictionary(
+                    candidates.map { ($0.id, $0) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+                let organizationSections = makeOrganizationSections(for: candidates)
+                let visiblePapers = organizationSections
+                    .flatMap(\.paperIDs)
+                    .compactMap { visibleByID[$0] }
+                questionBankConfiguredContent(
+                    index: index,
+                    filter: filter,
+                    filterResult: result,
+                    organizationSections: organizationSections,
+                    visiblePapers: visiblePapers,
+                    visibleByID: visibleByID
+                )
+            } else {
+                questionBankLoadingContent
+            }
+        }
+        .task(id: homeIndexRevision) {
+            await homeIndexStore.load(records: records, revision: homeIndexRevision)
+        }
+        .onAppear {
+            organizationStore.reconcile(paperIDs: allPaperIDs)
+            NativePerformanceLog.event("question bank onAppear")
+            processPendingExternalFileIfPossible()
+        }
+        .onChange(of: allPaperIDs) { _, paperIDs in
+            organizationStore.reconcile(paperIDs: paperIDs)
+        }
+        .onDisappear {
+            if isPreparingImport { cancelPreparingImport() }
+        }
+        .onChange(of: importRouter.pendingRequestIDs) { _, _ in
+            processPendingExternalFileIfPossible()
+        }
+        .onChange(of: rootTabSelection.wrappedValue) { _, selectedTab in
+            if selectedTab == .questionBank { processPendingExternalFileIfPossible() }
+        }
+    }
+
+    private var questionBankLoadingContent: some View {
+        ProgressView("正在准备题库索引…")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.white)
+            .navigationTitle("真题库")
+            .navigationBarTitleDisplayMode(.inline)
+            .rootTabBarContentInset()
+            .toolbar { questionBankToolbar() }
     }
 
     private func questionBankConfiguredContent(
         index: QuestionBankHomeIndex,
         filter: QuestionBankHomeFilter,
+        filterResult: QuestionBankHomeFilterResult,
         organizationSections: [QuestionBankOrganizationSection],
         visiblePapers: [QuestionBankHomePaper],
         visibleByID: [String: QuestionBankHomePaper]
@@ -196,6 +239,7 @@ struct QuestionBankView: View {
             questionBankScrollContent(
                 index: index,
                 filter: filter,
+                filterResult: filterResult,
                 organizationSections: organizationSections,
                 visiblePapers: visiblePapers,
                 visibleByID: visibleByID
@@ -229,23 +273,6 @@ struct QuestionBankView: View {
             Button("取消", role: .cancel) { paperPendingDeletion = nil }
         } message: {
             Text("将删除《\(paperPendingDeletion?.title ?? paperPendingDeletion?.decoded(QuestionBankPaper.self)?.title ?? "未命名试卷")》及其题目和纸卷图片。学习库笔记与涂鸦会保留；仍被批次来源索引引用的试卷不能删除。")
-        })
-        content = AnyView(content.onAppear {
-            organizationStore.reconcile(paperIDs: allPaperIDs)
-            NativePerformanceLog.event("question bank onAppear")
-        })
-        content = AnyView(content.onChange(of: allPaperIDs) { _, paperIDs in
-            organizationStore.reconcile(paperIDs: paperIDs)
-        })
-        content = AnyView(content.onAppear(perform: processPendingExternalFileIfPossible))
-        content = AnyView(content.onDisappear {
-            if isPreparingImport { cancelPreparingImport() }
-        })
-        content = AnyView(content.onChange(of: importRouter.pendingRequestIDs) { _, _ in
-            processPendingExternalFileIfPossible()
-        })
-        content = AnyView(content.onChange(of: rootTabSelection.wrappedValue) { _, selectedTab in
-            if selectedTab == .questionBank { processPendingExternalFileIfPossible() }
         })
         content = AnyView(content.onChange(of: isPreparingImport) { _, isPreparing in
             if !isPreparing { processPendingExternalFileIfPossible() }
@@ -363,6 +390,7 @@ struct QuestionBankView: View {
     private func questionBankScrollContent(
         index: QuestionBankHomeIndex,
         filter: QuestionBankHomeFilter,
+        filterResult: QuestionBankHomeFilterResult,
         organizationSections: [QuestionBankOrganizationSection],
         visiblePapers: [QuestionBankHomePaper],
         visibleByID: [String: QuestionBankHomePaper]
@@ -805,7 +833,7 @@ struct QuestionBankView: View {
                     if let paper = visibleByID[paperID] {
                         paperRow(
                             paper,
-                            questionCount: index.filteredQuestionCount(for: paper.id, matching: filter),
+                            questionCount: filterResult.questionCount(for: paper.id),
                             filter: filter
                         )
                     }

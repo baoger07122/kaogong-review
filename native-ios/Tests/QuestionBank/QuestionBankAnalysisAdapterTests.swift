@@ -163,6 +163,84 @@ final class QuestionBankAnalysisAdapterTests: XCTestCase {
         XCTAssertTrue(try context.fetch(FetchDescriptor<StoredRecord>()).isEmpty)
     }
 
+    func testMultiBlankQuestionEditRejectsConcatenatedOptionUntilItsBoundaryIsExplicit() throws {
+        let container = try makeMemoryContainer()
+        let context = container.mainContext
+        let original = try makeQuestionRecord()
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: original.payload) as? [String: Any])
+        object["stem"] = "在（ ）和（ ）中选择"
+        let initialPayload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        original.replacePayload(initialPayload)
+        let module = QuestionBankRecord(
+            compoundID: "paper-1::module::module-1",
+            paperID: "paper-1",
+            kind: QuestionBankRepository.moduleKind,
+            stableID: "module-1",
+            title: "逻辑填空",
+            payload: Data("{}".utf8)
+        )
+        context.insert(original)
+        context.insert(module)
+        try context.save()
+
+        XCTAssertThrowsError(try QuestionBankRepository.updateQuestionText(
+            paperID: "paper-1",
+            questionID: "question-1",
+            stem: "在（ ）和（ ）中选择",
+            optionTexts: ["option-a": "水到渠成融汇贯通", "option-b": "鱼贯而入一气呵成"],
+            records: [module, original],
+            context: context
+        )) { error in
+            guard let failure = error as? QuestionBankQuestionTextEditFailure,
+                  case .invalidMultiBlankOption = failure else {
+                return XCTFail("Expected explicit multi-blank boundary validation, got \(error)")
+            }
+        }
+        XCTAssertEqual(original.payload, initialPayload, "Rejected glued text must leave the stored payload untouched")
+
+        try QuestionBankRepository.updateQuestionText(
+            paperID: "paper-1",
+            questionID: "question-1",
+            stem: "在（ ）和（ ）中选择",
+            optionTexts: ["option-a": "水到渠成    融汇贯通", "option-b": "鱼贯而入    一气呵成"],
+            records: [module, original],
+            context: context
+        )
+        let updated = try XCTUnwrap(original.decoded(QuestionBankQuestion.self))
+        XCTAssertEqual(updated.options[0].text, "水到渠成    融汇贯通")
+        XCTAssertEqual(QuestionBankMultiBlankOptionText.parse(updated.options[0].text, blankCount: 2)?.groups,
+                       ["水到渠成", "融汇贯通"])
+    }
+
+    func testReferenceAccuracyWritesAndClearsWithoutAcceptingOutOfRangeValues() throws {
+        let container = try makeMemoryContainer()
+        let context = container.mainContext
+        let question = try makeQuestionRecord()
+        context.insert(question)
+        try context.save()
+
+        let initialRevision = question.contentRevision
+        try QuestionBankRepository.updateReferenceAccuracy(
+            record: question,
+            accuracy: 42.5,
+            context: context
+        )
+        XCTAssertEqual(question.decoded(QuestionBankQuestion.self)?.accuracy, 42.5)
+        XCTAssertEqual(question.contentRevision, initialRevision + 1)
+        let savedPayload = question.payload
+
+        XCTAssertThrowsError(try QuestionBankRepository.updateReferenceAccuracy(
+            record: question,
+            accuracy: 100.1,
+            context: context
+        ))
+        XCTAssertEqual(question.payload, savedPayload)
+
+        try QuestionBankRepository.updateReferenceAccuracy(record: question, accuracy: nil, context: context)
+        XCTAssertNil(question.decoded(QuestionBankQuestion.self)?.accuracy)
+        XCTAssertNil((try JSONSerialization.jsonObject(with: question.payload) as? [String: Any])?["accuracy"])
+    }
+
     func testEditingAnExplicitlyLinkedErrorWritesBackToTheTrueQuestionInOneSave() throws {
         let container = try makeMemoryContainer()
         let context = container.mainContext
