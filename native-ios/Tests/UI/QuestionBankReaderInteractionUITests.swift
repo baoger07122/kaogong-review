@@ -112,8 +112,15 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         let reader = launchPracticeReader()
         let app = reader.app
         app.buttons["question-bank-option-\(reader.questionID)-B"].tap()
-        element(app, identifier: "question-bank-number-overview").tap()
-        XCTAssertTrue(app.navigationBars["题目总览"].waitForExistence(timeout: 5))
+        let answerFeedback = element(app, identifier: "question-bank-answer-feedback-\(reader.questionID)")
+        XCTAssertTrue(answerFeedback.waitForExistence(timeout: 5))
+        let overview = element(app, identifier: "question-bank-number-overview")
+        XCTAssertTrue(overview.isHittable)
+        overview.tap()
+        XCTAssertTrue(
+            app.navigationBars["题目总览"].waitForExistence(timeout: 5),
+            "Correct-answer feedback should not block the number overview. Accessibility tree:\n\(app.debugDescription)"
+        )
         let firstQuestionCard = element(app, identifier: "question-bank-number-card-\(reader.questionID)")
         XCTAssertTrue(firstQuestionCard.waitForExistence(timeout: 5), "Number overview accessibility tree:\n\(app.debugDescription)")
         XCTAssertEqual(firstQuestionCard.value as? String, "已答正确")
@@ -753,7 +760,11 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         XCTAssertTrue(firstDetailNavigationBar.waitForNonExistence(timeout: 5))
         firstQuestionDetail.tap()
         XCTAssertTrue(firstDetailNavigationBar.waitForExistence(timeout: 5), "The question detail should reopen before checking its note")
-        XCTAssertTrue(savedNote.waitForExistence(timeout: 5))
+        let notePlaceholderVisibleAfterReopen = app.staticTexts["点击添加错题笔记"].exists
+        XCTAssertTrue(
+            savedNote.waitForExistence(timeout: 5),
+            "Reopened detail should show the saved note. Empty placeholder present: \(notePlaceholderVisibleAfterReopen). Accessibility tree:\n\(app.debugDescription)"
+        )
         XCTAssertTrue(savedNote.label.contains("短中文笔记"), "Closing and reopening the same question must keep the note")
         XCTAssertTrue(savedNote.label.contains("富文本"))
         element(app, identifier: "question-bank-detail-done").tap()
