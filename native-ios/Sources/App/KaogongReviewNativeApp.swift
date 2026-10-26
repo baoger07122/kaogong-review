@@ -41,6 +41,7 @@ struct KaogongReviewNativeApp: App {
             }
             #else
             modelContainer = try Self.makeDefaultModelContainer()
+            #endif
         } catch {
             fatalError("无法初始化原生数据库：\(error.localizedDescription)")
         }
