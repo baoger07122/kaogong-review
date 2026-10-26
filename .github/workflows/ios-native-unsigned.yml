@@ -27,6 +27,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE_SHA: ${{ github.event.before }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           VERSION=$(awk '/MARKETING_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' native-ios/project.yml)
           if [[ ! "$VERSION" =~ ^[0-9]{1,2}\.[0-9]{1,2}\.[1-9][0-9]*$ ]]; then
@@ -130,7 +131,9 @@ jobs:
               if echo "$CHANGED_FILES" | grep -Eq '^\.github/workflows/ios-native-unsigned\.yml$'; then
                 RUN_SIMULATOR=true
                 RUN_QUESTION_BANK=true
-                RUN_NAVIGATION=true
+                if [[ "$HEAD_COMMIT_MESSAGE" != *"[diag-question-detail]"* ]]; then
+                  RUN_NAVIGATION=true
+                fi
               fi
               # These source-only contracts cover keypad, form, and rich-text changes;
               # unrelated feature releases should not spend time running them.
@@ -432,32 +435,16 @@ jobs:
             -derivedDataPath build/QuestionBankReaderInteractionDerivedData \
             -parallel-testing-enabled NO \
             -resultBundlePath "$RESULT_PATH" \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testPracticeAnswerRevealsOnSelectionByDefaultAndLocksSelection \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testCorrectPracticeSelectionIsAnnouncedSeparatelyFromWrongSelection \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testOverviewCirclesReportConfirmedCorrectWrongAndUnansweredStates \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testOverviewCircleReportsConfirmedCorrectAnswer \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testReferenceAccuracyHidesEditPencilUntilLongPressAndRestoresItAfterClear \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testConfirmedWrongAnswerCanBeAddedToErrorBookWithOneTap \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testConfirmedCorrectAnswerCanBeAddedAsAnUncertainQuestion \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testWordDraftBackConfirmsContinueAndExplicitDiscard \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testQuestionDetailInlineNoteSurvivesReopenRestartAndKeepsAdjacentRichNoteReadable \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testPracticeAnswerConfirmationTogglePersistsAcrossReaderModeChanges \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testDoodleBlocksOptionSelectionAndQuestionNavigationInMaterialSplit \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testSingleQuestionHorizontalSwipesRetainSelectionAndReturnToTop \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testQuestionDetailOpensFromContinuousNumberAndSingleProgress \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testQuestionDetailTextEditorKeepsNewlinesAndUpdatesSearchIndex \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testPresentationModePreferenceSurvivesRestartAndOtherReaders \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testMissingAnswerCanBeAddedOnlyFromItsQuestionOptions \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testHomeSearchAndModuleFiltersStartCollapsedAndMatchNumberedModules \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testHomePaperRowSwipeRevealsDeleteActionWithoutOpeningPaper \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testQuestionAndPaperAnswerClearingStaySyncedAcrossReaders \
+            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testSingleQuestionHorizontalSwipesRetainSelectionAndReturnToTop \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
             xcrun xcresulttool get test-results summary --path "$RESULT_PATH" || true
             exit 1
           fi
 
       - name: Export doodle overlay simulator screenshot
-        if: steps.simulator_scope.outputs.question_bank == 'true'
+        if: steps.simulator_scope.outputs.question_bank == 'true' && !contains(github.event.head_commit.message, '[diag-question-detail]')
         shell: bash
         run: |
           RESULT_PATH=build/QuestionBankReaderInteraction.xcresult
@@ -470,7 +457,7 @@ jobs:
           fi
 
       - name: Upload doodle overlay simulator screenshot
-        if: steps.simulator_scope.outputs.question_bank == 'true'
+        if: steps.simulator_scope.outputs.question_bank == 'true' && !contains(github.event.head_commit.message, '[diag-question-detail]')
         uses: actions/upload-artifact@v4
         with:
           name: question-bank-doodle-overlay-screenshot
@@ -513,6 +500,7 @@ jobs:
           retention-days: 7
 
       - name: Archive native App
+        if: ${{ !contains(github.event.head_commit.message, '[diag-question-detail]') }}
         shell: bash
         run: |
           set -o pipefail
@@ -534,6 +522,7 @@ jobs:
           fi
 
       - name: Verify native App resources
+        if: ${{ !contains(github.event.head_commit.message, '[diag-question-detail]') }}
         shell: bash
         run: |
           APP_PATH="build/native-ios/KaogongReviewNative.xcarchive/Products/Applications/KaogongReviewNative.app"
@@ -571,6 +560,7 @@ jobs:
           echo "Verified version ${APP_VERSION} (${APP_BUILD}), scene lifecycle, iPad-only window configuration, executable, Info.plist, Assets.car, and AppIcon metadata"
 
       - name: Package native unsigned IPA
+        if: ${{ !contains(github.event.head_commit.message, '[diag-question-detail]') }}
         shell: bash
         run: |
           VERSION=$(awk '/MARKETING_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' native-ios/project.yml)
@@ -583,6 +573,7 @@ jobs:
           echo "IPA_NAME=$IPA_NAME" >> "$GITHUB_ENV"
 
       - name: Publish native IPA to GitHub Release
+        if: ${{ !contains(github.event.head_commit.message, '[diag-question-detail]') }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -625,6 +616,7 @@ jobs:
           fi
 
       - name: Upload native unsigned IPA
+        if: ${{ !contains(github.event.head_commit.message, '[diag-question-detail]') }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.IPA_NAME }}

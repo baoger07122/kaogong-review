@@ -7,6 +7,7 @@ final class LibraryDoodleSession: ObservableObject {
     @Published var saveError: String?
     @Published private(set) var isLoadingDrawing = false
     @Published private(set) var targetRecordID: String?
+    @Published private(set) var presentationSource = "unknown"
     let canvas = LibraryDoodleCanvasState()
     private var saveHandler: ((String, Bool) -> String?)?
     private var isDismissing = false
@@ -21,13 +22,14 @@ final class LibraryDoodleSession: ObservableObject {
         drawingData: String,
         legacyPreviewDataURL: String,
         isLoadingDrawing: Bool = false,
+        source: String = "unknown",
         onSave: @escaping (String, Bool) -> String?
     ) {
         guard !isPresented else { return }
 #if DEBUG
         if QuestionBankReaderUITestFixture.isEnabled {
             let callStack = Thread.callStackSymbols.dropFirst(2).prefix(10).joined(separator: " | ")
-            print("[QuestionBankReaderUITest] doodle.present target=\(targetRecordID) stack=\(callStack)")
+            NSLog("[QuestionBankReaderUITest] doodle.present target=%@ source=%@ stack=%@", targetRecordID, source, callStack)
         }
 #endif
         let preparationStart = ProcessInfo.processInfo.systemUptime
@@ -36,6 +38,7 @@ final class LibraryDoodleSession: ObservableObject {
         drawingLoadFailed = false
         drawingLoadDataReceived = false
         self.isLoadingDrawing = isLoadingDrawing
+        presentationSource = source
         presentationStartedAt = preparationStart
         didLogCanvasFrame = false
         didLogCanvasInteractive = false
@@ -188,7 +191,7 @@ struct LibraryDoodleOverlay: View {
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(controller.canvasLoadError ?? "涂鸦交互遮罩")
-                .accessibilityValue(activeCanvasFrame == nil ? "canvas-loading" : "canvas-ready")
+                .accessibilityValue(interactionShieldValue(for: activeCanvasFrame))
                 .accessibilityIdentifier("library-doodle-interaction-shield")
 
                 if let message = controller.canvasLoadError {
@@ -333,6 +336,16 @@ struct LibraryDoodleOverlay: View {
         )
         let visibleFrame = localFrame.intersection(CGRect(origin: .zero, size: proxy.size))
         return visibleFrame.isNull || visibleFrame.isEmpty ? nil : visibleFrame
+    }
+
+    private func interactionShieldValue(for activeCanvasFrame: CGRect?) -> String {
+        let state = activeCanvasFrame == nil ? "canvas-loading" : "canvas-ready"
+#if DEBUG
+        if QuestionBankReaderUITestFixture.isEnabled {
+            return "\(state); source=\(session.presentationSource)"
+        }
+#endif
+        return state
     }
 }
 

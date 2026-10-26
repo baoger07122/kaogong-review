@@ -89,6 +89,7 @@ struct ShenlunRecordDetailView: View {
             targetRecordID: record.compoundID,
             drawingData: drawingData,
             legacyPreviewDataURL: legacyPreview,
+            source: "ShenlunRecordDetailView.openDoodle",
             onSave: saveDrawing
         )
         LibraryPerformanceLog.mark("doodle.tap-to-present", since: openStart)
