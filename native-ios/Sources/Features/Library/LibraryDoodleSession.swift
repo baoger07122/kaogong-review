@@ -22,7 +22,7 @@ final class LibraryDoodleSession: ObservableObject {
         drawingData: String,
         legacyPreviewDataURL: String,
         isLoadingDrawing: Bool = false,
-        source: String = "unknown",
+        source: String,
         onSave: @escaping (String, Bool) -> String?
     ) {
         guard !isPresented else { return }
