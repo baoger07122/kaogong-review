@@ -81,7 +81,7 @@ struct ShenlunTextView: UIViewRepresentable {
         view.textContainer.widthTracksTextView = true
         view.textContainer.lineBreakMode = .byCharWrapping
         view.typingAttributes = Self.typingAttributes
-        if view.text != text {
+        if view.text != text, !view.isFirstResponder {
             view.text = text
         }
         view.isScrollEnabled = !growsWithContent

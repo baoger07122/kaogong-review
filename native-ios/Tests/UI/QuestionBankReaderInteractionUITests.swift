@@ -41,15 +41,15 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         let back = app.buttons["library-editor-back"].firstMatch
         XCTAssertTrue(back.waitForExistence(timeout: 5))
         back.tap()
-        let continueEditing = app.buttons["library-draft-continue"].firstMatch
-        XCTAssertTrue(continueEditing.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["library-draft-save-exit"].exists)
-        XCTAssertTrue(app.buttons["library-draft-discard"].exists)
+        let continueEditing = element(app, identifier: "library-draft-continue")
+        XCTAssertTrue(continueEditing.waitForExistence(timeout: 5), "The draft exit dialog should stay accessible. Tree:\n\(app.debugDescription)")
+        XCTAssertTrue(element(app, identifier: "library-draft-save-exit").exists)
+        XCTAssertTrue(element(app, identifier: "library-draft-discard").exists)
         continueEditing.tap()
         XCTAssertEqual(title.value as? String, "临时词条")
 
         back.tap()
-        let discard = app.buttons["放弃草稿"].firstMatch
+        let discard = element(app, identifier: "library-draft-discard")
         XCTAssertTrue(discard.waitForExistence(timeout: 5))
         discard.tap()
         XCTAssertTrue(add.waitForExistence(timeout: 5))
@@ -446,6 +446,8 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
 
         position.tap()
         XCTAssertTrue(app.navigationBars["第2题详情"].waitForExistence(timeout: 5))
+        let detailStem = element(app, identifier: "question-bank-detail-stem-\(secondQuestion)")
+        XCTAssertTrue(detailStem.waitForExistence(timeout: 10), "The detail body must load before checking metadata")
         let questionType = element(app, identifier: "question-bank-detail-question-type")
         XCTAssertTrue(questionType.waitForExistence(timeout: 5), "Question type data remains visible in question details")
         XCTAssertTrue(questionType.label.contains("单项选择题"))
@@ -672,13 +674,13 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
 
         let stemEditor = element(app, identifier: "question-bank-analysis-stem")
         XCTAssertTrue(stemEditor.waitForExistence(timeout: 5))
-        stemEditor.tap()
+        stemEditor.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.88)).tap()
         stemEditor.typeText("\nEDITLINEONE\n\nEDITLINETHREE")
         let editedStemValue = String(describing: stemEditor.value ?? "")
         XCTAssertTrue(editedStemValue.contains("EDITLINETHREE"), "Editor buffer before save: \(editedStemValue)")
         let optionEditor = element(app, identifier: "question-bank-analysis-option-0")
         XCTAssertTrue(optionEditor.waitForExistence(timeout: 5))
-        optionEditor.tap()
+        optionEditor.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
         optionEditor.typeText("\nOPTIONLINEONE\n\nOPTIONLINETHREE")
         app.switches["question-bank-analysis-difficult"].tap()
         app.switches["question-bank-analysis-needs-review"].tap()

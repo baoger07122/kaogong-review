@@ -111,6 +111,8 @@ private struct QuestionBankReadingItem: Identifiable {
 }
 
 private struct QuestionBankReaderSheet: Identifiable {
+    let id = UUID()
+
     enum Content {
         case overview
         case material(String)
@@ -118,14 +120,6 @@ private struct QuestionBankReaderSheet: Identifiable {
     }
 
     let content: Content
-
-    var id: String {
-        switch content {
-        case .overview: "question-overview"
-        case .material(let id): "material-panel:\(id)"
-        case .questionDetail(let id): "question-detail:\(id)"
-        }
-    }
 }
 
 private struct QuestionBankScrollRequest: Equatable {
