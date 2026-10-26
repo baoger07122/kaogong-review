@@ -87,10 +87,10 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
     func testOverviewCirclesReportConfirmedCorrectWrongAndUnansweredStates() throws {
         let reader = launchPracticeReader()
         let app = reader.app
-        let firstQuestionCard = element(app, identifier: "question-bank-number-card-\(reader.questionID)")
+        let firstQuestionCard = app.buttons["question-bank-number-card-\(reader.questionID)"].firstMatch
         let secondQuestionID = "\(reader.paperID)-question-2"
-        let secondQuestionCard = element(app, identifier: "question-bank-number-card-\(secondQuestionID)")
-        let overview = element(app, identifier: "question-bank-number-overview")
+        let secondQuestionCard = app.buttons["question-bank-number-card-\(secondQuestionID)"].firstMatch
+        let overview = app.buttons["question-bank-number-overview"].firstMatch
         XCTAssertTrue(overview.waitForExistence(timeout: 5))
         overview.tap()
         XCTAssertTrue(app.navigationBars["题目总览"].waitForExistence(timeout: 5))
@@ -114,14 +114,14 @@ final class QuestionBankReaderInteractionUITests: XCTestCase {
         app.buttons["question-bank-option-\(reader.questionID)-B"].tap()
         let answerFeedback = element(app, identifier: "question-bank-answer-feedback-\(reader.questionID)")
         XCTAssertTrue(answerFeedback.waitForExistence(timeout: 5))
-        let overview = element(app, identifier: "question-bank-number-overview")
+        let overview = app.buttons["question-bank-number-overview"].firstMatch
         XCTAssertTrue(overview.isHittable)
         overview.tap()
         XCTAssertTrue(
             app.navigationBars["题目总览"].waitForExistence(timeout: 5),
             "Correct-answer feedback should not block the number overview. Accessibility tree:\n\(app.debugDescription)"
         )
-        let firstQuestionCard = element(app, identifier: "question-bank-number-card-\(reader.questionID)")
+        let firstQuestionCard = app.buttons["question-bank-number-card-\(reader.questionID)"].firstMatch
         XCTAssertTrue(firstQuestionCard.waitForExistence(timeout: 5), "Number overview accessibility tree:\n\(app.debugDescription)")
         XCTAssertEqual(firstQuestionCard.value as? String, "已答正确")
     }
