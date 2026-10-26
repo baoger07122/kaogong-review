@@ -116,7 +116,7 @@ private struct QuestionBankReaderSheet: Identifiable {
     enum Content {
         case overview
         case material(String)
-        case questionDetail(QuestionBankReadingItem)
+        case questionDetail(String)
     }
 
     let content: Content
@@ -337,7 +337,7 @@ struct QuestionBankModuleView: View {
                 ToolbarItem(placement: .principal) {
                     Button {
                         guard let currentSingleItem, !doodleSession.isPresented else { return }
-                        activeSheet = QuestionBankReaderSheet(content: .questionDetail(currentSingleItem))
+                        activeSheet = QuestionBankReaderSheet(content: .questionDetail(currentSingleItem.id))
                     } label: {
                         Text(singlePositionText)
                             .font(AppTheme.auxiliaryFont.weight(.semibold))
@@ -371,9 +371,12 @@ struct QuestionBankModuleView: View {
                 .presentationDragIndicator(.visible)
             case .material(let materialID):
                 materialPanel(for: materialID)
-            case .questionDetail(let item):
-                questionDetailPanel(for: readingItem(for: item.id) ?? item)
-                    .id(sheet.id)
+            case .questionDetail(let questionID):
+                if let item = readingItem(for: questionID) {
+                    questionDetailPanel(for: item)
+                } else {
+                    ContentUnavailableView("题目不存在", systemImage: "doc.text.magnifyingglass")
+                }
             }
         }
         .onAppear {
@@ -1148,7 +1151,7 @@ struct QuestionBankModuleView: View {
         let displayNumber = displayNumber(for: item)
         return Button {
             guard !doodleSession.isPresented else { return }
-            activeSheet = QuestionBankReaderSheet(content: .questionDetail(item))
+            activeSheet = QuestionBankReaderSheet(content: .questionDetail(item.id))
         } label: {
             Text("\(displayNumber).")
                 .font(AppTheme.auxiliaryFont.weight(.semibold))

@@ -24,6 +24,12 @@ final class LibraryDoodleSession: ObservableObject {
         onSave: @escaping (String, Bool) -> String?
     ) {
         guard !isPresented else { return }
+#if DEBUG
+        if QuestionBankReaderUITestFixture.isEnabled {
+            let callStack = Thread.callStackSymbols.dropFirst(2).prefix(10).joined(separator: " | ")
+            print("[QuestionBankReaderUITest] doodle.present target=\(targetRecordID) stack=\(callStack)")
+        }
+#endif
         let preparationStart = ProcessInfo.processInfo.systemUptime
         saveError = nil
         isDismissing = false
