@@ -1177,7 +1177,7 @@ struct QuestionBankModuleView: View {
 
     private func questionNumberButton(for item: QuestionBankReadingItem) -> some View {
         let displayNumber = displayNumber(for: item)
-        Button {
+        return Button {
             guard !doodleSession.isPresented else { return }
             activeSheet = QuestionBankReaderSheet(content: .questionDetail(item.id))
         } label: {
@@ -2617,7 +2617,7 @@ struct QuestionBankCrossPaperReaderView: View {
 
     private func questionNumberButton(for item: QuestionBankHomeQuestion) -> some View {
         let displayNumber = displayNumber(for: item)
-        Button {
+        return Button {
             guard !doodleSession.isPresented else { return }
             activeQuestionDetail = QuestionBankCrossPaperDetailRoute(questionID: item.id)
         } label: {

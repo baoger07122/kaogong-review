@@ -295,7 +295,7 @@ struct ReviewView: View {
         let inputs = records.map(ReviewRecordInput.init)
         let values = await Task.detached(priority: .utility) {
             let snapshots = inputs.map(ReviewRecordSnapshot.init)
-            ReviewOverviewCalculator.make(from: snapshots)
+            return ReviewOverviewCalculator.make(from: snapshots)
         }.value
         guard !Task.isCancelled else { return }
         let byID = Dictionary(records.map { ($0.recordID, $0) }, uniquingKeysWith: { first, _ in first })

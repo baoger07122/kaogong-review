@@ -481,6 +481,7 @@ struct QuestionBankView: View {
                         paperSections(
                             index: index,
                             filter: filter,
+                            filterResult: filterResult,
                             sections: organizationSections,
                             visibleByID: visibleByID
                         )
@@ -778,6 +779,7 @@ struct QuestionBankView: View {
     private func paperSections(
         index: QuestionBankHomeIndex,
         filter: QuestionBankHomeFilter,
+        filterResult: QuestionBankHomeFilterResult,
         sections: [QuestionBankOrganizationSection],
         visibleByID: [String: QuestionBankHomePaper]
     ) -> some View {
@@ -787,6 +789,7 @@ struct QuestionBankView: View {
                     section,
                     index: index,
                     filter: filter,
+                    filterResult: filterResult,
                     visibleByID: visibleByID
                 )
             }
@@ -797,6 +800,7 @@ struct QuestionBankView: View {
         _ section: QuestionBankOrganizationSection,
         index: QuestionBankHomeIndex,
         filter: QuestionBankHomeFilter,
+        filterResult: QuestionBankHomeFilterResult,
         visibleByID: [String: QuestionBankHomePaper]
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
