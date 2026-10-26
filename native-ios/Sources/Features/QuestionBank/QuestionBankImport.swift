@@ -554,6 +554,13 @@ struct QuestionBankImportOptionCorrection: Identifiable, Equatable {
 }
 
 enum QuestionBankMultiBlankImportCorrection {
+    static func isLogicFill(question: QuestionBankQuestion, moduleTitle: String? = nil) -> Bool {
+        let type = QuestionBankModuleTitle.normalized(
+            [question.type, question.subject, moduleTitle ?? ""].joined(separator: " ")
+        )
+        return ["逻辑填空", "选词填空", "词语填空"].contains { type.contains($0) }
+    }
+
     static func pendingOptions(in plan: QuestionBankImportPlan) -> [QuestionBankImportOptionCorrection] {
         let moduleTitles = Dictionary(
             plan.modules.map { ($0.id, $0.title) },
@@ -562,13 +569,8 @@ enum QuestionBankMultiBlankImportCorrection {
         var corrections: [QuestionBankImportOptionCorrection] = []
         for question in plan.questions {
             let moduleTitle = moduleTitles[question.moduleID] ?? ""
-            let type = QuestionBankModuleTitle.normalized(
-                [question.type, question.subject].joined(separator: " ")
-            )
-            let isLogicFill = QuestionBankCoarseModule.classify(explicitModuleTitle: moduleTitle) == .language
-                && ["逻辑填空", "选词填空", "词语填空"].contains { type.contains($0) }
             let blankCount = QuestionBankMultiBlankOptionText.blankCount(in: question.stem)
-            guard isLogicFill, blankCount > 1 else { continue }
+            guard isLogicFill(question: question, moduleTitle: moduleTitle), blankCount > 1 else { continue }
             for option in question.options {
                 guard !option.text.trimmedNonempty.isEmpty,
                       QuestionBankMultiBlankOptionText.validationMessage(
@@ -913,10 +915,10 @@ enum QuestionBankRepository {
         for question: QuestionBankQuestion,
         moduleTitle: String? = nil
     ) -> String? {
-        let type = QuestionBankModuleTitle.normalized(
-            [question.type, question.subject, moduleTitle ?? ""].joined(separator: " ")
-        )
-        guard ["逻辑填空", "选词填空", "词语填空"].contains(where: { type.contains($0) }) else { return nil }
+        guard QuestionBankMultiBlankImportCorrection.isLogicFill(
+            question: question,
+            moduleTitle: moduleTitle
+        ) else { return nil }
         let blankCount = QuestionBankMultiBlankOptionText.blankCount(in: question.stem)
         guard blankCount > 1 else { return nil }
         for option in question.options where !option.text.trimmedNonempty.isEmpty {
@@ -2443,13 +2445,11 @@ enum QuestionBankPackageImporter {
             try checkCancellation()
             let label = "\(paper.title)／第\(question.number)题"
             let moduleTitle = moduleTitleByID[question.moduleID] ?? ""
-            let normalizedQuestionType = QuestionBankModuleTitle.normalized(
-                [question.type, question.subject].joined(separator: " ")
-            )
-            let isLogicFill = QuestionBankCoarseModule.classify(explicitModuleTitle: moduleTitle) == .language
-                && ["逻辑填空", "选词填空", "词语填空"].contains(where: { normalizedQuestionType.contains($0) })
             let blankCount = QuestionBankMultiBlankOptionText.blankCount(in: question.stem)
-            if isLogicFill && blankCount > 1 {
+            if QuestionBankMultiBlankImportCorrection.isLogicFill(
+                question: question,
+                moduleTitle: moduleTitle
+            ) && blankCount > 1 {
                 for option in question.options where !option.text.trimmedNonempty.isEmpty {
                     if let message = QuestionBankMultiBlankOptionText.validationMessage(
                         for: option.text,
