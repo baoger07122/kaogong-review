@@ -105,10 +105,9 @@ struct RootTabView: View {
             // Keep the fixed doodle toolbar and navigation guard above the pushed
             // page. The PencilKit surface itself is mounted by each detail page's
             // scroll content so strokes use the same coordinate system as text.
-            LibraryDoodleOverlay(session: libraryDoodleSession)
-                .opacity(libraryDoodleSession.isPresented ? 1 : 0)
-                .allowsHitTesting(libraryDoodleSession.isPresented)
-                .accessibilityHidden(!libraryDoodleSession.isPresented)
+            if libraryDoodleSession.isPresented {
+                LibraryDoodleOverlay(session: libraryDoodleSession)
+            }
         }
         .onAppear {
             if questionBankImportRouter.pendingRequestIDs.isEmpty {
