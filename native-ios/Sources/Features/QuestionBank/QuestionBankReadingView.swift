@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import SwiftData
 import UIKit
@@ -374,8 +375,24 @@ struct QuestionBankModuleView: View {
             case .questionDetail(let questionID):
                 if let item = readingItem(for: questionID) {
                     questionDetailPanel(for: item)
+                        .onAppear {
+                            logQuestionBankDetailRoute(
+                                event: "route-appear",
+                                sheetID: sheet.id,
+                                routeID: questionID,
+                                item: item
+                            )
+                        }
                 } else {
                     ContentUnavailableView("题目不存在", systemImage: "doc.text.magnifyingglass")
+                        .onAppear {
+                            logQuestionBankDetailRoute(
+                                event: "route-missing",
+                                sheetID: sheet.id,
+                                routeID: questionID,
+                                item: nil
+                            )
+                        }
                 }
             }
         }
@@ -385,6 +402,7 @@ struct QuestionBankModuleView: View {
             restoreReaderState()
         }
         .onChange(of: readerRecordRevision) { _, _ in
+            logQuestionBankSnapshotRefresh()
             invalidateDoodleCache()
             refreshReaderSnapshot()
             restoreReaderState()
@@ -1702,6 +1720,44 @@ struct QuestionBankModuleView: View {
 
     private func readingItem(for id: String) -> QuestionBankReadingItem? {
         readingItems.first { $0.id == id }
+    }
+
+    private func logQuestionBankDetailRoute(
+        event: String,
+        sheetID: UUID,
+        routeID: String,
+        item: QuestionBankReadingItem?
+    ) {
+        #if DEBUG
+        guard QuestionBankReaderUITestFixture.isEnabled else { return }
+        let record = item?.record
+        let question = item?.question
+        NSLog("%@", "[QBankDetailRoute] event=\(event) sheet=\(sheetID.uuidString) route=\(routeID) item=\(item?.id ?? "missing") record=\(record?.compoundID ?? "missing") revision=\(record.map { String($0.contentRevision) } ?? "missing") stemChars=\(question.map { String($0.stem.count) } ?? "missing") noteChars=\(question.map { String(($0.note ?? "").count) } ?? "missing")")
+        #endif
+    }
+
+    private func logQuestionBankSnapshotRefresh() {
+        #if DEBUG
+        guard QuestionBankReaderUITestFixture.isEnabled else { return }
+        let activeRoute: String
+        if let activeSheet {
+            switch activeSheet.content {
+            case .questionDetail(let questionID): activeRoute = "detail:\(questionID):\(activeSheet.id.uuidString)"
+            case .overview: activeRoute = "overview:\(activeSheet.id.uuidString)"
+            case .material(let materialID): activeRoute = "material:\(materialID):\(activeSheet.id.uuidString)"
+            }
+        } else {
+            activeRoute = "none"
+        }
+        let activeItem = {
+            if let content = activeSheet?.content,
+               case .questionDetail(let questionID) = content {
+                return readingItem(for: questionID)
+            }
+            return nil
+        }()
+        NSLog("%@", "[QBankDetailRoute] event=reader-snapshot-refresh active=\(activeRoute) item=\(activeItem?.id ?? "none") revision=\(activeItem.map { String($0.record.contentRevision) } ?? "none") stemChars=\(activeItem.map { String($0.question.stem.count) } ?? "none") noteChars=\(activeItem.map { String(($0.question.note ?? "").count) } ?? "none")")
+        #endif
     }
 
     private func assetRecord(for id: String) -> QuestionBankRecord? {

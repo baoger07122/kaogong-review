@@ -1,3 +1,4 @@
+import Foundation
 import SwiftData
 import SwiftUI
 import UIKit
@@ -149,6 +150,7 @@ struct LibraryRecordDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .background(NativeNavigationInteraction(blocked: doodleSession.isPresented))
             .toolbar(.visible, for: .navigationBar)
+            .onAppear { logQuestionBankDetailLifecycle("navigation-root-appear") }
     }
 
     private var detailNavigationTitle: String {
@@ -192,6 +194,11 @@ struct LibraryRecordDetailView: View {
             }
         }
         .background(Color.white)
+        .accessibilityIdentifier(questionBankContext.map {
+            "question-bank-detail-scroll-\($0.question.id)"
+        } ?? "library-record-detail-scroll")
+        .onAppear { logQuestionBankDetailLifecycle("scroll-appear") }
+        .onDisappear { logQuestionBankDetailLifecycle("scroll-disappear") }
     }
 
     @ViewBuilder
@@ -958,6 +965,7 @@ struct LibraryRecordDetailView: View {
     private func persistQuestionBankAnalysis(_ fields: QuestionBankQuestionAnalysisFields) throws {
         guard let questionBankContext else { return }
         let question = questionBankContext.currentQuestion
+        logQuestionBankDetailLifecycle("analysis-save-before")
         try QuestionBankRepository.updateQuestionAnalysis(
             record: questionBankContext.record,
             paperID: question.paperID,
@@ -975,6 +983,21 @@ struct LibraryRecordDetailView: View {
         object["note"] = fields.note
         object["linkedWordIds"] = fields.linkedWordIDs
         object["linkedErrorRecordIDs"] = fields.linkedErrorRecordIDs
+        logQuestionBankDetailLifecycle("analysis-save-after")
+    }
+
+    private func logQuestionBankDetailLifecycle(_ event: String) {
+        #if DEBUG
+        guard QuestionBankReaderUITestFixture.isEnabled else { return }
+        let context = questionBankContext
+        let routeID = context?.question.id ?? "library-record"
+        let revision = context.map { String($0.record.contentRevision) } ?? "none"
+        let payloadBytes = context.map { String($0.record.payload.count) } ?? "none"
+        let stemCharacters = context.map { String($0.currentQuestion.stem.count) } ?? "none"
+        let noteCharacters = String((context?.currentQuestion.note ?? "").count)
+        let objectNoteCharacters = String((object["note"] as? String ?? "").count)
+        NSLog("%@", "[QBankDetailLifecycle] event=\(event) route=\(routeID) context=\(context == nil ? "missing" : "present") revision=\(revision) payloadBytes=\(payloadBytes) stemChars=\(stemCharacters) questionNoteChars=\(noteCharacters) viewNoteChars=\(objectNoteCharacters)")
+        #endif
     }
 
     private func firstText(_ keys: [String]) -> String? {

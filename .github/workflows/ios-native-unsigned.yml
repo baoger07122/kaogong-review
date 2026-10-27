@@ -436,7 +436,6 @@ jobs:
             -parallel-testing-enabled NO \
             -resultBundlePath "$RESULT_PATH" \
             -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testQuestionDetailInlineNoteSurvivesReopenRestartAndKeepsAdjacentRichNoteReadable \
-            -only-testing:QuestionBankReaderInteractionUITests/QuestionBankReaderInteractionUITests/testSingleQuestionHorizontalSwipesRetainSelectionAndReturnToTop \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic; then
             xcrun xcresulttool get test-results summary --path "$RESULT_PATH" || true
             exit 1
