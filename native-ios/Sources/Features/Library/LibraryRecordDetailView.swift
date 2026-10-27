@@ -163,44 +163,56 @@ struct LibraryRecordDetailView: View {
             detailScrollView
             detailModal
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var detailScrollView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                metadata
-                questionBankMaterialBlock
-                questionBlock
-                imagesBlock
-                optionsBlock
-                answerAndSource
-                explanationBlock
-                comparisonBlock
-                linkedErrorBlock
-                reviewBlock
-                noteBlock
-                dateBlock
+        let topAnchorID = questionBankContext.map {
+            "question-bank-detail-top-\($0.question.id)"
+        } ?? "library-record-detail-top"
+
+        return ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    metadata
+                    questionBankMaterialBlock
+                    questionBlock
+                    imagesBlock
+                    optionsBlock
+                    answerAndSource
+                    explanationBlock
+                    comparisonBlock
+                    linkedErrorBlock
+                    reviewBlock
+                    noteBlock
+                    dateBlock
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 5)
+                .padding(.bottom, 14)
+                .frame(maxWidth: 920, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .overlay {
+                    LibraryDoodleContentLayer(
+                        session: doodleSession,
+                        targetRecordID: activeRecordID
+                    )
+                }
+                .id(topAnchorID)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 5)
-            .padding(.bottom, 14)
-            .frame(maxWidth: 920, alignment: .leading)
-            .frame(maxWidth: .infinity)
-            .overlay {
-                LibraryDoodleContentLayer(
-                    session: doodleSession,
-                    targetRecordID: activeRecordID
-                )
+            .background(Color.white)
+            .accessibilityIdentifier(questionBankContext.map {
+                "question-bank-detail-scroll-\($0.question.id)"
+            } ?? "library-record-detail-scroll")
+            .onAppear {
+                logQuestionBankDetailLifecycle("scroll-appear")
+                guard questionBankContext != nil else { return }
+                Task { @MainActor in
+                    await Task.yield()
+                    proxy.scrollTo(topAnchorID, anchor: .top)
+                }
             }
+            .onDisappear { logQuestionBankDetailLifecycle("scroll-disappear") }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color.white)
-        .accessibilityIdentifier(questionBankContext.map {
-            "question-bank-detail-scroll-\($0.question.id)"
-        } ?? "library-record-detail-scroll")
-        .onAppear { logQuestionBankDetailLifecycle("scroll-appear") }
-        .onDisappear { logQuestionBankDetailLifecycle("scroll-disappear") }
     }
 
     @ViewBuilder
