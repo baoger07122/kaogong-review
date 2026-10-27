@@ -163,6 +163,7 @@ struct LibraryRecordDetailView: View {
             detailScrollView
             detailModal
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var detailScrollView: some View {
@@ -193,6 +194,7 @@ struct LibraryRecordDetailView: View {
                 )
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color.white)
         .accessibilityIdentifier(questionBankContext.map {
             "question-bank-detail-scroll-\($0.question.id)"

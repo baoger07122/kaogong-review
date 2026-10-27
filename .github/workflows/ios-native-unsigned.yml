@@ -87,6 +87,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE_SHA: ${{ github.event.before }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           RUN_SIMULATOR=false
           RUN_QUESTION_BANK=false
@@ -141,6 +142,12 @@ jobs:
                 RUN_CONTRACTS=true
               fi
             fi
+          fi
+          if [[ "$HEAD_COMMIT_MESSAGE" == *"[diag-question-detail]"* ]]; then
+            RUN_SIMULATOR=true
+            RUN_QUESTION_BANK=true
+            RUN_NAVIGATION=false
+            RUN_CONTRACTS=false
           fi
           echo "run=$RUN_SIMULATOR" >> "$GITHUB_OUTPUT"
           echo "question_bank=$RUN_QUESTION_BANK" >> "$GITHUB_OUTPUT"
@@ -243,22 +250,25 @@ jobs:
         env:
           RUN_QUESTION_BANK: ${{ steps.simulator_scope.outputs.question_bank }}
           RUN_NAVIGATION: ${{ steps.simulator_scope.outputs.navigation }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           if [ "$RUN_QUESTION_BANK" = "true" ]; then
             # Hosted test schemes stage their bundles under the app PlugIns directory;
             # isolate DerivedData so a later scheme build cannot remove an earlier bundle.
             mkdir -p build
-            if ! xcodebuild build-for-testing \
-              -project native-ios/KaogongReviewNative.xcodeproj \
-              -scheme QuestionBankImport \
-              -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-              -derivedDataPath build/QuestionBankImportDerivedData \
-              -parallel-testing-enabled NO \
-              CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic \
-              2>&1 | tee build/QuestionBankImportBuild.log; then
-              (grep -E 'error:|fatal error:|BUILD FAILED|Command .* failed' build/QuestionBankImportBuild.log | tail -n 40 || true) \
-                | while IFS= read -r diagnostic; do printf '::error title=QuestionBankImport build diagnostic::%s\n' "$diagnostic"; done
-              exit 1
+            if [[ "$HEAD_COMMIT_MESSAGE" != *"[diag-question-detail]"* ]]; then
+              if ! xcodebuild build-for-testing \
+                -project native-ios/KaogongReviewNative.xcodeproj \
+                -scheme QuestionBankImport \
+                -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+                -derivedDataPath build/QuestionBankImportDerivedData \
+                -parallel-testing-enabled NO \
+                CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Automatic \
+                2>&1 | tee build/QuestionBankImportBuild.log; then
+                (grep -E 'error:|fatal error:|BUILD FAILED|Command .* failed' build/QuestionBankImportBuild.log | tail -n 40 || true) \
+                  | while IFS= read -r diagnostic; do printf '::error title=QuestionBankImport build diagnostic::%s\n' "$diagnostic"; done
+                exit 1
+              fi
             fi
             if ! xcodebuild build-for-testing \
               -project native-ios/KaogongReviewNative.xcodeproj \
@@ -322,7 +332,7 @@ jobs:
           key: native-tabbar-baseline-${{ steps.baseline_key.outputs.digest }}
 
       - name: Test changed navigation, speed controls and inline note
-        if: steps.simulator_scope.outputs.run == 'true'
+        if: steps.simulator_scope.outputs.run == 'true' && !contains(github.event.head_commit.message, '[diag-question-detail]')
         timeout-minutes: 12
         shell: bash
         env:
@@ -464,7 +474,7 @@ jobs:
           retention-days: 7
 
       - name: Measure primary tab bar geometry and preserve hidden secondary pages
-        if: steps.simulator_scope.outputs.navigation == 'true'
+        if: steps.simulator_scope.outputs.navigation == 'true' && !contains(github.event.head_commit.message, '[diag-question-detail]')
         timeout-minutes: 10
         shell: bash
         run: |
