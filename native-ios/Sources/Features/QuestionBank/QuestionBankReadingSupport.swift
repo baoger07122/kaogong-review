@@ -578,6 +578,64 @@ enum QuestionBankAnswerFeedbackPalette {
     static let incorrect = AppTheme.danger
 }
 
+enum QuestionBankOptionMarkerState: Equatable {
+    case unselected
+    case selected
+    case correct
+    case incorrect
+}
+
+enum QuestionBankOptionRowLayout {
+    static func verticalAlignment(hasText: Bool) -> VerticalAlignment {
+        hasText ? .firstTextBaseline : .top
+    }
+}
+
+struct QuestionBankOptionMarker: View {
+    let letter: String
+    let state: QuestionBankOptionMarkerState
+    var diameter: CGFloat = 26
+    var font: Font = QuestionBankTypography.contentFont
+
+    var body: some View {
+        Text(letter)
+            .font(font.weight(.semibold))
+            .foregroundStyle(foregroundColor)
+            .frame(width: diameter, height: diameter)
+            .background(fillColor, in: Circle())
+            .overlay {
+                if state == .unselected || state == .selected {
+                    Circle().stroke(outlineColor, lineWidth: state == .selected ? 1.5 : 1)
+                }
+            }
+    }
+
+    private var foregroundColor: Color {
+        switch state {
+        case .unselected: .primary
+        case .selected: AppTheme.accent
+        case .correct, .incorrect: .white
+        }
+    }
+
+    private var fillColor: Color {
+        switch state {
+        case .unselected, .selected: .clear
+        case .correct: QuestionBankAnswerFeedbackPalette.correct
+        case .incorrect: QuestionBankAnswerFeedbackPalette.incorrect
+        }
+    }
+
+    private var outlineColor: Color {
+        switch state {
+        case .unselected: Color(uiColor: .separator).opacity(0.8)
+        case .selected: AppTheme.accent
+        case .correct: QuestionBankAnswerFeedbackPalette.correct
+        case .incorrect: QuestionBankAnswerFeedbackPalette.incorrect
+        }
+    }
+}
+
 enum QuestionBankOverviewAnswerStatus: Equatable {
     case unanswered
     case correct

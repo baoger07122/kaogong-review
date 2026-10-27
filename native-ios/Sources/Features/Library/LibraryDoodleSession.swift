@@ -32,6 +32,7 @@ final class LibraryDoodleSession: ObservableObject {
     private var isDismissing = false
     private var drawingLoadFailed = false
     private var drawingLoadDataReceived = false
+    private var presentationGeneration = 0
     private var presentationStartedAt: TimeInterval?
     private var didLogCanvasFrame = false
     private var didLogCanvasInteractive = false
@@ -53,6 +54,7 @@ final class LibraryDoodleSession: ObservableObject {
         }
 #endif
         let preparationStart = ProcessInfo.processInfo.systemUptime
+        presentationGeneration &+= 1
         saveError = nil
         isDismissing = false
         drawingLoadFailed = false
@@ -104,10 +106,20 @@ final class LibraryDoodleSession: ObservableObject {
         isDismissing = true
         saveError = nil
         let handler = saveHandler
+        let dismissalGeneration = presentationGeneration
+        let dismissalTargetRecordID = targetRecordID
+        let dismissalLoadRevision = canvas.controller.drawingLoadRevision
         let closeStart = ProcessInfo.processInfo.systemUptime
         LibraryPerformanceLog.mark("doodle.close-tap", since: closeStart)
         let completeSnapshot: () -> Void = { [weak self] in
-            guard let self, self.isPresented else { return }
+            guard let self,
+                  self.isPresented,
+                  self.presentationGeneration == dismissalGeneration,
+                  self.targetRecordID == dismissalTargetRecordID else { return }
+            guard self.canvas.controller.drawingLoadRevision == dismissalLoadRevision else {
+                self.isDismissing = false
+                return
+            }
             let drawingData = self.canvas.drawingData
             let legacyPreviewCleared = self.canvas.controller.legacyPreviewCleared
             LibraryPerformanceLog.mark("doodle.drawing-snapshot", since: closeStart)
@@ -328,7 +340,7 @@ struct LibraryDoodleOverlay: View {
                 .frame(width: 32, height: 44)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(LibraryDoodleToolbarButtonStyle())
         .disabled(disabled)
         .accessibilityLabel(label)
     }
@@ -367,6 +379,18 @@ struct LibraryDoodleOverlay: View {
         }
 #endif
         return label
+    }
+}
+
+private struct LibraryDoodleToolbarButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background {
+                Circle()
+                    .fill(Color.primary.opacity(configuration.isPressed ? 0.10 : 0))
+                    .frame(width: 30, height: 30)
+                    .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+            }
     }
 }
 

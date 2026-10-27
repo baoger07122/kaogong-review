@@ -24,6 +24,7 @@ struct LibraryRecordDetailView: View {
     @State private var showClearAnswer = false
     @State private var showQuestionBankEditor = false
     @StateObject private var noteSession = LibraryInlineNoteSession()
+    @State private var expandedQuestionSourceID: String?
     @State private var showWordSelection = false
     @State private var linkedWordCreationCategory: WordCategory?
     @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
@@ -96,6 +97,9 @@ struct LibraryRecordDetailView: View {
             .onChange(of: questionBankContext?.answerStateKey) { _, _ in
                 if let questionBankContext { object = questionBankContext.detailObject }
             }
+            .onChange(of: questionSourceIdentity) { _, _ in
+                expandedQuestionSourceID = nil
+            }
     }
 
     private var detailNavigationDestination: some View {
@@ -159,14 +163,18 @@ struct LibraryRecordDetailView: View {
     }
 
     private var detailContent: some View {
-        ZStack {
-            detailScrollView
-            detailModal
+        GeometryReader { proxy in
+            let availableWidth = proxy.size.width.isFinite ? max(0, proxy.size.width) : 0
+            ZStack {
+                detailScrollView(availableWidth: availableWidth)
+                detailModal
+            }
         }
     }
 
-    private var detailScrollView: some View {
-        ScrollView {
+    private func detailScrollView(availableWidth: CGFloat) -> some View {
+        let readingColumnWidth = min(availableWidth.isFinite ? max(0, availableWidth) : 0, 920)
+        return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 metadata
                 questionBankMaterialBlock
@@ -184,14 +192,14 @@ struct LibraryRecordDetailView: View {
             .padding(.horizontal, 16)
             .padding(.top, 5)
             .padding(.bottom, 14)
-            .frame(maxWidth: 920, alignment: .leading)
-            .frame(maxWidth: .infinity)
+            .frame(width: readingColumnWidth, alignment: .leading)
             .overlay {
                 LibraryDoodleContentLayer(
                     session: doodleSession,
                     targetRecordID: activeRecordID
                 )
             }
+            .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(Color.white)
         .accessibilityIdentifier(questionBankContext.map {
@@ -243,7 +251,11 @@ struct LibraryRecordDetailView: View {
             questionActionsMenu
         }
         if let onDone, questionBankContext != nil {
-            Button("完成", action: onDone)
+            Button("完成") {
+                noteSession.finish { saved in
+                    if saved { onDone() }
+                }
+            }
                 .disabled(doodleSession.isPresented)
                 .accessibilityIdentifier("question-bank-detail-done")
         }
@@ -260,13 +272,17 @@ struct LibraryRecordDetailView: View {
         Menu {
             if questionBankContext == nil {
                 Button {
-                    if noteSession.finish() { onEdit() }
+                    noteSession.finish { saved in
+                        if saved { onEdit() }
+                    }
                 } label: {
                     Label("编辑错题", systemImage: "pencil")
                 }
             } else {
                 Button {
-                    if noteSession.finish() { showQuestionBankEditor = true }
+                    noteSession.finish { saved in
+                        if saved { showQuestionBankEditor = true }
+                    }
                 } label: {
                     Label("编辑题目", systemImage: "pencil")
                 }
@@ -274,14 +290,18 @@ struct LibraryRecordDetailView: View {
             }
             if questionBankContext != nil {
                 Button {
-                    if noteSession.finish() { showClearAnswer = true }
+                    noteSession.finish { saved in
+                        if saved { showClearAnswer = true }
+                    }
                 } label: {
                     Label("清除本题作答记录", systemImage: "arrow.counterclockwise")
                 }
                 .accessibilityIdentifier("question-bank-clear-question-answer")
             } else {
                 Button(role: .destructive) {
-                    if noteSession.finish() { showDelete = true }
+                    noteSession.finish { saved in
+                        if saved { showDelete = true }
+                    }
                 } label: {
                     Label("删除错题", systemImage: "trash")
                 }
@@ -415,18 +435,19 @@ struct LibraryRecordDetailView: View {
                     let letter = String(UnicodeScalar(65 + index)!)
                     let correct = answerLetters.contains(letter)
                     let chosen = userAnswerLetters.contains(letter)
-                    HStack(alignment: .top, spacing: 8) {
-                        Text(letter)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(optionLetterColor(correct: correct, chosen: chosen))
-                            .frame(width: 25, height: 25)
-                            .overlay {
-                                if chosen {
-                                    Circle().stroke(optionLetterColor(correct: correct, chosen: true), lineWidth: 1.5)
-                                }
-                            }
+                    let hasText = !clean(option).isEmpty
+                    HStack(
+                        alignment: QuestionBankOptionRowLayout.verticalAlignment(hasText: hasText),
+                        spacing: 8
+                    ) {
+                        QuestionBankOptionMarker(
+                            letter: letter,
+                            state: optionMarkerState(correct: correct, chosen: chosen),
+                            diameter: 26,
+                            font: .system(size: 14)
+                        )
                         VStack(alignment: .leading, spacing: 8) {
-                            if !clean(option).isEmpty {
+                            if hasText {
                                 optionText(option)
                                     .lineSpacing(5.5)
                             }
@@ -443,6 +464,9 @@ struct LibraryRecordDetailView: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .alignmentGuide(.firstTextBaseline) { dimensions in
+                            dimensions[.firstTextBaseline]
+                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
@@ -451,7 +475,7 @@ struct LibraryRecordDetailView: View {
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(
                                 optionBorderColor(correct: correct, chosen: chosen),
-                                lineWidth: chosen || (correct && (questionBankContext == nil || questionBankShowsAnswer)) ? 1 : 0.8
+                                lineWidth: questionBankContext == nil && (chosen || correct) ? 1 : 0.8
                             )
                     }
                 }
@@ -472,17 +496,95 @@ struct LibraryRecordDetailView: View {
             } else if let accuracy = formattedAccuracy {
                 supportingLine("参考正确率", value: accuracy, systemImage: "chart.bar.fill")
             }
-            if let source = firstText(["questionSource", "source"]), !clean(source).isEmpty {
-                if let questionBankContext {
-                    ForEach(Array(questionBankContext.sourceRows.enumerated()), id: \.offset) { _, row in
-                        supportingLine("题目来源", value: row, systemImage: "books.vertical.fill")
-                    }
-                } else {
-                    supportingLine("题目来源", value: clean(source), systemImage: "books.vertical.fill")
-                }
+            if !questionSourceRows.isEmpty {
+                questionSourceDisclosure(rows: questionSourceRows)
             }
         }
         .padding(.top, 4)
+    }
+
+    private func questionSourceDisclosure(rows: [String]) -> some View {
+        let isExpanded = expandedQuestionSourceID == questionSourceIdentity
+        return VStack(alignment: .leading, spacing: 5) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    expandedQuestionSourceID = isExpanded ? nil : questionSourceIdentity
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "books.vertical.fill")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16)
+                    Text("题目来源")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(.secondary)
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("题目来源")
+            .accessibilityValue(isExpanded ? "已展开" : "已折叠")
+            .accessibilityIdentifier("question-source-disclosure")
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        Text(row)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.leading, 23)
+                .accessibilityIdentifier("question-source-rows")
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var questionSourceRows: [String] {
+        if let context = displayQuestionBankContext, !context.sourceRows.isEmpty {
+            return context.sourceRows
+        }
+        guard let source = firstText(["questionSource", "source"]) else { return [] }
+        let fallbackNumber = sourceQuestionNumber(in: firstText(["questionNumber"]) ?? "")
+        var seen = Set<String>()
+        return source.components(separatedBy: .newlines).compactMap { rawRow in
+            let cleanedRow = clean(rawRow)
+            guard !cleanedRow.isEmpty else { return nil }
+            let number = sourceQuestionNumber(in: cleanedRow) ?? fallbackNumber
+            let fileNameInput = cleanedRow.replacingOccurrences(
+                of: #"[·／/\-\s]*(?:原)?第?\s*\d+\s*题"#,
+                with: "",
+                options: .regularExpression
+            )
+            let fileName = QuestionBankSourceDisplay.cleanedFileName(fileNameInput)
+            guard !fileName.isEmpty else { return nil }
+            let row = number.map { "\(fileName)·第\($0)题" } ?? fileName
+            return seen.insert(row).inserted ? row : nil
+        }
+    }
+
+    private var questionSourceIdentity: String {
+        if let question = displayQuestionBankContext?.currentQuestion {
+            return "\(question.paperID)|\(question.id)"
+        }
+        return record?.compoundID ?? "library-record"
+    }
+
+    private func sourceQuestionNumber(in value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty, trimmed.allSatisfy({ $0.isNumber }) { return trimmed }
+        guard let range = trimmed.range(
+            of: #"(?:原)?第?\s*\d+\s*题"#,
+            options: .regularExpression
+        ) else { return nil }
+        let digits = String(trimmed[range].filter { $0.isNumber })
+        return digits.isEmpty ? nil : digits
     }
 
     @ViewBuilder private var explanationBlock: some View {
@@ -550,7 +652,7 @@ struct LibraryRecordDetailView: View {
 
     private var noteBlock: some View {
         Group {
-            if questionBankContext != nil {
+            if let questionBankContext {
                 LibraryInlineNoteView(
                     session: noteSession,
                     title: "题目笔记",
@@ -559,7 +661,9 @@ struct LibraryRecordDetailView: View {
                         var fields = questionBankAnalysisFields
                         fields.note = note
                         try persistQuestionBankAnalysis(fields)
-                    }
+                    },
+                    renderDocumentID: questionBankContext.question.id,
+                    renderVersion: { String(questionBankContext.record.contentRevision) }
                 )
             } else if let record {
                 LibraryInlineNoteView(record: record, session: noteSession)
@@ -604,27 +708,32 @@ struct LibraryRecordDetailView: View {
 
     private enum MetadataTagEmphasis: Equatable { case strong, subtle }
 
+    @ViewBuilder
     private func metadataTagLine(_ label: String, values: [String], emphasis: MetadataTagEmphasis) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Text("\(label)：")
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(.primary)
-                .padding(.top, 3)
-            NativeTagFlow(spacing: 5) {
-                ForEach(values.map(clean).filter { !$0.isEmpty }, id: \.self) { value in
-                    Text(value)
-                        .font(.system(size: 12.5, weight: emphasis == .strong ? .medium : .regular))
-                        .foregroundStyle(emphasis == .strong ? AppTheme.accent : Color.secondary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(
-                            emphasis == .strong ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045),
-                            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        )
+        let cleanedValues = values.map(clean).filter { !$0.isEmpty }
+        if !cleanedValues.isEmpty {
+            HStack(alignment: .top, spacing: 6) {
+                Text("\(label)：")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .padding(.top, 3)
+                    .fixedSize(horizontal: true, vertical: false)
+                NativeTagFlow(spacing: 5) {
+                    ForEach(cleanedValues, id: \.self) { value in
+                        Text(value)
+                            .font(.system(size: 12.5, weight: emphasis == .strong ? .medium : .regular))
+                            .foregroundStyle(emphasis == .strong ? AppTheme.accent : Color.secondary)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(
+                                emphasis == .strong ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045),
+                                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            )
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func metadataTextLine(_ label: String, value: String) -> some View {
@@ -662,32 +771,27 @@ struct LibraryRecordDetailView: View {
         Set((value ?? "").uppercased().filter { "ABCD".contains($0) }.map(String.init))
     }
     private func optionBackground(correct: Bool, chosen: Bool) -> Color {
-        if questionBankContext == nil {
-            if correct { return Color(red: 232.0 / 255.0, green: 245.0 / 255.0, blue: 233.0 / 255.0) }
-            if chosen { return Color(red: 255.0 / 255.0, green: 235.0 / 255.0, blue: 238.0 / 255.0) }
-        }
-        if correct && questionBankShowsAnswer { return Color(red: 232.0 / 255.0, green: 245.0 / 255.0, blue: 233.0 / 255.0) }
-        if chosen && questionBankShowsAnswer && !correct { return Color(red: 255.0 / 255.0, green: 235.0 / 255.0, blue: 238.0 / 255.0) }
+        if questionBankContext != nil { return Color.white }
+        if correct { return Color(red: 232.0 / 255.0, green: 245.0 / 255.0, blue: 233.0 / 255.0) }
+        if chosen { return Color(red: 255.0 / 255.0, green: 235.0 / 255.0, blue: 238.0 / 255.0) }
         return Color.white
     }
 
-    private func optionLetterColor(correct: Bool, chosen: Bool) -> Color {
-        if questionBankContext == nil {
-            if chosen { return correct ? webSuccess : AppTheme.danger }
-            if correct { return webSuccess }
-            return .primary
+    private func optionMarkerState(correct: Bool, chosen: Bool) -> QuestionBankOptionMarkerState {
+        if questionBankContext != nil {
+            guard questionBankShowsAnswer else { return chosen ? .selected : .unselected }
+            if correct { return .correct }
+            if chosen { return .incorrect }
+            return .unselected
         }
-        if chosen, questionBankShowsAnswer { return correct ? webSuccess : AppTheme.danger }
-        if correct, questionBankShowsAnswer { return webSuccess }
-        if chosen { return AppTheme.accent }
-        return .primary
+        if correct { return .correct }
+        if chosen { return .incorrect }
+        return .unselected
     }
 
     private func optionBorderColor(correct: Bool, chosen: Bool) -> Color {
-        if questionBankContext == nil {
-            return correct ? webSuccess : (chosen ? AppTheme.danger : webBorder)
-        }
-        return chosen ? optionLetterColor(correct: correct, chosen: true) : (correct ? webSuccess : webBorder)
+        guard questionBankContext == nil else { return webBorder }
+        return correct ? webSuccess : (chosen ? AppTheme.danger : webBorder)
     }
 
     private var questionBankShowsAnswer: Bool {
@@ -915,13 +1019,9 @@ struct LibraryRecordDetailView: View {
                 }
             }
         }
-        // Let the overlay render first. Finishing an active rich-text note can
-        // serialize the whole record, so it must not sit in the tap's critical
-        // path before the drawing tools become visible.
-        Task { @MainActor in
-            await Task.yield()
-            _ = noteSession.finish()
-        }
+        // The drawing overlay is already presented; finish the editor through
+        // UITextView's end-editing callback before committing the final draft.
+        noteSession.finish { _ in }
     }
     private func saveDrawing(_ drawingData: String, legacyPreviewCleared: Bool) -> String? {
         guard let record else { return nil }

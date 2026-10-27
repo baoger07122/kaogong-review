@@ -5,17 +5,41 @@ struct NativeBottomTabBar: View {
 
     @Binding var selection: RootTab
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var selectionBackground
 
     var body: some View {
         HStack {
             Spacer(minLength: 12)
-            HStack(spacing: 8) {
-                ForEach(RootTab.allCases) { tab in
-                    tabButton(tab)
+            GeometryReader { geometry in
+                let tabs = RootTab.allCases
+                let spacing: CGFloat = 8
+                let slotWidth = max(
+                    0,
+                    (geometry.size.width - spacing * CGFloat(max(0, tabs.count - 1)))
+                        / CGFloat(max(1, tabs.count))
+                )
+                ZStack(alignment: .leading) {
+                    Capsule(style: .continuous)
+                        .fill(Color.black.opacity(0.055))
+                        .frame(width: slotWidth, height: 44)
+                        .offset(x: selectedIndicatorOffset(slotWidth: slotWidth, spacing: spacing))
+                        .animation(
+                            reduceMotion ? nil : .easeInOut(duration: 0.24),
+                            value: selection
+                        )
+                        .transaction { transaction in
+                            if reduceMotion { transaction.animation = nil }
+                        }
+
+                    HStack(spacing: spacing) {
+                        ForEach(tabs) { tab in
+                            tabButton(tab)
+                        }
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: 760)
+            .frame(height: 44)
             Spacer(minLength: 12)
         }
         .padding(.vertical, 3)
@@ -32,34 +56,17 @@ struct NativeBottomTabBar: View {
 
         return Button {
             guard selection != tab else { return }
-            if reduceMotion {
-                selection = tab
-            } else {
-                withAnimation(.easeInOut(duration: 0.24)) {
-                    selection = tab
-                }
-            }
+            selection = tab
         } label: {
-            ZStack {
-                if isSelected {
-                    Capsule(style: .continuous)
-                        .fill(Color.black.opacity(0.055))
-                        .matchedGeometryEffect(id: "root-tab-selection", in: selectionBackground)
-                }
-
-                VStack(spacing: 2) {
-                    Image(systemName: tab.systemImage)
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(height: 19)
-                    Text(tab.title)
-                        .font(.system(size: 10, weight: .medium))
-                        .lineLimit(1)
-                }
-                .foregroundStyle(isSelected ? AppTheme.accent : Color.black)
-                .transaction { transaction in
-                    transaction.animation = nil
-                }
+            VStack(spacing: 2) {
+                Image(systemName: tab.systemImage)
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(height: 19)
+                Text(tab.title)
+                    .font(.system(size: 10, weight: .medium))
+                    .lineLimit(1)
             }
+            .foregroundStyle(isSelected ? AppTheme.accent : Color.black)
             .frame(maxWidth: .infinity)
             .frame(height: 44)
             .contentShape(Capsule(style: .continuous))
@@ -68,5 +75,10 @@ struct NativeBottomTabBar: View {
         .accessibilityLabel(tab.title)
         .accessibilityIdentifier("root-tab-\(tab.rawValue)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func selectedIndicatorOffset(slotWidth: CGFloat, spacing: CGFloat) -> CGFloat {
+        let selectedIndex = CGFloat(RootTab.allCases.firstIndex(of: selection) ?? 0)
+        return selectedIndex * (slotWidth + spacing)
     }
 }

@@ -142,12 +142,16 @@ private struct RichTextCommand: Equatable {
     let kind: RichTextCommandKind
 }
 
+@MainActor
 struct NativeRichTextEditor: View {
     @Binding var html: String
     let minHeight: CGFloat
     var mode: RichTextToolbarMode = .full
     var documentStyle = false
     var focusOnAppear = false
+    var preparedInitialHTML: String? = nil
+    var preparedInitialAttributedText: NSAttributedString? = nil
+    var editorSession: NativeRichTextEditorSession? = nil
     var internalLinks: [RichTextInternalLink] = []
     var onOpenInternalLink: ((RichTextInternalLink) -> Void)?
     @State private var command: RichTextCommand?
@@ -179,7 +183,10 @@ struct NativeRichTextEditor: View {
                 keyboardAccessoryHeight: keyboardAccessoryHeight,
                 growsWithContent: documentStyle,
                 minimumContentHeight: documentStyle ? minHeight : 0,
-                focusOnAppear: focusOnAppear
+                focusOnAppear: focusOnAppear,
+                preparedInitialHTML: preparedInitialHTML,
+                preparedInitialAttributedText: preparedInitialAttributedText,
+                editorSession: editorSession
             )
                 .frame(minHeight: documentStyle ? nil : minHeight, alignment: .topLeading)
                 .padding(.horizontal, documentStyle ? 0 : 5)
@@ -403,14 +410,79 @@ struct NativeRichTextEditor: View {
     }
 }
 
+@MainActor
+final class NativeRichTextEditorSession: ObservableObject {
+    typealias EndEditingHandler = (@escaping (String?) -> Void) -> Void
+
+    private var latestHTMLReader: (() -> String?)?
+    private var endEditingHandler: EndEditingHandler?
+
+    func latestHTML() -> String? { latestHTMLReader?() }
+
+    func endEditing(_ completion: @escaping (String?) -> Void) {
+        if let endEditingHandler {
+            endEditingHandler(completion)
+        } else {
+            completion(latestHTML())
+        }
+    }
+
+    fileprivate func connect(
+        latestHTMLReader: @escaping () -> String?,
+        endEditingHandler: @escaping EndEditingHandler
+    ) {
+        self.latestHTMLReader = latestHTMLReader
+        self.endEditingHandler = endEditingHandler
+    }
+
+    fileprivate func disconnect() {
+        latestHTMLReader = nil
+        endEditingHandler = nil
+    }
+}
+
+@MainActor
 struct NativeRichTextDisplay: UIViewRepresentable {
     let html: String
     var minHeight: CGFloat = 0
     var accessibilityIdentifier: String? = nil
     var onFallback: (() -> Void)? = nil
+    private var preparedSnapshot: NativeRichTextDisplayRenderResult?
+    private var renderVersion: String?
+
+    init(
+        html: String,
+        minHeight: CGFloat = 0,
+        accessibilityIdentifier: String? = nil,
+        onFallback: (() -> Void)? = nil
+    ) {
+        self.html = html
+        self.minHeight = minHeight
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.onFallback = onFallback
+        preparedSnapshot = nil
+        renderVersion = nil
+    }
+
+    init(
+        html: String,
+        preparedSnapshot: NativeRichTextDisplayRenderResult,
+        renderVersion: String,
+        minHeight: CGFloat = 0,
+        accessibilityIdentifier: String? = nil,
+        onFallback: (() -> Void)? = nil
+    ) {
+        self.html = html
+        self.minHeight = minHeight
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.onFallback = onFallback
+        self.preparedSnapshot = preparedSnapshot
+        self.renderVersion = renderVersion
+    }
 
     final class Coordinator {
         var lastHTML = ""
+        var lastRenderVersion: String?
         var fallbackReportedHTML: String?
     }
 
@@ -431,15 +503,18 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         applyContent(to: view, coordinator: context.coordinator)
         context.coordinator.lastHTML = html
+        context.coordinator.lastRenderVersion = renderVersion
         return view
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
         view.isAccessibilityElement = true
         view.accessibilityIdentifier = accessibilityIdentifier
-        guard context.coordinator.lastHTML != html else { return }
+        guard context.coordinator.lastHTML != html
+                || context.coordinator.lastRenderVersion != renderVersion else { return }
         applyContent(to: view, coordinator: context.coordinator)
         context.coordinator.lastHTML = html
+        context.coordinator.lastRenderVersion = renderVersion
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
@@ -450,7 +525,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     }
 
     private func applyContent(to view: UITextView, coordinator: Coordinator) {
-        let rendered = NativeRichTextDisplayRenderer.render(html)
+        let rendered = preparedSnapshot ?? NativeRichTextDisplayRenderer.render(html)
         view.attributedText = rendered.attributedText
         view.accessibilityLabel = rendered.attributedText.string
         guard rendered.usedSafeFallback, coordinator.fallbackReportedHTML != html else { return }
@@ -459,11 +534,13 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     }
 }
 
+@MainActor
 struct NativeRichTextDisplayRenderResult {
     let attributedText: NSAttributedString
     let usedSafeFallback: Bool
 }
 
+@MainActor
 enum NativeRichTextDisplayRenderer {
     private static let maximumImportedHTMLBytes = 512 * 1024
     private static let maximumFallbackCharacters = 10_000
@@ -569,6 +646,7 @@ private final class RichTextKeyboardAccessoryView: UIView {
     }
 }
 
+@MainActor
 private struct RichTextTextView: UIViewRepresentable {
     @Binding var html: String
     @Binding var command: RichTextCommand?
@@ -583,6 +661,9 @@ private struct RichTextTextView: UIViewRepresentable {
     var growsWithContent = false
     var minimumContentHeight: CGFloat = 0
     var focusOnAppear = false
+    var preparedInitialHTML: String? = nil
+    var preparedInitialAttributedText: NSAttributedString? = nil
+    var editorSession: NativeRichTextEditorSession? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -604,8 +685,18 @@ private struct RichTextTextView: UIViewRepresentable {
         view.inputAssistantItem.trailingBarButtonGroups = []
         view.keyboardDismissMode = .interactive
         view.linkTextAttributes = [.foregroundColor: UIColor.systemBlue, .underlineStyle: NSUnderlineStyle.single.rawValue]
-        view.attributedText = Self.attributed(from: html)
+        if let preparedInitialAttributedText, preparedInitialHTML == html {
+            view.attributedText = preparedInitialAttributedText
+        } else if editorSession == nil {
+            view.attributedText = Self.attributed(from: html)
+        } else {
+            view.attributedText = NSAttributedString(
+                string: html,
+                attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]
+            )
+        }
         context.coordinator.lastHTML = html
+        context.coordinator.connect(editorSession, to: view)
         context.coordinator.rememberSelection(view.selectedRange)
         context.coordinator.installKeyboardAccessory(keyboardAccessory, height: keyboardAccessoryHeight, on: view)
         if focusOnAppear {
@@ -624,9 +715,17 @@ private struct RichTextTextView: UIViewRepresentable {
     func updateUIView(_ view: UITextView, context: Context) {
         context.coordinator.parent = self
         context.coordinator.updateKeyboardAccessory(keyboardAccessory, height: keyboardAccessoryHeight, on: view)
+        if context.coordinator.connectedSession !== editorSession {
+            context.coordinator.connect(editorSession, to: view)
+        }
         if context.coordinator.lastHTML != html, !view.isFirstResponder {
-            view.attributedText = Self.attributed(from: html)
-            context.coordinator.lastHTML = html
+            if let preparedInitialAttributedText, preparedInitialHTML == html {
+                view.attributedText = preparedInitialAttributedText
+                context.coordinator.lastHTML = html
+            } else if editorSession == nil {
+                view.attributedText = Self.attributed(from: html)
+                context.coordinator.lastHTML = html
+            }
         }
         if let command, context.coordinator.lastCommandID != command.id {
             context.coordinator.lastCommandID = command.id
@@ -639,11 +738,37 @@ private struct RichTextTextView: UIViewRepresentable {
         var parent: RichTextTextView
         var lastHTML = ""
         var lastCommandID: UUID?
+        weak var connectedSession: NativeRichTextEditorSession?
+        private var pendingEndEditingCompletion: ((String?) -> Void)?
         private var lastEditingSelection = NSRange(location: 0, length: 0)
         private var pendingPublish: DispatchWorkItem?
         private var accessoryController: UIHostingController<AnyView>?
         private weak var accessoryContainer: RichTextKeyboardAccessoryView?
         init(parent: RichTextTextView) { self.parent = parent }
+
+        func connect(_ session: NativeRichTextEditorSession?, to view: UITextView) {
+            if connectedSession !== session { connectedSession?.disconnect() }
+            connectedSession = session
+            guard let session else { return }
+            session.connect(
+                latestHTMLReader: { [weak self, weak view] in
+                    guard let self, let view else { return nil }
+                    return self.publishNow(view)
+                },
+                endEditingHandler: { [weak self, weak view] completion in
+                    guard let self, let view else { completion(nil); return }
+                    if view.isFirstResponder {
+                        self.pendingEndEditingCompletion = completion
+                        if !view.resignFirstResponder() {
+                            self.pendingEndEditingCompletion = nil
+                            completion(self.publishNow(view))
+                        }
+                    } else {
+                        completion(self.publishNow(view))
+                    }
+                }
+            )
+        }
 
         func installKeyboardAccessory(_ content: AnyView, height: CGFloat, on textView: UITextView) {
             let controller = UIHostingController(rootView: content)
@@ -674,8 +799,13 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
-            publishNow(textView)
-            DispatchQueue.main.async { self.parent.isEditing = false }
+            let latestHTML = publishNow(textView)
+            let completion = pendingEndEditingCompletion
+            pendingEndEditingCompletion = nil
+            DispatchQueue.main.async {
+                self.parent.isEditing = false
+                completion?(latestHTML)
+            }
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
@@ -1125,19 +1255,22 @@ private struct RichTextTextView: UIViewRepresentable {
             pendingPublish?.cancel()
             let work = DispatchWorkItem { [weak self, weak view] in
                 guard let self, let view else { return }
-                self.publishNow(view)
+                _ = self.publishNow(view)
             }
             pendingPublish = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
         }
 
-        private func publishNow(_ view: UITextView) {
+        private func publishNow(_ view: UITextView) -> String {
             pendingPublish?.cancel()
             pendingPublish = nil
             view.invalidateIntrinsicContentSize()
             let html = RichTextTextView.html(from: view.attributedText)
-            guard html != lastHTML else { return }
-            lastHTML = html; parent.html = html
+            if html != lastHTML {
+                lastHTML = html
+                parent.html = html
+            }
+            return html
         }
 
         private func publishSelectionState(_ view: UITextView) {

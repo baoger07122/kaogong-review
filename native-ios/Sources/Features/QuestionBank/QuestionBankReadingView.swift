@@ -144,6 +144,31 @@ private struct QuestionBankReaderViewportPreference: PreferenceKey {
     }
 }
 
+private struct QuestionBankReaderRecordRevisionToken: Hashable, Sendable {
+    let compoundID: String
+    let paperID: String
+    let kind: String
+    let moduleID: String?
+    let title: String?
+    let contentRevision: Int
+    let assetRelativePath: String?
+}
+
+private struct QuestionBankReaderFingerprintEntry: Equatable, Sendable {
+    var token: QuestionBankReaderRecordRevisionToken
+    var visibleQuestion: QuestionBankQuestion?
+}
+
+private struct QuestionBankReaderFingerprintPayload: Sendable {
+    let compoundID: String
+    let data: Data
+}
+
+private struct QuestionBankReaderFingerprintResult: Sendable {
+    let compoundID: String
+    let question: QuestionBankQuestion?
+}
+
 struct QuestionBankModuleView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
@@ -166,6 +191,9 @@ struct QuestionBankModuleView: View {
     @State private var continuousScrollRequest: QuestionBankScrollRequest?
     @State private var splitScrollRequest: QuestionBankScrollRequest?
     @State private var snapshotRevision = 0
+    @State private var readerFingerprintCache: [String: QuestionBankReaderFingerprintEntry] = [:]
+    @State private var readerFingerprintRequestID = UUID()
+    @State private var readerFingerprintDecodeTask: Task<[QuestionBankReaderFingerprintResult], Never>?
     @State private var doodleDrawingCache = QuestionBankDoodleMemoryCache()
     @State private var continuousQuestionDoodleRecordID: String?
     @State private var didApplyInitialFocus = false
@@ -298,14 +326,161 @@ struct QuestionBankModuleView: View {
         return "\(ordinal)/\(orderedQuestionIDs.count)"
     }
 
-    private var readerRecordRevision: Int {
-        var hasher = Hasher()
-        for record in records.filter({ $0.paperID == paperID }).sorted(by: { $0.compoundID < $1.compoundID }) {
-            hasher.combine(record.compoundID)
-            hasher.combine(record.contentRevision)
-            hasher.combine(record.assetRelativePath)
+    private var readerRecordRevisionTokens: Set<QuestionBankReaderRecordRevisionToken> {
+        Set(records
+            .filter { $0.paperID == paperID }
+            .map { readerRecordRevisionToken(for: $0) })
+    }
+
+    private func readerRecordRevisionToken(for record: QuestionBankRecord) -> QuestionBankReaderRecordRevisionToken {
+        QuestionBankReaderRecordRevisionToken(
+            compoundID: record.compoundID,
+            paperID: record.paperID,
+            kind: record.kind,
+            moduleID: record.moduleID,
+            title: record.title,
+            contentRevision: record.contentRevision,
+            assetRelativePath: record.assetRelativePath
+        )
+    }
+
+    private func updateReaderSnapshotIfNeeded(
+        for currentTokens: Set<QuestionBankReaderRecordRevisionToken>
+    ) {
+        let currentIDs = Set(currentTokens.map(\.compoundID))
+        guard currentIDs == Set(readerFingerprintCache.keys) else {
+            refreshReaderSnapshotForVisibleChange()
+            return
         }
-        return hasher.finalize()
+
+        let changedTokens = currentTokens.filter {
+            readerFingerprintCache[$0.compoundID]?.token != $0
+        }
+        guard !changedTokens.isEmpty else { return }
+
+        if changedTokens.contains(where: { $0.kind != QuestionBankRepository.questionKind }) {
+            refreshReaderSnapshotForVisibleChange()
+            return
+        }
+
+        let relevantQuestions = changedTokens.filter { token in
+            token.moduleID == moduleID
+                || readerFingerprintCache[token.compoundID]?.token.moduleID == moduleID
+        }
+        guard !relevantQuestions.isEmpty else {
+            updateReaderFingerprintTokens(changedTokens, using: [:])
+            return
+        }
+
+        let structuralChange = relevantQuestions.contains { token in
+            guard let previous = readerFingerprintCache[token.compoundID]?.token else { return true }
+            return previous.paperID != token.paperID
+                || previous.moduleID != token.moduleID
+                || previous.title != token.title
+                || previous.assetRelativePath != token.assetRelativePath
+        }
+        guard !structuralChange else {
+            refreshReaderSnapshotForVisibleChange()
+            return
+        }
+
+        let payloadChanges = relevantQuestions.filter { token in
+            readerFingerprintCache[token.compoundID]?.token.contentRevision != token.contentRevision
+        }
+        guard !payloadChanges.isEmpty else {
+            updateReaderFingerprintTokens(changedTokens, using: [:])
+            return
+        }
+
+        let changedIDs = Set(payloadChanges.map(\.compoundID))
+        let payloads = records.compactMap { record -> QuestionBankReaderFingerprintPayload? in
+            guard changedIDs.contains(record.compoundID), record.paperID == paperID else { return nil }
+            return QuestionBankReaderFingerprintPayload(compoundID: record.compoundID, data: record.payload)
+        }
+        guard payloads.count == changedIDs.count else {
+            refreshReaderSnapshotForVisibleChange()
+            return
+        }
+
+        readerFingerprintDecodeTask?.cancel()
+        let requestID = UUID()
+        readerFingerprintRequestID = requestID
+        let decodeTask = Task.detached(priority: .userInitiated) {
+            var results: [QuestionBankReaderFingerprintResult] = []
+            for payload in payloads {
+                guard !Task.isCancelled else { break }
+                results.append(
+                    QuestionBankReaderFingerprintResult(
+                        compoundID: payload.compoundID,
+                        question: try? JSONDecoder().decode(QuestionBankQuestion.self, from: payload.data)
+                    )
+                )
+            }
+            return results
+        }
+        readerFingerprintDecodeTask = decodeTask
+        Task { @MainActor in
+            let results = await decodeTask.value
+            guard !Task.isCancelled, !decodeTask.isCancelled,
+                  readerFingerprintRequestID == requestID,
+                  readerRecordRevisionTokens == currentTokens else { return }
+            readerFingerprintDecodeTask = nil
+            guard results.allSatisfy({ $0.question != nil }) else {
+                refreshReaderSnapshotForVisibleChange()
+                return
+            }
+
+            let decodedQuestions = Dictionary(
+                results.compactMap { result in result.question.map { (result.compoundID, $0) } },
+                uniquingKeysWith: { _, newest in newest }
+            )
+            let hasVisibleChange = results.contains { result in
+                guard let question = result.question else { return true }
+                let visibleQuestion = readerVisibleQuestion(question)
+                return readerFingerprintCache[result.compoundID]?.visibleQuestion != visibleQuestion
+            }
+            if hasVisibleChange {
+                refreshReaderSnapshotForVisibleChange(reusing: decodedQuestions)
+            } else {
+                updateReaderFingerprintTokens(
+                    changedTokens,
+                    using: Dictionary(
+                        decodedQuestions.map { ($0.key, readerVisibleQuestion($0.value)) },
+                        uniquingKeysWith: { _, newest in newest }
+                    )
+                )
+            }
+        }
+    }
+
+    private func updateReaderFingerprintTokens(
+        _ tokens: [QuestionBankReaderRecordRevisionToken],
+        using visibleQuestions: [String: QuestionBankQuestion]
+    ) {
+        var updatedCache = readerFingerprintCache
+        for token in tokens {
+            let previousVisible = updatedCache[token.compoundID]?.visibleQuestion
+            updatedCache[token.compoundID] = QuestionBankReaderFingerprintEntry(
+                token: token,
+                visibleQuestion: visibleQuestions[token.compoundID] ?? previousVisible
+            )
+        }
+        readerFingerprintCache = updatedCache
+    }
+
+    private func readerVisibleQuestion(_ question: QuestionBankQuestion) -> QuestionBankQuestion {
+        var visibleQuestion = question
+        visibleQuestion.note = nil
+        return visibleQuestion
+    }
+
+    private func refreshReaderSnapshotForVisibleChange(
+        reusing decodedQuestions: [String: QuestionBankQuestion] = [:]
+    ) {
+        logQuestionBankSnapshotRefresh()
+        invalidateDoodleCache()
+        refreshReaderSnapshot(reusing: decodedQuestions)
+        restoreReaderState()
     }
 
     private var doodleToolbarTarget: QuestionBankDoodleToolbarTarget? {
@@ -401,11 +576,8 @@ struct QuestionBankModuleView: View {
             refreshReaderSnapshot()
             restoreReaderState()
         }
-        .onChange(of: readerRecordRevision) { _, _ in
-            logQuestionBankSnapshotRefresh()
-            invalidateDoodleCache()
-            refreshReaderSnapshot()
-            restoreReaderState()
+        .onChange(of: readerRecordRevisionTokens) { _, tokens in
+            updateReaderSnapshotIfNeeded(for: tokens)
         }
         .onChange(of: snapshotRevision) { _, _ in applyInitialFocusIfNeeded() }
         .onChange(of: presentationMode) { _, mode in
@@ -413,6 +585,11 @@ struct QuestionBankModuleView: View {
         }
         .onChange(of: doodleSession.isPresented) { _, isPresented in
             if !isPresented { continuousQuestionDoodleRecordID = nil }
+        }
+        .onDisappear {
+            readerFingerprintRequestID = UUID()
+            readerFingerprintDecodeTask?.cancel()
+            readerFingerprintDecodeTask = nil
         }
         .onChange(of: storedAnswerStateJSON) { _, value in
             guard value != cachedAnswerStateJSON else { return }
@@ -1657,14 +1834,44 @@ struct QuestionBankModuleView: View {
         }
     }
 
-    private func refreshReaderSnapshot() {
-        var questions = records
-            .filter {
-                $0.paperID == paperID && $0.moduleID == moduleID
-                    && $0.kind == QuestionBankRepository.questionKind
+    private func refreshReaderSnapshot(
+        reusing decodedQuestions: [String: QuestionBankQuestion] = [:]
+    ) {
+        readerFingerprintDecodeTask?.cancel()
+        readerFingerprintDecodeTask = nil
+        readerFingerprintRequestID = UUID()
+        let paperRecords = records.filter { $0.paperID == paperID }
+        let questionRecords = paperRecords.filter {
+            $0.moduleID == moduleID && $0.kind == QuestionBankRepository.questionKind
+        }
+        var decodedQuestionsByID: [String: QuestionBankQuestion] = [:]
+        for record in questionRecords {
+            if let question = decodedQuestions[record.compoundID]
+                ?? record.decoded(QuestionBankQuestion.self) {
+                decodedQuestionsByID[record.compoundID] = question
             }
+        }
+
+        readerFingerprintCache = Dictionary(
+            paperRecords.map { record in
+                let question = record.kind == QuestionBankRepository.questionKind
+                    && record.moduleID == moduleID
+                    ? decodedQuestionsByID[record.compoundID].map(readerVisibleQuestion)
+                    : nil
+                return (
+                    record.compoundID,
+                    QuestionBankReaderFingerprintEntry(
+                        token: readerRecordRevisionToken(for: record),
+                        visibleQuestion: question
+                    )
+                )
+            },
+            uniquingKeysWith: { _, newest in newest }
+        )
+
+        var questions = questionRecords
             .compactMap { record -> QuestionBankReadingItem? in
-                guard let question = record.decoded(QuestionBankQuestion.self) else { return nil }
+                guard let question = decodedQuestionsByID[record.compoundID] else { return nil }
                 return QuestionBankReadingItem(
                     record: record,
                     question: question,
@@ -1698,10 +1905,9 @@ struct QuestionBankModuleView: View {
         readingItems = questions
         readingSteps = QuestionBankReadingSequence.steps(for: questions.map(\.question))
         materialsByID = Dictionary(
-            records
+            paperRecords
                 .filter {
-                    $0.paperID == paperID && $0.moduleID == moduleID
-                        && $0.kind == QuestionBankRepository.materialKind
+                    $0.moduleID == moduleID && $0.kind == QuestionBankRepository.materialKind
                 }
                 .compactMap { record -> (String, QuestionBankMaterial)? in
                     guard let material = record.decoded(QuestionBankMaterial.self) else { return nil }
@@ -1710,8 +1916,8 @@ struct QuestionBankModuleView: View {
             uniquingKeysWith: { first, _ in first }
         )
         assetsByID = Dictionary(
-            records
-                .filter { $0.paperID == paperID && $0.kind == QuestionBankRepository.assetKind }
+            paperRecords
+                .filter { $0.kind == QuestionBankRepository.assetKind }
                 .map { ($0.stableID, $0) },
             uniquingKeysWith: { first, _ in first }
         )
@@ -3523,18 +3729,19 @@ private struct QuestionBankOptionRow: View {
     }
 
     private var row: some View {
-        HStack(alignment: .top, spacing: 7) {
-            Text(option.id)
-                .font(QuestionBankTypography.contentFont.weight(.semibold))
-                .foregroundStyle(letterColor)
-                .frame(width: markerDiameter, height: markerDiameter)
-                .background(markerFillColor ?? .clear, in: Circle())
-                .overlay {
-                    Circle()
-                        .stroke(selectionOutlineColor, lineWidth: isSelected && !showsKnownAnswer ? 1.5 : 0)
-                }
+        let displayText = QuestionBankOptionDisplay.text(for: option)
+        return HStack(
+            alignment: QuestionBankOptionRowLayout.verticalAlignment(hasText: displayText != nil),
+            spacing: 7
+        ) {
+            QuestionBankOptionMarker(
+                letter: option.id,
+                state: markerState,
+                diameter: markerDiameter,
+                font: QuestionBankTypography.contentFont
+            )
             VStack(alignment: .leading, spacing: 8) {
-                if let displayText = QuestionBankOptionDisplay.text(for: option) {
+                if let displayText {
                     Text(displayText)
                         .font(QuestionBankTypography.contentFont)
                         .foregroundStyle(Color.primary)
@@ -3545,6 +3752,9 @@ private struct QuestionBankOptionRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .alignmentGuide(.firstTextBaseline) { dimensions in
+                dimensions[.firstTextBaseline]
+            }
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 8)
@@ -3557,21 +3767,10 @@ private struct QuestionBankOptionRow: View {
         }
     }
 
-    private var letterColor: Color {
-        if markerFillColor != nil { return .white }
-        if isSelected { return AppTheme.accent }
-        return .primary
-    }
-
-    private var markerFillColor: Color? {
-        guard showsKnownAnswer else { return nil }
-        if answer == option.id { return QuestionBankAnswerFeedbackPalette.correct }
-        if isSelected { return AppTheme.danger }
-        return nil
-    }
-
-    private var selectionOutlineColor: Color {
-        isSelected && !showsKnownAnswer ? AppTheme.accent : .clear
+    private var markerState: QuestionBankOptionMarkerState {
+        guard showsKnownAnswer else { return isSelected ? .selected : .unselected }
+        if answer == option.id { return .correct }
+        return isSelected ? .incorrect : .unselected
     }
 
     private var showsKnownAnswer: Bool {

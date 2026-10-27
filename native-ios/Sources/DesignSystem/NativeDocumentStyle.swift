@@ -86,16 +86,28 @@ struct NativeDoodleToolbarCapsule<Content: View>: View {
     }
 }
 
+private struct NativeTagFlowMeasurement {
+    let idealSize: CGSize
+    let minimumWidth: CGFloat
+}
+
 /// Tags wrap at their natural width; the row itself remains a full-width tap target.
 struct NativeTagFlow: Layout {
     var spacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        arrange(width: proposal.width ?? 320, subviews: subviews).size
+        guard !subviews.isEmpty else { return .zero }
+        let measurements = measure(subviews)
+        let width = resolvedWidth(proposal.width, measurements: measurements)
+        return arrange(width: width, measurements: measurements, subviews: subviews).size
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = arrange(width: bounds.width, subviews: subviews)
+        guard !subviews.isEmpty else { return }
+        let measurements = measure(subviews)
+        let proposedWidth = bounds.width.isFinite ? bounds.width : proposal.width
+        let width = resolvedWidth(proposedWidth, measurements: measurements)
+        let result = arrange(width: width, measurements: measurements, subviews: subviews)
         for (index, view) in subviews.enumerated() {
             let frame = result.frames[index]
             view.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
@@ -103,21 +115,84 @@ struct NativeTagFlow: Layout {
         }
     }
 
-    private func arrange(width: CGFloat, subviews: Subviews) -> (size: CGSize, frames: [CGRect]) {
-        let width = max(1, width)
+    private func measure(_ subviews: Subviews) -> [NativeTagFlowMeasurement] {
+        subviews.map { view in
+            let idealSize = finiteSize(view.sizeThatFits(.unspecified))
+            let zeroWidthSize = finiteSize(view.sizeThatFits(ProposedViewSize(width: 0, height: nil)))
+            let usefulFallback = min(idealSize.width, max(1, idealSize.height))
+            let minimumWidth = min(idealSize.width, max(zeroWidthSize.width, usefulFallback))
+            return NativeTagFlowMeasurement(idealSize: idealSize, minimumWidth: minimumWidth)
+        }
+    }
+
+    private func resolvedWidth(
+        _ proposalWidth: CGFloat?,
+        measurements: [NativeTagFlowMeasurement]
+    ) -> CGFloat {
+        guard !measurements.isEmpty else { return 0 }
+        let naturalWidth = naturalWidth(for: measurements)
+        guard naturalWidth > 0 else { return 0 }
+        let minimumUsefulWidth = min(
+            naturalWidth,
+            max(measurements.map(\.minimumWidth).max() ?? 0, 1)
+        )
+        guard let proposalWidth, proposalWidth.isFinite else { return naturalWidth }
+        if proposalWidth <= 0 { return minimumUsefulWidth }
+        return min(naturalWidth, max(proposalWidth, minimumUsefulWidth))
+    }
+
+    private func naturalWidth(for measurements: [NativeTagFlowMeasurement]) -> CGFloat {
+        var width: CGFloat = 0
+        for (index, measurement) in measurements.enumerated() {
+            width = finiteAdd(width, measurement.idealSize.width)
+            if index > 0 { width = finiteAdd(width, finiteSpacing) }
+        }
+        return width
+    }
+
+    private func arrange(
+        width: CGFloat,
+        measurements: [NativeTagFlowMeasurement],
+        subviews: Subviews
+    ) -> (size: CGSize, frames: [CGRect]) {
         var x: CGFloat = 0
         var y: CGFloat = 0
         var rowHeight: CGFloat = 0
         var frames: [CGRect] = []
-        for view in subviews {
-            var size = view.sizeThatFits(.unspecified)
-            if size.width > width { size = view.sizeThatFits(ProposedViewSize(width: width, height: nil)) }
-            if x > 0 && x + size.width > width { x = 0; y += rowHeight + spacing; rowHeight = 0 }
+        for (index, view) in subviews.enumerated() {
+            let idealSize = measurements[index].idealSize
+            var size = idealSize
+            if idealSize.width > width {
+                size = finiteSize(view.sizeThatFits(ProposedViewSize(width: width, height: nil)))
+                size.width = min(size.width, width)
+            }
+            if !frames.isEmpty, x >= width || size.width > width - x {
+                x = 0
+                y = finiteAdd(y, finiteAdd(rowHeight, finiteSpacing))
+                rowHeight = 0
+            }
             frames.append(CGRect(origin: CGPoint(x: x, y: y), size: size))
-            x += size.width + spacing
+            x = finiteAdd(x, finiteAdd(size.width, finiteSpacing))
             rowHeight = max(rowHeight, size.height)
         }
-        return (CGSize(width: width, height: y + rowHeight), frames)
+        return (CGSize(width: width, height: finiteAdd(y, rowHeight)), frames)
+    }
+
+    private var finiteSpacing: CGFloat {
+        spacing.isFinite ? max(0, spacing) : 0
+    }
+
+    private func finiteSize(_ size: CGSize) -> CGSize {
+        CGSize(
+            width: size.width.isFinite ? max(0, size.width) : 0,
+            height: size.height.isFinite ? max(0, size.height) : 0
+        )
+    }
+
+    private func finiteAdd(_ lhs: CGFloat, _ rhs: CGFloat) -> CGFloat {
+        guard lhs.isFinite, rhs.isFinite else { return .greatestFiniteMagnitude }
+        guard lhs <= CGFloat.greatestFiniteMagnitude - rhs else { return .greatestFiniteMagnitude }
+        return max(0, lhs + rhs)
     }
 }
 

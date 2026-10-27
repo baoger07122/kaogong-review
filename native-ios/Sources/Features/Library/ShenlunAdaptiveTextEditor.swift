@@ -23,14 +23,16 @@ struct ShenlunAdaptiveTextEditor: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let width = max(0, proxy.size.width)
             ShenlunTextView(
                 text: $text,
                 height: $measuredHeight,
                 minimumHeight: minimumHeight,
                 growsWithContent: growsWithContent,
-                availableWidth: proxy.size.width,
+                availableWidth: width,
                 accessibilityIdentifier: accessibilityIdentifier
             )
+            .frame(width: width, alignment: .leading)
         }
         .frame(height: growsWithContent ? measuredHeight : minimumHeight)
         .frame(maxWidth: .infinity)
@@ -71,6 +73,8 @@ struct ShenlunTextView: UIViewRepresentable {
         view.alwaysBounceVertical = false
         view.showsVerticalScrollIndicator = growsWithContent == false
         view.setContentCompressionResistancePriority(.required, for: .vertical)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
         return view
     }
 
@@ -86,24 +90,24 @@ struct ShenlunTextView: UIViewRepresentable {
         }
         view.isScrollEnabled = !growsWithContent
         view.showsVerticalScrollIndicator = !growsWithContent
-        updateHeight(view)
+        updateHeight(view, coordinator: context.coordinator)
     }
 
-    private func updateHeight(_ view: UITextView) {
-        guard growsWithContent else { return }
-        let width = max(1, availableWidth > 0 ? availableWidth : view.bounds.width)
-        guard width > 1 else { return }
+    private func updateHeight(_ view: UITextView, coordinator: Coordinator) {
+        let requestID = coordinator.beginHeightMeasurement()
+        guard growsWithContent, availableWidth.isFinite, availableWidth > 1 else { return }
+        let width = availableWidth
         view.layoutIfNeeded()
         let fitting = view.sizeThatFits(
             CGSize(width: width, height: .greatestFiniteMagnitude)
         )
         let nextHeight = max(minimumHeight, ceil(fitting.height))
-        guard abs(height - nextHeight) > 0.5 else { return }
-        DispatchQueue.main.async {
-            if abs(self.height - nextHeight) > 0.5 {
-                self.height = nextHeight
-            }
-        }
+        coordinator.publishMeasuredHeight(
+            nextHeight,
+            width: width,
+            text: view.text ?? "",
+            requestID: requestID
+        )
     }
 
     private static var typingAttributes: [NSAttributedString.Key: Any] {
@@ -119,6 +123,7 @@ struct ShenlunTextView: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: ShenlunTextView
+        private var heightMeasurementRequestID: UInt64 = 0
 
         init(parent: ShenlunTextView) {
             self.parent = parent
@@ -126,7 +131,23 @@ struct ShenlunTextView: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) {
             parent.text = textView.text
-            parent.updateHeight(textView)
+            parent.updateHeight(textView, coordinator: self)
+        }
+
+        func beginHeightMeasurement() -> UInt64 {
+            heightMeasurementRequestID &+= 1
+            return heightMeasurementRequestID
+        }
+
+        func publishMeasuredHeight(_ value: CGFloat, width: CGFloat, text: String, requestID: UInt64) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      self.heightMeasurementRequestID == requestID,
+                      abs(self.parent.availableWidth - width) <= 0.5,
+                      self.parent.text == text,
+                      abs(self.parent.height - value) > 0.5 else { return }
+                self.parent.height = value
+            }
         }
     }
 }

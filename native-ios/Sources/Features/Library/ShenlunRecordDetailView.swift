@@ -55,12 +55,16 @@ struct ShenlunRecordDetailView: View {
                     .accessibilityLabel(record.requiresShenlunAdaptation ? "先适配旧数据" : "涂鸦")
                     Menu {
                         Button {
-                            if noteSession.finish() { onEdit() }
+                            noteSession.finish { saved in
+                                if saved { onEdit() }
+                            }
                         } label: {
                             Label("编辑申论记录", systemImage: "pencil")
                         }
                         Button(role: .destructive) {
-                            if noteSession.finish() { showDelete = true }
+                            noteSession.finish { saved in
+                                if saved { showDelete = true }
+                            }
                         } label: {
                             Label("删除申论记录", systemImage: "trash")
                         }
@@ -93,10 +97,7 @@ struct ShenlunRecordDetailView: View {
             onSave: saveDrawing
         )
         LibraryPerformanceLog.mark("doodle.tap-to-present", since: openStart)
-        Task { @MainActor in
-            await Task.yield()
-            _ = noteSession.finish()
-        }
+        noteSession.finish { _ in }
     }
 
     private func saveDrawing(_ drawingData: String, legacyPreviewCleared: Bool) -> String? {

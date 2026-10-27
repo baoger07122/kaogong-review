@@ -2,7 +2,7 @@ import PencilKit
 import SwiftUI
 import UIKit
 
-private enum PencilActionKind { case undo, redo, clear, commit }
+private enum PencilActionKind: Equatable { case undo, redo, clear, commit }
 private struct PencilAction {
     let id = UUID()
     let kind: PencilActionKind
@@ -12,6 +12,15 @@ private struct PencilAction {
         self.kind = kind
         self.completion = completion
     }
+}
+
+private struct PencilDrawingPublishSnapshot {
+    let id: UUID
+    let drawing: PKDrawing
+    let drawingRevision: Int
+    let loadGeneration: Int
+    let controllerLoadRevision: Int
+    var completions: [() -> Void]
 }
 
 private enum PencilToolMemory {
@@ -58,6 +67,7 @@ final class PencilDrawingController: ObservableObject {
     private var previousPenColor: UIColor
     private var previousPenWidth: CGFloat
     private var restoreLegacyOnNextUndo = false
+    private var pendingCommitCompletions: [() -> Void] = []
     private var decodedDrawingKey: String?
     private var decodedDrawing: PKDrawing?
 
@@ -109,6 +119,7 @@ final class PencilDrawingController: ObservableObject {
     }
 
     func undo() {
+        guard action == nil else { return }
         if restoreLegacyOnNextUndo {
             legacyPreviewCleared = false
             restoreLegacyOnNextUndo = false
@@ -117,22 +128,42 @@ final class PencilDrawingController: ObservableObject {
     }
 
     func requestClear() {
+        guard action == nil else { return }
         restoreLegacyOnNextUndo = !legacyPreviewCleared
         legacyPreviewCleared = true
         action = PencilAction(kind: .clear)
     }
 
     func commit(_ completion: @escaping () -> Void) {
-        if action != nil {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                self?.commit(completion)
-            }
-            return
+        if action == nil {
+            action = PencilAction(kind: .commit, completion: completion)
+        } else {
+            pendingCommitCompletions.append(completion)
         }
-        action = PencilAction(kind: .commit, completion: completion)
+    }
+
+    func finishAction(_ actionID: UUID) {
+        guard action?.id == actionID else { return }
+        if pendingCommitCompletions.isEmpty {
+            action = nil
+        } else {
+            action = PencilAction(kind: .commit, completion: pendingCommitCompletions.removeFirst())
+        }
+    }
+
+    private func cancelPendingActions() {
+        var completions = pendingCommitCompletions
+        if let completion = action?.completion { completions.append(completion) }
+        pendingCommitCompletions.removeAll()
+        action = nil
+        guard !completions.isEmpty else { return }
+        DispatchQueue.main.async {
+            completions.forEach { $0() }
+        }
     }
 
     func prepareForPresentation() {
+        cancelPendingActions()
         drawingLoadRevision += 1
         showSettings = false
         fingerDrawingEnabled = false
@@ -144,6 +175,7 @@ final class PencilDrawingController: ObservableObject {
     }
 
     func beginDrawingReload() {
+        cancelPendingActions()
         drawingLoadRevision += 1
         hasPendingDrawingPublish = false
         canvasReady = false
@@ -556,18 +588,22 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             case .commit:
                 waitsForPublish = true
                 context.coordinator.publish(canvas) {
-                    self.action = nil
+                    self.controller.finishAction(action.id)
                     action.completion?()
                 }
             }
             if !waitsForPublish {
                 DispatchQueue.main.async {
-                    self.action = nil
+                    self.controller.finishAction(action.id)
                     action.completion?()
                 }
             }
         }
         context.coordinator.loadDrawing(encodedData, revision: drawingLoadRevision, on: canvas)
+    }
+
+    static func dismantleUIView(_ uiView: InteractivePencilCanvasView, coordinator: Coordinator) {
+        coordinator.flushForDismantle(uiView)
     }
 
     final class Coordinator: NSObject, PKCanvasViewDelegate {
@@ -577,11 +613,14 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         var lastActionID: UUID?
         var drawingChanged = false
         private var drawingRevision = 0
+        private var loadGeneration = 0
         private var requestedEncoded: String?
         private var requestedRevision: Int?
         private var decodeToken = UUID()
         var canvasReady = false
         private var pendingPublish: DispatchWorkItem?
+        private var activePublication: PencilDrawingPublishSnapshot?
+        private var latestPendingPublication: PencilDrawingPublishSnapshot?
         private let publishQueue = DispatchQueue(label: "QuestionBank.PencilDrawing.publish", qos: .userInitiated)
         private var configuredEraser: Bool?
         private var configuredColor: UIColor?
@@ -612,12 +651,23 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             guard requestedEncoded != encoded || requestedRevision != revision else { return }
             requestedEncoded = encoded
             requestedRevision = revision
+            loadGeneration &+= 1
+            pendingPublish?.cancel()
+            pendingPublish = nil
+            let cancelledCompletions = latestPendingPublication?.completions ?? []
+            latestPendingPublication = nil
             canvasReady = false
             controller.canvasReady = false
             controller.canvasLoadError = nil
             canvas.isUserInteractionEnabled = false
+            canvas.isDrawingReady = false
             drawingChanged = false
             controller.hasPendingDrawingPublish = false
+            if !cancelledCompletions.isEmpty {
+                DispatchQueue.main.async {
+                    cancelledCompletions.forEach { $0() }
+                }
+            }
             let token = UUID()
             decodeToken = token
             let decodeStart = ProcessInfo.processInfo.systemUptime
@@ -691,6 +741,8 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            guard let canvas = canvasView as? InteractivePencilCanvasView,
+                  canvas.isDrawingReady, canvasReady else { return }
             drawingChanged = true
             drawingRevision += 1
             if !controller.hasPendingDrawingPublish {
@@ -714,27 +766,200 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         func publish(_ canvas: PKCanvasView, completion: (() -> Void)? = nil) {
             pendingPublish?.cancel()
             pendingPublish = nil
-            let drawing = canvas.drawing
+            guard let interactiveCanvas = canvas as? InteractivePencilCanvasView,
+                  interactiveCanvas.isDrawingReady,
+                  canvasReady,
+                  controller.canvasReady else {
+                completion?()
+                return
+            }
             let revision = drawingRevision
+            let targetRevision = controller.drawingLoadRevision
+            let generation = loadGeneration
+
+            if var active = activePublication,
+               active.drawingRevision == revision,
+               active.loadGeneration == generation,
+               active.controllerLoadRevision == targetRevision,
+               latestPendingPublication == nil {
+                if let completion { active.completions.append(completion) }
+                activePublication = active
+                controller.hasPendingDrawingPublish = true
+                return
+            }
+            if var pending = latestPendingPublication,
+               pending.drawingRevision == revision,
+               pending.loadGeneration == generation,
+               pending.controllerLoadRevision == targetRevision {
+                if let completion { pending.completions.append(completion) }
+                latestPendingPublication = pending
+                return
+            }
+
+            var completions = latestPendingPublication?.completions ?? []
+            latestPendingPublication = nil
+            if var active = activePublication,
+               active.loadGeneration == generation,
+               active.controllerLoadRevision == targetRevision {
+                completions.insert(contentsOf: active.completions, at: 0)
+                active.completions = []
+                activePublication = active
+            }
+            if let completion { completions.append(completion) }
+
+            let snapshot = PencilDrawingPublishSnapshot(
+                id: UUID(),
+                drawing: canvas.drawing,
+                drawingRevision: revision,
+                loadGeneration: generation,
+                controllerLoadRevision: targetRevision,
+                completions: completions
+            )
             controller.hasPendingDrawingPublish = true
-            publishQueue.async { [weak self] in
-                let value = drawing.dataRepresentation().base64EncodedString()
-                DispatchQueue.main.async {
-                    guard let self else {
-                        completion?()
-                        return
+            if activePublication == nil {
+                startPublication(snapshot, canvas: canvas)
+            } else {
+                latestPendingPublication = snapshot
+            }
+        }
+
+        func flushForDismantle(_ canvas: InteractivePencilCanvasView) {
+            pendingPublish?.cancel()
+            pendingPublish = nil
+            if let action = controller.action {
+                if action.kind == .commit {
+                    if lastActionID != action.id {
+                        lastActionID = action.id
+                        publish(canvas) {
+                            self.controller.finishAction(action.id)
+                            action.completion?()
+                        }
                     }
-                    self.controller.remember(drawing, encoded: value)
-                    self.lastEncoded = value
-                    self.requestedEncoded = value
-                    self.parent.encodedData = value
-                    if self.drawingRevision == revision {
-                        self.drawingChanged = false
-                        self.controller.hasPendingDrawingPublish = false
-                    }
-                    completion?()
+                    return
+                }
+                controller.finishAction(action.id)
+                if controller.action != nil {
+                    flushForDismantle(canvas)
+                    return
                 }
             }
+            if drawingChanged || controller.hasPendingDrawingPublish {
+                publish(canvas)
+            }
+        }
+
+        private func startPublication(
+            _ snapshot: PencilDrawingPublishSnapshot,
+            canvas: PKCanvasView?
+        ) {
+            activePublication = snapshot
+            let serializeStart = ProcessInfo.processInfo.systemUptime
+            let drawing = snapshot.drawing
+            let snapshotID = snapshot.id
+            publishQueue.async { [self, weak canvas] in
+                let value = drawing.dataRepresentation().base64EncodedString()
+                LibraryPerformanceLog.mark("doodle.canvas.serialize", since: serializeStart)
+                DispatchQueue.main.async { [self, weak canvas] in
+                    finishPublication(id: snapshotID, encoded: value, canvas: canvas)
+                }
+            }
+        }
+
+        private func finishPublication(
+            id: UUID,
+            encoded: String,
+            canvas: PKCanvasView?
+        ) {
+            guard let completed = activePublication, completed.id == id else { return }
+            activePublication = nil
+
+            guard isCurrentPublicationTarget(completed) else {
+                complete(completed.completions)
+                startPendingPublicationIfCurrent(canvas: canvas)
+                return
+            }
+
+            if var pending = latestPendingPublication {
+                latestPendingPublication = nil
+                guard isCurrentPublicationTarget(pending) else {
+                    complete(completed.completions)
+                    complete(pending.completions)
+                    return
+                }
+                pending.completions.insert(contentsOf: completed.completions, at: 0)
+                if pending.drawingRevision == drawingRevision {
+                    startPublication(pending, canvas: canvas)
+                } else if let canvas {
+                    startLatestPublication(from: canvas, completions: pending.completions)
+                } else {
+                    complete(pending.completions)
+                }
+                return
+            }
+
+            guard completed.drawingRevision == drawingRevision else {
+                if let canvas {
+                    startLatestPublication(from: canvas, completions: completed.completions)
+                } else {
+                    complete(completed.completions)
+                }
+                return
+            }
+
+            controller.remember(completed.drawing, encoded: encoded)
+            lastEncoded = encoded
+            requestedEncoded = encoded
+            requestedRevision = completed.controllerLoadRevision
+            parent.encodedData = encoded
+            drawingChanged = false
+            controller.hasPendingDrawingPublish = false
+            complete(completed.completions)
+        }
+
+        private func startPendingPublicationIfCurrent(canvas: PKCanvasView?) {
+            guard let pending = latestPendingPublication else { return }
+            latestPendingPublication = nil
+            guard isCurrentPublicationTarget(pending) else {
+                complete(pending.completions)
+                return
+            }
+            if pending.drawingRevision == drawingRevision {
+                startPublication(pending, canvas: canvas)
+            } else if let canvas {
+                startLatestPublication(from: canvas, completions: pending.completions)
+            } else {
+                complete(pending.completions)
+            }
+        }
+
+        private func startLatestPublication(from canvas: PKCanvasView, completions: [() -> Void]) {
+            guard let interactiveCanvas = canvas as? InteractivePencilCanvasView,
+                  interactiveCanvas.isDrawingReady,
+                  canvasReady,
+                  controller.canvasReady else {
+                complete(completions)
+                return
+            }
+            startPublication(
+                PencilDrawingPublishSnapshot(
+                    id: UUID(),
+                    drawing: canvas.drawing,
+                    drawingRevision: drawingRevision,
+                    loadGeneration: loadGeneration,
+                    controllerLoadRevision: controller.drawingLoadRevision,
+                    completions: completions
+                ),
+                canvas: canvas
+            )
+        }
+
+        private func isCurrentPublicationTarget(_ snapshot: PencilDrawingPublishSnapshot) -> Bool {
+            snapshot.loadGeneration == loadGeneration
+                && snapshot.controllerLoadRevision == controller.drawingLoadRevision
+        }
+
+        private func complete(_ completions: [() -> Void]) {
+            completions.forEach { $0() }
         }
 
         func restore(_ drawing: PKDrawing, on canvas: PKCanvasView) {

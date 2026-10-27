@@ -633,7 +633,7 @@ struct LibraryRecordEditorView: View {
     @ViewBuilder
     private func optionEditorRow(_ index: Int) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 7) {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
                 let letter = String(UnicodeScalar(65 + index)!)
                 if isQuestionBank {
                     Text(letter)
@@ -649,15 +649,27 @@ struct LibraryRecordEditorView: View {
                         .accessibilityIdentifier("question-bank-analysis-option-\(index)")
                 } else {
                     Text(letter)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .frame(width: 21)
-                    TextField(isDataAnalysis ? "选项文字（可留空）" : "选项内容", text: $draft.options[index])
-                        .textFieldStyle(ErrorFormTextFieldStyle())
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AppTheme.accent)
+                        .frame(width: 28, height: 28)
+                        .background(AppTheme.accent.opacity(0.10), in: Capsule())
+                    TextField("", text: $draft.options[index], axis: .vertical)
+                        .lineLimit(1...)
+                        .font(.system(size: 12.5, weight: .regular))
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
+                        .accessibilityLabel("选项 \(letter)")
+                        .accessibilityIdentifier("library-error-option-\(index)")
                 }
                 if isDataAnalysis && !isQuestionBank {
                     DataAnalysisOptionImagePicker(hasImage: !optionImageBinding(index).wrappedValue.isEmpty) { value in
                         optionImageBinding(index).wrappedValue = value
+                    }
+                    .alignmentGuide(.firstTextBaseline) { dimensions in
+                        dimensions[.top] + dimensions.height / 2
                     }
                 }
             }

@@ -8,6 +8,12 @@ on:
       - native-ios/**
       - .github/workflows/ios-native-unsigned.yml
   workflow_dispatch:
+    inputs:
+      run_simulator_tests:
+        description: Run the focused iOS simulator test groups for this build
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -86,68 +92,19 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE_SHA: ${{ github.event.before }}
-          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          RUN_SIMULATOR_TESTS: ${{ inputs.run_simulator_tests }}
         run: |
           RUN_SIMULATOR=false
           RUN_QUESTION_BANK=false
           RUN_NAVIGATION=false
           RUN_CONTRACTS=false
-          if [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && [[ ! "$BEFORE_SHA" =~ ^0+$ ]]; then
-            if ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
-              echo "Previous commit is unavailable; running all focused simulator test groups."
-              RUN_SIMULATOR=true
-              RUN_QUESTION_BANK=true
-              RUN_NAVIGATION=true
-              RUN_CONTRACTS=true
-            else
-              SCOPE_BASE=$(git describe --tags --match 'native-v*' --abbrev=0 "$BEFORE_SHA" 2>/dev/null || true)
-              if [ -z "$SCOPE_BASE" ]; then
-                SCOPE_BASE="$BEFORE_SHA"
-                echo "No prior native release tag found; using the previous push commit for test scope."
-              else
-                echo "Selecting focused simulator tests from changes since the last native release: $SCOPE_BASE"
-              fi
-              CHANGED_FILES=$(git diff --name-only "$SCOPE_BASE" "$GITHUB_SHA")
-              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/Features/QuestionBank/|Tests/QuestionBank/)'; then
-                RUN_SIMULATOR=true
-                RUN_QUESTION_BANK=true
-              fi
-              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Tests/UI/QuestionBankReaderInteractionUITests\.swift$'; then
-                RUN_SIMULATOR=true
-                RUN_QUESTION_BANK=true
-              fi
-              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Sources/Features/Library/(LibraryRecordRepository\.swift|LibraryRecordModels\.swift|LibraryRecordDetailView\.swift|LibraryRecordEditorView\.swift|LibraryDoodleSession\.swift|LibraryComponents\.swift|LibraryView\.swift|ShenlunAdaptationView\.swift)$'; then
-                RUN_SIMULATOR=true
-                RUN_QUESTION_BANK=true
-              fi
-              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/Sources/Features/Shared/NativePencilDrawingEditor\.swift$'; then
-                RUN_SIMULATOR=true
-                RUN_QUESTION_BANK=true
-              fi
-              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/App/(RootTabView|NativeBottomTabBar)\.swift|Sources/DesignSystem/NativeDocumentStyle\.swift|Sources/Features/(Library/LibraryView\.swift|QuestionBank/.*|Review/ReviewView\.swift)|Tests/UI/SpeedInteractionUITests\.swift)$'; then
-                RUN_SIMULATOR=true
-                RUN_NAVIGATION=true
-              fi
-              if echo "$CHANGED_FILES" | grep -Eq '^\.github/workflows/ios-native-unsigned\.yml$'; then
-                RUN_SIMULATOR=true
-                RUN_QUESTION_BANK=true
-                if [[ "$HEAD_COMMIT_MESSAGE" != *"[diag-question-detail]"* ]]; then
-                  RUN_NAVIGATION=true
-                fi
-              fi
-              # These source-only contracts cover keypad, form, and rich-text changes;
-              # unrelated feature releases should not spend time running them.
-              if echo "$CHANGED_FILES" | grep -Eq '^native-ios/(Sources/Features/Speed/|Sources/Features/Library/LibraryRecordEditorView\.swift|Sources/Features/Shared/NativeRichTextEditor\.swift|Tests/(Animation/|Speed/|speed-feedback-contracts\.cjs|document-form-contracts\.cjs|rich-text-toolbar-contracts\.cjs))'; then
-                RUN_CONTRACTS=true
-              fi
-            fi
-          fi
-          if [[ "$HEAD_COMMIT_MESSAGE" == *"[diag-question-detail]"* ]]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$RUN_SIMULATOR_TESTS" = "true" ]; then
             RUN_SIMULATOR=true
             RUN_QUESTION_BANK=true
-            RUN_NAVIGATION=false
-            RUN_CONTRACTS=false
+            RUN_NAVIGATION=true
+            RUN_CONTRACTS=true
+          else
+            echo "Simulator builds and tests are disabled for this run."
           fi
           echo "run=$RUN_SIMULATOR" >> "$GITHUB_OUTPUT"
           echo "question_bank=$RUN_QUESTION_BANK" >> "$GITHUB_OUTPUT"
@@ -250,14 +207,12 @@ jobs:
         env:
           RUN_QUESTION_BANK: ${{ steps.simulator_scope.outputs.question_bank }}
           RUN_NAVIGATION: ${{ steps.simulator_scope.outputs.navigation }}
-          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           if [ "$RUN_QUESTION_BANK" = "true" ]; then
             # Hosted test schemes stage their bundles under the app PlugIns directory;
             # isolate DerivedData so a later scheme build cannot remove an earlier bundle.
             mkdir -p build
-            if [[ "$HEAD_COMMIT_MESSAGE" != *"[diag-question-detail]"* ]]; then
-              if ! xcodebuild build-for-testing \
+            if ! xcodebuild build-for-testing \
                 -project native-ios/KaogongReviewNative.xcodeproj \
                 -scheme QuestionBankImport \
                 -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
@@ -268,7 +223,6 @@ jobs:
                 (grep -E 'error:|fatal error:|BUILD FAILED|Command .* failed' build/QuestionBankImportBuild.log | tail -n 40 || true) \
                   | while IFS= read -r diagnostic; do printf '::error title=QuestionBankImport build diagnostic::%s\n' "$diagnostic"; done
                 exit 1
-              fi
             fi
             if ! xcodebuild build-for-testing \
               -project native-ios/KaogongReviewNative.xcodeproj \
@@ -332,7 +286,7 @@ jobs:
           key: native-tabbar-baseline-${{ steps.baseline_key.outputs.digest }}
 
       - name: Test changed navigation, speed controls and inline note
-        if: steps.simulator_scope.outputs.run == 'true' && !contains(github.event.head_commit.message, '[diag-question-detail]')
+        if: steps.simulator_scope.outputs.run == 'true'
         timeout-minutes: 12
         shell: bash
         env:
@@ -452,7 +406,7 @@ jobs:
           fi
 
       - name: Export doodle overlay simulator screenshot
-        if: steps.simulator_scope.outputs.question_bank == 'true' && !contains(github.event.head_commit.message, '[diag-question-detail]')
+        if: steps.simulator_scope.outputs.question_bank == 'true'
         shell: bash
         run: |
           RESULT_PATH=build/QuestionBankReaderInteraction.xcresult
@@ -465,7 +419,7 @@ jobs:
           fi
 
       - name: Upload doodle overlay simulator screenshot
-        if: steps.simulator_scope.outputs.question_bank == 'true' && !contains(github.event.head_commit.message, '[diag-question-detail]')
+        if: steps.simulator_scope.outputs.question_bank == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: question-bank-doodle-overlay-screenshot
@@ -474,7 +428,7 @@ jobs:
           retention-days: 7
 
       - name: Measure primary tab bar geometry and preserve hidden secondary pages
-        if: steps.simulator_scope.outputs.navigation == 'true' && !contains(github.event.head_commit.message, '[diag-question-detail]')
+        if: steps.simulator_scope.outputs.navigation == 'true'
         timeout-minutes: 10
         shell: bash
         run: |
@@ -508,7 +462,6 @@ jobs:
           retention-days: 7
 
       - name: Archive native App
-        if: ${{ !contains(github.event.head_commit.message, '[diag-question-detail]') }}
         shell: bash
         run: |
           set -o pipefail
@@ -530,7 +483,6 @@ jobs:
           fi
 
       - name: Verify native App resources
-        if: ${{ !contains(github.event.head_commit.message, '[diag-question-detail]') }}
         shell: bash
         run: |
           APP_PATH="build/native-ios/KaogongReviewNative.xcarchive/Products/Applications/KaogongReviewNative.app"
@@ -568,7 +520,6 @@ jobs:
           echo "Verified version ${APP_VERSION} (${APP_BUILD}), scene lifecycle, iPad-only window configuration, executable, Info.plist, Assets.car, and AppIcon metadata"
 
       - name: Package native unsigned IPA
-        if: ${{ !contains(github.event.head_commit.message, '[diag-question-detail]') }}
         shell: bash
         run: |
           VERSION=$(awk '/MARKETING_VERSION:/ { gsub(/"/, "", $2); print $2; exit }' native-ios/project.yml)
@@ -581,7 +532,6 @@ jobs:
           echo "IPA_NAME=$IPA_NAME" >> "$GITHUB_ENV"
 
       - name: Publish native IPA to GitHub Release
-        if: ${{ !contains(github.event.head_commit.message, '[diag-question-detail]') }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -624,7 +574,6 @@ jobs:
           fi
 
       - name: Upload native unsigned IPA
-        if: ${{ !contains(github.event.head_commit.message, '[diag-question-detail]') }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.IPA_NAME }}
