@@ -454,7 +454,7 @@ struct QuestionBankModuleView: View {
     }
 
     private func updateReaderFingerprintTokens(
-        _ tokens: [QuestionBankReaderRecordRevisionToken],
+        _ tokens: Set<QuestionBankReaderRecordRevisionToken>,
         using visibleQuestions: [String: QuestionBankQuestion]
     ) {
         var updatedCache = readerFingerprintCache
