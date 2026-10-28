@@ -94,7 +94,9 @@ struct ShenlunRecordDetailView: View {
             drawingData: drawingData,
             legacyPreviewDataURL: legacyPreview,
             source: "shenlun-detail",
-            onSave: saveDrawing
+            onSave: { drawingData, legacyPreviewCleared, _, _ in
+                saveDrawing(drawingData, legacyPreviewCleared: legacyPreviewCleared)
+            }
         )
         LibraryPerformanceLog.mark("doodle.tap-to-present", since: openStart)
         noteSession.finish { _ in }

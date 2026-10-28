@@ -70,9 +70,20 @@ struct LibraryInlineNoteView: View {
             var object = record.jsonObject ?? [:]
             object["note"] = draft
             object["updatedAt"] = ISO8601DateFormatter().string(from: .now)
-            record.replacePayload(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
+            let updatedPayload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            let previousPayload = record.payload
+            let previousIndexPayload = record.indexPayload
+            let previousUpdatedAt = record.updatedAt
+            record.replacePayload(updatedPayload)
             record.updatedAt = .now
-            try modelContext.save()
+            do {
+                try modelContext.save()
+            } catch {
+                record.payload = previousPayload
+                record.indexPayload = previousIndexPayload
+                record.updatedAt = previousUpdatedAt
+                throw error
+            }
         }
     }
 
@@ -193,6 +204,12 @@ struct LibraryInlineNoteView: View {
     @MainActor
     private func prepareNote(for key: LibraryInlineNoteRenderKey) {
         guard !editing, !key.html.isEmpty else { return }
+        if let preparedNote,
+           preparedNote.key.documentID == key.documentID,
+           preparedNote.key.html == key.html {
+            self.preparedNote = PreparedLibraryInlineNote(key: key, result: preparedNote.result)
+            return
+        }
         let result = NativeRichTextDisplayRenderer.render(key.html)
         guard !Task.isCancelled, !editing, key == noteRenderKey else { return }
         preparedNote = PreparedLibraryInlineNote(key: key, result: result)
@@ -232,8 +249,9 @@ struct LibraryInlineNoteView: View {
         saveTask?.cancel()
         editorSession.endEditing { latestHTML in
             let latestDraft = latestHTML ?? self.draft
+            let latestAttributedText = self.editorSession.latestAttributedText()
             self.draft = latestDraft
-            guard self.save(latestDraft) else {
+            guard self.save(latestDraft, preparedAttributedText: latestAttributedText) else {
                 self.isFinishing = false
                 completion(false)
                 return
@@ -244,7 +262,10 @@ struct LibraryInlineNoteView: View {
         }
     }
 
-    @discardableResult private func save(_ content: String? = nil) -> Bool {
+    @discardableResult private func save(
+        _ content: String? = nil,
+        preparedAttributedText: NSAttributedString? = nil
+    ) -> Bool {
         guard editing else { return true }
         let content = content ?? draft
         guard content != saved else { return true }
@@ -252,6 +273,15 @@ struct LibraryInlineNoteView: View {
             try writeNote(content, modelContext)
             saved = content
             errorMessage = nil
+            if let attributedText = preparedAttributedText ?? editorSession.latestAttributedText() {
+                preparedNote = PreparedLibraryInlineNote(
+                    key: noteRenderKey,
+                    result: NativeRichTextDisplayRenderResult(
+                        attributedText: attributedText.copy() as? NSAttributedString ?? attributedText,
+                        usedSafeFallback: false
+                    )
+                )
+            }
             return true
         } catch {
             errorMessage = "笔记未保存，原内容未更改：\(error.localizedDescription)"

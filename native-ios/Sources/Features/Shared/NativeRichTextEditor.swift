@@ -415,9 +415,11 @@ final class NativeRichTextEditorSession: ObservableObject {
     typealias EndEditingHandler = (@escaping (String?) -> Void) -> Void
 
     private var latestHTMLReader: (() -> String?)?
+    private var latestAttributedTextReader: (() -> NSAttributedString?)?
     private var endEditingHandler: EndEditingHandler?
 
     func latestHTML() -> String? { latestHTMLReader?() }
+    func latestAttributedText() -> NSAttributedString? { latestAttributedTextReader?() }
 
     func endEditing(_ completion: @escaping (String?) -> Void) {
         if let endEditingHandler {
@@ -429,14 +431,17 @@ final class NativeRichTextEditorSession: ObservableObject {
 
     fileprivate func connect(
         latestHTMLReader: @escaping () -> String?,
+        latestAttributedTextReader: @escaping () -> NSAttributedString?,
         endEditingHandler: @escaping EndEditingHandler
     ) {
         self.latestHTMLReader = latestHTMLReader
+        self.latestAttributedTextReader = latestAttributedTextReader
         self.endEditingHandler = endEditingHandler
     }
 
     fileprivate func disconnect() {
         latestHTMLReader = nil
+        latestAttributedTextReader = nil
         endEditingHandler = nil
     }
 }
@@ -754,6 +759,10 @@ private struct RichTextTextView: UIViewRepresentable {
                 latestHTMLReader: { [weak self, weak view] in
                     guard let self, let view else { return nil }
                     return self.publishNow(view)
+                },
+                latestAttributedTextReader: { [weak view] in
+                    guard let view else { return nil }
+                    return view.attributedText.copy() as? NSAttributedString
                 },
                 endEditingHandler: { [weak self, weak view] completion in
                     guard let self, let view else { completion(nil); return }

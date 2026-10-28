@@ -78,6 +78,11 @@ struct LibraryRecordDetailView: View {
 
     private var detailBehavior: some View {
         detailStateTracking
+            .overlay {
+                if questionBankContext != nil {
+                    QuestionBankDoodleAutosaveObserver(session: doodleSession, context: modelContext)
+                }
+            }
             .confirmationDialog("清除本题作答记录？", isPresented: $showClearAnswer, titleVisibility: .visible) {
                 Button("清除本题作答记录", role: .destructive) { onClearAnswer?() }
                 Button("取消", role: .cancel) {}
@@ -409,8 +414,8 @@ struct LibraryRecordDetailView: View {
         if let rawQuestion = firstText(["question", "title", "name", "text", "content"]),
            !clean(rawQuestion).isEmpty {
             Text(cleanMultiline(rawQuestion))
-                .font(AppTheme.questionTextFont)
-                .lineSpacing(AppTheme.questionLineSpacing)
+                .font(questionBankContext == nil ? AppTheme.questionTextFont : QuestionBankTypography.contentFont)
+                .lineSpacing(questionBankContext == nil ? AppTheme.questionLineSpacing : QuestionBankTypography.contentLineSpacing)
                 .textSelection(.enabled)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -428,7 +433,7 @@ struct LibraryRecordDetailView: View {
         let bankContext = self.displayQuestionBankContext
         let optionCount = max(options.count, optionImages.count)
         if optionCount > 0 {
-            VStack(spacing: 8) {
+            VStack(spacing: bankContext == nil ? 8 : 6) {
                 ForEach(0..<optionCount, id: \.self) { index in
                     let option = index < options.count ? options[index] : ""
                     let optionImage = index < optionImages.count ? optionImages[index] : ""
@@ -444,12 +449,12 @@ struct LibraryRecordDetailView: View {
                             letter: letter,
                             state: optionMarkerState(correct: correct, chosen: chosen),
                             diameter: 26,
-                            font: .system(size: 14)
+                            font: bankContext == nil ? .system(size: 14) : QuestionBankTypography.contentFont
                         )
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: bankContext == nil ? 8 : 6) {
                             if hasText {
                                 optionText(option)
-                                    .lineSpacing(5.5)
+                                    .lineSpacing(bankContext == nil ? 5.5 : QuestionBankTypography.contentLineSpacing)
                             }
                             if !optionImage.isEmpty {
                                 if let bankContext,
@@ -762,7 +767,7 @@ struct LibraryRecordDetailView: View {
 
     private func optionText(_ option: String) -> Text {
         Text(cleanMultiline(option))
-            .font(.system(size: 14, weight: .regular))
+            .font(questionBankContext == nil ? .system(size: 14, weight: .regular) : QuestionBankTypography.contentFont)
     }
 
     private var answerLetters: Set<String> { letterSet(firstText(["correctOption", "answer", "correctAnswer"])) }
@@ -978,8 +983,13 @@ struct LibraryRecordDetailView: View {
         let openStart = ProcessInfo.processInfo.systemUptime
         let drawingData = firstText(["pencilKitData", "drawingData"]) ?? ""
         let targetID = activeRecordID
-        let needsBackgroundLoad = questionBankContext != nil
-        let currentDrawing = needsBackgroundLoad ? "" : drawingData
+        let doodleLoadState = questionBankContext == nil
+            ? .unknown
+            : QuestionBankDoodleMemoryCache.shared.state(for: targetID)
+        let needsBackgroundLoad = questionBankContext != nil && doodleLoadState == .unknown
+        let currentDrawing = questionBankContext == nil
+            ? drawingData
+            : (doodleLoadState.drawingData ?? "")
         doodleSession.present(
             targetRecordID: targetID,
             drawingData: currentDrawing,
@@ -987,36 +997,36 @@ struct LibraryRecordDetailView: View {
                 ? (firstText(["drawingPreview", "doodle", "drawingDataURL"]) ?? "") : "",
             isLoadingDrawing: needsBackgroundLoad,
             source: "library-record-detail",
-            onSave: { updatedDrawing, legacyPreviewCleared in
+            onSave: { updatedDrawing, legacyPreviewCleared, generation, revision in
                 if questionBankContext != nil {
-                    return QuestionBankDoodleRepository.save(
+                    QuestionBankDoodleRepository.enqueueSave(
                         recordID: targetID,
                         drawingData: updatedDrawing,
-                        context: modelContext
-                    )
+                        container: modelContext.container,
+                        presentationGeneration: generation,
+                        drawingRevision: revision,
+                        debounceMilliseconds: 0
+                    ) { error in
+                        guard doodleSession.presentationGeneration == generation,
+                              doodleSession.targetRecordID == targetID else { return }
+                        doodleSession.saveError = error
+                    }
+                    return nil
                 }
                 return saveDrawing(updatedDrawing, legacyPreviewCleared: legacyPreviewCleared)
             }
         )
+        LibraryPerformanceLog.mark("doodle.tap-to-feedback", since: openStart)
         LibraryPerformanceLog.mark("doodle.tap-to-present", since: openStart)
         if needsBackgroundLoad {
             let container = modelContext.container
-            Task { @MainActor in
-                do {
-                    let loadedDrawing = try await QuestionBankDoodleRepository.drawingData(
-                        recordID: targetID,
-                        container: container
-                    )
-                    LibraryPerformanceLog.mark("doodle.read.background-result", since: openStart)
-                    guard doodleSession.isPresented,
-                          doodleSession.targetRecordID == targetID,
-                          doodleSession.isLoadingDrawing else { return }
-                    doodleSession.completeDrawingLoad(loadedDrawing)
-                } catch {
-                    guard doodleSession.isPresented,
-                          doodleSession.targetRecordID == targetID else { return }
-                    doodleSession.failDrawingLoad("涂鸦读取失败：\(error.localizedDescription)")
-                }
+            doodleSession.beginDrawingLoad(recordID: targetID, startedAt: openStart) {
+                try await QuestionBankDoodleRepository.drawingData(
+                    recordID: targetID,
+                    container: container
+                )
+            } onLoaded: { loadedDrawing in
+                QuestionBankDoodleMemoryCache.shared.store(loadedDrawing, for: targetID)
             }
         }
         // The drawing overlay is already presented; finish the editor through

@@ -243,7 +243,12 @@ struct LibraryView: View {
     }
 
     private var content: some View {
-        VStack(spacing: 0) {
+        let scopedRecords = sortedScopedRecords
+        let renderedSnapshots = snapshots(from: scopedRecords)
+        let visibleRecords = displayedRecords(from: renderedSnapshots)
+        let visibleTags = availableTags(from: renderedSnapshots)
+        let hasMoreVisibleRecords = renderLimit < scopedRecords.count
+        return VStack(spacing: 0) {
             header
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
@@ -258,11 +263,11 @@ struct LibraryView: View {
                         .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
                     }
                     if isQuantityContext, kind == .errors || kind == .notes { quantityTypeBar }
-                    filterBar
+                    filterBar(availableTags: visibleTags)
                     if kind == .words { wordCategoryBar }
                     if kind == .notes, noteContext != nil { noteTypeBar }
                     if kind == .stickies, stickyContext != nil { stickyTagBar }
-                    if displayedRecords.isEmpty {
+                    if visibleRecords.isEmpty {
                         VStack(spacing: 10) {
                             NativeStatusCard(
                                 title: emptyTitle,
@@ -279,12 +284,12 @@ struct LibraryView: View {
                         }
                     } else if isGraphReasoningContext, graphDisplayMode == "flashcards" {
                         GraphReasoningFlashcardView(
-                            records: displayedRecords,
+                            records: visibleRecords,
                             onEdit: { navigationPath.append(.editor(kind: kind, recordID: $0.record.recordID)) }
                         )
                     } else {
                         LibraryMasonryGrid(
-                            records: displayedRecords,
+                            records: visibleRecords,
                             kind: kind,
                             cardSize: cardSize,
                             onOpen: { open($0) },
@@ -292,7 +297,7 @@ struct LibraryView: View {
                             hiddenTags: kind == .notes && !selectedTag.isEmpty ? [selectedTag] : []
                         )
                     }
-                    if hasMoreRecords {
+                    if hasMoreVisibleRecords {
                         Button {
                             renderLimit += 40
                         } label: {
@@ -379,7 +384,7 @@ struct LibraryView: View {
         .background(AppTheme.groupedBackground)
     }
 
-    private var filterBar: some View {
+    private func filterBar(availableTags: [String]) -> some View {
         HStack(spacing: 8) {
             if kind == .errors {
                 Menu {
@@ -476,13 +481,9 @@ struct LibraryView: View {
         return values
     }
 
-    private var scopedRecords: [StoredRecord] {
-        sortedScopedRecords
-    }
-
-    private var snapshots: [LibraryRecordSnapshot] {
+    private func snapshots(from scopedRecords: [StoredRecord]) -> [LibraryRecordSnapshot] {
         let wordNames = snapshotCache.wordNames(in: records)
-        return Array(sortedScopedRecords.prefix(renderLimit)).map {
+        return Array(scopedRecords.prefix(renderLimit)).map {
             snapshotCache.snapshot(
                 record: $0,
                 linkedWordNamesByID: wordNames,
@@ -510,9 +511,7 @@ struct LibraryView: View {
         )
     }
 
-    private var hasMoreRecords: Bool { renderLimit < scopedRecords.count }
-
-    private var displayedRecords: [LibraryRecordSnapshot] {
+    private func displayedRecords(from snapshots: [LibraryRecordSnapshot]) -> [LibraryRecordSnapshot] {
         let keyword = normalizedSearch(searchText)
         return snapshots.filter { snapshot in
             let matchesSearch = keyword.isEmpty || normalizedSearch(snapshot.searchableText).contains(keyword)
@@ -581,7 +580,7 @@ struct LibraryView: View {
         }
     }
 
-    private var availableTags: [String] {
+    private func availableTags(from snapshots: [LibraryRecordSnapshot]) -> [String] {
         if kind == .notes, let context = noteContext {
             return NoteTypeRepository.types(subject: context.subject, module: context.module, records: records).map(\.name)
         }

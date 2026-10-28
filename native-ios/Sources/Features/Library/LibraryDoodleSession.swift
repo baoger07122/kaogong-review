@@ -28,14 +28,23 @@ final class LibraryDoodleSession: ObservableObject {
     @Published private(set) var targetRecordID: String?
     @Published private(set) var presentationSource = "unknown"
     let canvas = LibraryDoodleCanvasState()
-    private var saveHandler: ((String, Bool) -> String?)?
+    private var saveHandler: ((String, Bool, Int, Int) -> String?)?
     private var isDismissing = false
     private var drawingLoadFailed = false
     private var drawingLoadDataReceived = false
-    private var presentationGeneration = 0
+    private(set) var presentationGeneration = 0
+    private var drawingLoadTask: Task<Void, Never>?
+    private var drawingRevisionAtPresentation = 0
     private var presentationStartedAt: TimeInterval?
     private var didLogCanvasFrame = false
     private var didLogCanvasInteractive = false
+
+    var userDrawingRevision: Int { canvas.controller.userDrawingRevision }
+
+    var hasUnsavedDrawingChanges: Bool {
+        canvas.controller.userDrawingRevision > drawingRevisionAtPresentation
+            || canvas.controller.legacyPreviewCleared
+    }
 
     func present(
         targetRecordID: String,
@@ -43,7 +52,7 @@ final class LibraryDoodleSession: ObservableObject {
         legacyPreviewDataURL: String,
         isLoadingDrawing: Bool = false,
         source: String,
-        onSave: @escaping (String, Bool) -> String?
+        onSave: @escaping (String, Bool, Int, Int) -> String?
     ) {
         guard !isPresented else { return }
 #if DEBUG
@@ -54,6 +63,8 @@ final class LibraryDoodleSession: ObservableObject {
         }
 #endif
         let preparationStart = ProcessInfo.processInfo.systemUptime
+        drawingLoadTask?.cancel()
+        drawingLoadTask = nil
         presentationGeneration &+= 1
         saveError = nil
         isDismissing = false
@@ -72,6 +83,7 @@ final class LibraryDoodleSession: ObservableObject {
         canvas.legacyPreviewDataURL = legacyPreviewDataURL
         saveHandler = onSave
         canvas.controller.prepareForPresentation()
+        drawingRevisionAtPresentation = canvas.controller.userDrawingRevision
         LibraryPerformanceLog.mark("doodle.present.prepare", since: preparationStart)
 
         var transaction = Transaction()
@@ -82,6 +94,7 @@ final class LibraryDoodleSession: ObservableObject {
 
     func completeDrawingLoad(_ drawingData: String) {
         guard isPresented, isLoadingDrawing else { return }
+        drawingLoadTask = nil
         drawingLoadDataReceived = true
         canvas.controller.beginDrawingReload()
         canvas.drawingData = drawingData
@@ -90,14 +103,85 @@ final class LibraryDoodleSession: ObservableObject {
 
     func failDrawingLoad(_ message: String) {
         guard isPresented, isLoadingDrawing else { return }
+        drawingLoadTask = nil
         isLoadingDrawing = false
         drawingLoadFailed = true
         canvas.controller.canvasLoadError = message
     }
 
+    func beginDrawingLoad(
+        recordID: String,
+        startedAt: TimeInterval,
+        loader: @escaping () async throws -> String,
+        onLoaded: @escaping (String) -> Void = { _ in }
+    ) {
+        guard isPresented, isLoadingDrawing, targetRecordID == recordID else { return }
+        drawingLoadTask?.cancel()
+        let generation = presentationGeneration
+        drawingLoadTask = Task { @MainActor [weak self] in
+            do {
+                let drawing = try await loader()
+                guard let self, !Task.isCancelled,
+                      self.presentationGeneration == generation,
+                      self.isPresented,
+                      self.targetRecordID == recordID,
+                      self.isLoadingDrawing else { return }
+                LibraryPerformanceLog.mark("doodle.read.background-result", since: startedAt)
+                onLoaded(drawing)
+                self.completeDrawingLoad(drawing)
+            } catch {
+                guard let self, !Task.isCancelled,
+                      self.presentationGeneration == generation,
+                      self.isPresented,
+                      self.targetRecordID == recordID,
+                      self.isLoadingDrawing else { return }
+                self.failDrawingLoad("涂鸦读取失败：\(error.localizedDescription)")
+            }
+        }
+    }
+
+    func flushQuestionBankDrawingForBackground() {
+        guard isPresented,
+              !isLoadingDrawing,
+              !drawingLoadFailed,
+              QuestionBankDoodleRepository.isDoodleRecordID(targetRecordID),
+              let targetRecordID,
+              let handler = saveHandler else { return }
+        let generation = presentationGeneration
+        let enqueueLatest: () -> Void = { [weak self] in
+            guard let self,
+                  self.isPresented,
+                  self.presentationGeneration == generation,
+                  self.targetRecordID == targetRecordID,
+                  self.hasUnsavedDrawingChanges else { return }
+            let flushStart = ProcessInfo.processInfo.systemUptime
+            self.saveError = handler(
+                self.canvas.drawingData,
+                self.canvas.controller.legacyPreviewCleared,
+                generation,
+                self.userDrawingRevision
+            )
+            LibraryPerformanceLog.mark("doodle.background-flush-enqueued", since: flushStart)
+        }
+        if canvas.controller.hasPendingDrawingPublish {
+            canvas.controller.commit(enqueueLatest)
+        } else {
+            enqueueLatest()
+        }
+    }
+
     func dismiss() {
         guard isPresented, !isDismissing else { return }
-        guard !isLoadingDrawing else { return }
+        if isLoadingDrawing {
+            let closeStart = ProcessInfo.processInfo.systemUptime
+            drawingLoadTask?.cancel()
+            drawingLoadTask = nil
+            saveHandler = nil
+            finishDismissal()
+            isDismissing = false
+            LibraryPerformanceLog.mark("doodle.close-while-loading", since: closeStart)
+            return
+        }
         if drawingLoadFailed {
             saveHandler = nil
             finishDismissal()
@@ -122,6 +206,8 @@ final class LibraryDoodleSession: ObservableObject {
             }
             let drawingData = self.canvas.drawingData
             let legacyPreviewCleared = self.canvas.controller.legacyPreviewCleared
+            let drawingRevision = self.userDrawingRevision
+            let hasChanges = self.hasUnsavedDrawingChanges
             LibraryPerformanceLog.mark("doodle.drawing-snapshot", since: closeStart)
 
             // The canvas can disappear as soon as the final snapshot exists. The
@@ -130,10 +216,17 @@ final class LibraryDoodleSession: ObservableObject {
             self.finishDismissal()
             LibraryPerformanceLog.mark("doodle.overlay-hidden", since: closeStart)
 
+            guard hasChanges else {
+                self.saveHandler = nil
+                self.isDismissing = false
+                LibraryPerformanceLog.mark("doodle.close-no-change", since: closeStart)
+                return
+            }
+
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 let saveStart = ProcessInfo.processInfo.systemUptime
-                if let error = handler?(drawingData, legacyPreviewCleared) {
+                if let error = handler?(drawingData, legacyPreviewCleared, dismissalGeneration, drawingRevision) {
                     self.saveError = error
                     self.saveHandler = handler
                     self.isDismissing = false
@@ -170,6 +263,7 @@ final class LibraryDoodleSession: ObservableObject {
         guard !isLoadingDrawing || drawingLoadDataReceived else { return }
         isLoadingDrawing = false
         didLogCanvasInteractive = true
+        LibraryPerformanceLog.mark("doodle.tap-to-canvas-ready", since: presentationStartedAt)
         LibraryPerformanceLog.mark("doodle.canvas-interactive", since: presentationStartedAt)
     }
 
@@ -297,7 +391,7 @@ struct LibraryDoodleOverlay: View {
 
     private var toolbar: some View {
         NativeDoodleToolbarCapsule {
-            toolbarButton("xmark", label: "退出涂鸦", disabled: session.isLoadingDrawing, action: session.dismiss)
+            toolbarButton("xmark", label: "退出涂鸦", action: session.dismiss)
                 .accessibilityIdentifier("library-doodle-close")
             toolbarButton(
                 controller.eraser ? "eraser.fill" : "eraser",
@@ -312,9 +406,7 @@ struct LibraryDoodleOverlay: View {
                 label: controller.showSettings ? "收起画笔调节" : "展开画笔调节",
                 active: controller.showSettings
             ) {
-                withAnimation(.easeInOut(duration: 0.20)) {
-                    controller.showSettings.toggle()
-                }
+                controller.showSettings.toggle()
             }
             toolbarButton(
                 "hand.draw",
@@ -333,11 +425,24 @@ struct LibraryDoodleOverlay: View {
         disabled: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        Button {
+            let tapStart = ProcessInfo.processInfo.systemUptime
+            action()
+            LibraryPerformanceLog.mark("doodle.tool.tap-feedback", since: tapStart)
+        } label: {
             Image(systemName: systemImage)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(active ? AppTheme.accent : Color.primary)
+                .contentTransition(.symbolEffect(.replace))
                 .frame(width: 32, height: 44)
+                .background(active ? AppTheme.accent.opacity(0.12) : .clear, in: Circle())
+                .overlay {
+                    if active {
+                        Circle()
+                            .stroke(AppTheme.accent.opacity(0.35), lineWidth: 0.8)
+                            .frame(width: 28, height: 28)
+                    }
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(LibraryDoodleToolbarButtonStyle())

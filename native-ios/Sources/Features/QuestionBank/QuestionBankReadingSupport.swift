@@ -50,7 +50,10 @@ enum QuestionBankReaderPreferences {
     static let presentationModeKey = "question-bank.presentation-mode"
 }
 
-struct QuestionBankDoodleMemoryCache {
+@MainActor
+final class QuestionBankDoodleMemoryCache {
+    static let shared = QuestionBankDoodleMemoryCache()
+
     private let capacity: Int
     private var drawings: [String: String] = [:]
     private var leastToMostRecent: [String] = []
@@ -59,14 +62,22 @@ struct QuestionBankDoodleMemoryCache {
         self.capacity = max(1, capacity)
     }
 
-    mutating func drawingData(for recordID: String) -> String? {
-        guard let data = drawings[recordID] else { return nil }
+    func state(for recordID: String) -> QuestionBankDoodleLoadState {
+        guard let data = drawings[recordID] else { return .unknown }
         leastToMostRecent.removeAll { $0 == recordID }
         leastToMostRecent.append(recordID)
-        return data
+        return data.isEmpty ? .knownEmpty : .present(data)
     }
 
-    mutating func store(_ data: String, for recordID: String) {
+    func drawingData(for recordID: String) -> String? {
+        switch state(for: recordID) {
+        case .unknown: nil
+        case .knownEmpty: ""
+        case .present(let data): data
+        }
+    }
+
+    func store(_ data: String, for recordID: String) {
         drawings[recordID] = data
         leastToMostRecent.removeAll { $0 == recordID }
         leastToMostRecent.append(recordID)
@@ -76,9 +87,23 @@ struct QuestionBankDoodleMemoryCache {
         }
     }
 
-    mutating func invalidate() {
+    func invalidate() {
         drawings.removeAll()
         leastToMostRecent.removeAll()
+    }
+}
+
+enum QuestionBankDoodleLoadState: Equatable {
+    case unknown
+    case knownEmpty
+    case present(String)
+
+    var drawingData: String? {
+        switch self {
+        case .unknown: nil
+        case .knownEmpty: ""
+        case .present(let data): data
+        }
     }
 }
 
@@ -132,24 +157,18 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
         self.page = page
     }
 
-    private var previewID: PageID? {
-        guard abs(dragOffset) > 0 else { return nil }
-        return dragOffset < 0 ? nextID : previousID
-    }
-
     private var renderedPageIDs: [PageID] {
         if didFinishCommitMotion, let pendingCommitID {
             return pendingCommitID == currentID ? [currentID] : [currentID, pendingCommitID]
         }
-        guard let previewID else { return [currentID] }
-        return [currentID, previewID]
+        return [previousID, currentID, nextID].compactMap { $0 }
     }
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 ForEach(renderedPageIDs, id: \.self) { pageID in
-                    page(pageID, isHorizontalPagingDrag)
+                    page(pageID, pageID != currentID || isHorizontalPagingDrag)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .offset(x: horizontalOffset(for: pageID, width: geometry.size.width))
                         .zIndex(didFinishCommitMotion
@@ -242,7 +261,9 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
             if pageID == currentID { return dragOffset }
         }
         guard pageID != currentID else { return dragOffset }
-        return dragOffset < 0 ? width + dragOffset : -width + dragOffset
+        if pageID == previousID { return -width + dragOffset }
+        if pageID == nextID { return width + dragOffset }
+        return 0
     }
 
     private func finishCommitHandoff() {
@@ -596,6 +617,7 @@ struct QuestionBankOptionMarker: View {
     let state: QuestionBankOptionMarkerState
     var diameter: CGFloat = 26
     var font: Font = QuestionBankTypography.contentFont
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Text(letter)
@@ -603,6 +625,10 @@ struct QuestionBankOptionMarker: View {
             .foregroundStyle(foregroundColor)
             .frame(width: diameter, height: diameter)
             .background(fillColor, in: Circle())
+            .animation(
+                reduceMotion ? nil : .easeOut(duration: 0.12),
+                value: state
+            )
             .overlay {
                 if state == .unselected || state == .selected {
                     Circle().stroke(outlineColor, lineWidth: state == .selected ? 1.5 : 1)
@@ -877,69 +903,107 @@ enum QuestionBankDoodleRepository {
     }
 
     @MainActor
+    static func enqueueSave(
+        recordID: String,
+        drawingData: String,
+        container: ModelContainer,
+        presentationGeneration: Int,
+        drawingRevision: Int,
+        debounceMilliseconds: Int = 650,
+        completion: @escaping (String?) -> Void = { _ in }
+    ) {
+        guard isDoodleRecordID(recordID) else { return }
+        QuestionBankDoodlePersistenceQueue.shared.enqueue(
+            recordID: recordID,
+            drawingData: drawingData,
+            container: container,
+            presentationGeneration: presentationGeneration,
+            drawingRevision: drawingRevision,
+            debounceMilliseconds: debounceMilliseconds,
+            completion: completion
+        )
+    }
+
+    @MainActor
     @discardableResult
     static func save(
         recordID: String,
         drawingData: String,
         context: ModelContext
     ) -> String? {
-        let totalStart = ProcessInfo.processInfo.systemUptime
+        let startedAt = ProcessInfo.processInfo.systemUptime
         do {
-            let descriptor = descriptor(for: recordID)
-            let fetchStart = ProcessInfo.processInfo.systemUptime
-            let existing = try context.fetch(descriptor).first
-            LibraryPerformanceLog.mark("doodle.save.fetch", since: fetchStart)
-            if drawingData.isEmpty {
-                guard let existing else {
-                    LibraryPerformanceLog.mark("doodle.save.skipped-empty", since: totalStart)
-                    return nil
-                }
-                context.delete(existing)
-                let contextSaveStart = ProcessInfo.processInfo.systemUptime
-                try context.save()
-                LibraryPerformanceLog.mark("doodle.save.context", since: contextSaveStart)
-                LibraryPerformanceLog.mark("doodle.save.total", since: totalStart)
-                return nil
-            }
-            if let existing,
-               existing.jsonObject?["pencilKitData"] as? String == drawingData {
-                LibraryPerformanceLog.mark("doodle.save.skipped-unchanged", since: totalStart)
-                return nil
-            }
+            try persist(recordID: recordID, drawingData: drawingData, context: context, isCurrent: { true })
+            QuestionBankDoodleMemoryCache.shared.store(drawingData, for: recordID)
+            return nil
+        } catch {
+            LibraryPerformanceLog.mark("doodle.save.failed", since: startedAt)
+            return "涂鸦未保存：\(error.localizedDescription)"
+        }
+    }
 
-            let now = Date()
-            let object: [String: Any] = [
-                "id": recordID,
-                "key": recordID,
-                "format": recordIDPrefix,
-                "pencilKitData": drawingData,
-                "updatedAt": ISO8601DateFormatter().string(from: now)
-            ]
-            let payloadStart = ProcessInfo.processInfo.systemUptime
-            let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-            LibraryPerformanceLog.mark("doodle.save.payload", since: payloadStart)
-            if let existing {
-                existing.replacePayload(payload)
-                existing.updatedAt = now
-            } else {
-                context.insert(StoredRecord(
-                    collection: collection,
-                    recordID: recordID,
-                    payload: payload,
-                    subject: "真题涂鸦",
-                    createdAt: now,
-                    updatedAt: now
-                ))
+    fileprivate static func persist(
+        recordID: String,
+        drawingData: String,
+        context: ModelContext,
+        isCurrent: () -> Bool
+    ) throws {
+        let totalStart = ProcessInfo.processInfo.systemUptime
+        let descriptor = descriptor(for: recordID)
+        let fetchStart = ProcessInfo.processInfo.systemUptime
+        let existing = try context.fetch(descriptor).first
+        LibraryPerformanceLog.mark("doodle.save.fetch", since: fetchStart)
+        guard isCurrent() else { return }
+        if drawingData.isEmpty {
+            guard let existing else {
+                LibraryPerformanceLog.mark("doodle.save.skipped-empty", since: totalStart)
+                return
             }
+            guard isCurrent() else { return }
+            context.delete(existing)
+            guard isCurrent() else { return }
             let contextSaveStart = ProcessInfo.processInfo.systemUptime
             try context.save()
             LibraryPerformanceLog.mark("doodle.save.context", since: contextSaveStart)
             LibraryPerformanceLog.mark("doodle.save.total", since: totalStart)
-            return nil
-        } catch {
-            LibraryPerformanceLog.mark("doodle.save.failed", since: totalStart)
-            return "涂鸦未保存：\(error.localizedDescription)"
+            return
         }
+        if let existing,
+           existing.jsonObject?["pencilKitData"] as? String == drawingData {
+            LibraryPerformanceLog.mark("doodle.save.skipped-unchanged", since: totalStart)
+            return
+        }
+
+        let now = Date()
+        let object: [String: Any] = [
+            "id": recordID,
+            "key": recordID,
+            "format": recordIDPrefix,
+            "pencilKitData": drawingData,
+            "updatedAt": ISO8601DateFormatter().string(from: now)
+        ]
+        let payloadStart = ProcessInfo.processInfo.systemUptime
+        let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        LibraryPerformanceLog.mark("doodle.save.payload", since: payloadStart)
+        guard isCurrent() else { return }
+        if let existing {
+            existing.replacePayload(payload)
+            existing.updatedAt = now
+        } else {
+            context.insert(StoredRecord(
+                collection: collection,
+                recordID: recordID,
+                payload: payload,
+                subject: "真题涂鸦",
+                createdAt: now,
+                updatedAt: now
+            ))
+        }
+        guard isCurrent() else { return }
+        let contextSaveStart = ProcessInfo.processInfo.systemUptime
+        try context.save()
+        LibraryPerformanceLog.mark("doodle.save.context", since: contextSaveStart)
+        LibraryPerformanceLog.mark("doodle.save.total", since: totalStart)
     }
 
     private static func descriptor(for recordID: String) -> FetchDescriptor<StoredRecord> {
@@ -958,10 +1022,138 @@ enum QuestionBankDoodleError: LocalizedError {
     }
 }
 
+private struct QuestionBankDoodleWriteVersion: Equatable, Comparable, Sendable {
+    let presentationGeneration: Int
+    let drawingRevision: Int
+
+    static func < (lhs: Self, rhs: Self) -> Bool {
+        if lhs.presentationGeneration != rhs.presentationGeneration {
+            return lhs.presentationGeneration < rhs.presentationGeneration
+        }
+        return lhs.drawingRevision < rhs.drawingRevision
+    }
+}
+
+private final class QuestionBankDoodleWriteVersionRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var latest: [String: QuestionBankDoodleWriteVersion] = [:]
+
+    func setLatest(_ version: QuestionBankDoodleWriteVersion, for recordID: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if let current = latest[recordID], version < current { return false }
+        latest[recordID] = version
+        return true
+    }
+
+    func isLatest(_ version: QuestionBankDoodleWriteVersion, for recordID: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return latest[recordID] == version
+    }
+}
+
+@MainActor
+private final class QuestionBankDoodlePersistenceQueue {
+    private struct PendingWrite {
+        let recordID: String
+        let drawingData: String
+        let container: ModelContainer
+        let version: QuestionBankDoodleWriteVersion
+        let enqueuedAt: TimeInterval
+        var completion: ((String?) -> Void)?
+    }
+
+    static let shared = QuestionBankDoodlePersistenceQueue()
+
+    private let databaseQueue = DispatchQueue(
+        label: "QuestionBank.Doodle.persistence",
+        qos: .utility
+    )
+    private let versionRegistry = QuestionBankDoodleWriteVersionRegistry()
+    private var pending: [String: PendingWrite] = [:]
+    private var workItems: [String: DispatchWorkItem] = [:]
+
+    func enqueue(
+        recordID: String,
+        drawingData: String,
+        container: ModelContainer,
+        presentationGeneration: Int,
+        drawingRevision: Int,
+        debounceMilliseconds: Int,
+        completion: @escaping (String?) -> Void
+    ) {
+        let version = QuestionBankDoodleWriteVersion(
+            presentationGeneration: presentationGeneration,
+            drawingRevision: drawingRevision
+        )
+        guard versionRegistry.setLatest(version, for: recordID) else { return }
+        QuestionBankDoodleMemoryCache.shared.store(drawingData, for: recordID)
+        let write = PendingWrite(
+            recordID: recordID,
+            drawingData: drawingData,
+            container: container,
+            version: version,
+            enqueuedAt: ProcessInfo.processInfo.systemUptime,
+            completion: completion
+        )
+        pending[recordID] = write
+        schedule(write, afterMilliseconds: max(0, debounceMilliseconds))
+    }
+
+    func flushAll() {
+        for write in pending.values {
+            schedule(write, afterMilliseconds: 0)
+        }
+    }
+
+    private func schedule(_ write: PendingWrite, afterMilliseconds delay: Int) {
+        workItems[write.recordID]?.cancel()
+        let registry = versionRegistry
+        let item = DispatchWorkItem { [weak self] in
+            guard registry.isLatest(write.version, for: write.recordID) else { return }
+            LibraryPerformanceLog.mark("doodle.save.queue-wait", since: write.enqueuedAt)
+            var failure: String?
+            do {
+                let context = ModelContext(write.container)
+                try QuestionBankDoodleRepository.persist(
+                    recordID: write.recordID,
+                    drawingData: write.drawingData,
+                    context: context,
+                    isCurrent: { registry.isLatest(write.version, for: write.recordID) }
+                )
+            } catch {
+                failure = "涂鸦未保存：\(error.localizedDescription)"
+                LibraryPerformanceLog.mark("doodle.save.failed", since: write.enqueuedAt)
+            }
+            Task { @MainActor [weak self] in
+                guard let self,
+                      registry.isLatest(write.version, for: write.recordID) else { return }
+                self.workItems[write.recordID] = nil
+                if failure == nil {
+                    self.pending[write.recordID] = nil
+                } else if var failedWrite = self.pending[write.recordID],
+                          failedWrite.version == write.version {
+                    failedWrite.completion = nil
+                    self.pending[write.recordID] = failedWrite
+                }
+                write.completion?(failure)
+            }
+        }
+        workItems[write.recordID] = item
+        if delay == 0 {
+            databaseQueue.async(execute: item)
+        } else {
+            databaseQueue.asyncAfter(deadline: .now() + .milliseconds(delay), execute: item)
+        }
+    }
+}
+
 struct QuestionBankDoodleAutosaveObserver: View {
     @ObservedObject private var session: LibraryDoodleSession
     @ObservedObject private var canvas: LibraryDoodleCanvasState
-    private let context: ModelContext
+    @Environment(\.scenePhase) private var scenePhase
+    private let container: ModelContainer
     private let onSaved: (String, String, String?) -> Void
 
     init(
@@ -971,7 +1163,7 @@ struct QuestionBankDoodleAutosaveObserver: View {
     ) {
         _session = ObservedObject(wrappedValue: session)
         _canvas = ObservedObject(wrappedValue: session.canvas)
-        self.context = context
+        container = context.container
         self.onSaved = onSaved
     }
 
@@ -979,15 +1171,37 @@ struct QuestionBankDoodleAutosaveObserver: View {
         Color.clear
             .onChange(of: canvas.drawingData) { _, drawingData in
                 guard session.isPresented,
+                      session.hasUnsavedDrawingChanges,
                       let recordID = session.targetRecordID,
                       QuestionBankDoodleRepository.isDoodleRecordID(recordID) else { return }
-                let error = QuestionBankDoodleRepository.save(
+                let revision = session.userDrawingRevision
+                let generation = session.presentationGeneration
+                QuestionBankDoodleRepository.enqueueSave(
                     recordID: recordID,
                     drawingData: drawingData,
-                    context: context
-                )
-                session.saveError = error
-                onSaved(recordID, drawingData, error)
+                    container: container,
+                    presentationGeneration: generation,
+                    drawingRevision: revision,
+                    debounceMilliseconds: 650
+                ) { error in
+                    guard session.presentationGeneration == generation,
+                          session.targetRecordID == recordID else { return }
+                    session.saveError = error
+                    onSaved(recordID, drawingData, error)
+                }
+            }
+            .onChange(of: scenePhase) { oldPhase, phase in
+                switch phase {
+                case .inactive, .background:
+                    session.flushQuestionBankDrawingForBackground()
+                    QuestionBankDoodlePersistenceQueue.shared.flushAll()
+                case .active:
+                    if oldPhase == .background {
+                        QuestionBankDoodlePersistenceQueue.shared.flushAll()
+                    }
+                @unknown default:
+                    break
+                }
             }
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)

@@ -20,6 +20,7 @@ private struct PencilDrawingPublishSnapshot {
     let drawingRevision: Int
     let loadGeneration: Int
     let controllerLoadRevision: Int
+    var includesUserEdit: Bool
     var completions: [() -> Void]
 }
 
@@ -61,6 +62,7 @@ final class PencilDrawingController: ObservableObject {
     @Published var canvasReady = false
     @Published var canvasLoadError: String?
     @Published fileprivate(set) var drawingLoadRevision = 0
+    @Published private(set) var userDrawingRevision = 0
     @Published fileprivate var action: PencilAction?
 
     private let defaults: UserDefaults
@@ -197,12 +199,17 @@ final class PencilDrawingController: ObservableObject {
         decodedDrawing = nil
     }
 
+    func noteUserDrawingPublished() {
+        userDrawingRevision &+= 1
+    }
+
     private func persist() {
+        let selectionStart = ProcessInfo.processInfo.systemUptime
         defaults.set(PencilToolMemory.colorName(previousPenColor), forKey: PencilToolMemory.color)
         defaults.set(Double(previousPenWidth), forKey: PencilToolMemory.width)
         defaults.set(Double(eraserWidth), forKey: PencilToolMemory.eraserWidth)
         defaults.set(eraser ? "eraser" : "pen", forKey: PencilToolMemory.activeTool)
-        defaults.synchronize()
+        LibraryPerformanceLog.mark("doodle.tool-selection", since: selectionStart)
     }
 }
 
@@ -282,12 +289,14 @@ struct NativePencilDrawingEditor: View {
     private var floatingEditor: some View {
         canvas
             .overlay(alignment: .bottom) {
-                if controller.showSettings {
-                    penSettingsPanel
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                ZStack(alignment: .bottom) {
+                    if controller.showSettings {
+                        penSettingsPanel
+                            .transition(.opacity)
+                    }
                 }
+                .animation(.easeInOut(duration: 0.16), value: controller.showSettings)
             }
-            .animation(.easeInOut(duration: 0.20), value: controller.showSettings)
     }
 
     private var classicEditor: some View {
@@ -360,9 +369,7 @@ struct NativePencilDrawingEditor: View {
                     .font(.system(size: 15, weight: .semibold))
                 Spacer()
                 Button("取消") {
-                    withAnimation(.easeInOut(duration: 0.20)) {
-                        controller.showSettings = false
-                    }
+                    controller.showSettings = false
                 }
                 .font(AppTheme.inputFont)
             }
@@ -573,10 +580,10 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             switch action.kind {
             case .undo:
                 canvas.undoManager?.undo()
-                context.coordinator.publish(canvas)
+                context.coordinator.publish(canvas, userInitiated: true)
             case .redo:
                 canvas.undoManager?.redo()
-                context.coordinator.publish(canvas)
+                context.coordinator.publish(canvas, userInitiated: true)
             case .clear:
                 let previousDrawing = canvas.drawing
                 canvas.undoManager?.registerUndo(withTarget: context.coordinator) { coordinator in
@@ -584,7 +591,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
                 }
                 canvas.undoManager?.setActionName("清空涂鸦")
                 canvas.drawing = PKDrawing()
-                context.coordinator.publish(canvas)
+                context.coordinator.publish(canvas, userInitiated: true)
             case .commit:
                 waitsForPublish = true
                 context.coordinator.publish(canvas) {
@@ -763,7 +770,11 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             publish(canvasView)
         }
 
-        func publish(_ canvas: PKCanvasView, completion: (() -> Void)? = nil) {
+        func publish(
+            _ canvas: PKCanvasView,
+            userInitiated: Bool = false,
+            completion: (() -> Void)? = nil
+        ) {
             pendingPublish?.cancel()
             pendingPublish = nil
             guard let interactiveCanvas = canvas as? InteractivePencilCanvasView,
@@ -776,12 +787,14 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             let revision = drawingRevision
             let targetRevision = controller.drawingLoadRevision
             let generation = loadGeneration
+            let includesUserEdit = userInitiated || drawingChanged
 
             if var active = activePublication,
                active.drawingRevision == revision,
                active.loadGeneration == generation,
                active.controllerLoadRevision == targetRevision,
                latestPendingPublication == nil {
+                active.includesUserEdit = active.includesUserEdit || includesUserEdit
                 if let completion { active.completions.append(completion) }
                 activePublication = active
                 controller.hasPendingDrawingPublish = true
@@ -791,6 +804,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
                pending.drawingRevision == revision,
                pending.loadGeneration == generation,
                pending.controllerLoadRevision == targetRevision {
+                pending.includesUserEdit = pending.includesUserEdit || includesUserEdit
                 if let completion { pending.completions.append(completion) }
                 latestPendingPublication = pending
                 return
@@ -813,6 +827,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
                 drawingRevision: revision,
                 loadGeneration: generation,
                 controllerLoadRevision: targetRevision,
+                includesUserEdit: includesUserEdit,
                 completions: completions
             )
             controller.hasPendingDrawingPublish = true
@@ -857,7 +872,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             let drawing = snapshot.drawing
             let snapshotID = snapshot.id
             publishQueue.async { [self, weak canvas] in
-                let value = drawing.dataRepresentation().base64EncodedString()
+                let value = drawing.strokes.isEmpty ? "" : drawing.dataRepresentation().base64EncodedString()
                 LibraryPerformanceLog.mark("doodle.canvas.serialize", since: serializeStart)
                 DispatchQueue.main.async { [self, weak canvas] in
                     finishPublication(id: snapshotID, encoded: value, canvas: canvas)
@@ -907,6 +922,9 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
             }
 
             controller.remember(completed.drawing, encoded: encoded)
+            if completed.includesUserEdit, encoded != lastEncoded {
+                controller.noteUserDrawingPublished()
+            }
             lastEncoded = encoded
             requestedEncoded = encoded
             requestedRevision = completed.controllerLoadRevision
@@ -947,6 +965,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
                     drawingRevision: drawingRevision,
                     loadGeneration: loadGeneration,
                     controllerLoadRevision: controller.drawingLoadRevision,
+                    includesUserEdit: drawingChanged,
                     completions: completions
                 ),
                 canvas: canvas

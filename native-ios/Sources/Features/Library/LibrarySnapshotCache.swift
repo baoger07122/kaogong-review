@@ -3,6 +3,18 @@ import Foundation
 /// Keeps parsed card data stable while a navigation transition redraws the library root.
 /// SwiftData records are read only on the main thread that owns the view's ModelContext.
 final class LibrarySnapshotCache {
+    private struct WordNameRevision: Equatable {
+        let compoundID: String
+        let updatedAt: Date?
+        let indexPayloadCount: Int
+    }
+
+    private struct WordNameEntry {
+        let updatedAt: Date?
+        let indexPayloadCount: Int
+        let value: String
+    }
+
     private struct Entry {
         let updatedAt: Date?
         let includesImages: Bool
@@ -10,21 +22,28 @@ final class LibrarySnapshotCache {
     }
 
     private var entries: [String: Entry] = [:]
-    private var names: [String: (updatedAt: Date?, value: String)] = [:]
-    private var cachedWordNameRevision: [String]?
+    private var names: [String: WordNameEntry] = [:]
+    private var cachedWordNameRevision: [WordNameRevision]?
     private var cachedWordNames: [String: String] = [:]
 
     func wordNames(in records: [StoredRecord]) -> [String: String] {
         let wordRecords = records.filter { $0.collection == "words" }
-        let revision = wordRecords.map {
-            "\($0.compoundID)|\($0.updatedAt?.timeIntervalSinceReferenceDate ?? 0)|\($0.indexPayload?.count ?? 0)"
+        let revision = wordRecords.map { record in
+            WordNameRevision(
+                compoundID: record.compoundID,
+                updatedAt: record.updatedAt,
+                indexPayloadCount: record.indexPayload?.count ?? 0
+            )
         }
         if cachedWordNameRevision == revision { return cachedWordNames }
 
         var result: [String: String] = [:]
         var changed = false
         for record in wordRecords {
-            if let cached = names[record.recordID], cached.updatedAt == record.updatedAt {
+            let indexPayloadCount = record.indexPayload?.count ?? 0
+            if let cached = names[record.recordID],
+               cached.updatedAt == record.updatedAt,
+               cached.indexPayloadCount == indexPayloadCount {
                 result[record.recordID] = cached.value
                 continue
             }
@@ -32,7 +51,11 @@ final class LibrarySnapshotCache {
             let name = ["name", "words", "title", "text"]
                 .compactMap { object[$0] as? String }
                 .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? "未命名词语"
-            names[record.recordID] = (record.updatedAt, name)
+            names[record.recordID] = WordNameEntry(
+                updatedAt: record.updatedAt,
+                indexPayloadCount: indexPayloadCount,
+                value: name
+            )
             result[record.recordID] = name
             changed = true
         }
