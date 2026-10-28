@@ -257,6 +257,7 @@ enum ShenlunAdaptationError: LocalizedError, Equatable {
 }
 
 enum LibraryRecordRepository {
+    @MainActor
     @discardableResult static func save(
         kind: LibraryContentKind,
         draft: LibraryRecordDraft,
@@ -464,6 +465,9 @@ enum LibraryRecordRepository {
         }
         let contextSaveStart = ProcessInfo.processInfo.systemUptime
         try context.save()
+        if let linkedQuestionUpdate {
+            QuestionBankRecordChangeSignal.post(paperIDs: [linkedQuestionUpdate.record.paperID])
+        }
         LibraryPerformanceLog.mark("record.save.context", since: contextSaveStart)
         LibraryPerformanceLog.mark("record.save.total", since: performanceStart)
         return id
@@ -596,6 +600,7 @@ enum LibraryRecordRepository {
         try context.save()
     }
 
+    @MainActor
     static func remove(kind: LibraryContentKind, id: String, records: [StoredRecord], context: ModelContext) throws {
         guard let record = records.first(where: { $0.collection == kind.collection && $0.recordID == id }) else { return }
         let object = record.jsonObject ?? [:]
@@ -646,6 +651,9 @@ enum LibraryRecordRepository {
         }
         context.delete(record)
         try context.save()
+        if let linkedQuestionUpdate {
+            QuestionBankRecordChangeSignal.post(paperIDs: [linkedQuestionUpdate.record.paperID])
+        }
     }
 
     private static func makeID(kind: LibraryContentKind) -> String {

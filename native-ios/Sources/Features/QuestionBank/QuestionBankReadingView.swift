@@ -173,6 +173,7 @@ struct QuestionBankModuleView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.rootTabSelection) private var rootTabSelection
     @EnvironmentObject private var doodleSession: LibraryDoodleSession
     @Query private var records: [QuestionBankRecord]
 
@@ -192,6 +193,12 @@ struct QuestionBankModuleView: View {
     @State private var splitScrollRequest: QuestionBankScrollRequest?
     @State private var snapshotRevision = 0
     @State private var readerFingerprintCache: [String: QuestionBankReaderFingerprintEntry] = [:]
+    @State private var readerRecordRevisionTokens = Set<QuestionBankReaderRecordRevisionToken>()
+    @State private var cachedModule: QuestionBankModule?
+    @State private var cachedPaperData: QuestionBankPaper?
+    @State private var isReaderRouteVisible = false
+    @State private var isReaderVisible = false
+    @State private var needsReaderRefresh = true
     @State private var readerFingerprintRequestID = UUID()
     @State private var readerFingerprintDecodeTask: Task<[QuestionBankReaderFingerprintResult], Never>?
     @State private var continuousQuestionDoodleRecordID: String?
@@ -252,22 +259,20 @@ struct QuestionBankModuleView: View {
             wrappedValue: false,
             "question-bank.answer-state-migrated.\(paperID).\(moduleID)"
         )
+        let selectedPaperID = paperID
+        _records = Query(filter: #Predicate<QuestionBankRecord> {
+            $0.paperID == selectedPaperID
+        })
     }
 
-    private var module: QuestionBankModule? {
-        records.first {
-            $0.paperID == paperID && $0.stableID == moduleID && $0.kind == QuestionBankRepository.moduleKind
-        }?.decoded(QuestionBankModule.self)
-    }
+    private var module: QuestionBankModule? { cachedModule }
 
     private var initialFocusQuestionID: String? {
         guard let number = Int(initialQuestionNumber), number > 0 else { return nil }
         return readingItems.first { $0.question.number == number }?.id
     }
 
-    private var paperData: QuestionBankPaper? {
-        records.first { $0.paperID == paperID && $0.kind == QuestionBankRepository.paperKind }?.decoded(QuestionBankPaper.self)
-    }
+    private var paperData: QuestionBankPaper? { cachedPaperData }
 
     private var splitMaterialID: String? {
         get { storedSplitMaterialID.isEmpty ? nil : storedSplitMaterialID }
@@ -325,10 +330,13 @@ struct QuestionBankModuleView: View {
         return "\(ordinal)/\(orderedQuestionIDs.count)"
     }
 
-    private var readerRecordRevisionTokens: Set<QuestionBankReaderRecordRevisionToken> {
-        Set(records
-            .filter { $0.paperID == paperID }
-            .map { readerRecordRevisionToken(for: $0) })
+    private func activateReaderIfNeeded() {
+        let shouldBeVisible = isReaderRouteVisible && rootTabSelection.wrappedValue == .questionBank
+        isReaderVisible = shouldBeVisible
+        guard shouldBeVisible, needsReaderRefresh else { return }
+        migrateLegacyAnswerStateIfNeeded()
+        refreshReaderSnapshot()
+        restoreReaderState()
     }
 
     private func readerRecordRevisionToken(for record: QuestionBankRecord) -> QuestionBankReaderRecordRevisionToken {
@@ -346,6 +354,10 @@ struct QuestionBankModuleView: View {
     private func updateReaderSnapshotIfNeeded(
         for currentTokens: Set<QuestionBankReaderRecordRevisionToken>
     ) {
+        guard isReaderVisible, rootTabSelection.wrappedValue == .questionBank else {
+            needsReaderRefresh = true
+            return
+        }
         let currentIDs = Set(currentTokens.map(\.compoundID))
         guard currentIDs == Set(readerFingerprintCache.keys) else {
             refreshReaderSnapshotForVisibleChange()
@@ -355,7 +367,10 @@ struct QuestionBankModuleView: View {
         let changedTokens = currentTokens.filter {
             readerFingerprintCache[$0.compoundID]?.token != $0
         }
-        guard !changedTokens.isEmpty else { return }
+        guard !changedTokens.isEmpty else {
+            needsReaderRefresh = false
+            return
+        }
 
         if changedTokens.contains(where: { $0.kind != QuestionBankRepository.questionKind }) {
             refreshReaderSnapshotForVisibleChange()
@@ -465,6 +480,7 @@ struct QuestionBankModuleView: View {
             )
         }
         readerFingerprintCache = updatedCache
+        needsReaderRefresh = false
     }
 
     private func readerVisibleQuestion(_ question: QuestionBankQuestion) -> QuestionBankQuestion {
@@ -571,12 +587,36 @@ struct QuestionBankModuleView: View {
             }
         }
         .onAppear {
-            migrateLegacyAnswerStateIfNeeded()
-            refreshReaderSnapshot()
-            restoreReaderState()
+            isReaderRouteVisible = true
+            activateReaderIfNeeded()
         }
         .onChange(of: readerRecordRevisionTokens) { _, tokens in
             updateReaderSnapshotIfNeeded(for: tokens)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: QuestionBankRecordChangeSignal.notification)) { notification in
+            guard QuestionBankRecordChangeSignal.affects(paperID, notification: notification) else { return }
+            needsReaderRefresh = true
+            guard isReaderVisible, rootTabSelection.wrappedValue == .questionBank else {
+                return
+            }
+            Task { @MainActor in
+                await Task.yield()
+                guard isReaderVisible, rootTabSelection.wrappedValue == .questionBank else {
+                    return
+                }
+                readerRecordRevisionTokens = Set(records.map { readerRecordRevisionToken(for: $0) })
+            }
+        }
+        .onChange(of: rootTabSelection.wrappedValue) { _, selectedTab in
+            if selectedTab == .questionBank {
+                activateReaderIfNeeded()
+            } else {
+                isReaderVisible = false
+                if readerFingerprintDecodeTask != nil { needsReaderRefresh = true }
+                readerFingerprintRequestID = UUID()
+                readerFingerprintDecodeTask?.cancel()
+                readerFingerprintDecodeTask = nil
+            }
         }
         .onChange(of: snapshotRevision) { _, _ in applyInitialFocusIfNeeded() }
         .onChange(of: presentationMode) { _, mode in
@@ -586,6 +626,9 @@ struct QuestionBankModuleView: View {
             if !isPresented { continuousQuestionDoodleRecordID = nil }
         }
         .onDisappear {
+            isReaderRouteVisible = false
+            isReaderVisible = false
+            if readerFingerprintDecodeTask != nil { needsReaderRefresh = true }
             readerFingerprintRequestID = UUID()
             readerFingerprintDecodeTask?.cancel()
             readerFingerprintDecodeTask = nil
@@ -1848,7 +1891,13 @@ struct QuestionBankModuleView: View {
         readerFingerprintDecodeTask?.cancel()
         readerFingerprintDecodeTask = nil
         readerFingerprintRequestID = UUID()
-        let paperRecords = records.filter { $0.paperID == paperID }
+        let paperRecords = records
+        cachedModule = paperRecords.first {
+            $0.stableID == moduleID && $0.kind == QuestionBankRepository.moduleKind
+        }?.decoded(QuestionBankModule.self)
+        cachedPaperData = paperRecords.first {
+            $0.kind == QuestionBankRepository.paperKind
+        }?.decoded(QuestionBankPaper.self)
         let questionRecords = paperRecords.filter {
             $0.moduleID == moduleID && $0.kind == QuestionBankRepository.questionKind
         }
@@ -1929,7 +1978,9 @@ struct QuestionBankModuleView: View {
                 .map { ($0.stableID, $0) },
             uniquingKeysWith: { first, _ in first }
         )
+        readerRecordRevisionTokens = Set(paperRecords.map { readerRecordRevisionToken(for: $0) })
         snapshotRevision += 1
+        needsReaderRefresh = false
     }
 
     private func readingItem(for id: String) -> QuestionBankReadingItem? {
@@ -2005,12 +2056,14 @@ private struct QuestionBankCrossPaperDetailRoute: Identifiable {
 struct QuestionBankCrossPaperReaderView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.rootTabSelection) private var rootTabSelection
     @EnvironmentObject private var doodleSession: LibraryDoodleSession
     @Query private var records: [QuestionBankRecord]
     @StateObject private var homeIndexStore = QuestionBankHomeIndexStore()
 
     let filter: QuestionBankHomeFilter
     let paperID: String?
+    let scopedPaperIDs: [String]
 
     @AppStorage(QuestionBankReaderPreferences.presentationModeKey)
     private var storedPresentationMode = QuestionBankPresentationMode.continuous.rawValue
@@ -2018,7 +2071,17 @@ struct QuestionBankCrossPaperReaderView: View {
     @State private var currentQuestionID: String?
     @State private var activeQuestionDetail: QuestionBankCrossPaperDetailRoute?
     @State private var groups: [QuestionBankCrossPaperGroup] = []
+    @State private var orderedItems: [QuestionBankHomeQuestion] = []
+    @State private var orderedItemIDs: [String] = []
+    @State private var itemsByID: [String: QuestionBankHomeQuestion] = [:]
+    @State private var groupsByPaperID: [String: QuestionBankCrossPaperGroup] = [:]
     @State private var localOrdinalByID: [String: Int] = [:]
+    @State private var orderedOrdinalByID: [String: Int] = [:]
+    @State private var overviewGroups: [QuestionBankOverviewGroup] = []
+    @State private var assetsByPaperAndID: [String: [String: QuestionBankRecord]] = [:]
+    @State private var isCrossPaperRouteVisible = false
+    @State private var isCrossPaperVisible = false
+    @State private var needsIndexReload = true
     @State private var showsReaderOptions = false
     @State private var showsOverview = false
     @State private var continuousQuestionDoodleRecordID: String?
@@ -2035,9 +2098,27 @@ struct QuestionBankCrossPaperReaderView: View {
     @AppStorage(QuestionBankReaderPreferences.confirmAnswerAfterSelectionKey)
     private var requiresAnswerConfirmation = false
 
-    init(filter: QuestionBankHomeFilter, paperID: String? = nil) {
+    init(filter: QuestionBankHomeFilter, paperID: String? = nil, paperIDs: [String]? = nil) {
         self.filter = filter
         self.paperID = paperID
+        scopedPaperIDs = paperID.map { [$0] } ?? Array(Set(paperIDs ?? [])).sorted()
+        if let paperID {
+            let selectedPaperID = paperID
+            _records = Query(filter: #Predicate<QuestionBankRecord> {
+                $0.paperID == selectedPaperID
+            })
+        } else if let paperIDs {
+            if paperIDs.isEmpty {
+                _records = Query(filter: #Predicate<QuestionBankRecord> { _ in false })
+            } else {
+                let selectedPaperIDs = Array(Set(paperIDs))
+                _records = Query(filter: #Predicate<QuestionBankRecord> {
+                    selectedPaperIDs.contains($0.paperID)
+                })
+            }
+        } else {
+            _records = Query()
+        }
         let scope = [
             filter.module?.rawValue ?? "", filter.questionType, filter.year, filter.examType,
             filter.province, filter.search, filter.questionNumber,
@@ -2072,8 +2153,12 @@ struct QuestionBankCrossPaperReaderView: View {
         nonmutating set { storedPresentationMode = newValue.rawValue }
     }
 
-    private var readerRecordRevision: [QuestionBankHomeIndexRevision] {
-        QuestionBankHomeIndexRevision.make(records: records)
+    private func activateCrossPaperReaderIfNeeded() {
+        let shouldBeVisible = isCrossPaperRouteVisible && rootTabSelection.wrappedValue == .questionBank
+        isCrossPaperVisible = shouldBeVisible
+        guard shouldBeVisible, needsIndexReload || homeIndexStore.index == nil else { return }
+        needsIndexReload = false
+        homeIndexStore.requestReload()
     }
 
     private func makeGroups(using homeIndex: QuestionBankHomeIndex) -> [QuestionBankCrossPaperGroup] {
@@ -2110,29 +2195,31 @@ struct QuestionBankCrossPaperReaderView: View {
     private func refreshGroups() {
         guard let index else {
             groups = []
+            orderedItems = []
+            orderedItemIDs = []
+            itemsByID = [:]
+            groupsByPaperID = [:]
             localOrdinalByID = [:]
+            orderedOrdinalByID = [:]
+            overviewGroups = []
+            assetsByPaperAndID = [:]
             currentQuestionID = nil
             return
         }
-        groups = makeGroups(using: index)
+        let currentGroups = makeGroups(using: index)
+        let flattenedItems = currentGroups.flatMap(\.questions)
+        groups = currentGroups
+        orderedItems = flattenedItems
+        orderedItemIDs = flattenedItems.map(\.id)
+        itemsByID = Dictionary(flattenedItems.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        groupsByPaperID = Dictionary(currentGroups.map { ($0.paperID, $0) }, uniquingKeysWith: { first, _ in first })
         localOrdinalByID = Dictionary(
-            groups.flatMap(\.questions).enumerated().map { ($1.id, $0 + 1) },
+            flattenedItems.enumerated().map { ($1.id, $0 + 1) },
             uniquingKeysWith: { first, _ in first }
         )
-        if !groups.flatMap(\.questions).contains(where: { $0.id == currentQuestionID }) {
-            currentQuestionID = groups.first?.questions.first?.id
-        }
-    }
-
-    private var orderedItems: [QuestionBankHomeQuestion] { groups.flatMap(\.questions) }
-
-    private var overviewGroups: [QuestionBankOverviewGroup] {
-        guard let index else { return [] }
-        let paperTitles = Dictionary(
-            index.papers.map { ($0.id, $0.title) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        return QuestionBankOverviewGrouping.groups(from: orderedItems.map { item in
+        orderedOrdinalByID = localOrdinalByID
+        let paperTitles = Dictionary(index.papers.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
+        overviewGroups = QuestionBankOverviewGrouping.groups(from: flattenedItems.map { item in
             QuestionBankOverviewCandidate(
                 id: item.id,
                 paperID: item.record.paperID,
@@ -2145,16 +2232,29 @@ struct QuestionBankCrossPaperReaderView: View {
                 subject: item.question.subject
             )
         })
+        assetsByPaperAndID = Dictionary(grouping: records.filter {
+            $0.kind == QuestionBankRepository.assetKind
+        }, by: \.paperID).mapValues { paperRecords in
+            Dictionary(paperRecords.map { ($0.stableID, $0) }, uniquingKeysWith: { first, _ in first })
+        }
+        if !itemsByID.keys.contains(currentQuestionID ?? "") {
+            currentQuestionID = flattenedItems.first?.id
+        }
     }
 
     private var currentItem: QuestionBankHomeQuestion? {
-        orderedItems.first { $0.id == currentQuestionID } ?? orderedItems.first
+        itemsByID[currentQuestionID ?? ""] ?? orderedItems.first
     }
 
     private var singlePositionText: String {
-        let ids = orderedItems.map(\.id)
-        let ordinal = QuestionBankReaderTransition.ordinal(of: currentQuestionID, in: ids) ?? 1
-        return "\(ordinal)/\(ids.count)"
+        "\(orderedOrdinalByID[currentQuestionID ?? ""] ?? 1)/\(orderedItems.count)"
+    }
+
+    private func adjacentQuestionID(from id: String, direction: Int) -> String? {
+        guard let ordinal = orderedOrdinalByID[id] else { return nil }
+        let adjacentOffset = ordinal - 1 + direction
+        guard orderedItemIDs.indices.contains(adjacentOffset) else { return nil }
+        return orderedItemIDs[adjacentOffset]
     }
 
     private var selectedOptionsByQuestionID: [String: String] {
@@ -2177,13 +2277,32 @@ struct QuestionBankCrossPaperReaderView: View {
                 QuestionBankDoodleAutosaveObserver(session: doodleSession, context: modelContext)
             }
             .onAppear {
+                isCrossPaperRouteVisible = true
+                activateCrossPaperReaderIfNeeded()
                 migrateLegacyAnswerStateIfNeeded()
             }
-            .task(id: readerRecordRevision) {
-                await homeIndexStore.load(records: records, revision: readerRecordRevision)
-                refreshGroups()
+            .task(id: "\(homeIndexStore.requestGeneration)|\(isCrossPaperVisible)") {
+                guard isCrossPaperVisible else { return }
+                let generation = homeIndexStore.requestGeneration
+                await Task.yield()
+                await homeIndexStore.load(records: records, generation: generation)
             }
-            .onChange(of: homeIndexStore.index?.revision) { _, _ in refreshGroups() }
+            .onChange(of: homeIndexStore.loadedGeneration) { _, _ in refreshGroups() }
+            .onReceive(NotificationCenter.default.publisher(for: QuestionBankRecordChangeSignal.notification)) { notification in
+                guard QuestionBankRecordChangeSignal.affectsAny(scopedPaperIDs, notification: notification) else { return }
+                needsIndexReload = true
+                guard isCrossPaperVisible, rootTabSelection.wrappedValue == .questionBank else { return }
+                needsIndexReload = false
+                homeIndexStore.requestReload()
+            }
+            .onChange(of: rootTabSelection.wrappedValue) { _, selectedTab in
+                if selectedTab == .questionBank {
+                    activateCrossPaperReaderIfNeeded()
+                } else {
+                    isCrossPaperVisible = false
+                    homeIndexStore.cancelLoad()
+                }
+            }
             .onChange(of: filter) { _, _ in refreshGroups() }
             .onChange(of: storedAnswerStateJSON) { _, value in
                 guard value != cachedAnswerStateJSON else { return }
@@ -2206,6 +2325,11 @@ struct QuestionBankCrossPaperReaderView: View {
                 default:
                     break
                 }
+            }
+            .onDisappear {
+                isCrossPaperRouteVisible = false
+                isCrossPaperVisible = false
+                homeIndexStore.cancelLoad()
             }
             .alert("答案更新", isPresented: Binding(
                 get: { missingAnswerEditError != nil || missingAnswerEditConfirmation != nil },
@@ -2311,7 +2435,7 @@ struct QuestionBankCrossPaperReaderView: View {
                                     showsOverview = false
                                 } label: {
                                     HStack {
-                                        if let item = orderedItems.first(where: { $0.id == candidate.id }) {
+                                        if let item = itemsByID[candidate.id] {
                                             QuestionBankNumberStatusCircle(
                                                 number: candidate.questionNumber,
                                                 status: overviewAnswerStatus(for: item),
@@ -2321,7 +2445,7 @@ struct QuestionBankCrossPaperReaderView: View {
                                         }
                                         Text("第\(candidate.questionNumber)题")
                                         Spacer()
-                                        if let item = orderedItems.first(where: { $0.id == candidate.id }),
+                                        if let item = itemsByID[candidate.id],
                                            let heading = QuestionBankQuestionHeading.displayLabel(
                                             type: item.question.type,
                                             subject: item.question.subject,
@@ -2332,7 +2456,7 @@ struct QuestionBankCrossPaperReaderView: View {
                                     }
                                 }
                                 .accessibilityLabel("\(group.moduleTitle)，第\(candidate.questionNumber)题")
-                                .accessibilityValue(orderedItems.first(where: { $0.id == candidate.id })
+                                .accessibilityValue(itemsByID[candidate.id]
                                     .map { overviewAnswerStatus(for: $0).accessibilityValue } ?? "未判定")
                                 .accessibilityIdentifier("question-bank-cross-paper-overview-\(candidate.id)")
                             }
@@ -2365,8 +2489,8 @@ struct QuestionBankCrossPaperReaderView: View {
 
     @ViewBuilder
     private func questionDetailSheet(for route: QuestionBankCrossPaperDetailRoute) -> some View {
-        if let item = orderedItems.first(where: { $0.id == route.questionID }),
-           let group = groups.first(where: { $0.paperID == item.record.paperID }) {
+        if let item = itemsByID[route.questionID],
+           let group = groupsByPaperID[item.record.paperID] {
             let detailContext = questionAnalysisContext(for: item, group: group)
             if detailContext.typeMapping.subject == "申论" {
                 QuestionBankQuestionDetailPanel(
@@ -2599,20 +2723,15 @@ struct QuestionBankCrossPaperReaderView: View {
     }
 
     private func singleReader(_ item: QuestionBankHomeQuestion, pageHeight: CGFloat) -> some View {
-        let ids = orderedItems.map(\.id)
         return QuestionBankInteractivePageDeck(
             currentID: item.id,
-            previousID: QuestionBankReaderTransition.adjacentQuestionID(
-                currentID: item.id, orderedIDs: ids, direction: -1
-            ),
-            nextID: QuestionBankReaderTransition.adjacentQuestionID(
-                currentID: item.id, orderedIDs: ids, direction: 1
-            ),
+            previousID: adjacentQuestionID(from: item.id, direction: -1),
+            nextID: adjacentQuestionID(from: item.id, direction: 1),
             isEnabled: !doodleSession.isPresented,
             onCommit: moveQuestion(to:)
         ) { pageID, isPageInactiveOrDragging in
-            if let pageItem = orderedItems.first(where: { $0.id == pageID }),
-               let group = groups.first(where: { $0.paperID == pageItem.record.paperID }) {
+            if let pageItem = itemsByID[pageID],
+               let group = groupsByPaperID[pageItem.record.paperID] {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         if group.questions.first?.id == pageItem.id {
@@ -2915,8 +3034,7 @@ struct QuestionBankCrossPaperReaderView: View {
     }
 
     private func moveQuestion(to target: String) {
-        guard !doodleSession.isPresented,
-              orderedItems.contains(where: { $0.id == target }) else { return }
+        guard !doodleSession.isPresented, itemsByID[target] != nil else { return }
         currentQuestionID = target
     }
 
@@ -3011,9 +3129,7 @@ struct QuestionBankCrossPaperReaderView: View {
 
     private func assetRecord(for id: String, paperID: String) -> QuestionBankRecord? {
         guard !id.isEmpty else { return nil }
-        return records.first {
-            $0.paperID == paperID && $0.kind == QuestionBankRepository.assetKind && $0.stableID == id
-        }
+        return assetsByPaperAndID[paperID]?[id]
     }
 
     private func presentDoodle(for item: QuestionBankHomeQuestion) {
@@ -3975,6 +4091,172 @@ private struct QuestionBankAnswerFollowUpAction: View {
     }
 }
 
+private enum QuestionBankImageLoadSource: Sendable {
+    case memoryCache
+    case backgroundDecode
+    case joinedInFlight
+}
+
+private struct QuestionBankImageLoadResponse: @unchecked Sendable {
+    let image: UIImage?
+    let source: QuestionBankImageLoadSource
+}
+
+private struct QuestionBankImageRequest: Sendable {
+    let cacheKey: String
+    let url: URL
+    let maximumPixelDimension: Int
+    let scale: CGFloat
+}
+
+private final class QuestionBankDecodedImageBox: NSObject, @unchecked Sendable {
+    let image: UIImage
+    let byteCost: Int
+
+    init(image: UIImage, byteCost: Int) {
+        self.image = image
+        self.byteCost = byteCost
+    }
+}
+
+private final class QuestionBankImageDecodeCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+}
+
+private enum QuestionBankLocalImageDecoder {
+    static func decode(
+        request: QuestionBankImageRequest,
+        cancellation: QuestionBankImageDecodeCancellation
+    ) -> QuestionBankDecodedImageBox? {
+        guard !cancellation.isCancelled,
+              let data = try? Data(contentsOf: request.url, options: [.mappedIfSafe]),
+              !cancellation.isCancelled,
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: request.maximumPixelDimension,
+            kCGImageSourceShouldCacheImmediately: true
+        ]
+        guard !cancellation.isCancelled,
+              let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+              !cancellation.isCancelled else { return nil }
+        let image = UIImage(cgImage: thumbnail, scale: request.scale, orientation: .up)
+        return QuestionBankDecodedImageBox(
+            image: image,
+            byteCost: thumbnail.bytesPerRow * thumbnail.height
+        )
+    }
+}
+
+private actor QuestionBankImageDecodeService {
+    static let shared = QuestionBankImageDecodeService()
+
+    private struct InFlight {
+        let id: UUID
+        let task: Task<QuestionBankDecodedImageBox?, Never>
+        var subscribers: Set<UUID>
+    }
+
+    private let cache = NSCache<NSString, QuestionBankDecodedImageBox>()
+    private let decodingQueue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.name = "com.baoger07122.kaogongreview.question-bank-image-decode"
+        queue.qualityOfService = .userInitiated
+        queue.maxConcurrentOperationCount = 2
+        queue.underlyingQueue = DispatchQueue(label: "com.baoger07122.kaogongreview.question-bank-image-workers", attributes: .concurrent)
+        return queue
+    }()
+    private var inFlight: [String: InFlight] = [:]
+
+    private init() {
+        cache.totalCostLimit = 72 * 1_024 * 1_024
+        cache.countLimit = 96
+    }
+
+    func image(
+        for request: QuestionBankImageRequest,
+        subscriberID: UUID
+    ) async -> QuestionBankImageLoadResponse {
+        await withTaskCancellationHandler {
+            await resolve(request, subscriberID: subscriberID)
+        } onCancel: {
+            Task { await self.release(request.cacheKey, subscriberID: subscriberID) }
+        }
+    }
+
+    private func resolve(
+        _ request: QuestionBankImageRequest,
+        subscriberID: UUID
+    ) async -> QuestionBankImageLoadResponse {
+        let cacheKey = request.cacheKey as NSString
+        if let cached = cache.object(forKey: cacheKey) {
+            return QuestionBankImageLoadResponse(image: cached.image, source: .memoryCache)
+        }
+
+        let workerID: UUID
+        let task: Task<QuestionBankDecodedImageBox?, Never>
+        let source: QuestionBankImageLoadSource
+        if var worker = inFlight[request.cacheKey], !worker.task.isCancelled {
+            worker.subscribers.insert(subscriberID)
+            inFlight[request.cacheKey] = worker
+            workerID = worker.id
+            task = worker.task
+            source = .joinedInFlight
+        } else {
+            workerID = UUID()
+            let cancellation = QuestionBankImageDecodeCancellation()
+            let queue = decodingQueue
+            task = Task.detached(priority: .userInitiated) {
+                await withTaskCancellationHandler {
+                    await withCheckedContinuation { (continuation: CheckedContinuation<QuestionBankDecodedImageBox?, Never>) in
+                        queue.addOperation {
+                            continuation.resume(returning: QuestionBankLocalImageDecoder.decode(
+                                request: request,
+                                cancellation: cancellation
+                            ))
+                        }
+                    }
+                } onCancel: {
+                    cancellation.cancel()
+                }
+            }
+            inFlight[request.cacheKey] = InFlight(id: workerID, task: task, subscribers: [subscriberID])
+            source = .backgroundDecode
+        }
+
+        let decoded = await task.value
+        if let worker = inFlight[request.cacheKey], worker.id == workerID {
+            inFlight[request.cacheKey] = nil
+            if !worker.subscribers.isEmpty, let decoded {
+                cache.setObject(decoded, forKey: cacheKey, cost: decoded.byteCost)
+            }
+        }
+        return QuestionBankImageLoadResponse(image: decoded?.image, source: source)
+    }
+
+    private func release(_ cacheKey: String, subscriberID: UUID) {
+        guard var worker = inFlight[cacheKey], worker.subscribers.remove(subscriberID) != nil else { return }
+        inFlight[cacheKey] = worker
+        if worker.subscribers.isEmpty {
+            worker.task.cancel()
+        }
+    }
+}
+
 struct QuestionBankLocalImage: View {
     enum Sizing: String {
         case material
@@ -3987,8 +4269,42 @@ struct QuestionBankLocalImage: View {
     let asset: QuestionBankRecord
     var sizing: Sizing = .material
 
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.rootTabSelection) private var rootTabSelection
     @State private var image: UIImage?
     @State private var failedToLoad = false
+
+    private var maximumPixelDimension: Int {
+        let scale = max(1, displayScale)
+        let targetPoints: CGFloat
+        let hardLimit: Int
+        switch sizing {
+        case .material, .stem:
+            targetPoints = 1_500
+            hardLimit = 3_072
+        case .option:
+            targetPoints = 450
+            hardLimit = 900
+        case .graph:
+            targetPoints = 1_900
+            hardLimit = 4_096
+        case .overview:
+            targetPoints = 210
+            hardLimit = 420
+        }
+        return min(hardLimit, max(1, Int((targetPoints * scale).rounded(.up))))
+    }
+
+    private var requestKey: String {
+        [
+            asset.compoundID,
+            asset.assetRelativePath ?? "",
+            String(asset.contentRevision),
+            sizing.rawValue,
+            String(Int(displayScale * 100)),
+            String(maximumPixelDimension)
+        ].joined(separator: "|")
+    }
 
     var body: some View {
         Group {
@@ -4006,41 +4322,36 @@ struct QuestionBankLocalImage: View {
                     .frame(height: 72)
             }
         }
-        .task(id: "\(asset.assetRelativePath ?? "")|\(sizing.rawValue)") {
+        .task(id: "\(requestKey)|\(rootTabSelection.wrappedValue.rawValue)") {
             image = nil
             failedToLoad = false
+            guard rootTabSelection.wrappedValue == .questionBank else { return }
             guard let url = QuestionBankAssetStore.url(for: asset.assetRelativePath) else {
                 failedToLoad = true
                 return
             }
-            let data = await Task.detached(priority: .userInitiated) {
-                try? Data(contentsOf: url, options: [.mappedIfSafe])
-            }.value
-            guard let data,
-                  let source = CGImageSourceCreateWithData(data as CFData, nil) else {
-                failedToLoad = true
-                return
+            let identity = requestKey
+            let started = ProcessInfo.processInfo.systemUptime
+            let response = await QuestionBankImageDecodeService.shared.image(
+                for: QuestionBankImageRequest(
+                    cacheKey: identity,
+                    url: url,
+                    maximumPixelDimension: maximumPixelDimension,
+                    scale: max(1, displayScale)
+                ),
+                subscriberID: UUID()
+            )
+            guard !Task.isCancelled, requestKey == identity else { return }
+            switch response.source {
+            case .memoryCache:
+                NativePerformanceLog.event("question-bank image cache hit")
+            case .backgroundDecode:
+                NativePerformanceLog.mark("question-bank image background decode pixels=\(maximumPixelDimension)", since: started)
+            case .joinedInFlight:
+                NativePerformanceLog.event("question-bank image joined in-flight decode")
             }
-            if sizing == .graph {
-                guard let fullResolutionImage = CGImageSourceCreateImageAtIndex(source, 0, [
-                    kCGImageSourceShouldCacheImmediately: true
-                ] as CFDictionary) else {
-                    failedToLoad = true
-                    return
-                }
-                image = UIImage(cgImage: fullResolutionImage)
-                return
-            }
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceThumbnailMaxPixelSize: maximumPixelDimension,
-                kCGImageSourceShouldCacheImmediately: true
-            ]
-            guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-                failedToLoad = true
-                return
-            }
-            image = UIImage(cgImage: thumbnail)
+            image = response.image
+            failedToLoad = response.image == nil
         }
     }
 
@@ -4073,14 +4384,6 @@ struct QuestionBankLocalImage: View {
         }
     }
 
-    private var maximumPixelDimension: Int {
-        switch sizing {
-        case .material, .stem: 2400
-        case .option: 900
-        case .graph: Int.max
-        case .overview: 420
-        }
-    }
 }
 
 extension QuestionBankRecord {

@@ -156,20 +156,40 @@ struct QuestionBankHomeIndexSnapshot: Sendable {
     let materialsByPaperID: [String: [QuestionBankMaterial]]
 
     static func build(records: [QuestionBankHomeIndexInput]) -> QuestionBankHomeIndexSnapshot {
+        build(records: records, shouldCancel: { false })!
+    }
+
+    static func buildCancellable(records: [QuestionBankHomeIndexInput]) -> QuestionBankHomeIndexSnapshot? {
+        build(records: records, shouldCancel: { Task.isCancelled })
+    }
+
+    private static func build(
+        records: [QuestionBankHomeIndexInput],
+        shouldCancel: () -> Bool
+    ) -> QuestionBankHomeIndexSnapshot? {
+        if shouldCancel() { return nil }
         let decoder = JSONDecoder()
-        let groupedRecords = Dictionary(grouping: records, by: { $0.revision.paperID })
+        var groupedRecords: [String: [QuestionBankHomeIndexInput]] = [:]
+        for (offset, record) in records.enumerated() {
+            if offset.isMultiple(of: 128), shouldCancel() { return nil }
+            groupedRecords[record.revision.paperID, default: []].append(record)
+        }
         var papers: [Paper] = []
         var questionsByPaperID: [String: [Question]] = [:]
         var materialsByPaperID: [String: [QuestionBankMaterial]] = [:]
 
         for (paperID, paperRecords) in groupedRecords {
+            if shouldCancel() { return nil }
             var modules: [String: QuestionBankModule] = [:]
-            for input in paperRecords where input.revision.kind == QuestionBankRepository.moduleKind {
+            for (offset, input) in paperRecords.enumerated() {
+                guard input.revision.kind == QuestionBankRepository.moduleKind else { continue }
+                if offset.isMultiple(of: 128), shouldCancel() { return nil }
                 guard let module = try? decoder.decode(QuestionBankModule.self, from: input.payload) else { continue }
                 modules[input.revision.stableID] = module
             }
 
-            for input in paperRecords {
+            for (offset, input) in paperRecords.enumerated() {
+                if offset.isMultiple(of: 128), shouldCancel() { return nil }
                 switch input.revision.kind {
                 case QuestionBankRepository.paperKind:
                     guard let value = try? decoder.decode(QuestionBankPaper.self, from: input.payload) else { continue }
@@ -200,8 +220,11 @@ struct QuestionBankHomeIndexSnapshot: Sendable {
             }
         }
 
+        if shouldCancel() { return nil }
+        let revision = records.map(\.revision).sorted { $0.compoundID < $1.compoundID }
+        if shouldCancel() { return nil }
         return QuestionBankHomeIndexSnapshot(
-            revision: records.map(\.revision).sorted { $0.compoundID < $1.compoundID },
+            revision: revision,
             papers: papers,
             questionsByPaperID: questionsByPaperID,
             materialsByPaperID: materialsByPaperID
@@ -212,6 +235,10 @@ struct QuestionBankHomeIndexSnapshot: Sendable {
 struct QuestionBankHomeFilterResult {
     let visiblePapers: [QuestionBankHomePaper]
     let questionsByPaperID: [String: [QuestionBankHomeQuestion]]
+
+    var totalQuestionCount: Int {
+        questionsByPaperID.values.reduce(0) { $0 + $1.count }
+    }
 
     func questionCount(for paperID: String) -> Int {
         questionsByPaperID[paperID]?.count ?? 0
@@ -356,6 +383,7 @@ struct QuestionBankHomeIndex {
     private let questionsByPaperID: [String: [QuestionBankHomeQuestion]]
     private let materialsByPaperID: [String: [QuestionBankMaterial]]
     private let orderedPapers: [QuestionBankHomePaper]
+    private let paperYears: Set<Int>
     let revision: [QuestionBankHomeIndexRevision]
 
     init(records: [QuestionBankRecord]) {
@@ -377,12 +405,14 @@ struct QuestionBankHomeIndex {
             papers[indexed.paperID] = QuestionBankHomePaper(record: record, paper: indexed.value)
         }
         papersByID = papers
-        orderedPapers = papers.values.sorted { left, right in
+        let sortedPapers = papers.values.sorted { left, right in
             if left.paper.year != right.paper.year { return left.paper.year > right.paper.year }
             let titleOrder = left.title.localizedStandardCompare(right.title)
             if titleOrder == .orderedSame { return left.id < right.id }
             return titleOrder == .orderedAscending
         }
+        orderedPapers = sortedPapers
+        paperYears = Set(sortedPapers.map { $0.paper.year })
 
         var byPaper: [String: [QuestionBankHomeQuestion]] = [:]
         for (paperID, indexedQuestions) in snapshot.questionsByPaperID {
@@ -415,6 +445,8 @@ struct QuestionBankHomeIndex {
     }
 
     var papers: [QuestionBankHomePaper] { orderedPapers }
+
+    func containsPaper(year: Int) -> Bool { paperYears.contains(year) }
 
     var years: [String] {
         Array(Set(orderedPapers.map { String($0.paper.year) })).sorted(by: >)

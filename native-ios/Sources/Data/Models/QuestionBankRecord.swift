@@ -1,6 +1,30 @@
 import Foundation
 import SwiftData
 
+enum QuestionBankRecordChangeSignal {
+    static let notification = Notification.Name("QuestionBankRecordsDidChange")
+    static let paperIDsKey = "paperIDs"
+
+    @MainActor
+    static func post(paperIDs: Set<String>) {
+        NotificationCenter.default.post(
+            name: notification,
+            object: nil,
+            userInfo: [paperIDsKey: Array(paperIDs)]
+        )
+    }
+
+    static func affects(_ paperID: String, notification: Notification) -> Bool {
+        guard let paperIDs = notification.userInfo?[paperIDsKey] as? [String] else { return true }
+        return paperIDs.isEmpty || paperIDs.contains(paperID)
+    }
+
+    static func affectsAny(_ paperIDs: [String], notification: Notification) -> Bool {
+        guard let changedPaperIDs = notification.userInfo?[paperIDsKey] as? [String] else { return true }
+        return paperIDs.isEmpty || changedPaperIDs.isEmpty || !Set(changedPaperIDs).isDisjoint(with: paperIDs)
+    }
+}
+
 /// Question-bank rows live in their own SwiftData entity so the learning-library
 /// queries for StoredRecord never have to load a complete exam bank.
 @Model

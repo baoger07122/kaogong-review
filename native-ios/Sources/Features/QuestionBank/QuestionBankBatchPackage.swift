@@ -846,6 +846,8 @@ enum QuestionBankBatchPackageRepository {
                 throw error
             }
 
+            QuestionBankRecordChangeSignal.post(paperIDs: Set(finalRowsByID.values.map(\.paperID)))
+
             let referencedGenerations = Set(
                 records.filter { $0.kind == QuestionBankRepository.assetKind }
                     .compactMap { $0.assetRelativePath?.split(separator: "/").first.map(String.init) }

@@ -220,12 +220,16 @@ struct QuestionBankInteractivePageDeck<PageID: Hashable, Page: View>: View {
                         pendingCommitID = destinationID
                         didFinishCommitMotion = false
                         isCommitting = true
+                        let commitStartedAt = ProcessInfo.processInfo.systemUptime
                         withAnimation(
                             .interactiveSpring(response: 0.24, dampingFraction: 0.86),
                             completionCriteria: .removed
                         ) {
                             dragOffset = direction > 0 ? -geometry.size.width : geometry.size.width
                         } completion: {
+                            Task { @MainActor in
+                                NativePerformanceLog.mark("question-bank page commit", since: commitStartedAt)
+                            }
                             var transaction = Transaction(animation: nil)
                             transaction.disablesAnimations = true
                             withTransaction(transaction) {

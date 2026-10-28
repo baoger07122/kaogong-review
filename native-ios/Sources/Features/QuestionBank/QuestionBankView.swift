@@ -87,19 +87,14 @@ struct QuestionBankView: View {
     @State private var activeImportID: UUID?
     @State private var importWorkerID: UUID?
     @State private var importWorker: Task<QuestionBankPreparedImport, Error>?
+    @State private var isHomeRouteVisible = false
+    @State private var isHomeIndexVisible = false
+    @State private var needsHomeIndexReload = true
 
     private let importLogger = Logger(subsystem: "com.baoger07122.kaogongreview", category: "QuestionBankImportUI")
 
     private var sortedBatches: [QuestionBankBatchRecord] {
         batchIndexes.sorted { ($0.year, $0.displayName) > ($1.year, $1.displayName) }
-    }
-
-    private var allPaperIDs: [String] {
-        QuestionBankHomeIndex.defaultPaperIDs(records: records)
-    }
-
-    private var homeIndexRevision: [QuestionBankHomeIndexRevision] {
-        QuestionBankHomeIndexRevision.make(records: records)
     }
 
     private var homeFilter: QuestionBankHomeFilter {
@@ -121,9 +116,7 @@ struct QuestionBankView: View {
     private var searchedQuestionNumber: Int? {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if let value = Int(query), value > 0 {
-            let isKnownPaperYear = records.contains {
-                $0.kind == QuestionBankRepository.paperKind && $0.year == value
-            }
+            let isKnownPaperYear = homeIndexStore.index?.containsPaper(year: value) == true
             return isKnownPaperYear ? nil : value
         }
         guard query.hasPrefix("第"), query.hasSuffix("题"), query.count > 2 else { return nil }
@@ -171,9 +164,10 @@ struct QuestionBankView: View {
 
     var body: some View {
         Group {
-            if let index = homeIndexStore.index, index.revision == homeIndexRevision {
+            if let index = homeIndexStore.index,
+               homeIndexStore.isCurrent,
+               let result = homeIndexStore.filtered(matching: homeFilter) {
                 let filter = homeFilter
-                let result = index.filtered(matching: filter)
                 let candidates = result.visiblePapers
                 let visibleByID = Dictionary(
                     candidates.map { ($0.id, $0) },
@@ -195,25 +189,55 @@ struct QuestionBankView: View {
                 questionBankLoadingContent
             }
         }
-        .task(id: homeIndexRevision) {
-            await homeIndexStore.load(records: records, revision: homeIndexRevision)
+        .task(id: "\(homeIndexStore.requestGeneration)|\(isHomeIndexVisible)") {
+            guard isHomeIndexVisible else { return }
+            let generation = homeIndexStore.requestGeneration
+            await Task.yield()
+            await homeIndexStore.load(records: records, generation: generation)
         }
         .onAppear {
-            organizationStore.reconcile(paperIDs: allPaperIDs)
+            isHomeRouteVisible = true
+            isHomeIndexVisible = rootTabSelection.wrappedValue == .questionBank
+            if isHomeIndexVisible, needsHomeIndexReload || homeIndexStore.index == nil {
+                needsHomeIndexReload = false
+                homeIndexStore.requestReload()
+            }
+            if homeIndexStore.isCurrent, let index = homeIndexStore.index {
+                organizationStore.reconcile(paperIDs: index.papers.map(\.id))
+            }
             NativePerformanceLog.event("question bank onAppear")
             processPendingExternalFileIfPossible()
         }
-        .onChange(of: allPaperIDs) { _, paperIDs in
-            organizationStore.reconcile(paperIDs: paperIDs)
+        .onReceive(NotificationCenter.default.publisher(for: QuestionBankRecordChangeSignal.notification)) { _ in
+            needsHomeIndexReload = true
+            guard isHomeIndexVisible else { return }
+            needsHomeIndexReload = false
+            homeIndexStore.requestReload()
+        }
+        .onChange(of: homeIndexStore.loadedGeneration) { _, _ in
+            guard homeIndexStore.isCurrent, let index = homeIndexStore.index else { return }
+            organizationStore.reconcile(paperIDs: index.papers.map(\.id))
         }
         .onDisappear {
+            isHomeRouteVisible = false
+            isHomeIndexVisible = false
+            homeIndexStore.cancelLoad()
             if isPreparingImport { cancelPreparingImport() }
         }
         .onChange(of: importRouter.pendingRequestIDs) { _, _ in
             processPendingExternalFileIfPossible()
         }
         .onChange(of: rootTabSelection.wrappedValue) { _, selectedTab in
-            if selectedTab == .questionBank { processPendingExternalFileIfPossible() }
+            isHomeIndexVisible = selectedTab == .questionBank && isHomeRouteVisible
+            if isHomeIndexVisible {
+                if needsHomeIndexReload || homeIndexStore.index == nil {
+                    needsHomeIndexReload = false
+                    homeIndexStore.requestReload()
+                }
+                processPendingExternalFileIfPossible()
+            } else {
+                homeIndexStore.cancelLoad()
+            }
         }
     }
 
@@ -458,9 +482,12 @@ struct QuestionBankView: View {
 
                     if filter.hasQuestionRestriction {
                         NavigationLink {
-                            QuestionBankCrossPaperReaderView(filter: filter)
+                            QuestionBankCrossPaperReaderView(
+                                filter: filter,
+                                paperIDs: result.visiblePapers.map(\.id)
+                            )
                         } label: {
-                            Label("查看本范围全部题目（\(index.filteredQuestions(matching: filter).count) 题）", systemImage: "rectangle.stack")
+                            Label("查看本范围全部题目（\(result.totalQuestionCount) 题）", systemImage: "rectangle.stack")
                                 .font(AppTheme.bodyFont.weight(.semibold))
                                 .foregroundStyle(.white)
                                 .frame(maxWidth: .infinity, minHeight: 48)
@@ -1700,16 +1727,32 @@ private struct QuestionBankImportPreview: View {
     }
 }
 
+private struct QuestionBankPaperModuleSummary: Identifiable {
+    let record: QuestionBankRecord
+    let module: QuestionBankModule?
+    let questionCount: Int
+
+    var id: String { record.compoundID }
+}
+
 private struct QuestionBankPaperView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.rootTabSelection) private var rootTabSelection
     @Query private var records: [QuestionBankRecord]
     @Query private var batchSources: [QuestionBankBatchSourceRecord]
     @Query private var batchMaterialLinks: [QuestionBankBatchMaterialLinkRecord]
     @Query private var batchQuestionLinks: [QuestionBankBatchQuestionLinkRecord]
     let paperID: String
     let initialQuestionNumber: String
+    @State private var paperRecord: QuestionBankRecord?
+    @State private var paper: QuestionBankPaper?
+    @State private var moduleSummaries: [QuestionBankPaperModuleSummary] = []
+    @State private var allModuleTitles: [String] = []
     @State private var selectedModuleTitle: String
+    @State private var isPaperRouteVisible = false
+    @State private var isPaperViewVisible = false
+    @State private var needsPaperSnapshot = true
     @State private var showsPaperFilters = false
     @State private var isPaperEditorPresented = false
     @State private var showsPaperDeletionConfirmation = false
@@ -1724,20 +1767,44 @@ private struct QuestionBankPaperView: View {
         self.paperID = paperID
         self.initialQuestionNumber = initialQuestionNumber
         _selectedModuleTitle = State(initialValue: initialModuleTitle)
+        let selectedPaperID = paperID
+        _records = Query(filter: #Predicate<QuestionBankRecord> {
+            $0.paperID == selectedPaperID
+        })
     }
 
-    private var paperRecord: QuestionBankRecord? {
-        records.first { $0.paperID == paperID && $0.kind == QuestionBankRepository.paperKind }
+    private var modules: [QuestionBankPaperModuleSummary] {
+        guard !selectedModuleTitle.isEmpty else { return moduleSummaries }
+        return moduleSummaries.filter { $0.record.title == selectedModuleTitle }
     }
-    private var paper: QuestionBankPaper? { paperRecord?.decoded(QuestionBankPaper.self) }
-    private var modules: [QuestionBankRecord] {
-        records.filter { $0.paperID == paperID && $0.kind == QuestionBankRepository.moduleKind }
-            .filter { selectedModuleTitle.isEmpty || $0.title == selectedModuleTitle }
+
+    private func refreshPaperSnapshot() {
+        paperRecord = records.first { $0.kind == QuestionBankRepository.paperKind }
+        paper = paperRecord?.decoded(QuestionBankPaper.self)
+        let sortedModuleRecords = records
+            .filter { $0.kind == QuestionBankRepository.moduleKind }
             .sorted { ($0.sequence ?? 0) < ($1.sequence ?? 0) }
+        let questionCounts = records.reduce(into: [String: Int]()) { counts, record in
+            guard record.kind == QuestionBankRepository.questionKind,
+                  let moduleID = record.moduleID else { return }
+            counts[moduleID, default: 0] += 1
+        }
+        moduleSummaries = sortedModuleRecords.map { record in
+            QuestionBankPaperModuleSummary(
+                record: record,
+                module: record.decoded(QuestionBankModule.self),
+                questionCount: questionCounts[record.stableID] ?? 0
+            )
+        }
+        allModuleTitles = Array(Set(moduleSummaries.compactMap { $0.record.title })).sorted()
     }
-    private var allModuleTitles: [String] {
-        Array(Set(records.filter { $0.paperID == paperID && $0.kind == QuestionBankRepository.moduleKind }
-            .compactMap(\.title))).sorted()
+
+    private func activatePaperViewIfNeeded() {
+        let shouldBeVisible = isPaperRouteVisible && rootTabSelection.wrappedValue == .questionBank
+        isPaperViewVisible = shouldBeVisible
+        guard shouldBeVisible, needsPaperSnapshot else { return }
+        needsPaperSnapshot = false
+        refreshPaperSnapshot()
     }
 
     var body: some View {
@@ -1777,9 +1844,10 @@ private struct QuestionBankPaperView: View {
                     NativeStatusCard(title: "没有匹配模块", detail: "更改模块筛选条件。", systemImage: "line.3.horizontal.decrease", color: AppTheme.accent)
                 } else {
                     LazyVStack(spacing: 0) {
-                        ForEach(modules, id: \.compoundID) { moduleRecord in
-                            let module = moduleRecord.decoded(QuestionBankModule.self)
-                            let count = records.filter { $0.paperID == paperID && $0.kind == QuestionBankRepository.questionKind && $0.moduleID == moduleRecord.stableID }.count
+                        ForEach(modules) { moduleSummary in
+                            let moduleRecord = moduleSummary.record
+                            let module = moduleSummary.module
+                            let count = moduleSummary.questionCount
                             NavigationLink {
                                 QuestionBankModuleView(
                                     paperID: paperID,
@@ -1856,10 +1924,42 @@ private struct QuestionBankPaperView: View {
                 .accessibilityIdentifier("question-bank-paper-management-menu")
             }
         }
+        .onAppear {
+            isPaperRouteVisible = true
+            activatePaperViewIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: QuestionBankRecordChangeSignal.notification)) { notification in
+            guard QuestionBankRecordChangeSignal.affects(paperID, notification: notification) else { return }
+            needsPaperSnapshot = true
+            guard isPaperViewVisible, rootTabSelection.wrappedValue == .questionBank else { return }
+            needsPaperSnapshot = false
+            Task { @MainActor in
+                await Task.yield()
+                guard isPaperViewVisible, rootTabSelection.wrappedValue == .questionBank else {
+                    needsPaperSnapshot = true
+                    return
+                }
+                refreshPaperSnapshot()
+            }
+        }
+        .onChange(of: rootTabSelection.wrappedValue) { _, selectedTab in
+            if selectedTab == .questionBank {
+                activatePaperViewIfNeeded()
+            } else {
+                isPaperViewVisible = false
+            }
+        }
+        .onDisappear {
+            isPaperRouteVisible = false
+            isPaperViewVisible = false
+        }
         .sheet(isPresented: $isPaperEditorPresented) {
             if let paper {
                 QuestionBankPaperMetadataEditor(paper: paper) { title, year, examType, volume, provinceCode, provinceName in
                     guard let paperRecord else { throw QuestionBankPaperMetadataEditFailure.missingPaper }
+                    let recordsForDuplicateValidation = try modelContext.fetch(
+                        FetchDescriptor<QuestionBankRecord>()
+                    )
                     try QuestionBankRepository.updatePaperMetadata(
                         record: paperRecord,
                         title: title,
@@ -1868,7 +1968,7 @@ private struct QuestionBankPaperView: View {
                         volume: volume,
                         provinceCode: provinceCode,
                         provinceName: provinceName,
-                        records: records,
+                        records: recordsForDuplicateValidation,
                         context: modelContext
                     )
                 }

@@ -999,6 +999,7 @@ enum QuestionBankRepository {
             record.searchText = "\(paper.title) \(paper.year) \(paper.examType) \(paper.volume) \(paper.provinceName ?? "") \(paper.provinceCode ?? "")"
             record.replacePayload(payload)
         }
+        QuestionBankRecordChangeSignal.post(paperIDs: [record.paperID])
     }
 
     @MainActor
@@ -1031,6 +1032,7 @@ enum QuestionBankRepository {
             throw QuestionBankMissingAnswerEditFailure.invalidPayload
         }
         try context.transaction { record.replacePayload(payload) }
+        QuestionBankRecordChangeSignal.post(paperIDs: [paperID])
     }
 
     @MainActor
@@ -1096,6 +1098,7 @@ enum QuestionBankRepository {
             record.replacePayload(payload)
             record.searchText = searchText
         }
+        QuestionBankRecordChangeSignal.post(paperIDs: [paperID])
     }
 
     @MainActor
@@ -1230,6 +1233,7 @@ enum QuestionBankRepository {
                 update.record.updatedAt = .now
             }
         }
+        QuestionBankRecordChangeSignal.post(paperIDs: Set([record.paperID] + linkedUpdates.map { $0.record.paperID }))
     }
 
     @MainActor
@@ -1255,6 +1259,7 @@ enum QuestionBankRepository {
             throw QuestionBankReferenceAccuracyFailure.invalidPayload
         }
         try context.transaction { record.replacePayload(payload) }
+        QuestionBankRecordChangeSignal.post(paperIDs: [record.paperID])
     }
 
     static func prepareQuestionUpdateFromLinkedError(
@@ -1518,6 +1523,8 @@ enum QuestionBankRepository {
             throw error
         }
 
+        QuestionBankRecordChangeSignal.post(paperIDs: Set([previousPaperID, paper.id].compactMap { $0 }))
+
         for oldGeneration in oldGenerations where oldGeneration != generation {
             guard let oldGenerationURL = QuestionBankAssetStore.url(for: oldGeneration, under: root) else { continue }
             try? FileManager.default.removeItem(at: oldGenerationURL)
@@ -1597,6 +1604,8 @@ enum QuestionBankRepository {
             if !restored { throw QuestionBankPaperDeletionError.assetRestoreFailed }
             throw QuestionBankPaperDeletionError.transactionFailed(error.localizedDescription)
         }
+
+        QuestionBankRecordChangeSignal.post(paperIDs: [paperID])
 
         var cleanupPending = false
         for directory in movedDirectories {
