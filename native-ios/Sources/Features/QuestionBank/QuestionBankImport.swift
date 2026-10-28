@@ -1233,7 +1233,7 @@ enum QuestionBankRepository {
                 update.record.updatedAt = .now
             }
         }
-        QuestionBankRecordChangeSignal.post(paperIDs: Set([record.paperID] + linkedUpdates.map { $0.record.paperID }))
+        QuestionBankRecordChangeSignal.post(paperIDs: [record.paperID])
     }
 
     @MainActor

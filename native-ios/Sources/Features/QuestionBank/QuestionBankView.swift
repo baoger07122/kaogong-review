@@ -484,10 +484,10 @@ struct QuestionBankView: View {
                         NavigationLink {
                             QuestionBankCrossPaperReaderView(
                                 filter: filter,
-                                paperIDs: result.visiblePapers.map(\.id)
+                                paperIDs: filterResult.visiblePapers.map(\.id)
                             )
                         } label: {
-                            Label("查看本范围全部题目（\(result.totalQuestionCount) 题）", systemImage: "rectangle.stack")
+                            Label("查看本范围全部题目（\(filterResult.totalQuestionCount) 题）", systemImage: "rectangle.stack")
                                 .font(AppTheme.bodyFont.weight(.semibold))
                                 .foregroundStyle(.white)
                                 .frame(maxWidth: .infinity, minHeight: 48)

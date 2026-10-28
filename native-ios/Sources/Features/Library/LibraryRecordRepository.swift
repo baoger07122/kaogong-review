@@ -745,6 +745,7 @@ enum QuestionBankErrorBookAddFailure: LocalizedError {
 }
 
 enum QuestionBankErrorBookRepository {
+    @MainActor
     static func add(
         analysis: QuestionBankQuestionAnalysisContext,
         category: QuestionBankErrorBookCategory,
