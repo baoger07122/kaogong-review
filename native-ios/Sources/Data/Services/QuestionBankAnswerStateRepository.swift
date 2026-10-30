@@ -366,13 +366,13 @@ enum QuestionBankAnswerStateRepository {
             try await Task.detached(priority: .utility) {
                 let context = ModelContext(container)
                 while true {
-                    let descriptor = FetchDescriptor<QuestionBankAnswerStateRecord>(
+                    var descriptor = FetchDescriptor<QuestionBankAnswerStateRecord>(
                         predicate: #Predicate {
                             $0.selectedOptionID != nil && !$0.isRevealed && !$0.isCleared
                         },
-                        sortBy: [SortDescriptor(\.compoundID)],
-                        fetchLimit: batchSize
+                        sortBy: [SortDescriptor(\.compoundID)]
                     )
+                    descriptor.fetchLimit = batchSize
                     let page = try context.fetch(descriptor)
                     guard !page.isEmpty else { break }
                     let ids = page.map(\.compoundID)
@@ -1047,7 +1047,7 @@ private final class QuestionBankAnswerStateMigrationService {
 
         let sourceIDs = Set(selected.keys).union(revealed).union(resolved).sorted()
         guard !sourceIDs.isEmpty else { return [] }
-        var directory: QuestionBankReaderDirectorySnapshot?
+        var directory: QuestionBankCatalogReaderDirectory?
         if resolvedPaperIDHint == nil, sourceIDs.contains(where: { QuestionBankAnswerStateValue.empty(compoundID: $0) == nil }) {
             directory = try await QuestionBankCatalogService.readerDirectory(in: container)
         }

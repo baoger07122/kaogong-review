@@ -1846,7 +1846,7 @@ enum QuestionBankRepository {
                     }
                     onProgress?(processed, total)
                 }
-                for row in rows {
+                for var row in rows {
                     if let existing = existingByID[row.compoundID] {
                         if row.kind == questionKind {
                             row.payload = try QuestionBankPayloadMerge.preservingLocalQuestionAnalysis(

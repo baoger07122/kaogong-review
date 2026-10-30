@@ -2091,7 +2091,7 @@ private struct QuestionBankPaperView: View {
         paperSnapshotError = nil
         paperSnapshotTask = Task { @MainActor in
             do {
-                async let paperRow = QuestionBankCatalogService.paperSummary(
+                async let paperTask = QuestionBankCatalogService.paperSummary(
                     for: paperID,
                     in: modelContext.container
                 )
@@ -2103,9 +2103,9 @@ private struct QuestionBankPaperView: View {
                     for: paperID,
                     in: modelContext.container
                 )
-                let (paperRow, modules, questions) = try await (paperRow, moduleRows, questionRows)
+                let (resolvedPaper, modules, questions) = try await (paperTask, moduleRows, questionRows)
                 guard !Task.isCancelled else { return }
-                paper = paperRow
+                paper = resolvedPaper
                 moduleSummaries = modules.map(QuestionBankPaperModuleSummary.init(module:))
                 paperQuestionIDs = questions.map(\.sourceCompoundID)
                 allModuleTitles = Array(Set(modules.map(\.title))).sorted()
@@ -2295,8 +2295,9 @@ private struct QuestionBankPaperView: View {
                     provinceName: paper.provinceName
                 )) { title, year, examType, volume, provinceCode, provinceName in
                     let paperKind = QuestionBankRepository.paperKind
+                    let targetPaperID = paper.paperID
                     let paperPredicate = #Predicate<QuestionBankRecord> {
-                        $0.paperID == paper.paperID && $0.kind == paperKind
+                        $0.paperID == targetPaperID && $0.kind == paperKind
                     }
                     guard let paperRecord = try modelContext.fetch(
                         FetchDescriptor<QuestionBankRecord>(predicate: paperPredicate)

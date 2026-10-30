@@ -822,7 +822,6 @@ enum QuestionBankCatalogService {
     /// Rebuilds only one paper's derived rows in the caller's transaction. This is
     /// for imports, replacements, metadata changes, and deletions; single-question
     /// edits should use updateQuestion instead.
-    @MainActor
     static func refreshPaper(_ paperID: String, context: ModelContext) throws {
         try QuestionBankCatalogBuilder.refreshPaper(paperID: paperID, context: context)
     }
@@ -1082,6 +1081,14 @@ private struct QuestionBankCatalogSourceRevision: Sendable {
         kind = record.kind
         moduleID = record.moduleID
         contentRevision = record.contentRevision
+    }
+
+    init(_ source: QuestionBankCatalogSourceRow) {
+        compoundID = source.compoundID
+        paperID = source.paperID
+        kind = source.kind
+        moduleID = source.moduleID
+        contentRevision = source.contentRevision
     }
 }
 
@@ -1354,7 +1361,7 @@ private enum QuestionBankCatalogBuilder {
             $0.compoundID > lowerBound
                 && ($0.kind == paperKind || $0.kind == moduleKind || $0.kind == questionKind)
         }
-        let descriptor = FetchDescriptor<QuestionBankRecord>(
+        var descriptor = FetchDescriptor<QuestionBankRecord>(
             predicate: predicate,
             sortBy: [SortDescriptor(\QuestionBankRecord.compoundID, order: .forward)]
         )
@@ -1372,7 +1379,6 @@ private enum QuestionBankCatalogBuilder {
             .map(QuestionBankCatalogSourceRow.init)
     }
 
-    @MainActor
     static func refreshPaper(paperID: String, context: ModelContext) throws {
         guard let progress = try QuestionBankCatalogService.fetchProgress(in: context) else { return }
         let state = QuestionBankCatalogIndexState(rawValue: progress.stateRawValue)

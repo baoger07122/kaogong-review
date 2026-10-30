@@ -861,13 +861,15 @@ enum QuestionBankErrorBookRepository {
         draft.original["linkedErrorRecordIDs"] = validLinkedIDs
         draft.accuracy = question.accuracy.map { String($0) } ?? ""
 
-        let relationIDs = Array(Set(
-            [draft.sourceExamID, draft.original["sourceExamId"] as? String ?? ""]
-                + draft.linkedNoteIDs
-                + (draft.original["linkedNoteIds"] as? [String] ?? [])
-                + draft.linkedWordIDs
-                + (draft.original["linkedWordIds"] as? [String] ?? [])
-        ).filter { !$0.isEmpty })
+        var relationIDValues: [String] = [
+            draft.sourceExamID,
+            draft.original["sourceExamId"] as? String ?? ""
+        ]
+        relationIDValues.append(contentsOf: draft.linkedNoteIDs)
+        relationIDValues.append(contentsOf: draft.original["linkedNoteIds"] as? [String] ?? [])
+        relationIDValues.append(contentsOf: draft.linkedWordIDs)
+        relationIDValues.append(contentsOf: draft.original["linkedWordIds"] as? [String] ?? [])
+        let relationIDs = Array(Set(relationIDValues.filter { !$0.isEmpty }))
         let relationCollections = ["exams", "notes", "words"]
         let relationRecords: [StoredRecord]
         if relationIDs.isEmpty {

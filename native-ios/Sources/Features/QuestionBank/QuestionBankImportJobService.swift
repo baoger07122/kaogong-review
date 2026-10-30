@@ -817,7 +817,7 @@ actor QuestionBankImportJobService {
               job.sourceSHA256 == package.sourceFileSHA256,
               package.id == savedPackage.id,
               package.sourceFileSHA256 == savedPackage.sourceFileSHA256,
-              package.manifest.packageID == savedPackage.manifest.packageID,
+              package.manifest == savedPackage.manifest,
               package.stagingDirectory?.standardizedFileURL == savedPackage.stagingDirectory?.standardizedFileURL else {
             throw QuestionBankImportJobFailure.changedPreparedImport
         }

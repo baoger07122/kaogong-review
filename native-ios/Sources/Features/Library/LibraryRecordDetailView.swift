@@ -843,7 +843,7 @@ struct LibraryRecordDetailView: View {
               let payload = record?.jsonObject,
               let paperID = payload["questionBankPaperID"] as? String,
               let questionID = payload["questionBankQuestionID"] as? String else { return "" }
-        return "\(paperID)|\(questionID)|\(payload["userOption"] as? String ?? "")|\(record?.updatedAt.timeIntervalSince1970 ?? 0)"
+        return "\(paperID)|\(questionID)|\(payload["userOption"] as? String ?? "")|\(record?.updatedAt?.timeIntervalSince1970 ?? 0)"
     }
 
     @MainActor
