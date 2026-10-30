@@ -1692,7 +1692,7 @@ private struct QuestionBankImportPreview: View {
 
     private var replacementPaperRecord: QuestionBankStoredRow? {
         if currentBatchMetadata != nil && recordsScopeKey != expectedRecordsScopeKey { return nil }
-        existingSourcePaperRecord ?? duplicatePaperRecord
+        return existingSourcePaperRecord ?? duplicatePaperRecord
     }
 
     private var replacementTitle: String? {

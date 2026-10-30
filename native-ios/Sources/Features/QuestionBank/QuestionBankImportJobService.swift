@@ -402,7 +402,7 @@ actor QuestionBankImportJobService {
         in container: ModelContainer
     ) async throws -> QuestionBankImportJobPreview {
         guard !isExecutingWrite else { throw QuestionBankImportJobFailure.anotherImportIsActive }
-        try await Task.detached(priority: .userInitiated) {
+        return try await Task.detached(priority: .userInitiated) {
             let context = ModelContext(container)
             guard let job = try QuestionBankImportJobStore.fetch(jobID, in: context),
                   QuestionBankImportJobPhase(rawValue: job.phase) == .awaitingConfirmation,

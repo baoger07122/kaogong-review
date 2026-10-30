@@ -4434,9 +4434,9 @@ private struct QuestionBankAnswerFollowUpAction: View {
         case .some(.identityConflict): return "错题记录标识冲突"
         case .some(.unlinked):
             switch category {
-            case .wrong: "加入错题本"
-            case .uncertain: "加入不确定题"
-            case .cannotSolve: "标记不会做"
+            case .wrong: return "加入错题本"
+            case .uncertain: return "加入不确定题"
+            case .cannotSolve: return "标记不会做"
             }
         case .none: return "正在检查错题记录…"
         }
