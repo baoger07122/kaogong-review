@@ -1906,6 +1906,7 @@ enum QuestionBankRepository {
                     job.previewSnapshotToken = expectedSnapshotToken
                     job.lastError = nil
                 }
+                }
             } catch {
                 commitContext.rollback()
                 throw error
