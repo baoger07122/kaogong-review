@@ -5,8 +5,8 @@ import OSLog
 private enum QuestionBankImportSheet: Identifiable {
     case picker(UUID)
     case preparing(UUID)
-    case preview(QuestionBankImportPlan)
-    case batchPreview(QuestionBankBatchPackagePlan)
+    case preview(String, QuestionBankImportPlan, QuestionBankImportJobPreview)
+    case batchPreview(String, QuestionBankBatchPackagePlan, QuestionBankImportJobPreview)
 
     var id: String {
         // Keep one sheet owner across picker → preparation → preview. Replacing
@@ -31,9 +31,12 @@ private final class QuestionBankImportProgressModel: ObservableObject {
         message = "\(fileName)／准备读取"
     }
 
-    func update(runID: UUID, phase: QuestionBankImportPhase) {
+    func update(runID: UUID, progress: QuestionBankImportJobProgress) {
         guard activeRunID == runID else { return }
-        message = "\(fileName)／\(phase.rawValue)"
+        let count = progress.totalCount > 0
+            ? " \(progress.processedCount)/\(progress.totalCount)"
+            : ""
+        message = "\(fileName)／\(progress.phaseLabel)\(count)"
     }
 
     func finish(runID: UUID, message: String? = nil) {
@@ -48,7 +51,6 @@ struct QuestionBankView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.rootTabSelection) private var rootTabSelection
     @EnvironmentObject private var importRouter: QuestionBankImportRouter
-    @Query private var records: [QuestionBankRecord]
     @Query private var batchIndexes: [QuestionBankBatchRecord]
     @Query private var batchSources: [QuestionBankBatchSourceRecord]
     @Query private var batchMaterialLinks: [QuestionBankBatchMaterialLinkRecord]
@@ -56,7 +58,7 @@ struct QuestionBankView: View {
     @StateObject private var importProgress = QuestionBankImportProgressModel()
     @StateObject private var importSelection = QuestionBankImportSelectionCoordinator()
     @StateObject private var organizationStore = QuestionBankOrganizationStore()
-    @StateObject private var homeIndexStore = QuestionBankHomeIndexStore()
+    @StateObject private var catalogHomeStore = QuestionBankCatalogHomeStore()
     @State private var searchText = ""
     @State private var isSearchExpanded = false
     @FocusState private var isSearchFocused: Bool
@@ -70,7 +72,7 @@ struct QuestionBankView: View {
     @State private var selectedNeedsReviewOnly = false
     @State private var selectedKnowledgePoint = ""
     @State private var selectedWeaknessTag = ""
-    @State private var paperPendingDeletion: QuestionBankRecord?
+    @State private var paperPendingDeletion: QuestionBankCatalogPaperSummary?
     @State private var showsPaperDeletionConfirmation = false
     @State private var activeImportSheet: QuestionBankImportSheet?
     @State private var showsBatchPackageManager = false
@@ -79,17 +81,19 @@ struct QuestionBankView: View {
     @State private var isPreparingImport = false
     @State private var isCancellingImport = false
     @State private var isCommittingImport = false
-    @State private var importStagingDirectory: URL?
+    @State private var searchRetryGeneration = 0
     @State private var inlineImportFailure: String?
     @State private var showImportAlert = false
     @State private var importAlertTitle = "导入未完成"
     @State private var importAlertMessage = ""
     @State private var activeImportID: UUID?
+    @State private var activeImportJobID: String?
     @State private var importWorkerID: UUID?
-    @State private var importWorker: Task<QuestionBankPreparedImport, Error>?
+    @State private var importWorker: Task<(jobID: String, prepared: QuestionBankPreparedImport), Error>?
+    @State private var didRecoverImportJobs = false
     @State private var isHomeRouteVisible = false
-    @State private var isHomeIndexVisible = false
-    @State private var needsHomeIndexReload = true
+    @State private var isCatalogHomeVisible = false
+    @State private var needsCatalogHomeReload = true
 
     private let importLogger = Logger(subsystem: "com.baoger07122.kaogongreview", category: "QuestionBankImportUI")
 
@@ -116,7 +120,7 @@ struct QuestionBankView: View {
     private var searchedQuestionNumber: Int? {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if let value = Int(query), value > 0 {
-            let isKnownPaperYear = homeIndexStore.index?.containsPaper(year: value) == true
+            let isKnownPaperYear = catalogHomeStore.containsPaper(year: value)
             return isKnownPaperYear ? nil : value
         }
         guard query.hasPrefix("第"), query.hasSuffix("题"), query.count > 2 else { return nil }
@@ -164,9 +168,8 @@ struct QuestionBankView: View {
 
     var body: some View {
         Group {
-            if let index = homeIndexStore.index,
-               homeIndexStore.isCurrent,
-               let result = homeIndexStore.filtered(matching: homeFilter) {
+            if let snapshot = catalogHomeStore.snapshot,
+               let result = catalogHomeStore.filtered(matching: homeFilter) {
                 let filter = homeFilter
                 let candidates = result.visiblePapers
                 let visibleByID = Dictionary(
@@ -178,90 +181,232 @@ struct QuestionBankView: View {
                     .flatMap(\.paperIDs)
                     .compactMap { visibleByID[$0] }
                 questionBankConfiguredContent(
-                    index: index,
+                    snapshot: snapshot,
                     filter: filter,
                     filterResult: result,
                     organizationSections: organizationSections,
                     visiblePapers: visiblePapers,
                     visibleByID: visibleByID
                 )
-            } else {
+            } else if catalogHomeStore.snapshot == nil || !catalogHomeStore.isCurrent {
                 questionBankLoadingContent
+            } else if catalogHomeStore.status?.state != .ready {
+                questionBankLoadingContent
+            } else {
+                questionBankSearchLoadingContent
             }
         }
-        .task(id: "\(homeIndexStore.requestGeneration)|\(isHomeIndexVisible)") {
-            guard isHomeIndexVisible else { return }
-            let generation = homeIndexStore.requestGeneration
+        .task(id: "\(catalogHomeStore.requestGeneration)|\(isCatalogHomeVisible)") {
+            guard isCatalogHomeVisible else { return }
+            let generation = catalogHomeStore.requestGeneration
             await Task.yield()
-            await homeIndexStore.load(records: records, generation: generation)
+            await catalogHomeStore.load(in: modelContext.container, generation: generation)
+        }
+        .task(id: "\(isHomeRouteVisible)|\(didRecoverImportJobs)") {
+            guard isHomeRouteVisible, !didRecoverImportJobs else { return }
+            didRecoverImportJobs = true
+            do {
+                let recovered = try await QuestionBankImportJobService.shared.recover(in: modelContext.container)
+                guard !Task.isCancelled, activeImportSheet == nil, !recovered.isEmpty else { return }
+                let job = recovered[0]
+                activeImportJobID = job.jobID
+                switch job.prepared {
+                case .single(let plan):
+                    activeImportSheet = .preview(job.jobID, plan, job.preview)
+                case .batch(let package):
+                    activeImportSheet = .batchPreview(job.jobID, package, job.preview)
+                }
+                importProgress.setMessage("已恢复未完成的真题导入，请核对后确认")
+            } catch {
+                importLogger.error("question bank import recovery failed (\(String(reflecting: type(of: error)), privacy: .public))")
+            }
+        }
+        .task(id: "\(searchIndexQuery)|\(catalogHomeStore.requestGeneration)|\(catalogHomeStore.loadedGeneration ?? -1)|\(catalogHomeStore.status?.state.rawValue ?? "none")|\(searchRetryGeneration)|\(isCatalogHomeVisible)") {
+            guard isCatalogHomeVisible,
+                  catalogHomeStore.snapshot != nil,
+                  catalogHomeStore.status?.state == .ready,
+                  searchedQuestionNumber == nil,
+                  !searchIndexQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                catalogHomeStore.beginSearch("")
+                return
+            }
+            let query = searchIndexQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            catalogHomeStore.beginSearch(query)
+            do {
+                try await Task.sleep(nanoseconds: 350_000_000)
+                try Task.checkCancellation()
+                await catalogHomeStore.search(query, in: modelContext.container)
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+        }
+        .task(id: catalogHomeStore.filterRequestID(for: homeFilter)) {
+            guard isCatalogHomeVisible else { return }
+            await catalogHomeStore.prepareFilter(matching: homeFilter, in: modelContext.container)
         }
         .onAppear {
             isHomeRouteVisible = true
-            isHomeIndexVisible = rootTabSelection.wrappedValue == .questionBank
-            if isHomeIndexVisible, needsHomeIndexReload || homeIndexStore.index == nil {
-                needsHomeIndexReload = false
-                homeIndexStore.requestReload()
+            isCatalogHomeVisible = rootTabSelection.wrappedValue == .questionBank
+            if isCatalogHomeVisible, needsCatalogHomeReload || catalogHomeStore.snapshot == nil {
+                needsCatalogHomeReload = false
+                catalogHomeStore.requestReload()
             }
-            if homeIndexStore.isCurrent, let index = homeIndexStore.index {
-                organizationStore.reconcile(paperIDs: index.papers.map(\.id))
+            if catalogHomeStore.isCurrent, let snapshot = catalogHomeStore.snapshot {
+                organizationStore.reconcile(paperIDs: snapshot.papers.map(\.paperID))
             }
             NativePerformanceLog.event("question bank onAppear")
             processPendingExternalFileIfPossible()
         }
-        .onReceive(NotificationCenter.default.publisher(for: QuestionBankRecordChangeSignal.notification)) { _ in
-            needsHomeIndexReload = true
-            guard isHomeIndexVisible else { return }
-            needsHomeIndexReload = false
-            homeIndexStore.requestReload()
+        .onReceive(NotificationCenter.default.publisher(for: QuestionBankRecordChangeSignal.notification)) { notification in
+            guard let catalogChanges = QuestionBankRecordChangeSignal.catalogChanges(notification: notification) else {
+                needsCatalogHomeReload = true
+                guard isCatalogHomeVisible else { return }
+                needsCatalogHomeReload = false
+                catalogHomeStore.requestReload()
+                return
+            }
+            guard !catalogChanges.isEmpty else { return }
+            needsCatalogHomeReload = true
+            guard isCatalogHomeVisible else { return }
+            needsCatalogHomeReload = false
+            if catalogChanges.contains(where: { $0.kind == .structure }) {
+                catalogHomeStore.requestReload()
+            } else {
+                Task { @MainActor in
+                    let updated = await catalogHomeStore.refreshQuestions(
+                        for: catalogChanges,
+                        in: modelContext.container
+                    )
+                    guard updated else {
+                        if isCatalogHomeVisible {
+                            catalogHomeStore.requestReload()
+                        } else {
+                            needsCatalogHomeReload = true
+                        }
+                        return
+                    }
+                    searchRetryGeneration &+= 1
+                }
+            }
         }
-        .onChange(of: homeIndexStore.loadedGeneration) { _, _ in
-            guard homeIndexStore.isCurrent, let index = homeIndexStore.index else { return }
-            organizationStore.reconcile(paperIDs: index.papers.map(\.id))
+        .onChange(of: catalogHomeStore.loadedGeneration) { _, _ in
+            guard catalogHomeStore.isCurrent, let snapshot = catalogHomeStore.snapshot else { return }
+            organizationStore.reconcile(paperIDs: snapshot.papers.map(\.paperID))
         }
         .onDisappear {
             isHomeRouteVisible = false
-            isHomeIndexVisible = false
-            homeIndexStore.cancelLoad()
+            isCatalogHomeVisible = false
+            catalogHomeStore.cancelLoad()
             if isPreparingImport { cancelPreparingImport() }
         }
         .onChange(of: importRouter.pendingRequestIDs) { _, _ in
             processPendingExternalFileIfPossible()
         }
         .onChange(of: rootTabSelection.wrappedValue) { _, selectedTab in
-            isHomeIndexVisible = selectedTab == .questionBank && isHomeRouteVisible
-            if isHomeIndexVisible {
-                if needsHomeIndexReload || homeIndexStore.index == nil {
-                    needsHomeIndexReload = false
-                    homeIndexStore.requestReload()
+            isCatalogHomeVisible = selectedTab == .questionBank && isHomeRouteVisible
+            if isCatalogHomeVisible {
+                if needsCatalogHomeReload || catalogHomeStore.snapshot == nil {
+                    needsCatalogHomeReload = false
+                    catalogHomeStore.requestReload()
                 }
                 processPendingExternalFileIfPossible()
             } else {
-                homeIndexStore.cancelLoad()
+                catalogHomeStore.cancelLoad()
             }
         }
     }
 
     private var questionBankLoadingContent: some View {
-        ProgressView("正在准备题库索引…")
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.white)
-            .navigationTitle("真题库")
-            .navigationBarTitleDisplayMode(.inline)
-            .rootTabBarContentInset()
-            .toolbar { questionBankToolbar() }
+        VStack(spacing: 12) {
+            catalogStatusCard
+            if let errorMessage = catalogHomeStore.errorMessage {
+                Text(errorMessage).font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.danger)
+                Button("重试") { retryCatalogLoad() }.buttonStyle(NativePrimaryButtonStyle())
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(20)
+        .background(Color.white)
+        .navigationTitle("真题库")
+        .navigationBarTitleDisplayMode(.inline)
+        .rootTabBarContentInset()
+        .toolbar { questionBankToolbar() }
+    }
+
+    private var questionBankSearchLoadingContent: some View {
+        VStack(spacing: 12) {
+            if catalogHomeStore.isSearching {
+                ProgressView("正在搜索题目…")
+            } else if catalogHomeStore.isPreparingFilter {
+                ProgressView("正在筛选题目…")
+            } else if catalogHomeStore.errorMessage != nil {
+                Text(catalogHomeStore.errorMessage ?? "搜索失败")
+                    .font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.danger)
+                Button("重试搜索") { searchRetryGeneration &+= 1 }
+            } else {
+                ProgressView("正在准备题目列表…")
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(20)
+        .background(Color.white)
+        .navigationTitle("真题库")
+        .navigationBarTitleDisplayMode(.inline)
+        .rootTabBarContentInset()
+        .toolbar { questionBankToolbar() }
+    }
+
+    private var catalogStatusCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                if catalogHomeStore.isLoading { ProgressView().controlSize(.small) }
+                Text(catalogStateTitle).font(AppTheme.cardTitleFont)
+            }
+            if let status = catalogHomeStore.status, status.totalSourceRowCount != nil {
+                let total = max(status.totalSourceRowCount ?? 0, 0)
+                Text("目录已处理 \(status.indexedSourceRowCount) / \(total) 条源记录")
+                    .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                ProgressView(value: total == 0 ? 0 : Double(status.indexedSourceRowCount) / Double(total))
+            } else if let status = catalogHomeStore.status, status.indexedSourceRowCount > 0 {
+                Text("已处理 \(status.indexedSourceRowCount) 条源记录")
+                    .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+            } else if catalogHomeStore.status?.state == .notStarted {
+                Text("首次打开将在后台建立题目目录；离开页面可暂停，之后继续。")
+                    .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(13)
+        .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
+    }
+
+    private var catalogStateTitle: String {
+        switch catalogHomeStore.status?.state {
+        case .building: "正在建立题目目录"
+        case .paused: "题目目录已暂停"
+        case .needsRepair: "题目目录需要更新"
+        case .ready: "题目目录已就绪"
+        case .notStarted, nil: catalogHomeStore.isLoading ? "正在准备题目目录" : "题目目录尚未就绪"
+        }
+    }
+
+    private func retryCatalogLoad() {
+        catalogHomeStore.requestReload()
     }
 
     private func questionBankConfiguredContent(
-        index: QuestionBankHomeIndex,
+        snapshot: QuestionBankCatalogHomeSnapshot,
         filter: QuestionBankHomeFilter,
-        filterResult: QuestionBankHomeFilterResult,
+        filterResult: QuestionBankCatalogHomeFilterResult,
         organizationSections: [QuestionBankOrganizationSection],
-        visiblePapers: [QuestionBankHomePaper],
-        visibleByID: [String: QuestionBankHomePaper]
+        visiblePapers: [QuestionBankCatalogPaperSummary],
+        visibleByID: [String: QuestionBankCatalogPaperSummary]
     ) -> AnyView {
         var content = AnyView(
             questionBankScrollContent(
-                index: index,
+                snapshot: snapshot,
                 filter: filter,
                 filterResult: filterResult,
                 organizationSections: organizationSections,
@@ -278,10 +423,12 @@ struct QuestionBankView: View {
             importSheetContent(sheet)
         })
         content = AnyView(content.sheet(isPresented: $showsOrganizationManager) {
-            QuestionBankPaperOrganizationView(store: organizationStore, papers: index.papers)
+            QuestionBankPaperOrganizationView(store: organizationStore, papers: snapshot.papers)
         })
         content = AnyView(content.sheet(isPresented: $showsBatchPackageManager) {
-            QuestionBankBatchPackageManagerView(records: records, organizationStore: organizationStore)
+            QuestionBankBatchPackageManagerView(
+                organizationStore: organizationStore
+            )
         })
         content = AnyView(content.alert(importAlertTitle, isPresented: $showImportAlert) {
             Button("好", role: .cancel) { }
@@ -296,7 +443,7 @@ struct QuestionBankView: View {
             Button("删除试卷及关联题目与图片", role: .destructive) { deletePendingPaper() }
             Button("取消", role: .cancel) { paperPendingDeletion = nil }
         } message: {
-            Text("将删除《\(paperPendingDeletion?.title ?? paperPendingDeletion?.decoded(QuestionBankPaper.self)?.title ?? "未命名试卷")》及其题目和纸卷图片。学习库笔记与涂鸦会保留；仍被批次来源索引引用的试卷不能删除。")
+            Text("将删除《\(paperPendingDeletion?.title ?? "未命名试卷")》及其题目和纸卷图片。学习库笔记与涂鸦会保留；仍被批次来源索引引用的试卷不能删除。")
         })
         content = AnyView(content.onChange(of: isPreparingImport) { _, isPreparing in
             if !isPreparing { processPendingExternalFileIfPossible() }
@@ -389,40 +536,65 @@ struct QuestionBankView: View {
                     message: importProgress.message ?? "正在准备读取…",
                     onCancel: cancelPreparingImport
                 )
-            case .preview(let plan):
+            case .preview(let jobID, let plan, let preview):
                 QuestionBankImportPreview(
+                    jobID: jobID,
                     plan: plan,
-                    records: records,
-                    batchSources: batchSources,
+                    preview: preview,
                     isImporting: isCommittingImport,
                     importFailure: $inlineImportFailure,
-                    onImport: { correctedPlan, decision, batchMetadata in
-                        commitImport(correctedPlan, decision: decision, batchMetadata: batchMetadata)
+                    onImport: { correctedPlan, decision, batchMetadata, revisionToken in
+                        commitImport(
+                            jobID: jobID,
+                            plan: correctedPlan,
+                            decision: decision,
+                            batchMetadata: batchMetadata,
+                            revisionToken: revisionToken
+                        )
                     },
-                    onCancel: { activeImportSheet = nil }
+                    onCancel: { cancelImportJob(jobID: jobID) }
                 )
-            case .batchPreview(let plan):
+            case .batchPreview(let jobID, let plan, let preview):
                 QuestionBankBatchPackageImportPreview(
+                    jobID: jobID,
                     plan: plan,
-                    records: records,
+                    preview: preview,
                     isImporting: isCommittingImport,
                     importFailure: $inlineImportFailure,
-                    onImport: { keys in commitBatchImport(plan, confirmedNewQuestionKeys: keys) },
-                    onCancel: { activeImportSheet = nil }
+                    onImport: { keys, revisionToken in
+                        commitBatchImport(
+                            jobID: jobID,
+                            package: plan,
+                            confirmedNewQuestionKeys: keys,
+                            revisionToken: revisionToken
+                        )
+                    },
+                    onCancel: { cancelImportJob(jobID: jobID) }
                 )
             }
         }
 
     private func questionBankScrollContent(
-        index: QuestionBankHomeIndex,
+        snapshot: QuestionBankCatalogHomeSnapshot,
         filter: QuestionBankHomeFilter,
-        filterResult: QuestionBankHomeFilterResult,
+        filterResult: QuestionBankCatalogHomeFilterResult,
         organizationSections: [QuestionBankOrganizationSection],
-        visiblePapers: [QuestionBankHomePaper],
-        visibleByID: [String: QuestionBankHomePaper]
+        visiblePapers: [QuestionBankCatalogPaperSummary],
+        visibleByID: [String: QuestionBankCatalogPaperSummary]
     ) -> AnyView {
         return AnyView(ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    if catalogHomeStore.status?.state != .ready || catalogHomeStore.errorMessage != nil {
+                        catalogStatusCard
+                        if let errorMessage = catalogHomeStore.errorMessage {
+                            Text(errorMessage).font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.danger)
+                            Button("重试") { retryCatalogLoad() }.buttonStyle(NativePrimaryButtonStyle())
+                        }
+                    }
+                    if catalogHomeStore.isSearching {
+                        Label("正在搜索题目…", systemImage: "magnifyingglass")
+                            .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                    }
                     if let importStatusMessage = importProgress.message {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             if isPreparingImport {
@@ -475,7 +647,7 @@ struct QuestionBankView: View {
                     }
 
                     if isFiltersExpanded {
-                        filterControls(index: index)
+                        filterControls(snapshot: snapshot)
                     } else if hasActiveFilters {
                         activeFilterSummaryRow
                     }
@@ -484,7 +656,7 @@ struct QuestionBankView: View {
                         NavigationLink {
                             QuestionBankCrossPaperReaderView(
                                 filter: filter,
-                                paperIDs: filterResult.visiblePapers.map(\.id)
+                                paperIDs: filterResult.visiblePapers.map(\.paperID)
                             )
                         } label: {
                             Label("查看本范围全部题目（\(filterResult.totalQuestionCount) 题）", systemImage: "rectangle.stack")
@@ -499,8 +671,8 @@ struct QuestionBankView: View {
 
                     if visiblePapers.isEmpty {
                         NativeStatusCard(
-                            title: index.papers.isEmpty ? "还没有导入真题" : "没有符合条件的试卷",
-                            detail: index.papers.isEmpty
+                            title: snapshot.papers.isEmpty ? "还没有导入真题" : "没有符合条件的试卷",
+                            detail: snapshot.papers.isEmpty
                                 ? "优先导入单文件 JSON 真题包；旧版 ZIP 套卷也可继续使用。"
                                 : "调整年份、考试类型、省份、模块、题型或搜索关键词后重试。",
                             systemImage: "books.vertical",
@@ -508,7 +680,7 @@ struct QuestionBankView: View {
                         )
                     } else {
                         paperSections(
-                            index: index,
+                            snapshot: snapshot,
                             filter: filter,
                             filterResult: filterResult,
                             sections: organizationSections,
@@ -599,7 +771,7 @@ struct QuestionBankView: View {
         .frame(minHeight: 28)
     }
 
-    private func filterControls(index: QuestionBankHomeIndex) -> some View {
+    private func filterControls(snapshot: QuestionBankCatalogHomeSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 7) {
@@ -637,20 +809,20 @@ struct QuestionBankView: View {
                     }
                 }
             }
-            if let module = selectedCoarseModule, !index.questionTypeOptions(for: module).isEmpty {
+            if let module = selectedCoarseModule, !snapshot.questionTypeOptions(for: module).isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 7) {
                         typeFilterChip("全部", value: "")
-                        ForEach(index.questionTypeOptions(for: module), id: \.self) { type in
+                        ForEach(snapshot.questionTypeOptions(for: module), id: \.self) { type in
                             typeFilterChip(type, value: type)
                         }
                     }
                 }
             }
             HStack(spacing: 8) {
-                filterMenu(title: "年份", selection: $selectedYear, options: index.years)
-                filterMenu(title: "考试类别", selection: $selectedExamType, options: index.examTypes)
-                filterMenu(title: "省份", selection: $selectedProvince, options: index.provinces)
+                filterMenu(title: "年份", selection: $selectedYear, options: snapshot.years)
+                filterMenu(title: "考试类别", selection: $selectedExamType, options: snapshot.examTypes)
+                filterMenu(title: "省份", selection: $selectedProvince, options: snapshot.provinces)
                 Spacer(minLength: 0)
             }
             HStack(spacing: 7) {
@@ -658,11 +830,11 @@ struct QuestionBankView: View {
                                       identifier: "question-bank-difficult-filter")
                 questionTagFilterChip("待复习", isSelected: $selectedNeedsReviewOnly,
                                       identifier: "question-bank-review-filter")
-                if !index.knowledgePoints.isEmpty {
-                    filterMenu(title: "知识点", selection: $selectedKnowledgePoint, options: index.knowledgePoints)
+                if !snapshot.knowledgePoints.isEmpty {
+                    filterMenu(title: "知识点", selection: $selectedKnowledgePoint, options: snapshot.knowledgePoints)
                 }
-                if !index.weaknessTags.isEmpty {
-                    filterMenu(title: "弱项", selection: $selectedWeaknessTag, options: index.weaknessTags)
+                if !snapshot.weaknessTags.isEmpty {
+                    filterMenu(title: "弱项", selection: $selectedWeaknessTag, options: snapshot.weaknessTags)
                 }
                 Spacer(minLength: 0)
             }
@@ -723,7 +895,7 @@ struct QuestionBankView: View {
         }
     }
 
-    private func paperCard(_ paper: QuestionBankHomePaper, questionCount: Int) -> some View {
+    private func paperCard(_ paper: QuestionBankCatalogPaperSummary, questionCount: Int) -> some View {
         HStack(spacing: 12) {
             Text(paper.title)
                 .font(AppTheme.cardTitleFont)
@@ -748,12 +920,12 @@ struct QuestionBankView: View {
     }
 
     private func paperRow(
-        _ paper: QuestionBankHomePaper,
+        _ paper: QuestionBankCatalogPaperSummary,
         questionCount: Int,
         filter: QuestionBankHomeFilter
     ) -> some View {
         QuestionBankPaperSwipeRow(onDelete: {
-            paperPendingDeletion = paper.record
+            paperPendingDeletion = paper
             showsPaperDeletionConfirmation = true
         }) {
             if filter.hasQuestionRestriction {
@@ -766,7 +938,7 @@ struct QuestionBankView: View {
                 .accessibilityIdentifier("question-bank-paper-\(paper.id)")
             } else {
                 NavigationLink {
-                    paperDestination(for: paper.record)
+                    paperDestination(for: paper)
                 } label: {
                     paperCard(paper, questionCount: questionCount)
                 }
@@ -789,8 +961,8 @@ struct QuestionBankView: View {
         }
     }
 
-    private func makeOrganizationSections(for candidates: [QuestionBankHomePaper]) -> [QuestionBankOrganizationSection] {
-        let paperIDs = candidates.map(\.id)
+    private func makeOrganizationSections(for candidates: [QuestionBankCatalogPaperSummary]) -> [QuestionBankOrganizationSection] {
+        let paperIDs = candidates.map(\.paperID)
         let sections = organizationStore.sections(for: paperIDs)
         let assignedCount = sections.reduce(0) { total, section in total + section.paperIDs.count }
         guard assignedCount == candidates.count else {
@@ -806,17 +978,17 @@ struct QuestionBankView: View {
     }
 
     private func paperSections(
-        index: QuestionBankHomeIndex,
+        snapshot: QuestionBankCatalogHomeSnapshot,
         filter: QuestionBankHomeFilter,
-        filterResult: QuestionBankHomeFilterResult,
+        filterResult: QuestionBankCatalogHomeFilterResult,
         sections: [QuestionBankOrganizationSection],
-        visibleByID: [String: QuestionBankHomePaper]
+        visibleByID: [String: QuestionBankCatalogPaperSummary]
     ) -> some View {
         LazyVStack(alignment: .leading, spacing: 12) {
             ForEach(sections) { section in
                 paperSection(
                     section,
-                    index: index,
+                    snapshot: snapshot,
                     filter: filter,
                     filterResult: filterResult,
                     visibleByID: visibleByID
@@ -827,10 +999,10 @@ struct QuestionBankView: View {
 
     private func paperSection(
         _ section: QuestionBankOrganizationSection,
-        index: QuestionBankHomeIndex,
+        snapshot: QuestionBankCatalogHomeSnapshot,
         filter: QuestionBankHomeFilter,
-        filterResult: QuestionBankHomeFilterResult,
-        visibleByID: [String: QuestionBankHomePaper]
+        filterResult: QuestionBankCatalogHomeFilterResult,
+        visibleByID: [String: QuestionBankCatalogPaperSummary]
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Button {
@@ -866,7 +1038,7 @@ struct QuestionBankView: View {
                     if let paper = visibleByID[paperID] {
                         paperRow(
                             paper,
-                            questionCount: filterResult.questionCount(for: paper.id),
+                            questionCount: filterResult.questionCount(for: paper.paperID),
                             filter: filter
                         )
                     }
@@ -876,29 +1048,29 @@ struct QuestionBankView: View {
     }
 
     @ViewBuilder
-    private func paperDestination(for record: QuestionBankRecord) -> some View {
-        if let target = questionTarget(for: record.paperID) {
+    private func paperDestination(for paper: QuestionBankCatalogPaperSummary) -> some View {
+        if let target = questionTarget(for: paper.paperID) {
             QuestionBankModuleView(
-                paperID: record.paperID,
+                paperID: paper.paperID,
                 moduleID: target.moduleID,
                 initialQuestionNumber: String(target.questionNumber)
             )
         } else {
             QuestionBankPaperView(
-                paperID: record.paperID,
+                paperID: paper.paperID,
                 initialModuleTitle: "",
                 initialQuestionNumber: searchedQuestionNumber.map { String($0) } ?? ""
             )
         }
     }
 
-    private func questionTarget(for paperID: String) -> QuestionBankQuestionRouteTarget? {
-        QuestionBankQuestionRoute.target(
-            questionNumber: searchedQuestionNumber,
-            paperID: paperID,
-            selectedModuleTitle: "",
-            records: records
-        )
+    private func questionTarget(for paperID: String) -> (moduleID: String, questionNumber: Int)? {
+        guard let searchedQuestionNumber,
+              let route = catalogHomeStore.snapshot?.questionRoute(
+                paperID: paperID,
+                questionNumber: searchedQuestionNumber
+              ) else { return nil }
+        return (route.moduleID, route.questionNumber)
     }
 
     private func deletePendingPaper() {
@@ -906,7 +1078,6 @@ struct QuestionBankView: View {
         do {
             let result = try QuestionBankRepository.deletePaper(
                 paperID: paper.paperID,
-                records: records,
                 context: modelContext,
                 assetRoot: nil,
                 batchSources: batchSources,
@@ -1001,10 +1172,10 @@ struct QuestionBankView: View {
         }
 
         guard activeImportSheet == nil else { return }
-        if let importStagingDirectory {
-            try? FileManager.default.removeItem(at: importStagingDirectory)
+        if let jobID = activeImportJobID {
+            activeImportJobID = nil
+            Task { await QuestionBankImportJobService.shared.cancel(jobID: jobID, in: modelContext.container) }
         }
-        importStagingDirectory = nil
         processPendingExternalFileIfPossible()
     }
 
@@ -1057,9 +1228,10 @@ struct QuestionBankView: View {
         isCancellingImport = false
         importProgress.begin(runID: runID, fileName: url.lastPathComponent)
         let progress = importProgress
-        let worker = Task.detached(priority: .utility) {
-            try QuestionBankPackageImporter.prepareSelection(from: url, source: source) { phase in
-                Task { @MainActor in progress.update(runID: runID, phase: phase) }
+        let container = modelContext.container
+        let worker = Task {
+            try await QuestionBankImportJobService.shared.prepare(from: url, source: source, in: container) { update in
+                Task { @MainActor in progress.update(runID: runID, progress: update) }
             }
         }
         importWorker = worker
@@ -1078,27 +1250,49 @@ struct QuestionBankView: View {
                 }
             }
             do {
-                let prepared = try await worker.value
+                let (jobID, prepared) = try await worker.value
+                activeImportJobID = jobID
                 guard activeImportID == runID else {
-                    prepared.cleanup()
+                    await QuestionBankImportJobService.shared.cancel(jobID: jobID, in: container)
                     return
                 }
                 if let pickerRequestID,
                    !importSelection.markPreviewReady(requestID: pickerRequestID) {
-                    prepared.cleanup()
+                    await QuestionBankImportJobService.shared.cancel(jobID: jobID, in: container)
                     return
                 }
-                importStagingDirectory = prepared.stagingDirectory
-                switch prepared {
-                case .single(let plan):
-                    importLogger.info("package validation finished: modules=\(plan.modules.count), questions=\(plan.questions.count), assets=\(plan.assets.count), errors=\(plan.errors.count)")
-                    activeImportSheet = .preview(plan)
-                case .batch(let plan):
-                    importLogger.info("batch package validation finished: papers=\(plan.paperPlans.count), assets=\(plan.manifest.assets.count)")
-                    activeImportSheet = .batchPreview(plan)
+                let nextSheet: QuestionBankImportSheet
+                do {
+                    switch prepared {
+                    case .single(let plan):
+                        let preview = try await QuestionBankImportJobService.shared.preview(
+                            jobID: jobID,
+                            planOverride: plan,
+                            metadata: plan.batchMetadata,
+                            in: container
+                        )
+                        importLogger.info("package validation finished: modules=\(plan.modules.count), questions=\(plan.questions.count), assets=\(plan.assets.count), errors=\(plan.errors.count)")
+                        nextSheet = .preview(jobID, plan, preview)
+                    case .batch(let plan):
+                        let preview = try await QuestionBankImportJobService.shared.preview(
+                            jobID: jobID,
+                            packageOverride: plan,
+                            in: container
+                        )
+                        importLogger.info("batch package validation finished: papers=\(plan.paperPlans.count), assets=\(plan.manifest.assets.count)")
+                        nextSheet = .batchPreview(jobID, plan, preview)
+                    }
+                } catch {
+                    await QuestionBankImportJobService.shared.cancel(jobID: jobID, in: container)
+                    throw error
                 }
+                activeImportSheet = nextSheet
                 importProgress.finish(runID: runID)
             } catch is CancellationError {
+                if activeImportID == runID {
+                    importProgress.finish(runID: runID, message: "已取消读取")
+                }
+            } catch let failure as QuestionBankImportJobFailure where failure == .cancelled {
                 if activeImportID == runID {
                     importProgress.finish(runID: runID, message: "已取消读取")
                 }
@@ -1129,67 +1323,127 @@ struct QuestionBankView: View {
         importLogger.info("question bank import cancelled by user")
     }
 
-    private func commitImport(_ plan: QuestionBankImportPlan, decision: QuestionBankImportDecision,
-                              batchMetadata: QuestionBankBatchMetadata?) {
-        guard !isCommittingImport else { return }
-        isCommittingImport = true
-        inlineImportFailure = nil
-        do {
-            let duplicate = plan.paper.flatMap { QuestionBankRepository.duplicatePaper(for: $0, in: records) }
-            let batchPreparation: QuestionBankBatchPreparation?
-            if let batchMetadata {
-                batchPreparation = try QuestionBankBatchRepository.prepare(
-                    metadata: batchMetadata, plan: plan, records: records,
-                    sourceRecords: batchSources, replacingPaperID: duplicate?.paperID
-                )
-            } else {
-                batchPreparation = nil
-            }
-            try QuestionBankRepository.commit(
-                plan, decision: decision, records: records, context: modelContext,
-                batchPreparation: batchPreparation, batches: batchIndexes, sources: batchSources,
-                batchMaterialLinks: batchMaterialLinks, batchQuestionLinks: batchQuestionLinks
-            )
-            isCommittingImport = false
-            activeImportSheet = nil
-            importLogger.info("atomic import committed: modules=\(plan.modules.count), questions=\(plan.questions.count), assets=\(plan.assets.count)")
-            importAlertTitle = "导入完成"
-            let batchSuffix = batchPreparation.map {
-                "；批次新增唯一题 \($0.currentSourcePreview.uniqueQuestions)，精确重复 \($0.currentSourcePreview.duplicateQuestions)，待核 \($0.currentSourcePreview.suspectedQuestions + $0.currentSourcePreview.conflictingQuestions)"
-            } ?? ""
-            importAlertMessage = "已导入“\(plan.paper?.title ?? "试卷")”：\(plan.modules.count) 个模块、\(plan.questions.count) 道题目\(batchSuffix)。套卷成绩记录和学习库数据未更改。"
-            showImportAlert = true
-        } catch {
-            isCommittingImport = false
-            let errorType = String(reflecting: type(of: error))
-            importLogger.error("atomic import failed and was rolled back (\(errorType, privacy: .public))")
-            inlineImportFailure = error.localizedDescription
-        }
-    }
-
-    private func commitBatchImport(
-        _ plan: QuestionBankBatchPackagePlan,
-        confirmedNewQuestionKeys: Set<QuestionBankBatchQuestionKey>
+    private func commitImport(
+        jobID: String,
+        plan: QuestionBankImportPlan,
+        decision: QuestionBankImportDecision,
+        batchMetadata: QuestionBankBatchMetadata?,
+        revisionToken: String
     ) {
         guard !isCommittingImport else { return }
         isCommittingImport = true
         inlineImportFailure = nil
-        do {
-            let result = try QuestionBankBatchPackageRepository.commit(
-                plan,
-                confirmedNewQuestionKeys: confirmedNewQuestionKeys,
-                records: records,
-                context: modelContext
-            )
-            isCommittingImport = false
-            activeImportSheet = nil
-            importAlertTitle = "批量更新完成"
-            importAlertMessage = "已更新 \(result.updatedPaperCount) 套试卷、\(result.updatedQuestionCount) 道题，新增 \(result.addedQuestionCount) 道已确认题目；\(result.pendingPaperCount) 套试卷因缺少精确 paperID 或存在冲突而待核。未列入更新的题目、作答记录、涂鸦、笔记和本机标记均已保留。更新前 payload 备份：\(result.payloadBackupFileName)（应用支持目录）。"
-            showImportAlert = true
-        } catch {
-            isCommittingImport = false
-            inlineImportFailure = error.localizedDescription
+        let container = modelContext.container
+        let progress = importProgress
+        Task { @MainActor in
+            defer { isCommittingImport = false }
+            do {
+                let importResult = try await QuestionBankImportJobService.shared.commitSingle(
+                    jobID: jobID,
+                    plan: plan,
+                    decision: decision,
+                    metadata: batchMetadata,
+                    expectedRevisionToken: revisionToken,
+                    in: container,
+                    onProgress: { update in
+                        Task { @MainActor in
+                            let count = update.totalCount > 0
+                                ? " \(update.processedCount)/\(update.totalCount)"
+                                : ""
+                            progress.setMessage("\(update.phaseLabel)\(count)")
+                        }
+                    }
+                )
+                activeImportSheet = nil
+                activeImportJobID = nil
+                importLogger.info("atomic import committed: modules=\(plan.modules.count), questions=\(plan.questions.count), assets=\(plan.assets.count)")
+                importAlertTitle = "导入完成"
+                let batchSuffix = importResult.batchSummary.map {
+                    "；批次新增唯一题 \($0.uniqueQuestions)，精确重复 \($0.duplicateQuestions)，待核 \($0.suspectedQuestions + $0.conflictingQuestions)"
+                } ?? ""
+                let backupSuffix = importResult.payloadBackupFileName.map {
+                    "；更新前题目及图片备份：\($0)（应用支持目录/QuestionBankImportBackups）"
+                } ?? ""
+                importAlertMessage = "已导入“\(plan.paper?.title ?? "试卷")”：\(plan.modules.count) 个模块、\(plan.questions.count) 道题目\(batchSuffix)\(backupSuffix)。套卷成绩记录和学习库数据未更改。"
+                showImportAlert = true
+            } catch {
+                let errorType = String(reflecting: type(of: error))
+                importLogger.error("atomic import failed and was rolled back (\(errorType, privacy: .public))")
+                inlineImportFailure = error.localizedDescription
+                if let failure = error as? QuestionBankImportJobFailure, failure == .stalePreview {
+                    do {
+                        let refreshed = try await QuestionBankImportJobService.shared.preview(
+                            jobID: jobID,
+                            planOverride: plan,
+                            metadata: batchMetadata,
+                            in: container
+                        )
+                        activeImportSheet = .preview(jobID, plan, refreshed)
+                    } catch {
+                        inlineImportFailure = "\(failure.localizedDescription)\n\(error.localizedDescription)"
+                    }
+                }
+            }
         }
+    }
+
+    private func commitBatchImport(
+        jobID: String,
+        package: QuestionBankBatchPackagePlan,
+        confirmedNewQuestionKeys: Set<QuestionBankBatchQuestionKey>,
+        revisionToken: String
+    ) {
+        guard !isCommittingImport else { return }
+        isCommittingImport = true
+        inlineImportFailure = nil
+        let container = modelContext.container
+        let progress = importProgress
+        Task { @MainActor in
+            defer { isCommittingImport = false }
+            do {
+                let result = try await QuestionBankImportJobService.shared.commitBatch(
+                    jobID: jobID,
+                    package: package,
+                    confirmedNewQuestionKeys: confirmedNewQuestionKeys,
+                    expectedRevisionToken: revisionToken,
+                    in: container,
+                    onProgress: { update in
+                        Task { @MainActor in
+                            let count = update.totalCount > 0
+                                ? " \(update.processedCount)/\(update.totalCount)"
+                                : ""
+                            progress.setMessage("\(update.phaseLabel)\(count)")
+                        }
+                    }
+                )
+                activeImportSheet = nil
+                activeImportJobID = nil
+                importAlertTitle = "批量更新完成"
+                importAlertMessage = "已更新 \(result.updatedPaperCount) 套试卷、\(result.updatedQuestionCount) 道题，新增 \(result.addedQuestionCount) 道已确认题目；\(result.pendingPaperCount) 套试卷因缺少精确 paperID 或存在冲突而待核。未列入更新的题目、作答记录、涂鸦、笔记和本机标记均已保留。更新前题目及图片备份：\(result.payloadBackupFileName)（应用支持目录/QuestionBankImportBackups）。"
+                showImportAlert = true
+            } catch {
+                inlineImportFailure = error.localizedDescription
+                if let failure = error as? QuestionBankImportJobFailure, failure == .stalePreview {
+                    do {
+                        let refreshed = try await QuestionBankImportJobService.shared.preview(
+                            jobID: jobID,
+                            packageOverride: package,
+                            in: container
+                        )
+                        activeImportSheet = .batchPreview(jobID, package, refreshed)
+                    } catch {
+                        inlineImportFailure = "\(failure.localizedDescription)\n\(error.localizedDescription)"
+                    }
+                }
+            }
+        }
+    }
+
+    private func cancelImportJob(jobID: String) {
+        guard !isCommittingImport else { return }
+        activeImportSheet = nil
+        activeImportJobID = nil
+        Task { await QuestionBankImportJobService.shared.cancel(jobID: jobID, in: modelContext.container) }
     }
 
     private func showImportError(_ message: String) {
@@ -1288,12 +1542,18 @@ private struct QuestionBankImportPreparingView: View {
 }
 
 private struct QuestionBankImportPreview: View {
+    @Environment(\.modelContext) private var modelContext
+    let jobID: String
     let plan: QuestionBankImportPlan
     let isImporting: Bool
-    let records: [QuestionBankRecord]
-    let batchSources: [QuestionBankBatchSourceRecord]
+    let preview: QuestionBankImportJobPreview
+    @State private var records: [QuestionBankStoredRow]
+    @State private var batchSources: [QuestionBankBatchSourceSnapshot]
+    @State private var revisionToken: String
+    @State private var batchPreparationPreview: QuestionBankBatchPreview?
+    @State private var batchPreparationError: String?
     @Binding var importFailure: String?
-    let onImport: (QuestionBankImportPlan, QuestionBankImportDecision, QuestionBankBatchMetadata?) -> Void
+    let onImport: (QuestionBankImportPlan, QuestionBankImportDecision, QuestionBankBatchMetadata?, String) -> Void
     let onCancel: () -> Void
     @State private var asksToReplace = false
     @State private var includesBatch: Bool
@@ -1312,15 +1572,20 @@ private struct QuestionBankImportPreview: View {
     @State private var batchName: String
     @State private var correctedPlan: QuestionBankImportPlan?
     @State private var optionGroupsByID: [String: [String]] = [:]
+    @State private var recordsScopeKey: String?
 
-    init(plan: QuestionBankImportPlan, records: [QuestionBankRecord],
-         batchSources: [QuestionBankBatchSourceRecord], isImporting: Bool,
+    init(jobID: String, plan: QuestionBankImportPlan, preview: QuestionBankImportJobPreview, isImporting: Bool,
          importFailure: Binding<String?>,
-         onImport: @escaping (QuestionBankImportPlan, QuestionBankImportDecision, QuestionBankBatchMetadata?) -> Void,
+         onImport: @escaping (QuestionBankImportPlan, QuestionBankImportDecision, QuestionBankBatchMetadata?, String) -> Void,
          onCancel: @escaping () -> Void) {
+        self.jobID = jobID
         self.plan = plan
-        self.records = records
-        self.batchSources = batchSources
+        self.preview = preview
+        _records = State(initialValue: preview.records)
+        _batchSources = State(initialValue: preview.batchSources)
+        _revisionToken = State(initialValue: preview.revisionToken)
+        _batchPreparationPreview = State(initialValue: preview.batchPreparation)
+        _batchPreparationError = State(initialValue: preview.batchPreparationError)
         self.isImporting = isImporting
         self._importFailure = importFailure
         self.onImport = onImport
@@ -1374,6 +1639,14 @@ private struct QuestionBankImportPreview: View {
 
     private var effectivePlan: QuestionBankImportPlan { correctedPlan ?? plan }
 
+    private var expectedRecordsScopeKey: String {
+        guard let metadata = currentBatchMetadata else { return "\(effectivePlan.paper?.id ?? "")|none" }
+        return [effectivePlan.paper?.id ?? "", metadata.identityKey, metadata.sourceID, metadata.revision,
+                String(metadata.year), metadata.volumeID ?? "", metadata.sessionID ?? "",
+                metadata.provinceCode ?? "", metadata.sourceProvinces?.map { "\($0.code):\($0.name)" }.joined(separator: ",") ?? ""]
+            .joined(separator: "|")
+    }
+
     private var pendingOptionCorrections: [QuestionBankImportOptionCorrection] {
         QuestionBankMultiBlankImportCorrection.pendingOptions(in: effectivePlan)
     }
@@ -1393,29 +1666,32 @@ private struct QuestionBankImportPreview: View {
         }
     }
 
-    private var batchPreparationResult: Result<QuestionBankBatchPreparation, Error>? {
-        guard effectivePlan.canImport, let metadata = currentBatchMetadata, metadata.validationError == nil else { return nil }
-        let duplicate = replacementPaperRecord
-        return Result {
-            try QuestionBankBatchRepository.prepare(metadata: metadata, plan: effectivePlan, records: records,
-                sourceRecords: batchSources, replacingPaperID: duplicate?.paperID)
+    private var batchPreparationResult: QuestionBankBatchPreview? {
+        guard recordsScopeKey == expectedRecordsScopeKey,
+              effectivePlan.canImport, currentBatchMetadata != nil,
+              currentBatchMetadata?.validationError == nil,
+              let batchPreparationPreview else { return nil }
+        return batchPreparationPreview
+    }
+
+    private var duplicatePaperRecord: QuestionBankStoredRow? {
+        guard let paper = plan.paper else { return nil }
+        return records.first {
+            $0.kind == QuestionBankRepository.paperKind
+                && ($0.stableID == paper.id || $0.normalizedPaperKey == paper.duplicateKey)
         }
     }
 
-    private var duplicatePaperRecord: QuestionBankRecord? {
-        plan.paper.flatMap { QuestionBankRepository.duplicatePaper(for: $0, in: records) }
-    }
-
-    private var existingSourcePaperRecord: QuestionBankRecord? {
+    private var existingSourcePaperRecord: QuestionBankStoredRow? {
         guard includesBatch, let metadata = currentBatchMetadata else { return nil }
+        guard recordsScopeKey == expectedRecordsScopeKey else { return nil }
         let stableSourceID = metadata.sourceID.trimmedNonempty
         guard let source = batchSources.first(where: { $0.sourceID == stableSourceID }) else { return nil }
-        return records.first {
-            $0.paperID == source.paperID && $0.kind == QuestionBankRepository.paperKind
-        }
+        return records.first { $0.paperID == source.paperID && $0.kind == QuestionBankRepository.paperKind }
     }
 
-    private var replacementPaperRecord: QuestionBankRecord? {
+    private var replacementPaperRecord: QuestionBankStoredRow? {
+        if currentBatchMetadata != nil && recordsScopeKey != expectedRecordsScopeKey { return nil }
         existingSourcePaperRecord ?? duplicatePaperRecord
     }
 
@@ -1474,7 +1750,7 @@ private struct QuestionBankImportPreview: View {
     }
 
     private func submit(_ decision: QuestionBankImportDecision) {
-        onImport(effectivePlan, decision, currentBatchMetadata)
+        onImport(effectivePlan, decision, currentBatchMetadata, revisionToken)
     }
 
     private func optionGroupBinding(
@@ -1523,13 +1799,10 @@ private struct QuestionBankImportPreview: View {
                 return "来源省份每行必须按“代码|名称”填写；无效行不会被忽略。"
             }
             if let message = metadata.validationError { return message }
-            if let batchResult, case .failure(let error) = batchResult { return error.localizedDescription }
+            if let batchPreparationError { return batchPreparationError }
             return nil
         }()
-        let preparedBatch: QuestionBankBatchPreparation? = {
-            guard let batchResult, case .success(let preparation) = batchResult else { return nil }
-            return preparation
-        }()
+        let preparedBatch = batchResult
         return NavigationStack {
             Form {
                 if let importFailure {
@@ -1615,7 +1888,7 @@ private struct QuestionBankImportPreview: View {
                             Label(metadataError, systemImage: "exclamationmark.triangle.fill")
                                 .font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.danger)
                                 .fixedSize(horizontal: false, vertical: true)
-                        } else if let preview = preparedBatch?.currentSourcePreview {
+                        } else if let preview = preparedBatch {
                             LabeledContent("题目", value: "新增唯一 \(preview.uniqueQuestions) · 精确重复 \(preview.duplicateQuestions) · 疑似 \(preview.suspectedQuestions) · 冲突 \(preview.conflictingQuestions)")
                             LabeledContent("材料", value: "新增唯一 \(preview.uniqueMaterials) · 精确重复 \(preview.duplicateMaterials) · 待核 \(preview.pendingMaterials)")
                         }
@@ -1714,6 +1987,45 @@ private struct QuestionBankImportPreview: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .onChange(of: preview.revisionToken) { _, _ in
+            records = preview.records
+            batchSources = preview.batchSources
+            revisionToken = preview.revisionToken
+            batchPreparationPreview = preview.batchPreparation
+            batchPreparationError = preview.batchPreparationError
+            recordsScopeKey = expectedRecordsScopeKey
+        }
+        .task(id: expectedRecordsScopeKey) {
+            let requestKey = expectedRecordsScopeKey
+            let requestedPlan = effectivePlan
+            let requestedMetadata = currentBatchMetadata
+            let container = modelContext.container
+            recordsScopeKey = nil
+            batchPreparationPreview = nil
+            batchPreparationError = nil
+            do {
+                try await Task.sleep(for: .milliseconds(200))
+                try Task.checkCancellation()
+                let updated = try await QuestionBankImportJobService.shared.preview(
+                    jobID: jobID,
+                    planOverride: requestedPlan,
+                    metadata: requestedMetadata,
+                    in: container
+                )
+                guard !Task.isCancelled, requestKey == expectedRecordsScopeKey else { return }
+                records = updated.records
+                batchSources = updated.batchSources
+                revisionToken = updated.revisionToken
+                batchPreparationPreview = updated.batchPreparation
+                batchPreparationError = updated.batchPreparationError
+                recordsScopeKey = requestKey
+                importFailure = nil
+            } catch is CancellationError {
+                // A newer metadata edit will request a fresh bounded snapshot.
+            } catch {
+                importFailure = "读取替换目标失败：\(error.localizedDescription)"
+            }
+        }
     }
 
     private func mib(_ bytes: Int64) -> String {
@@ -1728,27 +2040,28 @@ private struct QuestionBankImportPreview: View {
 }
 
 private struct QuestionBankPaperModuleSummary: Identifiable {
-    let record: QuestionBankRecord
-    let module: QuestionBankModule?
-    let questionCount: Int
+    let module: QuestionBankCatalogModuleSummary
 
-    var id: String { record.compoundID }
+    var id: String { module.sourceCompoundID }
 }
 
 private struct QuestionBankPaperView: View {
     @Environment(\.modelContext) private var modelContext
+    @StateObject private var answerStateStore = QuestionBankAnswerStateStore.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.rootTabSelection) private var rootTabSelection
-    @Query private var records: [QuestionBankRecord]
     @Query private var batchSources: [QuestionBankBatchSourceRecord]
     @Query private var batchMaterialLinks: [QuestionBankBatchMaterialLinkRecord]
     @Query private var batchQuestionLinks: [QuestionBankBatchQuestionLinkRecord]
     let paperID: String
     let initialQuestionNumber: String
-    @State private var paperRecord: QuestionBankRecord?
-    @State private var paper: QuestionBankPaper?
+    @State private var paper: QuestionBankCatalogPaperSummary?
     @State private var moduleSummaries: [QuestionBankPaperModuleSummary] = []
     @State private var allModuleTitles: [String] = []
+    @State private var paperQuestionIDs: [String] = []
+    @State private var paperSnapshotError: String?
+    @State private var isLoadingPaperSnapshot = false
+    @State private var paperSnapshotTask: Task<Void, Never>?
     @State private var selectedModuleTitle: String
     @State private var isPaperRouteVisible = false
     @State private var isPaperViewVisible = false
@@ -1760,43 +2073,49 @@ private struct QuestionBankPaperView: View {
     @State private var showsPaperActionAlert = false
     @State private var paperActionAlertTitle = "操作未完成"
     @State private var paperActionAlertMessage = ""
-    @AppStorage(QuestionBankAnswerStateStorage.appStorageKey)
-    private var storedAnswerStateJSON = QuestionBankAnswerStateStorage.emptyValue
 
     init(paperID: String, initialModuleTitle: String, initialQuestionNumber: String) {
         self.paperID = paperID
         self.initialQuestionNumber = initialQuestionNumber
         _selectedModuleTitle = State(initialValue: initialModuleTitle)
-        let selectedPaperID = paperID
-        _records = Query(filter: #Predicate<QuestionBankRecord> {
-            $0.paperID == selectedPaperID
-        })
     }
 
     private var modules: [QuestionBankPaperModuleSummary] {
         guard !selectedModuleTitle.isEmpty else { return moduleSummaries }
-        return moduleSummaries.filter { $0.record.title == selectedModuleTitle }
+        return moduleSummaries.filter { $0.module.title == selectedModuleTitle }
     }
 
     private func refreshPaperSnapshot() {
-        paperRecord = records.first { $0.kind == QuestionBankRepository.paperKind }
-        paper = paperRecord?.decoded(QuestionBankPaper.self)
-        let sortedModuleRecords = records
-            .filter { $0.kind == QuestionBankRepository.moduleKind }
-            .sorted { ($0.sequence ?? 0) < ($1.sequence ?? 0) }
-        let questionCounts = records.reduce(into: [String: Int]()) { counts, record in
-            guard record.kind == QuestionBankRepository.questionKind,
-                  let moduleID = record.moduleID else { return }
-            counts[moduleID, default: 0] += 1
+        paperSnapshotTask?.cancel()
+        isLoadingPaperSnapshot = true
+        paperSnapshotError = nil
+        paperSnapshotTask = Task { @MainActor in
+            do {
+                async let paperRow = QuestionBankCatalogService.paperSummary(
+                    for: paperID,
+                    in: modelContext.container
+                )
+                async let moduleRows = QuestionBankCatalogService.moduleSummaries(
+                    for: paperID,
+                    in: modelContext.container
+                )
+                async let questionRows = QuestionBankCatalogService.questionIDs(
+                    for: paperID,
+                    in: modelContext.container
+                )
+                let (paperRow, modules, questions) = try await (paperRow, moduleRows, questionRows)
+                guard !Task.isCancelled else { return }
+                paper = paperRow
+                moduleSummaries = modules.map(QuestionBankPaperModuleSummary.init(module:))
+                paperQuestionIDs = questions.map(\.sourceCompoundID)
+                allModuleTitles = Array(Set(modules.map(\.title))).sorted()
+            } catch is CancellationError {
+                return
+            } catch {
+                paperSnapshotError = error.localizedDescription
+            }
+            isLoadingPaperSnapshot = false
         }
-        moduleSummaries = sortedModuleRecords.map { record in
-            QuestionBankPaperModuleSummary(
-                record: record,
-                module: record.decoded(QuestionBankModule.self),
-                questionCount: questionCounts[record.stableID] ?? 0
-            )
-        }
-        allModuleTitles = Array(Set(moduleSummaries.compactMap { $0.record.title })).sorted()
     }
 
     private func activatePaperViewIfNeeded() {
@@ -1841,27 +2160,34 @@ private struct QuestionBankPaperView: View {
                     .accessibilityIdentifier("question-bank-paper-filter-panel")
                 }
                 if modules.isEmpty {
-                    NativeStatusCard(title: "没有匹配模块", detail: "更改模块筛选条件。", systemImage: "line.3.horizontal.decrease", color: AppTheme.accent)
+                    if isLoadingPaperSnapshot {
+                        ProgressView("正在读取模块目录…").frame(maxWidth: .infinity, minHeight: 120)
+                    } else if let paperSnapshotError {
+                        NativeStatusCard(title: "模块目录暂不可用", detail: paperSnapshotError, systemImage: "exclamationmark.triangle", color: AppTheme.danger)
+                    } else if paper == nil {
+                        NativeStatusCard(title: "目录尚未就绪", detail: "返回题库首页重试目录回填。", systemImage: "books.vertical", color: AppTheme.accent)
+                    } else {
+                        NativeStatusCard(title: "没有匹配模块", detail: "更改模块筛选条件。", systemImage: "line.3.horizontal.decrease", color: AppTheme.accent)
+                    }
                 } else {
                     LazyVStack(spacing: 0) {
                         ForEach(modules) { moduleSummary in
-                            let moduleRecord = moduleSummary.record
                             let module = moduleSummary.module
-                            let count = moduleSummary.questionCount
+                            let count = module.questionCount
                             NavigationLink {
                                 QuestionBankModuleView(
                                     paperID: paperID,
-                                    moduleID: moduleRecord.stableID,
+                                    moduleID: module.moduleID,
                                     initialQuestionNumber: initialQuestionNumber
                                 )
                                 } label: {
                                     HStack(alignment: .top, spacing: 12) {
-                                        Text(String(format: "%02d", module?.sequence ?? moduleRecord.sequence ?? 0))
+                                        Text(String(format: "%02d", module.sequence))
                                             .font(.system(size: 15, weight: .semibold, design: .rounded))
                                             .foregroundStyle(AppTheme.accent)
                                             .frame(width: 36, height: 34, alignment: .leading)
                                         VStack(alignment: .leading, spacing: 5) {
-                                            Text(module?.title ?? moduleRecord.title ?? "模块")
+                                            Text(module.title)
                                                 .font(AppTheme.sectionTitleFont).foregroundStyle(.primary)
                                             Text(count == 0 ? "本次样本未收录题目" : "\(String(count)) 道样题")
                                                 .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
@@ -1879,7 +2205,7 @@ private struct QuestionBankPaperView: View {
                                     }
                                 }
                                 .buttonStyle(.plain)
-                                .accessibilityIdentifier("question-bank-module-\(moduleRecord.stableID)")
+                                .accessibilityIdentifier("question-bank-module-\(module.moduleID)")
                             }
                     }
                 }
@@ -1916,7 +2242,7 @@ private struct QuestionBankPaperView: View {
                         Label("清除本卷作答记录", systemImage: "arrow.counterclockwise")
                     }
                     .accessibilityIdentifier("question-bank-clear-paper-answers")
-                    .disabled(QuestionBankRedoScope.questionIDs(inPaper: paperID, records: records).isEmpty)
+                    .disabled(paperQuestionIDs.isEmpty)
                 } label: {
                     Image(systemName: "ellipsis")
                 }
@@ -1952,14 +2278,29 @@ private struct QuestionBankPaperView: View {
         .onDisappear {
             isPaperRouteVisible = false
             isPaperViewVisible = false
+            paperSnapshotTask?.cancel()
+            paperSnapshotTask = nil
         }
         .sheet(isPresented: $isPaperEditorPresented) {
             if let paper {
-                QuestionBankPaperMetadataEditor(paper: paper) { title, year, examType, volume, provinceCode, provinceName in
-                    guard let paperRecord else { throw QuestionBankPaperMetadataEditFailure.missingPaper }
-                    let recordsForDuplicateValidation = try modelContext.fetch(
-                        FetchDescriptor<QuestionBankRecord>()
-                    )
+                QuestionBankPaperMetadataEditor(paper: QuestionBankPaper(
+                    id: paper.paperID,
+                    title: paper.title,
+                    year: paper.year,
+                    examType: paper.examType,
+                    volume: paper.volume,
+                    source: "",
+                    importVersion: "",
+                    provinceCode: paper.provinceCode,
+                    provinceName: paper.provinceName
+                )) { title, year, examType, volume, provinceCode, provinceName in
+                    let paperKind = QuestionBankRepository.paperKind
+                    let paperPredicate = #Predicate<QuestionBankRecord> {
+                        $0.paperID == paper.paperID && $0.kind == paperKind
+                    }
+                    guard let paperRecord = try modelContext.fetch(
+                        FetchDescriptor<QuestionBankRecord>(predicate: paperPredicate)
+                    ).first else { throw QuestionBankPaperMetadataEditFailure.missingPaper }
                     try QuestionBankRepository.updatePaperMetadata(
                         record: paperRecord,
                         title: title,
@@ -1968,7 +2309,6 @@ private struct QuestionBankPaperView: View {
                         volume: volume,
                         provinceCode: provinceCode,
                         provinceName: provinceName,
-                        records: recordsForDuplicateValidation,
                         context: modelContext
                     )
                 }
@@ -1998,7 +2338,6 @@ private struct QuestionBankPaperView: View {
         do {
             try QuestionBankRepository.deletePaper(
                 paperID: paperID,
-                records: records,
                 context: modelContext,
                 batchSources: batchSources,
                 batchMaterialLinks: batchMaterialLinks,
@@ -2013,13 +2352,17 @@ private struct QuestionBankPaperView: View {
     }
 
     private func clearPaperAnswers() {
-        let questionIDs = QuestionBankRedoScope.questionIDs(inPaper: paperID, records: records)
-        storedAnswerStateJSON = QuestionBankAnswerStateStorage.clearing(
-            questionIDs, from: storedAnswerStateJSON
-        )
-        paperActionAlertTitle = "作答记录已清除"
-        paperActionAlertMessage = "已清除本卷 \(questionIDs.count) 道题的作答记录。"
-        showsPaperActionAlert = true
+        Task {
+            do {
+                try await answerStateStore.clear(paperQuestionIDs, paperScope: paperID, in: modelContext.container)
+                paperActionAlertTitle = "作答记录已清除"
+                paperActionAlertMessage = "已清除本卷 \(paperQuestionIDs.count) 道题的作答记录。"
+            } catch {
+                paperActionAlertTitle = "清除作答记录失败"
+                paperActionAlertMessage = error.localizedDescription
+            }
+            showsPaperActionAlert = true
+        }
     }
 
     private func filterLabel(_ value: String) -> some View {

@@ -7,7 +7,6 @@ struct LibraryRecordDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var doodleSession: LibraryDoodleSession
     @Query(filter: #Predicate<StoredRecord> { record in record.collection == "words" || record.collection == "errors" }) private var records: [StoredRecord]
-    @Query private var linkedQuestionBankRecords: [QuestionBankRecord]
     let kind: LibraryContentKind
     let scope: LibraryScope
     let record: StoredRecord?
@@ -28,6 +27,7 @@ struct LibraryRecordDetailView: View {
     @State private var showWordSelection = false
     @State private var linkedWordCreationCategory: WordCategory?
     @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
+    @State private var linkedQuestionBankContext: QuestionBankQuestionAnalysisContext?
 
     init(
         kind: LibraryContentKind,
@@ -37,10 +37,6 @@ struct LibraryRecordDetailView: View {
         onDelete: @escaping () -> Void,
         onOpenLinkedWord: ((String) -> Void)? = nil
     ) {
-        let linkedPaperID = record.jsonObject?["questionBankPaperID"] as? String ?? ""
-        _linkedQuestionBankRecords = Query(filter: #Predicate<QuestionBankRecord> {
-            $0.paperID == linkedPaperID
-        })
         self.kind = kind
         self.scope = scope
         self.record = record
@@ -58,7 +54,6 @@ struct LibraryRecordDetailView: View {
         onDone: @escaping () -> Void,
         onOpenLinkedWord: ((String) -> Void)? = nil
     ) {
-        _linkedQuestionBankRecords = Query(filter: #Predicate<QuestionBankRecord> { $0.paperID == "" })
         let mapping = questionBankContext.typeMapping
         kind = .errors
         scope = LibraryScope(subject: mapping.subject, module: mapping.module)
@@ -78,6 +73,7 @@ struct LibraryRecordDetailView: View {
 
     private var detailBehavior: some View {
         detailStateTracking
+            .task(id: linkedQuestionContextKey) { loadLinkedQuestionContext() }
             .overlay {
                 if questionBankContext != nil {
                     QuestionBankDoodleAutosaveObserver(session: doodleSession, context: modelContext)
@@ -378,7 +374,7 @@ struct LibraryRecordDetailView: View {
                 }
                 if !material.imageAssetID.isEmpty,
                    let asset = context.assetsByID[material.imageAssetID] {
-                    QuestionBankLocalImage(asset: asset, sizing: .material)
+                    QuestionBankLocalImage(asset: asset, sizing: .material, activationTab: .questionBank)
                 }
                 ForEach(Array(context.materialSourceRows.enumerated()), id: \.offset) { _, row in
                     supportingLine("材料来源", value: row, systemImage: "books.vertical.fill")
@@ -394,7 +390,11 @@ struct LibraryRecordDetailView: View {
         if let context = displayQuestionBankContext {
             if !context.currentQuestion.stemImageAssetID.isEmpty,
                let asset = context.assetsByID[context.currentQuestion.stemImageAssetID] {
-                QuestionBankLocalImage(asset: asset, sizing: .stem)
+                QuestionBankLocalImage(
+                    asset: asset,
+                    sizing: .stem,
+                    activationTab: questionBankContext == nil ? .library : .questionBank
+                )
                     .padding(.top, 3)
             }
         } else if !imageValues.isEmpty {
@@ -459,7 +459,7 @@ struct LibraryRecordDetailView: View {
                             if !optionImage.isEmpty {
                                 if let bankContext,
                                    let asset = bankContext.assetsByID[optionImage] {
-                                    QuestionBankLocalImage(asset: asset, sizing: .option)
+                                    QuestionBankLocalImage(asset: asset, sizing: .option, activationTab: .questionBank)
                                 } else if questionBankContext == nil {
                                     LibraryDetailImage(
                                         source: optionImage,
@@ -820,7 +820,10 @@ struct LibraryRecordDetailView: View {
     private var detailBackground: Color { Color(red: 245.0 / 255.0, green: 245.0 / 255.0, blue: 247.0 / 255.0) }
 
     private var recordType: String? {
-        if let value = firstText(["type"]), ["错题", "不确定题"].contains(clean(value)) { return clean(value) }
+        if let value = firstText(["type"]),
+           QuestionBankErrorBookCategory.allCases.contains(where: { $0.rawValue == clean(value) }) {
+            return clean(value)
+        }
         return firstText(["status", "masteryStatus"]).map(clean)
     }
 
@@ -831,17 +834,33 @@ struct LibraryRecordDetailView: View {
     }
 
     private var displayQuestionBankContext: QuestionBankQuestionAnalysisContext? {
-        if let questionBankContext { return questionBankContext }
-        guard kind == .errors,
-              let record,
-              let payload = record.jsonObject,
+        questionBankContext ?? linkedQuestionBankContext
+    }
+
+    private var linkedQuestionContextKey: String {
+        guard questionBankContext == nil,
+              kind == .errors,
+              let payload = record?.jsonObject,
               let paperID = payload["questionBankPaperID"] as? String,
-              let questionID = payload["questionBankQuestionID"] as? String else { return nil }
-        return QuestionBankQuestionAnalysisContext.linkedErrorContext(
+              let questionID = payload["questionBankQuestionID"] as? String else { return "" }
+        return "\(paperID)|\(questionID)|\(payload["userOption"] as? String ?? "")|\(record?.updatedAt.timeIntervalSince1970 ?? 0)"
+    }
+
+    @MainActor
+    private func loadLinkedQuestionContext() {
+        guard questionBankContext == nil,
+              kind == .errors,
+              let payload = record?.jsonObject,
+              let paperID = payload["questionBankPaperID"] as? String,
+              let questionID = payload["questionBankQuestionID"] as? String else {
+            linkedQuestionBankContext = nil
+            return
+        }
+        linkedQuestionBankContext = QuestionBankQuestionAnalysisContext.linkedErrorContext(
             paperID: paperID,
             questionID: questionID,
             selectedOption: payload["userOption"] as? String ?? "",
-            records: linkedQuestionBankRecords
+            context: modelContext
         )
     }
 
@@ -1087,7 +1106,6 @@ struct LibraryRecordDetailView: View {
             analysis: fields,
             typeMapping: questionBankContext.typeMapping,
             sourceRows: questionBankContext.sourceRows,
-            storedRecords: records,
             context: modelContext
         )
         object["note"] = fields.note

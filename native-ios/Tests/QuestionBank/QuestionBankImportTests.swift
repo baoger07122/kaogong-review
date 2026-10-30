@@ -6,8 +6,579 @@ import UIKit
 import XCTest
 @testable import KaogongReviewNative
 
+private final class CatalogBuildCancellationHandle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelBody: (() -> Void)?
+
+    func install(_ cancel: @escaping () -> Void) {
+        lock.lock()
+        cancelBody = cancel
+        lock.unlock()
+    }
+
+    func cancel() {
+        lock.lock()
+        let body = cancelBody
+        lock.unlock()
+        body?()
+    }
+}
+
 @MainActor
 final class QuestionBankImportTests: XCTestCase {
+    func testCatalogBuildSearchAndQuestionEditKeepDirectoryFiltersCurrent() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankCatalog-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let container = try makeContainer(storeURL: root.appendingPathComponent("catalog.store"))
+        let context = container.mainContext
+        let paper = batchTestPaper(id: "catalog-paper", title: "目录测试卷")
+        let module = QuestionBankModule(
+            id: "catalog-language", paperID: paper.id, sequence: 0,
+            title: "言语理解", instruction: "", originalPage: "1"
+        )
+        var logic = batchTestQuestion(id: "q-logic", paperID: paper.id, materialID: "",
+            stem: "旧题干", answer: "A", reordered: false)
+        logic.number = 12
+        logic.subject = "言语理解"
+        logic.type = "逻辑填空"
+        var reading = batchTestQuestion(id: "q-reading", paperID: paper.id, materialID: "",
+            stem: "阅读题干", answer: "A", reordered: false)
+        reading.number = 1
+        reading.subject = "言语理解"
+        reading.type = "片段阅读"
+
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.paperKind, id: paper.id,
+            paperID: paper.id, value: paper, searchText: "目录测试卷 2025 行测"))
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.moduleKind, id: module.id,
+            paperID: paper.id, value: module))
+        let logicRecord = try batchTestRecord(kind: QuestionBankRepository.questionKind, id: logic.id,
+            paperID: paper.id, value: logic, searchText: "12 旧题干 原选项")
+        logicRecord.moduleID = module.id
+        logicRecord.questionNumber = logic.number
+        context.insert(logicRecord)
+        let readingRecord = try batchTestRecord(kind: QuestionBankRepository.questionKind, id: reading.id,
+            paperID: paper.id, value: reading, searchText: "1 阅读题干")
+        readingRecord.moduleID = module.id
+        readingRecord.questionNumber = reading.number
+        context.insert(readingRecord)
+        try context.save()
+
+        let built = try await QuestionBankCatalogService.buildOrResume(in: container, chunkSize: 2)
+        XCTAssertEqual(built.status.state, .ready)
+        XCTAssertEqual(built.status.totalSourceRowCount, 4)
+        var snapshot = try await QuestionBankCatalogService.homeSnapshot(in: container)
+        XCTAssertEqual(snapshot.papers.first?.questionCount, 2)
+        let initialQuestionSummaries = try await QuestionBankCatalogService.questionSummaries(
+            forSourceCompoundIDs: nil,
+            in: container
+        )
+        XCTAssertEqual(initialQuestionSummaries.questions.map(\.questionID), ["q-logic", "q-reading"],
+            "Within a language module, logic blanks precede fragment reading even when their question number is later.")
+        let owners = try await QuestionBankCatalogService.questionOwners(
+            forQuestionIDs: ["q-logic"], in: container
+        )
+        XCTAssertEqual(owners["q-logic"], [paper.id])
+        let homeStore = QuestionBankCatalogHomeStore()
+        await homeStore.load(in: container, generation: 0)
+        let previousHomeVersion = try XCTUnwrap(homeStore.snapshot?.catalogVersion)
+        let oldSearchFilter = QuestionBankHomeFilter(search: "旧题干")
+        homeStore.beginSearch("旧题干")
+        await homeStore.search("旧题干", in: container)
+        await homeStore.prepareFilter(matching: oldSearchFilter, in: container)
+        XCTAssertEqual(homeStore.filtered(matching: oldSearchFilter)?.questionCount(for: paper.id), 1)
+
+        let sourceRecords = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        try QuestionBankRepository.updateQuestionText(
+            paperID: paper.id,
+            questionID: logic.id,
+            stem: "包含目录搜索短语的新题干",
+            optionTexts: ["A": "甲", "B": "乙", "C": "丙", "D": "丁"],
+            annotations: QuestionBankQuestionAnnotations(
+                isDifficult: true, needsReview: true,
+                knowledgePoints: ["成语辨析"], weaknessTags: ["近义词"]
+            ),
+            records: sourceRecords,
+            context: context
+        )
+        let refreshedInPlace = await homeStore.refreshQuestions(
+            for: [.init(paperID: paper.id, recordID: logic.id, kind: .questionContent)],
+            in: container
+        )
+        XCTAssertTrue(refreshedInPlace, "A contiguous single-question directory revision should refresh precisely.")
+        XCTAssertEqual(homeStore.snapshot?.catalogVersion.revision, previousHomeVersion.revision + 1)
+        XCTAssertEqual(homeStore.snapshot?.knowledgePoints, ["成语辨析"])
+        XCTAssertEqual(homeStore.snapshot?.weaknessTags, ["近义词"])
+        XCTAssertNil(homeStore.filtered(matching: oldSearchFilter),
+            "Search matches from an older catalog version must not be reused.")
+        let newSearchFilter = QuestionBankHomeFilter(search: "目录搜索短语")
+        homeStore.beginSearch("目录搜索短语")
+        await homeStore.search("目录搜索短语", in: container)
+        await homeStore.prepareFilter(matching: newSearchFilter, in: container)
+        XCTAssertEqual(homeStore.filtered(matching: newSearchFilter)?.questionCount(for: paper.id), 1)
+
+        let matches = try await QuestionBankCatalogService.searchMatches(query: "目录搜索短语", in: container)
+        XCTAssertEqual(matches.questionCompoundIDs, ["\(paper.id)::question::q-logic"])
+        let staleMatches = try await QuestionBankCatalogService.searchMatches(query: "旧题干", in: container)
+        XCTAssertFalse(staleMatches.questionCompoundIDs.contains("\(paper.id)::question::q-logic"))
+        snapshot = try await QuestionBankCatalogService.homeSnapshot(in: container)
+        let matchedQuestionSummaries = try await QuestionBankCatalogService.questionSummaries(
+            forSourceCompoundIDs: matches.questionCompoundIDs,
+            in: container
+        )
+        let result = try snapshot.filtered(matching: QuestionBankHomeFilter(
+            module: .language, questionType: "逻辑填空", search: "目录搜索短语",
+            difficultOnly: true, needsReviewOnly: true,
+            knowledgePoint: "成语辨析", weaknessTag: "近义词"
+        ), questions: matchedQuestionSummaries.questions, searchMatches: matches)
+        XCTAssertEqual(result.visiblePapers.map(\.paperID), [paper.id])
+        XCTAssertEqual(result.questionCountsByPaperID[paper.id], 1)
+        XCTAssertEqual(result.matchingQuestionsByPaperID[paper.id]?.map(\.questionID), ["q-logic"])
+
+        let paperRecord = try XCTUnwrap(context.fetch(FetchDescriptor<QuestionBankRecord>())
+            .first { $0.kind == QuestionBankRepository.paperKind && $0.paperID == paper.id })
+        try QuestionBankRepository.updatePaperMetadata(
+            record: paperRecord,
+            title: "目录测试卷修订",
+            year: 2026,
+            examType: "省考",
+            volume: "甲卷",
+            provinceCode: "AA",
+            provinceName: "甲省",
+            context: context
+        )
+        snapshot = try await QuestionBankCatalogService.homeSnapshot(in: container)
+        XCTAssertEqual(snapshot.papers.first?.title, "目录测试卷修订")
+        XCTAssertEqual(snapshot.papers.first?.year, 2026)
+        XCTAssertEqual(snapshot.papers.first?.provinceLabels, ["AA", "甲省"])
+        XCTAssertEqual(snapshot.papers.first?.questionCount, 2)
+    }
+
+    func testCatalogHomeUsesPaperCountFastPathAndCachesFilterResults() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankCatalogHomeCache-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let container = try makeContainer(storeURL: root.appendingPathComponent("catalog.store"))
+        try seedCatalogPaper(context: container.mainContext, paperID: "home-cache-paper", questionCount: 4)
+        _ = try await QuestionBankCatalogService.buildOrResume(in: container, chunkSize: 3)
+
+        let snapshot = try await QuestionBankCatalogService.homeSnapshot(in: container)
+        let papersOnlySnapshot = QuestionBankCatalogHomeSnapshot(
+            status: snapshot.status,
+            catalogVersion: snapshot.catalogVersion,
+            papers: snapshot.papers,
+            filterOptions: snapshot.filterOptions
+        )
+        let paperFilter = QuestionBankHomeFilter(year: "2025", examType: "行测")
+        let summaryResult = try papersOnlySnapshot.filtered(matching: paperFilter, questions: [])
+        XCTAssertEqual(summaryResult.visiblePapers.map(\.paperID), ["home-cache-paper"])
+        XCTAssertEqual(summaryResult.questionCount(for: "home-cache-paper"), 4)
+        XCTAssertTrue(summaryResult.matchingQuestionsByPaperID.isEmpty)
+        XCTAssertEqual(snapshot.questionRoute(paperID: "home-cache-paper", questionNumber: 3)?.moduleID,
+            "module-home-cache-paper")
+
+        let store = QuestionBankCatalogHomeStore()
+        await store.load(in: container, generation: 0)
+        await store.prepareFilter(matching: paperFilter, in: container)
+        XCTAssertEqual(store.filtered(matching: paperFilter)?.questionCount(for: "home-cache-paper"), 4)
+        XCTAssertEqual(store.filterComputationCount, 1)
+
+        await store.prepareFilter(matching: paperFilter, in: container)
+        XCTAssertEqual(store.filterComputationCount, 1, "A repeated filter request should return the prepared result.")
+
+        var changedFilter = paperFilter
+        changedFilter.year = "2024"
+        await store.prepareFilter(matching: changedFilter, in: container)
+        XCTAssertTrue(store.filtered(matching: changedFilter)?.visiblePapers.isEmpty == true)
+        XCTAssertEqual(store.filterComputationCount, 2, "Changing the filter should prepare a distinct result.")
+    }
+
+    func testCatalogHomeRejectsStaleFilterGenerationAndIgnoresNonDirectoryChanges() {
+        var generation = QuestionBankCatalogHomeRequestGeneration()
+        let stale = generation.begin()
+        let current = generation.begin()
+        XCTAssertFalse(generation.accepts(stale))
+        XCTAssertTrue(generation.accepts(current))
+
+        func notification(kind: QuestionBankRecordChangeSignal.Kind) -> Notification {
+            Notification(
+                name: QuestionBankRecordChangeSignal.notification,
+                object: nil,
+                userInfo: [
+                    QuestionBankRecordChangeSignal.recordChangesKey: [[
+                        "paperID": "paper",
+                        "recordID": "question",
+                        "kind": kind.rawValue
+                    ]]
+                ]
+            )
+        }
+        XCTAssertTrue(QuestionBankRecordChangeSignal.catalogChanges(
+            notification: notification(kind: .questionAnalysis)
+        )?.isEmpty == true)
+        XCTAssertTrue(QuestionBankRecordChangeSignal.catalogChanges(
+            notification: notification(kind: .questionLinks)
+        )?.isEmpty == true)
+        XCTAssertEqual(QuestionBankRecordChangeSignal.catalogChanges(
+            notification: notification(kind: .questionContent)
+        )?.count, 1)
+        XCTAssertNil(QuestionBankRecordChangeSignal.catalogChanges(notification: Notification(
+            name: QuestionBankRecordChangeSignal.notification,
+            object: nil,
+            userInfo: [QuestionBankRecordChangeSignal.paperIDsKey: ["paper"]]
+        )), "Legacy untyped events should retain broad invalidation.")
+
+        let original = batchTestQuestion(
+            id: "classification-question", paperID: "classification-paper", materialID: "",
+            stem: "题干", answer: "A", reordered: false
+        )
+        var answerOnlyChange = original
+        answerOnlyChange.answer = "B"
+        XCTAssertFalse(QuestionBankRepository.directoryMetadataChanged(from: original, to: answerOnlyChange))
+        var searchableAnalysisChange = original
+        searchableAnalysisChange.note = "新的复盘笔记"
+        XCTAssertTrue(QuestionBankRepository.directoryMetadataChanged(from: original, to: searchableAnalysisChange))
+    }
+
+    func testImportMergeKeepsLocallySavedFieldsMissingFromIncomingPayload() throws {
+        let existing = try JSONSerialization.data(withJSONObject: [
+            "id": "merge-question",
+            "stem": "旧题干",
+            "note": "本机复盘笔记",
+            "knowledgePoints": ["成语辨析"],
+            "futureLocalField": ["custom": true],
+            "isDifficult": true
+        ], options: [.sortedKeys])
+        let incoming = try JSONSerialization.data(withJSONObject: [
+            "id": "merge-question",
+            "stem": "更新后的题干",
+            "answer": "B",
+            "note": "随包附带的笔记",
+            "isDifficult": false
+        ], options: [.sortedKeys])
+
+        let merged = try QuestionBankPayloadMerge.preservingLocalQuestionAnalysis(
+            incoming: incoming,
+            existing: existing,
+            kind: QuestionBankRepository.questionKind
+        )
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: merged) as? [String: Any])
+        XCTAssertEqual(object["stem"] as? String, "更新后的题干")
+        XCTAssertEqual(object["answer"] as? String, "B")
+        XCTAssertEqual(object["note"] as? String, "本机复盘笔记")
+        XCTAssertEqual(object["knowledgePoints"] as? [String], ["成语辨析"])
+        XCTAssertEqual(object["isDifficult"] as? Bool, true)
+        XCTAssertEqual((object["futureLocalField"] as? [String: Bool])?["custom"], true)
+    }
+
+    func testImportCommitRejectsStalePreviewAndCompletesJobWithSuccessfulWrite() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankImportJobCommit-\(UUID().uuidString)", isDirectory: true)
+        let stage = temporaryRoot.appendingPathComponent("stage", isDirectory: true)
+        let assetRoot = temporaryRoot.appendingPathComponent("question-assets", isDirectory: true)
+        let backupRoot = temporaryRoot.appendingPathComponent("payload-backups", isDirectory: true)
+        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let container = try makeBatchMemoryContainer()
+        let context = container.mainContext
+        let paper = batchTestPaper(id: "import-job-paper", title: "导入事务测试")
+        let originalQuestion = batchTestQuestion(id: "import-job-question", paperID: paper.id,
+            materialID: "", stem: "原题干", answer: "A", reordered: false)
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.paperKind,
+            id: paper.id, paperID: paper.id, value: paper))
+        let questionRecord = try batchTestRecord(kind: QuestionBankRepository.questionKind,
+            id: originalQuestion.id, paperID: paper.id, value: originalQuestion)
+        context.insert(questionRecord)
+
+        var incomingQuestion = originalQuestion
+        incomingQuestion.stem = "导入的新题干"
+        incomingQuestion.answer = "B"
+        let plan = QuestionBankImportPlan(
+            paper: paper, modules: [], materials: [], questions: [incomingQuestion],
+            assets: [], errors: [], stagingDirectory: stage
+        )
+        let previewSnapshot = try QuestionBankImportSnapshotBuilder.single(
+            plan: plan, metadata: nil, in: context
+        )
+        let jobID = UUID().uuidString.lowercased()
+        context.insert(QuestionBankImportJobRecord(
+            jobID: jobID,
+            phase: QuestionBankImportJobPhase.awaitingConfirmation.rawValue,
+            phaseLabel: "等待用户确认",
+            processedCount: 1,
+            totalCount: 1,
+            sourceFileName: "fixture.json",
+            sourceRelativePath: "source.json",
+            previewSnapshotToken: previewSnapshot.revisionToken
+        ))
+        try context.save()
+
+        let editContext = ModelContext(container)
+        let editedCompoundID = "\(paper.id)::\(QuestionBankRepository.questionKind)::\(originalQuestion.id)"
+        let editDescriptor = FetchDescriptor<QuestionBankRecord>(
+            predicate: #Predicate { $0.compoundID == editedCompoundID }
+        )
+        let editedRecord = try XCTUnwrap(editContext.fetch(editDescriptor).first)
+        var interveningQuestion = originalQuestion
+        interveningQuestion.note = "另一个 context 在预览后修改的笔记"
+        editedRecord.replacePayload(try JSONEncoder().encode(interveningQuestion))
+        try editContext.save()
+        let rowsAfterInterveningEdit = try context.fetch(FetchDescriptor<QuestionBankRecord>())
+
+        XCTAssertThrowsError(try QuestionBankRepository.commit(
+            plan,
+            decision: .replaceExisting,
+            records: rowsAfterInterveningEdit,
+            context: context,
+            assetRoot: assetRoot,
+            expectedSnapshotToken: previewSnapshot.revisionToken,
+            importJobID: jobID
+        )) { error in
+            XCTAssertEqual(error as? QuestionBankImportJobFailure, .stalePreview)
+        }
+        let verificationContext = ModelContext(container)
+        let unchangedQuestion = try XCTUnwrap(verificationContext.fetch(FetchDescriptor<QuestionBankRecord>())
+            .first { $0.kind == QuestionBankRepository.questionKind })
+        let unchangedValue = try XCTUnwrap(unchangedQuestion.decoded(QuestionBankQuestion.self))
+        XCTAssertEqual(unchangedValue.note, "另一个 context 在预览后修改的笔记")
+        XCTAssertEqual(try XCTUnwrap(QuestionBankImportJobStore.fetch(jobID, in: verificationContext)).phase,
+            QuestionBankImportJobPhase.awaitingConfirmation.rawValue)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: backupRoot.appendingPathComponent(jobID, isDirectory: true).path
+        ), "A stale preview must fail before creating the replacement backup.")
+
+        let refreshedContext = ModelContext(container)
+        let refreshedSnapshot = try QuestionBankImportSnapshotBuilder.single(
+            plan: plan, metadata: nil, in: refreshedContext
+        )
+        let currentRows = try refreshedContext.fetch(FetchDescriptor<QuestionBankRecord>())
+        try QuestionBankRepository.commit(
+            plan,
+            decision: .replaceExisting,
+            records: currentRows,
+            context: refreshedContext,
+            assetRoot: assetRoot,
+            payloadBackupDirectory: backupRoot,
+            expectedSnapshotToken: refreshedSnapshot.revisionToken,
+            importJobID: jobID
+        )
+        let successContext = ModelContext(container)
+        let committedQuestion = try XCTUnwrap(successContext.fetch(FetchDescriptor<QuestionBankRecord>())
+            .first { $0.kind == QuestionBankRepository.questionKind })
+        XCTAssertEqual(committedQuestion.decoded(QuestionBankQuestion.self)?.stem, "导入的新题干")
+        let completedJob = try XCTUnwrap(QuestionBankImportJobStore.fetch(jobID, in: successContext))
+        XCTAssertEqual(completedJob.phase,
+            QuestionBankImportJobPhase.completed.rawValue)
+        let backupPath = try XCTUnwrap(completedJob.payloadBackupRelativePath)
+        let backupReference = QuestionBankImportPayloadBackupReference(
+            backupID: try XCTUnwrap(completedJob.payloadBackupID),
+            relativePath: backupPath,
+            manifestSHA256: try XCTUnwrap(completedJob.payloadBackupManifestSHA256)
+        )
+        try QuestionBankImportPayloadBackupStore.verify(backupReference, jobID: jobID, in: backupRoot)
+        let backupURL = backupPath.split(separator: "/").reduce(backupRoot) {
+            $0.appendingPathComponent(String($1))
+        }
+        let backupObject = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: backupURL)) as? [String: Any])
+        let backupEntries = try XCTUnwrap(backupObject["records"] as? [[String: Any]])
+        let questionEntry = try XCTUnwrap(backupEntries.first { $0["stableID"] as? String == originalQuestion.id })
+        let backedUpPayload = try XCTUnwrap(questionEntry["payloadBase64"] as? String)
+        let backedUpQuestion = try JSONDecoder().decode(
+            QuestionBankQuestion.self,
+            from: try XCTUnwrap(Data(base64Encoded: backedUpPayload))
+        )
+        XCTAssertEqual(backedUpQuestion.note, "另一个 context 在预览后修改的笔记")
+    }
+
+    @MainActor
+    func testQuestionBankUIWriterReturnsBusyWhileImportOwnsWritePermit() throws {
+        let container = try makeBatchMemoryContainer()
+        let context = container.mainContext
+        let paper = batchTestPaper(id: "write-gate-paper", title: "写入许可")
+        let question = batchTestQuestion(id: "write-gate-question", paperID: paper.id,
+            materialID: "", stem: "原题干", answer: "A", reordered: false)
+        let record = try batchTestRecord(kind: QuestionBankRepository.questionKind,
+            id: question.id, paperID: paper.id, value: question)
+        context.insert(record)
+        try context.save()
+
+        let permit = try QuestionBankWriteCoordinator.acquire()
+        defer { permit.release() }
+        XCTAssertThrowsError(try QuestionBankRepository.updateReferenceAccuracy(
+            record: record,
+            accuracy: 72,
+            context: context
+        )) { error in
+            XCTAssertEqual(error as? QuestionBankWriteCoordinatorError, .busy)
+        }
+        XCTAssertNil(record.decoded(QuestionBankQuestion.self)?.accuracy)
+    }
+
+    func testBatchCommitRejectsCrossContextEditAfterPreview() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankBatchStaleSnapshot-\(UUID().uuidString)", isDirectory: true)
+        let stage = temporaryRoot.appendingPathComponent("stage", isDirectory: true)
+        let assetRoot = temporaryRoot.appendingPathComponent("assets", isDirectory: true)
+        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let container = try makeBatchMemoryContainer()
+        let context = container.mainContext
+        let paper = batchTestPaper(id: "batch-stale-paper", title: "批量快照测试")
+        let originalQuestion = batchTestQuestion(id: "batch-stale-question", paperID: paper.id,
+            materialID: "", stem: "原题干", answer: "A", reordered: false)
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.paperKind,
+            id: paper.id, paperID: paper.id, value: paper))
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.questionKind,
+            id: originalQuestion.id, paperID: paper.id, value: originalQuestion))
+        let plan = QuestionBankImportPlan(
+            paper: paper, modules: [], materials: [], questions: [originalQuestion],
+            assets: [], errors: [], stagingDirectory: stage, sourceFileSHA256: "batch-source-hash"
+        )
+        let manifest = QuestionBankBatchPackageManifestV1(
+            createdAt: "2026-10-30T00:00:00Z",
+            papers: [],
+            assets: [],
+            organization: QuestionBankBatchPackageOrganizationV1(groups: [], paperOrder: [])
+        )
+        let package = QuestionBankBatchPackagePlan(
+            manifest: manifest,
+            paperPlans: [plan],
+            stagingDirectory: stage,
+            sourceFileSHA256: "batch-source-hash",
+            sourceFileByteCount: 0,
+            crossPaperQuestionIDConflicts: [:]
+        )
+        let previewSnapshot = try QuestionBankImportSnapshotBuilder.batch(package: package, in: context)
+        let jobID = UUID().uuidString.lowercased()
+        context.insert(QuestionBankImportJobRecord(
+            jobID: jobID,
+            phase: QuestionBankImportJobPhase.awaitingConfirmation.rawValue,
+            phaseLabel: "等待用户确认",
+            sourceFileName: "fixture.zip",
+            sourceRelativePath: "source.zip",
+            previewSnapshotToken: previewSnapshot.revisionToken
+        ))
+        try context.save()
+
+        let editContext = ModelContext(container)
+        let compoundID = "\(paper.id)::\(QuestionBankRepository.questionKind)::\(originalQuestion.id)"
+        let descriptor = FetchDescriptor<QuestionBankRecord>(predicate: #Predicate { $0.compoundID == compoundID })
+        let editedRecord = try XCTUnwrap(editContext.fetch(descriptor).first)
+        var interveningQuestion = originalQuestion
+        interveningQuestion.note = "批量预览后另一 context 写入的笔记"
+        editedRecord.replacePayload(try JSONEncoder().encode(interveningQuestion))
+        try editContext.save()
+
+        XCTAssertThrowsError(try QuestionBankBatchPackageRepository.commit(
+            package,
+            confirmedNewQuestionKeys: [],
+            records: try context.fetch(FetchDescriptor<QuestionBankRecord>()),
+            context: context,
+            assetRoot: assetRoot,
+            globalQuestionOwners: [originalQuestion.id: [paper.id]],
+            expectedSnapshotToken: previewSnapshot.revisionToken,
+            importJobID: jobID
+        )) { error in
+            XCTAssertEqual(error as? QuestionBankImportJobFailure, .stalePreview)
+        }
+        let verificationContext = ModelContext(container)
+        let preserved = try XCTUnwrap(verificationContext.fetch(FetchDescriptor<QuestionBankRecord>())
+            .first { $0.kind == QuestionBankRepository.questionKind })
+        XCTAssertEqual(preserved.decoded(QuestionBankQuestion.self)?.note, "批量预览后另一 context 写入的笔记")
+        let job = try XCTUnwrap(QuestionBankImportJobStore.fetch(jobID, in: verificationContext))
+        XCTAssertEqual(job.phase, QuestionBankImportJobPhase.awaitingConfirmation.rawValue)
+        XCTAssertNil(job.payloadBackupRelativePath)
+    }
+
+    func testReplacementBackupIsUniqueAndKeepsVerifiedAssetCopies() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankReplacementBackup-\(UUID().uuidString)", isDirectory: true)
+        let assetRoot = temporaryRoot.appendingPathComponent("assets", isDirectory: true)
+        let backupRoot = temporaryRoot.appendingPathComponent("backups", isDirectory: true)
+        let originalRelativePath = "old-generation/material/diagram.png"
+        let originalAsset = try XCTUnwrap(QuestionBankAssetStore.url(for: originalRelativePath, under: assetRoot))
+        try FileManager.default.createDirectory(
+            at: originalAsset.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let originalBytes = Data("original diagram bytes".utf8)
+        try originalBytes.write(to: originalAsset)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let row = QuestionBankRecord(
+            compoundID: "backup-paper::\(QuestionBankRepository.assetKind)::asset-1",
+            paperID: "backup-paper",
+            kind: QuestionBankRepository.assetKind,
+            stableID: "asset-1",
+            payload: Data("asset metadata".utf8),
+            assetRelativePath: originalRelativePath
+        )
+        let jobID = UUID().uuidString.lowercased()
+        let first = try QuestionBankImportPayloadBackupStore.persist(
+            [row], sourceFileSHA256: "source-hash", jobID: jobID, assetRoot: assetRoot, in: backupRoot
+        )
+        let second = try QuestionBankImportPayloadBackupStore.persist(
+            [row], sourceFileSHA256: "source-hash", jobID: jobID, assetRoot: assetRoot, in: backupRoot
+        )
+        XCTAssertNotEqual(first.backupID, second.backupID)
+        XCTAssertNotEqual(first.relativePath, second.relativePath)
+        try FileManager.default.removeItem(at: assetRoot.appendingPathComponent("old-generation"))
+        try QuestionBankImportPayloadBackupStore.verify(first, jobID: jobID, in: backupRoot)
+        try QuestionBankImportPayloadBackupStore.verify(second, jobID: jobID, in: backupRoot)
+        let manifestURL = first.relativePath.split(separator: "/").reduce(backupRoot) {
+            $0.appendingPathComponent(String($1))
+        }
+        let manifest = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any])
+        let assets = try XCTUnwrap(manifest["assets"] as? [[String: Any]])
+        let backupAssetPath = try XCTUnwrap(assets.first?["backupRelativePath"] as? String)
+        let backupAssetURL = backupAssetPath.split(separator: "/").reduce(manifestURL.deletingLastPathComponent()) {
+            $0.appendingPathComponent(String($1))
+        }
+        XCTAssertEqual(try Data(contentsOf: backupAssetURL), originalBytes)
+    }
+
+    func testCatalogBuildCancellationPausesAndResumeCompletesExactlyOnce() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuestionBankCatalogResume-(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let container = try makeContainer(storeURL: root.appendingPathComponent("catalog.store"))
+        let context = container.mainContext
+        try seedCatalogPaper(context: context, paperID: "resume-paper", questionCount: 40)
+        let cancellation = CatalogBuildCancellationHandle()
+        let buildTask = Task {
+            try await QuestionBankCatalogService.buildOrResume(in: container, chunkSize: 1) { status in
+                if status.state == .building, status.indexedSourceRowCount > 0 {
+                    cancellation.cancel()
+                }
+            }
+        }
+        cancellation.install { buildTask.cancel() }
+        do {
+            _ = try await buildTask.value
+            XCTFail("The build should stop after its first committed source page.")
+        } catch is CancellationError {
+        }
+
+        let paused = try await QuestionBankCatalogService.status(in: container)
+        XCTAssertEqual(paused.state, .paused)
+        XCTAssertGreaterThan(paused.indexedSourceRowCount, 0)
+        XCTAssertLessThan(paused.indexedSourceRowCount, paused.totalSourceRowCount ?? Int.max)
+        XCTAssertNil(paused.questionCount)
+
+        let resumed = try await QuestionBankCatalogService.buildOrResume(in: container, chunkSize: 3)
+        XCTAssertTrue(resumed.resumed)
+        XCTAssertEqual(resumed.status.state, .ready)
+        XCTAssertEqual(resumed.status.indexedSourceRowCount, 42)
+        XCTAssertEqual(resumed.status.totalSourceRowCount, 42)
+        XCTAssertEqual(resumed.status.questionCount, 40)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<QuestionBankCatalogQuestionRecord>()).count, 40)
+    }
+
     func testOverviewAnswerStatusOnlyMarksConfirmedSelections() {
         XCTAssertEqual(
             QuestionBankOverviewAnswerStatus.resolve(selectedOptionID: nil, answer: "A", isConfirmed: true),
@@ -260,7 +831,7 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertEqual(QuestionBankCoarseModule.classify(explicitModuleTitle: "言语理解与表达"), .language)
         XCTAssertEqual(QuestionBankCoarseModule.classify(explicitModuleTitle: "言语推理"), .uncategorized)
         XCTAssertEqual(index.provinces, ["AA", "甲省"])
-        XCTAssertEqual(index.questionTypeOptions(for: .language), ["逻辑填空", "阅读与表达"])
+        XCTAssertEqual(index.questionTypeOptions(for: .language), ["逻辑填空", "片段阅读"])
         XCTAssertEqual(index.questionTypeOptions(for: .uncategorized), [])
 
         let languageFilter = QuestionBankHomeFilter(
@@ -2407,11 +2978,44 @@ final class QuestionBankImportTests: XCTestCase {
         XCTAssertTrue(try migrated.mainContext.fetch(FetchDescriptor<QuestionBankBatchSourceRecord>()).isEmpty)
     }
 
+    private func seedCatalogPaper(context: ModelContext, paperID: String, questionCount: Int) throws {
+        let paper = batchTestPaper(id: paperID, title: "目录回填测试")
+        let module = QuestionBankModule(
+            id: "module-\(paperID)", paperID: paperID, sequence: 0,
+            title: "言语理解", instruction: "", originalPage: "1"
+        )
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.paperKind, id: paper.id,
+            paperID: paper.id, value: paper, searchText: paper.title))
+        context.insert(try batchTestRecord(kind: QuestionBankRepository.moduleKind, id: module.id,
+            paperID: paper.id, value: module))
+        for number in 1...questionCount {
+            var question = batchTestQuestion(
+                id: "q-\(number)", paperID: paperID, materialID: "",
+                stem: "回填题干 \(number)", answer: "A", reordered: false
+            )
+            question.number = number
+            question.subject = "言语理解"
+            question.type = number.isMultiple(of: 2) ? "逻辑填空" : "片段阅读"
+            let questionRecord = try batchTestRecord(kind: QuestionBankRepository.questionKind,
+                id: question.id, paperID: paperID, value: question,
+                searchText: "\(number) \(question.stem)")
+            questionRecord.moduleID = module.id
+            questionRecord.questionNumber = question.number
+            context.insert(questionRecord)
+        }
+        try context.save()
+    }
+
     private func makeContainer(storeURL: URL) throws -> ModelContainer {
         let schema = Schema([
             StoredRecord.self, QuestionBankRecord.self,
             QuestionBankBatchRecord.self, QuestionBankBatchSourceRecord.self,
-            QuestionBankBatchMaterialLinkRecord.self, QuestionBankBatchQuestionLinkRecord.self
+            QuestionBankCatalogPaperRecord.self, QuestionBankCatalogModuleRecord.self,
+            QuestionBankCatalogQuestionRecord.self, QuestionBankCatalogProgressRecord.self,
+            QuestionBankBatchMaterialLinkRecord.self, QuestionBankBatchQuestionLinkRecord.self,
+            QuestionBankAnswerStateRecord.self, QuestionBankAnswerStateMigrationRecord.self,
+            QuestionBankAnswerStateScopeClearRecord.self,
+            QuestionBankImportJobRecord.self
         ])
         let configuration = ModelConfiguration(
             "QuestionBankImportTests",
@@ -2426,7 +3030,8 @@ final class QuestionBankImportTests: XCTestCase {
         let schema = Schema([
             StoredRecord.self, QuestionBankRecord.self,
             QuestionBankBatchRecord.self, QuestionBankBatchSourceRecord.self,
-            QuestionBankBatchMaterialLinkRecord.self, QuestionBankBatchQuestionLinkRecord.self
+            QuestionBankBatchMaterialLinkRecord.self, QuestionBankBatchQuestionLinkRecord.self,
+            QuestionBankImportJobRecord.self
         ])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [configuration])
@@ -2543,7 +3148,10 @@ final class QuestionBankImportTests: XCTestCase {
     }
 
     private func makeLegacyContainer(storeURL: URL) throws -> ModelContainer {
-        let schema = Schema([StoredRecord.self])
+        let schema = Schema([
+            StoredRecord.self, QuestionBankAnswerStateRecord.self,
+            QuestionBankAnswerStateMigrationRecord.self, QuestionBankAnswerStateScopeClearRecord.self
+        ])
         let configuration = ModelConfiguration(
             "QuestionBankImportTests",
             schema: schema,

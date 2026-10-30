@@ -426,6 +426,13 @@ enum LibraryRecordRepository {
         } else {
             linkedQuestionUpdate = nil
         }
+        let linkedQuestionWritePermit: QuestionBankWriteCoordinator.Permit?
+        if linkedQuestionUpdate != nil {
+            linkedQuestionWritePermit = try QuestionBankWriteCoordinator.acquire()
+        } else {
+            linkedQuestionWritePermit = nil
+        }
+        defer { linkedQuestionWritePermit?.release() }
 
         let payloadStart = ProcessInfo.processInfo.systemUptime
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
@@ -462,11 +469,30 @@ enum LibraryRecordRepository {
         if let linkedQuestionUpdate {
             linkedQuestionUpdate.record.replacePayload(linkedQuestionUpdate.payload)
             linkedQuestionUpdate.record.searchText = linkedQuestionUpdate.searchText
+            _ = try QuestionBankCatalogService.updateQuestion(
+                paperID: linkedQuestionUpdate.record.paperID,
+                questionID: linkedQuestionUpdate.record.stableID,
+                context: context
+            )
         }
         let contextSaveStart = ProcessInfo.processInfo.systemUptime
         try context.save()
         if let linkedQuestionUpdate {
-            QuestionBankRecordChangeSignal.post(paperIDs: [linkedQuestionUpdate.record.paperID])
+            QuestionBankRecordChangeSignal.postQuestionChange(
+                paperID: linkedQuestionUpdate.record.paperID,
+                questionID: linkedQuestionUpdate.record.stableID,
+                kind: linkedQuestionUpdate.kind
+            )
+        } else if kind == .errors,
+                  let paperID = object["questionBankPaperID"] as? String,
+                  !paperID.isEmpty,
+                  let questionID = object["questionBankQuestionID"] as? String,
+                  !questionID.isEmpty {
+            QuestionBankRecordChangeSignal.postQuestionChange(
+                paperID: paperID,
+                questionID: questionID,
+                kind: .questionLinks
+            )
         }
         LibraryPerformanceLog.mark("record.save.context", since: contextSaveStart)
         LibraryPerformanceLog.mark("record.save.total", since: performanceStart)
@@ -614,6 +640,13 @@ enum LibraryRecordRepository {
         } else {
             linkedQuestionUpdate = nil
         }
+        let linkedQuestionWritePermit: QuestionBankWriteCoordinator.Permit?
+        if linkedQuestionUpdate != nil {
+            linkedQuestionWritePermit = try QuestionBankWriteCoordinator.acquire()
+        } else {
+            linkedQuestionWritePermit = nil
+        }
+        defer { linkedQuestionWritePermit?.release() }
         switch kind {
         case .errors:
             try syncSingleRelation(
@@ -648,11 +681,30 @@ enum LibraryRecordRepository {
         if let linkedQuestionUpdate {
             linkedQuestionUpdate.record.replacePayload(linkedQuestionUpdate.payload)
             linkedQuestionUpdate.record.searchText = linkedQuestionUpdate.searchText
+            _ = try QuestionBankCatalogService.updateQuestion(
+                paperID: linkedQuestionUpdate.record.paperID,
+                questionID: linkedQuestionUpdate.record.stableID,
+                context: context
+            )
         }
         context.delete(record)
         try context.save()
         if let linkedQuestionUpdate {
-            QuestionBankRecordChangeSignal.post(paperIDs: [linkedQuestionUpdate.record.paperID])
+            QuestionBankRecordChangeSignal.postQuestionChange(
+                paperID: linkedQuestionUpdate.record.paperID,
+                questionID: linkedQuestionUpdate.record.stableID,
+                kind: linkedQuestionUpdate.kind
+            )
+        } else if kind == .errors,
+                  let paperID = object["questionBankPaperID"] as? String,
+                  !paperID.isEmpty,
+                  let questionID = object["questionBankQuestionID"] as? String,
+                  !questionID.isEmpty {
+            QuestionBankRecordChangeSignal.postQuestionChange(
+                paperID: paperID,
+                questionID: questionID,
+                kind: .questionLinks
+            )
         }
     }
 
@@ -716,6 +768,7 @@ enum LibraryRecordRepository {
 enum QuestionBankErrorBookCategory: String, CaseIterable {
     case wrong = "错题"
     case uncertain = "不确定题"
+    case cannotSolve = "不会做"
 }
 
 enum QuestionBankErrorBookIdentity {
@@ -735,11 +788,14 @@ enum QuestionBankErrorBookAddResult: Equatable {
 
 enum QuestionBankErrorBookAddFailure: LocalizedError {
     case identityConflict
+    case missingQuestion
 
     var errorDescription: String? {
         switch self {
         case .identityConflict:
             "错题记录标识已被其他记录使用，未写入。"
+        case .missingQuestion:
+            "题目已被删除或替换，无法加入错题本。"
         }
     }
 }
@@ -748,17 +804,32 @@ enum QuestionBankErrorBookRepository {
     @MainActor
     static func add(
         analysis: QuestionBankQuestionAnalysisContext,
+        question: QuestionBankQuestion,
         category: QuestionBankErrorBookCategory,
+        candidateRecordIDs: [String],
         context: ModelContext
     ) throws -> QuestionBankErrorBookAddResult {
-        let question = analysis.currentQuestion
-        let descriptor = FetchDescriptor<StoredRecord>()
-        let records = try context.fetch(descriptor)
-        let linkedRecord = records.first { record in
-            guard record.collection == LibraryContentKind.errors.collection,
-                  let payload = record.jsonObject else { return false }
-            return payload["questionBankPaperID"] as? String == question.paperID
-                && payload["questionBankQuestionID"] as? String == question.id
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let linkedIDs = question.linkedErrorRecordIDs ?? []
+        let queryIDs = Array(Set(candidateRecordIDs + linkedIDs + QuestionBankErrorBookCategory.allCases.map {
+            QuestionBankErrorBookIdentity.recordID(paperID: question.paperID, questionID: question.id, category: $0)
+        })).sorted()
+        let errorCollection = LibraryContentKind.errors.collection
+        let errorPredicate = #Predicate<StoredRecord> {
+            $0.collection == errorCollection && queryIDs.contains($0.recordID)
+        }
+        var errorDescriptor = FetchDescriptor<StoredRecord>(predicate: errorPredicate)
+        errorDescriptor.fetchLimit = queryIDs.count
+        let errorRecords = try context.fetch(errorDescriptor)
+        let payloadBytes = errorRecords.reduce(0) { $0 + $1.payload.count }
+        LibraryPerformanceLog.mark("question-bank.error-link.add-query", since: startedAt)
+        NativePerformanceLog.event(
+            "question bank error-link add candidates=\(queryIDs.count) found=\(errorRecords.count) payloadBytes=\(payloadBytes)"
+        )
+
+        let explicitLinkedIDs = Set(linkedIDs)
+        let linkedRecord = errorRecords.first { record in
+            Self.record(record, links: question, explicitIDs: explicitLinkedIDs)
         }
         if let linkedRecord {
             return .alreadyAdded(recordID: linkedRecord.recordID)
@@ -769,27 +840,19 @@ enum QuestionBankErrorBookRepository {
             questionID: question.id,
             category: category
         )
-        if let collision = records.first(where: {
-            $0.collection == LibraryContentKind.errors.collection && $0.recordID == id
-        }) {
-            guard let payload = collision.jsonObject,
-                  payload["questionBankPaperID"] as? String == question.paperID,
-                  payload["questionBankQuestionID"] as? String == question.id else {
+        if let collision = errorRecords.first(where: { $0.recordID == id }) {
+            guard Self.record(collision, links: question, explicitIDs: explicitLinkedIDs) else {
                 throw QuestionBankErrorBookAddFailure.identityConflict
             }
             return .alreadyAdded(recordID: id)
         }
 
-        let validLinkedIDs = (question.linkedErrorRecordIDs ?? []).filter { linkedID in
-            records.contains { record in
-                guard record.collection == LibraryContentKind.errors.collection,
-                      record.recordID == linkedID,
-                      let payload = record.jsonObject else { return false }
-                return payload["questionBankPaperID"] as? String == question.paperID
-                    && payload["questionBankQuestionID"] as? String == question.id
-            }
+        let recordsByID = Dictionary(errorRecords.map { ($0.recordID, $0) }, uniquingKeysWith: { first, _ in first })
+        let validLinkedIDs = linkedIDs.filter { linkedID in
+            guard let record = recordsByID[linkedID] else { return false }
+            return Self.record(record, links: question, explicitIDs: explicitLinkedIDs)
         }
-        var draft = analysis.makeEditorDraft()
+        var draft = analysis.makeEditorDraft(using: question)
         draft.id = id
         draft.type = category.rawValue
         draft.status = "未掌握"
@@ -797,8 +860,45 @@ enum QuestionBankErrorBookRepository {
         draft.original["questionBankQuestionID"] = question.id
         draft.original["linkedErrorRecordIDs"] = validLinkedIDs
         draft.accuracy = question.accuracy.map { String($0) } ?? ""
-        _ = try LibraryRecordRepository.save(kind: .errors, draft: draft, records: records, context: context)
+
+        let relationIDs = Array(Set(
+            [draft.sourceExamID, draft.original["sourceExamId"] as? String ?? ""]
+                + draft.linkedNoteIDs
+                + (draft.original["linkedNoteIds"] as? [String] ?? [])
+                + draft.linkedWordIDs
+                + (draft.original["linkedWordIds"] as? [String] ?? [])
+        ).filter { !$0.isEmpty })
+        let relationCollections = ["exams", "notes", "words"]
+        let relationRecords: [StoredRecord]
+        if relationIDs.isEmpty {
+            relationRecords = []
+        } else {
+            let dependencyPredicate = #Predicate<StoredRecord> {
+                relationIDs.contains($0.recordID) && relationCollections.contains($0.collection)
+            }
+            var dependencyDescriptor = FetchDescriptor<StoredRecord>(predicate: dependencyPredicate)
+            dependencyDescriptor.fetchLimit = relationIDs.count * relationCollections.count
+            relationRecords = try context.fetch(dependencyDescriptor)
+        }
+        let saveRecords = errorRecords + relationRecords
+        _ = try LibraryRecordRepository.save(kind: .errors, draft: draft, records: saveRecords, context: context)
         return .added(recordID: id)
+    }
+
+    private static func record(
+        _ record: StoredRecord,
+        links question: QuestionBankQuestion,
+        explicitIDs: Set<String>
+    ) -> Bool {
+        guard record.collection == LibraryContentKind.errors.collection,
+              let payload = record.jsonObject else { return false }
+        let linkedPaperID = payload["questionBankPaperID"] as? String
+        let linkedQuestionID = payload["questionBankQuestionID"] as? String
+        if linkedPaperID == question.paperID, linkedQuestionID == question.id { return true }
+        guard explicitIDs.contains(record.recordID) else { return false }
+        let paperMismatch = linkedPaperID.map { $0 != question.paperID } ?? false
+        let questionMismatch = linkedQuestionID.map { $0 != question.id } ?? false
+        return !paperMismatch && !questionMismatch
     }
 }
 

@@ -83,7 +83,7 @@ struct LibraryRecordEditorView: View {
             saved.applying(to: &initialDraft)
             _restoredDraft = State(initialValue: true)
         }
-        if kind == .errors, !["错题", "不确定题"].contains(initialDraft.type) {
+        if kind == .errors, !QuestionBankErrorBookCategory.allCases.contains(where: { $0.rawValue == initialDraft.type }) {
             initialDraft.type = "错题"
         }
         if kind == .words,
@@ -426,7 +426,6 @@ struct LibraryRecordEditorView: View {
                             .foregroundStyle(splitMessage.hasPrefix("已") ? AppTheme.success : AppTheme.warning)
                     }
                     errorQuestionEditor(text: $draft.title)
-                    NativeFieldLabel(title: "选项")
                     ForEach(draft.options.indices, id: \.self) { index in
                         optionEditorRow(index)
                     }
@@ -471,11 +470,11 @@ struct LibraryRecordEditorView: View {
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             if let image = questionBankContext.assetsByID[material.imageAssetID] {
-                                QuestionBankLocalImage(asset: image, sizing: .material)
+                                QuestionBankLocalImage(asset: image, sizing: .material, activationTab: .library)
                             }
                         }
                         if let stemAsset {
-                            QuestionBankLocalImage(asset: stemAsset, sizing: .stem)
+                            QuestionBankLocalImage(asset: stemAsset, sizing: .stem, activationTab: .library)
                         }
                     }
                 }
@@ -694,7 +693,7 @@ struct LibraryRecordEditorView: View {
             if let questionBankContext,
                questionBankContext.currentQuestion.options.indices.contains(index),
                let asset = questionBankContext.assetsByID[questionBankContext.currentQuestion.options[index].imageAssetID] {
-                QuestionBankLocalImage(asset: asset, sizing: .option)
+                QuestionBankLocalImage(asset: asset, sizing: .option, activationTab: .library)
                     .padding(.leading, 35)
             }
         }
@@ -726,6 +725,7 @@ struct LibraryRecordEditorView: View {
         Picker("题目类型", selection: $draft.type) {
             Text("错题").tag("错题")
             Text("不确定题").tag("不确定题")
+            Text("不会做").tag("不会做")
         }
         .pickerStyle(.segmented)
         .frame(maxWidth: 300)
@@ -1625,7 +1625,6 @@ struct LibraryRecordEditorView: View {
                         analysis: analysis,
                         typeMapping: questionBankContext.typeMapping,
                         sourceRows: questionBankContext.sourceRows,
-                        storedRecords: records,
                         context: modelContext
                     )
                     isSaving = false

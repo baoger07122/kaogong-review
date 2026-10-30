@@ -25,7 +25,12 @@ struct KaogongReviewNativeApp: App {
                 let schema = Schema([
                     StoredRecord.self, QuestionBankRecord.self,
                     QuestionBankBatchRecord.self, QuestionBankBatchSourceRecord.self,
-                    QuestionBankBatchMaterialLinkRecord.self, QuestionBankBatchQuestionLinkRecord.self
+                    QuestionBankBatchMaterialLinkRecord.self, QuestionBankBatchQuestionLinkRecord.self,
+                    QuestionBankCatalogPaperRecord.self, QuestionBankCatalogModuleRecord.self,
+                    QuestionBankCatalogQuestionRecord.self, QuestionBankCatalogProgressRecord.self,
+                    QuestionBankAnswerStateRecord.self, QuestionBankAnswerStateMigrationRecord.self,
+                    QuestionBankAnswerStateScopeClearRecord.self,
+                    QuestionBankImportJobRecord.self
                 ])
                 let configuration = ModelConfiguration(
                     "QuestionBankReaderUITests-\(QuestionBankReaderUITestFixture.paperID)",
@@ -48,12 +53,17 @@ struct KaogongReviewNativeApp: App {
     }
 
     private static func makeDefaultModelContainer() throws -> ModelContainer {
-        // Add question-bank and batch-index entities; existing records
+        // Add question-bank, batch, and lightweight-catalog entities; existing records
         // (including the legacy 套卷 score collection) remain unchanged.
         let container = try ModelContainer(
             for: StoredRecord.self, QuestionBankRecord.self,
             QuestionBankBatchRecord.self, QuestionBankBatchSourceRecord.self,
-            QuestionBankBatchMaterialLinkRecord.self, QuestionBankBatchQuestionLinkRecord.self
+            QuestionBankBatchMaterialLinkRecord.self, QuestionBankBatchQuestionLinkRecord.self,
+            QuestionBankCatalogPaperRecord.self, QuestionBankCatalogModuleRecord.self,
+            QuestionBankCatalogQuestionRecord.self, QuestionBankCatalogProgressRecord.self,
+            QuestionBankAnswerStateRecord.self, QuestionBankAnswerStateMigrationRecord.self,
+            QuestionBankAnswerStateScopeClearRecord.self,
+            QuestionBankImportJobRecord.self
         )
         try OneTimeLocalDataReset.runIfNeeded(in: container)
         try TagPresetCleanupMigration.runIfNeeded(in: container)

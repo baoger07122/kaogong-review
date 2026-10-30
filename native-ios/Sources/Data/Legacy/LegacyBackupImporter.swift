@@ -18,6 +18,7 @@ struct LegacyImportPackage: @unchecked Sendable {
     let version: Int
     let records: [LegacyRecordDraft]
     let counts: [String: Int]
+    var questionBankAnswerStates: [QuestionBankAnswerStateBackup] = []
 }
 
 struct LegacyImportSummary: Equatable {
@@ -26,7 +27,7 @@ struct LegacyImportSummary: Equatable {
     let counts: [String: Int]
 
     var message: String {
-        let order = ["errors", "notes", "exams", "todos", "subject_reviews", "words", "stickies", "keyvalue"]
+        let order = ["errors", "notes", "exams", "todos", "subject_reviews", "words", "stickies", "keyvalue", "questionBankAnswerStates"]
         let details = order.compactMap { key -> String? in
             guard let value = counts[key], value > 0 else { return nil }
             return "\(key) \(value)"
@@ -41,6 +42,8 @@ enum LegacyBackupImportError: LocalizedError {
     case invalidCollection(String)
     case missingRecordID(String)
     case tooManyRecords(Int)
+    case invalidQuestionBankAnswerState(Int)
+    case duplicateQuestionBankAnswerState(String)
 
     var errorDescription: String? {
         switch self {
@@ -49,6 +52,8 @@ enum LegacyBackupImportError: LocalizedError {
         case .invalidCollection(let name): "备份字段 \(name) 不是数组"
         case .missingRecordID(let name): "\(name) 中存在缺少 id 的记录"
         case .tooManyRecords(let count): "备份包含 \(count) 条记录，超过单次迁移上限"
+        case .invalidQuestionBankAnswerState(let index): "questionBankAnswerStates 第 \(index + 1) 条格式无效"
+        case .duplicateQuestionBankAnswerState(let id): "备份中存在重复的作答状态 ID：\(id)"
         }
     }
 }
@@ -94,16 +99,67 @@ enum LegacyBackupImporter {
         try appendTopLevelValue(root["countdown"], key: "legacy.countdown", drafts: &draftsByID, counts: &counts)
         try appendTopLevelValue(root["noteTypes"], key: "legacy.noteTypes", drafts: &draftsByID, counts: &counts)
         try appendHomeErrorStats(drafts: &draftsByID, counts: &counts)
+        let answerStates = try parseQuestionBankAnswerStates(root["questionBankAnswerStates"])
+        if !answerStates.isEmpty { counts["questionBankAnswerStates"] = answerStates.count }
 
-        guard draftsByID.count <= 100_000 else {
-            throw LegacyBackupImportError.tooManyRecords(draftsByID.count)
+        guard draftsByID.count + answerStates.count <= 100_000 else {
+            throw LegacyBackupImportError.tooManyRecords(draftsByID.count + answerStates.count)
         }
 
         return LegacyImportPackage(
             version: versionNumber.intValue,
             records: Array(draftsByID.values),
-            counts: counts
+            counts: counts,
+            questionBankAnswerStates: answerStates
         )
+    }
+
+    private static func parseQuestionBankAnswerStates(_ raw: Any?) throws -> [QuestionBankAnswerStateBackup] {
+        guard let raw else { return [] }
+        guard let entries = raw as? [[String: Any]] else {
+            throw LegacyBackupImportError.invalidCollection("questionBankAnswerStates")
+        }
+        var values: [QuestionBankAnswerStateBackup] = []
+        var ids = Set<String>()
+        values.reserveCapacity(entries.count)
+        for (index, object) in entries.enumerated() {
+            guard let compoundID = object["compoundID"] as? String, !compoundID.isEmpty,
+                  let paperID = object["paperID"] as? String, !paperID.isEmpty,
+                  let questionID = object["questionID"] as? String, !questionID.isEmpty,
+                  compoundID == "\(paperID)::\(QuestionBankRepository.questionKind)::\(questionID)",
+                  let revealed = object["isRevealed"] as? Bool,
+                  let cleared = object["isCleared"] as? Bool,
+                  let revision = object["mutationRevision"] as? Int,
+                  revision >= 0,
+                  let updatedAt = parseDate(object["updatedAt"]) else {
+                throw LegacyBackupImportError.invalidQuestionBankAnswerState(index)
+            }
+            guard ids.insert(compoundID).inserted else {
+                throw LegacyBackupImportError.duplicateQuestionBankAnswerState(compoundID)
+            }
+            let selectedOptionID: String?
+            if object["selectedOptionID"] is NSNull {
+                selectedOptionID = nil
+            } else if let value = object["selectedOptionID"] as? String {
+                selectedOptionID = value
+            } else {
+                throw LegacyBackupImportError.invalidQuestionBankAnswerState(index)
+            }
+            guard !cleared || (selectedOptionID == nil && !revealed) else {
+                throw LegacyBackupImportError.invalidQuestionBankAnswerState(index)
+            }
+            values.append(QuestionBankAnswerStateBackup(
+                compoundID: compoundID,
+                paperID: paperID,
+                questionID: questionID,
+                selectedOptionID: selectedOptionID,
+                isRevealed: revealed,
+                isCleared: cleared,
+                mutationRevision: revision,
+                updatedAt: updatedAt
+            ))
+        }
+        return values.sorted { $0.compoundID < $1.compoundID }
     }
 
     private static func appendKeyValue(
@@ -251,21 +307,36 @@ enum LegacyBackupRestorer {
         in context: ModelContext,
         beforeSave: () throws -> Void = {}
     ) throws {
-        let existing = try context.fetch(FetchDescriptor<StoredRecord>())
-        existing.forEach(context.delete)
-        for draft in package.records {
-            context.insert(StoredRecord(
-                collection: draft.collection,
-                recordID: draft.recordID,
-                payload: draft.payload,
-                subject: draft.subject,
-                module: draft.module,
-                createdAt: draft.createdAt,
-                updatedAt: draft.updatedAt
-            ))
+        try context.transaction {
+            let existing = try context.fetch(FetchDescriptor<StoredRecord>())
+            existing.forEach(context.delete)
+            for draft in package.records {
+                context.insert(StoredRecord(
+                    collection: draft.collection,
+                    recordID: draft.recordID,
+                    payload: draft.payload,
+                    subject: draft.subject,
+                    module: draft.module,
+                    createdAt: draft.createdAt,
+                    updatedAt: draft.updatedAt
+                ))
+            }
+            try QuestionBankAnswerStateRepository.replaceFromBackup(package.questionBankAnswerStates, in: context)
+            try beforeSave()
         }
-        try beforeSave()
-        try context.save()
+        QuestionBankAnswerStateRepository.postReset()
+    }
+
+    static func replace(with package: LegacyImportPackage, in container: ModelContainer) async throws {
+        let questionBankPermit = try QuestionBankWriteCoordinator.acquire()
+        defer { questionBankPermit.release() }
+        try await QuestionBankAnswerStateMutationCoordinator.shared.withExclusive {
+            try await Task.detached(priority: .userInitiated) {
+                let context = ModelContext(container)
+                context.autosaveEnabled = false
+                try replace(with: package, in: context)
+            }.value
+        }
     }
 }
 
@@ -289,21 +360,27 @@ final class LegacyBackupImportCoordinator: ObservableObject {
         isImporting = true
         summary = nil
         errorMessage = nil
-
-        let hasAccess = url.startAccessingSecurityScopedResource()
-        defer {
-            if hasAccess { url.stopAccessingSecurityScopedResource() }
-            isImporting = false
-        }
-
-        do {
-            let data = try Data(contentsOf: url)
-            let package = try LegacyBackupImporter.parse(data: data)
-            try LegacyBackupRestorer.replace(with: package, in: context)
-            summary = LegacyImportSummary(version: package.version, total: package.records.count, counts: package.counts)
-        } catch {
-            context.rollback()
-            errorMessage = error.localizedDescription
+        let container = context.container
+        Task {
+            let hasAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if hasAccess { url.stopAccessingSecurityScopedResource() }
+                isImporting = false
+            }
+            do {
+                let data = try Data(contentsOf: url)
+                let package = try await Task.detached(priority: .userInitiated) {
+                    try LegacyBackupImporter.parse(data: data)
+                }.value
+                try await QuestionBankAnswerStateStore.shared.restoreLocalData(with: package, in: container)
+                summary = LegacyImportSummary(
+                    version: package.version,
+                    total: package.records.count + package.questionBankAnswerStates.count,
+                    counts: package.counts
+                )
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -317,12 +394,12 @@ final class LegacyBackupImportCoordinator: ObservableObject {
                 let package = try await Task.detached(priority: .userInitiated) {
                     try LegacyBackupImporter.parse(data: data)
                 }.value
-                try await Task.detached(priority: .userInitiated) {
-                    let importContext = ModelContext(container)
-                    importContext.autosaveEnabled = false
-                    try LegacyBackupRestorer.replace(with: package, in: importContext)
-                }.value
-                summary = LegacyImportSummary(version: package.version, total: package.records.count, counts: package.counts)
+                try await QuestionBankAnswerStateStore.shared.restoreLocalData(with: package, in: container)
+                summary = LegacyImportSummary(
+                    version: package.version,
+                    total: package.records.count + package.questionBankAnswerStates.count,
+                    counts: package.counts
+                )
             } catch {
                 errorMessage = error.localizedDescription
             }

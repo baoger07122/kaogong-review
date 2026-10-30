@@ -34,11 +34,17 @@ enum LegacyBackupExporter {
         ("stickies", "stickies")
     ]
 
-    static func makeDocument(records: [StoredRecord]) throws -> BackupJSONDocument {
-        BackupJSONDocument(data: try makeData(records: records))
+    static func makeDocument(
+        records: [StoredRecord],
+        answerStates: [QuestionBankAnswerStateBackup] = []
+    ) throws -> BackupJSONDocument {
+        BackupJSONDocument(data: try makeData(records: records, answerStates: answerStates))
     }
 
-    static func makeData(records: [StoredRecord]) throws -> Data {
+    static func makeData(
+        records: [StoredRecord],
+        answerStates: [QuestionBankAnswerStateBackup] = []
+    ) throws -> Data {
         var root: [String: Any] = [
             "version": 1,
             "app": "kaogong-review",
@@ -63,6 +69,25 @@ enum LegacyBackupExporter {
         root["keyvalue"] = try keyValues.map(payloadObject)
         root["countdown"] = try topLevelValue(id: "legacy.countdown", records: records) ?? []
         root["noteTypes"] = try topLevelValue(id: "legacy.noteTypes", records: records) ?? NSNull()
+        root["questionBankAnswerStates"] = answerStates
+            .sorted { $0.compoundID < $1.compoundID }
+            .map { state in
+                var object: [String: Any] = [
+                    "compoundID": state.compoundID,
+                    "paperID": state.paperID,
+                    "questionID": state.questionID,
+                    "isRevealed": state.isRevealed,
+                    "isCleared": state.isCleared,
+                    "mutationRevision": state.mutationRevision,
+                    "updatedAt": state.updatedAt.timeIntervalSince1970
+                ]
+                if let selectedOptionID = state.selectedOptionID {
+                    object["selectedOptionID"] = selectedOptionID
+                } else {
+                    object["selectedOptionID"] = NSNull()
+                }
+                return object
+            }
 
         guard JSONSerialization.isValidJSONObject(root) else {
             throw CocoaError(.propertyListWriteInvalid)

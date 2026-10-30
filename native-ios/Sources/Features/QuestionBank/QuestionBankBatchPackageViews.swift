@@ -1,17 +1,19 @@
 import SwiftUI
+import SwiftData
 
 struct QuestionBankBatchPackageImportPreview: View {
+    let jobID: String
     let plan: QuestionBankBatchPackagePlan
-    let records: [QuestionBankRecord]
+    let preview: QuestionBankImportJobPreview
     let isImporting: Bool
     @Binding var importFailure: String?
-    let onImport: (Set<QuestionBankBatchQuestionKey>) -> Void
+    let onImport: (Set<QuestionBankBatchQuestionKey>, String) -> Void
     let onCancel: () -> Void
 
     @State private var confirmedNewQuestionKeys = Set<QuestionBankBatchQuestionKey>()
 
-    private var preview: QuestionBankBatchPackageUpdatePreview {
-        QuestionBankBatchPackageRepository.updatePreview(for: plan, records: records)
+    private var packagePreview: QuestionBankBatchPackageUpdatePreview {
+        preview.packageUpdatePreview ?? QuestionBankBatchPackageUpdatePreview(papers: [])
     }
 
     var body: some View {
@@ -19,14 +21,14 @@ struct QuestionBankBatchPackageImportPreview: View {
             List {
                 Section {
                     LabeledContent("包内试卷", value: "\(plan.paperPlans.count) 套")
-                    LabeledContent("精确匹配", value: "\(preview.updatablePaperCount) 套")
-                    LabeledContent("待核对", value: "\(preview.pendingPaperCount) 套")
-                    LabeledContent("新增题目", value: "\(preview.newQuestionCount) 道；默认不导入")
+                    LabeledContent("精确匹配", value: "\(packagePreview.updatablePaperCount) 套")
+                    LabeledContent("待核对", value: "\(packagePreview.pendingPaperCount) 套")
+                    LabeledContent("新增题目", value: "\(packagePreview.newQuestionCount) 道；默认不导入")
                     Text("写入前校验整包；确认后用单次数据库事务更新。仅按完全相同的 paperID / questionID 对齐，未匹配项会保留为待核，不按名称或题号猜测。")
                         .font(AppTheme.auxiliaryFont)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("已有题目的题干、选项、答案和解析会按包内内容更新；难题/复习标记、知识点、作答状态、涂鸦和笔记保留。写入前会独立备份将被覆盖记录的 payload；备份不含旧图片文件。")
+                    Text("已有题目的题干、选项、答案和解析会按包内内容更新；难题/复习标记、知识点、作答状态、涂鸦和笔记保留。写入前会按本次任务独立备份原记录及其图片资源，并校验备份清单。")
                         .font(AppTheme.auxiliaryFont)
                         .foregroundStyle(AppTheme.danger)
                         .fixedSize(horizontal: false, vertical: true)
@@ -34,7 +36,7 @@ struct QuestionBankBatchPackageImportPreview: View {
                     Text("更新预览")
                 }
 
-                ForEach(preview.papers) { paperStatus in
+                ForEach(packagePreview.papers) { paperStatus in
                     Section(paperStatus.title) {
                         if let conflict = paperStatus.conflict {
                             Label(conflict, systemImage: "exclamationmark.triangle.fill")
@@ -80,15 +82,20 @@ struct QuestionBankBatchPackageImportPreview: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isImporting ? "正在写入…" : "确认更新") {
-                        onImport(confirmedNewQuestionKeys)
+                        onImport(confirmedNewQuestionKeys, preview.revisionToken)
                     }
-                    .disabled(isImporting || !plan.canImport || preview.updatablePaperCount == 0)
+                    .disabled(isImporting || !plan.canImport || packagePreview.updatablePaperCount == 0
+                        || preview.packageUpdatePreview == nil)
                     .accessibilityIdentifier("question-bank-batch-confirm-update")
                 }
             }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .onChange(of: preview.revisionToken) { _, _ in
+            confirmedNewQuestionKeys.removeAll()
+            importFailure = nil
+        }
     }
 
     private func questionConfirmationBinding(
@@ -105,19 +112,14 @@ struct QuestionBankBatchPackageImportPreview: View {
 }
 
 struct QuestionBankBatchPackageManagerView: View {
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    let records: [QuestionBankRecord]
     let organizationStore: QuestionBankOrganizationStore
 
     @State private var exportedPackageURL: URL?
     @State private var isExporting = false
     @State private var exportError: String?
-
-    private var paperCount: Int {
-        records.reduce(into: 0) { count, record in
-            if record.kind == QuestionBankRepository.paperKind { count += 1 }
-        }
-    }
+    @State private var paperCount: Int?
 
     var body: some View {
         NavigationStack {
@@ -128,7 +130,7 @@ struct QuestionBankBatchPackageManagerView: View {
                     .font(AppTheme.bodyFont)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                LabeledContent("可导出试卷", value: "\(paperCount) 套")
+                LabeledContent("可导出试卷", value: paperCount.map { "\($0) 套" } ?? "待读取")
                     .font(AppTheme.bodyFont)
                 Button {
                     exportPackage()
@@ -141,7 +143,7 @@ struct QuestionBankBatchPackageManagerView: View {
                     .frame(maxWidth: .infinity, minHeight: 48)
                 }
                 .buttonStyle(NativePrimaryButtonStyle())
-                .disabled(isExporting || paperCount == 0)
+                .disabled(isExporting || paperCount == nil || paperCount == 0)
                 .accessibilityIdentifier("question-bank-batch-export")
 
                 if let exportedPackageURL {
@@ -174,6 +176,15 @@ struct QuestionBankBatchPackageManagerView: View {
                 }
             }
         }
+        .task {
+            do {
+                paperCount = try await QuestionBankCatalogService.paperSummaries(
+                    in: modelContext.container
+                ).count
+            } catch {
+                exportError = "题库目录暂不可用：\(error.localizedDescription)"
+            }
+        }
     }
 
     @MainActor
@@ -183,6 +194,8 @@ struct QuestionBankBatchPackageManagerView: View {
         exportedPackageURL = nil
         exportError = nil
         do {
+            // Full payloads are read only after the user explicitly starts export.
+            let records = try modelContext.fetch(FetchDescriptor<QuestionBankRecord>())
             let snapshot = try QuestionBankBatchPackageExporter.makeSnapshot(
                 records: records,
                 organizationStore: organizationStore

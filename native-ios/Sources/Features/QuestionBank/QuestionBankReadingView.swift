@@ -4,8 +4,8 @@ import SwiftData
 import UIKit
 import ImageIO
 
-struct QuestionBankReadingStep: Identifiable, Equatable {
-    enum Kind: Equatable {
+struct QuestionBankReadingStep: Identifiable, Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
         case material(String)
         case question(String)
     }
@@ -88,10 +88,11 @@ struct QuestionBankOverviewItem: Identifiable, Equatable {
 }
 
 private struct QuestionBankReadingItem: Identifiable {
-    let record: QuestionBankRecord
-    let question: QuestionBankQuestion
+    var record: QuestionBankRecord
+    var question: QuestionBankQuestion
     let moduleTitle: String?
     let moduleSequence: Int
+    var isLoaded = false
     var localOrdinal = 0
 
     var id: String { record.stableID }
@@ -144,38 +145,15 @@ private struct QuestionBankReaderViewportPreference: PreferenceKey {
     }
 }
 
-private struct QuestionBankReaderRecordRevisionToken: Hashable, Sendable {
-    let compoundID: String
-    let paperID: String
-    let kind: String
-    let moduleID: String?
-    let title: String?
-    let contentRevision: Int
-    let assetRelativePath: String?
-}
-
-private struct QuestionBankReaderFingerprintEntry: Equatable, Sendable {
-    var token: QuestionBankReaderRecordRevisionToken
-    var visibleQuestion: QuestionBankQuestion?
-}
-
-private struct QuestionBankReaderFingerprintPayload: Sendable {
-    let compoundID: String
-    let data: Data
-}
-
-private struct QuestionBankReaderFingerprintResult: Sendable {
-    let compoundID: String
-    let question: QuestionBankQuestion?
-}
-
 struct QuestionBankModuleView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
     @Environment(\.rootTabSelection) private var rootTabSelection
     @EnvironmentObject private var doodleSession: LibraryDoodleSession
-    @Query private var records: [QuestionBankRecord]
+    @StateObject private var readerDirectoryStore = QuestionBankReaderDirectoryStore()
+    @StateObject private var readerWindowStore = QuestionBankReaderWindowStore()
+    @StateObject private var answerStateStore = QuestionBankAnswerStateStore.shared
 
     let paperID: String
     let moduleID: String
@@ -184,7 +162,7 @@ struct QuestionBankModuleView: View {
     @State private var readingItems: [QuestionBankReadingItem] = []
     @State private var readingSteps: [QuestionBankReadingStep] = []
     @State private var materialsByID: [String: QuestionBankMaterial] = [:]
-    @State private var assetsByID: [String: QuestionBankRecord] = [:]
+    @State private var assetsByID: [String: QuestionBankAssetReference] = [:]
     @State private var activeSheet: QuestionBankReaderSheet?
     @State private var showsReaderOptions = false
     @State private var continuousAnchorQuestionID: String?
@@ -192,15 +170,17 @@ struct QuestionBankModuleView: View {
     @State private var continuousScrollRequest: QuestionBankScrollRequest?
     @State private var splitScrollRequest: QuestionBankScrollRequest?
     @State private var snapshotRevision = 0
-    @State private var readerFingerprintCache: [String: QuestionBankReaderFingerprintEntry] = [:]
-    @State private var readerRecordRevisionTokens = Set<QuestionBankReaderRecordRevisionToken>()
+    @State private var loadedDirectoryVersion: QuestionBankCatalogDataVersion?
     @State private var cachedModule: QuestionBankModule?
-    @State private var cachedPaperData: QuestionBankPaper?
     @State private var isReaderRouteVisible = false
     @State private var isReaderVisible = false
     @State private var needsReaderRefresh = true
-    @State private var readerFingerprintRequestID = UUID()
-    @State private var readerFingerprintDecodeTask: Task<[QuestionBankReaderFingerprintResult], Never>?
+    @State private var readerSnapshotGeneration = 0
+    @State private var readerQuestionUpdateGeneration = 0
+    @State private var pendingReaderQuestionIDs = Set<String>()
+    @State private var reloadReaderWindowAfterQuestionUpdate = false
+    @State private var isReaderLoading = false
+    @State private var readerLoadError: String?
     @State private var continuousQuestionDoodleRecordID: String?
     @State private var didApplyInitialFocus = false
     @State private var didApplyAutomaticDataAnalysisSplit = false
@@ -213,12 +193,8 @@ struct QuestionBankModuleView: View {
     private var storedPresentationMode = QuestionBankPresentationMode.continuous.rawValue
     @SceneStorage private var storedSelectedOptionsJSON: String
     @SceneStorage private var storedRevealedAnswersJSON: String
-    @AppStorage(QuestionBankAnswerStateStorage.appStorageKey)
-    private var storedAnswerStateJSON = QuestionBankAnswerStateStorage.emptyValue
-    @State private var cachedAnswerState = QuestionBankAnswerState()
-    @State private var cachedAnswerStateJSON = QuestionBankAnswerStateStorage.emptyValue
-    @AppStorage("question-bank.answer-state-migrated.default")
-    private var didMigrateLegacyAnswerState = false
+    private let legacySelectedOptionsStorageKey: String
+    private let legacyRevealedAnswersStorageKey: String
     @AppStorage(QuestionBankReaderPreferences.confirmAnswerAfterSelectionKey)
     private var requiresAnswerConfirmation = false
 
@@ -238,31 +214,18 @@ struct QuestionBankModuleView: View {
             wrappedValue: QuestionBankReadingMode.practice.rawValue,
             "question-bank.mode.v2.\(paperID).\(moduleID)"
         )
+        let selectedOptionsKey = "question-bank.selected-options.\(paperID).\(moduleID)"
+        let revealedAnswersKey = "question-bank.revealed-answers.\(paperID).\(moduleID)"
+        legacySelectedOptionsStorageKey = selectedOptionsKey
+        legacyRevealedAnswersStorageKey = revealedAnswersKey
         _storedSelectedOptionsJSON = SceneStorage(
             wrappedValue: "{}",
-            "question-bank.selected-options.\(paperID).\(moduleID)"
+            selectedOptionsKey
         )
         _storedRevealedAnswersJSON = SceneStorage(
             wrappedValue: "[]",
-            "question-bank.revealed-answers.\(paperID).\(moduleID)"
+            revealedAnswersKey
         )
-        let answerStateJSON = UserDefaults.standard.string(
-            forKey: QuestionBankAnswerStateStorage.appStorageKey
-        ) ?? QuestionBankAnswerStateStorage.emptyValue
-        _storedAnswerStateJSON = AppStorage(
-            wrappedValue: answerStateJSON,
-            QuestionBankAnswerStateStorage.appStorageKey
-        )
-        _cachedAnswerState = State(initialValue: QuestionBankAnswerStateStorage.decode(answerStateJSON))
-        _cachedAnswerStateJSON = State(initialValue: answerStateJSON)
-        _didMigrateLegacyAnswerState = AppStorage(
-            wrappedValue: false,
-            "question-bank.answer-state-migrated.\(paperID).\(moduleID)"
-        )
-        let selectedPaperID = paperID
-        _records = Query(filter: #Predicate<QuestionBankRecord> {
-            $0.paperID == selectedPaperID
-        })
     }
 
     private var module: QuestionBankModule? { cachedModule }
@@ -272,7 +235,9 @@ struct QuestionBankModuleView: View {
         return readingItems.first { $0.question.number == number }?.id
     }
 
-    private var paperData: QuestionBankPaper? { cachedPaperData }
+    private var sourcePapers: [QuestionBankSourcePaper] {
+        readerWindowStore.sourcePapersByID[paperID] ?? []
+    }
 
     private var splitMaterialID: String? {
         get { storedSplitMaterialID.isEmpty ? nil : storedSplitMaterialID }
@@ -294,18 +259,12 @@ struct QuestionBankModuleView: View {
         nonmutating set { storedPresentationMode = newValue.rawValue }
     }
 
-    private var selectedOptionsByQuestionID: [String: String] {
-        get { cachedAnswerState.selectedOptions }
-        nonmutating set {
-            updateAnswerState { $0.selectedOptions = newValue }
-        }
+    private func selectedAnswerOption(for compoundID: String) -> String? {
+        answerStateStore.value(for: compoundID)?.selectedOptionID
     }
 
-    private var revealedAnswerQuestionIDs: Set<String> {
-        get { cachedAnswerState.revealedQuestionIDs }
-        nonmutating set {
-            updateAnswerState { $0.revealedQuestionIDs = newValue }
-        }
+    private func isAnswerRevealed(_ compoundID: String) -> Bool {
+        answerStateStore.value(for: compoundID)?.isRevealed == true
     }
 
     private var readerPosition: QuestionBankReaderPosition {
@@ -325,6 +284,10 @@ struct QuestionBankModuleView: View {
 
     private var orderedQuestionIDs: [String] { readingItems.map(\.id) }
 
+    private var directoryMaterialIDs: Set<String> {
+        Set(readingItems.map(\.question.materialID).filter { !$0.isEmpty })
+    }
+
     private var singlePositionText: String {
         let ordinal = QuestionBankReaderTransition.ordinal(of: currentVisibleQuestionID, in: orderedQuestionIDs) ?? 1
         return "\(ordinal)/\(orderedQuestionIDs.count)"
@@ -334,168 +297,202 @@ struct QuestionBankModuleView: View {
         let shouldBeVisible = isReaderRouteVisible && rootTabSelection.wrappedValue == .questionBank
         isReaderVisible = shouldBeVisible
         guard shouldBeVisible, needsReaderRefresh else { return }
-        migrateLegacyAnswerStateIfNeeded()
-        refreshReaderSnapshot()
-        restoreReaderState()
+        readerSnapshotGeneration &+= 1
     }
 
-    private func readerRecordRevisionToken(for record: QuestionBankRecord) -> QuestionBankReaderRecordRevisionToken {
-        QuestionBankReaderRecordRevisionToken(
-            compoundID: record.compoundID,
-            paperID: record.paperID,
-            kind: record.kind,
-            moduleID: record.moduleID,
-            title: record.title,
-            contentRevision: record.contentRevision,
-            assetRelativePath: record.assetRelativePath
-        )
+    private func requestReaderSnapshot() {
+        needsReaderRefresh = true
+        pendingReaderQuestionIDs.removeAll()
+        readerQuestionUpdateGeneration &+= 1
+        loadedDirectoryVersion = nil
+        readerWindowStore.cancel(clear: true)
+        materialsByID = [:]
+        assetsByID = [:]
+        readerDirectoryStore.cancel(clear: true)
+        guard isReaderVisible, rootTabSelection.wrappedValue == .questionBank else { return }
+        readerSnapshotGeneration &+= 1
     }
 
-    private func updateReaderSnapshotIfNeeded(
-        for currentTokens: Set<QuestionBankReaderRecordRevisionToken>
-    ) {
+    private func requestReaderQuestionUpdates(_ questionIDs: Set<String>) {
+        guard !questionIDs.isEmpty else { return }
         guard isReaderVisible, rootTabSelection.wrappedValue == .questionBank else {
             needsReaderRefresh = true
             return
         }
-        let currentIDs = Set(currentTokens.map(\.compoundID))
-        guard currentIDs == Set(readerFingerprintCache.keys) else {
-            refreshReaderSnapshotForVisibleChange()
+        guard !needsReaderRefresh, !readingItems.isEmpty else {
+            requestReaderSnapshot()
             return
         }
-
-        let changedTokens = currentTokens.filter {
-            readerFingerprintCache[$0.compoundID]?.token != $0
+        if readerWindowStore.isLoading {
+            reloadReaderWindowAfterQuestionUpdate = true
+            readerWindowStore.cancel(clear: false)
         }
-        guard !changedTokens.isEmpty else {
+        pendingReaderQuestionIDs.formUnion(questionIDs)
+        readerQuestionUpdateGeneration &+= 1
+    }
+
+    private func loadReaderSnapshot(generation: Int) async {
+        guard isReaderVisible, rootTabSelection.wrappedValue == .questionBank,
+              needsReaderRefresh || loadedDirectoryVersion == nil else { return }
+        isReaderLoading = true
+        readerLoadError = nil
+        await readerDirectoryStore.loadModule(
+            container: modelContext.container,
+            paperID: paperID,
+            moduleID: moduleID
+        )
+        guard !Task.isCancelled,
+              readerSnapshotGeneration == generation,
+              isReaderVisible,
+              rootTabSelection.wrappedValue == .questionBank else { return }
+        guard let directory = readerDirectoryStore.directory else {
+            isReaderLoading = false
+            needsReaderRefresh = true
+            readerLoadError = readerDirectoryStore.errorMessage ?? "题目目录暂不可用。"
+            return
+        }
+        guard directory.catalogVersion != loadedDirectoryVersion else {
+            isReaderLoading = false
             needsReaderRefresh = false
             return
         }
 
-        if changedTokens.contains(where: { $0.kind != QuestionBankRepository.questionKind }) {
-            refreshReaderSnapshotForVisibleChange()
-            return
-        }
-
-        let relevantQuestions = changedTokens.filter { token in
-            token.moduleID == moduleID
-                || readerFingerprintCache[token.compoundID]?.token.moduleID == moduleID
-        }
-        guard !relevantQuestions.isEmpty else {
-            updateReaderFingerprintTokens(changedTokens, using: [:])
-            return
-        }
-
-        let structuralChange = relevantQuestions.contains { token in
-            guard let previous = readerFingerprintCache[token.compoundID]?.token else { return true }
-            return previous.paperID != token.paperID
-                || previous.moduleID != token.moduleID
-                || previous.title != token.title
-                || previous.assetRelativePath != token.assetRelativePath
-        }
-        guard !structuralChange else {
-            refreshReaderSnapshotForVisibleChange()
-            return
-        }
-
-        let payloadChanges = relevantQuestions.filter { token in
-            readerFingerprintCache[token.compoundID]?.token.contentRevision != token.contentRevision
-        }
-        guard !payloadChanges.isEmpty else {
-            updateReaderFingerprintTokens(changedTokens, using: [:])
-            return
-        }
-
-        let changedIDs = Set(payloadChanges.map(\.compoundID))
-        let payloads = records.compactMap { record -> QuestionBankReaderFingerprintPayload? in
-            guard changedIDs.contains(record.compoundID), record.paperID == paperID else { return nil }
-            return QuestionBankReaderFingerprintPayload(compoundID: record.compoundID, data: record.payload)
-        }
-        guard payloads.count == changedIDs.count else {
-            refreshReaderSnapshotForVisibleChange()
-            return
-        }
-
-        readerFingerprintDecodeTask?.cancel()
-        let requestID = UUID()
-        readerFingerprintRequestID = requestID
-        let decodeTask = Task.detached(priority: .userInitiated) {
-            var results: [QuestionBankReaderFingerprintResult] = []
-            for payload in payloads {
-                guard !Task.isCancelled else { break }
-                results.append(
-                    QuestionBankReaderFingerprintResult(
-                        compoundID: payload.compoundID,
-                        question: try? JSONDecoder().decode(QuestionBankQuestion.self, from: payload.data)
-                    )
-                )
-            }
-            return results
-        }
-        readerFingerprintDecodeTask = decodeTask
-        Task { @MainActor in
-            let results = await decodeTask.value
-            guard !Task.isCancelled, !decodeTask.isCancelled,
-                  readerFingerprintRequestID == requestID,
-                  readerRecordRevisionTokens == currentTokens else { return }
-            readerFingerprintDecodeTask = nil
-            guard results.allSatisfy({ $0.question != nil }) else {
-                refreshReaderSnapshotForVisibleChange()
-                return
-            }
-
-            let decodedQuestions = Dictionary(
-                results.compactMap { result in result.question.map { (result.compoundID, $0) } },
-                uniquingKeysWith: { _, newest in newest }
-            )
-            let hasVisibleChange = results.contains { result in
-                guard let question = result.question else { return true }
-                let visibleQuestion = readerVisibleQuestion(question)
-                return readerFingerprintCache[result.compoundID]?.visibleQuestion != visibleQuestion
-            }
-            if hasVisibleChange {
-                refreshReaderSnapshotForVisibleChange(reusing: decodedQuestions)
-            } else {
-                updateReaderFingerprintTokens(
-                    changedTokens,
-                    using: Dictionary(
-                        decodedQuestions.map { ($0.key, readerVisibleQuestion($0.value)) },
-                        uniquingKeysWith: { _, newest in newest }
-                    )
-                )
-            }
-        }
-    }
-
-    private func updateReaderFingerprintTokens(
-        _ tokens: Set<QuestionBankReaderRecordRevisionToken>,
-        using visibleQuestions: [String: QuestionBankQuestion]
-    ) {
-        var updatedCache = readerFingerprintCache
-        for token in tokens {
-            let previousVisible = updatedCache[token.compoundID]?.visibleQuestion
-            updatedCache[token.compoundID] = QuestionBankReaderFingerprintEntry(
-                token: token,
-                visibleQuestion: visibleQuestions[token.compoundID] ?? previousVisible
+        let summary = directory.moduleSummariesByPaperAndID["\(paperID)::\(moduleID)"]
+        cachedModule = summary.map {
+            QuestionBankModule(
+                id: $0.moduleID,
+                paperID: $0.paperID,
+                sequence: $0.sequence,
+                title: $0.title,
+                instruction: "",
+                originalPage: ""
             )
         }
-        readerFingerprintCache = updatedCache
+        readingItems = directory.questions.map { entry in
+            let question = QuestionBankQuestion(
+                id: entry.questionID,
+                paperID: entry.paperID,
+                moduleID: entry.moduleID,
+                number: entry.originalNumber,
+                subject: entry.coarseModule,
+                type: entry.coarseQuestionType,
+                materialID: entry.materialID,
+                stem: "",
+                stemImageAssetID: "",
+                options: [],
+                answer: "",
+                explanation: "",
+                originalPage: "",
+                isDifficult: entry.isDifficult,
+                needsReview: entry.needsReview,
+                knowledgePoints: entry.knowledgePoints,
+                weaknessTags: entry.weaknessTags
+            )
+            let record = QuestionBankRecord(
+                compoundID: entry.sourceCompoundID,
+                paperID: entry.paperID,
+                kind: QuestionBankRepository.questionKind,
+                stableID: entry.questionID,
+                moduleID: entry.moduleID,
+                questionNumber: entry.originalNumber,
+                sequence: entry.moduleSequence,
+                title: entry.paperTitle,
+                payload: Data(),
+                contentRevision: entry.sourceRevision
+            )
+            return QuestionBankReadingItem(
+                record: record,
+                question: question,
+                moduleTitle: entry.moduleTitle,
+                moduleSequence: entry.moduleSequence,
+                isLoaded: false,
+                localOrdinal: entry.localOrdinal
+            )
+        }
+        readingSteps = QuestionBankReadingSequence.steps(for: readingItems.map(\.question))
+        materialsByID = [:]
+        assetsByID = [:]
+        loadedDirectoryVersion = directory.catalogVersion
+        readerWindowStore.install(directory: directory)
+        snapshotRevision += 1
         needsReaderRefresh = false
-    }
-
-    private func readerVisibleQuestion(_ question: QuestionBankQuestion) -> QuestionBankQuestion {
-        var visibleQuestion = question
-        visibleQuestion.note = nil
-        return visibleQuestion
-    }
-
-    private func refreshReaderSnapshotForVisibleChange(
-        reusing decodedQuestions: [String: QuestionBankQuestion] = [:]
-    ) {
-        logQuestionBankSnapshotRefresh()
-        invalidateDoodleCache()
-        refreshReaderSnapshot(reusing: decodedQuestions)
+        isReaderLoading = false
         restoreReaderState()
+        applyInitialFocusIfNeeded()
+    }
+
+    private func loadReaderQuestionUpdates(generation: Int) async {
+        guard generation == readerQuestionUpdateGeneration,
+              isReaderVisible,
+              rootTabSelection.wrappedValue == .questionBank,
+              !needsReaderRefresh,
+              !pendingReaderQuestionIDs.isEmpty,
+              let directory = readerDirectoryStore.directory else { return }
+        let requestedIDs = pendingReaderQuestionIDs
+        let compoundIDs = Set(directory.questions.compactMap { entry in
+            requestedIDs.contains(entry.questionID) ? entry.sourceCompoundID : nil
+        })
+        guard !compoundIDs.isEmpty else {
+            pendingReaderQuestionIDs.subtract(requestedIDs)
+            return
+        }
+        let anchorID = currentVisibleQuestionID.flatMap { visibleID in
+            directory.questions.first(where: { $0.questionID == visibleID })?.sourceCompoundID
+        } ?? directory.orderedIDs.first ?? ""
+        await readerWindowStore.loadWindow(
+            container: modelContext.container,
+            directory: directory,
+            anchorID: anchorID,
+            radius: presentationMode == .single
+                ? QuestionBankReaderWindowBounds.singlePagePrefetchRadius
+                : QuestionBankReaderWindowBounds.continuousPrefetchRadius,
+            specificIDs: compoundIDs
+        )
+        guard generation == readerQuestionUpdateGeneration else { return }
+        var answerLoadError: String?
+        do {
+            try await answerStateStore.load(Array(readerWindowStore.questionsByCompoundID.keys), from: modelContext.container)
+        } catch {
+            answerLoadError = "作答状态加载失败：\(error.localizedDescription)"
+        }
+        if let error = readerWindowStore.errorMessage { readerLoadError = error }
+        else if let answerLoadError { readerLoadError = answerLoadError }
+        pendingReaderQuestionIDs.subtract(requestedIDs)
+        if reloadReaderWindowAfterQuestionUpdate {
+            reloadReaderWindowAfterQuestionUpdate = false
+            snapshotRevision &+= 1
+        }
+    }
+
+    private func loadReaderWindow(aroundQuestionID requestedQuestionID: String? = nil) async {
+        guard isReaderVisible, rootTabSelection.wrappedValue == .questionBank,
+              let directory = readerDirectoryStore.directory,
+              let visibleID = requestedQuestionID ?? currentVisibleQuestionID ?? readingItems.first?.id,
+              let entry = directory.questions.first(where: { $0.questionID == visibleID }) else { return }
+        await readerWindowStore.loadWindow(
+            container: modelContext.container,
+            directory: directory,
+            anchorID: entry.sourceCompoundID,
+            radius: presentationMode == .single
+                ? QuestionBankReaderWindowBounds.singlePagePrefetchRadius
+                : QuestionBankReaderWindowBounds.continuousPrefetchRadius
+        )
+        var answerLoadError: String?
+        do {
+            try await answerStateStore.load(Array(readerWindowStore.questionsByCompoundID.keys), from: modelContext.container)
+        } catch {
+            answerLoadError = "作答状态加载失败：\(error.localizedDescription)"
+        }
+        if let error = readerWindowStore.errorMessage { readerLoadError = error }
+        else { readerLoadError = answerLoadError }
+        materialsByID = Dictionary(
+            readerWindowStore.materialsByCompoundID.values.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        assetsByID = Dictionary(
+            readerWindowStore.assetsByCompoundID.values.map { ($0.stableID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
     }
 
     private var doodleToolbarTarget: QuestionBankDoodleToolbarTarget? {
@@ -508,7 +505,65 @@ struct QuestionBankModuleView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            readerContent(width: geometry.size.width, height: geometry.size.height)
+            Group {
+                if !readingItems.isEmpty {
+                    readerContent(width: geometry.size.width, height: geometry.size.height)
+                } else if let readerLoadError {
+                    VStack(spacing: 12) {
+                        ContentUnavailableView(
+                            "题目加载失败",
+                            systemImage: "exclamationmark.triangle",
+                            description: Text(readerLoadError)
+                        )
+                        Button("重试") { requestReaderSnapshot() }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if isReaderLoading || snapshotRevision == 0 {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("正在准备题目…")
+                            .font(AppTheme.auxiliaryFont)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ContentUnavailableView("当前模块暂无题目", systemImage: "text.book.closed")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+        }
+        .task(id: "\(readerSnapshotGeneration)|\(isReaderVisible)") {
+            await loadReaderSnapshot(generation: readerSnapshotGeneration)
+        }
+        .task(id: "legacy-answer-migration|\(paperID)|\(moduleID)") {
+            await migrateLegacyAnswerStateIfNeeded()
+        }
+        .task(id: "\(readerQuestionUpdateGeneration)|\(isReaderVisible)") {
+            await loadReaderQuestionUpdates(generation: readerQuestionUpdateGeneration)
+        }
+        .task(id: "\(currentVisibleQuestionID ?? "")|\(isReaderVisible)|\(snapshotRevision)|\(presentationMode.rawValue)") {
+            await loadReaderWindow()
+        }
+        .overlay(alignment: .top) {
+            if !readingItems.isEmpty, let readerLoadError {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(AppTheme.danger)
+                    Text("题目刷新失败：\(readerLoadError)")
+                        .font(AppTheme.auxiliaryFont)
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                    Button("重试") { requestReaderSnapshot() }
+                        .font(AppTheme.auxiliaryFont.weight(.semibold))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .zIndex(99)
+            }
         }
         .overlay(alignment: .topTrailing) {
             if showsReaderOptions {
@@ -527,7 +582,7 @@ struct QuestionBankModuleView: View {
             if presentationMode == .single {
                 ToolbarItem(placement: .principal) {
                     Button {
-                        guard let currentSingleItem, !doodleSession.isPresented else { return }
+                        guard let currentSingleItem, currentSingleItem.isLoaded, !doodleSession.isPresented else { return }
                         activeSheet = QuestionBankReaderSheet(content: .questionDetail(currentSingleItem.id))
                     } label: {
                         Text(singlePositionText)
@@ -540,7 +595,7 @@ struct QuestionBankModuleView: View {
                     } ?? "当前题进度")
                     .accessibilityHint("打开当前题目详情")
                     .accessibilityIdentifier("question-bank-single-position")
-                    .disabled(currentSingleItem == nil || doodleSession.isPresented)
+                    .disabled(currentSingleItem?.isLoaded != true || doodleSession.isPresented)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -554,7 +609,7 @@ struct QuestionBankModuleView: View {
                 QuestionBankQuestionOverviewSheet(
                     items: readingItems,
                     currentQuestionID: currentVisibleQuestionID,
-                    answerState: cachedAnswerState,
+                    container: modelContext.container,
                     assetLookup: assetRecord(for:),
                     onSelect: { handleOverviewSelection($0.overviewItem) }
                 )
@@ -590,32 +645,44 @@ struct QuestionBankModuleView: View {
             isReaderRouteVisible = true
             activateReaderIfNeeded()
         }
-        .onChange(of: readerRecordRevisionTokens) { _, tokens in
-            updateReaderSnapshotIfNeeded(for: tokens)
-        }
         .onReceive(NotificationCenter.default.publisher(for: QuestionBankRecordChangeSignal.notification)) { notification in
             guard QuestionBankRecordChangeSignal.affects(paperID, notification: notification) else { return }
-            needsReaderRefresh = true
-            guard isReaderVisible, rootTabSelection.wrappedValue == .questionBank else {
+            guard let changes = QuestionBankRecordChangeSignal.recordChanges(
+                for: paperID,
+                notification: notification
+            ) else {
+                requestReaderSnapshot()
                 return
             }
-            Task { @MainActor in
-                await Task.yield()
-                guard isReaderVisible, rootTabSelection.wrappedValue == .questionBank else {
-                    return
-                }
-                readerRecordRevisionTokens = Set(records.map { readerRecordRevisionToken(for: $0) })
+            if changes.contains(where: { $0.kind == .structure }) {
+                requestReaderSnapshot()
+                return
             }
+            if changes.contains(where: { $0.kind == .questionContent }) {
+                requestReaderSnapshot()
+                return
+            }
+            guard !readingItems.isEmpty else {
+                requestReaderSnapshot()
+                return
+            }
+            let visibleQuestionIDs = Set(readingItems.map(\.id))
+            requestReaderQuestionUpdates(
+                Set(changes.filter {
+                    ($0.kind == .questionContent || $0.kind == .questionAnalysis || $0.kind == .questionLinks)
+                        && visibleQuestionIDs.contains($0.recordID)
+                }.map(\.recordID))
+            )
         }
         .onChange(of: rootTabSelection.wrappedValue) { _, selectedTab in
             if selectedTab == .questionBank {
                 activateReaderIfNeeded()
             } else {
+                if isReaderLoading { needsReaderRefresh = true }
                 isReaderVisible = false
-                if readerFingerprintDecodeTask != nil { needsReaderRefresh = true }
-                readerFingerprintRequestID = UUID()
-                readerFingerprintDecodeTask?.cancel()
-                readerFingerprintDecodeTask = nil
+                readerWindowStore.cancel(clear: true)
+                materialsByID = [:]
+                assetsByID = [:]
             }
         }
         .onChange(of: snapshotRevision) { _, _ in applyInitialFocusIfNeeded() }
@@ -627,16 +694,24 @@ struct QuestionBankModuleView: View {
         }
         .onDisappear {
             isReaderRouteVisible = false
+            if isReaderLoading || !pendingReaderQuestionIDs.isEmpty { needsReaderRefresh = true }
             isReaderVisible = false
-            if readerFingerprintDecodeTask != nil { needsReaderRefresh = true }
-            readerFingerprintRequestID = UUID()
-            readerFingerprintDecodeTask?.cancel()
-            readerFingerprintDecodeTask = nil
+            readerWindowStore.cancel(clear: true)
+            materialsByID = [:]
+            assetsByID = [:]
+            readerDirectoryStore.cancel(clear: false)
         }
-        .onChange(of: storedAnswerStateJSON) { _, value in
-            guard value != cachedAnswerStateJSON else { return }
-            cachedAnswerStateJSON = value
-            cachedAnswerState = QuestionBankAnswerStateStorage.decode(value)
+        .onReceive(NotificationCenter.default.publisher(for: QuestionBankAnswerStateRepository.changeNotification)) { notification in
+            guard notification.userInfo?[QuestionBankAnswerStateRepository.resetKey] as? Bool == true else { return }
+            let currentIDs = Array(readerWindowStore.questionsByCompoundID.keys)
+            Task {
+                await Task.yield()
+                do {
+                    try await answerStateStore.load(currentIDs, from: modelContext.container)
+                } catch {
+                    readerLoadError = "作答状态重新加载失败：\(error.localizedDescription)"
+                }
+            }
         }
         .alert("答案更新", isPresented: Binding(
             get: { missingAnswerEditError != nil || missingAnswerEditConfirmation != nil },
@@ -987,7 +1062,7 @@ struct QuestionBankModuleView: View {
             }
             QuestionBankProvenanceDisclosure(
                 title: "材料来源", entries: material.provenance ?? [],
-                sourcePapers: paperData?.sourcePapers ?? []
+                sourcePapers: sourcePapers
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1110,7 +1185,7 @@ struct QuestionBankModuleView: View {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(groupedQuestions) { item in
                                 questionSection(
-                                    item,
+                                    readingItem(for: item.id) ?? item,
                                     showsDoodleCanvas: false,
                                     showsDoodleButton: true,
                                     showsQuestionType: false
@@ -1232,14 +1307,14 @@ struct QuestionBankModuleView: View {
         reportsVisibility: Bool = true
     ) -> some View {
         let answerStateID = item.record.compoundID
-        let selectedOptionID = selectedOptionsByQuestionID[answerStateID]
+        let selectedOptionID = selectedAnswerOption(for: answerStateID)
         let hasAnswer = !item.question.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let showsGraphLayout = QuestionBankCoarseModule.classify(
             explicitModuleTitle: item.moduleTitle
         ) == .reasoning
         let revealsAnswer = readingMode.revealsAnswer(
             afterSelecting: selectedOptionID,
-            wasConfirmed: revealedAnswerQuestionIDs.contains(answerStateID),
+            wasConfirmed: isAnswerRevealed(answerStateID),
             requiresConfirmation: requiresAnswerConfirmation
         )
         let heading = showsQuestionType ? QuestionBankQuestionHeading.displayLabel(
@@ -1303,9 +1378,9 @@ struct QuestionBankModuleView: View {
                     selectedOptionID: selectedOptionID,
                     revealsAnswer: revealsAnswer,
                     isSelectionLocked: readingMode == .practice && selectedOptionID != nil,
-                    isInteractionBlocked: doodleSession.isPresented,
+                    isInteractionBlocked: doodleSession.isPresented || !answerStateStore.isLoaded(answerStateID),
                     showsGraphLayout: showsGraphLayout,
-                    onSelect: { selectOption(option.id, for: answerStateID) },
+                    onSelect: { selectOption(option.id, for: item) },
                     assetLookup: assetRecord(for:)
                 )
             }
@@ -1356,10 +1431,27 @@ struct QuestionBankModuleView: View {
                         .accessibilityIdentifier("question-bank-confirm-answer-\(item.id)")
                     }
                     .padding(.top, 12)
+                    if selectedOptionID == nil {
+                        QuestionBankAnswerFollowUpAction(
+                            analysis: questionAnalysisContext(for: item),
+                            categoryOverride: .cannotSolve
+                        )
+                        .padding(.top, 7)
+                    }
+                } else if selectedOptionID == nil {
+                    QuestionBankAnswerFollowUpAction(
+                        analysis: questionAnalysisContext(for: item),
+                        categoryOverride: .cannotSolve
+                    )
+                    .padding(.top, 7)
                 }
             }
             if hasAnswer && (readingMode == .reading || revealsAnswer) {
-                QuestionBankReferenceAccuracyControl(record: item.record, accuracy: item.question.accuracy)
+                QuestionBankReferenceAccuracyControl(
+                    paperID: item.record.paperID,
+                    questionID: item.question.id,
+                    accuracy: item.question.accuracy
+                )
                     .padding(.top, 7)
                     .transition(.opacity)
             }
@@ -1397,13 +1489,24 @@ struct QuestionBankModuleView: View {
                 )
             }
         }
+        .frame(minHeight: item.isLoaded ? 0 : 108)
+        .overlay {
+            if !item.isLoaded {
+                ProgressView("正在加载题目…")
+                    .font(AppTheme.auxiliaryFont)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.white.opacity(0.96))
+                    .allowsHitTesting(false)
+            }
+        }
+        .disabled(!item.isLoaded)
         .id(item.id)
     }
 
     private func questionNumberButton(for item: QuestionBankReadingItem) -> some View {
         let displayNumber = displayNumber(for: item)
         return Button {
-            guard !doodleSession.isPresented else { return }
+            guard item.isLoaded, !doodleSession.isPresented else { return }
             activeSheet = QuestionBankReaderSheet(content: .questionDetail(item.id))
         } label: {
             Text("\(displayNumber).")
@@ -1416,7 +1519,7 @@ struct QuestionBankModuleView: View {
         .accessibilityLabel("打开第\(displayNumber)题详情")
         .accessibilityHint("查看题干、选项和解析")
         .accessibilityIdentifier("question-bank-question-detail-\(item.id)")
-        .disabled(doodleSession.isPresented)
+        .disabled(!item.isLoaded || doodleSession.isPresented)
     }
 
     private func displayNumber(for item: QuestionBankReadingItem) -> Int {
@@ -1435,14 +1538,14 @@ struct QuestionBankModuleView: View {
                     .padding(.bottom, 12)
                 QuestionBankProvenanceDisclosure(
                     title: "材料来源", entries: material.provenance ?? [],
-                    sourcePapers: paperData?.sourcePapers ?? []
+                    sourcePapers: sourcePapers
                 )
                     .padding(.bottom, 12)
             }
             questionSection(item, showsQuestionNumber: false)
             QuestionBankProvenanceDisclosure(
                 title: "题目来源", entries: item.question.provenance ?? [],
-                sourcePapers: paperData?.sourcePapers ?? []
+                sourcePapers: sourcePapers
             )
         }
         .padding(.horizontal, 20)
@@ -1452,7 +1555,8 @@ struct QuestionBankModuleView: View {
 
     @ViewBuilder
     private func questionDetailPanel(for item: QuestionBankReadingItem) -> some View {
-        let detailContext = questionAnalysisContext(for: item)
+        let record = persistedQuestionRecord(for: item) ?? item.record
+        let detailContext = questionAnalysisContext(for: item, record: record)
         if detailContext.typeMapping.subject == "申论" {
             QuestionBankQuestionDetailPanel(
                 question: item.question,
@@ -1467,7 +1571,7 @@ struct QuestionBankModuleView: View {
                         stem: stem,
                         optionTexts: optionTexts,
                         annotations: annotations,
-                        records: records,
+                        moduleTitle: item.moduleTitle,
                         context: modelContext
                     )
                 }
@@ -1493,24 +1597,36 @@ struct QuestionBankModuleView: View {
         }
     }
 
-    private func questionAnalysisContext(for item: QuestionBankReadingItem) -> QuestionBankQuestionAnalysisContext {
+    private func questionAnalysisContext(
+        for item: QuestionBankReadingItem,
+        record: QuestionBankRecord? = nil
+    ) -> QuestionBankQuestionAnalysisContext {
         let answerStateID = item.record.compoundID
-        let selectedOptionID = selectedOptionsByQuestionID[answerStateID]
+        let selectedOptionID = selectedAnswerOption(for: answerStateID)
         let answerRevealed = readingMode == .reading || readingMode.revealsAnswer(
             afterSelecting: selectedOptionID,
-            wasConfirmed: revealedAnswerQuestionIDs.contains(answerStateID),
+            wasConfirmed: isAnswerRevealed(answerStateID),
             requiresConfirmation: requiresAnswerConfirmation
         )
         return QuestionBankQuestionAnalysisContext(
-            record: item.record,
+            record: record ?? item.record,
             question: item.question,
             moduleTitle: item.moduleTitle,
             material: materialsByID[item.question.materialID],
-            sourcePapers: paperData?.sourcePapers ?? [],
+            sourcePapers: sourcePapers,
             assetsByID: assetsByID,
             selectedOptionID: selectedOptionID,
             isAnswerRevealed: answerRevealed
         )
+    }
+
+    private func persistedQuestionRecord(for item: QuestionBankReadingItem) -> QuestionBankRecord? {
+        let compoundID = item.record.compoundID
+        var descriptor = FetchDescriptor<QuestionBankRecord>(
+            predicate: #Predicate { $0.compoundID == compoundID }
+        )
+        descriptor.fetchLimit = 1
+        return try? modelContext.fetch(descriptor).first
     }
 
     private func openMaterial(_ materialID: String, canOpenSplit: Bool) {
@@ -1550,7 +1666,7 @@ struct QuestionBankModuleView: View {
                             materialContent(material)
                             QuestionBankProvenanceDisclosure(
                                 title: "材料来源", entries: material.provenance ?? [],
-                                sourcePapers: paperData?.sourcePapers ?? []
+                                sourcePapers: sourcePapers
                             )
                         }
                         .padding(20)
@@ -1565,6 +1681,12 @@ struct QuestionBankModuleView: View {
                         ToolbarItem(placement: .topBarTrailing) {
                             Button("完成") { activeSheet = nil }
                         }
+                    }
+                    .task(id: "\(materialID)|\(snapshotRevision)") {
+                        guard let questionID = readingItems.first(where: {
+                            $0.question.materialID == materialID
+                        })?.id else { return }
+                        await loadReaderWindow(aroundQuestionID: questionID)
                     }
                 }
             } else {
@@ -1585,7 +1707,7 @@ struct QuestionBankModuleView: View {
         let position = QuestionBankReaderTransition.selectingOverviewQuestion(
             item.id,
             materialID: item.materialID.isEmpty ? nil : item.materialID,
-            availableMaterialIDs: Set(materialsByID.keys),
+            availableMaterialIDs: directoryMaterialIDs,
             from: readerPosition
         )
         applyReaderPosition(position)
@@ -1630,51 +1752,33 @@ struct QuestionBankModuleView: View {
         showsReaderOptions = false
     }
 
-    private func migrateLegacyAnswerStateIfNeeded() {
-        guard !didMigrateLegacyAnswerState else { return }
-        let questionStateIDs = Dictionary(
-            records.filter { $0.paperID == paperID && $0.kind == QuestionBankRepository.questionKind }
-                .map { ($0.stableID, $0.compoundID) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let oldSelections = QuestionBankSelectedOptionsStorage.decode(storedSelectedOptionsJSON)
-        let migratedSelections = Dictionary(oldSelections.map { key, value in
-            (questionStateIDs[key] ?? key, value)
-        }, uniquingKeysWith: { first, _ in first })
-        let oldRevealed = QuestionBankRevealedAnswersStorage.decode(storedRevealedAnswersJSON)
-        let migratedRevealed = QuestionBankRevealedAnswersStorage.encode(Set(
-            oldRevealed.map { questionStateIDs[$0] ?? $0 }
-        ))
-        let migratedState = QuestionBankAnswerStateStorage.migratingLegacyState(
-            selectedOptionsJSON: QuestionBankSelectedOptionsStorage.encode(migratedSelections),
-            revealedAnswersJSON: migratedRevealed,
-            into: storedAnswerStateJSON
-        )
-        replaceAnswerStateJSON(migratedState)
-        storedSelectedOptionsJSON = "{}"
-        storedRevealedAnswersJSON = "[]"
-        didMigrateLegacyAnswerState = true
+    private func migrateLegacyAnswerStateIfNeeded() async {
+        let selectedSnapshot = storedSelectedOptionsJSON
+        let revealedSnapshot = storedRevealedAnswersJSON
+        do {
+            try await answerStateStore.migrateGlobalIfNeeded(in: modelContext.container)
+            try await answerStateStore.migrateSceneStorageIfNeeded(
+                sourceKey: "\(legacySelectedOptionsStorageKey)|\(legacyRevealedAnswersStorageKey)",
+                selectedOptionsJSON: selectedSnapshot,
+                revealedAnswersJSON: revealedSnapshot,
+                paperID: paperID,
+                in: modelContext.container
+            )
+            if storedSelectedOptionsJSON == selectedSnapshot { storedSelectedOptionsJSON = "{}" }
+            if storedRevealedAnswersJSON == revealedSnapshot { storedRevealedAnswersJSON = "[]" }
+        } catch {
+            readerLoadError = "旧作答数据迁移失败，原始备份已保留：\(error.localizedDescription)"
+        }
     }
 
     private func clearAnswer(for questionID: String) {
-        replaceAnswerStateJSON(QuestionBankAnswerStateStorage.clearing(
-            [questionID], from: storedAnswerStateJSON
-        ))
-    }
-
-    private func updateAnswerState(_ update: (inout QuestionBankAnswerState) -> Void) {
-        var state = cachedAnswerState
-        update(&state)
-        let encoded = QuestionBankAnswerStateStorage.encode(state)
-        cachedAnswerState = state
-        cachedAnswerStateJSON = encoded
-        storedAnswerStateJSON = encoded
-    }
-
-    private func replaceAnswerStateJSON(_ value: String) {
-        cachedAnswerState = QuestionBankAnswerStateStorage.decode(value)
-        cachedAnswerStateJSON = value
-        storedAnswerStateJSON = value
+        Task {
+            do {
+                try await answerStateStore.clear([questionID], in: modelContext.container)
+            } catch {
+                readerLoadError = "清除作答状态失败：\(error.localizedDescription)"
+            }
+        }
     }
 
     private func navigateSingleQuestion(to targetID: String) {
@@ -1685,7 +1789,7 @@ struct QuestionBankModuleView: View {
         let position = QuestionBankReaderTransition.movingToQuestion(
             targetID,
             materialID: target.question.materialID.isEmpty ? nil : target.question.materialID,
-            availableMaterialIDs: Set(materialsByID.keys),
+            availableMaterialIDs: directoryMaterialIDs,
             from: readerPosition
         )
         applyReaderPosition(position)
@@ -1696,14 +1800,26 @@ struct QuestionBankModuleView: View {
         }
     }
 
-    private func selectOption(_ optionID: String, for questionID: String) {
+    private func selectOption(_ optionID: String, for item: QuestionBankReadingItem) {
+        let questionID = item.record.compoundID
         guard !doodleSession.isPresented,
               readingMode == .practice,
-              !revealedAnswerQuestionIDs.contains(questionID) else { return }
-        guard selectedOptionsByQuestionID[questionID] == nil else { return }
-        updateAnswerState { state in
-            state.selectedOptions[questionID] = optionID
-            if !requiresAnswerConfirmation { state.revealedQuestionIDs.insert(questionID) }
+              answerStateStore.isLoaded(questionID),
+              !isAnswerRevealed(questionID) else { return }
+        guard selectedAnswerOption(for: questionID) == nil else { return }
+        Task {
+            do {
+                try await answerStateStore.setSelection(
+                    optionID,
+                    for: questionID,
+                    paperID: item.record.paperID,
+                    questionID: item.question.id,
+                    revealed: !requiresAnswerConfirmation,
+                    in: modelContext.container
+                )
+            } catch {
+                readerLoadError = "保存作答状态失败：\(error.localizedDescription)"
+            }
         }
     }
 
@@ -1711,16 +1827,33 @@ struct QuestionBankModuleView: View {
         guard !doodleSession.isPresented else { return }
         requiresAnswerConfirmation = enabled
         if !enabled {
-            updateAnswerState { state in
-                state.revealedQuestionIDs.formUnion(state.selectedOptions.keys)
+            Task {
+                do {
+                    try await answerStateStore.markAllSelectedRevealed(in: modelContext.container)
+                } catch {
+                    readerLoadError = "更新答案确认状态失败：\(error.localizedDescription)"
+                }
             }
         }
     }
 
     private func confirmAnswer(for questionID: String) {
         guard !doodleSession.isPresented,
-              selectedOptionsByQuestionID[questionID] != nil else { return }
-        updateAnswerState { $0.revealedQuestionIDs.insert(questionID) }
+              selectedAnswerOption(for: questionID) != nil,
+              let item = readingItems.first(where: { $0.record.compoundID == questionID }) else { return }
+        Task {
+            do {
+                try await answerStateStore.setRevealed(
+                    true,
+                    for: questionID,
+                    paperID: item.record.paperID,
+                    questionID: item.question.id,
+                    in: modelContext.container
+                )
+            } catch {
+                readerLoadError = "确认答案失败：\(error.localizedDescription)"
+            }
+        }
     }
 
     private func setMissingAnswer(_ answer: String, for item: QuestionBankReadingItem) {
@@ -1729,7 +1862,6 @@ struct QuestionBankModuleView: View {
                 paperID: paperID,
                 questionID: item.question.id,
                 answer: answer,
-                records: records,
                 context: modelContext
             )
             missingAnswerEditConfirmation = "答案已补录为 \(answer)。"
@@ -1767,9 +1899,6 @@ struct QuestionBankModuleView: View {
     }
 
     private func restoreReaderState() {
-        if let splitMaterialID, materialsByID[splitMaterialID] == nil {
-            self.splitMaterialID = nil
-        }
         applyInitialFocusIfNeeded()
         if splitMaterialID != nil,
            let questionID = currentVisibleQuestionID,
@@ -1800,7 +1929,7 @@ struct QuestionBankModuleView: View {
     private func reconcileSplitMaterial(for item: QuestionBankReadingItem) {
         guard splitMaterialID != nil else { return }
         let materialID = item.question.materialID
-        splitMaterialID = !materialID.isEmpty && materialsByID[materialID] != nil ? materialID : nil
+        splitMaterialID = !materialID.isEmpty && materialID == splitMaterialID ? materialID : nil
     }
 
     private func doodleRecordID(for scope: QuestionBankDoodleScope) -> String {
@@ -1885,106 +2014,19 @@ struct QuestionBankModuleView: View {
         }
     }
 
-    private func refreshReaderSnapshot(
-        reusing decodedQuestions: [String: QuestionBankQuestion] = [:]
-    ) {
-        readerFingerprintDecodeTask?.cancel()
-        readerFingerprintDecodeTask = nil
-        readerFingerprintRequestID = UUID()
-        let paperRecords = records
-        cachedModule = paperRecords.first {
-            $0.stableID == moduleID && $0.kind == QuestionBankRepository.moduleKind
-        }?.decoded(QuestionBankModule.self)
-        cachedPaperData = paperRecords.first {
-            $0.kind == QuestionBankRepository.paperKind
-        }?.decoded(QuestionBankPaper.self)
-        let questionRecords = paperRecords.filter {
-            $0.moduleID == moduleID && $0.kind == QuestionBankRepository.questionKind
-        }
-        var decodedQuestionsByID: [String: QuestionBankQuestion] = [:]
-        for record in questionRecords {
-            if let question = decodedQuestions[record.compoundID]
-                ?? record.decoded(QuestionBankQuestion.self) {
-                decodedQuestionsByID[record.compoundID] = question
-            }
-        }
-
-        readerFingerprintCache = Dictionary(
-            paperRecords.map { record in
-                let question = record.kind == QuestionBankRepository.questionKind
-                    && record.moduleID == moduleID
-                    ? decodedQuestionsByID[record.compoundID].map(readerVisibleQuestion)
-                    : nil
-                return (
-                    record.compoundID,
-                    QuestionBankReaderFingerprintEntry(
-                        token: readerRecordRevisionToken(for: record),
-                        visibleQuestion: question
-                    )
-                )
-            },
-            uniquingKeysWith: { _, newest in newest }
-        )
-
-        var questions = questionRecords
-            .compactMap { record -> QuestionBankReadingItem? in
-                guard let question = decodedQuestionsByID[record.compoundID] else { return nil }
-                return QuestionBankReadingItem(
-                    record: record,
-                    question: question,
-                    moduleTitle: module?.title,
-                    moduleSequence: module?.sequence ?? Int.max
-                )
-            }
-            .sorted {
-                if $0.question.number != $1.question.number { return $0.question.number < $1.question.number }
-                return $0.id < $1.id
-            }
-        let overviewCandidates = questions.map { item in
-            QuestionBankOverviewCandidate(
-                id: item.id,
-                paperID: item.record.paperID,
-                paperTitle: item.record.title ?? "",
-                questionNumber: item.question.number,
-                moduleID: item.question.moduleID,
-                moduleTitle: item.moduleTitle ?? "",
-                moduleSequence: item.moduleSequence,
-                type: item.question.type,
-                subject: item.question.subject
-            )
-        }
-        let questionByID = Dictionary(questions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        questions = QuestionBankModulePracticeOrdering.orderedQuestionIDs(from: overviewCandidates)
-            .compactMap { questionByID[$0] }
-        for index in questions.indices {
-            questions[index].localOrdinal = index + 1
-        }
-        readingItems = questions
-        readingSteps = QuestionBankReadingSequence.steps(for: questions.map(\.question))
-        materialsByID = Dictionary(
-            paperRecords
-                .filter {
-                    $0.moduleID == moduleID && $0.kind == QuestionBankRepository.materialKind
-                }
-                .compactMap { record -> (String, QuestionBankMaterial)? in
-                    guard let material = record.decoded(QuestionBankMaterial.self) else { return nil }
-                    return (record.stableID, material)
-                },
-            uniquingKeysWith: { first, _ in first }
-        )
-        assetsByID = Dictionary(
-            paperRecords
-                .filter { $0.kind == QuestionBankRepository.assetKind }
-                .map { ($0.stableID, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        readerRecordRevisionTokens = Set(paperRecords.map { readerRecordRevisionToken(for: $0) })
-        snapshotRevision += 1
-        needsReaderRefresh = false
-    }
-
     private func readingItem(for id: String) -> QuestionBankReadingItem? {
-        readingItems.first { $0.id == id }
+        guard let directoryItem = readingItems.first(where: { $0.id == id }) else { return nil }
+        guard let loaded = readerWindowStore.question(for: directoryItem.record.compoundID) else {
+            return directoryItem
+        }
+        return QuestionBankReadingItem(
+            record: directoryItem.record,
+            question: loaded.question,
+            moduleTitle: directoryItem.moduleTitle,
+            moduleSequence: directoryItem.moduleSequence,
+            isLoaded: true,
+            localOrdinal: directoryItem.localOrdinal
+        )
     }
 
     private func logQuestionBankDetailRoute(
@@ -2025,7 +2067,7 @@ struct QuestionBankModuleView: View {
         #endif
     }
 
-    private func assetRecord(for id: String) -> QuestionBankRecord? {
+    private func assetRecord(for id: String) -> QuestionBankAssetReference? {
         guard !id.isEmpty else { return nil }
         return assetsByID[id]
     }
@@ -2033,6 +2075,7 @@ struct QuestionBankModuleView: View {
 
 private struct QuestionBankCrossPaperStep: Identifiable {
     let id: String
+    let materialID: String?
     let material: QuestionBankMaterial?
     let question: QuestionBankHomeQuestion?
 }
@@ -2058,12 +2101,13 @@ struct QuestionBankCrossPaperReaderView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.rootTabSelection) private var rootTabSelection
     @EnvironmentObject private var doodleSession: LibraryDoodleSession
-    @Query private var records: [QuestionBankRecord]
-    @StateObject private var homeIndexStore = QuestionBankHomeIndexStore()
+    @StateObject private var readerDirectoryStore = QuestionBankReaderDirectoryStore()
+    @StateObject private var readerWindowStore = QuestionBankReaderWindowStore()
+    @StateObject private var answerStateStore = QuestionBankAnswerStateStore.shared
 
     let filter: QuestionBankHomeFilter
     let paperID: String?
-    let scopedPaperIDs: [String]
+    let scopedPaperIDs: [String]?
 
     @AppStorage(QuestionBankReaderPreferences.presentationModeKey)
     private var storedPresentationMode = QuestionBankPresentationMode.continuous.rawValue
@@ -2078,47 +2122,31 @@ struct QuestionBankCrossPaperReaderView: View {
     @State private var localOrdinalByID: [String: Int] = [:]
     @State private var orderedOrdinalByID: [String: Int] = [:]
     @State private var overviewGroups: [QuestionBankOverviewGroup] = []
-    @State private var assetsByPaperAndID: [String: [String: QuestionBankRecord]] = [:]
     @State private var isCrossPaperRouteVisible = false
     @State private var isCrossPaperVisible = false
     @State private var needsIndexReload = true
+    @State private var crossPaperLoadGeneration = 0
+    @State private var crossWindowLoadGeneration = 0
+    @State private var crossQuestionUpdateGeneration = 0
+    @State private var pendingCrossQuestionIDs = Set<String>()
+    @State private var reloadCrossWindowAfterQuestionUpdate = false
+    @State private var readerWindowError: String?
     @State private var showsReaderOptions = false
     @State private var showsOverview = false
+    @State private var overviewAnswerStatesByID: [String: QuestionBankAnswerStateValue] = [:]
     @State private var continuousQuestionDoodleRecordID: String?
     @State private var missingAnswerEditError: String?
     @State private var missingAnswerEditConfirmation: String?
     @SceneStorage private var selectedOptionsJSON: String
     @SceneStorage private var revealedAnswersJSON: String
-    @AppStorage(QuestionBankAnswerStateStorage.appStorageKey)
-    private var storedAnswerStateJSON = QuestionBankAnswerStateStorage.emptyValue
-    @State private var cachedAnswerState = QuestionBankAnswerState()
-    @State private var cachedAnswerStateJSON = QuestionBankAnswerStateStorage.emptyValue
-    @AppStorage("question-bank.scope.answer-state-migrated.default")
-    private var didMigrateLegacyAnswerState = false
+    private let legacyAnswerStorageKey: String
     @AppStorage(QuestionBankReaderPreferences.confirmAnswerAfterSelectionKey)
     private var requiresAnswerConfirmation = false
 
     init(filter: QuestionBankHomeFilter, paperID: String? = nil, paperIDs: [String]? = nil) {
         self.filter = filter
         self.paperID = paperID
-        scopedPaperIDs = paperID.map { [$0] } ?? Array(Set(paperIDs ?? [])).sorted()
-        if let paperID {
-            let selectedPaperID = paperID
-            _records = Query(filter: #Predicate<QuestionBankRecord> {
-                $0.paperID == selectedPaperID
-            })
-        } else if let paperIDs {
-            if paperIDs.isEmpty {
-                _records = Query(filter: #Predicate<QuestionBankRecord> { _ in false })
-            } else {
-                let selectedPaperIDs = Array(Set(paperIDs))
-                _records = Query(filter: #Predicate<QuestionBankRecord> {
-                    selectedPaperIDs.contains($0.paperID)
-                })
-            }
-        } else {
-            _records = Query()
-        }
+        scopedPaperIDs = paperID.map { [$0] } ?? paperIDs.map { Array(Set($0)).sorted() }
         let scope = [
             filter.module?.rawValue ?? "", filter.questionType, filter.year, filter.examType,
             filter.province, filter.search, filter.questionNumber,
@@ -2129,24 +2157,14 @@ struct QuestionBankCrossPaperReaderView: View {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
-        _selectedOptionsJSON = SceneStorage(wrappedValue: "{}", "question-bank.scope.selected-options.\(key)")
-        _revealedAnswersJSON = SceneStorage(wrappedValue: "[]", "question-bank.scope.revealed-answers.\(key)")
-        _didMigrateLegacyAnswerState = AppStorage(
-            wrappedValue: false,
-            "question-bank.scope.answer-state-migrated.\(key)"
-        )
-        let answerStateJSON = UserDefaults.standard.string(
-            forKey: QuestionBankAnswerStateStorage.appStorageKey
-        ) ?? QuestionBankAnswerStateStorage.emptyValue
-        _storedAnswerStateJSON = AppStorage(
-            wrappedValue: answerStateJSON,
-            QuestionBankAnswerStateStorage.appStorageKey
-        )
-        _cachedAnswerState = State(initialValue: QuestionBankAnswerStateStorage.decode(answerStateJSON))
-        _cachedAnswerStateJSON = State(initialValue: answerStateJSON)
+        let selectedKey = "question-bank.scope.selected-options.\(key)"
+        let revealedKey = "question-bank.scope.revealed-answers.\(key)"
+        _selectedOptionsJSON = SceneStorage(wrappedValue: "{}", selectedKey)
+        _revealedAnswersJSON = SceneStorage(wrappedValue: "[]", revealedKey)
+        legacyAnswerStorageKey = "\(selectedKey)|\(revealedKey)"
     }
 
-    private var index: QuestionBankHomeIndex? { homeIndexStore.index }
+    private var directory: QuestionBankReaderDirectorySnapshot? { readerDirectoryStore.directory }
 
     private var presentationMode: QuestionBankPresentationMode {
         get { QuestionBankPresentationMode(rawValue: storedPresentationMode) ?? .continuous }
@@ -2156,44 +2174,191 @@ struct QuestionBankCrossPaperReaderView: View {
     private func activateCrossPaperReaderIfNeeded() {
         let shouldBeVisible = isCrossPaperRouteVisible && rootTabSelection.wrappedValue == .questionBank
         isCrossPaperVisible = shouldBeVisible
-        guard shouldBeVisible, needsIndexReload || homeIndexStore.index == nil else { return }
+        guard shouldBeVisible, needsIndexReload || readerDirectoryStore.directory == nil else { return }
         needsIndexReload = false
-        homeIndexStore.requestReload()
+        crossPaperLoadGeneration &+= 1
     }
 
-    private func makeGroups(using homeIndex: QuestionBankHomeIndex) -> [QuestionBankCrossPaperGroup] {
-        let scoped = homeIndex.filteredQuestions(matching: filter, paperID: paperID)
-        let grouped = Dictionary(grouping: scoped, by: { $0.record.paperID })
-        return homeIndex.papers.compactMap { paper in
-            guard let questions = grouped[paper.id], !questions.isEmpty else { return nil }
-            let materials = Dictionary(
-                homeIndex.materials(for: paper.id).map { ($0.id, $0) },
-                uniquingKeysWith: { first, _ in first }
-            )
+    private func requestCrossPaperReload() {
+        needsIndexReload = true
+        readerWindowError = nil
+        pendingCrossQuestionIDs.removeAll()
+        crossQuestionUpdateGeneration &+= 1
+        readerWindowStore.cancel(clear: true)
+        readerDirectoryStore.cancel(clear: true)
+        refreshGroups()
+        guard isCrossPaperVisible, rootTabSelection.wrappedValue == .questionBank else { return }
+        needsIndexReload = false
+        crossPaperLoadGeneration &+= 1
+    }
+
+    private func loadCrossPaperDirectory(generation: Int) async {
+        guard generation == crossPaperLoadGeneration, isCrossPaperVisible,
+              rootTabSelection.wrappedValue == .questionBank else { return }
+        await readerDirectoryStore.loadCrossPaper(
+            container: modelContext.container,
+            filter: filter,
+            paperID: paperID,
+            scopedPaperIDs: scopedPaperIDs
+        )
+        guard generation == crossPaperLoadGeneration, isCrossPaperVisible,
+              rootTabSelection.wrappedValue == .questionBank else { return }
+        guard let directory else {
+            needsIndexReload = true
+            return
+        }
+        readerWindowStore.install(directory: directory)
+        refreshGroups()
+    }
+
+    private func loadCrossPaperWindow(aroundQuestionID requestedID: String? = nil) async {
+        guard isCrossPaperVisible, rootTabSelection.wrappedValue == .questionBank,
+              let directory,
+              let anchorID = requestedID ?? currentQuestionID ?? orderedItemIDs.first,
+              directory.question(for: anchorID) != nil else { return }
+        await readerWindowStore.loadWindow(
+            container: modelContext.container,
+            directory: directory,
+            anchorID: anchorID,
+            radius: presentationMode == .single
+                ? QuestionBankReaderWindowBounds.singlePagePrefetchRadius
+                : QuestionBankReaderWindowBounds.continuousPrefetchRadius
+        )
+        guard isCrossPaperVisible, rootTabSelection.wrappedValue == .questionBank else { return }
+        var answerLoadError: String?
+        do {
+            try await answerStateStore.load(Array(readerWindowStore.questionsByCompoundID.keys), from: modelContext.container)
+        } catch {
+            answerLoadError = "作答状态加载失败：\(error.localizedDescription)"
+        }
+        readerWindowError = readerWindowStore.errorMessage ?? answerLoadError
+        refreshWindowDependencies()
+    }
+
+    private func loadCrossPaperQuestionUpdates(generation: Int) async {
+        guard generation == crossQuestionUpdateGeneration,
+              isCrossPaperVisible,
+              rootTabSelection.wrappedValue == .questionBank,
+              !pendingCrossQuestionIDs.isEmpty,
+              let directory else { return }
+        let changedQuestionIDs = pendingCrossQuestionIDs
+        let compoundIDs = Set(directory.questions.compactMap { entry in
+            changedQuestionIDs.contains(entry.sourceCompoundID) ? entry.sourceCompoundID : nil
+        })
+        guard !compoundIDs.isEmpty else {
+            pendingCrossQuestionIDs.subtract(changedQuestionIDs)
+            return
+        }
+        let anchorID = currentQuestionID ?? directory.orderedIDs.first ?? ""
+        await readerWindowStore.loadWindow(
+            container: modelContext.container,
+            directory: directory,
+            anchorID: anchorID,
+            radius: QuestionBankReaderWindowBounds.continuousPrefetchRadius,
+            specificIDs: compoundIDs
+        )
+        guard generation == crossQuestionUpdateGeneration else { return }
+        var answerLoadError: String?
+        do {
+            try await answerStateStore.load(Array(readerWindowStore.questionsByCompoundID.keys), from: modelContext.container)
+        } catch {
+            answerLoadError = "作答状态加载失败：\(error.localizedDescription)"
+        }
+        readerWindowError = readerWindowStore.errorMessage ?? answerLoadError
+        pendingCrossQuestionIDs.subtract(changedQuestionIDs)
+        if reloadCrossWindowAfterQuestionUpdate {
+            reloadCrossWindowAfterQuestionUpdate = false
+            crossWindowLoadGeneration &+= 1
+        }
+    }
+
+    private func makeGroups(using directory: QuestionBankReaderDirectorySnapshot) -> [QuestionBankCrossPaperGroup] {
+        let grouped = Dictionary(grouping: directory.questions, by: \.paperID)
+        let orderedPaperIDs = directory.questions.reduce(into: [String]()) { result, item in
+            if result.last != item.paperID { result.append(item.paperID) }
+        }
+        return orderedPaperIDs.compactMap { paperID in
+            guard let questions = grouped[paperID], !questions.isEmpty else { return nil }
+            let paper = directory.paperSummariesByID[paperID]
+            let title = paper?.title ?? "未命名试卷"
+            let items = questions.map { entry -> QuestionBankHomeQuestion in
+                let coarseModule = QuestionBankCoarseModule(rawValue: entry.coarseModule) ?? .uncategorized
+                let question = QuestionBankQuestion(
+                    id: entry.questionID,
+                    paperID: entry.paperID,
+                    moduleID: entry.moduleID,
+                    number: entry.originalNumber,
+                    subject: entry.coarseModule,
+                    type: entry.coarseQuestionType,
+                    materialID: entry.materialID,
+                    stem: "",
+                    stemImageAssetID: "",
+                    options: [],
+                    answer: "",
+                    explanation: "",
+                    originalPage: "",
+                    isDifficult: entry.isDifficult,
+                    needsReview: entry.needsReview,
+                    knowledgePoints: entry.knowledgePoints,
+                    weaknessTags: entry.weaknessTags
+                )
+                let record = QuestionBankRecord(
+                    compoundID: entry.sourceCompoundID,
+                    paperID: entry.paperID,
+                    kind: QuestionBankRepository.questionKind,
+                    stableID: entry.questionID,
+                    moduleID: entry.moduleID,
+                    questionNumber: entry.originalNumber,
+                    sequence: entry.moduleSequence,
+                    title: title,
+                    payload: Data(),
+                    contentRevision: entry.sourceRevision
+                )
+                return QuestionBankHomeQuestion(
+                    record: record,
+                    question: question,
+                    module: coarseModule,
+                    questionTypeFilter: entry.coarseQuestionType,
+                    moduleID: entry.moduleID,
+                    moduleTitle: entry.moduleTitle,
+                    moduleSequence: entry.moduleSequence,
+                    isReaderBodyLoaded: false
+                )
+            }
             var emittedMaterials = Set<String>()
             var steps: [QuestionBankCrossPaperStep] = []
-            for item in questions {
+            for item in items {
                 let materialID = item.question.materialID
-                if !materialID.isEmpty, let material = materials[materialID],
-                   emittedMaterials.insert(materialID).inserted {
+                if !materialID.isEmpty, emittedMaterials.insert(materialID).inserted {
                     steps.append(QuestionBankCrossPaperStep(
-                        id: "\(paper.id)::material::\(materialID)", material: material, question: nil
+                        id: "\(paperID)::material::\(materialID)",
+                        materialID: materialID,
+                        material: nil,
+                        question: nil
                     ))
                 }
                 steps.append(QuestionBankCrossPaperStep(
-                    id: item.id, material: nil, question: item
+                    id: item.id, materialID: nil, material: nil, question: item
                 ))
             }
             return QuestionBankCrossPaperGroup(
-                paperID: paper.id, title: paper.title, steps: steps,
-                questions: questions, materialsByID: materials,
-                sourcePapers: paper.paper.sourcePapers ?? []
+                paperID: paperID,
+                title: title,
+                steps: steps,
+                questions: items,
+                materialsByID: Dictionary(
+                    readerWindowStore.materialsByCompoundID.values
+                        .filter { $0.paperID == paperID }
+                        .map { ($0.id, $0) },
+                    uniquingKeysWith: { first, _ in first }
+                ),
+                sourcePapers: readerWindowStore.sourcePapersByID[paperID] ?? []
             )
         }
     }
 
     private func refreshGroups() {
-        guard let index else {
+        guard let directory else {
             groups = []
             orderedItems = []
             orderedItemIDs = []
@@ -2202,11 +2367,10 @@ struct QuestionBankCrossPaperReaderView: View {
             localOrdinalByID = [:]
             orderedOrdinalByID = [:]
             overviewGroups = []
-            assetsByPaperAndID = [:]
             currentQuestionID = nil
             return
         }
-        let currentGroups = makeGroups(using: index)
+        let currentGroups = makeGroups(using: directory)
         let flattenedItems = currentGroups.flatMap(\.questions)
         groups = currentGroups
         orderedItems = flattenedItems
@@ -2218,7 +2382,7 @@ struct QuestionBankCrossPaperReaderView: View {
             uniquingKeysWith: { first, _ in first }
         )
         orderedOrdinalByID = localOrdinalByID
-        let paperTitles = Dictionary(index.papers.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
+        let paperTitles = directory.paperSummariesByID.mapValues(\.title)
         overviewGroups = QuestionBankOverviewGrouping.groups(from: flattenedItems.map { item in
             QuestionBankOverviewCandidate(
                 id: item.id,
@@ -2232,18 +2396,51 @@ struct QuestionBankCrossPaperReaderView: View {
                 subject: item.question.subject
             )
         })
-        assetsByPaperAndID = Dictionary(grouping: records.filter {
-            $0.kind == QuestionBankRepository.assetKind
-        }, by: \.paperID).mapValues { paperRecords in
-            Dictionary(paperRecords.map { ($0.stableID, $0) }, uniquingKeysWith: { first, _ in first })
-        }
         if !itemsByID.keys.contains(currentQuestionID ?? "") {
             currentQuestionID = flattenedItems.first?.id
         }
     }
 
+    private func refreshWindowDependencies() {
+        groups = groups.map { group in
+            QuestionBankCrossPaperGroup(
+                paperID: group.paperID,
+                title: group.title,
+                steps: group.steps,
+                questions: group.questions,
+                materialsByID: Dictionary(
+                    readerWindowStore.materialsByCompoundID.values
+                        .filter { $0.paperID == group.paperID }
+                        .map { ($0.id, $0) },
+                    uniquingKeysWith: { first, _ in first }
+                ),
+                sourcePapers: readerWindowStore.sourcePapersByID[group.paperID] ?? []
+            )
+        }
+        groupsByPaperID = Dictionary(groups.map { ($0.paperID, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
     private var currentItem: QuestionBankHomeQuestion? {
-        itemsByID[currentQuestionID ?? ""] ?? orderedItems.first
+        readerItem(for: currentQuestionID ?? "") ?? orderedItems.first.map(materializedItem)
+    }
+
+    private func readerItem(for id: String) -> QuestionBankHomeQuestion? {
+        guard let directoryItem = itemsByID[id] else { return nil }
+        return materializedItem(directoryItem)
+    }
+
+    private func materializedItem(_ directoryItem: QuestionBankHomeQuestion) -> QuestionBankHomeQuestion {
+        guard let loaded = readerWindowStore.question(for: directoryItem.id) else { return directoryItem }
+        return QuestionBankHomeQuestion(
+            record: directoryItem.record,
+            question: loaded.question,
+            module: directoryItem.module,
+            questionTypeFilter: directoryItem.questionTypeFilter,
+            moduleID: directoryItem.moduleID,
+            moduleTitle: directoryItem.moduleTitle,
+            moduleSequence: directoryItem.moduleSequence,
+            isReaderBodyLoaded: true
+        )
     }
 
     private var singlePositionText: String {
@@ -2257,20 +2454,6 @@ struct QuestionBankCrossPaperReaderView: View {
         return orderedItemIDs[adjacentOffset]
     }
 
-    private var selectedOptionsByQuestionID: [String: String] {
-        get { cachedAnswerState.selectedOptions }
-        nonmutating set {
-            updateAnswerState { $0.selectedOptions = newValue }
-        }
-    }
-
-    private var revealedAnswerQuestionIDs: Set<String> {
-        get { cachedAnswerState.revealedQuestionIDs }
-        nonmutating set {
-            updateAnswerState { $0.revealedQuestionIDs = newValue }
-        }
-    }
-
     var body: some View {
         readerScreen
             .overlay {
@@ -2279,35 +2462,54 @@ struct QuestionBankCrossPaperReaderView: View {
             .onAppear {
                 isCrossPaperRouteVisible = true
                 activateCrossPaperReaderIfNeeded()
-                migrateLegacyAnswerStateIfNeeded()
             }
-            .task(id: "\(homeIndexStore.requestGeneration)|\(isCrossPaperVisible)") {
-                guard isCrossPaperVisible else { return }
-                let generation = homeIndexStore.requestGeneration
-                await Task.yield()
-                await homeIndexStore.load(records: records, generation: generation)
+            .task(id: "legacy-cross-answer-migration|\(legacyAnswerStorageKey)") {
+                await migrateLegacyAnswerStateIfNeeded()
             }
-            .onChange(of: homeIndexStore.loadedGeneration) { _, _ in refreshGroups() }
+            .task(id: "\(crossPaperLoadGeneration)|\(isCrossPaperVisible)") {
+                await loadCrossPaperDirectory(generation: crossPaperLoadGeneration)
+            }
+            .task(id: "\(currentQuestionID ?? "")|\(crossPaperLoadGeneration)|\(crossWindowLoadGeneration)|\(isCrossPaperVisible)|\(presentationMode.rawValue)") {
+                await loadCrossPaperWindow()
+            }
+            .task(id: crossQuestionUpdateGeneration) {
+                await loadCrossPaperQuestionUpdates(generation: crossQuestionUpdateGeneration)
+            }
             .onReceive(NotificationCenter.default.publisher(for: QuestionBankRecordChangeSignal.notification)) { notification in
-                guard QuestionBankRecordChangeSignal.affectsAny(scopedPaperIDs, notification: notification) else { return }
-                needsIndexReload = true
-                guard isCrossPaperVisible, rootTabSelection.wrappedValue == .questionBank else { return }
-                needsIndexReload = false
-                homeIndexStore.requestReload()
+                guard scopedPaperIDs?.isEmpty != true,
+                      QuestionBankRecordChangeSignal.affectsAny(scopedPaperIDs ?? [], notification: notification) else { return }
+                if let changes = QuestionBankRecordChangeSignal.recordChanges(notification: notification),
+                   changes.allSatisfy({ $0.kind == .questionAnalysis || $0.kind == .questionLinks }) {
+                    let scopedChanges = changes.filter {
+                        scopedPaperIDs == nil || scopedPaperIDs?.contains($0.paperID) == true
+                    }
+                    if readerWindowStore.isLoading {
+                        reloadCrossWindowAfterQuestionUpdate = true
+                        readerWindowStore.cancel(clear: false)
+                    }
+                    pendingCrossQuestionIDs.formUnion(scopedChanges.compactMap { change in
+                        change.recordID.isEmpty
+                            ? nil
+                            : "\(change.paperID)::\(QuestionBankRepository.questionKind)::\(change.recordID)"
+                    })
+                    crossQuestionUpdateGeneration &+= 1
+                } else {
+                    requestCrossPaperReload()
+                }
             }
             .onChange(of: rootTabSelection.wrappedValue) { _, selectedTab in
                 if selectedTab == .questionBank {
                     activateCrossPaperReaderIfNeeded()
                 } else {
                     isCrossPaperVisible = false
-                    homeIndexStore.cancelLoad()
+                    readerDirectoryStore.cancel(clear: false)
+                    readerWindowStore.cancel(clear: true)
+                    refreshWindowDependencies()
                 }
             }
-            .onChange(of: filter) { _, _ in refreshGroups() }
-            .onChange(of: storedAnswerStateJSON) { _, value in
-                guard value != cachedAnswerStateJSON else { return }
-                cachedAnswerStateJSON = value
-                cachedAnswerState = QuestionBankAnswerStateStorage.decode(value)
+            .onChange(of: filter) { _, _ in requestCrossPaperReload() }
+            .onReceive(NotificationCenter.default.publisher(for: QuestionBankAnswerStateRepository.changeNotification)) { notification in
+                refreshOverviewAnswerStates(for: notification)
             }
             .onChange(of: presentationMode) { _, mode in
                 if mode != .continuous { continuousQuestionDoodleRecordID = nil }
@@ -2329,7 +2531,9 @@ struct QuestionBankCrossPaperReaderView: View {
             .onDisappear {
                 isCrossPaperRouteVisible = false
                 isCrossPaperVisible = false
-                homeIndexStore.cancelLoad()
+                readerDirectoryStore.cancel(clear: false)
+                readerWindowStore.cancel(clear: true)
+                refreshWindowDependencies()
             }
             .alert("答案更新", isPresented: Binding(
                 get: { missingAnswerEditError != nil || missingAnswerEditConfirmation != nil },
@@ -2351,9 +2555,22 @@ struct QuestionBankCrossPaperReaderView: View {
 
     private var readerScreen: some View {
         Group {
-            if index == nil {
-                ProgressView("正在准备题目…")
+            if directory == nil {
+                if let error = readerDirectoryStore.errorMessage {
+                    VStack(spacing: 12) {
+                        ContentUnavailableView(
+                            "题目目录加载失败",
+                            systemImage: "exclamationmark.triangle",
+                            description: Text(error)
+                        )
+                        Button("重试") { requestCrossPaperReload() }
+                            .buttonStyle(.borderedProminent)
+                    }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ProgressView("正在准备题目…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             } else {
                 GeometryReader { geometry in
                     readerPage(width: geometry.size.width, height: geometry.size.height)
@@ -2376,6 +2593,25 @@ struct QuestionBankCrossPaperReaderView: View {
         .toolbar { readerToolbar }
         .sheet(isPresented: $showsOverview) { questionOverviewSheet }
         .sheet(item: $activeQuestionDetail) { questionDetailSheet(for: $0) }
+        .overlay(alignment: .top) {
+            if let readerWindowError {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(AppTheme.danger)
+                    Text("题目窗口加载失败：\(readerWindowError)")
+                        .font(AppTheme.auxiliaryFont)
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                    Button("重试") { Task { await loadCrossPaperWindow() } }
+                        .font(AppTheme.auxiliaryFont.weight(.semibold))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+            }
+        }
     }
 
     @ToolbarContentBuilder
@@ -2396,7 +2632,7 @@ struct QuestionBankCrossPaperReaderView: View {
                     } ?? "当前题进度")
                     .accessibilityHint("打开当前题目详情")
                     .accessibilityIdentifier("question-bank-single-position")
-                    .disabled(currentItem == nil || doodleSession.isPresented)
+                    .disabled(currentItem?.isReaderBodyLoaded != true || doodleSession.isPresented)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -2404,7 +2640,7 @@ struct QuestionBankCrossPaperReaderView: View {
                     if presentationMode == .single { doodleButton }
                     Button {
                         guard !doodleSession.isPresented else { return }
-                        showsOverview = true
+                        showQuestionOverview()
                     } label: {
                         Image(systemName: "square.grid.3x3")
                             .font(.system(size: 14, weight: .medium))
@@ -2489,9 +2725,10 @@ struct QuestionBankCrossPaperReaderView: View {
 
     @ViewBuilder
     private func questionDetailSheet(for route: QuestionBankCrossPaperDetailRoute) -> some View {
-        if let item = itemsByID[route.questionID],
-           let group = groupsByPaperID[item.record.paperID] {
-            let detailContext = questionAnalysisContext(for: item, group: group)
+        if let item = readerItem(for: route.questionID),
+           let group = groupsByPaperID[item.record.paperID], item.isReaderBodyLoaded {
+            let record = persistedQuestionRecord(for: item) ?? item.record
+            let detailContext = questionAnalysisContext(for: item, group: group, record: record)
             if detailContext.typeMapping.subject == "申论" {
                 QuestionBankQuestionDetailPanel(
                     question: item.question,
@@ -2506,7 +2743,7 @@ struct QuestionBankCrossPaperReaderView: View {
                             stem: stem,
                             optionTexts: optionTexts,
                             annotations: annotations,
-                            records: records,
+                            moduleTitle: item.moduleTitle,
                             context: modelContext
                         )
                     }
@@ -2551,6 +2788,9 @@ struct QuestionBankCrossPaperReaderView: View {
                 }
                 .presentationDetents([.large])
             }
+        } else if itemsByID[route.questionID] != nil {
+            ProgressView("正在加载题目…")
+                .task { await loadCrossPaperWindow(aroundQuestionID: route.questionID) }
         } else {
             ContentUnavailableView("题目不存在", systemImage: "doc.text.magnifyingglass")
         }
@@ -2558,23 +2798,24 @@ struct QuestionBankCrossPaperReaderView: View {
 
     private func questionAnalysisContext(
         for item: QuestionBankHomeQuestion,
-        group: QuestionBankCrossPaperGroup
+        group: QuestionBankCrossPaperGroup,
+        record: QuestionBankRecord? = nil
     ) -> QuestionBankQuestionAnalysisContext {
         let answerStateID = item.record.compoundID
-        let selectedOptionID = selectedOptionsByQuestionID[answerStateID]
+        let selectedOptionID = selectedAnswerOption(for: answerStateID)
         let answerRevealed = readingMode == .reading || readingMode.revealsAnswer(
             afterSelecting: selectedOptionID,
-            wasConfirmed: revealedAnswerQuestionIDs.contains(answerStateID),
+            wasConfirmed: isAnswerRevealed(answerStateID),
             requiresConfirmation: requiresAnswerConfirmation
         )
         let assets = Dictionary(
-            records.filter {
-                $0.paperID == item.record.paperID && $0.kind == QuestionBankRepository.assetKind
-            }.map { ($0.stableID, $0) },
+            readerWindowStore.assetsByCompoundID.values
+                .filter { $0.paperID == item.record.paperID }
+                .map { ($0.stableID, $0) },
             uniquingKeysWith: { first, _ in first }
         )
         return QuestionBankQuestionAnalysisContext(
-            record: item.record,
+            record: record ?? item.record,
             question: item.question,
             moduleTitle: item.moduleTitle,
             material: group.materialsByID[item.question.materialID],
@@ -2583,6 +2824,15 @@ struct QuestionBankCrossPaperReaderView: View {
             selectedOptionID: selectedOptionID,
             isAnswerRevealed: answerRevealed
         )
+    }
+
+    private func persistedQuestionRecord(for item: QuestionBankHomeQuestion) -> QuestionBankRecord? {
+        let compoundID = item.record.compoundID
+        var descriptor = FetchDescriptor<QuestionBankRecord>(
+            predicate: #Predicate { $0.compoundID == compoundID }
+        )
+        descriptor.fetchLimit = 1
+        return try? modelContext.fetch(descriptor).first
     }
 
     private func readerPage(width: CGFloat, height: CGFloat) -> some View {
@@ -2613,7 +2863,7 @@ struct QuestionBankCrossPaperReaderView: View {
 
     private var paperTitle: String? {
         guard let paperID else { return nil }
-        return index?.papers.first(where: { $0.id == paperID })?.title
+        return directory?.paperSummariesByID[paperID]?.title
     }
 
     private var doodleButton: some View {
@@ -2693,11 +2943,15 @@ struct QuestionBankCrossPaperReaderView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         paperDivider(group.title, count: group.questions.count)
                         ForEach(group.steps) { step in
-                            if let material = step.material {
+                            if let materialID = step.materialID,
+                               let material = group.materialsByID[materialID] {
                                 materialSection(material, paperID: group.paperID, sourcePapers: group.sourcePapers)
+                            } else if step.materialID != nil {
+                                ProgressView("正在加载共用材料…")
+                                    .frame(maxWidth: .infinity, minHeight: 72)
                             } else if let item = step.question {
                                 questionSection(
-                                    item,
+                                    readerItem(for: item.id) ?? item,
                                     group: group,
                                     showsPaperHeading: false,
                                     showsDoodleCanvas: false,
@@ -2730,7 +2984,7 @@ struct QuestionBankCrossPaperReaderView: View {
             isEnabled: !doodleSession.isPresented,
             onCommit: moveQuestion(to:)
         ) { pageID, isPageInactiveOrDragging in
-            if let pageItem = itemsByID[pageID],
+            if let pageItem = readerItem(for: pageID),
                let group = groupsByPaperID[pageItem.record.paperID] {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -2842,14 +3096,14 @@ struct QuestionBankCrossPaperReaderView: View {
         reportsVisibility: Bool = true
     ) -> some View {
         let answerStateID = item.record.compoundID
-        let selected = selectedOptionsByQuestionID[answerStateID]
+        let selected = selectedAnswerOption(for: answerStateID)
         let hasAnswer = !item.question.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let showsGraphLayout = QuestionBankCoarseModule.classify(
             explicitModuleTitle: item.moduleTitle
         ) == .reasoning
         let reveals = readingMode.revealsAnswer(
             afterSelecting: selected,
-            wasConfirmed: revealedAnswerQuestionIDs.contains(answerStateID),
+            wasConfirmed: isAnswerRevealed(answerStateID),
             requiresConfirmation: requiresAnswerConfirmation
         )
         let heading = showsQuestionType ? QuestionBankQuestionHeading.displayLabel(
@@ -2910,7 +3164,7 @@ struct QuestionBankCrossPaperReaderView: View {
                     selectedOptionID: selected,
                     revealsAnswer: reveals,
                     isSelectionLocked: readingMode == .practice && selected != nil,
-                    isInteractionBlocked: doodleSession.isPresented,
+                    isInteractionBlocked: doodleSession.isPresented || !answerStateStore.isLoaded(answerStateID),
                     showsGraphLayout: showsGraphLayout,
                     onSelect: { selectOption(option.id, item: item) },
                     assetLookup: { assetRecord(for: $0, paperID: item.record.paperID) }
@@ -2950,9 +3204,26 @@ struct QuestionBankCrossPaperReaderView: View {
                         .accessibilityIdentifier("question-bank-confirm-answer-\(item.id)")
                 }
                 .padding(.top, 6)
+                if selected == nil {
+                    QuestionBankAnswerFollowUpAction(
+                        analysis: questionAnalysisContext(for: item, group: group),
+                        categoryOverride: .cannotSolve
+                    )
+                    .padding(.top, 6)
+                }
+            } else if readingMode == .practice && selected == nil {
+                QuestionBankAnswerFollowUpAction(
+                    analysis: questionAnalysisContext(for: item, group: group),
+                    categoryOverride: .cannotSolve
+                )
+                .padding(.top, 6)
             }
             if hasAnswer && (readingMode == .reading || reveals) {
-                QuestionBankReferenceAccuracyControl(record: item.record, accuracy: item.question.accuracy)
+                QuestionBankReferenceAccuracyControl(
+                    paperID: item.record.paperID,
+                    questionID: item.question.id,
+                    accuracy: item.question.accuracy
+                )
                     .padding(.top, 5)
                     .transition(.opacity)
             }
@@ -2995,13 +3266,24 @@ struct QuestionBankCrossPaperReaderView: View {
                 )
             }
         }
+        .frame(minHeight: item.isReaderBodyLoaded ? 0 : 108)
+        .overlay {
+            if !item.isReaderBodyLoaded {
+                ProgressView("正在加载题目…")
+                    .font(AppTheme.auxiliaryFont)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.white.opacity(0.96))
+                    .allowsHitTesting(false)
+            }
+        }
+        .disabled(!item.isReaderBodyLoaded)
         .id(item.id)
     }
 
     private func questionNumberButton(for item: QuestionBankHomeQuestion) -> some View {
         let displayNumber = displayNumber(for: item)
         return Button {
-            guard !doodleSession.isPresented else { return }
+            guard item.isReaderBodyLoaded, !doodleSession.isPresented else { return }
             activeQuestionDetail = QuestionBankCrossPaperDetailRoute(questionID: item.id)
         } label: {
             Text("\(displayNumber).")
@@ -3014,7 +3296,7 @@ struct QuestionBankCrossPaperReaderView: View {
         .accessibilityLabel("打开第\(displayNumber)题详情")
         .accessibilityHint("查看题干、选项和解析")
         .accessibilityIdentifier("question-bank-question-detail-\(item.id)")
-        .disabled(doodleSession.isPresented)
+        .disabled(!item.isReaderBodyLoaded || doodleSession.isPresented)
     }
 
     private func displayNumber(for item: QuestionBankHomeQuestion) -> Int {
@@ -3027,10 +3309,71 @@ struct QuestionBankCrossPaperReaderView: View {
 
     private func overviewAnswerStatus(for item: QuestionBankHomeQuestion) -> QuestionBankOverviewAnswerStatus {
         QuestionBankOverviewAnswerStatus.resolve(
-            selectedOptionID: selectedOptionsByQuestionID[item.record.compoundID],
+            selectedOptionID: overviewAnswerStatesByID[item.record.compoundID]?.selectedOptionID,
             answer: item.question.answer,
-            isConfirmed: revealedAnswerQuestionIDs.contains(item.record.compoundID)
+            isConfirmed: overviewAnswerStatesByID[item.record.compoundID]?.isRevealed == true
         )
+    }
+
+    private func showQuestionOverview() {
+        guard !doodleSession.isPresented else { return }
+        let ids = orderedItemIDs
+        Task {
+            do {
+                overviewAnswerStatesByID = try await QuestionBankAnswerStateRepository.read(
+                    compoundIDs: ids,
+                    from: modelContext.container
+                )
+                showsOverview = true
+            } catch {
+                readerWindowError = "题号总览作答状态加载失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func refreshOverviewAnswerStates(for notification: Notification) {
+        if notification.userInfo?[QuestionBankAnswerStateRepository.resetKey] as? Bool == true {
+            overviewAnswerStatesByID.removeAll()
+            let currentIDs = Array(readerWindowStore.questionsByCompoundID.keys)
+            Task {
+                await Task.yield()
+                do {
+                    try await answerStateStore.load(currentIDs, from: modelContext.container)
+                } catch {
+                    readerWindowError = "作答状态重新加载失败：\(error.localizedDescription)"
+                }
+            }
+            return
+        }
+        guard showsOverview else { return }
+        let visibleIDs = Set(orderedItemIDs)
+        let changedIDs = notification.userInfo?[QuestionBankAnswerStateRepository.changedIDsKey] as? [String] ?? []
+        let affectedIDs = changedIDs.filter { visibleIDs.contains($0) }
+        guard !affectedIDs.isEmpty else { return }
+        if notification.userInfo?[QuestionBankAnswerStateRepository.clearedKey] as? Bool == true {
+            for id in affectedIDs { overviewAnswerStatesByID.removeValue(forKey: id) }
+            return
+        }
+        Task {
+            do {
+                let values = try await QuestionBankAnswerStateRepository.read(
+                    compoundIDs: affectedIDs,
+                    from: modelContext.container
+                )
+                overviewAnswerStatesByID.merge(values) { _, newest in newest }
+                for id in affectedIDs where values[id] == nil { overviewAnswerStatesByID.removeValue(forKey: id) }
+            } catch {
+                readerWindowError = "题号总览作答状态刷新失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func selectedAnswerOption(for compoundID: String) -> String? {
+        answerStateStore.value(for: compoundID)?.selectedOptionID
+    }
+
+    private func isAnswerRevealed(_ compoundID: String) -> Bool {
+        answerStateStore.value(for: compoundID)?.isRevealed == true
     }
 
     private func moveQuestion(to target: String) {
@@ -3038,61 +3381,54 @@ struct QuestionBankCrossPaperReaderView: View {
         currentQuestionID = target
     }
 
-    private func migrateLegacyAnswerStateIfNeeded() {
-        guard !didMigrateLegacyAnswerState else { return }
-        let legacyQuestionIDs = Dictionary(records
-            .filter { $0.kind == QuestionBankRepository.questionKind }
-            .map { ($0.compoundID, $0.compoundID) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let oldSelections = QuestionBankSelectedOptionsStorage.decode(selectedOptionsJSON)
-        let migratedSelections = Dictionary(oldSelections.map { key, value in
-            (legacyQuestionIDs[key] ?? key, value)
-        }, uniquingKeysWith: { first, _ in first })
-        let oldRevealed = QuestionBankRevealedAnswersStorage.decode(revealedAnswersJSON)
-        let migratedRevealed = QuestionBankRevealedAnswersStorage.encode(Set(
-            oldRevealed.map { legacyQuestionIDs[$0] ?? $0 }
-        ))
-        let migratedState = QuestionBankAnswerStateStorage.migratingLegacyState(
-            selectedOptionsJSON: QuestionBankSelectedOptionsStorage.encode(migratedSelections),
-            revealedAnswersJSON: migratedRevealed,
-            into: storedAnswerStateJSON
-        )
-        replaceAnswerStateJSON(migratedState)
-        selectedOptionsJSON = "{}"
-        revealedAnswersJSON = "[]"
-        didMigrateLegacyAnswerState = true
+    private func migrateLegacyAnswerStateIfNeeded() async {
+        let selectedSnapshot = selectedOptionsJSON
+        let revealedSnapshot = revealedAnswersJSON
+        do {
+            try await answerStateStore.migrateGlobalIfNeeded(in: modelContext.container)
+            try await answerStateStore.migrateSceneStorageIfNeeded(
+                sourceKey: legacyAnswerStorageKey,
+                selectedOptionsJSON: selectedSnapshot,
+                revealedAnswersJSON: revealedSnapshot,
+                paperID: paperID,
+                in: modelContext.container
+            )
+            if selectedOptionsJSON == selectedSnapshot { selectedOptionsJSON = "{}" }
+            if revealedAnswersJSON == revealedSnapshot { revealedAnswersJSON = "[]" }
+        } catch {
+            readerWindowError = "旧作答数据迁移失败，原始备份已保留：\(error.localizedDescription)"
+        }
     }
 
     private func clearAnswer(for questionID: String) {
-        replaceAnswerStateJSON(QuestionBankAnswerStateStorage.clearing(
-            [questionID], from: storedAnswerStateJSON
-        ))
-    }
-
-    private func updateAnswerState(_ update: (inout QuestionBankAnswerState) -> Void) {
-        var state = cachedAnswerState
-        update(&state)
-        let encoded = QuestionBankAnswerStateStorage.encode(state)
-        cachedAnswerState = state
-        cachedAnswerStateJSON = encoded
-        storedAnswerStateJSON = encoded
-    }
-
-    private func replaceAnswerStateJSON(_ value: String) {
-        cachedAnswerState = QuestionBankAnswerStateStorage.decode(value)
-        cachedAnswerStateJSON = value
-        storedAnswerStateJSON = value
+        Task {
+            do {
+                try await answerStateStore.clear([questionID], in: modelContext.container)
+            } catch {
+                readerWindowError = "清除作答状态失败：\(error.localizedDescription)"
+            }
+        }
     }
 
     private func selectOption(_ optionID: String, item: QuestionBankHomeQuestion) {
         let answerStateID = item.record.compoundID
         guard !doodleSession.isPresented, readingMode == .practice,
-              !revealedAnswerQuestionIDs.contains(answerStateID) else { return }
-        guard selectedOptionsByQuestionID[answerStateID] == nil else { return }
-        updateAnswerState { state in
-            state.selectedOptions[answerStateID] = optionID
-            if !requiresAnswerConfirmation { state.revealedQuestionIDs.insert(answerStateID) }
+              answerStateStore.isLoaded(answerStateID),
+              !isAnswerRevealed(answerStateID) else { return }
+        guard selectedAnswerOption(for: answerStateID) == nil else { return }
+        Task {
+            do {
+                try await answerStateStore.setSelection(
+                    optionID,
+                    for: answerStateID,
+                    paperID: item.record.paperID,
+                    questionID: item.question.id,
+                    revealed: !requiresAnswerConfirmation,
+                    in: modelContext.container
+                )
+            } catch {
+                readerWindowError = "保存作答状态失败：\(error.localizedDescription)"
+            }
         }
     }
 
@@ -3100,15 +3436,33 @@ struct QuestionBankCrossPaperReaderView: View {
         guard !doodleSession.isPresented else { return }
         requiresAnswerConfirmation = enabled
         if !enabled {
-            updateAnswerState { state in
-                state.revealedQuestionIDs.formUnion(state.selectedOptions.keys)
+            Task {
+                do {
+                    try await answerStateStore.markAllSelectedRevealed(in: modelContext.container)
+                } catch {
+                    readerWindowError = "更新答案确认状态失败：\(error.localizedDescription)"
+                }
             }
         }
     }
 
     private func confirmAnswer(for questionID: String) {
-        guard !doodleSession.isPresented, selectedOptionsByQuestionID[questionID] != nil else { return }
-        updateAnswerState { $0.revealedQuestionIDs.insert(questionID) }
+        guard !doodleSession.isPresented,
+              selectedAnswerOption(for: questionID) != nil,
+              let item = itemsByID[questionID] else { return }
+        Task {
+            do {
+                try await answerStateStore.setRevealed(
+                    true,
+                    for: questionID,
+                    paperID: item.record.paperID,
+                    questionID: item.question.id,
+                    in: modelContext.container
+                )
+            } catch {
+                readerWindowError = "确认答案失败：\(error.localizedDescription)"
+            }
+        }
     }
 
     private func setMissingAnswer(_ answer: String, for item: QuestionBankHomeQuestion) {
@@ -3117,7 +3471,6 @@ struct QuestionBankCrossPaperReaderView: View {
                 paperID: item.record.paperID,
                 questionID: item.question.id,
                 answer: answer,
-                records: records,
                 context: modelContext
             )
             missingAnswerEditConfirmation = "答案已补录为 \(answer)。"
@@ -3127,9 +3480,9 @@ struct QuestionBankCrossPaperReaderView: View {
         }
     }
 
-    private func assetRecord(for id: String, paperID: String) -> QuestionBankRecord? {
+    private func assetRecord(for id: String, paperID: String) -> QuestionBankAssetReference? {
         guard !id.isEmpty else { return nil }
-        return assetsByPaperAndID[paperID]?[id]
+        return readerWindowStore.asset(paperID: paperID, assetID: id)
     }
 
     private func presentDoodle(for item: QuestionBankHomeQuestion) {
@@ -3189,11 +3542,12 @@ private struct QuestionBankQuestionOverviewSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var presentation = Presentation.numbers
+    @State private var answerStatesByID: [String: QuestionBankAnswerStateValue] = [:]
 
     let items: [QuestionBankReadingItem]
     let currentQuestionID: String?
-    let answerState: QuestionBankAnswerState
-    let assetLookup: (String) -> QuestionBankRecord?
+    let container: ModelContainer
+    let assetLookup: (String) -> QuestionBankAssetReference?
     let onSelect: (QuestionBankReadingItem) -> Void
 
     var body: some View {
@@ -3248,6 +3602,24 @@ private struct QuestionBankQuestionOverviewSheet: View {
                 }
             }
         }
+        .task(id: items.map(\.record.compoundID).joined(separator: "|")) {
+            await loadAnswerStates(for: items.map { $0.record.compoundID })
+        }
+        .onReceive(NotificationCenter.default.publisher(for: QuestionBankAnswerStateRepository.changeNotification)) { notification in
+            if notification.userInfo?[QuestionBankAnswerStateRepository.resetKey] as? Bool == true {
+                answerStatesByID.removeAll()
+                return
+            }
+            let changedIDs = notification.userInfo?[QuestionBankAnswerStateRepository.changedIDsKey] as? [String] ?? []
+            let visibleIDs = Set(items.map { $0.record.compoundID })
+            let affectedIDs = changedIDs.filter { visibleIDs.contains($0) }
+            guard !affectedIDs.isEmpty else { return }
+            if notification.userInfo?[QuestionBankAnswerStateRepository.clearedKey] as? Bool == true {
+                for id in affectedIDs { answerStatesByID.removeValue(forKey: id) }
+                return
+            }
+            Task { await loadAnswerStates(for: affectedIDs) }
+        }
     }
 
     private var itemsByID: [String: QuestionBankReadingItem] {
@@ -3280,10 +3652,20 @@ private struct QuestionBankQuestionOverviewSheet: View {
 
     private func answerStatus(for item: QuestionBankReadingItem) -> QuestionBankOverviewAnswerStatus {
         QuestionBankOverviewAnswerStatus.resolve(
-            selectedOptionID: answerState.selectedOptions[item.record.compoundID],
+            selectedOptionID: answerStatesByID[item.record.compoundID]?.selectedOptionID,
             answer: item.question.answer,
-            isConfirmed: answerState.revealedQuestionIDs.contains(item.record.compoundID)
+            isConfirmed: answerStatesByID[item.record.compoundID]?.isRevealed == true
         )
+    }
+
+    private func loadAnswerStates(for ids: [String]) async {
+        do {
+            let values = try await QuestionBankAnswerStateRepository.read(compoundIDs: ids, from: container)
+            answerStatesByID.merge(values) { _, newest in newest }
+            for id in ids where values[id] == nil { answerStatesByID.removeValue(forKey: id) }
+        } catch {
+            // The overview is read-only; the main reader surfaces persistence failures.
+        }
     }
 
     private func groupHeading(_ group: QuestionBankOverviewGroup) -> some View {
@@ -3389,7 +3771,7 @@ private struct QuestionBankQuestionOverviewSheet: View {
 
 private struct QuestionBankMaterialBody: View {
     let material: QuestionBankMaterial
-    let imageAsset: QuestionBankRecord?
+    let imageAsset: QuestionBankAssetReference?
     var showsHeading = true
 
     var body: some View {
@@ -3883,7 +4265,7 @@ private struct QuestionBankOptionRow: View {
     let isInteractionBlocked: Bool
     var showsGraphLayout = false
     let onSelect: () -> Void
-    let assetLookup: (String) -> QuestionBankRecord?
+    let assetLookup: (String) -> QuestionBankAssetReference?
 
     var body: some View {
         if readingMode == .practice {
@@ -4025,43 +4407,77 @@ private struct QuestionBankQuestionAnnotationBadges: View {
 
 private struct QuestionBankAnswerFollowUpAction: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(filter: #Predicate<StoredRecord> { $0.collection == "errors" })
-    private var errorRecords: [StoredRecord]
 
     let analysis: QuestionBankQuestionAnalysisContext
+    var categoryOverride: QuestionBankErrorBookCategory? = nil
 
     @State private var isSaving = false
-    @State private var statusMessage = ""
+    @State private var linkResolution: QuestionBankErrorBookLinkResolution?
+    @State private var linkLookupError: String?
+    @State private var linkLookupGeneration = 0
     @State private var errorMessage = ""
 
-    private var question: QuestionBankQuestion { analysis.currentQuestion }
+    private var question: QuestionBankQuestion { analysis.question }
     private var category: QuestionBankErrorBookCategory {
-        analysis.selectedOptionID == question.answer ? .uncertain : .wrong
+        categoryOverride ?? (analysis.selectedOptionID == question.answer ? .uncertain : .wrong)
     }
 
-    private var existingRecord: StoredRecord? {
-        errorRecords.first { record in
-            guard let payload = record.jsonObject else { return false }
-            return payload["questionBankPaperID"] as? String == question.paperID
-                && payload["questionBankQuestionID"] as? String == question.id
-        }
+    private var linkLookupID: String {
+        let linkedIDs = (question.linkedErrorRecordIDs ?? []).sorted().joined(separator: ",")
+        return "\(question.paperID)|\(question.id)|\(linkedIDs)|\(linkLookupGeneration)"
     }
 
     private var buttonTitle: String {
-        if existingRecord != nil || !statusMessage.isEmpty { return "已加入错题本" }
-        return category == .wrong ? "加入错题本" : "加入不确定题"
+        if let linkLookupError { return linkLookupError.isEmpty ? "重试检查" : "重试检查错题本" }
+        switch linkResolution?.state {
+        case .some(.linked): return "已加入错题本"
+        case .some(.identityConflict): return "错题记录标识冲突"
+        case .some(.unlinked):
+            switch category {
+            case .wrong: "加入错题本"
+            case .uncertain: "加入不确定题"
+            case .cannotSolve: "标记不会做"
+            }
+        case .none: return "正在检查错题记录…"
+        }
+    }
+
+    private var buttonIcon: String {
+        if linkLookupError != nil { return "arrow.clockwise" }
+        switch linkResolution?.state {
+        case .some(.linked): return "checkmark.circle.fill"
+        case .some(.identityConflict): return "exclamationmark.triangle"
+        case .some(.unlinked): return "plus.circle"
+        case .none: return "hourglass"
+        }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Button(action: addToErrorBook) {
-                Label(buttonTitle, systemImage: existingRecord == nil ? "plus.circle" : "checkmark.circle.fill")
+            Button {
+                if linkLookupError != nil {
+                    retryLinkLookup()
+                } else {
+                    addToErrorBook()
+                }
+            } label: {
+                Label(buttonTitle, systemImage: buttonIcon)
                     .font(AppTheme.auxiliaryFont.weight(.medium))
             }
             .buttonStyle(.bordered)
-            .disabled(existingRecord != nil || !statusMessage.isEmpty || isSaving)
+            .disabled(isSaving || (linkLookupError == nil && linkResolution?.state != .unlinked))
             .accessibilityIdentifier("question-bank-error-book-action-\(question.id)")
 
+            if let state = linkResolution?.state, case .identityConflict = state {
+                Text("已有错题记录使用了这道题的标识；为避免重复或误关联，未新增记录。")
+                    .font(AppTheme.auxiliaryFont)
+                    .foregroundStyle(AppTheme.danger)
+            }
+            if let linkLookupError {
+                Text("错题关联状态读取失败：\(linkLookupError)")
+                    .font(AppTheme.auxiliaryFont)
+                    .foregroundStyle(AppTheme.danger)
+            }
             if !errorMessage.isEmpty {
                 Text(errorMessage)
                     .font(AppTheme.auxiliaryFont)
@@ -4069,21 +4485,89 @@ private struct QuestionBankAnswerFollowUpAction: View {
                     .accessibilityIdentifier("question-bank-error-book-error-\(question.id)")
             }
         }
+        .task(id: linkLookupID) {
+            linkResolution = nil
+            linkLookupError = nil
+            let question = analysis.question
+            let container = modelContext.container
+            do {
+                let resolution = try await QuestionBankErrorBookLinkIndex.shared.resolve(
+                    question: question,
+                    container: container
+                )
+                guard !Task.isCancelled else { return }
+                linkResolution = resolution
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                linkLookupError = error.localizedDescription
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: QuestionBankRecordChangeSignal.notification)) { notification in
+            guard QuestionBankRecordChangeSignal.affects(question.paperID, notification: notification) else { return }
+            let changes = QuestionBankRecordChangeSignal.recordChanges(
+                for: question.paperID,
+                notification: notification
+            )
+            let shouldInvalidate = changes == nil || changes?.contains(where: {
+                $0.kind == .structure || ($0.kind == .questionLinks && $0.recordID == question.id)
+            }) == true
+            guard shouldInvalidate else { return }
+            let paperID = question.paperID
+            let questionID = question.id
+            let container = modelContext.container
+            Task { @MainActor in
+                await QuestionBankErrorBookLinkIndex.shared.invalidateResolution(
+                    paperID: paperID,
+                    questionID: questionID,
+                    container: container
+                )
+                linkLookupGeneration &+= 1
+            }
+        }
+    }
+
+    private func retryLinkLookup() {
+        linkLookupError = nil
+        linkLookupGeneration &+= 1
     }
 
     private func addToErrorBook() {
-        guard existingRecord == nil, !isSaving else { return }
+        guard !isSaving,
+              let linkResolution,
+              linkResolution.state == .unlinked else { return }
         isSaving = true
         errorMessage = ""
         defer { isSaving = false }
         do {
+            let resolvedAnalysis: QuestionBankQuestionAnalysisContext
+            if analysis.record.payload.isEmpty {
+                let compoundID = analysis.record.compoundID
+                var descriptor = FetchDescriptor<QuestionBankRecord>(
+                    predicate: #Predicate { $0.compoundID == compoundID }
+                )
+                descriptor.fetchLimit = 1
+                guard let record = try modelContext.fetch(descriptor).first else {
+                    throw QuestionBankErrorBookAddFailure.missingQuestion
+                }
+                resolvedAnalysis = analysis.replacingRecord(record)
+            } else {
+                resolvedAnalysis = analysis
+            }
+            let question = resolvedAnalysis.currentQuestion
             switch try QuestionBankErrorBookRepository.add(
-                analysis: analysis,
+                analysis: resolvedAnalysis,
+                question: question,
                 category: category,
+                candidateRecordIDs: linkResolution.candidateRecordIDs,
                 context: modelContext
             ) {
-            case .added, .alreadyAdded:
-                statusMessage = "已加入错题本"
+            case .added(let recordID), .alreadyAdded(let recordID):
+                self.linkResolution = QuestionBankErrorBookLinkResolution(
+                    state: .linked(recordID: recordID),
+                    candidateRecordIDs: Array(Set(linkResolution.candidateRecordIDs + [recordID])).sorted()
+                )
             }
         } catch {
             errorMessage = "加入失败：\(error.localizedDescription)"
@@ -4266,8 +4750,9 @@ struct QuestionBankLocalImage: View {
         case overview
     }
 
-    let asset: QuestionBankRecord
+    let asset: QuestionBankAssetReference
     var sizing: Sizing = .material
+    var activationTab: RootTab = .questionBank
 
     @Environment(\.displayScale) private var displayScale
     @Environment(\.rootTabSelection) private var rootTabSelection
@@ -4322,10 +4807,10 @@ struct QuestionBankLocalImage: View {
                     .frame(height: 72)
             }
         }
-        .task(id: "\(requestKey)|\(rootTabSelection.wrappedValue.rawValue)") {
+        .task(id: "\(requestKey)|\(rootTabSelection.wrappedValue.rawValue)|\(activationTab.rawValue)") {
             image = nil
             failedToLoad = false
-            guard rootTabSelection.wrappedValue == .questionBank else { return }
+            guard rootTabSelection.wrappedValue == activationTab else { return }
             guard let url = QuestionBankAssetStore.url(for: asset.assetRelativePath) else {
                 failedToLoad = true
                 return

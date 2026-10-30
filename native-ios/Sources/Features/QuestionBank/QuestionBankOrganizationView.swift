@@ -8,15 +8,15 @@ struct QuestionBankPaperOrganizationView: View {
 
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var store: QuestionBankOrganizationStore
-    let papers: [QuestionBankHomePaper]
+    let papers: [QuestionBankCatalogPaperSummary]
 
     @State private var groupEditor: GroupEditor?
     @State private var groupEditorName = ""
     @State private var groupEditorError: String?
     @State private var deletingGroupID: String?
 
-    private var papersByID: [String: QuestionBankHomePaper] {
-        Dictionary(papers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    private var papersByID: [String: QuestionBankCatalogPaperSummary] {
+        Dictionary(papers.map { ($0.paperID, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     var body: some View {

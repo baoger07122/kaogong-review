@@ -719,7 +719,9 @@ struct QuestionBankNumberStatusCircle: View {
 
 struct QuestionBankReferenceAccuracyControl: View {
     @Environment(\.modelContext) private var modelContext
-    let record: QuestionBankRecord
+    let record: QuestionBankRecord?
+    let paperID: String
+    let questionID: String
     let accuracy: Double?
 
     @State private var isEditing = false
@@ -728,6 +730,16 @@ struct QuestionBankReferenceAccuracyControl: View {
 
     init(record: QuestionBankRecord, accuracy: Double?) {
         self.record = record
+        paperID = record.paperID
+        questionID = record.stableID
+        self.accuracy = accuracy
+        _editingValue = State(initialValue: accuracy.map(QuestionBankReferenceAccuracyFormat.numberText) ?? "")
+    }
+
+    init(paperID: String, questionID: String, accuracy: Double?) {
+        record = nil
+        self.paperID = paperID
+        self.questionID = questionID
         self.accuracy = accuracy
         _editingValue = State(initialValue: accuracy.map(QuestionBankReferenceAccuracyFormat.numberText) ?? "")
     }
@@ -745,7 +757,7 @@ struct QuestionBankReferenceAccuracyControl: View {
                     .accessibilityValue(QuestionBankReferenceAccuracyFormat.percentageText(accuracy))
                     .accessibilityHint("长按编辑或清除")
                     .accessibilityAction(named: Text("编辑或清除参考正确率"), beginEditing)
-                    .accessibilityIdentifier("question-bank-reference-accuracy-value-\(record.stableID)")
+                    .accessibilityIdentifier("question-bank-reference-accuracy-value-\(questionID)")
             } else {
                 Text("参考正确率：未录入")
                     .foregroundStyle(.secondary)
@@ -758,7 +770,7 @@ struct QuestionBankReferenceAccuracyControl: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(AppTheme.accent)
                 .accessibilityLabel("编辑参考正确率")
-                .accessibilityIdentifier("question-bank-reference-accuracy-edit-\(record.stableID)")
+                .accessibilityIdentifier("question-bank-reference-accuracy-edit-\(questionID)")
             }
         }
         .font(AppTheme.auxiliaryFont)
@@ -821,11 +833,20 @@ struct QuestionBankReferenceAccuracyControl: View {
 
     private func persist(_ value: Double?) {
         do {
-            try QuestionBankRepository.updateReferenceAccuracy(
-                record: record,
-                accuracy: value,
-                context: modelContext
-            )
+            if let record {
+                try QuestionBankRepository.updateReferenceAccuracy(
+                    record: record,
+                    accuracy: value,
+                    context: modelContext
+                )
+            } else {
+                try QuestionBankRepository.updateReferenceAccuracy(
+                    paperID: paperID,
+                    questionID: questionID,
+                    accuracy: value,
+                    context: modelContext
+                )
+            }
             errorMessage = nil
             isEditing = false
         } catch {

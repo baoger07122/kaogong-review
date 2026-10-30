@@ -4,14 +4,75 @@ import SwiftData
 enum QuestionBankRecordChangeSignal {
     static let notification = Notification.Name("QuestionBankRecordsDidChange")
     static let paperIDsKey = "paperIDs"
+    static let recordChangesKey = "recordChanges"
 
-    @MainActor
+    enum Kind: String, Equatable, Sendable {
+        case structure
+        case questionContent
+        case questionAnalysis
+        case questionLinks
+    }
+
+    struct RecordChange: Equatable, Sendable {
+        let paperID: String
+        let recordID: String
+        let kind: Kind
+
+        fileprivate var userInfoValue: [String: String] {
+            ["paperID": paperID, "recordID": recordID, "kind": kind.rawValue]
+        }
+    }
+
+    /// Legacy broad invalidation. Readers treat events without `recordChanges` as structural.
     static func post(paperIDs: Set<String>) {
         NotificationCenter.default.post(
             name: notification,
             object: nil,
             userInfo: [paperIDsKey: Array(paperIDs)]
         )
+    }
+
+    static func postQuestionChange(paperID: String, questionID: String, kind: Kind = .questionContent) {
+        post(recordChanges: [RecordChange(paperID: paperID, recordID: questionID, kind: kind)])
+    }
+
+    static func postStructureChange(paperIDs: Set<String>) {
+        post(recordChanges: paperIDs.sorted().map {
+            RecordChange(paperID: $0, recordID: "", kind: .structure)
+        })
+    }
+
+    static func post(recordChanges: [RecordChange]) {
+        let paperIDs = Set(recordChanges.map(\.paperID))
+        NotificationCenter.default.post(
+            name: notification,
+            object: nil,
+            userInfo: [
+                paperIDsKey: Array(paperIDs),
+                recordChangesKey: recordChanges.map(\.userInfoValue)
+            ]
+        )
+    }
+
+    /// `nil` means an older producer sent only paper IDs and requires a broad refresh.
+    static func recordChanges(for paperID: String, notification: Notification) -> [RecordChange]? {
+        recordChanges(notification: notification)?.filter { $0.paperID == paperID }
+    }
+
+    static func recordChanges(notification: Notification) -> [RecordChange]? {
+        guard let rawChanges = notification.userInfo?[recordChangesKey] as? [[String: String]] else {
+            return nil
+        }
+        guard !rawChanges.isEmpty else { return nil }
+        let changes = rawChanges.compactMap { value -> RecordChange? in
+            guard let changedPaperID = value["paperID"],
+                  let recordID = value["recordID"],
+                  let rawKind = value["kind"],
+                  let kind = Kind(rawValue: rawKind) else { return nil }
+            return RecordChange(paperID: changedPaperID, recordID: recordID, kind: kind)
+        }
+        guard changes.count == rawChanges.count else { return nil }
+        return changes
     }
 
     static func affects(_ paperID: String, notification: Notification) -> Bool {
@@ -22,6 +83,14 @@ enum QuestionBankRecordChangeSignal {
     static func affectsAny(_ paperIDs: [String], notification: Notification) -> Bool {
         guard let changedPaperIDs = notification.userInfo?[paperIDsKey] as? [String] else { return true }
         return paperIDs.isEmpty || changedPaperIDs.isEmpty || !Set(changedPaperIDs).isDisjoint(with: paperIDs)
+    }
+
+    /// Nil signals an older untyped event and requires a broad compatibility reload.
+    /// Typed analysis/link events produce an empty array because they do not affect
+    /// the home directory's search or filter metadata.
+    static func catalogChanges(notification: Notification) -> [RecordChange]? {
+        guard let changes = recordChanges(notification: notification) else { return nil }
+        return changes.filter { $0.kind == .structure || $0.kind == .questionContent }
     }
 }
 

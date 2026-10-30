@@ -349,12 +349,25 @@ private struct LibraryErrorRecordCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !snapshot.sourceDisplay.isEmpty {
-                Text(snapshot.sourceDisplay)
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if !snapshot.sourceDisplay.isEmpty || errorBookCategory != nil {
+                HStack(spacing: 6) {
+                    if !snapshot.sourceDisplay.isEmpty {
+                        Text(snapshot.sourceDisplay)
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Spacer(minLength: 0)
+                    }
+                    if let errorBookCategory {
+                        Text(errorBookCategory)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(errorBookCategoryColor)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(errorBookCategoryColor.opacity(0.09), in: Capsule())
+                    }
+                }
             }
 
             images
@@ -375,19 +388,6 @@ private struct LibraryErrorRecordCard: View {
                             .lineSpacing(2)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                }
-            }
-
-            if isQuantityRelations {
-                let type = QuantityQuestionTypeCatalog.displayName(for: snapshot.record.module)
-                if type != "未分类" {
-                    tagLine(
-                        label: "题型",
-                        values: [type],
-                        foreground: AppTheme.accent,
-                        background: AppTheme.accent.opacity(0.10),
-                        weight: .medium
-                    )
                 }
             }
 
@@ -538,6 +538,19 @@ private struct LibraryErrorRecordCard: View {
     }
 
     private var isQuantityRelations: Bool { snapshot.record.subject == "数量关系" }
+
+    private var errorBookCategory: String? {
+        QuestionBankErrorBookCategory.allCases.first { $0.rawValue == snapshot.category }?.rawValue
+    }
+
+    private var errorBookCategoryColor: Color {
+        switch errorBookCategory {
+        case .some("错题"): AppTheme.danger
+        case .some("不确定题"): AppTheme.warning
+        case .some("不会做"): AppTheme.accent
+        default: .secondary
+        }
+    }
 
     private var knowledgePointLabel: String { isLogicJudgment ? "结构" : "考点" }
     private var errorCauseLabel: String {

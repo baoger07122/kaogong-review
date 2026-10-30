@@ -92,6 +92,7 @@ final class StoredRecord {
                 "question", "title", "type", "category", "isShenlun", "createdAt", "updatedAt", "lastReviewDate",
                 "questionSource", "questionNumber", "sourceYear", "sourceExamType", "sourceRegion",
                 "accuracy", "reviewCount", "sourceExamId", "pitfall", "linkedWordIds", "options",
+                "questionBankPaperID", "questionBankQuestionID",
                 "shenlunFormatVersion",
                 "quantityStructure", "weaknessTags"
             ]

@@ -97,8 +97,8 @@ struct QuestionBankBatchPackageManifestV1: Codable, Equatable, Sendable {
     }
 }
 
-struct QuestionBankBatchPackagePlan: Identifiable, Sendable {
-    let id = UUID()
+struct QuestionBankBatchPackagePlan: Codable, Identifiable, Sendable {
+    var id = UUID()
     var manifest: QuestionBankBatchPackageManifestV1
     var paperPlans: [QuestionBankImportPlan]
     var stagingDirectory: URL?
@@ -159,32 +159,6 @@ struct QuestionBankBatchPackageExportSnapshot: Sendable {
     var assetRoot: URL
 }
 
-private struct QuestionBankBatchPayloadBackupDocument: Encodable {
-    struct Entry: Encodable {
-        var compoundID: String
-        var paperID: String
-        var kind: String
-        var stableID: String
-        var payloadBase64: String
-        var payloadSHA256: String
-
-        init(row: QuestionBankRecord) {
-            compoundID = row.compoundID
-            paperID = row.paperID
-            kind = row.kind
-            stableID = row.stableID
-            payloadBase64 = row.payload.base64EncodedString()
-            payloadSHA256 = SHA256.hash(data: row.payload).map { String(format: "%02x", $0) }.joined()
-        }
-    }
-
-    var format = "kaogong-question-bank-payload-backup"
-    var schemaVersion = 1
-    var createdAt: String
-    var sourcePackageSHA256: String
-    var records: [Entry]
-}
-
 enum QuestionBankBatchPackageFailure: LocalizedError {
     case invalidArchive(String)
     case invalidManifest(String)
@@ -219,17 +193,23 @@ enum QuestionBankBatchPackageImporter {
 
     static func prepare(
         from sourceURL: URL,
-        onProgress: @escaping @Sendable (QuestionBankImportPhase) -> Void = { _ in }
+        stagingDirectory: URL? = nil,
+        onProgress: @escaping @Sendable (QuestionBankImportPhase) -> Void = { _ in },
+        onWorkProgress: @escaping @Sendable (QuestionBankImportWorkProgress) -> Void = { _ in }
     ) throws -> QuestionBankBatchPackagePlan {
         guard sourceURL.isFileURL else {
             throw QuestionBankBatchPackageFailure.invalidArchive("请选择本地 ZIP 文件。")
         }
-        let stageRoot = FileManager.default.temporaryDirectory
+        let stageRoot = stagingDirectory ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("QuestionBankBatchImport-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: stageRoot, withIntermediateDirectories: true)
         do {
             onProgress(.parsing)
-            let extractedFiles = try extract(sourceURL, to: stageRoot)
+            let extractedFiles = try extract(sourceURL, to: stageRoot) { processed, total in
+                onWorkProgress(QuestionBankImportWorkProgress(
+                    phase: .parsing, processedCount: processed, totalCount: total
+                ))
+            }
             try Task.checkCancellation()
             guard let manifestURL = QuestionBankAssetStore.url(for: "manifest.json", under: stageRoot),
                   FileManager.default.fileExists(atPath: manifestURL.path) else {
@@ -253,6 +233,11 @@ enum QuestionBankBatchPackageImporter {
                 )
             }
             onProgress(.validatingImages)
+            let validationTotal = max(1, manifest.papers.count + manifest.assets.count)
+            var validationCompleted = 0
+            onWorkProgress(QuestionBankImportWorkProgress(
+                phase: .validatingImages, processedCount: 0, totalCount: validationTotal
+            ))
 
             var paperPlans: [QuestionBankImportPlan] = []
             var imageByteTotal: Int64 = 0
@@ -339,6 +324,12 @@ enum QuestionBankBatchPackageImporter {
                         withIntermediateDirectories: true
                     )
                     try data.write(to: destination, options: .atomic)
+                    validationCompleted += 1
+                    onWorkProgress(QuestionBankImportWorkProgress(
+                        phase: .validatingImages,
+                        processedCount: validationCompleted,
+                        totalCount: validationTotal
+                    ))
                     assets.append(QuestionBankAsset(
                         id: assetEntry.id,
                         paperID: assetEntry.paperID,
@@ -380,6 +371,12 @@ enum QuestionBankBatchPackageImporter {
                     decodedImageByteCount: paperImageByteCount,
                     largestDecodedImageByteCount: paperLargestImageByteCount
                 ))
+                validationCompleted += 1
+                onWorkProgress(QuestionBankImportWorkProgress(
+                    phase: .validatingImages,
+                    processedCount: validationCompleted,
+                    totalCount: validationTotal
+                ))
             }
 
             onProgress(.preparingPreview)
@@ -417,7 +414,11 @@ enum QuestionBankBatchPackageImporter {
         try? FileManager.default.removeItem(at: stage)
     }
 
-    private static func extract(_ source: URL, to stage: URL) throws -> Set<String> {
+    private static func extract(
+        _ source: URL,
+        to stage: URL,
+        onProgress: @escaping (Int, Int) -> Void = { _, _ in }
+    ) throws -> Set<String> {
         guard let archive = Archive(url: source, accessMode: .read) else {
             throw QuestionBankBatchPackageFailure.invalidArchive("无法打开 ZIP 文件。")
         }
@@ -428,7 +429,8 @@ enum QuestionBankBatchPackageImporter {
         var seenPaths = Set<String>()
         var extractedFiles = Set<String>()
         var expandedBytes: UInt64 = 0
-        for entry in entries {
+        for (entryIndex, entry) in entries.enumerated() {
+            defer { onProgress(entryIndex + 1, entries.count) }
             try Task.checkCancellation()
             let path = entry.path
             let normalizedPath = entry.type == .directory ? path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) : path
@@ -613,11 +615,28 @@ enum QuestionBankBatchPackageImporter {
     }
 }
 
-@MainActor
 enum QuestionBankBatchPackageRepository {
     static func updatePreview(
         for package: QuestionBankBatchPackagePlan,
-        records: [QuestionBankRecord]
+        records: [QuestionBankRecord],
+        globalQuestionOwners: [String: Set<String>]? = nil
+    ) -> QuestionBankBatchPackageUpdatePreview {
+        let storedRows = records.map { row in
+            QuestionBankStoredRow(
+                compoundID: row.compoundID, paperID: row.paperID, kind: row.kind, stableID: row.stableID,
+                moduleID: row.moduleID, questionNumber: row.questionNumber, sequence: row.sequence,
+                year: row.year, examType: row.examType, normalizedPaperKey: row.normalizedPaperKey,
+                title: row.title, searchText: row.searchText, payload: row.payload,
+                contentRevision: row.contentRevision, assetRelativePath: row.assetRelativePath
+            )
+        }
+        return updatePreview(for: package, storedRows: storedRows, globalQuestionOwners: globalQuestionOwners)
+    }
+
+    static func updatePreview(
+        for package: QuestionBankBatchPackagePlan,
+        storedRows records: [QuestionBankStoredRow],
+        globalQuestionOwners: [String: Set<String>]? = nil
     ) -> QuestionBankBatchPackageUpdatePreview {
         var questionIDsByPaper: [String: Set<String>] = [:]
         for plan in package.paperPlans {
@@ -675,7 +694,12 @@ enum QuestionBankBatchPackageRepository {
                     }
                 }
             }
-            if conflict == nil {
+            if conflict == nil, let globalQuestionOwners {
+                for question in plan.questions where (globalQuestionOwners[question.id] ?? []).contains(where: { $0 != paperID }) {
+                    conflict = "questionID \(question.id) 已属于另一套试卷。"
+                    break
+                }
+            } else if conflict == nil {
                 for question in plan.questions {
                     if records.contains(where: {
                         $0.kind == QuestionBankRepository.questionKind
@@ -703,33 +727,85 @@ enum QuestionBankBatchPackageRepository {
         return QuestionBankBatchPackageUpdatePreview(papers: statuses)
     }
 
+    private static func sameEligibility(
+        _ left: QuestionBankBatchPackageUpdatePreview,
+        _ right: QuestionBankBatchPackageUpdatePreview
+    ) -> Bool {
+        guard left.papers.count == right.papers.count else { return false }
+        return zip(left.papers, right.papers).allSatisfy { pair in
+            let (lhs, rhs) = pair
+            return lhs.paperID == rhs.paperID
+                && lhs.canUpdate == rhs.canUpdate
+                && lhs.newQuestionKeys == rhs.newQuestionKeys
+        }
+    }
+
     static func commit(
         _ package: QuestionBankBatchPackagePlan,
         confirmedNewQuestionKeys: Set<QuestionBankBatchQuestionKey>,
         records: [QuestionBankRecord],
         context: ModelContext,
-        assetRoot: URL? = nil
+        assetRoot: URL? = nil,
+        globalQuestionOwners: [String: Set<String>]? = nil,
+        expectedSnapshotToken: String? = nil,
+        importJobID: String? = nil,
+        oldGenerationPaths: [String] = [],
+        onAssetProgress: (@Sendable (Int, Int) -> Void)? = nil,
+        onProgress: (@Sendable (Int, Int) -> Void)? = nil
     ) throws -> QuestionBankBatchPackageCommitResult {
         guard package.canImport else {
             throw QuestionBankBatchPackageFailure.invalidTarget("批量包没有通过全部结构与图片校验。")
         }
-        let preview = updatePreview(for: package, records: records)
+        let incomingQuestionIDs = Set(package.paperPlans.flatMap { $0.questions.map(\.id) })
+        let resolvedQuestionOwners = try globalQuestionOwners ?? QuestionBankCatalogService.questionOwners(
+            forQuestionIDs: incomingQuestionIDs,
+            in: context
+        )
+        var preview = updatePreview(
+            for: package,
+            records: records,
+            globalQuestionOwners: resolvedQuestionOwners
+        )
         guard preview.updatablePaperCount > 0 else {
             throw QuestionBankBatchPackageFailure.noEligibleUpdates
         }
 
         let root = try assetRoot ?? QuestionBankAssetStore.root()
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let expectedAssetHashes: [String: String]
+        if let importJobID,
+           let job = try QuestionBankImportJobStore.fetch(importJobID, in: context),
+           let hashes = job.stagedAssetHashes,
+           let decoded = try? JSONDecoder().decode([String: String].self, from: hashes) {
+            expectedAssetHashes = decoded
+        } else {
+            expectedAssetHashes = [:]
+        }
         var stagedGenerations: [URL] = []
+        var generationByPaperID: [String: String] = [:]
         var oldGenerations = Set<String>()
         var rowsToApply: [QuestionBankStoredRow] = []
         var updatedPaperCount = 0
         var updatedQuestionCount = 0
         var addedQuestionCount = 0
-        let existingByCompoundID = Dictionary(
-            records.map { ($0.compoundID, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
+        let includedAssetCount = package.paperPlans.enumerated().reduce(into: 0) { count, entry in
+            let (index, plan) = entry
+            guard index < preview.papers.count, preview.papers[index].canUpdate,
+                  let paper = plan.paper else { return }
+            let status = preview.papers[index]
+            let confirmedKeys = Set(confirmedNewQuestionKeys.filter { $0.paperID == paper.id })
+            let newQuestionIDs = Set(status.newQuestionKeys.filter(confirmedKeys.contains).map(\.questionID))
+            let existingQuestionIDs = Set(plan.questions.map(\.id))
+                .subtracting(Set(status.newQuestionKeys.map(\.questionID)))
+            let includedQuestionIDs = existingQuestionIDs.union(newQuestionIDs)
+            let includedMaterialIDs = Set(plan.materials.map(\.id))
+            count += Set(plan.assets.filter { asset in
+                if asset.ownerType == "material" { return includedMaterialIDs.contains(asset.ownerID) }
+                return includedQuestionIDs.contains(asset.ownerID)
+            }.map(\.id)).count
+        }
+        var copiedAssets = 0
+        if includedAssetCount > 0 { onAssetProgress?(0, includedAssetCount) }
 
         do {
             for (index, plan) in package.paperPlans.enumerated() {
@@ -746,6 +822,7 @@ enum QuestionBankBatchPackageRepository {
                 let includedQuestionIDs = existingQuestionIDs.union(newQuestionIDs)
 
                 let generation = "\(QuestionBankRepository.safePathComponent(paper.id))-\(UUID().uuidString.lowercased())"
+                generationByPaperID[paper.id] = generation
                 let allRows = try QuestionBankRepository.makeRows(from: plan, generation: generation)
                 let includedMaterials = Set(plan.materials.map(\.id))
                 let includedRows = allRows.filter { row in
@@ -771,8 +848,14 @@ enum QuestionBankBatchPackageRepository {
                     guard let generationURL else {
                         throw QuestionBankBatchPackageFailure.unsafePath(generation)
                     }
-                    try FileManager.default.createDirectory(at: generationURL, withIntermediateDirectories: true)
                     stagedGenerations.append(generationURL)
+                    if let importJobID {
+                        try QuestionBankImportJobStore.update(importJobID, in: context.container) { job in
+                            let prior = (try? JSONDecoder().decode([String].self, from: job.stagedGenerationPaths ?? Data())) ?? []
+                            job.stagedGenerationPaths = try JSONEncoder().encode(Array(Set(prior + [generation])).sorted())
+                        }
+                    }
+                    try FileManager.default.createDirectory(at: generationURL, withIntermediateDirectories: true)
                     for assetID in includedAssetIDs {
                         guard let asset = assetsByID[assetID] else {
                             throw QuestionBankBatchPackageFailure.invalidTarget("缺少图片资源记录：\(assetID)。")
@@ -788,12 +871,75 @@ enum QuestionBankBatchPackageRepository {
                             at: destination.deletingLastPathComponent(),
                             withIntermediateDirectories: true
                         )
+                        let sourceHash = try QuestionBankImportJobStore.sha256(fileAt: source)
+                        if importJobID != nil,
+                           expectedAssetHashes["\(paper.id)/\(asset.path)"] != sourceHash {
+                            throw QuestionBankImportJobFailure.stagedAssetChanged(asset.path)
+                        }
                         try FileManager.default.copyItem(at: source, to: destination)
+                        guard try QuestionBankImportJobStore.sha256(fileAt: destination) == sourceHash else {
+                            throw QuestionBankImportJobFailure.stagedAssetChanged(asset.path)
+                        }
+                        copiedAssets += 1
+                        onAssetProgress?(copiedAssets, includedAssetCount)
                     }
                 }
 
-                let localRows = records.filter { $0.paperID == paper.id }
-                oldGenerations.formUnion(localRows.compactMap { row in
+            }
+
+            let writePermit = try QuestionBankWriteCoordinator.acquire()
+            defer { writePermit.release() }
+            let commitContext = importJobID == nil ? context : ModelContext(context.container)
+            let freshSnapshot = try QuestionBankImportSnapshotBuilder.batch(package: package, in: commitContext)
+            if let expectedSnapshotToken, freshSnapshot.revisionToken != expectedSnapshotToken {
+                throw QuestionBankImportJobFailure.stalePreview
+            }
+            let freshRecords = freshSnapshot.records
+            let freshPreview = updatePreview(
+                for: package,
+                records: freshRecords,
+                globalQuestionOwners: freshSnapshot.globalQuestionOwners
+            )
+            if expectedSnapshotToken == nil,
+               !Self.sameEligibility(preview, freshPreview) {
+                throw QuestionBankImportJobFailure.stalePreview
+            }
+            preview = freshPreview
+            let existingByCompoundID = Dictionary(
+                freshRecords.map { ($0.compoundID, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            for (index, plan) in package.paperPlans.enumerated() {
+                guard index < preview.papers.count else { continue }
+                let status = preview.papers[index]
+                guard status.canUpdate, let paper = plan.paper,
+                      let generation = generationByPaperID[paper.id] else { continue }
+                let confirmedKeys = Set(confirmedNewQuestionKeys.filter { $0.paperID == paper.id })
+                let newQuestionIDs = Set(status.newQuestionKeys
+                    .filter(confirmedKeys.contains)
+                    .map(\.questionID))
+                let existingQuestionIDs = Set(plan.questions.map(\.id))
+                    .subtracting(Set(status.newQuestionKeys.map(\.questionID)))
+                let includedQuestionIDs = existingQuestionIDs.union(newQuestionIDs)
+                let allRows = try QuestionBankRepository.makeRows(from: plan, generation: generation)
+                let includedMaterials = Set(plan.materials.map(\.id))
+                let includedRows = allRows.filter { row in
+                    switch row.kind {
+                    case QuestionBankRepository.paperKind,
+                         QuestionBankRepository.moduleKind,
+                         QuestionBankRepository.materialKind:
+                        return true
+                    case QuestionBankRepository.questionKind:
+                        return includedQuestionIDs.contains(row.stableID)
+                    case QuestionBankRepository.assetKind:
+                        guard let asset = plan.assets.first(where: { $0.id == row.stableID }) else { return false }
+                        if asset.ownerType == "material" { return includedMaterials.contains(asset.ownerID) }
+                        return includedQuestionIDs.contains(asset.ownerID)
+                    default:
+                        return false
+                    }
+                }
+                oldGenerations.formUnion(freshRecords.filter { $0.paperID == paper.id }.compactMap { row in
                     guard row.kind == QuestionBankRepository.assetKind, let path = row.assetRelativePath else { return nil }
                     return path.split(separator: "/").first.map(String.init)
                 })
@@ -802,11 +948,7 @@ enum QuestionBankBatchPackageRepository {
                         guard old.paperID == row.paperID, old.kind == row.kind, old.stableID == row.stableID else {
                             throw QuestionBankBatchPackageFailure.invalidTarget("发现实体 ID 与本机记录冲突。")
                         }
-                        row.payload = try mergedPayload(
-                            incoming: row.payload,
-                            existing: old.payload,
-                            kind: row.kind
-                        )
+                        row.payload = try mergedPayload(incoming: row.payload, existing: old.payload, kind: row.kind)
                         if row.kind == QuestionBankRepository.questionKind,
                            let question = try? JSONDecoder().decode(QuestionBankQuestion.self, from: row.payload) {
                             row.searchText = ([String(question.number), question.stem]
@@ -826,45 +968,113 @@ enum QuestionBankBatchPackageRepository {
                 throw QuestionBankBatchPackageFailure.noEligibleUpdates
             }
             let finalRowsByID = Dictionary(rowsToApply.map { ($0.compoundID, $0) }, uniquingKeysWith: { first, _ in first })
-            let existingRowsToUpdate = records.filter { finalRowsByID[$0.compoundID] != nil }
-            let payloadBackupURL = try persistPayloadBackup(
-                existingRowsToUpdate,
-                sourcePackageSHA256: package.sourceFileSHA256
-            )
+            let updatedPaperIDs = Set(finalRowsByID.values.map(\.paperID))
+            let existingRowsToUpdate = freshRecords.filter { updatedPaperIDs.contains($0.paperID) }
+            var payloadBackupFileName = ""
+            var payloadBackupReference: QuestionBankImportPayloadBackupReference?
             do {
-                try context.transaction {
+                try commitContext.transaction {
+                    if let expectedSnapshotToken {
+                        let transactionSnapshot = try QuestionBankImportSnapshotBuilder.batch(
+                            package: package,
+                            in: commitContext
+                        )
+                        guard transactionSnapshot.revisionToken == expectedSnapshotToken else {
+                            throw QuestionBankImportJobFailure.stalePreview
+                        }
+                    }
+                    let backupJobID = importJobID ?? UUID().uuidString.lowercased()
+                    let backupReference = try QuestionBankImportPayloadBackupStore.persist(
+                        existingRowsToUpdate,
+                        sourceFileSHA256: package.sourceFileSHA256,
+                        jobID: backupJobID,
+                        assetRoot: root
+                    )
+                    try QuestionBankImportPayloadBackupStore.verify(backupReference, jobID: backupJobID)
+                    payloadBackupReference = backupReference
+                    payloadBackupFileName = backupReference.relativePath
+                    var processed = 0
+                    let total = max(1, finalRowsByID.count)
                     for row in finalRowsByID.values {
                         if let existing = existingByCompoundID[row.compoundID] {
-                            existing.update(from: row)
+                            var mergedRow = row
+                            if row.kind == QuestionBankRepository.questionKind {
+                                mergedRow.payload = try mergedPayload(
+                                    incoming: row.payload,
+                                    existing: existing.payload,
+                                    kind: row.kind
+                                )
+                                if let question = try? JSONDecoder().decode(QuestionBankQuestion.self, from: mergedRow.payload) {
+                                    mergedRow.searchText = QuestionBankRepository.questionSearchText(question)
+                                }
+                            }
+                            existing.update(from: mergedRow)
                         } else {
-                            context.insert(row.makeRecord())
+                            commitContext.insert(row.makeRecord())
                         }
+                        processed += 1
+                        if let importJobID,
+                           let job = try QuestionBankImportJobStore.fetch(importJobID, in: commitContext) {
+                            job.processedCount = processed
+                            job.totalCount = total
+                        }
+                        onProgress?(processed, total)
+                    }
+                    for paperID in updatedPaperIDs {
+                        try QuestionBankCatalogService.refreshPaper(paperID, context: commitContext)
+                    }
+                    if let importJobID,
+                       let job = try QuestionBankImportJobStore.fetch(importJobID, in: commitContext) {
+                        job.phase = QuestionBankImportJobPhase.completed.rawValue
+                        job.phaseLabel = "批量更新完成"
+                        job.processedCount = processed
+                        job.totalCount = total
+                        job.preparedImportPayload = nil
+                        job.stagedAssetHashes = nil
+                        job.sourceRelativePath = ""
+                        job.stagedGenerationPaths = try JSONEncoder().encode(
+                            stagedGenerations.map(\.lastPathComponent).sorted()
+                        )
+                        job.payloadBackupID = payloadBackupReference?.backupID
+                        job.payloadBackupRelativePath = payloadBackupReference?.relativePath
+                        job.payloadBackupManifestSHA256 = payloadBackupReference?.manifestSHA256
+                        job.supersededGenerationPaths = try JSONEncoder().encode(
+                            Array(oldGenerations.union(oldGenerationPaths)).sorted()
+                        )
+                        job.previewSnapshotToken = expectedSnapshotToken
+                        job.lastError = nil
                     }
                 }
             } catch {
-                context.rollback()
+                commitContext.rollback()
                 throw error
             }
 
-            QuestionBankRecordChangeSignal.post(paperIDs: Set(finalRowsByID.values.map(\.paperID)))
-
-            let referencedGenerations = Set(
-                records.filter { $0.kind == QuestionBankRepository.assetKind }
-                    .compactMap { $0.assetRelativePath?.split(separator: "/").first.map(String.init) }
-                    + finalRowsByID.values.filter { $0.kind == QuestionBankRepository.assetKind }
-                        .compactMap { $0.assetRelativePath?.split(separator: "/").first.map(String.init) }
-            )
-            for generation in oldGenerations.subtracting(referencedGenerations) {
-                if let url = QuestionBankAssetStore.url(for: generation, under: root) {
-                    try? FileManager.default.removeItem(at: url)
+            let freshContext = ModelContext(context.container)
+            let assetKindValue = QuestionBankRepository.assetKind
+            let assetPredicate = #Predicate<QuestionBankRecord> { $0.kind == assetKindValue }
+            if let referencedRows = try? freshContext.fetch(
+                FetchDescriptor<QuestionBankRecord>(predicate: assetPredicate)
+            ) {
+                let referencedGenerations = Set(referencedRows.compactMap {
+                    $0.assetRelativePath?.split(separator: "/").first.map(String.init)
+                })
+                for generation in oldGenerations.union(oldGenerationPaths) where !referencedGenerations.contains(generation) {
+                    if let url = QuestionBankAssetStore.url(for: generation, under: root) {
+                        try? FileManager.default.removeItem(at: url)
+                    }
                 }
+            }
+            writePermit.release()
+            if importJobID == nil {
+                QuestionBankRecordChangeSignal.post(paperIDs: Set(finalRowsByID.values.map(\.paperID)))
             }
             return QuestionBankBatchPackageCommitResult(
                 updatedPaperCount: updatedPaperCount,
                 updatedQuestionCount: updatedQuestionCount,
                 addedQuestionCount: addedQuestionCount,
                 pendingPaperCount: preview.pendingPaperCount,
-                payloadBackupFileName: payloadBackupURL.lastPathComponent
+                payloadBackupFileName: payloadBackupFileName
             )
         } catch {
             for generation in stagedGenerations {
@@ -875,62 +1085,13 @@ enum QuestionBankBatchPackageRepository {
     }
 
     static func mergedPayload(incoming: Data, existing: Data, kind: String) throws -> Data {
-        guard let oldObject = try JSONSerialization.jsonObject(with: existing) as? [String: Any],
-              let newObject = try JSONSerialization.jsonObject(with: incoming) as? [String: Any] else {
-            throw QuestionBankBatchPackageFailure.invalidTarget("题库 payload 无法解析；未写入数据。")
-        }
-        var merged = oldObject
-        for (key, value) in newObject {
-            merged[key] = value
-        }
-        if kind == QuestionBankRepository.questionKind {
-            for key in ["isDifficult", "needsReview", "knowledgePoints", "weaknessTags"] {
-                if let localValue = oldObject[key] {
-                    merged[key] = localValue
-                } else {
-                    merged.removeValue(forKey: key)
-                }
-            }
-            if let localAccuracy = oldObject["accuracy"] {
-                merged["accuracy"] = localAccuracy
-            }
-        }
-        return try JSONSerialization.data(withJSONObject: merged, options: [.sortedKeys])
+        try QuestionBankPayloadMerge.preservingLocalQuestionAnalysis(
+            incoming: incoming,
+            existing: existing,
+            kind: kind
+        )
     }
 
-    private static func persistPayloadBackup(
-        _ rows: [QuestionBankRecord],
-        sourcePackageSHA256: String
-    ) throws -> URL {
-        guard !rows.isEmpty else {
-            throw QuestionBankBatchPackageFailure.invalidTarget("没有可备份的现有题库 payload；本次更新已取消。")
-        }
-        let applicationSupport = try FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        let backupDirectory = applicationSupport.appendingPathComponent(
-            "QuestionBankBatchBackups",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
-        let target = backupDirectory.appendingPathComponent("latest-payload-backup.json")
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        let document = QuestionBankBatchPayloadBackupDocument(
-            createdAt: formatter.string(from: Date()),
-            sourcePackageSHA256: sourcePackageSHA256,
-            records: rows.sorted { $0.compoundID < $1.compoundID }
-                .map { QuestionBankBatchPayloadBackupDocument.Entry(row: $0) }
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        try encoder.encode(document).write(to: target, options: .atomic)
-        return target
-    }
 }
 
 enum QuestionBankBatchPackageExporter {

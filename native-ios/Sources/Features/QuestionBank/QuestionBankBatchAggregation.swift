@@ -93,7 +93,6 @@ enum QuestionBankBatchFailure: LocalizedError {
     }
 }
 
-@MainActor
 enum QuestionBankBatchRepository {
     private struct SourceInput {
         var sourceID: String

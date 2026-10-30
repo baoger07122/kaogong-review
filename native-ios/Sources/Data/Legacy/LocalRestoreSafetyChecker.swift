@@ -20,8 +20,12 @@ enum LocalRestoreSafetyChecker {
     private enum InjectedFailure: Error { case beforeSave }
 
     static func check() throws -> String {
-        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: StoredRecord.self, configurations: configuration)
+        let schema = Schema([
+            StoredRecord.self, QuestionBankAnswerStateRecord.self,
+            QuestionBankAnswerStateMigrationRecord.self, QuestionBankAnswerStateScopeClearRecord.self
+        ])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: [configuration])
         let context = ModelContext(container)
 
         let originalPayload = try JSONSerialization.data(

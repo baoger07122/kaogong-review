@@ -14,7 +14,7 @@ enum QuestionBankModuleTitle {
     }
 }
 
-enum QuestionBankCoarseModule: String, CaseIterable, Identifiable, Sendable {
+enum QuestionBankCoarseModule: String, CaseIterable, Identifiable, Hashable, Sendable {
     case commonKnowledge = "常识判断"
     case language = "言语理解"
     case quantity = "数量关系"
@@ -42,20 +42,39 @@ enum QuestionBankCoarseModule: String, CaseIterable, Identifiable, Sendable {
     var allowedQuestionTypes: [String] {
         switch self {
         case .commonKnowledge: ["政治理论", "其他常识"]
-        case .language: ["逻辑填空", "阅读与表达"]
+        case .language: ["逻辑填空", "片段阅读"]
         case .reasoning: ["图形推理", "定义判断", "类比推理", "逻辑判断"]
         case .quantity, .dataAnalysis, .uncategorized: []
         }
     }
 
     func questionTypeFilter(for explicitType: String) -> String {
-        let normalized = explicitType.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = QuestionBankModuleTitle.normalized(explicitType)
+        if self == .language {
+            if ["逻辑填空", "选词填空", "词语填空"].contains(where: { normalized.contains($0) }) {
+                return "逻辑填空"
+            }
+            return "片段阅读"
+        }
         guard !normalized.isEmpty, allowedQuestionTypes.contains(normalized) else { return "未分类" }
         return normalized
     }
+
+    static func questionTypeSequence(module: Self, typeFilter: String) -> Int {
+        switch module {
+        case .language:
+            typeFilter == "逻辑填空" ? 0 : 1
+        case .reasoning:
+            module.allowedQuestionTypes.firstIndex(of: typeFilter) ?? module.allowedQuestionTypes.count
+        case .commonKnowledge:
+            module.allowedQuestionTypes.firstIndex(of: typeFilter) ?? module.allowedQuestionTypes.count
+        case .quantity, .dataAnalysis, .uncategorized:
+            0
+        }
+    }
 }
 
-struct QuestionBankHomeFilter: Equatable, Sendable {
+struct QuestionBankHomeFilter: Equatable, Hashable, Sendable {
     var module: QuestionBankCoarseModule?
     var questionType = ""
     var year = ""
@@ -84,6 +103,7 @@ struct QuestionBankHomeQuestion: Identifiable {
     let moduleID: String?
     let moduleTitle: String?
     let moduleSequence: Int
+    var isReaderBodyLoaded = true
 
     var id: String { record.compoundID }
 }
@@ -253,7 +273,7 @@ struct QuestionBankHomePaper: Identifiable {
     var title: String { paper.title.isEmpty ? (record.title ?? "未命名试卷") : paper.title }
 }
 
-struct QuestionBankOverviewCandidate: Identifiable, Equatable {
+struct QuestionBankOverviewCandidate: Identifiable, Equatable, Sendable {
     let id: String
     let paperID: String
     let paperTitle: String

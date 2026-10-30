@@ -412,7 +412,7 @@ struct NativePencilDrawingEditor: View {
                     Text("大").tag(CGFloat(44))
                 }
                 .pickerStyle(.segmented)
-                Text("橡皮擦碰到一条笔画时会删除整条笔画。")
+                Text("只擦除橡皮擦圆圈内的部分，笔画其他位置会保留。")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -466,7 +466,7 @@ struct NativePencilDrawingEditor: View {
             toolButton(controller.eraser ? "eraser.fill" : "eraser", active: controller.eraser, accessibilityLabel: "橡皮擦") {
                 controller.toggleEraser()
             }
-            .accessibilityHint("碰到一条笔画会擦除整条笔画，避免残影")
+            .accessibilityHint("只擦除橡皮擦范围内的笔迹")
             toolButton("arrow.uturn.backward", active: false, accessibilityLabel: "撤销") {
                 controller.undo()
             }
@@ -547,6 +547,10 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
         canvas.alwaysBounceHorizontal = scrollEnabled
         canvas.alwaysBounceVertical = scrollEnabled
         canvas.isMultipleTouchEnabled = true
+        canvas.configureEraserCursor(
+            enabled: isActive && eraser && context.coordinator.canvasReady,
+            width: eraserWidth
+        )
 
         context.coordinator.loadDrawing(encodedData, revision: drawingLoadRevision, on: canvas)
         context.coordinator.updateTool(canvas)
@@ -556,6 +560,10 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
 
     func updateUIView(_ canvas: InteractivePencilCanvasView, context: Context) {
         context.coordinator.parent = self
+        canvas.configureEraserCursor(
+            enabled: isActive && eraser && context.coordinator.canvasReady,
+            width: eraserWidth
+        )
         canvas.shouldBecomeFirstResponder = isActive
         canvas.isUserInteractionEnabled = isActive && context.coordinator.canvasReady
         if !isActive {
@@ -610,6 +618,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: InteractivePencilCanvasView, coordinator: Coordinator) {
+        uiView.configureEraserCursor(enabled: false, width: 0)
         coordinator.flushForDismantle(uiView)
     }
 
@@ -646,7 +655,7 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
                 && configuredEraserWidth == parent.eraserWidth
             guard !unchanged else { return }
             canvas.tool = parent.eraser
-                ? PKEraserTool(.vector, width: parent.eraserWidth)
+                ? PKEraserTool(.bitmap, width: parent.eraserWidth)
                 : PKInkingTool(.pen, color: parent.color, width: parent.width)
             configuredEraser = parent.eraser
             configuredColor = parent.color
@@ -988,13 +997,146 @@ private struct PencilCanvasRepresentable: UIViewRepresentable {
     }
 }
 
-private final class InteractivePencilCanvasView: PKCanvasView {
+private final class InteractivePencilCanvasView: PKCanvasView, UIGestureRecognizerDelegate {
     var shouldBecomeFirstResponder = false
     var isDrawingReady = false
+    private let eraserCursorLayer = CAShapeLayer()
+    private var hoverRecognizer: UIHoverGestureRecognizer?
+    private var hasInstalledEraserCursor = false
+    private var eraserCursorEnabled = false
+    private var eraserCursorWidth: CGFloat = 0
+    private var eraserCursorPoint: CGPoint?
+    private var eraserCursorOpacity: Float = 0.78
+    private var isTouchingForErase = false
+
+    func configureEraserCursor(enabled: Bool, width: CGFloat) {
+        if enabled { installEraserCursorIfNeeded() }
+        guard hasInstalledEraserCursor else { return }
+        eraserCursorEnabled = enabled
+        eraserCursorWidth = max(width, 0)
+        if #available(iOS 16.1, *) { hoverRecognizer?.isEnabled = enabled }
+        guard enabled else {
+            isTouchingForErase = false
+            eraserCursorPoint = nil
+            eraserCursorLayer.isHidden = true
+            return
+        }
+        redrawEraserCursor()
+    }
+
+    private func installEraserCursorIfNeeded() {
+        guard !hasInstalledEraserCursor else { return }
+        hasInstalledEraserCursor = true
+        eraserCursorLayer.fillColor = UIColor.systemGray.withAlphaComponent(0.10).cgColor
+        eraserCursorLayer.strokeColor = UIColor.label.withAlphaComponent(0.72).cgColor
+        eraserCursorLayer.lineWidth = 1.5
+        eraserCursorLayer.isHidden = true
+        eraserCursorLayer.actions = [
+            "path": NSNull(), "frame": NSNull(), "position": NSNull(), "hidden": NSNull(), "opacity": NSNull()
+        ]
+        layer.addSublayer(eraserCursorLayer)
+
+        if #available(iOS 16.1, *) {
+            let hover = UIHoverGestureRecognizer(target: self, action: #selector(handlePencilHover(_:)))
+            hover.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+            hover.cancelsTouchesInView = false
+            hover.delaysTouchesBegan = false
+            hover.delaysTouchesEnded = false
+            hover.delegate = self
+            hover.isEnabled = eraserCursorEnabled
+            addGestureRecognizer(hover)
+            hoverRecognizer = hover
+        }
+    }
+
+    private func showEraserCursor(at point: CGPoint, opacity: Float) {
+        guard eraserCursorEnabled else { return }
+        eraserCursorPoint = point
+        eraserCursorOpacity = min(max(opacity, 0.25), 0.90)
+        redrawEraserCursor()
+    }
+
+    private func redrawEraserCursor() {
+        guard eraserCursorEnabled, let point = eraserCursorPoint else {
+            eraserCursorLayer.isHidden = true
+            return
+        }
+        eraserCursorLayer.frame = bounds
+        let diameter = max(2, eraserCursorWidth * max(zoomScale, 0.1))
+        let radius = diameter / 2
+        let layerPoint = layer.convert(point, to: eraserCursorLayer)
+        let rect = CGRect(x: layerPoint.x - radius, y: layerPoint.y - radius,
+                          width: diameter, height: diameter)
+        eraserCursorLayer.path = UIBezierPath(ovalIn: rect).cgPath
+        eraserCursorLayer.opacity = eraserCursorOpacity
+        eraserCursorLayer.isHidden = false
+    }
+
+    private func hideEraserCursor() {
+        eraserCursorPoint = nil
+        eraserCursorLayer.isHidden = true
+    }
+
+    @objc private func handlePencilHover(_ recognizer: UIHoverGestureRecognizer) {
+        guard #available(iOS 16.1, *), eraserCursorEnabled, !isTouchingForErase else {
+            hideEraserCursor()
+            return
+        }
+        switch recognizer.state {
+        case .began, .changed:
+            showEraserCursor(at: recognizer.location(in: self), opacity: 0.34 + (1 - Float(recognizer.zOffset)) * 0.45)
+        case .ended, .cancelled, .failed:
+            hideEraserCursor()
+        default:
+            break
+        }
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer === hoverRecognizer || otherGestureRecognizer === hoverRecognizer
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if eraserCursorEnabled, let touch = touches.first(where: { $0.type == .pencil }) ?? touches.first {
+            isTouchingForErase = true
+            showEraserCursor(at: touch.preciseLocation(in: self), opacity: 0.78)
+        }
+        super.touchesBegan(touches, with: event)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesMoved(touches, with: event)
+        if eraserCursorEnabled, let touch = touches.first(where: { $0.type == .pencil }) ?? touches.first {
+            showEraserCursor(at: touch.preciseLocation(in: self), opacity: 0.78)
+        }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesEnded(touches, with: event)
+        isTouchingForErase = false
+        hideEraserCursor()
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesCancelled(touches, with: event)
+        isTouchingForErase = false
+        hideEraserCursor()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        redrawEraserCursor()
+    }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        guard window != nil else { return }
+        guard window != nil else {
+            hideEraserCursor()
+            return
+        }
         isUserInteractionEnabled = isDrawingReady && shouldBecomeFirstResponder
         if #available(iOS 18.0, *) { isDrawingEnabled = true }
         guard shouldBecomeFirstResponder else { return }

@@ -6,6 +6,7 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.apiClient) private var apiClient
     @StateObject private var importer = LegacyBackupImportCoordinator()
+    @StateObject private var answerStateStore = QuestionBankAnswerStateStore.shared
     @State private var recordCount = 0
     @State private var showImporter = false
     @State private var showExporter = false
@@ -21,6 +22,7 @@ struct SettingsView: View {
     @State private var updateMessage: String?
     @State private var showClearData = false
     @State private var clearMessage: String?
+    @State private var isClearingLocalData = false
     @AppStorage("native.lastLocalBackupAt") private var lastLocalBackupAt = 0.0
 
     private var appVersion: String {
@@ -258,6 +260,9 @@ struct SettingsView: View {
         if let integrityError { settingsStatus("备份自检失败：\(integrityError)", image: "xmark.octagon.fill", color: AppTheme.danger) }
         if let restoreSafetyMessage { settingsStatus(restoreSafetyMessage, image: "checkmark.circle.fill", color: AppTheme.success) }
         if let restoreSafetyError { settingsStatus("恢复安全自检失败：\(restoreSafetyError)", image: "xmark.octagon.fill", color: AppTheme.danger) }
+        if let error = answerStateStore.migrationError {
+            settingsStatus("旧作答数据迁移失败，原始备份已保留；重新进入题目可继续重试：\(error)", image: "exclamationmark.triangle.fill", color: AppTheme.danger)
+        }
         if let clearMessage { settingsStatus(clearMessage, image: "checkmark.circle.fill", color: AppTheme.success) }
     }
 
@@ -281,13 +286,18 @@ struct SettingsView: View {
     }
 
     private func prepareExport() {
-        do {
-            let records = try modelContext.fetch(FetchDescriptor<StoredRecord>())
-            exportDocument = try LegacyBackupExporter.makeDocument(records: records)
-            exportMessage = nil
-            showExporter = true
-        } catch {
-            exportMessage = "无法生成备份：\(error.localizedDescription)"
+        let container = modelContext.container
+        Task {
+            do {
+                let answerStates = try await answerStateStore.readAllForBackup(in: container)
+                let records = try modelContext.fetch(FetchDescriptor<StoredRecord>())
+                exportDocument = try LegacyBackupExporter.makeDocument(records: records, answerStates: answerStates)
+                exportMessage = nil
+                showExporter = true
+            } catch {
+                exportDocument = nil
+                exportMessage = "无法生成备份：\(error.localizedDescription)"
+            }
         }
     }
 
@@ -324,7 +334,9 @@ struct SettingsView: View {
     private func checkBackupIntegrity() {
         do {
             let records = try modelContext.fetch(FetchDescriptor<StoredRecord>())
-            integrityReport = try LocalBackupIntegrityChecker.check(records: records)
+            let answerStates = try modelContext.fetch(FetchDescriptor<QuestionBankAnswerStateRecord>())
+                .map(QuestionBankAnswerStateBackup.init(record:))
+            integrityReport = try LocalBackupIntegrityChecker.check(records: records, answerStates: answerStates)
             integrityError = nil
         } catch {
             integrityReport = nil
@@ -359,19 +371,23 @@ struct SettingsView: View {
     }
 
     private func clearAllLocalData() {
-        do {
-            let records = try modelContext.fetch(FetchDescriptor<StoredRecord>())
-            records.forEach(modelContext.delete)
-            try modelContext.save()
-            try? KeychainTokenStore().delete()
-            for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("native.") {
-                UserDefaults.standard.removeObject(forKey: key)
+        guard !isClearingLocalData else { return }
+        isClearingLocalData = true
+        let container = modelContext.container
+        Task {
+            defer { isClearingLocalData = false }
+            do {
+                try await answerStateStore.clearAllLocalData(in: container)
+                try? KeychainTokenStore().delete()
+                for key in UserDefaults.standard.dictionaryRepresentation().keys
+                    where key.hasPrefix("native.") || key.hasPrefix("question-bank.") {
+                    UserDefaults.standard.removeObject(forKey: key)
+                }
+                clearMessage = "本机数据已清除"
+                recordCount = 0
+            } catch {
+                clearMessage = "清除失败：\(error.localizedDescription)"
             }
-            clearMessage = "本机数据已清除"
-            recordCount = 0
-        } catch {
-            modelContext.rollback()
-            clearMessage = "清除失败：\(error.localizedDescription)"
         }
         showClearData = false
     }

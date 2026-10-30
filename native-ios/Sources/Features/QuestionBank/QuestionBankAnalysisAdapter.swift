@@ -106,9 +106,22 @@ struct QuestionBankQuestionAnalysisContext {
     let moduleTitle: String?
     let material: QuestionBankMaterial?
     let sourcePapers: [QuestionBankSourcePaper]
-    let assetsByID: [String: QuestionBankRecord]
+    let assetsByID: [String: QuestionBankAssetReference]
     let selectedOptionID: String?
     let isAnswerRevealed: Bool
+
+    func replacingRecord(_ record: QuestionBankRecord) -> Self {
+        Self(
+            record: record,
+            question: question,
+            moduleTitle: moduleTitle,
+            material: material,
+            sourcePapers: sourcePapers,
+            assetsByID: assetsByID,
+            selectedOptionID: selectedOptionID,
+            isAnswerRevealed: isAnswerRevealed
+        )
+    }
 
     var currentQuestion: QuestionBankQuestion {
         record.decoded(QuestionBankQuestion.self) ?? question
@@ -123,8 +136,12 @@ struct QuestionBankQuestionAnalysisContext {
     }
 
     var sourceRows: [String] {
+        sourceRows(for: currentQuestion)
+    }
+
+    func sourceRows(for question: QuestionBankQuestion) -> [String] {
         let questionRows = QuestionBankSourceDisplay.rows(
-            entries: currentQuestion.provenance ?? [],
+            entries: question.provenance ?? [],
             sourcePapers: sourcePapers
         )
         guard questionRows.isEmpty, let material else { return questionRows }
@@ -184,7 +201,15 @@ struct QuestionBankQuestionAnalysisContext {
 
     func makeEditorDraft() -> LibraryRecordDraft {
         let question = currentQuestion
-        let mapping = typeMapping
+        return makeEditorDraft(using: question)
+    }
+
+    func makeEditorDraft(using question: QuestionBankQuestion) -> LibraryRecordDraft {
+        let mapping = QuestionBankLibraryTypeMapping.resolve(
+            subject: question.subject,
+            type: question.type,
+            moduleTitle: moduleTitle
+        )
         var draft = LibraryRecordDraft(
             kind: .errors,
             scope: LibraryScope(subject: mapping.subject, module: mapping.module)
@@ -207,13 +232,88 @@ struct QuestionBankQuestionAnalysisContext {
         draft.knowledgePoint = (question.knowledgePoints ?? []).joined(separator: "、")
         draft.weaknessTags = (question.weaknessTags ?? []).joined(separator: "、")
         draft.content = question.note ?? ""
-        draft.questionSource = sourceRows.joined(separator: "\n")
+        draft.questionSource = sourceRows(for: question).joined(separator: "\n")
         draft.questionNumber = String(question.number)
         draft.linkedWordIDs = question.linkedWordIDs ?? []
         draft.linkedErrorIDs = question.linkedErrorRecordIDs ?? []
         draft.type = ""
         draft.status = ""
         return draft
+    }
+
+    @MainActor
+    static func linkedErrorContext(
+        paperID: String,
+        questionID: String,
+        selectedOption: String,
+        context: ModelContext
+    ) -> QuestionBankQuestionAnalysisContext? {
+        let questionKind = QuestionBankRepository.questionKind
+        let questionCompoundID = "\(paperID)::\(questionKind)::\(questionID)"
+        var questionDescriptor = FetchDescriptor<QuestionBankRecord>(
+            predicate: #Predicate { $0.compoundID == questionCompoundID }
+        )
+        questionDescriptor.fetchLimit = 1
+        guard let questionRecord = (try? context.fetch(questionDescriptor))?.first,
+              let question = questionRecord.decoded(QuestionBankQuestion.self) else { return nil }
+
+        var dependencies = [questionRecord]
+        let moduleKind = QuestionBankRepository.moduleKind
+        let materialKind = QuestionBankRepository.materialKind
+        let paperKind = QuestionBankRepository.paperKind
+        let moduleID = question.moduleID
+        let modulePredicate = #Predicate<QuestionBankRecord> {
+            $0.paperID == paperID && $0.kind == moduleKind && $0.stableID == moduleID
+        }
+        var moduleDescriptor = FetchDescriptor<QuestionBankRecord>(predicate: modulePredicate)
+        moduleDescriptor.fetchLimit = 1
+        if let moduleRecord = (try? context.fetch(moduleDescriptor))?.first {
+            dependencies.append(moduleRecord)
+        }
+
+        if !question.materialID.isEmpty {
+            let materialID = question.materialID
+            let materialPredicate = #Predicate<QuestionBankRecord> {
+                $0.paperID == paperID && $0.kind == materialKind && $0.stableID == materialID
+            }
+            var materialDescriptor = FetchDescriptor<QuestionBankRecord>(predicate: materialPredicate)
+            materialDescriptor.fetchLimit = 1
+            if let materialRecord = (try? context.fetch(materialDescriptor))?.first {
+                dependencies.append(materialRecord)
+            }
+        }
+
+        let paperPredicate = #Predicate<QuestionBankRecord> {
+            $0.paperID == paperID && $0.kind == paperKind
+        }
+        var paperDescriptor = FetchDescriptor<QuestionBankRecord>(predicate: paperPredicate)
+        paperDescriptor.fetchLimit = 1
+        if let paperRecord = (try? context.fetch(paperDescriptor))?.first {
+            dependencies.append(paperRecord)
+        }
+
+        var assetIDs = Set(question.options.map(\.imageAssetID).filter { !$0.isEmpty })
+        if !question.stemImageAssetID.isEmpty { assetIDs.insert(question.stemImageAssetID) }
+        if let materialRecord = dependencies.first(where: { $0.kind == materialKind }),
+           let material = materialRecord.decoded(QuestionBankMaterial.self), !material.imageAssetID.isEmpty {
+            assetIDs.insert(material.imageAssetID)
+        }
+        if !assetIDs.isEmpty {
+            let assetKind = QuestionBankRepository.assetKind
+            let assetCompoundIDs = assetIDs.map { "\(paperID)::\(assetKind)::\($0)" }
+            let assetPredicate = #Predicate<QuestionBankRecord> {
+                $0.kind == assetKind && assetCompoundIDs.contains($0.compoundID)
+            }
+            var assetDescriptor = FetchDescriptor<QuestionBankRecord>(predicate: assetPredicate)
+            assetDescriptor.fetchLimit = assetCompoundIDs.count
+            dependencies.append(contentsOf: (try? context.fetch(assetDescriptor)) ?? [])
+        }
+        return linkedErrorContext(
+            paperID: paperID,
+            questionID: questionID,
+            selectedOption: selectedOption,
+            records: dependencies
+        )
     }
 
     static func linkedErrorContext(
@@ -241,7 +341,7 @@ struct QuestionBankQuestionAnalysisContext {
         })?.decoded(QuestionBankPaper.self)?.sourcePapers ?? []
         let assetsByID = Dictionary(
             records.filter { $0.paperID == paperID && $0.kind == QuestionBankRepository.assetKind }
-                .map { ($0.stableID, $0) },
+                .map { ($0.stableID, QuestionBankAssetReference(record: $0)) },
             uniquingKeysWith: { first, _ in first }
         )
         let selectedOptionID: String?

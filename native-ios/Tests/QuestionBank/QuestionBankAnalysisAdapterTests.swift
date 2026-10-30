@@ -95,7 +95,6 @@ final class QuestionBankAnalysisAdapterTests: XCTestCase {
             analysis: analysis,
             typeMapping: mapping,
             sourceRows: ["2025年省考真题·第17题"],
-            storedRecords: [error, word],
             context: context
         )
 
@@ -156,7 +155,6 @@ final class QuestionBankAnalysisAdapterTests: XCTestCase {
             analysis: analysis,
             typeMapping: QuestionBankLibraryTypeMapping(subject: "言语理解", module: "逻辑填空"),
             sourceRows: [],
-            storedRecords: [],
             context: context
         ))
 
@@ -242,7 +240,6 @@ final class QuestionBankAnalysisAdapterTests: XCTestCase {
             analysis: analysis,
             typeMapping: QuestionBankLibraryTypeMapping(subject: "言语理解", module: "逻辑填空"),
             sourceRows: [],
-            storedRecords: [],
             context: context
         )
 
@@ -287,7 +284,6 @@ final class QuestionBankAnalysisAdapterTests: XCTestCase {
                 analysis: analysis,
                 typeMapping: QuestionBankLibraryTypeMapping(subject: "言语理解", module: "逻辑填空"),
                 sourceRows: [],
-                storedRecords: [],
                 context: context
             )
         }
@@ -399,6 +395,10 @@ final class QuestionBankAnalysisAdapterTests: XCTestCase {
             paperID: "paper-1", questionID: "question-1", category: .uncertain
         ))
         XCTAssertNotEqual(wrongID, QuestionBankErrorBookIdentity.recordID(
+            paperID: "paper-1", questionID: "question-1", category: .cannotSolve
+        ))
+        XCTAssertEqual(QuestionBankErrorBookCategory.cannotSolve.rawValue, "不会做")
+        XCTAssertNotEqual(wrongID, QuestionBankErrorBookIdentity.recordID(
             paperID: "paper-2", questionID: "question-1", category: .wrong
         ))
     }
@@ -454,7 +454,11 @@ final class QuestionBankAnalysisAdapterTests: XCTestCase {
         XCTAssertEqual(analysis.assetsByID["material-image"]?.assetRelativePath, "paper-1/assets/material-image.png")
 
         let result = try QuestionBankErrorBookRepository.add(
-            analysis: analysis, category: .wrong, context: context
+            analysis: analysis,
+            question: analysis.currentQuestion,
+            category: .wrong,
+            candidateRecordIDs: [],
+            context: context
         )
         let expectedID = QuestionBankErrorBookIdentity.recordID(
             paperID: "paper-1", questionID: "question-1", category: .wrong
@@ -487,7 +491,13 @@ final class QuestionBankAnalysisAdapterTests: XCTestCase {
         XCTAssertEqual(try context.fetch(FetchDescriptor<StoredRecord>()).filter { $0.collection == "errors" }.count, 1)
 
         XCTAssertEqual(
-            try QuestionBankErrorBookRepository.add(analysis: analysis, category: .wrong, context: context),
+            try QuestionBankErrorBookRepository.add(
+                analysis: analysis,
+                question: analysis.currentQuestion,
+                category: .wrong,
+                candidateRecordIDs: [expectedID],
+                context: context
+            ),
             .alreadyAdded(recordID: expectedID)
         )
         XCTAssertEqual(try context.fetch(FetchDescriptor<StoredRecord>()).filter { $0.collection == "errors" }.count, 1)
@@ -508,7 +518,11 @@ final class QuestionBankAnalysisAdapterTests: XCTestCase {
             records: try context.fetch(FetchDescriptor<QuestionBankRecord>())
         ))
         let uncertainResult = try QuestionBankErrorBookRepository.add(
-            analysis: correctAnalysis, category: .uncertain, context: context
+            analysis: correctAnalysis,
+            question: correctAnalysis.currentQuestion,
+            category: .uncertain,
+            candidateRecordIDs: [],
+            context: context
         )
         let uncertainID = QuestionBankErrorBookIdentity.recordID(
             paperID: "paper-1", questionID: "question-2", category: .uncertain
@@ -520,6 +534,38 @@ final class QuestionBankAnalysisAdapterTests: XCTestCase {
         XCTAssertEqual(uncertainRecord.jsonObject?["type"] as? String, "不确定题")
         XCTAssertEqual(uncertainRecord.jsonObject?["userOption"] as? String, "B")
         XCTAssertEqual(try context.fetch(FetchDescriptor<StoredRecord>()).filter { $0.collection == "errors" }.count, 2)
+
+        var thirdQuestionObject = questionObject
+        thirdQuestionObject["id"] = "question-3"
+        thirdQuestionObject["number"] = 19
+        let thirdQuestionRecord = QuestionBankRecord(
+            compoundID: "paper-1::question::question-3", paperID: "paper-1",
+            kind: QuestionBankRepository.questionKind, stableID: "question-3",
+            moduleID: "module-1", questionNumber: 19,
+            payload: try JSONSerialization.data(withJSONObject: thirdQuestionObject, options: [.sortedKeys])
+        )
+        context.insert(thirdQuestionRecord)
+        try context.save()
+        let cannotSolveAnalysis = try XCTUnwrap(QuestionBankQuestionAnalysisContext.linkedErrorContext(
+            paperID: "paper-1", questionID: "question-3", selectedOption: "",
+            records: try context.fetch(FetchDescriptor<QuestionBankRecord>())
+        ))
+        let cannotSolveResult = try QuestionBankErrorBookRepository.add(
+            analysis: cannotSolveAnalysis,
+            question: cannotSolveAnalysis.currentQuestion,
+            category: .cannotSolve,
+            candidateRecordIDs: [],
+            context: context
+        )
+        let cannotSolveID = QuestionBankErrorBookIdentity.recordID(
+            paperID: "paper-1", questionID: "question-3", category: .cannotSolve
+        )
+        XCTAssertEqual(cannotSolveResult, .added(recordID: cannotSolveID))
+        let cannotSolveRecord = try XCTUnwrap(context.fetch(FetchDescriptor<StoredRecord>()).first {
+            $0.collection == "errors" && $0.recordID == cannotSolveID
+        })
+        XCTAssertEqual(cannotSolveRecord.jsonObject?["type"] as? String, "不会做")
+        XCTAssertEqual(cannotSolveRecord.jsonObject?["userOption"] as? String, "")
     }
 
     func testStaleQuestionBankLinkDoesNotBlockEditingOrDeletingWrongQuestion() throws {
