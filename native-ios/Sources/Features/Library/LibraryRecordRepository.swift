@@ -52,6 +52,7 @@ struct LibraryRecordDraft {
     var accuracy = ""
     var questionNumber = ""
     var images: [String] = []
+    var imageDisplaySettings: [LibraryImageDisplaySetting] = []
     var compareGroups: [LogicComparisonDraft] = []
     var score = ""
     var totalScore = ""
@@ -143,6 +144,10 @@ struct LibraryRecordDraft {
         questionNumber = LibraryRecordDraft.text(original, keys: ["questionNumber"])
         accuracy = LibraryRecordDraft.numberText(original["accuracy"])
         images = (original["images"] as? [String]) ?? (original["image"] as? String).map { [$0] } ?? []
+        imageDisplaySettings = LibraryImageDisplaySetting.normalized(
+            from: original["imageDisplayMetadata"],
+            count: images.count
+        )
         if let groups = original["compareGroups"] as? [[String: Any]] {
             compareGroups = groups.map { .init(words: $0["words"] as? String ?? "", relation: $0["relation"] as? String ?? "") }
         }
@@ -214,6 +219,47 @@ struct LibraryRecordDraft {
         if kind == .errors, subject == "申论" {
             status = LibraryRecordDraft.text(original, keys: ["status"]).isEmpty ? "待吸收" : LibraryRecordDraft.text(original, keys: ["status"])
         }
+    }
+
+    mutating func appendQuestionImage(_ source: String) {
+        synchronizeQuestionImageSettings()
+        images.append(source)
+        imageDisplaySettings.append(LibraryImageDisplaySetting())
+    }
+
+    mutating func removeQuestionImage(at index: Int) {
+        synchronizeQuestionImageSettings()
+        guard images.indices.contains(index) else { return }
+        images.remove(at: index)
+        imageDisplaySettings.remove(at: index)
+    }
+
+    mutating func replaceQuestionImage(id: String, with source: String) {
+        synchronizeQuestionImageSettings()
+        guard let index = imageDisplaySettings.firstIndex(where: { $0.id == id }), images.indices.contains(index) else { return }
+        let widthFraction = imageDisplaySettings[index].widthFraction
+        images[index] = source
+        imageDisplaySettings[index] = LibraryImageDisplaySetting(widthFraction: widthFraction)
+    }
+
+    mutating func moveQuestionImage(from sourceIndex: Int, to targetIndex: Int) {
+        synchronizeQuestionImageSettings()
+        guard images.indices.contains(sourceIndex), imageDisplaySettings.indices.contains(sourceIndex) else { return }
+        let image = images.remove(at: sourceIndex)
+        let setting = imageDisplaySettings.remove(at: sourceIndex)
+        let destination = min(max(targetIndex, 0), images.count)
+        images.insert(image, at: destination)
+        imageDisplaySettings.insert(setting, at: destination)
+    }
+
+    mutating func setQuestionImageWidth(id: String, fraction: Double) {
+        synchronizeQuestionImageSettings()
+        guard let index = imageDisplaySettings.firstIndex(where: { $0.id == id }) else { return }
+        imageDisplaySettings[index].widthFraction = LibraryImageDisplaySetting.normalizedWidthFraction(fraction)
+    }
+
+    private mutating func synchronizeQuestionImageSettings() {
+        imageDisplaySettings = LibraryImageDisplaySetting.normalized(imageDisplaySettings, count: images.count)
     }
 
     private static func text(_ object: [String: Any], keys: [String]) -> String {
@@ -316,6 +362,16 @@ enum LibraryRecordRepository {
             object["sourceRegion"] = sourceMetadata.region.map { $0 as Any } ?? NSNull()
             object["accuracy"] = Double(draft.accuracy.replacingOccurrences(of: "%", with: "")) ?? 0
             object["images"] = draft.images
+            object.removeValue(forKey: "image")
+            let imageDisplaySettings = LibraryImageDisplaySetting.normalized(
+                draft.imageDisplaySettings,
+                count: draft.images.count
+            )
+            if imageDisplaySettings.isEmpty {
+                object.removeValue(forKey: "imageDisplayMetadata")
+            } else {
+                object["imageDisplayMetadata"] = imageDisplaySettings.map(\.payloadObject)
+            }
             object.removeValue(forKey: "compareGroups")
             object["graphRule"] = draft.graphRule
             object["recognition"] = draft.recognition
@@ -418,7 +474,7 @@ enum LibraryRecordRepository {
         }
 
         let linkedQuestionUpdate: QuestionBankPreparedLinkedQuestionUpdate?
-        if kind == .errors {
+        if kind == .errors, AppFeatureAvailability.questionBank {
             linkedQuestionUpdate = try QuestionBankRepository.prepareQuestionUpdateFromLinkedError(
                 errorPayload: object,
                 context: context
@@ -483,7 +539,7 @@ enum LibraryRecordRepository {
                 questionID: linkedQuestionUpdate.record.stableID,
                 kind: linkedQuestionUpdate.kind
             )
-        } else if kind == .errors,
+        } else if AppFeatureAvailability.questionBank, kind == .errors,
                   let paperID = object["questionBankPaperID"] as? String,
                   !paperID.isEmpty,
                   let questionID = object["questionBankQuestionID"] as? String,

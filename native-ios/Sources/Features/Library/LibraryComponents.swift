@@ -349,25 +349,11 @@ private struct LibraryErrorRecordCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !snapshot.sourceDisplay.isEmpty || errorBookCategory != nil {
-                HStack(spacing: 6) {
-                    if !snapshot.sourceDisplay.isEmpty {
-                        Text(snapshot.sourceDisplay)
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    } else {
-                        Spacer(minLength: 0)
-                    }
-                    if let errorBookCategory {
-                        Text(errorBookCategory)
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(errorBookCategoryColor)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(errorBookCategoryColor.opacity(0.09), in: Capsule())
-                    }
-                }
+            if !snapshot.sourceDisplay.isEmpty {
+                Text(snapshot.sourceDisplay)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
             images
@@ -457,7 +443,7 @@ private struct LibraryErrorRecordCard: View {
                 ForEach(Array(snapshot.imageValues.prefix(3).enumerated()), id: \.offset) { index, source in
                     LibraryCardThumbnail(
                         source: source,
-                        cacheKey: "\(snapshot.id)-\(index)-\(source.count)",
+                        cacheKey: "\(snapshot.id)-\(snapshot.record.updatedAt?.timeIntervalSince1970 ?? 0)-\(index)-\(source.count)",
                         maximumHeight: isGraphReasoning ? nil : size.imageMaximumHeight
                     )
                 }
@@ -534,23 +520,11 @@ private struct LibraryErrorRecordCard: View {
     }
 
     private var isGraphReasoning: Bool {
-        snapshot.record.subject == "判断推理" && snapshot.record.module == "图形推理"
+        QuestionBankModuleTitle.normalized(snapshot.record.subject) == "判断推理"
+            && QuestionBankModuleTitle.normalized(snapshot.record.module) == "图形推理"
     }
 
     private var isQuantityRelations: Bool { snapshot.record.subject == "数量关系" }
-
-    private var errorBookCategory: String? {
-        QuestionBankErrorBookCategory.allCases.first { $0.rawValue == snapshot.category }?.rawValue
-    }
-
-    private var errorBookCategoryColor: Color {
-        switch errorBookCategory {
-        case .some("错题"): AppTheme.danger
-        case .some("不确定题"): AppTheme.warning
-        case .some("不会做"): AppTheme.accent
-        default: .secondary
-        }
-    }
 
     private var knowledgePointLabel: String { isLogicJudgment ? "结构" : "考点" }
     private var errorCauseLabel: String {
@@ -565,6 +539,7 @@ private struct LibraryCardThumbnail: View {
     let cacheKey: String
     let maximumHeight: CGFloat?
     @State private var image: UIImage?
+    @State private var didFail = false
 
     var body: some View {
         Group {
@@ -574,7 +549,15 @@ private struct LibraryCardThumbnail: View {
                     .scaledToFit()
             } else {
                 Color(uiColor: .tertiarySystemGroupedBackground)
-                    .overlay { ProgressView().controlSize(.small) }
+                    .overlay {
+                        if didFail {
+                            Label("图片无法加载", systemImage: "exclamationmark.triangle")
+                                .font(.system(size: 11, weight: .regular))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
                     .frame(height: min(110, maximumHeight ?? 110))
             }
         }
@@ -585,11 +568,16 @@ private struct LibraryCardThumbnail: View {
                 .stroke(Color.primary.opacity(0.08), lineWidth: 0.7)
         }
         .task(id: cacheKey) {
-            image = await LibraryImageLoader.image(
+            image = nil
+            didFail = false
+            let loadedImage = await LibraryImageLoader.image(
                 from: source,
                 cacheKey: cacheKey,
                 maximumPixelSize: 900
             )
+            guard !Task.isCancelled else { return }
+            image = loadedImage
+            didFail = loadedImage == nil
         }
     }
 }

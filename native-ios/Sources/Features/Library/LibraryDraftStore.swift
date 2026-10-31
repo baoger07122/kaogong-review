@@ -20,6 +20,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
     var questionNumber: String?
     var accuracy: String?
     var images: [String]
+    var imageDisplaySettings: [LibraryImageDisplaySetting]?
     var compareGroups: [LogicComparisonDraft]
     var score: String
     var totalScore: String
@@ -78,6 +79,10 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         questionNumber = draft.questionNumber
         accuracy = draft.accuracy
         images = draft.images
+        imageDisplaySettings = LibraryImageDisplaySetting.normalized(
+            draft.imageDisplaySettings,
+            count: draft.images.count
+        )
         compareGroups = draft.compareGroups
         score = draft.score
         totalScore = draft.totalScore
@@ -137,6 +142,10 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         draft.questionNumber = questionNumber ?? ""
         draft.accuracy = accuracy ?? ""
         draft.images = images
+        draft.imageDisplaySettings = LibraryImageDisplaySetting.normalized(
+            imageDisplaySettings ?? [],
+            count: images.count
+        )
         draft.compareGroups = compareGroups
         draft.score = score
         draft.totalScore = totalScore

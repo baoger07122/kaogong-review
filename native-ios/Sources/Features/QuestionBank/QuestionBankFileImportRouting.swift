@@ -159,12 +159,23 @@ final class QuestionBankImportSelectionCoordinator: ObservableObject {
 @MainActor
 final class QuestionBankImportRouter: ObservableObject {
     @Published private(set) var pendingRequests: [QuestionBankFileRequest] = []
+    @Published private(set) var shouldPresentUnavailableFileNotice = false
 
     var pendingRequestIDs: [UUID] { pendingRequests.map(\.id) }
 
     func receive(_ url: URL) {
         guard url.isFileURL else { return }
+        if !AppFeatureAvailability.questionBank {
+            let fileExtension = url.pathExtension.lowercased()
+            guard fileExtension == "json" || fileExtension == "zip" else { return }
+            shouldPresentUnavailableFileNotice = true
+            return
+        }
         pendingRequests.append(QuestionBankFileRequest(id: UUID(), url: url))
+    }
+
+    func dismissUnavailableFileNotice() {
+        shouldPresentUnavailableFileNotice = false
     }
 
     func takeNextRequest() -> QuestionBankFileRequest? {

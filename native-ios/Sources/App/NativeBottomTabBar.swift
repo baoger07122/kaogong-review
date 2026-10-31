@@ -1,30 +1,28 @@
 import SwiftUI
 
 struct NativeBottomTabBar: View {
-    static let contentHeight: CGFloat = 50
-
     @Binding var selection: RootTab
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var selectionBackground
 
     var body: some View {
-        HStack {
-            Spacer(minLength: 12)
-            HStack(spacing: 8) {
-                ForEach(RootTab.allCases) { tab in
-                    tabButton(tab)
-                }
+        HStack(spacing: 5) {
+            ForEach(RootTab.availableTabs) { tab in
+                tabButton(tab)
             }
-            .frame(maxWidth: 760)
-            Spacer(minLength: 12)
         }
-        .padding(.vertical, 3)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .top) {
-            Divider().opacity(0.45)
+        .padding(6)
+        .frame(maxWidth: 520)
+        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+        .overlay {
+            Capsule(style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.75)
         }
-        .shadow(color: .black.opacity(0.06), radius: 12, y: -3)
-        .frame(height: Self.contentHeight)
+        .shadow(color: .black.opacity(0.11), radius: 16, y: 6)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
+        .padding(.top, 7)
+        .padding(.bottom, 7)
     }
 
     private func tabButton(_ tab: RootTab) -> some View {
@@ -39,7 +37,7 @@ struct NativeBottomTabBar: View {
             ZStack {
                 if isSelected {
                     Capsule(style: .continuous)
-                        .fill(Color.black.opacity(0.055))
+                        .fill(AppTheme.accent.opacity(0.12))
                         .matchedGeometryEffect(id: "root-tab-selection", in: selectionBackground)
                         .animation(
                             reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82),
@@ -55,7 +53,7 @@ struct NativeBottomTabBar: View {
                         .font(.system(size: 10, weight: .medium))
                         .lineLimit(1)
                 }
-                .foregroundStyle(isSelected ? AppTheme.accent : Color.black)
+                .foregroundStyle(isSelected ? AppTheme.accent : Color.primary.opacity(0.66))
                 .transaction { $0.animation = nil }
             }
             .frame(maxWidth: .infinity)

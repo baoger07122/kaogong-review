@@ -65,7 +65,7 @@ struct KaogongReviewNativeApp: App {
             QuestionBankAnswerStateScopeClearRecord.self,
             QuestionBankImportJobRecord.self
         )
-        try OneTimeLocalDataReset.runIfNeeded(in: container)
+        // Do not run the legacy recovery reset here; it deletes every StoredRecord.
         try TagPresetCleanupMigration.runIfNeeded(in: container)
         return container
     }

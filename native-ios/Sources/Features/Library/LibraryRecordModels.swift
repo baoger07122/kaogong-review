@@ -173,6 +173,69 @@ struct LibraryScope: Equatable {
     }
 }
 
+struct LibraryImageDisplaySetting: Identifiable, Codable, Equatable {
+    static let minimumWidthFraction = 0.2
+    static let maximumWidthFraction = 1.0
+    static let stepWidthFraction = 0.05
+
+    var id: String
+    var widthFraction: Double
+
+    init(id: String = UUID().uuidString, widthFraction: Double = 1.0) {
+        self.id = id
+        self.widthFraction = Self.normalizedWidthFraction(widthFraction)
+    }
+
+    var payloadObject: [String: Any] {
+        ["id": id, "widthFraction": widthFraction]
+    }
+
+    static func normalizedWidthFraction(_ value: Double) -> Double {
+        guard value.isFinite else { return maximumWidthFraction }
+        let clamped = min(max(value, minimumWidthFraction), maximumWidthFraction)
+        return (clamped / stepWidthFraction).rounded() * stepWidthFraction
+    }
+
+    static func normalized(_ values: [LibraryImageDisplaySetting], count: Int) -> [LibraryImageDisplaySetting] {
+        guard count > 0 else { return [] }
+        var usedIDs = Set<String>()
+        return (0..<count).map { index in
+            let existing = index < values.count ? values[index] : LibraryImageDisplaySetting()
+            let candidate = existing.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            let id: String
+            if !candidate.isEmpty, usedIDs.insert(candidate).inserted {
+                id = candidate
+            } else {
+                let replacement = UUID().uuidString
+                usedIDs.insert(replacement)
+                id = replacement
+            }
+            return LibraryImageDisplaySetting(id: id, widthFraction: existing.widthFraction)
+        }
+    }
+
+    static func normalized(from payload: Any?, count: Int) -> [LibraryImageDisplaySetting] {
+        let values = payload as? [[String: Any]] ?? []
+        let settings = values.map { value in
+            let id = value["id"] as? String ?? ""
+            let fraction = (value["widthFraction"] as? NSNumber)?.doubleValue ?? maximumWidthFraction
+            return LibraryImageDisplaySetting(id: id, widthFraction: fraction)
+        }
+        return normalized(settings, count: count)
+    }
+
+    static func widthFractions(from payload: Any?, count: Int) -> [Double] {
+        let values = payload as? [[String: Any]] ?? []
+        return (0..<max(0, count)).map { index in
+            guard index < values.count,
+                  let number = values[index]["widthFraction"] as? NSNumber else {
+                return maximumWidthFraction
+            }
+            return normalizedWidthFraction(number.doubleValue)
+        }
+    }
+}
+
 struct LibraryRecordSnapshot: Identifiable {
     let record: StoredRecord
     let title: String

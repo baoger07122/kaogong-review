@@ -125,16 +125,16 @@ struct LibraryRecordDetailView: View {
                 }
             }
             .sheet(isPresented: $showQuestionBankEditor) {
-                if let questionBankContext {
-                    NavigationStack {
-                        LibraryRecordEditorView(
-                            questionBankContext: questionBankContext,
-                            onQuestionBankAnalysisSaved: {
-                                object = questionBankContext.detailObject
-                                showQuestionBankEditor = false
-                            }
-                        )
-                    }
+            if AppFeatureAvailability.questionBank, let questionBankContext {
+                NavigationStack {
+                    LibraryRecordEditorView(
+                        questionBankContext: questionBankContext,
+                        onQuestionBankAnalysisSaved: {
+                            object = questionBankContext.detailObject
+                            showQuestionBankEditor = false
+                        }
+                    )
+                }
                 }
             }
     }
@@ -180,7 +180,7 @@ struct LibraryRecordDetailView: View {
                 metadata
                 questionBankMaterialBlock
                 questionBlock
-                imagesBlock
+                imagesBlock(availableWidth: max(0, readingColumnWidth - 32))
                 optionsBlock
                 answerAndSource
                 explanationBlock
@@ -243,7 +243,10 @@ struct LibraryRecordDetailView: View {
 
     @ViewBuilder
     private var detailToolbarActions: some View {
-        if doodleSession.isPresented {
+        if questionBankContext != nil && !AppFeatureAvailability.questionBank {
+            toolbarPlaceholder
+            toolbarPlaceholder
+        } else if doodleSession.isPresented {
             toolbarPlaceholder
             toolbarPlaceholder
         } else {
@@ -251,7 +254,7 @@ struct LibraryRecordDetailView: View {
                 .accessibilityLabel("涂鸦")
             questionActionsMenu
         }
-        if let onDone, questionBankContext != nil {
+        if let onDone, questionBankContext != nil, AppFeatureAvailability.questionBank {
             Button("完成") {
                 noteSession.finish { saved in
                     if saved { onDone() }
@@ -386,7 +389,7 @@ struct LibraryRecordDetailView: View {
         }
     }
 
-    @ViewBuilder private var imagesBlock: some View {
+    @ViewBuilder private func imagesBlock(availableWidth: CGFloat) -> some View {
         if let context = displayQuestionBankContext {
             if !context.currentQuestion.stemImageAssetID.isEmpty,
                let asset = context.assetsByID[context.currentQuestion.stemImageAssetID] {
@@ -398,14 +401,21 @@ struct LibraryRecordDetailView: View {
                     .padding(.top, 3)
             }
         } else if !imageValues.isEmpty {
-            VStack(spacing: 10) {
+            let widthFractions = LibraryImageDisplaySetting.widthFractions(
+                from: object["imageDisplayMetadata"],
+                count: imageValues.count
+            )
+            VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(imageValues.enumerated()), id: \.offset) { index, source in
                     LibraryDetailImage(
                         source: source,
-                        cacheKey: "detail-\(activeRecordID)-\(index)-\(source.count)"
+                        cacheKey: "detail-\(activeRecordID)-\(record?.updatedAt?.timeIntervalSince1970 ?? 0)-\(index)-\(source.count)",
+                        availableWidth: availableWidth,
+                        widthFraction: widthFractions[index]
                     )
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 3)
         }
     }
@@ -1172,7 +1182,10 @@ struct LibraryRecordDetailView: View {
 private struct LibraryDetailImage: View {
     let source: String
     let cacheKey: String
+    let availableWidth: CGFloat
+    let widthFraction: Double
     @State private var image: UIImage?
+    @State private var didFail = false
 
     var body: some View {
         Group {
@@ -1183,21 +1196,34 @@ private struct LibraryDetailImage: View {
             } else {
                 Color(uiColor: .secondarySystemBackground)
                     .frame(height: 120)
-                    .overlay { ProgressView().controlSize(.small) }
+                    .overlay {
+                        if didFail {
+                            Label("图片无法加载", systemImage: "exclamationmark.triangle")
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(width: max(1, availableWidth * CGFloat(widthFraction)))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
         }
         .task(id: cacheKey) {
-            image = await LibraryImageLoader.image(
+            image = nil
+            didFail = false
+            let loadedImage = await LibraryImageLoader.image(
                 from: source,
                 cacheKey: cacheKey,
                 maximumPixelSize: 2_400
             )
+            guard !Task.isCancelled else { return }
+            image = loadedImage
+            didFail = loadedImage == nil
         }
     }
 }

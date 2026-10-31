@@ -487,9 +487,23 @@ struct LibraryView: View {
             snapshotCache.snapshot(
                 record: $0,
                 linkedWordNamesByID: wordNames,
-                includeImages: isGraphReasoningContext
+                includeImages: includesQuestionImages(in: $0)
             )
         }
+    }
+
+    private func includesQuestionImages(in record: StoredRecord) -> Bool {
+        guard kind == .errors, record.collection == "errors" else { return false }
+        let indexObject = record.indexObject ?? [:]
+        let subject = [record.subject, indexObject["subject"] as? String]
+            .compactMap { $0 }
+            .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map { QuestionBankModuleTitle.normalized($0) } ?? ""
+        let module = [record.module, indexObject["module"] as? String]
+            .compactMap { $0 }
+            .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map { QuestionBankModuleTitle.normalized($0) } ?? ""
+        return subject == "判断推理" && module == "图形推理"
     }
 
     private var isQuantityContext: Bool { scope.subject == "数量关系" && scope.module == nil }

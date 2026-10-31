@@ -182,6 +182,17 @@ struct LibraryRecordEditorView: View {
                     if isQuestionBank { questionBankContextCard }
                     else { contextCard }
                 }
+                if hasPausedQuestionBankAssociation {
+                    Label(
+                        "已保留真题关联；当前保存只修改错题，不回写真题内容。",
+                        systemImage: "info.circle.fill"
+                    )
+                    .font(AppTheme.auxiliaryFont)
+                    .foregroundStyle(AppTheme.accent)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(AppTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
                 if restoredDraft {
                     Label("已恢复上次未保存的草稿", systemImage: "clock.arrow.circlepath")
                         .font(AppTheme.auxiliaryFont.weight(.semibold))
@@ -350,7 +361,7 @@ struct LibraryRecordEditorView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("添加题目与选项图片")
+                .accessibilityLabel("添加题干图片")
             }
         }
     }
@@ -714,6 +725,14 @@ struct LibraryRecordEditorView: View {
     private var isDataAnalysis: Bool { draft.subject == "资料分析" }
     private var isQuantityRelations: Bool { draft.subject == "数量关系" }
     private var isQuestionBank: Bool { questionBankContext != nil }
+    private var hasPausedQuestionBankAssociation: Bool {
+        guard kind == .errors, !AppFeatureAvailability.questionBank else { return false }
+        let paperID = (draft.original["questionBankPaperID"] as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let questionID = (draft.original["questionBankQuestionID"] as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return !paperID.isEmpty || !questionID.isEmpty
+    }
     private var knowledgePointLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
     private var errorCauseLabel: String {
         if isLogicJudgment { return "选项逻辑作用" }
@@ -925,27 +944,52 @@ struct LibraryRecordEditorView: View {
     private var imagePicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                NativeFieldLabel(title: "题目与选项图片")
+                NativeFieldLabel(title: "题干图片")
                 Spacer()
                 PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 12, matching: .images) {
                     Label("添加图片", systemImage: "photo.badge.plus").font(AppTheme.inputFont.weight(.semibold))
                 }
             }
-            if !draft.images.isEmpty {
+            if !draft.imageDisplaySettings.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(Array(draft.images.enumerated()), id: \.offset) { index, value in
-                            ZStack(alignment: .topTrailing) {
-                                if let image = image(from: value) {
-                                    Image(uiImage: image).resizable().scaledToFill().frame(width: 90, height: 74).clipped()
-                                        .clipShape(RoundedRectangle(cornerRadius: 9))
-                                } else {
-                                    RoundedRectangle(cornerRadius: 9).fill(Color.primary.opacity(0.06)).frame(width: 90, height: 74)
-                                        .overlay(Image(systemName: "photo").foregroundStyle(.secondary))
+                        ForEach(draft.imageDisplaySettings) { setting in
+                            if let index = draft.imageDisplaySettings.firstIndex(where: { $0.id == setting.id }),
+                               draft.images.indices.contains(index) {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    ZStack(alignment: .topTrailing) {
+                                        if let image = image(from: draft.images[index]) {
+                                            Image(uiImage: image).resizable().scaledToFill().frame(width: 90, height: 74).clipped()
+                                                .clipShape(RoundedRectangle(cornerRadius: 9))
+                                        } else {
+                                            RoundedRectangle(cornerRadius: 9).fill(Color.primary.opacity(0.06)).frame(width: 90, height: 74)
+                                                .overlay(Image(systemName: "photo").foregroundStyle(.secondary))
+                                        }
+                                        Button { draft.removeQuestionImage(at: index) } label: {
+                                            Image(systemName: "xmark.circle.fill").symbolRenderingMode(.palette).foregroundStyle(.white, .black.opacity(0.55))
+                                        }.buttonStyle(.plain).offset(x: 5, y: -5)
+                                    }
+                                    HStack(spacing: 4) {
+                                        Text("\(Int((setting.widthFraction * 100).rounded()))%")
+                                            .font(.system(size: 11, weight: .medium).monospacedDigit())
+                                            .foregroundStyle(.secondary)
+                                            .frame(width: 38, alignment: .leading)
+                                        Slider(
+                                            value: questionImageWidthBinding(for: setting.id),
+                                            in: LibraryImageDisplaySetting.minimumWidthFraction...LibraryImageDisplaySetting.maximumWidthFraction,
+                                            step: LibraryImageDisplaySetting.stepWidthFraction
+                                        )
+                                        .accessibilityLabel("题干图片显示宽度")
+                                        Button("全宽") {
+                                            draft.setQuestionImageWidth(id: setting.id, fraction: LibraryImageDisplaySetting.maximumWidthFraction)
+                                        }
+                                        .font(.system(size: 11, weight: .medium))
+                                        .buttonStyle(.plain)
+                                        .foregroundStyle(AppTheme.accent)
+                                        .disabled(setting.widthFraction >= LibraryImageDisplaySetting.maximumWidthFraction)
+                                    }
                                 }
-                                Button { draft.images.remove(at: index) } label: {
-                                    Image(systemName: "xmark.circle.fill").symbolRenderingMode(.palette).foregroundStyle(.white, .black.opacity(0.55))
-                                }.buttonStyle(.plain).offset(x: 5, y: -5)
+                                .frame(width: 205, alignment: .leading)
                             }
                         }
                     }.padding(.vertical, 4)
@@ -1697,9 +1741,19 @@ struct LibraryRecordEditorView: View {
     private func appendImages(_ items: [PhotosPickerItem]) async {
         for item in items {
             guard let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty else { continue }
-            draft.images.append("data:image/jpeg;base64,\(data.base64EncodedString())")
+            draft.appendQuestionImage("data:image/jpeg;base64,\(data.base64EncodedString())")
         }
         selectedPhotos = []
+    }
+
+    private func questionImageWidthBinding(for id: String) -> Binding<Double> {
+        Binding(
+            get: {
+                draft.imageDisplaySettings.first(where: { $0.id == id })?.widthFraction
+                    ?? LibraryImageDisplaySetting.maximumWidthFraction
+            },
+            set: { draft.setQuestionImageWidth(id: id, fraction: $0) }
+        )
     }
 
     private func image(from value: String) -> UIImage? {
