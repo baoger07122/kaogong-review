@@ -473,7 +473,9 @@ struct LibraryRecordDetailView: View {
                                 } else if questionBankContext == nil {
                                     LibraryDetailImage(
                                         source: optionImage,
-                                        cacheKey: "detail-option-\(activeRecordID)-\(index)-\(optionImage.count)"
+                                        cacheKey: "detail-option-\(activeRecordID)-\(index)-\(optionImage.count)",
+                                        availableWidth: nil,
+                                        widthFraction: LibraryImageDisplaySetting.maximumWidthFraction
                                     )
                                 }
                             }
@@ -1182,7 +1184,7 @@ struct LibraryRecordDetailView: View {
 private struct LibraryDetailImage: View {
     let source: String
     let cacheKey: String
-    let availableWidth: CGFloat
+    let availableWidth: CGFloat?
     let widthFraction: Double
     @State private var image: UIImage?
     @State private var didFail = false
@@ -1207,7 +1209,8 @@ private struct LibraryDetailImage: View {
                     }
             }
         }
-        .frame(width: max(1, availableWidth * CGFloat(widthFraction)))
+        .frame(width: availableWidth.map { max(1, $0 * CGFloat(widthFraction)) })
+        .frame(maxWidth: availableWidth == nil ? .infinity : nil)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay {
             RoundedRectangle(cornerRadius: 10)
