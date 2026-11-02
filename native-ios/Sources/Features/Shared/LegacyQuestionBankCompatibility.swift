@@ -415,8 +415,8 @@ struct QuestionBankQuestionAnalysisContext {
         let material = question.materialID.isEmpty ? nil : dependencies.first(where: {
             $0.kind == materialKind && $0.stableID == question.materialID
         })?.decoded(QuestionBankMaterial.self)
-        let sourcePapers = dependencies.first(where: { $0.kind == paperKind })
-            ?.decoded(QuestionBankPaper.self)?.sourcePapers ?? []
+        let paperRecord = dependencies.first(where: { $0.kind == paperKind })
+        let sourcePapers = paperRecord?.decoded(QuestionBankPaper.self)?.sourcePapers ?? []
         let assetsByID = Dictionary(
             dependencies.filter { $0.kind == assetKind }
                 .map { ($0.stableID, QuestionBankAssetReference(record: $0)) },
