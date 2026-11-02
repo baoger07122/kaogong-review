@@ -1183,10 +1183,19 @@ private struct LibraryDetailImage: View {
 
 private final class LegacyQuestionBankImageBox: @unchecked Sendable {
     let image: UIImage
+
+    init(image: UIImage) {
+        self.image = image
+    }
 }
 
 private enum LegacyQuestionBankImageCache {
-    static let images = NSCache<NSString, LegacyQuestionBankImageBox>()
+    static let images: NSCache<NSString, LegacyQuestionBankImageBox> = {
+        let cache = NSCache<NSString, LegacyQuestionBankImageBox>()
+        cache.countLimit = 48
+        cache.totalCostLimit = 80 * 1_024 * 1_024
+        return cache
+    }()
 
     static func cachedImage(for key: String) -> UIImage? {
         images.object(forKey: key as NSString)?.image
@@ -1205,7 +1214,8 @@ private enum LegacyQuestionBankImageCache {
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
               !Task.isCancelled else { return nil }
         let box = LegacyQuestionBankImageBox(image: UIImage(cgImage: image))
-        images.setObject(box, forKey: cacheKey as NSString)
+        let cost = max(1, image.bytesPerRow * image.height)
+        images.setObject(box, forKey: cacheKey as NSString, cost: cost)
         return box
     }
 }

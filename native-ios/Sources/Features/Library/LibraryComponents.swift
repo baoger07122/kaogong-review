@@ -783,7 +783,7 @@ enum LibraryImageLoader {
         } else {
             encoded = source[...]
         }
-        guard let data = Data(base64Encoded: encoded, options: .ignoreUnknownCharacters),
+        guard let data = Data(base64Encoded: String(encoded), options: .ignoreUnknownCharacters),
               !Task.isCancelled,
               let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
               !Task.isCancelled else { return nil }
