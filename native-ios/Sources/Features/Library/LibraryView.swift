@@ -479,7 +479,7 @@ struct LibraryView: View {
 
     private var pendingSourceCount: Int {
         let reviewSources = recordListCache.reviewSources(for: records)
-        records.lazy.filter { record in
+        return records.lazy.filter { record in
             ["errors", "notes", "stickies"].contains(record.collection)
                 && scope.contains(record)
                 && reviewSources[record.compoundID] == .pending
@@ -488,7 +488,7 @@ struct LibraryView: View {
 
     private var pendingSourceRecords: [StoredRecord] {
         let reviewSources = recordListCache.reviewSources(for: records)
-        records.filter { record in
+        return records.filter { record in
             ["errors", "notes", "stickies"].contains(record.collection)
                 && scope.contains(record)
                 && reviewSources[record.compoundID] == .pending
