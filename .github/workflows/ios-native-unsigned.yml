@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   build-native-ios:
-    runs-on: macos-15
+    runs-on: macos-15-intel
 
     steps:
       - name: Checkout native branch
