@@ -197,10 +197,10 @@ enum ExamReportParser {
     static func parentSubject(for subject: String) -> String {
         if topLevelModules.contains(subject) { return subject }
         switch subject {
-        case "逻辑填空", "片段阅读", "语句表达": "言语理解与表达"
-        case "图形推理", "定义判断", "类比推理", "逻辑判断": "判断推理"
-        case "文字材料", "表格材料", "图表材料", "综合材料": "资料分析"
-        default: subject
+        case "逻辑填空", "片段阅读", "语句表达": return "言语理解与表达"
+        case "图形推理", "定义判断", "类比推理", "逻辑判断": return "判断推理"
+        case "文字材料", "表格材料", "图表材料", "综合材料": return "资料分析"
+        default: return subject
         }
     }
 
