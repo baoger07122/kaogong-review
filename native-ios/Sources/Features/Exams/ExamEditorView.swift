@@ -329,6 +329,11 @@ struct ExamEditorView: View {
         catch { parseMessage = "删除失败：\(error.localizedDescription)" }
     }
 
+    private func formatDuration(seconds: Int) -> String {
+        if seconds >= 3_600 { return "\(seconds / 3_600)小时\((seconds % 3_600) / 60)分" }
+        if seconds >= 60 { return "\(seconds / 60)分\(seconds % 60)秒" }
+        return "\(seconds)秒"
+    }
 }
 
 private struct ExamTimeField: View {
