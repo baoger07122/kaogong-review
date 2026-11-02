@@ -9,12 +9,17 @@ struct ExamEditorView: View {
     let recordID: String?
     @State private var draft: ExamDraft
     @State private var showDelete = false
-    @State private var showParseConfirmation = false
+    @State private var showReportParser = false
+    @State private var showReplaceParserConfirmation = false
+    @State private var reportTextDraft = ""
+    @State private var reportPreview: ExamReportParser.Result?
     @State private var pendingParsedLines: [ExamModuleResult] = []
     @State private var pendingParseConflicts: [String] = []
     @State private var pendingUnparsedLines: [String] = []
+    @State private var pendingParseWarnings: [String] = []
     @State private var parseMessage: String?
     @State private var reparseMessage: String?
+    @State private var editorErrorMessage: String?
 
     init(record: StoredRecord? = nil, preferredType: LibraryReviewSource? = nil) {
         recordID = record?.recordID
@@ -25,6 +30,9 @@ struct ExamEditorView: View {
 
     private var errorRecords: [StoredRecord] { records.filter { $0.collection == "errors" } }
     private var linkedErrorCount: Int { errorRecords.filter { $0.jsonObject?["sourceExamId"] as? String == draft.id }.count }
+    private var hasUnselectedModule: Bool {
+        draft.moduleResults.contains { $0.subject == ExamModuleCatalog.placeholderSubject }
+    }
 
     var body: some View {
         ScrollView {
@@ -45,7 +53,8 @@ struct ExamEditorView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button("保存", action: save).disabled(draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("保存", action: save)
+                    .disabled(draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hasUnselectedModule)
             }
             if recordID != nil { ToolbarItem(placement: .bottomBar) { Button("删除", role: .destructive) { showDelete = true } } }
         }
@@ -53,12 +62,14 @@ struct ExamEditorView: View {
             Button("删除", role: .destructive, action: remove)
             Button("取消", role: .cancel) {}
         } message: { Text("关联错题会保留，只解除与本次考试的关系。") }
-        .alert("重新解析成绩", isPresented: $showParseConfirmation) {
-            Button("替换现有明细", role: .destructive) { replaceWithParsedResults() }
-            Button("合并空缺字段") { mergeParsedResults() }
-            Button("取消", role: .cancel) { }
-        } message: {
-            Text("当前已有可编辑成绩明细。替换会覆盖现有字段；合并只补空字段，并保留已有手工修改。")
+        .alert("操作失败", isPresented: Binding(
+            get: { editorErrorMessage != nil },
+            set: { if !$0 { editorErrorMessage = nil } }
+        )) {
+            Button("好", role: .cancel) { editorErrorMessage = nil }
+        } message: { Text(editorErrorMessage ?? "") }
+        .sheet(isPresented: $showReportParser) {
+            reportParserSheet
         }
     }
 
@@ -94,24 +105,149 @@ struct ExamEditorView: View {
             HStack {
                 NativeFieldLabel(title: "成绩报告原文")
                 Spacer()
-                Button(action: parseReport) { Label("解析", systemImage: "text.magnifyingglass").font(AppTheme.inputFont.weight(.semibold)) }
+                Button(action: openReportParser) { Label("粘贴 / 编辑", systemImage: "doc.on.clipboard").font(AppTheme.inputFont.weight(.semibold)) }
                     .buttonStyle(.plain)
-                    .disabled(draft.rawReport.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            TextEditor(text: $draft.rawReport)
-                .font(AppTheme.inputFont)
-                .scrollContentBackground(.hidden)
-                .frame(minHeight: 140)
-                .padding(7)
+            Text(draft.rawReport.isEmpty ? "尚未粘贴成绩报告原文" : draft.rawReport)
+                .font(AppTheme.auxiliaryFont)
+                .foregroundStyle(draft.rawReport.isEmpty ? Color.secondary : Color.primary)
+                .lineLimit(4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
                 .background(Color.white, in: RoundedRectangle(cornerRadius: 9))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.primary.opacity(0.08), lineWidth: 0.7))
-            if let parseMessage {
-                Text(parseMessage).font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.warning)
-            }
             if let reparseMessage {
-                Text(reparseMessage).font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.warning)
+                Text(reparseMessage).font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
             }
         }.nativeCard()
+    }
+
+    private var reportParserSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Button {
+                        if let clipboard = UIPasteboard.general.string, !clipboard.isEmpty {
+                            reportTextDraft = clipboard
+                            reportPreview = nil
+                            parseMessage = nil
+                        } else {
+                            parseMessage = "剪贴板中没有可粘贴的文字。"
+                        }
+                    } label: { Label("粘贴", systemImage: "doc.on.clipboard") }
+                    .buttonStyle(NativeSecondaryButtonStyle())
+                    Button {
+                        reportTextDraft = ""
+                        reportPreview = nil
+                        parseMessage = nil
+                    } label: { Label("清空", systemImage: "trash") }
+                    .buttonStyle(NativeSecondaryButtonStyle())
+                    Spacer()
+                    Button { parseReportDraft() } label: { Label("解析", systemImage: "text.magnifyingglass") }
+                        .buttonStyle(NativePrimaryButtonStyle())
+                        .disabled(reportTextDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                TextEditor(text: $reportTextDraft)
+                    .font(AppTheme.inputFont)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 190)
+                    .padding(8)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08), lineWidth: 0.7))
+                    .onChange(of: reportTextDraft) { _, _ in
+                        reportPreview = nil
+                        pendingParsedLines = []
+                        pendingParseConflicts = []
+                        pendingUnparsedLines = []
+                        pendingParseWarnings = []
+                        parseMessage = nil
+                    }
+
+                if let parseMessage {
+                    Text(parseMessage).font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.warning)
+                }
+                if let reportPreview {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("识别到 \(reportPreview.lines.count) 项成绩")
+                                .font(AppTheme.inputFont.weight(.semibold))
+                            ForEach(reportPreview.lines) { line in
+                                Text("\(line.subject) · \(line.totalQuestions) 题 · 答对 \(line.correctCount) · \(line.timeSeconds.isEmpty ? "用时未知" : formatDuration(seconds: Int(line.timeSeconds) ?? 0))")
+                                    .font(AppTheme.auxiliaryFont)
+                                    .foregroundStyle(.secondary)
+                            }
+                            ForEach(reportPreview.duplicateConflicts, id: \.self) { subject in
+                                Text("重复数据有冲突：\(subject)，请核对。")
+                                    .font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.warning)
+                            }
+                            ForEach(reportPreview.warnings, id: \.self) { warning in
+                                Text(warning).font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.warning)
+                            }
+                            if !reportPreview.unparsedLines.isEmpty {
+                                Text("未识别 \(reportPreview.unparsedLines.count) 行，原文会保留：\(reportPreview.unparsedLines.prefix(6).joined(separator: "；"))")
+                                    .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 180)
+                }
+
+                Spacer(minLength: 0)
+                if let reportPreview, !reportPreview.lines.isEmpty {
+                    if draft.moduleResults.isEmpty {
+                        VStack(spacing: 7) {
+                            Button("载入解析结果") { saveParsedReport(replacing: true) }
+                                .buttonStyle(NativePrimaryButtonStyle())
+                            Button("仅保存原文", action: saveReportTextOnly)
+                                .buttonStyle(.plain).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                    } else {
+                        VStack(spacing: 7) {
+                            HStack {
+                                Button("合并空缺字段") { saveParsedReport(replacing: false) }
+                                    .buttonStyle(NativeSecondaryButtonStyle())
+                                    .frame(maxWidth: .infinity)
+                                Button("替换现有明细", role: .destructive) { showReplaceParserConfirmation = true }
+                                    .buttonStyle(NativeDangerButtonStyle())
+                                    .frame(maxWidth: .infinity)
+                            }
+                            Button("仅保存原文", action: saveReportTextOnly)
+                                .buttonStyle(.plain).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                } else {
+                    Button("仅保存原文", action: saveReportTextOnly)
+                        .buttonStyle(NativePrimaryButtonStyle())
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(16)
+            .background(AppTheme.groupedBackground)
+            .navigationTitle("成绩报告")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { showReportParser = false }
+                }
+            }
+            .confirmationDialog("替换现有成绩明细？", isPresented: $showReplaceParserConfirmation, titleVisibility: .visible) {
+                Button("替换明细", role: .destructive) { saveParsedReport(replacing: true) }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("替换会覆盖当前编辑中的明细；合并只补空字段。成绩记录尚未保存到数据库。")
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func saveReportTextOnly() {
+        draft.rawReport = reportTextDraft
+        showReportParser = false
     }
 
     private var resultSection: some View {
@@ -119,7 +255,12 @@ struct ExamEditorView: View {
             HStack {
                 NativeFieldLabel(title: "可编辑的模块成绩")
                 Spacer()
-                Button { draft.moduleResults.append(ExamModuleResult(subject: "新模块")) } label: {
+                Button {
+                    draft.moduleResults.append(ExamModuleResult(
+                        subject: ExamModuleCatalog.placeholderSubject,
+                        parentSubject: ExamModuleCatalog.placeholderSubject
+                    ))
+                } label: {
                     Label("手动添加", systemImage: "plus").font(AppTheme.auxiliaryFont.weight(.semibold))
                 }.buttonStyle(.plain)
             }
@@ -127,6 +268,10 @@ struct ExamEditorView: View {
                 Text("解析后可修改各项；也可以直接手动添加。留空的字段会按未知处理，不按 0 统计。")
                     .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
             } else {
+                if hasUnselectedModule {
+                    Text("请先为手动添加的每一项选择模块，未选择时不能保存。")
+                        .font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.warning)
+                }
                 HStack(spacing: 5) {
                     Text("模块")
                     Spacer(minLength: 4)
@@ -147,8 +292,27 @@ struct ExamEditorView: View {
     private func resultRow(line: Binding<ExamModuleResult>) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
-                TextField("模块", text: line.subject).font(.system(size: 12, weight: .semibold))
-                    .textFieldStyle(NativeTextFieldStyle())
+                Picker("模块", selection: line.subject) {
+                    if line.wrappedValue.subject == ExamModuleCatalog.placeholderSubject {
+                        Text("选择模块").tag(ExamModuleCatalog.placeholderSubject)
+                    } else if !ExamModuleCatalog.selectableSubjects.contains(line.wrappedValue.subject) {
+                        Text("历史模块 · \(line.wrappedValue.subject)").tag(line.wrappedValue.subject)
+                    }
+                    ForEach(ExamModuleCatalog.topLevel, id: \.self) { parent in
+                        if let children = ExamModuleCatalog.children[parent], !children.isEmpty {
+                            Section(parent) {
+                                Text(parent).tag(parent)
+                                ForEach(children, id: \.self) { Text($0).tag($0) }
+                            }
+                        } else {
+                            Text(parent).tag(parent)
+                        }
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .font(.system(size: 12, weight: .semibold))
+                .accessibilityLabel("模块，当前 \(line.wrappedValue.subject)")
                 Spacer(minLength: 2)
                 Button { draft.moduleResults.removeAll { $0.id == line.wrappedValue.id } } label: {
                     Image(systemName: "trash").foregroundStyle(AppTheme.danger).font(.system(size: 12))
@@ -160,13 +324,17 @@ struct ExamEditorView: View {
                 compactResultField("报告率", text: line.reportedAccuracy, keyboard: .decimalPad, suffix: "%")
                 timeField(line.timeSeconds)
             }
-            Text("汇总归属：\(line.wrappedValue.parentSubject)")
+            Text(line.wrappedValue.subject == ExamModuleCatalog.placeholderSubject
+                ? "请选择模块后再填写成绩"
+                : (ExamModuleCatalog.selectableSubjects.contains(line.wrappedValue.subject)
+                    ? "汇总归属：\(line.wrappedValue.parentSubject)"
+                    : "历史模块未映射，原名称暂时保留"))
                 .font(.system(size: 9)).foregroundStyle(.tertiary)
         }
         .padding(8)
         .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
         .onChange(of: line.wrappedValue.subject) { _, value in
-            line.wrappedValue.parentSubject = ExamReportParser.parentSubject(for: value)
+            line.wrappedValue.parentSubject = ExamModuleCatalog.parentSubject(for: value)
         }
     }
 
@@ -253,22 +421,35 @@ struct ExamEditorView: View {
             .sorted { ($0.createdAt ?? $0.updatedAt ?? .distantPast) > ($1.createdAt ?? $1.updatedAt ?? .distantPast) }
     }
 
-    private func parseReport() {
-        let result = ExamReportParser.parse(draft.rawReport)
-        guard !result.lines.isEmpty else {
-            parseMessage = result.unparsedLines.isEmpty ? "没有解析出可识别的成绩行" : "未识别：\(result.unparsedLines.prefix(2).joined(separator: "；"))"
-            return
-        }
+    private func openReportParser() {
+        reportTextDraft = draft.rawReport
+        reportPreview = nil
+        parseMessage = nil
+        showReportParser = true
+    }
+
+    private func parseReportDraft() {
+        let result = ExamReportParser.parse(reportTextDraft)
+        reportPreview = result
         pendingParsedLines = result.lines
         pendingParseConflicts = result.duplicateConflicts
         pendingUnparsedLines = result.unparsedLines
-        parseMessage = nil
-        reparseMessage = nil
-        if draft.moduleResults.isEmpty {
-            replaceWithParsedResults()
+        pendingParseWarnings = result.warnings
+        if result.lines.isEmpty {
+            parseMessage = result.unparsedLines.isEmpty
+                ? "没有解析出可识别的成绩行。原文不会丢失。"
+                : "没有识别到成绩。未识别内容会保留：\(result.unparsedLines.prefix(3).joined(separator: "；"))"
         } else {
-            showParseConfirmation = true
+            parseMessage = nil
         }
+    }
+
+    private func saveParsedReport(replacing: Bool) {
+        guard !pendingParsedLines.isEmpty else { return }
+        draft.rawReport = reportTextDraft
+        if replacing { replaceWithParsedResults() }
+        else { mergeParsedResults() }
+        showReportParser = false
     }
 
     private func replaceWithParsedResults() {
@@ -277,30 +458,13 @@ struct ExamEditorView: View {
     }
 
     private func mergeParsedResults() {
-        var conflicts = pendingParseConflicts
-        for parsed in pendingParsedLines {
-            let matches = draft.moduleResults.indices.filter { draft.moduleResults[$0].subject == parsed.subject }
-            guard matches.count == 1, let index = matches.first else {
-                if matches.isEmpty { draft.moduleResults.append(parsed) }
-                else { conflicts.append(parsed.subject) }
-                continue
-            }
-            var current = draft.moduleResults[index]
-            for (old, fresh, label) in [
-                (current.totalQuestions, parsed.totalQuestions, "总题数"),
-                (current.correctCount, parsed.correctCount, "答对数"),
-                (current.reportedAccuracy, parsed.reportedAccuracy, "正确率"),
-                (current.timeSeconds, parsed.timeSeconds, "用时")
-            ] where !old.isEmpty && old != fresh {
-                conflicts.append("\(parsed.subject)\(label)")
-            }
-            if current.totalQuestions.isEmpty { current.totalQuestions = parsed.totalQuestions }
-            if current.correctCount.isEmpty { current.correctCount = parsed.correctCount }
-            if current.reportedAccuracy.isEmpty { current.reportedAccuracy = parsed.reportedAccuracy }
-            if current.timeSeconds.isEmpty { current.timeSeconds = parsed.timeSeconds }
-            draft.moduleResults[index] = current
-        }
-        pendingParseConflicts = Array(Set(conflicts)).sorted()
+        let merged = ExamReportMergePolicy.merge(
+            pendingParsedLines,
+            into: draft.moduleResults,
+            carrying: pendingParseConflicts
+        )
+        draft.moduleResults = merged.lines
+        pendingParseConflicts = merged.conflicts
         reportParseOutcome(mergedCount: pendingParsedLines.count)
     }
 
@@ -308,6 +472,7 @@ struct ExamEditorView: View {
         var parts: [String] = []
         if !pendingParseConflicts.isEmpty { parts.append("重复或冲突项：\(pendingParseConflicts.joined(separator: "、"))，请检查") }
         if !pendingUnparsedLines.isEmpty { parts.append("未识别 \(pendingUnparsedLines.count) 行，原文已保留") }
+        if !pendingParseWarnings.isEmpty { parts.append(contentsOf: pendingParseWarnings) }
         if parts.isEmpty { reparseMessage = "已载入 \(draft.moduleResults.count) 项成绩，可逐项核对。" }
         else { reparseMessage = parts.joined(separator: "；") }
         if mergedCount > 0, parts.isEmpty { reparseMessage = "已合并空缺字段，原有手工内容保留。" }
@@ -320,13 +485,13 @@ struct ExamEditorView: View {
 
     private func save() {
         do { _ = try ExamRepository.save(draft, records: records, context: modelContext); dismiss() }
-        catch { parseMessage = "保存失败：\(error.localizedDescription)" }
+        catch { editorErrorMessage = "保存失败：\(error.localizedDescription)" }
     }
 
     private func remove() {
         guard let recordID else { return }
         do { try ExamRepository.remove(id: recordID, records: records, context: modelContext); dismiss() }
-        catch { parseMessage = "删除失败：\(error.localizedDescription)" }
+        catch { editorErrorMessage = "删除失败：\(error.localizedDescription)" }
     }
 
     private func formatDuration(seconds: Int) -> String {
@@ -352,38 +517,19 @@ private struct ExamTimeField: View {
             .multilineTextAlignment(.center)
             .font(.system(size: 11, weight: .medium))
             .textFieldStyle(.plain)
-            .focused($isFocused)
             .frame(maxWidth: .infinity).frame(height: 34)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 7))
-            .accessibilityLabel("用时，分:秒；超过一小时可输入时:分:秒")
+            .focused($isFocused)
             .onChange(of: text) { _, value in
-                if value.isEmpty {
-                    seconds = ""
-                } else if let parsed = ExamReportParser.parseTime(value) {
-                    seconds = String(parsed)
-                }
+                if let parsed = ExamReportParser.parseTime(value) { seconds = String(parsed) }
             }
             .onChange(of: seconds) { _, value in
-                guard !isFocused else { return }
-                if let parsed = ExamReportParser.parseTime(text), String(parsed) == value { return }
-                text = Self.displayValue(value)
-            }
-            .onChange(of: isFocused) { _, focused in
-                guard !focused else { return }
-                if text.isEmpty {
-                    seconds = ""
-                } else if let parsed = ExamReportParser.parseTime(text) {
-                    seconds = String(parsed)
-                    text = Self.displayValue(String(parsed))
-                } else {
-                    text = Self.displayValue(seconds)
-                }
+                if !isFocused { text = Self.displayValue(value) }
             }
     }
 
-    private static func displayValue(_ rawValue: String) -> String {
-        guard let value = Int(rawValue), value >= 0 else { return rawValue }
-        if value >= 3_600 { return String(format: "%d:%02d:%02d", value / 3_600, (value % 3_600) / 60, value % 60) }
-        return String(format: "%d:%02d", value / 60, value % 60)
+    private static func displayValue(_ value: String) -> String {
+        guard let seconds = Int(value), seconds >= 0 else { return value }
+        return "\(seconds / 60):\(String(format: "%02d", seconds % 60))"
     }
 }

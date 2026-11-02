@@ -20,6 +20,9 @@ struct LibraryView: View {
     @State private var selectedStatus = ""
     @State private var selectedTag = ""
     @AppStorage("native.library.card-size.v1") private var storedCardSize = LibraryCardSize.medium.rawValue
+    @AppStorage("native.library.controls.status.v2") private var showsStatusControl = false
+    @AppStorage("native.library.controls.category.v2") private var showsCategoryControl = false
+    @AppStorage("native.library.controls.card-size.v2") private var showsCardSizeControl = false
     @State private var showNewNoteType = false
     @State private var noteTypeDraft = ""
     @State private var noteTypeColor = NoteTypeRepository.colors[0]
@@ -56,6 +59,11 @@ struct LibraryView: View {
         .stableRootNavigationBar()
         .rootTabBarContentInset()
         .onAppear { NativePerformanceLog.event("library onAppear") }
+        .onReceive(NotificationCenter.default.publisher(for: .legacyBackupRestoreDidComplete)) { _ in
+            snapshotCache.invalidate()
+            recordListCache.invalidate()
+            ReviewSourceMetadataCache.shared.removeAll()
+        }
         .task { await runLegacyIndexMigrationIfNeeded() }
         .onChange(of: quantityQuestionTypes) { _, values in
             if !selectedQuantityType.isEmpty,
@@ -267,6 +275,23 @@ struct LibraryView: View {
             header
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    if pendingSourceCount > 0 {
+                        HStack(spacing: 9) {
+                            Image(systemName: "questionmark.folder.fill")
+                                .foregroundStyle(AppTheme.warning)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("有 \(pendingSourceCount) 条记录待确认来源")
+                                    .font(AppTheme.inputFont.weight(.semibold))
+                                Text("确认后可在真题或模拟题复盘中筛选。")
+                                    .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 4)
+                            Button("确认") { showBulkSourcePicker = true }
+                                .font(AppTheme.auxiliaryFont.weight(.semibold))
+                        }
+                        .padding(11)
+                        .background(AppTheme.warning.opacity(0.10), in: RoundedRectangle(cornerRadius: 11))
+                    }
                     if showSearch {
                         HStack(spacing: 7) {
                             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -347,37 +372,11 @@ struct LibraryView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(scope.title)
-                        .font(AppTheme.pageTitleFont)
-                    Text(contextSummary)
-                        .font(AppTheme.auxiliaryFont)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Menu {
-                    Button { showSearch = true } label: { Label("搜索", systemImage: "magnifyingglass") }
-                    Button { selectReviewSource(.pending) } label: {
-                        Label("待确认来源（\(pendingSourceCount)）", systemImage: "questionmark.folder")
-                    }
-                    if pendingSourceCount > 0 {
-                        Button { showBulkSourcePicker = true } label: {
-                            Label("批量确认来源（\(pendingSourceCount)）", systemImage: "checkmark.square")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 36, height: 36)
-                        .background(Color.white, in: Circle())
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 9) {
+                reviewSourceSelector
+                headerMenu
             }
-
-            reviewSourceSelector
 
             HStack(spacing: 4) {
                 ForEach(availableKinds) { value in
@@ -404,21 +403,71 @@ struct LibraryView: View {
             .background(Color.primary.opacity(0.05), in: Capsule())
         }
         .padding(.horizontal, 14)
-        .padding(.top, 14)
-        .padding(.bottom, 10)
+        .padding(.top, 9)
+        .padding(.bottom, 8)
         .background(AppTheme.groupedBackground)
     }
 
+    private var headerMenu: some View {
+        Menu {
+            Button { showSearch = true } label: { Label("搜索", systemImage: "magnifyingglass") }
+            Section("显示控件") {
+                if kind == .errors {
+                    Toggle(isOn: $showsStatusControl) { Label("状态筛选", systemImage: "checkmark.circle") }
+                }
+                if canShowCategoryControl {
+                    Toggle(isOn: $showsCategoryControl) { Label("分类筛选", systemImage: "tag") }
+                }
+                Toggle(isOn: $showsCardSizeControl) { Label("题卡大小", systemImage: "rectangle.grid.2x2") }
+            }
+            if hasActiveFilterConditions {
+                Section("当前生效筛选") {
+                    if !selectedStatus.isEmpty { Text("状态：\(selectedStatus)") }
+                    if !selectedTag.isEmpty { Text("分类：\(selectedTag)") }
+                    if !selectedQuantityType.isEmpty { Text("题型：\(selectedQuantityType)") }
+                    if kind == .words, let category = WordCategory(rawValue: wordCategory.rawValue) {
+                        Text("词语类别：\(category.shortTitle)")
+                    }
+                    if !wordEntryKind.isEmpty, let entry = WordEntryKind(rawValue: wordEntryKind) {
+                        Text("内容类型：\(entry.title)")
+                    }
+                    if !wordSentiment.isEmpty { Text("感情色彩：\(wordSentiment)") }
+                    Button(role: .destructive, action: clearActiveFilters) {
+                        Label("清除筛选", systemImage: "line.3.horizontal.decrease.circle")
+                    }
+                }
+            }
+            Section("来源") {
+                Button { selectReviewSource(.pending) } label: {
+                    Label("待确认来源（\(pendingSourceCount)）", systemImage: "questionmark.folder")
+                }
+                if pendingSourceCount > 0 {
+                    Button { showBulkSourcePicker = true } label: {
+                        Label("批量确认来源（\(pendingSourceCount)）", systemImage: "checkmark.square")
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 38, height: 44)
+                .background(Color.white, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("题库设置与筛选")
+    }
+
     private var reviewSourceSelector: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 0) {
             ForEach([LibraryReviewSource.real, .mock], id: \.self) { source in
                 Button { selectReviewSource(source) } label: {
                     Text(source.title)
                         .font(.system(size: 12, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity, minHeight: 44)
                         .foregroundStyle(scope.reviewSource == source ? AppTheme.accent : Color.primary)
                         .background(scope.reviewSource == source ? AppTheme.secondaryBackground : Color.clear, in: Capsule())
+                        .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
             }
@@ -487,9 +536,11 @@ struct LibraryView: View {
         }
     }
 
+    @ViewBuilder
     private func filterBar(availableTags: [String]) -> some View {
+        if hasVisibleFilterControls {
         HStack(spacing: 8) {
-            if kind == .errors {
+            if kind == .errors && showsStatusControl {
                 Menu {
                     Button("全部状态") { selectedStatus = "" }
                     Button("未掌握") { selectedStatus = "未掌握" }
@@ -518,7 +569,7 @@ struct LibraryView: View {
                 }
             }
 
-            if !availableTags.isEmpty && kind != .notes && kind != .words {
+            if canShowCategoryControl && showsCategoryControl && !availableTags.isEmpty {
                 Menu {
                     Button(kind == .notes ? "全部标签" : "全部分类") { selectedTag = "" }
                     ForEach(availableTags, id: \.self) { tag in
@@ -529,18 +580,20 @@ struct LibraryView: View {
                 }
             }
 
-            HStack(spacing: 1) {
-                ForEach(LibraryCardSize.allCases) { size in
-                    Button(size.rawValue) { storedCardSize = size.rawValue }
-                        .font(AppTheme.auxiliaryFont.weight(cardSize == size ? .semibold : .regular))
-                        .foregroundStyle(cardSize == size ? AppTheme.accent : Color.secondary)
-                        .frame(width: 27, height: 28)
-                        .background(cardSize == size ? AppTheme.accent.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
-                        .buttonStyle(.plain)
+            if showsCardSizeControl {
+                HStack(spacing: 1) {
+                    ForEach(LibraryCardSize.allCases) { size in
+                        Button(size.rawValue) { storedCardSize = size.rawValue }
+                            .font(AppTheme.auxiliaryFont.weight(cardSize == size ? .semibold : .regular))
+                            .foregroundStyle(cardSize == size ? AppTheme.accent : Color.secondary)
+                            .frame(width: 27, height: 28)
+                            .background(cardSize == size ? AppTheme.accent.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+                            .buttonStyle(.plain)
+                    }
                 }
+                .padding(3)
+                .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
-            .padding(3)
-            .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
             if isGraphReasoningContext {
                 HStack(spacing: 1) {
@@ -551,6 +604,43 @@ struct LibraryView: View {
                 .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
         }
+        }
+    }
+
+    private var canShowCategoryControl: Bool {
+        guard kind == .errors else { return false }
+        if !selectedTag.isEmpty { return true }
+        return sortedScopedRecords.contains { record in
+            let object = record.indexObject ?? [:]
+            let textKeys = ["type", "category", "errorCause", "knowledgePoint", "point", "topic"]
+            if textKeys.contains(where: { key in
+                guard let value = object[key] as? String else { return false }
+                return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }) { return true }
+            return !(object["knowledgePoints"] as? [String] ?? []).isEmpty
+        }
+    }
+
+    private var hasVisibleFilterControls: Bool {
+        (kind == .errors && showsStatusControl)
+            || (canShowCategoryControl && showsCategoryControl)
+            || showsCardSizeControl
+            || kind == .words
+            || isGraphReasoningContext
+    }
+
+    private var hasActiveFilterConditions: Bool {
+        !selectedStatus.isEmpty || !selectedTag.isEmpty || !selectedQuantityType.isEmpty
+            || (kind == .words && (!wordEntryKind.isEmpty || !wordSentiment.isEmpty))
+    }
+
+    private func clearActiveFilters() {
+        selectedStatus = ""
+        selectedTag = ""
+        selectedQuantityType = ""
+        wordEntryKind = ""
+        wordSentiment = ""
+        renderLimit = 40
     }
 
     private func graphModeButton(_ title: String, value: String) -> some View {
@@ -796,26 +886,16 @@ struct LibraryView: View {
         showNewNoteType = false
     }
 
-    private var contextSummary: String {
-        let values: [(String, LibraryContentKind)] = [("错题", .errors), ("笔记", .notes), ("便签", .stickies)]
-        return values.map { label, value in
-            let count = records.lazy.filter { record in
-                guard record.collection == value.collection, scope.contains(record),
-                      LibraryReviewSource.classify(record, records: records) == scope.reviewSource else { return false }
-                guard isQuantityContext, !selectedQuantityType.isEmpty else { return true }
-                if selectedQuantityType == "未分类" { return !quantityQuestionTypes.contains(record.module ?? "") }
-                return record.module == selectedQuantityType
-            }.count
-            return "\(count) \(label)"
-        }.joined(separator: " · ")
-    }
-
     private var emptyTitle: String {
+        if scope.reviewSource == .pending { return "暂无待确认来源的\(kind.rawValue)" }
         if kind == .stickies && !scope.hasModuleContext { return "先选择一个模块" }
         return kind.emptyTitle
     }
 
     private var emptyDetail: String {
+        if scope.reviewSource == .pending {
+            return pendingSourceCount > 0 ? "有 \(pendingSourceCount) 条记录待确认，可点上方按钮批量分类。" : "当前模块没有待确认来源的记录。"
+        }
         if kind == .stickies && !scope.hasModuleContext { return "每个模块的便签相互独立" }
         return kind.emptyDetail
     }

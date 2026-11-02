@@ -325,6 +325,7 @@ enum LegacyBackupRestorer {
             try beforeSave()
         }
         QuestionBankAnswerStateRepository.postReset()
+        NotificationCenter.default.post(name: .legacyBackupRestoreDidComplete, object: nil)
     }
 
     static func replace(with package: LegacyImportPackage, in container: ModelContainer) async throws {

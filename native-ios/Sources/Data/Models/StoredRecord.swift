@@ -42,6 +42,15 @@ final class StoredRecord {
         return (try? JSONSerialization.jsonObject(with: indexPayload)) as? [String: Any]
     }
 
+    var reviewSourceMetadata: [String: Any] {
+        var value = indexObject ?? [:]
+        for (key, item) in ReviewSourceMetadataCache.shared.fields(for: compoundID, payload: payload)
+            where value[key] == nil || value[key] is NSNull {
+            value[key] = item
+        }
+        return value
+    }
+
     var isShenlunRecord: Bool {
         if subject?.trimmingCharacters(in: .whitespacesAndNewlines) == "申论" { return true }
         let object = indexObject
@@ -99,10 +108,14 @@ final class StoredRecord {
         case "notes":
             keys = [
                 "id", "subject", "module", "title", "content", "type", "category", "createdAt", "updatedAt",
-                "knowledgePoint", "knowledgePoints", "quantityStructure", "weaknessTags", "reviewSource"
+                "knowledgePoint", "knowledgePoints", "quantityStructure", "weaknessTags",
+                "reviewSource", "examType", "paperType", "sourceType", "sourceExamId"
             ]
         case "stickies":
-            keys = ["id", "subject", "module", "content", "tag", "color", "colorHex", "pinned", "createdAt", "updatedAt", "reviewSource"]
+            keys = [
+                "id", "subject", "module", "content", "tag", "color", "colorHex", "pinned", "createdAt", "updatedAt",
+                "reviewSource", "examType", "paperType", "sourceType", "sourceExamId"
+            ]
         case "words":
             keys = [
                 "id", "subject", "module", "title", "name", "words", "type", "category", "meaning", "pinyin",

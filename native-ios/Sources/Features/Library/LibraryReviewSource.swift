@@ -1,55 +1,23 @@
 import Foundation
 import SwiftData
 
-enum LibraryReviewSource: String, CaseIterable, Identifiable, Codable, Hashable {
-    case real = "real"
-    case mock = "mock"
-    case pending = "pending"
-
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .real: "真题复盘"
-        case .mock: "模拟题复盘"
-        case .pending: "待确认"
-        }
-    }
-
-    static func explicitValue(in object: [String: Any]) -> LibraryReviewSource? {
-        for key in ["reviewSource", "examType", "paperType", "sourceType"] {
-            if let value = object[key] as? String, let source = explicitValue(value) { return source }
-        }
-        if let value = object["type"] as? String, let source = explicitValue(value) { return source }
-        if let value = object["source"] as? String, let source = explicitValue(value) { return source }
-        return nil
-    }
-
-    static func explicitValue(_ rawValue: String) -> LibraryReviewSource? {
-        switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "real", "true", "past", "真题", "历年真题", "真题卷": .real
-        case "mock", "simulation", "simulated", "模拟", "模拟题", "模拟卷": .mock
-        case "pending", "unknown", "unclassified", "未分类", "未确认", "待确认": .pending
-        default: nil
-        }
-    }
-
+extension LibraryReviewSource {
     static func classify(_ record: StoredRecord, records: [StoredRecord]) -> LibraryReviewSource {
-        if record.collection == "words" { return .pending }
-        let object = record.indexObject ?? [:]
-        if let source = explicitValue(in: object) { return source }
-
-        if record.collection == "errors" {
-            if let paperID = object["questionBankPaperID"] as? String, !paperID.isEmpty { return .real }
-            if let examID = object["sourceExamId"] as? String,
-               let exam = records.first(where: { $0.collection == "exams" && $0.recordID == examID }),
-               let source = explicitValue(in: exam.indexObject ?? [:]) {
-                return source
-            }
+        let metadata = record.reviewSourceMetadata
+        let linkedExam: [String: Any]?
+        if let examID = metadata["sourceExamId"] as? String,
+           let exam = records.first(where: { $0.collection == "exams" && $0.recordID == examID }) {
+            linkedExam = exam.reviewSourceMetadata
+        } else {
+            linkedExam = nil
         }
-        return .pending
+        return LibraryReviewSourcePolicy.classify(
+            collection: record.collection,
+            object: metadata,
+            linkedExamObject: linkedExam
+        )
     }
 }
-
 enum LibraryReviewSourceRepository {
     static func assign(
         _ source: LibraryReviewSource,
@@ -66,7 +34,7 @@ enum LibraryReviewSourceRepository {
                    let examID = object["sourceExamId"] as? String,
                    !examID.isEmpty {
                     if let exam = allRecords.first(where: { $0.collection == "exams" && $0.recordID == examID }) {
-                        if LibraryReviewSource.explicitValue(in: exam.indexObject ?? [:]) != source {
+                        if LibraryReviewSource.explicitValue(in: exam.reviewSourceMetadata) != source {
                             object.removeValue(forKey: "sourceExamId")
                             var examObject = exam.jsonObject ?? [:]
                             let linkedIDs = Set(examObject["linkedErrorIds"] as? [String] ?? [])

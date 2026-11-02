@@ -1,5 +1,9 @@
 import Foundation
 
+extension Notification.Name {
+    static let legacyBackupRestoreDidComplete = Notification.Name("LegacyBackupRestoreDidComplete")
+}
+
 /// Keeps parsed card data stable while a navigation transition redraws the library root.
 /// SwiftData records are read only on the main thread that owns the view's ModelContext.
 final class LibrarySnapshotCache {
@@ -90,6 +94,13 @@ final class LibrarySnapshotCache {
             snapshot: value
         )
         return value
+    }
+
+    func invalidate() {
+        entries.removeAll()
+        names.removeAll()
+        cachedWordNameRevision = nil
+        cachedWordNames.removeAll()
     }
 }
 
@@ -184,5 +195,12 @@ final class LibraryRecordListCache {
         quantityTypesValue = QuantityQuestionTypeRepository.types(records: records)
         quantityTypesRevision = revisions
         return quantityTypesValue
+    }
+
+    func invalidate() {
+        sortedQuery = nil
+        sortedRecords.removeAll()
+        quantityTypesRevision = nil
+        quantityTypesValue.removeAll()
     }
 }

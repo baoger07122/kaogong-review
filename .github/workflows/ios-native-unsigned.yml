@@ -87,6 +87,17 @@ jobs:
         working-directory: native-ios
         run: xcodegen generate
 
+      - name: Run native domain behavior checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Exams/ExamReportParser.swift \
+            native-ios/Sources/Features/Library/LibraryReviewSourcePolicy.swift \
+            native-ios/Tests/ExamDomainBehavior.swift \
+            -o "$RUNNER_TEMP/exam-domain-behavior"
+          "$RUNNER_TEMP/exam-domain-behavior"
+
       - name: Detect simulator test scope
         id: simulator_scope
         shell: bash
