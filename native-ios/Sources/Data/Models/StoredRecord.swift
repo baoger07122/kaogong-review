@@ -102,9 +102,11 @@ final class StoredRecord {
                 "questionSource", "source", "questionNumber", "sourceYear", "sourceExamType", "sourceRegion",
                 "accuracy", "reviewCount", "sourceExamId", "pitfall", "linkedWordIds", "options",
                 "dataAnalysisMaterialText",
+                "imageDisplayMetadata", "imageCount", "optionImageIDs",
                 "questionBankPaperID", "questionBankQuestionID",
                 "shenlunFormatVersion",
-                "quantityStructure", "weaknessTags", "reviewSource", "examType", "paperType", "sourceType"
+                "quantityStructure", "weaknessTags", "isDifficult", "needsReview",
+                "reviewSource", "examType", "paperType", "sourceType"
             ]
         case "notes":
             keys = [
@@ -129,7 +131,12 @@ final class StoredRecord {
                 "drawingPreview", "doodle"
             ])
         }
-        let index = object.filter { keys.contains($0.key) }
+        var index = object.filter { keys.contains($0.key) }
+        if collection == "errors" {
+            let images = object["images"] as? [String] ?? []
+            let hasLegacyImage = (object["image"] as? String)?.isEmpty == false
+            index["imageCount"] = images.isEmpty ? (hasLegacyImage ? 1 : 0) : images.count
+        }
         return try? JSONSerialization.data(withJSONObject: index, options: [.sortedKeys])
     }
 }

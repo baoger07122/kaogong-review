@@ -18,6 +18,58 @@ extension LibraryReviewSource {
         )
     }
 }
+
+final class LibraryReviewSourceClassificationCache {
+    private struct Revision: Equatable {
+        let identity: ObjectIdentifier
+        let compoundID: String
+        let collection: String
+        let subject: String?
+        let module: String?
+        let updatedAt: Date?
+        let payloadCount: Int
+        let indexPayloadCount: Int
+
+        init(_ record: StoredRecord) {
+            identity = ObjectIdentifier(record)
+            compoundID = record.compoundID
+            collection = record.collection
+            subject = record.subject
+            module = record.module
+            updatedAt = record.updatedAt
+            payloadCount = record.payload.count
+            indexPayloadCount = record.indexPayload?.count ?? 0
+        }
+    }
+
+    private var revision: [Revision]?
+    private var values: [String: LibraryReviewSource] = [:]
+
+    func classifications(for records: [StoredRecord]) -> [String: LibraryReviewSource] {
+        let currentRevision = records.map(Revision.init)
+        guard revision != currentRevision else { return values }
+
+        var examMetadata: [String: [String: Any]] = [:]
+        for record in records where record.collection == "exams" {
+            examMetadata[record.recordID] = record.reviewSourceMetadata
+        }
+
+        var result: [String: LibraryReviewSource] = [:]
+        result.reserveCapacity(records.count)
+        for record in records where record.collection != "exams" {
+            let metadata = record.reviewSourceMetadata
+            let linkedExam = (metadata["sourceExamId"] as? String).flatMap { examMetadata[$0] }
+            result[record.compoundID] = LibraryReviewSourcePolicy.classify(
+                collection: record.collection,
+                object: metadata,
+                linkedExamObject: linkedExam
+            )
+        }
+        revision = currentRevision
+        values = result
+        return result
+    }
+}
 enum LibraryReviewSourceRepository {
     static func assign(
         _ source: LibraryReviewSource,

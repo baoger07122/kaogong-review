@@ -154,20 +154,4 @@ final class QuestionBankRecord {
         contentRevision &+= 1
     }
 
-    func update(from row: QuestionBankStoredRow) {
-        paperID = row.paperID
-        kind = row.kind
-        stableID = row.stableID
-        moduleID = row.moduleID
-        questionNumber = row.questionNumber
-        sequence = row.sequence
-        year = row.year
-        examType = row.examType
-        normalizedPaperKey = row.normalizedPaperKey
-        title = row.title
-        searchText = row.searchText
-        payload = row.payload
-        contentRevision &+= 1
-        assetRelativePath = row.assetRelativePath
-    }
 }

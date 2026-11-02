@@ -384,7 +384,7 @@ private struct ExamAttemptDetailView: View {
     private var summaryCard: some View {
         let score = ExamDisplayFormatting.score(object["score"])
         let maximum = ExamDisplayFormatting.score(object["maximumScore"])
-        VStack(alignment: .leading, spacing: 10) {
+        return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(type.title).font(AppTheme.auxiliaryFont.weight(.semibold)).foregroundStyle(type == .pending ? AppTheme.warning : AppTheme.accent)
                 Spacer()

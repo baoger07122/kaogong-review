@@ -1,6 +1,6 @@
 import Foundation
 
-struct LibraryDraftSnapshot: Codable, Equatable {
+struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
     var subject: String
     var module: String
     var reviewSource: String?
@@ -12,11 +12,14 @@ struct LibraryDraftSnapshot: Codable, Equatable {
     var status: String
     var options: [String]
     var optionImages: [String]?
+    var optionImageIDs: [String]?
     var correctOption: String
     var userOption: String
     var pitfall: String
     var quantityStructure: String?
     var weaknessTags: String?
+    var isDifficult: Bool?
+    var needsReview: Bool?
     var questionSource: String
     var questionNumber: String?
     var accuracy: String?
@@ -73,11 +76,14 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         status = draft.status
         options = draft.options
         optionImages = draft.optionImages
+        optionImageIDs = draft.optionImageIDs
         correctOption = draft.correctOption
         userOption = draft.userOption
         pitfall = draft.pitfall
         quantityStructure = draft.quantityStructure
         weaknessTags = draft.weaknessTags
+        isDifficult = draft.isDifficult
+        needsReview = draft.needsReview
         questionSource = draft.questionSource
         questionNumber = draft.questionNumber
         accuracy = draft.accuracy
@@ -138,11 +144,20 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         draft.status = status
         draft.options = options
         draft.optionImages = optionImages ?? Array(repeating: "", count: max(4, options.count))
+        let storedOptionImageIDs = optionImageIDs ?? []
+        draft.optionImageIDs = draft.optionImages.indices.map { index in
+            let candidate = index < storedOptionImageIDs.count
+                ? storedOptionImageIDs[index].trimmingCharacters(in: .whitespacesAndNewlines)
+                : ""
+            return candidate.isEmpty ? UUID().uuidString : candidate
+        }
         draft.correctOption = correctOption
         draft.userOption = userOption
         draft.pitfall = pitfall
         draft.quantityStructure = quantityStructure ?? ""
         draft.weaknessTags = weaknessTags ?? ""
+        draft.isDifficult = isDifficult ?? false
+        draft.needsReview = needsReview ?? false
         draft.questionSource = questionSource
         draft.questionNumber = questionNumber ?? ""
         draft.accuracy = accuracy ?? ""
@@ -244,22 +259,45 @@ enum LibraryDraftStore {
               let legacyData = UserDefaults.standard.data(forKey: legacyKey(kind: kind, scope: scope)),
               let legacySnapshot = try? JSONDecoder().decode(LibraryDraftSnapshot.self, from: legacyData),
               legacySnapshot.type == category else { return nil }
-        save(legacySnapshot, kind: kind, scope: scope)
+        UserDefaults.standard.set(legacyData, forKey: key(kind: kind, scope: scope, category: category))
         UserDefaults.standard.removeObject(forKey: legacyKey(kind: kind, scope: scope))
         return legacySnapshot
     }
 
     static func save(_ snapshot: LibraryDraftSnapshot, kind: LibraryContentKind, scope: LibraryScope) {
         let storageKey = key(kind: kind, scope: scope, category: snapshot.type)
-        guard snapshot.hasUserContent, let data = try? JSONEncoder().encode(snapshot) else {
-            UserDefaults.standard.removeObject(forKey: storageKey)
-            return
+        let revision = LibraryDraftRevision.next(for: storageKey)
+        Task {
+            await LibraryDraftPersistenceWriter.shared.enqueue(
+                snapshot,
+                storageKey: storageKey,
+                revision: revision
+            )
         }
-        UserDefaults.standard.set(data, forKey: storageKey)
     }
 
     static func clear(kind: LibraryContentKind, scope: LibraryScope, category: String = "") {
-        UserDefaults.standard.removeObject(forKey: key(kind: kind, scope: scope, category: category))
+        let storageKey = key(kind: kind, scope: scope, category: category)
+        let revision = LibraryDraftRevision.next(for: storageKey)
+        Task {
+            await LibraryDraftPersistenceWriter.shared.clear(storageKey: storageKey, revision: revision)
+        }
+    }
+
+    static func flush(_ snapshot: LibraryDraftSnapshot, kind: LibraryContentKind, scope: LibraryScope) async {
+        let storageKey = key(kind: kind, scope: scope, category: snapshot.type)
+        let revision = LibraryDraftRevision.next(for: storageKey)
+        await LibraryDraftPersistenceWriter.shared.flush(
+            snapshot,
+            storageKey: storageKey,
+            revision: revision
+        )
+    }
+
+    static func clearAndWait(kind: LibraryContentKind, scope: LibraryScope, category: String = "") async {
+        let storageKey = key(kind: kind, scope: scope, category: category)
+        let revision = LibraryDraftRevision.next(for: storageKey)
+        await LibraryDraftPersistenceWriter.shared.clear(storageKey: storageKey, revision: revision)
     }
 
     private static func key(kind: LibraryContentKind, scope: LibraryScope, category: String = "") -> String {
@@ -273,5 +311,84 @@ enum LibraryDraftStore {
         let subject = scope.subject ?? "all"
         let module = scope.module ?? "subject"
         return "native.library.draft.\(kind.rawValue).\(subject).\(module)"
+    }
+}
+
+private enum LibraryDraftRevision {
+    private static let lock = NSLock()
+    private static var values: [String: UInt64] = [:]
+
+    static func next(for key: String) -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        let next = (values[key] ?? 0) &+ 1
+        values[key] = next
+        return next
+    }
+
+    static func current(for key: String) -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return values[key] ?? 0
+    }
+}
+
+private actor LibraryDraftPersistenceWriter {
+    static let shared = LibraryDraftPersistenceWriter()
+    private var revisions: [String: UInt64] = [:]
+    private var pendingWrites: [String: Task<Void, Never>] = [:]
+
+    func enqueue(_ snapshot: LibraryDraftSnapshot, storageKey: String, revision: UInt64) {
+        guard revision >= (revisions[storageKey] ?? 0) else { return }
+        revisions[storageKey] = revision
+        pendingWrites[storageKey]?.cancel()
+        pendingWrites[storageKey] = Task.detached(priority: .utility) { [weak self] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.persist(snapshot, storageKey: storageKey, revision: revision)
+        }
+    }
+
+    func flush(_ snapshot: LibraryDraftSnapshot, storageKey: String, revision: UInt64) async {
+        guard revision >= (revisions[storageKey] ?? 0) else { return }
+        revisions[storageKey] = revision
+        pendingWrites[storageKey]?.cancel()
+        pendingWrites[storageKey] = nil
+        await persist(snapshot, storageKey: storageKey, revision: revision)
+    }
+
+    func clear(storageKey: String, revision: UInt64) {
+        guard revision >= (revisions[storageKey] ?? 0) else { return }
+        revisions[storageKey] = revision
+        pendingWrites[storageKey]?.cancel()
+        pendingWrites[storageKey] = nil
+        UserDefaults.standard.removeObject(forKey: storageKey)
+    }
+
+    private func persist(_ snapshot: LibraryDraftSnapshot, storageKey: String, revision: UInt64) async {
+        guard revisions[storageKey] == revision,
+              LibraryDraftRevision.current(for: storageKey) == revision else { return }
+        pendingWrites[storageKey] = nil
+        guard snapshot.hasUserContent else {
+            UserDefaults.standard.removeObject(forKey: storageKey)
+            return
+        }
+
+        let started = ProcessInfo.processInfo.systemUptime
+        let encoded = await Task.detached(priority: .utility) {
+            try? JSONEncoder().encode(snapshot)
+        }.value
+        guard revisions[storageKey] == revision,
+              LibraryDraftRevision.current(for: storageKey) == revision else { return }
+        guard let encoded else {
+            LibraryPerformanceLog.event("draft.write.encode-failed id=\(LibraryPerformanceLog.shortIdentifier(storageKey))")
+            return
+        }
+        UserDefaults.standard.set(encoded, forKey: storageKey)
+        LibraryPerformanceLog.markIfSlow(
+            "draft.write bytes=\(encoded.count)",
+            since: started,
+            thresholdMilliseconds: 24
+        )
     }
 }

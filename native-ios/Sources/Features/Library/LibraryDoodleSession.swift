@@ -3,26 +3,7 @@ import UIKit
 
 @MainActor
 final class LibraryDoodleSession: ObservableObject {
-    fileprivate static var lastUITestPresenterToken: String?
-    fileprivate let sessionInstanceToken = String(UUID().uuidString.prefix(8))
-    @Published var isPresented = false {
-        didSet {
-#if DEBUG
-            if QuestionBankReaderUITestFixture.isEnabled, oldValue != isPresented {
-                let callStack = Thread.callStackSymbols.dropFirst().prefix(8).joined(separator: " | ")
-                NSLog(
-                    "[QuestionBankReaderUITest] doodle.isPresented %@->%@ source=%@ session=%@ target=%@ stack=%@",
-                    oldValue ? "true" : "false",
-                    isPresented ? "true" : "false",
-                    presentationSource,
-                    sessionInstanceToken,
-                    targetRecordID ?? "none",
-                    callStack
-                )
-            }
-#endif
-        }
-    }
+    @Published var isPresented = false
     @Published var saveError: String?
     @Published private(set) var isLoadingDrawing = false
     @Published private(set) var targetRecordID: String?
@@ -55,13 +36,6 @@ final class LibraryDoodleSession: ObservableObject {
         onSave: @escaping (String, Bool, Int, Int) -> String?
     ) {
         guard !isPresented else { return }
-#if DEBUG
-        if QuestionBankReaderUITestFixture.isEnabled {
-            Self.lastUITestPresenterToken = sessionInstanceToken
-            let callStack = Thread.callStackSymbols.dropFirst(2).prefix(10).joined(separator: " | ")
-            NSLog("[QuestionBankReaderUITest] doodle.present target=%@ source=%@ session=%@ stack=%@", targetRecordID, source, sessionInstanceToken, callStack)
-        }
-#endif
         let preparationStart = ProcessInfo.processInfo.systemUptime
         drawingLoadTask?.cancel()
         drawingLoadTask = nil
@@ -137,36 +111,6 @@ final class LibraryDoodleSession: ObservableObject {
                       self.isLoadingDrawing else { return }
                 self.failDrawingLoad("涂鸦读取失败：\(error.localizedDescription)")
             }
-        }
-    }
-
-    func flushQuestionBankDrawingForBackground() {
-        guard isPresented,
-              !isLoadingDrawing,
-              !drawingLoadFailed,
-              QuestionBankDoodleRepository.isDoodleRecordID(targetRecordID),
-              let targetRecordID,
-              let handler = saveHandler else { return }
-        let generation = presentationGeneration
-        let enqueueLatest: () -> Void = { [weak self] in
-            guard let self,
-                  self.isPresented,
-                  self.presentationGeneration == generation,
-                  self.targetRecordID == targetRecordID,
-                  self.hasUnsavedDrawingChanges else { return }
-            let flushStart = ProcessInfo.processInfo.systemUptime
-            self.saveError = handler(
-                self.canvas.drawingData,
-                self.canvas.controller.legacyPreviewCleared,
-                generation,
-                self.userDrawingRevision
-            )
-            LibraryPerformanceLog.mark("doodle.background-flush-enqueued", since: flushStart)
-        }
-        if canvas.controller.hasPendingDrawingPublish {
-            canvas.controller.commit(enqueueLatest)
-        } else {
-            enqueueLatest()
         }
     }
 
@@ -476,14 +420,7 @@ struct LibraryDoodleOverlay: View {
     }
 
     private var interactionShieldLabel: String {
-        let label = controller.canvasLoadError ?? "涂鸦交互遮罩"
-#if DEBUG
-        if QuestionBankReaderUITestFixture.isEnabled {
-            let presenterToken = LibraryDoodleSession.lastUITestPresenterToken ?? "none"
-            return "\(label)（presented=\(session.isPresented)|\(session.presentationSource)|overlay=\(session.sessionInstanceToken)|caller=\(presenterToken)）"
-        }
-#endif
-        return label
+        controller.canvasLoadError ?? "涂鸦交互遮罩"
     }
 }
 

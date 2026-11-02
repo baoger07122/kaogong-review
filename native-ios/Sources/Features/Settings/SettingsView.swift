@@ -259,9 +259,6 @@ struct SettingsView: View {
         if let integrityError { settingsStatus("备份自检失败：\(integrityError)", image: "xmark.octagon.fill", color: AppTheme.danger) }
         if let restoreSafetyMessage { settingsStatus(restoreSafetyMessage, image: "checkmark.circle.fill", color: AppTheme.success) }
         if let restoreSafetyError { settingsStatus("恢复安全自检失败：\(restoreSafetyError)", image: "xmark.octagon.fill", color: AppTheme.danger) }
-        if AppFeatureAvailability.questionBank {
-            QuestionBankAnswerMigrationStatusView()
-        }
         if let clearMessage { settingsStatus(clearMessage, image: "checkmark.circle.fill", color: AppTheme.success) }
     }
 
@@ -376,7 +373,7 @@ struct SettingsView: View {
         Task {
             defer { isClearingLocalData = false }
             do {
-                try await QuestionBankAnswerStateStore.shared.clearAllLocalData(in: container)
+                try await QuestionBankAnswerStateRepository.clearAllLocalData(in: container)
                 try? KeychainTokenStore().delete()
                 for key in UserDefaults.standard.dictionaryRepresentation().keys
                     where key.hasPrefix("native.") || key.hasPrefix("question-bank.") {
@@ -401,22 +398,5 @@ struct SettingsView: View {
         }
         let value = Date(timeIntervalSince1970: lastLocalBackupAt)
         return "上次备份：\(value.formatted(.dateTime.year().month().day().hour().minute().locale(Locale(identifier: "zh_CN"))))"
-    }
-}
-
-private struct QuestionBankAnswerMigrationStatusView: View {
-    @ObservedObject private var store = QuestionBankAnswerStateStore.shared
-
-    var body: some View {
-        if let error = store.migrationError {
-            Label(
-                "旧作答数据迁移失败，原始备份已保留；重新进入题目可继续重试：\(error)",
-                systemImage: "exclamationmark.triangle.fill"
-            )
-            .font(AppTheme.auxiliaryFont)
-            .foregroundStyle(AppTheme.danger)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 4)
-        }
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import SwiftData
 import SwiftUI
 import UIKit
@@ -10,24 +11,23 @@ struct LibraryRecordDetailView: View {
     let kind: LibraryContentKind
     let scope: LibraryScope
     let record: StoredRecord?
-    let questionBankContext: QuestionBankQuestionAnalysisContext?
     let onEdit: () -> Void
     let onDelete: () -> Void
-    var onClearAnswer: (() -> Void)? = nil
-    var onDone: (() -> Void)? = nil
     var onOpenLinkedWord: ((String) -> Void)? = nil
 
     @State private var object: [String: Any]
+    @State private var imageSourceIdentities: [String: LibraryDetailImageSourceIdentity]
+    @State private var payloadDecodeFailed = false
+    @State private var lastLocallySavedNoteUpdate: Date?
 
     @State private var showDelete = false
-    @State private var showClearAnswer = false
-    @State private var showQuestionBankEditor = false
     @StateObject private var noteSession = LibraryInlineNoteSession()
     @State private var expandedQuestionSourceID: String?
     @State private var showWordSelection = false
     @State private var linkedWordCreationCategory: WordCategory?
     @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
     @State private var linkedQuestionBankContext: QuestionBankQuestionAnalysisContext?
+    @State private var linkedQuestionFallbackObject: [String: Any] = [:]
 
     init(
         kind: LibraryContentKind,
@@ -40,31 +40,18 @@ struct LibraryRecordDetailView: View {
         self.kind = kind
         self.scope = scope
         self.record = record
-        questionBankContext = nil
         self.onEdit = onEdit
         self.onDelete = onDelete
         self.onOpenLinkedWord = onOpenLinkedWord
-        _object = State(initialValue: record.jsonObject ?? [:])
-    }
-
-    init(
-        questionBankContext: QuestionBankQuestionAnalysisContext,
-        onEdit: @escaping () -> Void,
-        onClearAnswer: @escaping () -> Void,
-        onDone: @escaping () -> Void,
-        onOpenLinkedWord: ((String) -> Void)? = nil
-    ) {
-        let mapping = questionBankContext.typeMapping
-        kind = .errors
-        scope = LibraryScope(subject: mapping.subject, module: mapping.module)
-        record = nil
-        self.questionBankContext = questionBankContext
-        self.onEdit = onEdit
-        onDelete = {}
-        self.onClearAnswer = onClearAnswer
-        self.onDone = onDone
-        self.onOpenLinkedWord = onOpenLinkedWord
-        _object = State(initialValue: questionBankContext.detailObject)
+        if let decodedObject = record.jsonObject {
+            _object = State(initialValue: decodedObject)
+            _imageSourceIdentities = State(initialValue: Self.makeImageSourceIdentities(for: decodedObject))
+            _payloadDecodeFailed = State(initialValue: false)
+        } else {
+            _object = State(initialValue: [:])
+            _imageSourceIdentities = State(initialValue: [:])
+            _payloadDecodeFailed = State(initialValue: true)
+        }
     }
 
     var body: some View {
@@ -74,29 +61,25 @@ struct LibraryRecordDetailView: View {
     private var detailBehavior: some View {
         detailStateTracking
             .task(id: linkedQuestionContextKey) { loadLinkedQuestionContext() }
-            .overlay {
-                if questionBankContext != nil {
-                    QuestionBankDoodleAutosaveObserver(session: doodleSession, context: modelContext)
-                }
-            }
-            .confirmationDialog("清除本题作答记录？", isPresented: $showClearAnswer, titleVisibility: .visible) {
-                Button("清除本题作答记录", role: .destructive) { onClearAnswer?() }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("将清除本题已选选项和答案揭示状态，题目、笔记和涂鸦会保留。")
-            }
     }
 
     private var detailStateTracking: some View {
         detailNavigationDestination
-            .onChange(of: record?.updatedAt) { _, _ in
-                if let record { object = record.jsonObject ?? [:] }
-            }
-            .onChange(of: questionBankContext?.record.payload) { _, _ in
-                if let questionBankContext { object = questionBankContext.detailObject }
-            }
-            .onChange(of: questionBankContext?.answerStateKey) { _, _ in
-                if let questionBankContext { object = questionBankContext.detailObject }
+            .onChange(of: record?.updatedAt) { _, newValue in
+                guard let record else { return }
+                if let newValue,
+                   let lastSavedAt = lastLocallySavedNoteUpdate,
+                   newValue == lastSavedAt {
+                    lastLocallySavedNoteUpdate = nil
+                    return
+                }
+                if let decodedObject = record.jsonObject {
+                    refreshObject(decodedObject)
+                    payloadDecodeFailed = false
+                } else {
+                    refreshObject([:])
+                    payloadDecodeFailed = true
+                }
             }
             .onChange(of: questionSourceIdentity) { _, _ in
                 expandedQuestionSourceID = nil
@@ -124,19 +107,6 @@ struct LibraryRecordDetailView: View {
                     )
                 }
             }
-            .sheet(isPresented: $showQuestionBankEditor) {
-            if AppFeatureAvailability.questionBank, let questionBankContext {
-                NavigationStack {
-                    LibraryRecordEditorView(
-                        questionBankContext: questionBankContext,
-                        onQuestionBankAnalysisSaved: {
-                            object = questionBankContext.detailObject
-                            showQuestionBankEditor = false
-                        }
-                    )
-                }
-                }
-            }
     }
 
     private var detailToolbarContainer: some View {
@@ -155,19 +125,29 @@ struct LibraryRecordDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .background(NativeNavigationInteraction(blocked: doodleSession.isPresented))
             .toolbar(.visible, for: .navigationBar)
-            .onAppear { logQuestionBankDetailLifecycle("navigation-root-appear") }
     }
 
     private var detailNavigationTitle: String {
-        guard let questionBankContext else { return "错题详情" }
-        return "第\(questionBankContext.question.number)题详情"
+        guard let context = displayQuestionBankContext else { return "错题详情" }
+        return "第\(context.currentQuestion.number)题详情"
     }
 
     private var detailContent: some View {
         GeometryReader { proxy in
             let availableWidth = proxy.size.width.isFinite ? max(0, proxy.size.width) : 0
             ZStack {
-                detailScrollView(availableWidth: availableWidth)
+                if payloadDecodeFailed {
+                    NativeStatusCard(
+                        title: "错题详情暂时无法读取",
+                        detail: "原始记录数据无法解析。笔记和编辑保存已阻止，以保留数据库中的原始内容。",
+                        systemImage: "exclamationmark.triangle",
+                        color: AppTheme.warning
+                    )
+                    .padding(16)
+                    .accessibilityIdentifier("library-record-detail-payload-error")
+                } else {
+                    detailScrollView(availableWidth: availableWidth)
+                }
                 detailModal
             }
         }
@@ -209,11 +189,9 @@ struct LibraryRecordDetailView: View {
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(Color.white)
-        .accessibilityIdentifier(questionBankContext.map {
+        .accessibilityIdentifier(displayQuestionBankContext.map {
             "question-bank-detail-scroll-\($0.question.id)"
         } ?? "library-record-detail-scroll")
-        .onAppear { logQuestionBankDetailLifecycle("scroll-appear") }
-        .onDisappear { logQuestionBankDetailLifecycle("scroll-disappear") }
     }
 
     @ViewBuilder
@@ -249,25 +227,13 @@ struct LibraryRecordDetailView: View {
 
     @ViewBuilder
     private var detailToolbarActions: some View {
-        if questionBankContext != nil && !AppFeatureAvailability.questionBank {
-            toolbarPlaceholder
-            toolbarPlaceholder
-        } else if doodleSession.isPresented {
+        if doodleSession.isPresented {
             toolbarPlaceholder
             toolbarPlaceholder
         } else {
             Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
                 .accessibilityLabel("涂鸦")
             questionActionsMenu
-        }
-        if let onDone, questionBankContext != nil, AppFeatureAvailability.questionBank {
-            Button("完成") {
-                noteSession.finish { saved in
-                    if saved { onDone() }
-                }
-            }
-                .disabled(doodleSession.isPresented)
-                .accessibilityIdentifier("question-bank-detail-done")
         }
     }
 
@@ -280,55 +246,39 @@ struct LibraryRecordDetailView: View {
 
     private var questionActionsMenu: some View {
         Menu {
-            if questionBankContext == nil {
-                Button {
-                    noteSession.finish { saved in
-                        if saved { onEdit() }
-                    }
-                } label: {
-                    Label("编辑错题", systemImage: "pencil")
+            Button {
+                noteSession.finish { saved in
+                    if saved { onEdit() }
                 }
-            } else {
-                Button {
-                    noteSession.finish { saved in
-                        if saved { showQuestionBankEditor = true }
-                    }
-                } label: {
-                    Label("编辑题目", systemImage: "pencil")
-                }
-                .accessibilityIdentifier("question-bank-edit-question")
+            } label: {
+                Label("编辑错题", systemImage: "pencil")
             }
-            if questionBankContext != nil {
-                Button {
-                    noteSession.finish { saved in
-                        if saved { showClearAnswer = true }
-                    }
-                } label: {
-                    Label("清除本题作答记录", systemImage: "arrow.counterclockwise")
+            Button(role: .destructive) {
+                noteSession.finish { saved in
+                    if saved { showDelete = true }
                 }
-                .accessibilityIdentifier("question-bank-clear-question-answer")
-            } else {
-                Button(role: .destructive) {
-                    noteSession.finish { saved in
-                        if saved { showDelete = true }
-                    }
-                } label: {
-                    Label("删除错题", systemImage: "trash")
-                }
+            } label: {
+                Label("删除错题", systemImage: "trash")
             }
         } label: {
             Image(systemName: "ellipsis")
         }
         .accessibilityLabel("题目操作")
-        .accessibilityIdentifier("question-bank-question-actions")
+        .accessibilityIdentifier("library-record-actions")
     }
 
     private var metadata: some View {
         VStack(alignment: .leading, spacing: 7) {
-            if let questionBankContext {
+            let isDifficult = (object["isDifficult"] as? Bool) ?? (object["isDifficult"] as? NSNumber)?.boolValue ?? false
+            let needsReview = (object["needsReview"] as? Bool) ?? (object["needsReview"] as? NSNumber)?.boolValue ?? false
+            if isDifficult || needsReview || displayQuestionBankContext != nil {
                 HStack(spacing: 6) {
-                    if questionBankContext.currentQuestion.isDifficult == true { metadataBadge("难题", color: AppTheme.danger) }
-                    if questionBankContext.currentQuestion.needsReview == true { metadataBadge("待复习", color: AppTheme.warning) }
+                    if isDifficult || displayQuestionBankContext?.currentQuestion.isDifficult == true {
+                        metadataBadge("难题", color: AppTheme.danger)
+                    }
+                    if needsReview || displayQuestionBankContext?.currentQuestion.needsReview == true {
+                        metadataBadge("待复习", color: AppTheme.warning)
+                    }
                 }
             }
             if let status = recordType {
@@ -345,13 +295,8 @@ struct LibraryRecordDetailView: View {
                 metadataTagLine("考点", values: knowledgePoints, emphasis: .strong)
                 metadataTagLine("弱项标签", values: weaknessTags, emphasis: .subtle)
             } else {
-                if let questionBankContext,
-                   let questionType = QuestionBankQuestionHeading.displayLabel(
-                       type: questionBankContext.currentQuestion.type,
-                       subject: questionBankContext.currentQuestion.subject,
-                       moduleTitle: questionBankContext.moduleTitle
-                   ) {
-                    metadataTextLine("题型", value: questionType)
+                if displayQuestionBankContext != nil, !activeModule.isEmpty {
+                    metadataTextLine("题型", value: activeModule)
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("question-bank-detail-question-type")
                 }
@@ -377,13 +322,13 @@ struct LibraryRecordDetailView: View {
                     .font(AppTheme.sectionTitleFont)
                 if !material.text.isEmpty {
                     Text(verbatim: material.text)
-                        .font(QuestionBankTypography.contentFont)
-                        .lineSpacing(QuestionBankTypography.contentLineSpacing)
+                        .font(AppTheme.questionTextFont)
+                        .lineSpacing(AppTheme.questionLineSpacing)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if !material.imageAssetID.isEmpty,
                    let asset = context.assetsByID[material.imageAssetID] {
-                    QuestionBankLocalImage(asset: asset, sizing: .material, activationTab: .questionBank)
+                    LegacyQuestionBankAssetImage(asset: asset, sizing: .material)
                 }
                 ForEach(Array(context.materialSourceRows.enumerated()), id: \.offset) { _, row in
                     supportingLine("材料来源", value: row, systemImage: "books.vertical.fill")
@@ -420,29 +365,26 @@ struct LibraryRecordDetailView: View {
     }
 
     @ViewBuilder private func imagesBlock(availableWidth: CGFloat) -> some View {
-        if let context = displayQuestionBankContext {
-            if !context.currentQuestion.stemImageAssetID.isEmpty,
-               let asset = context.assetsByID[context.currentQuestion.stemImageAssetID] {
-                QuestionBankLocalImage(
-                    asset: asset,
-                    sizing: .stem,
-                    activationTab: questionBankContext == nil ? .library : .questionBank
-                )
-                    .padding(.top, 3)
-            }
-        } else if !imageValues.isEmpty {
+        if !imageValues.isEmpty {
             let widthFractions = LibraryImageDisplaySetting.widthFractions(
                 from: object["imageDisplayMetadata"],
                 count: imageValues.count
             )
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(imageValues.enumerated()), id: \.offset) { index, source in
-                    LibraryDetailImage(
-                        source: source,
-                        cacheKey: "detail-\(activeRecordID)-\(record?.updatedAt?.timeIntervalSince1970 ?? 0)-\(index)-\(source.count)",
-                        availableWidth: availableWidth,
-                        widthFraction: widthFractions[index]
-                    )
+                    let metadata = (object["imageDisplayMetadata"] as? [[String: Any]] ?? [])
+                    let imageMetadataID = index < metadata.count ? (metadata[index]["id"] as? String ?? "") : ""
+                    if let asset = displayQuestionBankContext?.assetsByID[source] {
+                        LegacyQuestionBankAssetImage(asset: asset, sizing: .stem)
+                            .frame(maxWidth: max(1, availableWidth * CGFloat(widthFractions[index])), alignment: .leading)
+                    } else {
+                        LibraryDetailImage(
+                            source: source,
+                            cacheKey: imageCacheKey(kind: "image", index: index, source: source, metadataID: imageMetadataID),
+                            availableWidth: availableWidth,
+                            widthFraction: widthFractions[index]
+                        )
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -454,14 +396,14 @@ struct LibraryRecordDetailView: View {
         if let rawQuestion = firstText(["question", "title", "name", "text", "content"]),
            !clean(rawQuestion).isEmpty {
             Text(cleanMultiline(rawQuestion))
-                .font(questionBankContext == nil ? AppTheme.questionTextFont : QuestionBankTypography.contentFont)
-                .lineSpacing(questionBankContext == nil ? AppTheme.questionLineSpacing : QuestionBankTypography.contentLineSpacing)
+                .font(AppTheme.questionTextFont)
+                .lineSpacing(AppTheme.questionLineSpacing)
                 .textSelection(.enabled)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(detailBackground, in: RoundedRectangle(cornerRadius: 10))
                 .accessibilityIdentifier(
-                    questionBankContext.map { "question-bank-detail-stem-\($0.question.id)" }
+                    displayQuestionBankContext.map { "question-bank-detail-stem-\($0.question.id)" }
                         ?? "library-record-detail-stem"
                 )
         }
@@ -470,10 +412,9 @@ struct LibraryRecordDetailView: View {
     @ViewBuilder private var optionsBlock: some View {
         let options = stringArray("options") ?? []
         let optionImages = optionImageValues
-        let bankContext = self.displayQuestionBankContext
         let optionCount = max(options.count, optionImages.count)
         if optionCount > 0 {
-            VStack(spacing: bankContext == nil ? 8 : 6) {
+            VStack(spacing: 8) {
                 ForEach(0..<optionCount, id: \.self) { index in
                     let option = index < options.count ? options[index] : ""
                     let optionImage = index < optionImages.count ? optionImages[index] : ""
@@ -482,28 +423,29 @@ struct LibraryRecordDetailView: View {
                     let chosen = userAnswerLetters.contains(letter)
                     let hasText = !clean(option).isEmpty
                     HStack(
-                        alignment: QuestionBankOptionRowLayout.verticalAlignment(hasText: hasText),
+                        alignment: StudyOptionRowLayout.verticalAlignment(hasText: hasText),
                         spacing: 8
                     ) {
-                        QuestionBankOptionMarker(
+                        StudyOptionMarker(
                             letter: letter,
                             state: optionMarkerState(correct: correct, chosen: chosen),
                             diameter: 26,
-                            font: bankContext == nil ? .system(size: 14) : QuestionBankTypography.contentFont
+                            font: .system(size: 14)
                         )
-                        VStack(alignment: .leading, spacing: bankContext == nil ? 8 : 6) {
+                        VStack(alignment: .leading, spacing: 8) {
                             if hasText {
                                 optionText(option)
-                                    .lineSpacing(bankContext == nil ? 5.5 : QuestionBankTypography.contentLineSpacing)
+                                    .lineSpacing(5.5)
                             }
                             if !optionImage.isEmpty {
-                                if let bankContext,
-                                   let asset = bankContext.assetsByID[optionImage] {
-                                    QuestionBankLocalImage(asset: asset, sizing: .option, activationTab: .questionBank)
-                                } else if questionBankContext == nil {
+                                if let asset = displayQuestionBankContext?.assetsByID[optionImage] {
+                                    LegacyQuestionBankAssetImage(asset: asset, sizing: .option)
+                                } else {
+                                    let optionImageIDs = object["optionImageIDs"] as? [String] ?? []
+                                    let optionImageID = optionImageIDs.indices.contains(index) ? optionImageIDs[index] : ""
                                     LibraryDetailImage(
                                         source: optionImage,
-                                        cacheKey: "detail-option-\(activeRecordID)-\(index)-\(optionImage.count)",
+                                        cacheKey: imageCacheKey(kind: "option", index: index, source: optionImage, metadataID: optionImageID),
                                         availableWidth: nil,
                                         widthFraction: LibraryImageDisplaySetting.maximumWidthFraction
                                     )
@@ -522,7 +464,7 @@ struct LibraryRecordDetailView: View {
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(
                                 optionBorderColor(correct: correct, chosen: chosen),
-                                lineWidth: questionBankContext == nil && (chosen || correct) ? 1 : 0.8
+                                lineWidth: (chosen || correct) ? 1 : 0.8
                             )
                     }
                 }
@@ -533,14 +475,7 @@ struct LibraryRecordDetailView: View {
 
     private var answerAndSource: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let questionBankContext {
-                if questionBankShowsAnswer {
-                    QuestionBankReferenceAccuracyControl(
-                        record: questionBankContext.record,
-                        accuracy: questionBankContext.currentQuestion.accuracy
-                    )
-                }
-            } else if let accuracy = formattedAccuracy {
+            if let accuracy = formattedAccuracy {
                 supportingLine("参考正确率", value: accuracy, systemImage: "chart.bar.fill")
             }
             if !questionSourceRows.isEmpty {
@@ -635,7 +570,7 @@ struct LibraryRecordDetailView: View {
     }
 
     @ViewBuilder private var explanationBlock: some View {
-        if questionBankContext?.isAnswerRevealed == true,
+        if displayQuestionBankContext?.isAnswerRevealed == true,
            let explanation = firstText(["explanation"]),
            !clean(explanation).isEmpty {
             VStack(alignment: .leading, spacing: 6) {
@@ -699,28 +634,28 @@ struct LibraryRecordDetailView: View {
 
     private var noteBlock: some View {
         Group {
-            if let questionBankContext {
+            if let record {
                 LibraryInlineNoteView(
+                    record: record,
                     session: noteSession,
-                    title: "题目笔记",
-                    readNote: { object["note"] as? String ?? "" },
-                    writeNote: { note, _ in
-                        var fields = questionBankAnalysisFields
-                        fields.note = note
-                        try persistQuestionBankAnalysis(fields)
+                    readNote: {
+                        if let note = object["note"] as? String { return note }
+                        return ["content", "errorNote", "analysis"]
+                            .compactMap { object[$0] as? String }
+                            .first ?? ""
                     },
-                    renderDocumentID: questionBankContext.question.id,
-                    renderVersion: { String(questionBankContext.record.contentRevision) }
+                    onSaved: { note in
+                        object["note"] = note
+                        lastLocallySavedNoteUpdate = record.updatedAt
+                    }
                 )
-            } else if let record {
-                LibraryInlineNoteView(record: record, session: noteSession)
             }
         }
         .padding(.top, 6)
     }
 
     @ViewBuilder private var linkedErrorBlock: some View {
-        if questionBankContext != nil, !linkedErrorRecords.isEmpty {
+        if displayQuestionBankContext != nil, !linkedErrorRecords.isEmpty {
             VStack(alignment: .leading, spacing: 7) {
                 Label("关联错题", systemImage: "link")
                     .font(.system(size: 13, weight: .medium))
@@ -809,7 +744,7 @@ struct LibraryRecordDetailView: View {
 
     private func optionText(_ option: String) -> Text {
         Text(cleanMultiline(option))
-            .font(questionBankContext == nil ? .system(size: 14, weight: .regular) : QuestionBankTypography.contentFont)
+            .font(.system(size: 14, weight: .regular))
     }
 
     private var answerLetters: Set<String> { letterSet(firstText(["correctOption", "answer", "correctAnswer"])) }
@@ -818,18 +753,12 @@ struct LibraryRecordDetailView: View {
         Set((value ?? "").uppercased().filter { "ABCD".contains($0) }.map(String.init))
     }
     private func optionBackground(correct: Bool, chosen: Bool) -> Color {
-        if questionBankContext != nil { return Color.white }
-        if correct { return Color(red: 232.0 / 255.0, green: 245.0 / 255.0, blue: 233.0 / 255.0) }
-        if chosen { return Color(red: 255.0 / 255.0, green: 235.0 / 255.0, blue: 238.0 / 255.0) }
         return Color.white
     }
 
-    private func optionMarkerState(correct: Bool, chosen: Bool) -> QuestionBankOptionMarkerState {
-        if questionBankContext != nil {
-            guard questionBankShowsAnswer else { return chosen ? .selected : .unselected }
-            if correct { return .correct }
-            if chosen { return .incorrect }
-            return .unselected
+    private func optionMarkerState(correct: Bool, chosen: Bool) -> StudyOptionMarkerState {
+        guard questionBankShowsAnswer || displayQuestionBankContext == nil else {
+            return chosen ? .selected : .unselected
         }
         if correct { return .correct }
         if chosen { return .incorrect }
@@ -837,14 +766,13 @@ struct LibraryRecordDetailView: View {
     }
 
     private func optionBorderColor(correct: Bool, chosen: Bool) -> Color {
-        guard questionBankContext == nil else { return webBorder }
         return correct ? webSuccess : (chosen ? AppTheme.danger : webBorder)
     }
 
     private var questionBankShowsAnswer: Bool {
-        guard let questionBankContext else { return false }
-        return questionBankContext.isAnswerRevealed
-            && !questionBankContext.currentQuestion.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard let displayQuestionBankContext else { return false }
+        return displayQuestionBankContext.isAnswerRevealed
+            && !displayQuestionBankContext.currentQuestion.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func metadataBadge(_ title: String, color: Color) -> some View {
@@ -862,11 +790,7 @@ struct LibraryRecordDetailView: View {
     private var detailBackground: Color { Color(red: 245.0 / 255.0, green: 245.0 / 255.0, blue: 247.0 / 255.0) }
 
     private var recordType: String? {
-        if let value = firstText(["type"]),
-           QuestionBankErrorBookCategory.allCases.contains(where: { $0.rawValue == clean(value) }) {
-            return clean(value)
-        }
-        return firstText(["status", "masteryStatus"]).map(clean)
+        firstText(["type", "status", "masteryStatus"]).map(clean)
     }
 
     private var knowledgePoints: [String] {
@@ -876,38 +800,52 @@ struct LibraryRecordDetailView: View {
     }
 
     private var displayQuestionBankContext: QuestionBankQuestionAnalysisContext? {
-        questionBankContext ?? linkedQuestionBankContext
+        linkedQuestionBankContext
     }
 
     private var linkedQuestionContextKey: String {
-        guard questionBankContext == nil,
-              kind == .errors,
-              let payload = record?.jsonObject,
-              let paperID = payload["questionBankPaperID"] as? String,
-              let questionID = payload["questionBankQuestionID"] as? String else { return "" }
-        return "\(paperID)|\(questionID)|\(payload["userOption"] as? String ?? "")|\(record?.updatedAt?.timeIntervalSince1970 ?? 0)"
+        guard kind == .errors,
+              let paperID = object["questionBankPaperID"] as? String,
+              let questionID = object["questionBankQuestionID"] as? String else { return "" }
+        let question = (object["question"] as? String ?? object["title"] as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let options = object["options"] as? [String] ?? []
+        let imageReferences = (object["images"] as? [String] ?? [])
+            + (object["optionImages"] as? [String] ?? [])
+        let hasLinkedImageReference = imageReferences.contains { value in
+            !value.isEmpty && value.count < 256 && !value.contains("://") && !value.hasPrefix("/")
+        }
+        let materialID = (object["materialID"] as? String ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard question.isEmpty || options.isEmpty || hasLinkedImageReference || !materialID.isEmpty else {
+            return ""
+        }
+        return "\(paperID)|\(questionID)"
     }
 
     @MainActor
     private func loadLinkedQuestionContext() {
-        guard questionBankContext == nil,
+        guard !linkedQuestionContextKey.isEmpty,
               kind == .errors,
-              let payload = record?.jsonObject,
-              let paperID = payload["questionBankPaperID"] as? String,
-              let questionID = payload["questionBankQuestionID"] as? String else {
+              let paperID = object["questionBankPaperID"] as? String,
+              let questionID = object["questionBankQuestionID"] as? String else {
             linkedQuestionBankContext = nil
+            linkedQuestionFallbackObject = [:]
             return
         }
-        linkedQuestionBankContext = QuestionBankQuestionAnalysisContext.linkedErrorContext(
+        let context = QuestionBankQuestionAnalysisContext.linkedErrorContext(
             paperID: paperID,
             questionID: questionID,
-            selectedOption: payload["userOption"] as? String ?? "",
+            selectedOption: object["userOption"] as? String ?? "",
             context: modelContext
         )
+        linkedQuestionBankContext = context
+        linkedQuestionFallbackObject = context?.detailObject ?? [:]
     }
 
     private var imageValues: [String] {
         if let values = object["images"] as? [String], !values.isEmpty { return values }
+        if let values = linkedQuestionFallbackObject["images"] as? [String], !values.isEmpty { return values }
         return firstText(["image"]).map { [$0] } ?? []
     }
 
@@ -922,7 +860,8 @@ struct LibraryRecordDetailView: View {
     }
 
     private var optionImageValues: [String] {
-        (object["optionImages"] as? [String]) ?? []
+        if let values = object["optionImages"] as? [String], !values.isEmpty { return values }
+        return linkedQuestionFallbackObject["optionImages"] as? [String] ?? []
     }
 
     private var weaknessTags: [String] {
@@ -1000,10 +939,6 @@ struct LibraryRecordDetailView: View {
                         wordRecords: records,
                         context: modelContext
                     )
-                } else if questionBankContext != nil {
-                    var fields = questionBankAnalysisFields
-                    fields.linkedWordIDs = newIDs
-                    try? persistQuestionBankAnalysis(fields)
                 }
             }
         )
@@ -1019,15 +954,15 @@ struct LibraryRecordDetailView: View {
                 wordRecords: records,
                 context: modelContext
             )
-        } else if questionBankContext != nil {
-            var fields = questionBankAnalysisFields
-            fields.linkedWordIDs = ids
-            try? persistQuestionBankAnalysis(fields)
         }
     }
 
     private var formattedAccuracy: String? {
-        guard let raw = firstText(["accuracy", "correctRate"]), !clean(raw).isEmpty else { return nil }
+        let legacyAccuracy = displayQuestionBankContext?.currentQuestion.accuracy.map {
+            String(format: "%.0f", $0 > 1 ? $0 : $0 * 100)
+        }
+        let raw = firstText(["accuracy", "correctRate"]) ?? legacyAccuracy
+        guard let raw, !clean(raw).isEmpty else { return nil }
         let value = clean(raw)
         return value.contains("%") ? value : "\(value)%"
     }
@@ -1044,52 +979,18 @@ struct LibraryRecordDetailView: View {
         let openStart = ProcessInfo.processInfo.systemUptime
         let drawingData = firstText(["pencilKitData", "drawingData"]) ?? ""
         let targetID = activeRecordID
-        let doodleLoadState = questionBankContext == nil
-            ? .unknown
-            : QuestionBankDoodleMemoryCache.shared.state(for: targetID)
-        let needsBackgroundLoad = questionBankContext != nil && doodleLoadState == .unknown
-        let currentDrawing = questionBankContext == nil
-            ? drawingData
-            : (doodleLoadState.drawingData ?? "")
         doodleSession.present(
             targetRecordID: targetID,
-            drawingData: currentDrawing,
-            legacyPreviewDataURL: questionBankContext == nil && currentDrawing.isEmpty
+            drawingData: drawingData,
+            legacyPreviewDataURL: drawingData.isEmpty
                 ? (firstText(["drawingPreview", "doodle", "drawingDataURL"]) ?? "") : "",
-            isLoadingDrawing: needsBackgroundLoad,
             source: "library-record-detail",
-            onSave: { updatedDrawing, legacyPreviewCleared, generation, revision in
-                if questionBankContext != nil {
-                    QuestionBankDoodleRepository.enqueueSave(
-                        recordID: targetID,
-                        drawingData: updatedDrawing,
-                        container: modelContext.container,
-                        presentationGeneration: generation,
-                        drawingRevision: revision,
-                        debounceMilliseconds: 0
-                    ) { error in
-                        guard doodleSession.presentationGeneration == generation,
-                              doodleSession.targetRecordID == targetID else { return }
-                        doodleSession.saveError = error
-                    }
-                    return nil
-                }
+            onSave: { updatedDrawing, legacyPreviewCleared, _, _ in
                 return saveDrawing(updatedDrawing, legacyPreviewCleared: legacyPreviewCleared)
             }
         )
         LibraryPerformanceLog.mark("doodle.tap-to-feedback", since: openStart)
         LibraryPerformanceLog.mark("doodle.tap-to-present", since: openStart)
-        if needsBackgroundLoad {
-            let container = modelContext.container
-            doodleSession.beginDrawingLoad(recordID: targetID, startedAt: openStart) {
-                try await QuestionBankDoodleRepository.drawingData(
-                    recordID: targetID,
-                    container: container
-                )
-            } onLoaded: { loadedDrawing in
-                QuestionBankDoodleMemoryCache.shared.store(loadedDrawing, for: targetID)
-            }
-        }
         // The drawing overlay is already presented; finish the editor through
         // UITextView's end-editing callback before committing the final draft.
         noteSession.finish { _ in }
@@ -1105,81 +1006,75 @@ struct LibraryRecordDetailView: View {
     }
 
     private var activeRecordID: String {
-        questionBankContext?.doodleRecordID ?? record?.compoundID ?? ""
+        record?.compoundID ?? ""
+    }
+
+    private func imageCacheKey(kind: String, index: Int, source: String, metadataID: String) -> String {
+        let slot = "\(kind):\(index)"
+        let identity = imageSourceIdentities[slot]
+        let version = identity?.source == source ? identity?.cacheToken : nil
+        return "detail-\(activeRecordID)-\(slot)-\(metadataID.isEmpty ? "legacy" : metadataID)-\(version ?? "untracked")"
+    }
+
+    private func refreshObject(_ value: [String: Any]) {
+        imageSourceIdentities = Self.reconciledImageSourceIdentities(for: value, previous: imageSourceIdentities)
+        object = value
+    }
+
+    private static func makeImageSourceIdentities(for object: [String: Any]) -> [String: LibraryDetailImageSourceIdentity] {
+        reconciledImageSourceIdentities(for: object, previous: [:])
+    }
+
+    private static func reconciledImageSourceIdentities(
+        for object: [String: Any],
+        previous: [String: LibraryDetailImageSourceIdentity]
+    ) -> [String: LibraryDetailImageSourceIdentity] {
+        var result: [String: LibraryDetailImageSourceIdentity] = [:]
+        let imageValues = (object["images"] as? [String]).flatMap { $0.isEmpty ? nil : $0 }
+            ?? (object["image"] as? String).map { [$0] }
+            ?? []
+        let optionValues = object["optionImages"] as? [String] ?? []
+        for (kind, values) in [("image", imageValues), ("option", optionValues)] {
+            for (index, source) in values.enumerated() where !source.isEmpty {
+                let slot = "\(kind):\(index)"
+                if let existing = previous[slot], existing.source == source {
+                    result[slot] = existing
+                } else {
+                    result[slot] = LibraryDetailImageSourceIdentity(source: source, cacheToken: UUID().uuidString)
+                }
+            }
+        }
+        return result
     }
 
     private var activeSubject: String {
-        questionBankContext?.typeMapping.subject ?? record?.subject ?? scope.subject ?? ""
+        let localSubject = record?.subject?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return localSubject.isEmpty
+            ? (displayQuestionBankContext?.typeMapping.subject ?? scope.subject ?? "")
+            : localSubject
     }
 
     private var activeModule: String {
-        questionBankContext?.typeMapping.module ?? record?.module ?? scope.module ?? ""
-    }
-
-    private var questionBankAnalysisFields: QuestionBankQuestionAnalysisFields {
-        var fields = QuestionBankQuestionAnalysisFields()
-        fields.errorCause = object["errorCause"] as? String ?? ""
-        fields.pitfall = object["pitfall"] as? String ?? ""
-        fields.quantityStructure = object["quantityStructure"] as? String ?? ""
-        fields.graphRule = object["graphRule"] as? String ?? ""
-        fields.recognition = object["recognition"] as? String ?? ""
-        fields.note = object["note"] as? String ?? ""
-        fields.knowledgePoints = stringArray("knowledgePoints") ?? []
-        fields.weaknessTags = stringArray("weaknessTags") ?? []
-        fields.linkedWordIDs = object["linkedWordIds"] as? [String] ?? []
-        fields.linkedErrorRecordIDs = object["linkedErrorRecordIDs"] as? [String] ?? []
-        fields.questionSource = questionBankContext?.sourceRows.joined(separator: "\n") ?? ""
-        fields.questionNumber = questionBankContext.map { String($0.question.number) } ?? ""
-        return fields
-    }
-
-    private func persistQuestionBankAnalysis(_ fields: QuestionBankQuestionAnalysisFields) throws {
-        guard let questionBankContext else { return }
-        let question = questionBankContext.currentQuestion
-        logQuestionBankDetailLifecycle("analysis-save-before")
-        try QuestionBankRepository.updateQuestionAnalysis(
-            record: questionBankContext.record,
-            paperID: question.paperID,
-            questionID: question.id,
-            stem: question.stem,
-            optionTexts: Dictionary(question.options.map { ($0.id, $0.text) }, uniquingKeysWith: { first, _ in first }),
-            answerOptionID: question.answer,
-            annotations: QuestionBankQuestionAnnotations(question: question),
-            analysis: fields,
-            typeMapping: questionBankContext.typeMapping,
-            sourceRows: questionBankContext.sourceRows,
-            context: modelContext
-        )
-        object["note"] = fields.note
-        object["linkedWordIds"] = fields.linkedWordIDs
-        object["linkedErrorRecordIDs"] = fields.linkedErrorRecordIDs
-        logQuestionBankDetailLifecycle("analysis-save-after")
-    }
-
-    private func logQuestionBankDetailLifecycle(_ event: String) {
-        #if DEBUG
-        guard QuestionBankReaderUITestFixture.isEnabled else { return }
-        let context = questionBankContext
-        let routeID = context?.question.id ?? "library-record"
-        let revision = context.map { String($0.record.contentRevision) } ?? "none"
-        let payloadBytes = context.map { String($0.record.payload.count) } ?? "none"
-        let stemCharacters = context.map { String($0.currentQuestion.stem.count) } ?? "none"
-        let noteCharacters = String((context?.currentQuestion.note ?? "").count)
-        let objectNoteCharacters = String((object["note"] as? String ?? "").count)
-        NSLog("%@", "[QBankDetailLifecycle] event=\(event) route=\(routeID) context=\(context == nil ? "missing" : "present") revision=\(revision) payloadBytes=\(payloadBytes) stemChars=\(stemCharacters) questionNoteChars=\(noteCharacters) viewNoteChars=\(objectNoteCharacters)")
-        #endif
+        let localModule = record?.module?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return localModule.isEmpty
+            ? (displayQuestionBankContext?.typeMapping.module ?? scope.module ?? "")
+            : localModule
     }
 
     private func firstText(_ keys: [String]) -> String? {
         for key in keys {
             if let value = object[key] as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return value }
             if let value = object[key] as? NSNumber { return value.stringValue }
+            if let value = linkedQuestionFallbackObject[key] as? String,
+               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return value }
+            if let value = linkedQuestionFallbackObject[key] as? NSNumber { return value.stringValue }
         }
         return nil
     }
     private func stringArray(_ key: String) -> [String]? {
-        if let values = object[key] as? [String] { return values }
+        if let values = object[key] as? [String], !values.isEmpty { return values }
         if let values = object[key] as? [[String: Any]] { return values.compactMap { ($0["text"] ?? $0["content"] ?? $0["value"]) as? String } }
+        if let values = linkedQuestionFallbackObject[key] as? [String], !values.isEmpty { return values }
         return nil
     }
     private func clean(_ value: String) -> String {
@@ -1211,6 +1106,11 @@ struct LibraryRecordDetailView: View {
 
 }
 
+private struct LibraryDetailImageSourceIdentity {
+    let source: String
+    let cacheToken: String
+}
+
 private struct LibraryDetailImage: View {
     let source: String
     let cacheKey: String
@@ -1218,6 +1118,7 @@ private struct LibraryDetailImage: View {
     let widthFraction: Double
     @State private var image: UIImage?
     @State private var didFail = false
+    @State private var appearanceRevision: UInt64 = 0
 
     var body: some View {
         Group {
@@ -1246,17 +1147,151 @@ private struct LibraryDetailImage: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
         }
-        .task(id: cacheKey) {
-            image = nil
+        .task(id: "\(cacheKey)|\(appearanceRevision)") {
             didFail = false
+            if let cached = LibraryImageLoader.cachedImage(cacheKey: cacheKey, maximumPixelSize: 2_400) {
+                image = cached
+                LibraryPerformanceLog.event("image.cache-hit id=\(LibraryPerformanceLog.shortIdentifier(cacheKey))")
+                return
+            }
+            LibraryPerformanceLog.event("image.request id=\(LibraryPerformanceLog.shortIdentifier(cacheKey)) pixel=2400")
             let loadedImage = await LibraryImageLoader.image(
                 from: source,
                 cacheKey: cacheKey,
-                maximumPixelSize: 2_400
+                maximumPixelSize: 2_400,
+                requestID: UUID()
             )
             guard !Task.isCancelled else { return }
             image = loadedImage
             didFail = loadedImage == nil
+            if loadedImage == nil {
+                LibraryPerformanceLog.event("image.decode-failed id=\(LibraryPerformanceLog.shortIdentifier(cacheKey))")
+            }
+        }
+        .onChange(of: cacheKey) { _, newValue in
+            image = LibraryImageLoader.cachedImage(cacheKey: newValue, maximumPixelSize: 2_400)
+            didFail = false
+        }
+        .onAppear {
+            appearanceRevision &+= 1
+            image = LibraryImageLoader.cachedImage(cacheKey: cacheKey, maximumPixelSize: 2_400)
+            didFail = false
+        }
+        .onDisappear { image = nil }
+    }
+}
+
+private final class LegacyQuestionBankImageBox: @unchecked Sendable {
+    let image: UIImage
+}
+
+private enum LegacyQuestionBankImageCache {
+    static let images = NSCache<NSString, LegacyQuestionBankImageBox>()
+
+    static func cachedImage(for key: String) -> UIImage? {
+        images.object(forKey: key as NSString)?.image
+    }
+
+    static func decode(url: URL, cacheKey: String, maximumPixelSize: Int) -> LegacyQuestionBankImageBox? {
+        guard !Task.isCancelled,
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              !Task.isCancelled else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+              !Task.isCancelled else { return nil }
+        let box = LegacyQuestionBankImageBox(image: UIImage(cgImage: image))
+        images.setObject(box, forKey: cacheKey as NSString)
+        return box
+    }
+}
+
+private struct LegacyQuestionBankAssetImage: View {
+    enum Sizing: String {
+        case material
+        case stem
+        case option
+    }
+
+    let asset: QuestionBankAssetReference
+    let sizing: Sizing
+    @State private var image: UIImage?
+    @State private var failedToLoad = false
+
+    private var cacheKey: String {
+        [asset.compoundID, asset.assetRelativePath ?? "", String(asset.contentRevision), sizing.rawValue]
+            .joined(separator: "|")
+    }
+
+    var body: some View {
+        Group {
+            if let image {
+                imageView(image)
+            } else if failedToLoad {
+                Label("图片无法读取", systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 54, alignment: .center)
+            } else {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(Color(uiColor: .secondarySystemBackground))
+                    .overlay { ProgressView().controlSize(.small) }
+                    .frame(height: 72)
+            }
+        }
+        .task(id: cacheKey) {
+            image = nil
+            failedToLoad = false
+            if let cached = LegacyQuestionBankImageCache.cachedImage(for: cacheKey) {
+                image = cached
+                return
+            }
+            guard let url = LegacyQuestionBankAssetStore.url(for: asset.assetRelativePath) else {
+                failedToLoad = true
+                return
+            }
+            let key = cacheKey
+            let maximumPixelSize = sizing == .option ? 900 : 2_400
+            let decodeTask = Task.detached(priority: .userInitiated) {
+                LegacyQuestionBankImageCache.decode(
+                    url: url,
+                    cacheKey: key,
+                    maximumPixelSize: maximumPixelSize
+                )
+            }
+            let result = await withTaskCancellationHandler {
+                await decodeTask.value
+            } onCancel: {
+                decodeTask.cancel()
+            }
+            guard !Task.isCancelled, cacheKey == key else { return }
+            image = result?.image
+            failedToLoad = result == nil
+        }
+        .onAppear {
+            image = LegacyQuestionBankImageCache.cachedImage(for: cacheKey)
+            failedToLoad = false
+        }
+    }
+
+    @ViewBuilder
+    private func imageView(_ image: UIImage) -> some View {
+        switch sizing {
+        case .material, .stem:
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case .option:
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 220, maxHeight: 126, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

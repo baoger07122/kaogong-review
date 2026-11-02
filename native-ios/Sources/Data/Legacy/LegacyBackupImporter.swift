@@ -126,7 +126,7 @@ enum LegacyBackupImporter {
             guard let compoundID = object["compoundID"] as? String, !compoundID.isEmpty,
                   let paperID = object["paperID"] as? String, !paperID.isEmpty,
                   let questionID = object["questionID"] as? String, !questionID.isEmpty,
-                  compoundID == "\(paperID)::\(QuestionBankRepository.questionKind)::\(questionID)",
+                  compoundID == "\(paperID)::question::\(questionID)",
                   let revealed = object["isRevealed"] as? Bool,
                   let cleared = object["isCleared"] as? Bool,
                   let revision = object["mutationRevision"] as? Int,
@@ -324,20 +324,15 @@ enum LegacyBackupRestorer {
             try QuestionBankAnswerStateRepository.replaceFromBackup(package.questionBankAnswerStates, in: context)
             try beforeSave()
         }
-        QuestionBankAnswerStateRepository.postReset()
         NotificationCenter.default.post(name: .legacyBackupRestoreDidComplete, object: nil)
     }
 
     static func replace(with package: LegacyImportPackage, in container: ModelContainer) async throws {
-        let questionBankPermit = try QuestionBankWriteCoordinator.acquire()
-        defer { questionBankPermit.release() }
-        try await QuestionBankAnswerStateMutationCoordinator.shared.withExclusive {
-            try await Task.detached(priority: .userInitiated) {
-                let context = ModelContext(container)
-                context.autosaveEnabled = false
-                try replace(with: package, in: context)
-            }.value
-        }
+        try await Task.detached(priority: .userInitiated) {
+            let context = ModelContext(container)
+            context.autosaveEnabled = false
+            try replace(with: package, in: context)
+        }.value
     }
 }
 
@@ -373,7 +368,7 @@ final class LegacyBackupImportCoordinator: ObservableObject {
                 let package = try await Task.detached(priority: .userInitiated) {
                     try LegacyBackupImporter.parse(data: data)
                 }.value
-                try await QuestionBankAnswerStateStore.shared.restoreLocalData(with: package, in: container)
+                try await LegacyBackupRestorer.replace(with: package, in: container)
                 summary = LegacyImportSummary(
                     version: package.version,
                     total: package.records.count + package.questionBankAnswerStates.count,
@@ -395,7 +390,7 @@ final class LegacyBackupImportCoordinator: ObservableObject {
                 let package = try await Task.detached(priority: .userInitiated) {
                     try LegacyBackupImporter.parse(data: data)
                 }.value
-                try await QuestionBankAnswerStateStore.shared.restoreLocalData(with: package, in: container)
+                try await LegacyBackupRestorer.replace(with: package, in: container)
                 summary = LegacyImportSummary(
                     version: package.version,
                     total: package.records.count + package.questionBankAnswerStates.count,

@@ -45,18 +45,9 @@ enum RootTab: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    static var availableTabs: [RootTab] {
-        allCases.filter(\.isAvailable)
-    }
+    static var availableTabs: [RootTab] { allCases.filter(\.isAvailable) }
 
-    var isAvailable: Bool {
-        switch self {
-        case .questionBank:
-            AppFeatureAvailability.questionBank
-        default:
-            true
-        }
-    }
+    var isAvailable: Bool { self != .questionBank }
 
     var title: String {
         switch self {
@@ -80,7 +71,6 @@ enum RootTab: String, CaseIterable, Identifiable {
 }
 
 struct RootTabView: View {
-    @EnvironmentObject private var questionBankImportRouter: QuestionBankImportRouter
     @State private var selection: RootTab = .home
     @State private var selectionGeneration = 0
     @State private var rootTabBarVisibility: [RootTab: Bool] = [:]
@@ -118,20 +108,7 @@ struct RootTabView: View {
             }
         }
         .onAppear {
-            if AppFeatureAvailability.questionBank,
-               !questionBankImportRouter.pendingRequestIDs.isEmpty {
-                selectQuestionBankForIncomingFiles()
-            } else {
-                beginTabFrameMeasurement(for: selection)
-            }
-        }
-        .onChange(of: questionBankImportRouter.pendingRequestIDs) { _, _ in
-            selectQuestionBankForIncomingFiles()
-        }
-        .alert("真题功能暂时停用", isPresented: questionBankUnavailableAlertBinding) {
-            Button("知道了", role: .cancel) {}
-        } message: {
-            Text("文件未导入。功能恢复后，请重新打开文件。")
+            beginTabFrameMeasurement(for: selection)
         }
     }
 
@@ -191,12 +168,7 @@ struct RootTabView: View {
                 .toolbar(.hidden, for: .tabBar)
                 .environment(\.rootTabContext, .review)
         case .questionBank:
-            if AppFeatureAvailability.questionBank {
-                NavigationStack { QuestionBankView() }
-                    .toolbar(.hidden, for: .tabBar)
-                    .environmentObject(libraryDoodleSession)
-                    .environment(\.rootTabContext, .questionBank)
-            }
+            EmptyView()
         case .settings:
             NavigationStack(path: $settingsPath) { SettingsView() }
                 .toolbar(.hidden, for: .tabBar)
@@ -205,22 +177,6 @@ struct RootTabView: View {
         }
     }
 
-    private func selectQuestionBankForIncomingFiles() {
-        guard AppFeatureAvailability.questionBank else { return }
-        guard !questionBankImportRouter.pendingRequestIDs.isEmpty else { return }
-        selectTab(.questionBank)
-    }
-
-    private var questionBankUnavailableAlertBinding: Binding<Bool> {
-        Binding(
-            get: { questionBankImportRouter.shouldPresentUnavailableFileNotice },
-            set: { isPresented in
-                if !isPresented {
-                    questionBankImportRouter.dismissUnavailableFileNotice()
-                }
-            }
-        )
-    }
 }
 
 private struct RootTabFirstFrameMarker: ViewModifier {

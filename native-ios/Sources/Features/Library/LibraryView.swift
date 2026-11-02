@@ -267,10 +267,11 @@ struct LibraryView: View {
 
     private var content: some View {
         let scopedRecords = sortedScopedRecords
-        let renderedSnapshots = snapshots(from: scopedRecords)
+        let tagFilteredRecords = filterRecords(matching: selectedTag, from: scopedRecords)
+        let renderedSnapshots = snapshots(from: tagFilteredRecords)
         let visibleRecords = displayedRecords(from: renderedSnapshots)
-        let visibleTags = availableTags(from: renderedSnapshots)
-        let hasMoreVisibleRecords = renderLimit < scopedRecords.count
+        let visibleTags = availableTags(from: scopedRecords)
+        let hasMoreVisibleRecords = renderLimit < tagFilteredRecords.count
         return VStack(spacing: 0) {
             header
             ScrollView {
@@ -416,7 +417,7 @@ struct LibraryView: View {
                     Toggle(isOn: $showsStatusControl) { Label("状态筛选", systemImage: "checkmark.circle") }
                 }
                 if canShowCategoryControl {
-                    Toggle(isOn: $showsCategoryControl) { Label("分类筛选", systemImage: "tag") }
+                    Toggle(isOn: $showsCategoryControl) { Label("标签筛选", systemImage: "tag") }
                 }
                 Toggle(isOn: $showsCardSizeControl) { Label("题卡大小", systemImage: "rectangle.grid.2x2") }
             }
@@ -477,18 +478,20 @@ struct LibraryView: View {
     }
 
     private var pendingSourceCount: Int {
+        let reviewSources = recordListCache.reviewSources(for: records)
         records.lazy.filter { record in
             ["errors", "notes", "stickies"].contains(record.collection)
                 && scope.contains(record)
-                && LibraryReviewSource.classify(record, records: records) == .pending
+                && reviewSources[record.compoundID] == .pending
         }.count
     }
 
     private var pendingSourceRecords: [StoredRecord] {
+        let reviewSources = recordListCache.reviewSources(for: records)
         records.filter { record in
             ["errors", "notes", "stickies"].contains(record.collection)
                 && scope.contains(record)
-                && LibraryReviewSource.classify(record, records: records) == .pending
+                && reviewSources[record.compoundID] == .pending
         }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
@@ -571,12 +574,12 @@ struct LibraryView: View {
 
             if canShowCategoryControl && showsCategoryControl && !availableTags.isEmpty {
                 Menu {
-                    Button(kind == .notes ? "全部标签" : "全部分类") { selectedTag = "" }
+                    Button(kind == .notes ? "全部标签" : "全部标签/标记") { selectTag("") }
                     ForEach(availableTags, id: \.self) { tag in
-                        Button(tag) { selectedTag = tag }
+                        Button(tag) { selectTag(tag) }
                     }
                 } label: {
-                    filterLabel(selectedTag.isEmpty ? (kind == .notes ? "标签" : "分类") : selectedTag)
+                    filterLabel(selectedTag.isEmpty ? "标签/标记" : selectedTag)
                 }
             }
 
@@ -618,6 +621,9 @@ struct LibraryView: View {
                 return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }) { return true }
             return !(object["knowledgePoints"] as? [String] ?? []).isEmpty
+                || !(object["weaknessTags"] as? [String] ?? []).isEmpty
+                || (object["isDifficult"] as? Bool) == true
+                || (object["needsReview"] as? Bool) == true
         }
     }
 
@@ -691,11 +697,11 @@ struct LibraryView: View {
         let subject = [record.subject, indexObject["subject"] as? String]
             .compactMap { $0 }
             .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .map { QuestionBankModuleTitle.normalized($0) } ?? ""
+            .map { SubjectModuleTitle.normalized($0) } ?? ""
         let module = [record.module, indexObject["module"] as? String]
             .compactMap { $0 }
             .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .map { QuestionBankModuleTitle.normalized($0) } ?? ""
+            .map { SubjectModuleTitle.normalized($0) } ?? ""
         return (subject == "判断推理" && module == "图形推理")
             || (subject == "资料分析" && module == "综合题")
     }
@@ -788,14 +794,49 @@ struct LibraryView: View {
         }
     }
 
-    private func availableTags(from snapshots: [LibraryRecordSnapshot]) -> [String] {
+    private func availableTags(from records: [StoredRecord]) -> [String] {
         if kind == .notes, let context = noteContext {
             return NoteTypeRepository.types(subject: context.subject, module: context.module, records: records).map(\.name)
         }
         if kind == .stickies, let context = stickyContext {
             return StickyTagRepository.tags(subject: context.subject, module: context.module, records: records).map(\.name)
         }
-        return Array(Set(snapshots.flatMap(\.tags))).sorted()
+        return Array(Set(records.flatMap { tagValues(for: $0) }).sorted())
+    }
+
+    private func filterRecords(matching tag: String, from records: [StoredRecord]) -> [StoredRecord] {
+        guard kind == .errors, !tag.isEmpty else { return records }
+        return records.filter { tagValues(for: $0).contains(tag) }
+    }
+
+    private func tagValues(for record: StoredRecord) -> [String] {
+        let object = record.indexObject ?? [:]
+        var values: [String] = []
+        if let baseTag = ["type", "category", "errorCause"]
+            .compactMap({ object[$0] as? String })
+            .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            values.append(baseTag)
+        }
+        if record.collection == "errors" {
+            let isDifficult = (object["isDifficult"] as? Bool) ?? (object["isDifficult"] as? NSNumber)?.boolValue ?? false
+            let needsReview = (object["needsReview"] as? Bool) ?? (object["needsReview"] as? NSNumber)?.boolValue ?? false
+            if isDifficult { values.append("难题") }
+            if needsReview { values.append("待复习") }
+        }
+        if let points = object["knowledgePoints"] as? [String] {
+            values.append(contentsOf: points)
+        } else if let point = object["knowledgePoint"] as? String {
+            values.append(contentsOf: point.split(whereSeparator: { "、,，".contains($0) }).map(String.init))
+        }
+        values.append(contentsOf: object["weaknessTags"] as? [String] ?? [])
+        var seen = Set<String>()
+        return values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    private func selectTag(_ tag: String) {
+        selectedTag = tag
+        renderLimit = 40
     }
 
     private var noteContext: (subject: String, module: String)? {

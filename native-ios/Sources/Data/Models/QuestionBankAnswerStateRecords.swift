@@ -137,7 +137,7 @@ struct QuestionBankAnswerStateValue: Codable, Equatable, Sendable, Identifiable 
     }
 
     static func empty(compoundID: String) -> Self? {
-        guard let marker = compoundID.range(of: "::\(QuestionBankRepository.questionKind)::", options: .backwards) else {
+        guard let marker = compoundID.range(of: "::question::", options: .backwards) else {
             return nil
         }
         let paperID = String(compoundID[..<marker.lowerBound])

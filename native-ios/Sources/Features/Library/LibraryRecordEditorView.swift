@@ -30,12 +30,8 @@ struct LibraryRecordEditorView: View {
     let scope: LibraryScope
     let recordID: String?
     let onSaved: ((String) -> Void)?
-    let onQuestionBankAnalysisSaved: (() -> Void)?
     let dismissAfterSave: Bool
-    let questionBankContext: QuestionBankQuestionAnalysisContext?
     @State private var draft: LibraryRecordDraft
-    @State private var questionBankIsDifficult: Bool
-    @State private var questionBankNeedsReview: Bool
     @State private var showDelete = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var restoredDraft = false
@@ -55,6 +51,8 @@ struct LibraryRecordEditorView: View {
     @State private var isSaving = false
     @State private var saveErrorMessage: String?
     @State private var showDiscardDraftConfirmation = false
+    @State private var questionImageWidthPreview: [String: Double] = [:]
+    @State private var draftPersistenceCleared = false
 
     init(
         kind: LibraryContentKind,
@@ -68,10 +66,8 @@ struct LibraryRecordEditorView: View {
         self.kind = kind
         self.scope = scope
         self.onSaved = onSaved
-        onQuestionBankAnalysisSaved = nil
         self.dismissAfterSave = dismissAfterSave
         recordID = record?.recordID
-        questionBankContext = nil
         var initialDraft = LibraryRecordDraft(kind: kind, scope: scope, record: record)
         if record == nil, !preferredType.isEmpty {
             initialDraft.type = preferredType
@@ -106,25 +102,6 @@ struct LibraryRecordEditorView: View {
             initialValue: !initialDraft.currentAffairsSupplement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         )
         _draft = State(initialValue: initialDraft)
-        _questionBankIsDifficult = State(initialValue: false)
-        _questionBankNeedsReview = State(initialValue: false)
-    }
-
-    init(
-        questionBankContext: QuestionBankQuestionAnalysisContext,
-        onQuestionBankAnalysisSaved: @escaping () -> Void
-    ) {
-        let mapping = questionBankContext.typeMapping
-        kind = .errors
-        scope = LibraryScope(subject: mapping.subject, module: mapping.module)
-        recordID = questionBankContext.currentQuestion.id
-        onSaved = nil
-        self.onQuestionBankAnalysisSaved = onQuestionBankAnalysisSaved
-        dismissAfterSave = false
-        self.questionBankContext = questionBankContext
-        _draft = State(initialValue: questionBankContext.makeEditorDraft())
-        _questionBankIsDifficult = State(initialValue: questionBankContext.currentQuestion.isDifficult ?? false)
-        _questionBankNeedsReview = State(initialValue: questionBankContext.currentQuestion.needsReview ?? false)
     }
 
     var body: some View {
@@ -132,6 +109,7 @@ struct LibraryRecordEditorView: View {
             if recordID == nil {
                 configuredEditor
                     .onChange(of: draftSnapshot) { _, snapshot in
+                        draftPersistenceCleared = false
                         LibraryDraftStore.save(snapshot, kind: kind, scope: scope)
                     }
             } else {
@@ -142,8 +120,17 @@ struct LibraryRecordEditorView: View {
             Task { await appendImages(items) }
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase != .active, recordID == nil else { return }
-            LibraryDraftStore.save(draftSnapshot, kind: kind, scope: scope)
+            guard phase != .active else { return }
+            commitPendingQuestionImageWidths()
+            guard recordID == nil, !draftPersistenceCleared else { return }
+            let snapshot = draftSnapshot
+            Task { await LibraryDraftStore.flush(snapshot, kind: kind, scope: scope) }
+        }
+        .onDisappear {
+            commitPendingQuestionImageWidths()
+            guard recordID == nil, !draftPersistenceCleared else { return }
+            let snapshot = draftSnapshot
+            Task { await LibraryDraftStore.flush(snapshot, kind: kind, scope: scope) }
         }
         .onAppear {
             if kind != .words,
@@ -210,13 +197,12 @@ struct LibraryRecordEditorView: View {
     private var editorContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                if kind == .errors && !isQuestionBank { recordTypePicker }
+                if kind == .errors { recordTypePicker }
                 if kind != .words {
-                    if isQuestionBank { questionBankContextCard }
-                    else { contextCard }
+                    contextCard
                 }
-                if (kind == .notes || kind == .stickies) && !isQuestionBank { reviewSourcePicker }
-                if kind == .errors && !isQuestionBank && draft.reviewSource == .pending {
+                if kind == .notes || kind == .stickies { reviewSourcePicker }
+                if kind == .errors && draft.reviewSource == .pending {
                     Label("请选择真题复盘或模拟题复盘后再保存。", systemImage: "exclamationmark.circle.fill")
                         .font(AppTheme.auxiliaryFont)
                         .foregroundStyle(AppTheme.warning)
@@ -265,7 +251,7 @@ struct LibraryRecordEditorView: View {
 
     private var configuredEditor: some View {
         editorContent
-        .navigationTitle(isQuestionBank ? "编辑题目" : (recordID == nil ? "新增\(kind.rawValue)" : "编辑\(kind.rawValue)"))
+        .navigationTitle(recordID == nil ? "新增\(kind.rawValue)" : "编辑\(kind.rawValue)")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(recordID == nil)
         .toolbar(.visible, for: .navigationBar)
@@ -273,7 +259,7 @@ struct LibraryRecordEditorView: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button(isSaving ? "保存中…" : "保存", action: save)
                     .disabled(!canSave || isSaving)
-                    .accessibilityIdentifier(isQuestionBank ? "question-bank-save-question-analysis" : "library-record-save")
+                    .accessibilityIdentifier("library-record-save")
             }
             if recordID == nil {
                 ToolbarItemGroup(placement: .topBarLeading) {
@@ -521,100 +507,11 @@ struct LibraryRecordEditorView: View {
 
     private var errorFields: some View {
         Group {
-            if isQuestionBank { questionBankErrorFields }
-            else if draft.subject == "申论" { shenlunFields }
+            if draft.subject == "申论" { shenlunFields }
             else if draft.subject == "判断推理", draft.module == "图形推理" { graphErrorPriorityFields }
             else { regularErrorFields }
-            if isQuestionBank { questionBankRelations }
-            else if draft.subject != "申论" { errorRelations }
+            if draft.subject != "申论" { errorRelations }
         }
-    }
-
-    private var questionBankErrorFields: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            errorAnalysisCard
-            questionBankResourceCard
-            errorFormCard {
-                compactFormSection("题目与选项", image: "list.bullet.rectangle") {
-                    HStack {
-                        NativeFieldLabel(title: "题干")
-                        Spacer()
-                        if !isQuestionBank {
-                            Button(action: openSmartSplit) {
-                                Label("智能拆分", systemImage: "sparkles")
-                                    .font(AppTheme.auxiliaryFont.weight(.semibold))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    if let splitMessage {
-                        Text(splitMessage)
-                            .font(AppTheme.auxiliaryFont)
-                            .foregroundStyle(splitMessage.hasPrefix("已") ? AppTheme.success : AppTheme.warning)
-                    }
-                    errorQuestionEditor(text: $draft.title)
-                    ForEach(draft.options.indices, id: \.self) { index in
-                        optionEditorRow(index)
-                    }
-                }
-            }
-            errorFormCard {
-                compactFormSection("答案", image: "checkmark.circle") {
-                    answerPicker(title: "正确选项", field: .correct, selection: $draft.correctOption)
-                }
-            }
-            if draft.subject == "判断推理", draft.module == "图形推理" {
-                errorFormCard {
-                    compactFormSection("规律与识别思路", image: "eye") {
-                        TextField("图形规律", text: $draft.graphRule).textFieldStyle(ErrorFormTextFieldStyle())
-                        TextField("识别思路", text: $draft.recognition).textFieldStyle(ErrorFormTextFieldStyle())
-                    }
-                }
-            }
-            errorFormCard {
-                compactFormSection("题目标记", image: "tag") {
-                    Toggle("难题", isOn: $questionBankIsDifficult)
-                        .accessibilityIdentifier("question-bank-analysis-difficult")
-                    Toggle("待复习", isOn: $questionBankNeedsReview)
-                        .accessibilityIdentifier("question-bank-analysis-needs-review")
-                }
-            }
-        }
-        .background(Color.white)
-    }
-
-    @ViewBuilder private var questionBankResourceCard: some View {
-        if let questionBankContext {
-            let material = questionBankContext.material
-            let stemAsset = questionBankContext.assetsByID[questionBankContext.currentQuestion.stemImageAssetID]
-            if material != nil || stemAsset != nil {
-                errorFormCard {
-                    compactFormSection("题目材料与图片", image: "photo") {
-                        if let material {
-                            if !material.text.isEmpty {
-                                Text(verbatim: material.text)
-                                    .font(QuestionBankTypography.contentFont)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            if let image = questionBankContext.assetsByID[material.imageAssetID] {
-                                QuestionBankLocalImage(asset: image, sizing: .material, activationTab: .library)
-                            }
-                        }
-                        if let stemAsset {
-                            QuestionBankLocalImage(asset: stemAsset, sizing: .stem, activationTab: .library)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private var questionBankContextCard: some View {
-        HStack(spacing: 8) {
-            compactProperty(title: "科目", value: draft.subject, image: "books.vertical")
-            compactProperty(title: "模块", value: draft.module.isEmpty ? (questionBankContext?.currentQuestion.type ?? "") : draft.module, image: "square.stack.3d.up")
-        }
-        .allowsHitTesting(false)
     }
 
     private var graphErrorPriorityFields: some View {
@@ -763,44 +660,36 @@ struct LibraryRecordEditorView: View {
                     )
                 }
             }
+            compactFormSection("题目标记", image: "tag") {
+                Toggle("难题", isOn: $draft.isDifficult)
+                    .accessibilityIdentifier("library-error-tag-difficult")
+                Toggle("待复习", isOn: $draft.needsReview)
+                    .accessibilityIdentifier("library-error-tag-needs-review")
+            }
         }
     }
 
     @ViewBuilder
     private func optionEditorRow(_ index: Int) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
+            HStack(alignment: StudyOptionRowLayout.verticalAlignment(hasText: !draft.options[index].isEmpty), spacing: 7) {
                 let letter = String(UnicodeScalar(65 + index)!)
-                if isQuestionBank {
-                    Text(letter)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(AppTheme.accent)
-                        .frame(width: 28, height: 28)
-                        .background(AppTheme.accent.opacity(0.10), in: Capsule())
-                    TextField("", text: $draft.options[index], axis: .vertical)
-                        .lineLimit(1...5)
-                        .font(.system(size: 13, weight: .regular))
-                        .padding(.vertical, 4)
-                        .accessibilityLabel("选项 \(letter)")
-                        .accessibilityIdentifier("question-bank-analysis-option-\(index)")
-                } else {
-                    Text(letter)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(AppTheme.accent)
-                        .frame(width: 28, height: 28)
-                        .background(AppTheme.accent.opacity(0.10), in: Capsule())
-                    TextField("", text: $draft.options[index], axis: .vertical)
-                        .lineLimit(1...)
-                        .font(.system(size: 12.5, weight: .regular))
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
-                        .accessibilityLabel("选项 \(letter)")
-                        .accessibilityIdentifier("library-error-option-\(index)")
-                }
-                if isDataAnalysis && !isQuestionBank {
+                Text(letter)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppTheme.accent)
+                    .frame(width: 28, height: 28)
+                    .background(AppTheme.accent.opacity(0.10), in: Capsule())
+                TextField("", text: $draft.options[index], axis: .vertical)
+                    .lineLimit(1...5)
+                    .font(.system(size: 12.5, weight: .regular))
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, minHeight: 36, alignment: .topLeading)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
+                    .accessibilityLabel("选项 \(letter)")
+                    .accessibilityIdentifier("library-error-option-\(index)")
+                if isDataAnalysis {
                     DataAnalysisOptionImagePicker(hasImage: !optionImageBinding(index).wrappedValue.isEmpty) { value in
                         optionImageBinding(index).wrappedValue = value
                     }
@@ -809,13 +698,18 @@ struct LibraryRecordEditorView: View {
                     }
                 }
             }
-            if isDataAnalysis && !isQuestionBank, let image = image(from: optionImageBinding(index).wrappedValue) {
+            let optionImageSource = optionImageBinding(index).wrappedValue
+            if isDataAnalysis && !optionImageSource.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
                     Color.clear.frame(width: 21, height: 1)
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: 190, alignment: .leading)
+                    LibraryEditorImagePreview(
+                        source: optionImageSource,
+                        imageID: draft.optionImageIDs.indices.contains(index) ? draft.optionImageIDs[index] : "option-\(index)",
+                        width: nil,
+                        height: 190,
+                        contentMode: .fit,
+                        maximumPixelSize: 1_200
+                    )
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.09), lineWidth: 0.8))
                     Button {
@@ -827,22 +721,13 @@ struct LibraryRecordEditorView: View {
                     .accessibilityLabel("删除\(String(UnicodeScalar(65 + index)!))选项图片")
                 }
             }
-            if let questionBankContext,
-               questionBankContext.currentQuestion.options.indices.contains(index),
-               let asset = questionBankContext.assetsByID[questionBankContext.currentQuestion.options[index].imageAssetID] {
-                QuestionBankLocalImage(asset: asset, sizing: .option, activationTab: .library)
-                    .padding(.leading, 35)
-            }
         }
     }
 
     private func optionImageBinding(_ index: Int) -> Binding<String> {
         Binding(
             get: { index < draft.optionImages.count ? draft.optionImages[index] : "" },
-            set: { value in
-                while draft.optionImages.count <= index { draft.optionImages.append("") }
-                draft.optionImages[index] = value
-            }
+            set: { draft.setOptionImage($0, at: index) }
         )
     }
 
@@ -850,7 +735,6 @@ struct LibraryRecordEditorView: View {
     private var isAnalogyReasoning: Bool { draft.subject == "判断推理" && draft.module == "类比推理" }
     private var isDataAnalysis: Bool { draft.subject == "资料分析" }
     private var isQuantityRelations: Bool { draft.subject == "数量关系" }
-    private var isQuestionBank: Bool { questionBankContext != nil }
     private var hasPausedQuestionBankAssociation: Bool {
         guard kind == .errors, !AppFeatureAvailability.questionBank else { return false }
         let paperID = (draft.original["questionBankPaperID"] as? String ?? "")
@@ -925,9 +809,6 @@ struct LibraryRecordEditorView: View {
     }
 
     private var answerOptionLetters: [String] {
-        if let questionBankContext {
-            return questionBankContext.currentQuestion.options.indices.map { String(UnicodeScalar(65 + $0)!) }
-        }
         return ["A", "B", "C", "D"]
     }
 
@@ -966,7 +847,7 @@ struct LibraryRecordEditorView: View {
             text: text,
             minimumHeight: minHeight,
             growsWithContent: true,
-            accessibilityIdentifier: isQuestionBank ? "question-bank-analysis-stem" : "library-error-question"
+            accessibilityIdentifier: "library-error-question"
         )
             .padding(.horizontal, 7)
             .padding(.vertical, 5)
@@ -1084,35 +965,39 @@ struct LibraryRecordEditorView: View {
                                draft.images.indices.contains(index) {
                                 VStack(alignment: .leading, spacing: 5) {
                                     ZStack(alignment: .topTrailing) {
-                                        if let image = image(from: draft.images[index]) {
-                                            Image(uiImage: image).resizable().scaledToFill().frame(width: 90, height: 74).clipped()
-                                                .clipShape(RoundedRectangle(cornerRadius: 9))
-                                        } else {
-                                            RoundedRectangle(cornerRadius: 9).fill(Color.primary.opacity(0.06)).frame(width: 90, height: 74)
-                                                .overlay(Image(systemName: "photo").foregroundStyle(.secondary))
-                                        }
+                                        LibraryEditorImagePreview(
+                                            source: draft.images[index],
+                                            imageID: setting.id,
+                                            width: 90,
+                                            height: 74
+                                        )
                                         Button { draft.removeQuestionImage(at: index) } label: {
                                             Image(systemName: "xmark.circle.fill").symbolRenderingMode(.palette).foregroundStyle(.white, .black.opacity(0.55))
                                         }.buttonStyle(.plain).offset(x: 5, y: -5)
                                     }
                                     HStack(spacing: 4) {
-                                        Text("\(Int((setting.widthFraction * 100).rounded()))%")
+                                        let displayedWidth = questionImageWidth(for: setting.id)
+                                        Text("\(Int((displayedWidth * 100).rounded()))%")
                                             .font(.system(size: 11, weight: .medium).monospacedDigit())
                                             .foregroundStyle(.secondary)
                                             .frame(width: 38, alignment: .leading)
                                         Slider(
                                             value: questionImageWidthBinding(for: setting.id),
                                             in: LibraryImageDisplaySetting.minimumWidthFraction...LibraryImageDisplaySetting.maximumWidthFraction,
-                                            step: LibraryImageDisplaySetting.stepWidthFraction
+                                            step: LibraryImageDisplaySetting.stepWidthFraction,
+                                            onEditingChanged: { isEditing in
+                                                if !isEditing { commitQuestionImageWidth(for: setting.id) }
+                                            }
                                         )
                                         .accessibilityLabel("题干图片显示宽度")
                                         Button("全宽") {
                                             draft.setQuestionImageWidth(id: setting.id, fraction: LibraryImageDisplaySetting.maximumWidthFraction)
+                                            questionImageWidthPreview[setting.id] = nil
                                         }
                                         .font(.system(size: 11, weight: .medium))
                                         .buttonStyle(.plain)
                                         .foregroundStyle(AppTheme.accent)
-                                        .disabled(setting.widthFraction >= LibraryImageDisplaySetting.maximumWidthFraction)
+                                        .disabled(displayedWidth >= LibraryImageDisplaySetting.maximumWidthFraction)
                                     }
                                 }
                                 .frame(width: 205, alignment: .leading)
@@ -1538,25 +1423,6 @@ struct LibraryRecordEditorView: View {
         }
     }
 
-    private var questionBankRelations: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text("内容关联")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            if draft.subject == "言语理解", draft.module == "逻辑填空" {
-                linkedWordSection
-            }
-            multiRelationSection(
-                title: "关联已有错题",
-                candidates: relationCandidates(collection: "errors"),
-                selection: $draft.linkedErrorIDs
-            )
-            Text("只关联已存在的错题；保存时同步题干、选项与分析字段，不会自动新增错题。")
-                .font(.system(size: 10.5))
-                .foregroundStyle(.tertiary)
-        }
-    }
-
     private var linkedWordSection: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
@@ -1657,7 +1523,7 @@ struct LibraryRecordEditorView: View {
     private func relationCandidates(collection: String) -> [StoredRecord] {
         records
             .filter {
-                guard $0.collection == collection, isQuestionBank || $0.recordID != recordID else { return false }
+                guard $0.collection == collection, $0.recordID != recordID else { return false }
                 if collection == "exams", kind == .errors {
                     return LibraryReviewSource.explicitValue(in: $0.indexObject ?? [:]) == draft.reviewSource
                 }
@@ -1729,7 +1595,7 @@ struct LibraryRecordEditorView: View {
         switch kind {
         case .errors:
             !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && (isQuestionBank || draft.reviewSource != .pending)
+                && draft.reviewSource != .pending
         case .notes, .words: !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .stickies: !draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
@@ -1746,8 +1612,11 @@ struct LibraryRecordEditorView: View {
     }
 
     private func discardDraftAndExit() {
-        LibraryDraftStore.clear(kind: kind, scope: scope, category: draft.type)
-        dismiss()
+        Task { @MainActor in
+            await LibraryDraftStore.clearAndWait(kind: kind, scope: scope, category: draft.type)
+            draftPersistenceCleared = true
+            dismiss()
+        }
     }
 
     private var noteTypes: [NoteTypeDefinition] {
@@ -1764,7 +1633,7 @@ struct LibraryRecordEditorView: View {
 
     private func save() {
         guard !isSaving else { return }
-        guard kind != .errors || isQuestionBank || draft.reviewSource != .pending else {
+        guard kind != .errors || draft.reviewSource != .pending else {
             saveErrorMessage = "请选择真题复盘或模拟题复盘后再保存。"
             return
         }
@@ -1773,76 +1642,39 @@ struct LibraryRecordEditorView: View {
         Task { @MainActor in
             await Task.yield()
             do {
-                if isQuestionBank, let questionBankContext {
-                    let question = questionBankContext.currentQuestion
-                    var optionTexts: [String: String] = [:]
-                    for (index, option) in question.options.enumerated() where draft.options.indices.contains(index) {
-                        optionTexts[option.id] = draft.options[index]
-                    }
-                    var analysis = QuestionBankQuestionAnalysisFields()
-                    analysis.errorCause = draft.errorCause
-                    analysis.pitfall = draft.pitfall
-                    analysis.quantityStructure = draft.quantityStructure
-                    analysis.graphRule = draft.graphRule
-                    analysis.recognition = draft.recognition
-                    analysis.note = draft.content
-                    analysis.knowledgePoints = splitTags(draft.knowledgePoint)
-                    analysis.weaknessTags = splitTags(draft.weaknessTags)
-                    analysis.linkedWordIDs = draft.linkedWordIDs
-                    analysis.linkedErrorRecordIDs = draft.linkedErrorIDs
-                    analysis.questionSource = questionBankContext.sourceRows.joined(separator: "\n")
-                    analysis.questionNumber = String(question.number)
-                    try QuestionBankRepository.updateQuestionAnalysis(
-                        record: questionBankContext.record,
-                        paperID: question.paperID,
-                        questionID: question.id,
-                        stem: draft.title,
-                        optionTexts: optionTexts,
-                        answerOptionID: questionBankContext.optionID(forLibraryAnswer: draft.correctOption),
-                        annotations: QuestionBankQuestionAnnotations(
-                            isDifficult: questionBankIsDifficult,
-                            needsReview: questionBankNeedsReview,
-                            knowledgePoints: analysis.knowledgePoints,
-                            weaknessTags: analysis.weaknessTags
-                        ),
-                        analysis: analysis,
-                        typeMapping: questionBankContext.typeMapping,
-                        sourceRows: questionBankContext.sourceRows,
-                        context: modelContext
+                if recordID == nil {
+                    commitPendingQuestionImageWidths()
+                    await LibraryDraftStore.flush(draftSnapshot, kind: kind, scope: scope)
+                }
+                if kind == .errors || (kind == .notes && isQuantityRelations) {
+                    try TagLibraryRepository.add(
+                        splitTags(draft.knowledgePoint),
+                        kind: .knowledgePoint,
+                        module: draft.module,
+                        records: records,
+                        context: modelContext,
+                        persist: false
                     )
-                    isSaving = false
-                    onQuestionBankAnalysisSaved?()
-                    if dismissAfterSave { dismiss() }
-                } else {
-                    if kind == .errors || (kind == .notes && isQuantityRelations) {
+                    if kind == .errors && !isDataAnalysis && !isAnalogyReasoning && !isQuantityRelations {
                         try TagLibraryRepository.add(
-                            splitTags(draft.knowledgePoint),
-                            kind: .knowledgePoint,
+                            [draft.errorCause],
+                            kind: .errorCause,
                             module: draft.module,
                             records: records,
                             context: modelContext,
                             persist: false
                         )
-                        if kind == .errors && !isDataAnalysis && !isAnalogyReasoning && !isQuantityRelations {
-                            try TagLibraryRepository.add(
-                                [draft.errorCause],
-                                kind: .errorCause,
-                                module: draft.module,
-                                records: records,
-                                context: modelContext,
-                                persist: false
-                            )
-                        }
                     }
-                    // 思维误区是普通文字，不写入标签库。
-                    let savedID = try LibraryRecordRepository.save(kind: kind, draft: draft, records: records, context: modelContext)
-                    if recordID == nil {
-                        LibraryDraftStore.clear(kind: kind, scope: scope, category: draft.type)
-                    }
-                    isSaving = false
-                    onSaved?(savedID)
-                    if dismissAfterSave { dismiss() }
                 }
+                // 思维误区是普通文字，不写入标签库。
+                let savedID = try LibraryRecordRepository.save(kind: kind, draft: draft, records: records, context: modelContext)
+                if recordID == nil {
+                    await LibraryDraftStore.clearAndWait(kind: kind, scope: scope, category: draft.type)
+                    draftPersistenceCleared = true
+                }
+                isSaving = false
+                onSaved?(savedID)
+                if dismissAfterSave { dismiss() }
             } catch {
                 isSaving = false
                 saveErrorMessage = "保存失败：\(error.localizedDescription)"
@@ -1887,23 +1719,29 @@ struct LibraryRecordEditorView: View {
 
     private func questionImageWidthBinding(for id: String) -> Binding<Double> {
         Binding(
-            get: {
-                draft.imageDisplaySettings.first(where: { $0.id == id })?.widthFraction
-                    ?? LibraryImageDisplaySetting.maximumWidthFraction
-            },
-            set: { draft.setQuestionImageWidth(id: id, fraction: $0) }
+            get: { questionImageWidth(for: id) },
+            set: { questionImageWidthPreview[id] = LibraryImageDisplaySetting.normalizedWidthFraction($0) }
         )
     }
 
-    private func image(from value: String) -> UIImage? {
-        if let cached = Self.imageCache.object(forKey: value as NSString) { return cached }
-        guard value.hasPrefix("data:"), let comma = value.firstIndex(of: ",") else { return nil }
-        guard let image = Data(base64Encoded: String(value[value.index(after: comma)...])).flatMap(UIImage.init(data:)) else { return nil }
-        Self.imageCache.setObject(image, forKey: value as NSString)
-        return image
+    private func questionImageWidth(for id: String) -> Double {
+        questionImageWidthPreview[id]
+            ?? draft.imageDisplaySettings.first(where: { $0.id == id })?.widthFraction
+            ?? LibraryImageDisplaySetting.maximumWidthFraction
     }
 
-    private static let imageCache = NSCache<NSString, UIImage>()
+    private func commitQuestionImageWidth(for id: String) {
+        guard let fraction = questionImageWidthPreview.removeValue(forKey: id) else { return }
+        draft.setQuestionImageWidth(id: id, fraction: fraction)
+    }
+
+    private func commitPendingQuestionImageWidths() {
+        let pending = questionImageWidthPreview
+        questionImageWidthPreview.removeAll()
+        for (id, fraction) in pending {
+            draft.setQuestionImageWidth(id: id, fraction: fraction)
+        }
+    }
 }
 
 private struct ErrorFormTextFieldStyle: TextFieldStyle {

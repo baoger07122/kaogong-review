@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 enum WordCategory: String, CaseIterable, Identifiable {
     case idiomDefinition = "idiom-def"
@@ -198,7 +199,7 @@ struct LibraryPartitionState {
     var wordEntryKind: String
 }
 
-struct LibraryImageDisplaySetting: Identifiable, Codable, Equatable {
+struct LibraryImageDisplaySetting: Identifiable, Codable, Equatable, Sendable {
     static let minimumWidthFraction = 0.2
     static let maximumWidthFraction = 1.0
     static let stepWidthFraction = 0.05
@@ -270,6 +271,8 @@ struct LibraryRecordSnapshot: Identifiable {
     let wordCardBody: String
     let tags: [String]
     let status: String?
+    let isDifficult: Bool
+    let needsReview: Bool
     let createdAt: Date?
     let colorHex: String?
     let isPinned: Bool
@@ -287,6 +290,8 @@ struct LibraryRecordSnapshot: Identifiable {
     let quantityStructure: String
     let weaknessTags: [String]
     let imageValues: [String]
+    let imageIdentities: [String]
+    let imageMetadataIDs: [String]
     let imageWidthFractions: [Double]
     let comparisonWords: [String]
     let questionSource: String
@@ -297,7 +302,8 @@ struct LibraryRecordSnapshot: Identifiable {
     init(
         record: StoredRecord,
         linkedWordNamesByID: [String: String] = [:],
-        includeImages: Bool = false
+        includeImages: Bool = false,
+        previousImageSnapshot: LibraryRecordSnapshot? = nil
     ) {
         self.record = record
         let object = record.indexObject ?? [:]
@@ -329,6 +335,8 @@ struct LibraryRecordSnapshot: Identifiable {
             wordCardBody = ""
         }
         status = Self.firstText(in: object, keys: ["status", "masteryStatus"])
+        isDifficult = (object["isDifficult"] as? Bool) ?? (object["isDifficult"] as? NSNumber)?.boolValue ?? false
+        needsReview = (object["needsReview"] as? Bool) ?? (object["needsReview"] as? NSNumber)?.boolValue ?? false
         colorHex = Self.firstText(in: object, keys: ["color", "colorHex"])
         isPinned = (object["pinned"] as? Bool) ?? (object["pinned"] as? NSNumber)?.boolValue ?? false
         createdAt = record.createdAt ?? Self.date(in: object, keys: ["createdAt", "date", "updatedAt"])
@@ -376,14 +384,38 @@ struct LibraryRecordSnapshot: Identifiable {
             .filter { !$0.isEmpty }
         // Large image data is intentionally excluded from indexPayload. Only views
         // that actually render images should open the full payload.
-        let imageObject = includeImages ? (record.jsonObject ?? object) : object
-        if let images = imageObject["images"] as? [String], !images.isEmpty {
+        let indexedImageCount = (object["imageCount"] as? NSNumber)?.intValue
+        let indexedImageMetadata = object["imageDisplayMetadata"]
+        let indexedMetadataIDs = Self.imageMetadataIDs(from: indexedImageMetadata, count: indexedImageCount ?? 0)
+        let canReuseImages = includeImages
+            && indexedImageCount == previousImageSnapshot?.imageValues.count
+            && indexedMetadataIDs.count == (indexedImageCount ?? 0)
+            && previousImageSnapshot?.imageMetadataIDs == indexedMetadataIDs
+        let imageObject: [String: Any]
+        if includeImages && !canReuseImages {
+            imageObject = record.jsonObject ?? object
+        } else {
+            imageObject = object
+        }
+        if !includeImages {
+            imageValues = []
+        } else if canReuseImages, let previousImageSnapshot {
+            imageValues = previousImageSnapshot.imageValues
+        } else if let images = imageObject["images"] as? [String], !images.isEmpty {
             imageValues = images
         } else {
             imageValues = Self.firstText(in: imageObject, keys: ["image"]).map { [$0] } ?? []
         }
+        let imageMetadata = imageObject["imageDisplayMetadata"] ?? indexedImageMetadata
+        imageMetadataIDs = Self.imageMetadataIDs(from: imageMetadata, count: imageValues.count)
+        imageIdentities = Self.imageIdentities(
+            metadataIDs: imageMetadataIDs,
+            values: imageValues,
+            ownerID: record.compoundID,
+            previous: previousImageSnapshot
+        )
         imageWidthFractions = LibraryImageDisplaySetting.widthFractions(
-            from: imageObject["imageDisplayMetadata"],
+            from: imageMetadata,
             count: imageValues.count
         )
         let linkedWordIDs = object["linkedWordIds"] as? [String] ?? []
@@ -400,10 +432,15 @@ struct LibraryRecordSnapshot: Identifiable {
         } else if let type = Self.firstText(in: object, keys: ["type", "category", "errorCause"]) {
             values.append(type)
         }
+        if record.collection == "errors" {
+            if isDifficult { values.append("难题") }
+            if needsReview { values.append("待复习") }
+        }
         if let points = object["knowledgePoints"] as? [String] { values.append(contentsOf: points) }
+        values.append(contentsOf: weaknessTags)
         if let point = Self.firstText(in: object, keys: ["knowledgePoint"]) { values.append(point) }
         var seen = Set<String>()
-        tags = Array(values.filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(3))
+        tags = Array(values.filter { !$0.isEmpty && seen.insert($0).inserted })
 
         var searchValues = [title, summary, quantityStructure, dataAnalysisMaterialText, questionSource, questionNumber]
         searchValues.append(contentsOf: tags)
@@ -434,6 +471,50 @@ struct LibraryRecordSnapshot: Identifiable {
             }
         }
         return nil
+    }
+
+    private static func imageMetadataIDs(from payload: Any?, count: Int) -> [String] {
+        let values = payload as? [[String: Any]] ?? []
+        return (0..<max(0, count)).map { index in
+            guard index < values.count else { return "" }
+            return (values[index]["id"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    private static func imageIdentities(
+        metadataIDs: [String],
+        values: [String],
+        ownerID: String,
+        previous: LibraryRecordSnapshot?
+    ) -> [String] {
+        values.indices.map { index in
+            let metadataID = metadataIDs.indices.contains(index) ? metadataIDs[index] : ""
+            if !metadataID.isEmpty {
+            if let previous,
+               let previousIndex = previous.imageMetadataIDs.firstIndex(of: metadataID),
+                   previous.imageValues.indices.contains(previousIndex),
+                   previous.imageIdentities.indices.contains(previousIndex) {
+                    if previous.imageValues[previousIndex] == values[index] {
+                        return previous.imageIdentities[previousIndex]
+                    }
+                    return "\(ownerID):\(metadataID):\(contentFingerprint(values[index]))"
+                }
+                return "\(ownerID):\(metadataID):\(contentFingerprint(values[index]))"
+            }
+            if let previous,
+               previous.imageValues.indices.contains(index),
+               previous.imageValues[index] == values[index],
+               previous.imageIdentities.indices.contains(index) {
+                return previous.imageIdentities[index]
+            }
+            return "\(ownerID):legacy-\(index):\(contentFingerprint(values[index]))"
+        }
+    }
+
+    private static func contentFingerprint(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 
     private static func plainText(_ value: String) -> String {

@@ -89,10 +89,12 @@ final class LibrarySnapshotCache {
            cached.includesImages == includeImages {
             return cached.snapshot
         }
+        let previousImageSnapshot = entries[record.compoundID]?.snapshot
         let value = LibraryRecordSnapshot(
             record: record,
             linkedWordNamesByID: linkedWordNamesByID,
-            includeImages: includeImages
+            includeImages: includeImages,
+            previousImageSnapshot: previousImageSnapshot
         )
         entries[record.compoundID] = Entry(
             updatedAt: record.updatedAt,
@@ -149,6 +151,11 @@ final class LibraryRecordListCache {
     private var sortedRecords: [StoredRecord] = []
     private var quantityTypesRevision: [RecordRevision]?
     private var quantityTypesValue: [String] = []
+    private let reviewSourceCache = LibraryReviewSourceClassificationCache()
+
+    func reviewSources(for records: [StoredRecord]) -> [String: LibraryReviewSource] {
+        reviewSourceCache.classifications(for: records)
+    }
 
     func sortedScopedRecords(
         records: [StoredRecord],
@@ -169,10 +176,11 @@ final class LibraryRecordListCache {
 
         let isQuantityContext = scope.subject == "数量关系" && scope.module == nil
         let validQuantityTypes = Set(quantityTypes(records: records))
+        let reviewSources = reviewSourceCache.classifications(for: records)
         sortedRecords = records.filter { record in
             guard record.collection == kind.collection, scope.contains(record) else { return false }
             if kind != .words,
-               LibraryReviewSource.classify(record, records: records) != scope.reviewSource { return false }
+               reviewSources[record.compoundID] != scope.reviewSource { return false }
             if isQuantityContext, kind == .errors || kind == .notes {
                 if selectedQuantityType == "未分类" {
                     guard !validQuantityTypes.contains(record.module ?? "") else { return false }

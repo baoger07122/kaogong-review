@@ -2,6 +2,17 @@ import SwiftData
 import SwiftUI
 import UIKit
 
+private enum LibraryInlineNoteSaveError: LocalizedError {
+    case invalidRecordPayload
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidRecordPayload:
+            return "原题目数据无法解析，笔记未写入，也没有覆盖原记录。"
+        }
+    }
+}
+
 /// The parent can finish editing before entering drawing mode without observing every keystroke.
 @MainActor
 final class LibraryInlineNoteSession: ObservableObject {
@@ -40,6 +51,7 @@ struct LibraryInlineNoteView: View {
     @Environment(\.scenePhase) private var scenePhase
     private let readNote: () -> String
     private let writeNote: (String, ModelContext) throws -> Void
+    private let onSaved: ((String) -> Void)?
     private let renderDocumentID: String
     private let renderVersion: () -> String
     let session: LibraryInlineNoteSession
@@ -56,28 +68,66 @@ struct LibraryInlineNoteView: View {
 
     private let noteCanvasMinimumHeight: CGFloat = 360
 
-    init(record: StoredRecord, session: LibraryInlineNoteSession, title: String = "错题笔记") {
+    init(
+        record: StoredRecord,
+        session: LibraryInlineNoteSession,
+        title: String = "错题笔记",
+        readNote: (() -> String)? = nil,
+        onSaved: ((String) -> Void)? = nil
+    ) {
         self.session = session
         self.title = title
+        self.onSaved = onSaved
         renderDocumentID = record.compoundID
         renderVersion = { record.updatedAt.map { String($0.timeIntervalSince1970) } ?? "" }
-        readNote = {
+        self.readNote = readNote ?? {
             let object = record.jsonObject ?? [:]
             if let note = object["note"] as? String { return note }
             return ["content", "errorNote", "analysis"].compactMap { object[$0] as? String }.first ?? ""
         }
         writeNote = { draft, modelContext in
-            var object = record.jsonObject ?? [:]
+            let payloadDecodeStart = ProcessInfo.processInfo.systemUptime
+            guard var object = record.jsonObject else {
+                LibraryPerformanceLog.event(
+                    "note.save.invalid-payload id=\(LibraryPerformanceLog.shortIdentifier(record.compoundID)) bytes=\(record.payload.count)"
+                )
+                throw LibraryInlineNoteSaveError.invalidRecordPayload
+            }
+            LibraryPerformanceLog.markIfSlow(
+                "note.save.decode bytes=\(record.payload.count)",
+                since: payloadDecodeStart
+            )
             object["note"] = draft
             object["updatedAt"] = ISO8601DateFormatter().string(from: .now)
+            let payloadEncodeStart = ProcessInfo.processInfo.systemUptime
             let updatedPayload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            LibraryPerformanceLog.markIfSlow(
+                "note.save.encode bytes=\(updatedPayload.count)",
+                since: payloadEncodeStart
+            )
             let previousPayload = record.payload
             let previousIndexPayload = record.indexPayload
             let previousUpdatedAt = record.updatedAt
+            let wasAutosaveEnabled = modelContext.autosaveEnabled
+            modelContext.autosaveEnabled = false
+            defer { modelContext.autosaveEnabled = wasAutosaveEnabled }
+            let indexRebuildStart = ProcessInfo.processInfo.systemUptime
             record.replacePayload(updatedPayload)
+            LibraryPerformanceLog.markIfSlow(
+                "note.save.index-rebuild bytes=\(updatedPayload.count)",
+                since: indexRebuildStart
+            )
             record.updatedAt = .now
             do {
+                let contextSaveStart = ProcessInfo.processInfo.systemUptime
                 try modelContext.save()
+                LibraryPerformanceLog.markIfSlow(
+                    "note.save.context bytes=\(updatedPayload.count)",
+                    since: contextSaveStart
+                )
+                LibraryPerformanceLog.event(
+                    "note.save.persisted id=\(LibraryPerformanceLog.shortIdentifier(record.compoundID)) beforeBytes=\(previousPayload.count) afterBytes=\(updatedPayload.count)"
+                )
             } catch {
                 record.payload = previousPayload
                 record.indexPayload = previousIndexPayload
@@ -93,10 +143,12 @@ struct LibraryInlineNoteView: View {
         readNote: @escaping () -> String,
         writeNote: @escaping (String, ModelContext) throws -> Void,
         renderDocumentID: String = "inline-note",
-        renderVersion: @escaping () -> String = { "" }
+        renderVersion: @escaping () -> String = { "" },
+        onSaved: ((String) -> Void)? = nil
     ) {
         self.session = session
         self.title = title
+        self.onSaved = onSaved
         self.renderDocumentID = renderDocumentID
         self.renderVersion = renderVersion
         self.readNote = readNote
@@ -273,6 +325,7 @@ struct LibraryInlineNoteView: View {
             try writeNote(content, modelContext)
             saved = content
             errorMessage = nil
+            onSaved?(content)
             if let attributedText = preparedAttributedText ?? editorSession.latestAttributedText() {
                 preparedNote = PreparedLibraryInlineNote(
                     key: noteRenderKey,

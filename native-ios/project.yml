@@ -11,8 +11,8 @@ settings:
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     TARGETED_DEVICE_FAMILY: "2"
     SUPPORTS_MACCATALYST: NO
-    MARKETING_VERSION: "11.2.4"
-    CURRENT_PROJECT_VERSION: "110"
+    MARKETING_VERSION: "11.2.5"
+    CURRENT_PROJECT_VERSION: "111"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Manual
 packages:
@@ -24,7 +24,9 @@ targets:
     type: application
     platform: iOS
     sources:
-      - Sources
+      - path: Sources
+        excludes:
+          - Features/QuestionBank/**
       - path: Resources/Assets.xcassets
         buildPhase: resources
     dependencies:
@@ -44,13 +46,6 @@ targets:
         CFBundleDevelopmentRegion: zh-Hans
         CFBundleLocalizations:
           - zh-Hans
-        CFBundleDocumentTypes:
-          - CFBundleTypeName: 真题 JSON 与 ZIP 包
-            CFBundleTypeRole: Viewer
-            LSHandlerRank: Alternate
-            LSItemContentTypes:
-              - public.json
-              - public.zip-archive
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UIApplicationSceneManifest:
@@ -90,30 +85,6 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: KaogongReviewNative
-  QuestionBankReaderInteractionUITests:
-    type: bundle.ui-testing
-    platform: iOS
-    sources:
-      - Tests/UI/QuestionBankReaderInteractionUITests.swift
-    dependencies:
-      - target: KaogongReviewNative
-    settings:
-      base:
-        GENERATE_INFOPLIST_FILE: YES
-        TEST_TARGET_NAME: KaogongReviewNative
-  QuestionBankImportTests:
-    type: bundle.unit-test
-    platform: iOS
-    sources:
-      - Tests/QuestionBank
-      - Tests/Library
-    dependencies:
-      - target: KaogongReviewNative
-    settings:
-      base:
-        GENERATE_INFOPLIST_FILE: YES
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/KaogongReviewNative.app/KaogongReviewNative"
-        BUNDLE_LOADER: "$(TEST_HOST)"
 schemes:
   KaogongReviewNative:
     build:
@@ -125,19 +96,3 @@ schemes:
       targets:
         - SpeedInteractionUITests
         - SpeedAnimationTests
-  QuestionBankImport:
-    build:
-      targets:
-        KaogongReviewNative: all
-        QuestionBankImportTests: [test]
-    test:
-      targets:
-        - QuestionBankImportTests
-  QuestionBankReaderInteraction:
-    build:
-      targets:
-        KaogongReviewNative: all
-        QuestionBankReaderInteractionUITests: [test]
-    test:
-      targets:
-        - QuestionBankReaderInteractionUITests

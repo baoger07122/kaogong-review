@@ -8,8 +8,10 @@ struct LibrarySidebar: View {
     @Binding var expandedSubject: String?
     let compact: Bool
     let onScopeChanged: () -> Void
+    @State private var reviewSourceCache = LibraryReviewSourceClassificationCache()
 
     var body: some View {
+        let reviewSources = reviewSourceCache.classifications(for: records)
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
                 if compact {
@@ -31,7 +33,7 @@ struct LibrarySidebar: View {
                         title: "全部",
                         systemImage: "tray.full.fill",
                         color: AppTheme.accent,
-                        count: records.filter { ["errors", "notes", "stickies"].contains($0.collection) && LibraryReviewSource.classify($0, records: records) == scope.reviewSource }.count,
+                        count: records.filter { ["errors", "notes", "stickies"].contains($0.collection) && reviewSources[$0.compoundID] == scope.reviewSource }.count,
                         selected: scope.isAll,
                         showsArrow: false,
                         expanded: false
@@ -41,7 +43,7 @@ struct LibrarySidebar: View {
                 .accessibilityIdentifier("library-scope-all")
 
                 ForEach(SubjectDefinition.all) { subject in
-                    subjectSection(subject)
+                    subjectSection(subject, reviewSources: reviewSources)
                 }
             }
             .padding(.horizontal, 7)
@@ -51,7 +53,10 @@ struct LibrarySidebar: View {
     }
 
     @ViewBuilder
-    private func subjectSection(_ subject: SubjectDefinition) -> some View {
+    private func subjectSection(
+        _ subject: SubjectDefinition,
+        reviewSources: [String: LibraryReviewSource]
+    ) -> some View {
         let expanded = expandedSubject == subject.name
         let selected = scope.subject == subject.name && scope.module == nil
 
@@ -69,7 +74,7 @@ struct LibrarySidebar: View {
                 title: subject.name,
                 systemImage: subject.systemImage,
                 color: subject.color,
-                count: count(subject: subject.name),
+                count: count(subject: subject.name, reviewSources: reviewSources),
                 selected: selected,
                 showsArrow: !subject.isFlat,
                 expanded: expanded
@@ -92,7 +97,7 @@ struct LibrarySidebar: View {
                                         .font(.system(size: 11, weight: scope.subject == subject.name && scope.module == module ? .semibold : .regular))
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.72)
-                                    let moduleCount = count(subject: subject.name, module: module)
+                                    let moduleCount = count(subject: subject.name, module: module, reviewSources: reviewSources)
                                     if moduleCount > 0 {
                                         Text("\(moduleCount)").font(.system(size: 8)).foregroundStyle(.secondary)
                                     }
@@ -104,7 +109,7 @@ struct LibrarySidebar: View {
                                         .font(.system(size: 12, weight: scope.subject == subject.name && scope.module == module ? .semibold : .regular))
                                         .lineLimit(1)
                                     Spacer(minLength: 4)
-                                    let moduleCount = count(subject: subject.name, module: module)
+                                    let moduleCount = count(subject: subject.name, module: module, reviewSources: reviewSources)
                                     if moduleCount > 0 {
                                         Text("\(moduleCount)")
                                             .font(AppTheme.auxiliaryFont.monospacedDigit())
@@ -138,7 +143,7 @@ struct LibrarySidebar: View {
                         HStack {
                             Text("待分类").font(.system(size: 12, weight: scope.subject == subject.name && scope.module == LibraryScope.dataAnalysisReviewBucket ? .semibold : .regular))
                             Spacer(minLength: 4)
-                            let moduleCount = count(subject: subject.name, module: LibraryScope.dataAnalysisReviewBucket)
+                            let moduleCount = count(subject: subject.name, module: LibraryScope.dataAnalysisReviewBucket, reviewSources: reviewSources)
                             if moduleCount > 0 { Text("\(moduleCount)").font(AppTheme.auxiliaryFont.monospacedDigit()).foregroundStyle(.secondary) }
                         }
                         .padding(.leading, compact ? 14 : 42)
@@ -218,10 +223,14 @@ struct LibrarySidebar: View {
         }
     }
 
-    private func count(subject: String, module: String? = nil) -> Int {
+    private func count(
+        subject: String,
+        module: String? = nil,
+        reviewSources: [String: LibraryReviewSource]
+    ) -> Int {
         records.lazy.filter {
             ["errors", "notes", "stickies"].contains($0.collection)
-                && LibraryReviewSource.classify($0, records: records) == scope.reviewSource
+                && reviewSources[$0.compoundID] == scope.reviewSource
                 && $0.subject == subject
                 && (module == nil || LibraryScope(subject: subject, module: module, reviewSource: scope.reviewSource).contains($0))
         }.count
@@ -522,7 +531,8 @@ private struct LibraryErrorRecordCard: View {
                     HStack(spacing: 0) {
                         LibraryCardThumbnail(
                             source: source,
-                            cacheKey: "\(snapshot.id)-\(snapshot.record.updatedAt?.timeIntervalSince1970 ?? 0)-\(index)-\(source.count)",
+                            cacheKey: snapshot.imageIdentities.indices.contains(index)
+                                ? snapshot.imageIdentities[index] : "\(snapshot.id)-legacy-\(index)",
                             maximumHeight: isGraphReasoning ? nil : size.imageMaximumHeight,
                             availableWidth: isDataAnalysisComposite && cardWidth > 0
                                 ? max(1, cardWidth - 28) : nil,
@@ -620,17 +630,17 @@ private struct LibraryErrorRecordCard: View {
     }
 
     private var isGraphReasoning: Bool {
-        QuestionBankModuleTitle.normalized(snapshot.record.subject) == "判断推理"
-            && QuestionBankModuleTitle.normalized(snapshot.record.module) == "图形推理"
+        SubjectModuleTitle.normalized(snapshot.record.subject) == "判断推理"
+            && SubjectModuleTitle.normalized(snapshot.record.module) == "图形推理"
     }
 
     private var isDataAnalysisComposite: Bool {
-        QuestionBankModuleTitle.normalized(snapshot.subject) == "资料分析"
-            && QuestionBankModuleTitle.normalized(snapshot.module) == "综合题"
+        SubjectModuleTitle.normalized(snapshot.subject) == "资料分析"
+            && SubjectModuleTitle.normalized(snapshot.module) == "综合题"
     }
 
     private var isQuantityRelations: Bool { snapshot.record.subject == "数量关系" }
-    private var isDataAnalysis: Bool { QuestionBankModuleTitle.normalized(snapshot.subject) == "资料分析" }
+    private var isDataAnalysis: Bool { SubjectModuleTitle.normalized(snapshot.subject) == "资料分析" }
 
     private var knowledgePointLabel: String { isLogicJudgment ? "结构" : "考点" }
     private var errorCauseLabel: String {
@@ -648,6 +658,7 @@ private struct LibraryCardThumbnail: View {
     let widthFraction: Double
     @State private var image: UIImage?
     @State private var didFail = false
+    @State private var appearanceRevision: UInt64 = 0
 
     var body: some View {
         Group {
@@ -680,17 +691,41 @@ private struct LibraryCardThumbnail: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 0.7)
         }
-        .task(id: cacheKey) {
-            image = nil
+        .task(id: "\(cacheKey)|\(appearanceRevision)") {
             didFail = false
+            if let cached = LibraryImageLoader.cachedImage(cacheKey: cacheKey, maximumPixelSize: 900) {
+                image = cached
+                LibraryPerformanceLog.event("image.cache-hit id=\(LibraryPerformanceLog.shortIdentifier(cacheKey))")
+                return
+            }
+            let requestID = UUID()
+            LibraryPerformanceLog.event("image.request id=\(LibraryPerformanceLog.shortIdentifier(cacheKey)) pixel=900")
             let loadedImage = await LibraryImageLoader.image(
                 from: source,
                 cacheKey: cacheKey,
-                maximumPixelSize: 900
+                maximumPixelSize: 900,
+                requestID: requestID
             )
             guard !Task.isCancelled else { return }
             image = loadedImage
             didFail = loadedImage == nil
+            if loadedImage == nil {
+                LibraryPerformanceLog.event("image.decode-failed id=\(LibraryPerformanceLog.shortIdentifier(cacheKey))")
+            }
+        }
+        .onChange(of: cacheKey) { _, newValue in
+            image = LibraryImageLoader.cachedImage(cacheKey: newValue, maximumPixelSize: 900)
+            didFail = false
+        }
+        .onAppear {
+            appearanceRevision &+= 1
+            image = LibraryImageLoader.cachedImage(cacheKey: cacheKey, maximumPixelSize: 900)
+            didFail = false
+            LibraryPerformanceLog.event("image.view-appear id=\(LibraryPerformanceLog.shortIdentifier(cacheKey))")
+        }
+        .onDisappear {
+            image = nil
+            LibraryPerformanceLog.event("image.view-disappear id=\(LibraryPerformanceLog.shortIdentifier(cacheKey))")
         }
     }
 }
@@ -698,37 +733,225 @@ private struct LibraryCardThumbnail: View {
 enum LibraryImageLoader {
     private static let cache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
-        cache.countLimit = 60
+        cache.countLimit = 48
         cache.totalCostLimit = 80 * 1_024 * 1_024
         return cache
     }()
+    fileprivate static let decodeLimiter = LibraryImageDecodeLimiter.shared
+    private static let coordinator = LibraryImageLoadCoordinator.shared
 
-    static func image(from source: String, cacheKey: String, maximumPixelSize: Int) async -> UIImage? {
-        let key = NSString(string: "\(cacheKey)-\(maximumPixelSize)")
-        if let cached = cache.object(forKey: key) { return cached }
-        let image = await Task.detached(priority: .utility) { () -> UIImage? in
-            let encoded: String
-            if let marker = source.range(of: "base64,") {
-                encoded = String(source[marker.upperBound...])
-            } else {
-                encoded = source
-            }
-            guard let data = Data(base64Encoded: encoded, options: .ignoreUnknownCharacters),
-                  let imageSource = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true
-            ]
-            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else { return nil }
-            return UIImage(cgImage: cgImage)
-        }.value
-        if let image {
-            let cost = Int(image.size.width * image.scale * image.size.height * image.scale * 4)
-            cache.setObject(image, forKey: key, cost: cost)
+    static func cachedImage(cacheKey: String, maximumPixelSize: Int) -> UIImage? {
+        cache.object(forKey: cacheEntryKey(cacheKey, maximumPixelSize) as NSString)
+    }
+
+    static func image(
+        from source: String,
+        cacheKey: String,
+        maximumPixelSize: Int,
+        requestID: UUID = UUID()
+    ) async -> UIImage? {
+        let entryKey = cacheEntryKey(cacheKey, maximumPixelSize)
+        if let cached = cache.object(forKey: entryKey as NSString) { return cached }
+        return await withTaskCancellationHandler {
+            await coordinator.image(
+                source: source,
+                imageID: cacheKey,
+                entryKey: entryKey,
+                maximumPixelSize: maximumPixelSize,
+                requestID: requestID
+            )
+        } onCancel: {
+            Task { await coordinator.cancel(entryKey: entryKey, requestID: requestID) }
         }
-        return image
+    }
+
+    fileprivate static func cacheDecodedImage(_ image: UIImage?, entryKey: String) {
+        guard let image else { return }
+        let cost = max(1, Int(image.size.width * image.scale * image.size.height * image.scale * 4))
+        cache.setObject(image, forKey: entryKey as NSString, cost: cost)
+    }
+
+    private static func cacheEntryKey(_ imageID: String, _ maximumPixelSize: Int) -> String {
+        "\(imageID)|pixels:\(maximumPixelSize)"
+    }
+
+    fileprivate static func decode(_ source: String, maximumPixelSize: Int) -> UIImage? {
+        guard !Task.isCancelled else { return nil }
+        let encoded: Substring
+        if let marker = source.range(of: "base64,") {
+            encoded = source[marker.upperBound...]
+        } else {
+            encoded = source[...]
+        }
+        guard let data = Data(base64Encoded: encoded, options: .ignoreUnknownCharacters),
+              !Task.isCancelled,
+              let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
+              !Task.isCancelled else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary),
+              !Task.isCancelled else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+}
+
+private actor LibraryImageDecodeLimiter {
+    static let shared = LibraryImageDecodeLimiter()
+    private var active = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func acquire() async {
+        if active < 2 {
+            active += 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func release() {
+        if !waiters.isEmpty {
+            waiters.removeFirst().resume()
+        } else {
+            active = max(0, active - 1)
+        }
+    }
+}
+
+private actor LibraryImageLoadCoordinator {
+    private struct Flight {
+        let id: UUID
+        let task: Task<UIImage?, Never>
+        var subscribers: Set<UUID>
+    }
+
+    static let shared = LibraryImageLoadCoordinator()
+    private var flights: [String: Flight] = [:]
+
+    func image(
+        source: String,
+        imageID: String,
+        entryKey: String,
+        maximumPixelSize: Int,
+        requestID: UUID
+    ) async -> UIImage? {
+        guard !Task.isCancelled else { return nil }
+        if let cached = LibraryImageLoader.cachedImage(cacheKey: imageID, maximumPixelSize: maximumPixelSize) {
+            LibraryPerformanceLog.event("image.cache-hit id=\(LibraryPerformanceLog.shortIdentifier(imageID))")
+            return cached
+        }
+
+        let flightID: UUID
+        let task: Task<UIImage?, Never>
+        if var flight = flights[entryKey] {
+            flight.subscribers.insert(requestID)
+            flights[entryKey] = flight
+            flightID = flight.id
+            task = flight.task
+            LibraryPerformanceLog.event("image.join id=\(LibraryPerformanceLog.shortIdentifier(imageID))")
+        } else {
+            flightID = UUID()
+            let limiter = LibraryImageLoader.decodeLimiter
+            task = Task.detached(priority: .utility) {
+                await limiter.acquire()
+                guard !Task.isCancelled else {
+                    await limiter.release()
+                    return nil
+                }
+                let started = ProcessInfo.processInfo.systemUptime
+                let decoded = LibraryImageLoader.decode(source, maximumPixelSize: maximumPixelSize)
+                await limiter.release()
+                LibraryImageLoader.cacheDecodedImage(decoded, entryKey: entryKey)
+                LibraryPerformanceLog.markIfSlow(
+                    "image.decode id=\(LibraryPerformanceLog.shortIdentifier(imageID)) pixels=\(maximumPixelSize)",
+                    since: started,
+                    thresholdMilliseconds: 24
+                )
+                return decoded
+            }
+            flights[entryKey] = Flight(id: flightID, task: task, subscribers: [requestID])
+            Task { [weak self] in
+                _ = await task.value
+                await self?.finish(entryKey: entryKey, flightID: flightID)
+            }
+            LibraryPerformanceLog.event("image.decode-start id=\(LibraryPerformanceLog.shortIdentifier(imageID)) pixels=\(maximumPixelSize)")
+        }
+        guard !Task.isCancelled else {
+            cancel(entryKey: entryKey, requestID: requestID)
+            return nil
+        }
+        return await task.value
+    }
+
+    func cancel(entryKey: String, requestID: UUID) {
+        guard var flight = flights[entryKey] else { return }
+        guard flight.subscribers.remove(requestID) != nil else { return }
+        if flight.subscribers.isEmpty {
+            flight.task.cancel()
+            flights[entryKey] = nil
+            LibraryPerformanceLog.event("image.cancel id=\(LibraryPerformanceLog.shortIdentifier(entryKey))")
+        } else {
+            flights[entryKey] = flight
+        }
+    }
+
+    private func finish(entryKey: String, flightID: UUID) {
+        guard flights[entryKey]?.id == flightID else { return }
+        flights[entryKey] = nil
+    }
+}
+
+struct LibraryEditorImagePreview: View {
+    let source: String
+    let imageID: String
+    var width: CGFloat? = 90
+    var height: CGFloat? = 74
+    var contentMode: ContentMode = .fill
+    var maximumPixelSize = 600
+    @State private var image: UIImage?
+    @State private var appearanceRevision: UInt64 = 0
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().aspectRatio(contentMode: contentMode)
+            } else {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(Color.primary.opacity(0.06))
+                    .overlay(Image(systemName: "photo").foregroundStyle(.secondary))
+                    .frame(height: height ?? 120)
+            }
+        }
+        .frame(width: width, height: height, alignment: .leading)
+        .frame(maxWidth: width == nil ? .infinity : nil, maxHeight: height, alignment: .leading)
+        .clipped()
+        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .task(id: "\(imageID)|\(appearanceRevision)") {
+            if let cached = LibraryImageLoader.cachedImage(cacheKey: imageID, maximumPixelSize: maximumPixelSize) {
+                image = cached
+                return
+            }
+            let loaded = await LibraryImageLoader.image(
+                from: source,
+                cacheKey: imageID,
+                maximumPixelSize: maximumPixelSize
+            )
+            guard !Task.isCancelled else { return }
+            image = loaded
+        }
+        .onChange(of: imageID) { _, newID in
+            image = LibraryImageLoader.cachedImage(cacheKey: newID, maximumPixelSize: maximumPixelSize)
+        }
+        .onAppear {
+            appearanceRevision &+= 1
+            image = LibraryImageLoader.cachedImage(cacheKey: imageID, maximumPixelSize: maximumPixelSize)
+        }
+        .onDisappear { image = nil }
     }
 }
 
@@ -739,18 +962,23 @@ struct LibraryMasonryGrid: View {
     let onOpen: (LibraryRecordSnapshot) -> Void
     let onDelete: (LibraryRecordSnapshot) -> Void
     var hiddenTags: Set<String> = []
+    @State private var columnAssignments: [String: Int] = [:]
+    @State private var lastColumnCount: Int?
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
+            ForEach(0..<max(1, cardSize.columnCount), id: \.self) { columnIndex in
                 LazyVStack(spacing: 12) {
-                    ForEach(column) { record in
+                    ForEach(columns[columnIndex]) { record in
                         cardLink(record)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .top)
             }
         }
+        .onAppear(perform: reconcileColumns)
+        .onChange(of: recordIDs) { _, _ in reconcileColumns() }
+        .onChange(of: cardSize.columnCount) { _, _ in reconcileColumns() }
     }
 
     private func cardLink(_ record: LibraryRecordSnapshot) -> some View {
@@ -779,20 +1007,40 @@ struct LibraryMasonryGrid: View {
     private var columns: [[LibraryRecordSnapshot]] {
         let count = max(1, cardSize.columnCount)
         var result = Array(repeating: [LibraryRecordSnapshot](), count: count)
-        var heights = Array(repeating: CGFloat.zero, count: count)
         for record in records {
-            let index = heights.enumerated().min(by: { $0.element < $1.element })?.offset ?? 0
+            let index = columnAssignments[record.id].flatMap { (0..<count).contains($0) ? $0 : nil } ?? 0
             result[index].append(record)
-            heights[index] += estimatedHeight(of: record)
         }
         return result
+    }
+
+    private var recordIDs: [String] { records.map(\.id) }
+
+    private func reconcileColumns() {
+        let count = max(1, cardSize.columnCount)
+        if lastColumnCount != count {
+            columnAssignments.removeAll(keepingCapacity: true)
+            lastColumnCount = count
+        }
+
+        let currentIDs = Set(recordIDs)
+        columnAssignments = columnAssignments.filter { currentIDs.contains($0.key) && (0..<count).contains($0.value) }
+        var heights = Array(repeating: CGFloat.zero, count: count)
+        for record in records where columnAssignments[record.id] != nil {
+            heights[columnAssignments[record.id]!] += estimatedHeight(of: record)
+        }
+        for record in records where columnAssignments[record.id] == nil {
+            let index = heights.enumerated().min(by: { $0.element < $1.element })?.offset ?? 0
+            columnAssignments[record.id] = index
+            heights[index] += estimatedHeight(of: record)
+        }
     }
 
     private func estimatedHeight(of record: LibraryRecordSnapshot) -> CGFloat {
         guard kind == .errors else { return 145 }
         let textLines = min(cardSize.questionLineLimit, max(1, Int(ceil(Double(record.title.count) / 24.0))))
-        let isDataAnalysisComposite = QuestionBankModuleTitle.normalized(record.subject) == "资料分析"
-            && QuestionBankModuleTitle.normalized(record.module) == "综合题"
+        let isDataAnalysisComposite = SubjectModuleTitle.normalized(record.subject) == "资料分析"
+            && SubjectModuleTitle.normalized(record.module) == "综合题"
         let imageHeight = record.imageValues.isEmpty
             ? CGFloat.zero
             : CGFloat(min(3, record.imageValues.count)) * (cardSize.imageMaximumHeight * 0.72 + 8)

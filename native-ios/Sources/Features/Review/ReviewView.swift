@@ -167,6 +167,7 @@ private enum ReviewOverviewCalculator {
 struct ReviewView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.rootTabSelection) private var rootTabSelection
     @Query(filter: #Predicate<StoredRecord> { record in record.collection == "errors" || record.collection == "exams" }) private var records: [StoredRecord]
     @AppStorage("native.review.sourcePartition.v1") private var sourceRawValue = LibraryReviewSource.real.rawValue
     @State private var queueIDs: [String] = []
@@ -174,14 +175,18 @@ struct ReviewView: View {
     @State private var answer: ReviewAnswer?
     @State private var isSession = false
     @State private var cachedOverview: ReviewOverview?
+    @State private var reviewSourceCache = LibraryReviewSourceClassificationCache()
     private var reviewSource: LibraryReviewSource { LibraryReviewSource(rawValue: sourceRawValue) ?? .real }
     private var sessionKey: String { "native.review.activeSession.\(reviewSource.rawValue)" }
+    private var isReviewTabActive: Bool { rootTabSelection.wrappedValue == .review }
 
     private var errors: [StoredRecord] {
-        records.filter { $0.collection == "errors" && LibraryReviewSource.classify($0, records: records) == reviewSource }
+        let reviewSources = reviewSourceCache.classifications(for: records)
+        return records.filter { $0.collection == "errors" && reviewSources[$0.compoundID] == reviewSource }
     }
     private var pendingErrorCount: Int {
-        records.lazy.filter { $0.collection == "errors" && LibraryReviewSource.classify($0, records: records) == .pending }.count
+        let reviewSources = reviewSourceCache.classifications(for: records)
+        return records.lazy.filter { $0.collection == "errors" && reviewSources[$0.compoundID] == .pending }.count
     }
     private var reviewPool: [StoredRecord] {
         cachedOverview?.pool ?? []
@@ -209,7 +214,8 @@ struct ReviewView: View {
                 restoreSession()
                 NativePerformanceLog.event("review onAppear isSession=\(isSession)")
             }
-            .task(id: overviewRevision) {
+            .task(id: overviewTaskKey) {
+                guard isReviewTabActive, !isSession else { return }
                 await refreshOverview()
             }
             .onChange(of: queueIDs) { _, _ in persistSession() }
@@ -293,6 +299,13 @@ struct ReviewView: View {
 
     private var overviewRevision: [String] {
         [sourceRawValue] + records.map { "\($0.compoundID)|\($0.updatedAt?.timeIntervalSinceReferenceDate ?? 0)" }
+    }
+
+    private var overviewTaskKey: [String] {
+        guard isReviewTabActive, !isSession else {
+            return [isReviewTabActive ? "session" : "inactive"]
+        }
+        return ["active"] + overviewRevision
     }
 
     @MainActor
@@ -402,7 +415,7 @@ struct ReviewView: View {
                         ForEach(Array(options.enumerated()), id: \.offset) { offset, option in
                             let letter = String(UnicodeScalar(65 + offset)!)
                             let selected = answer?.selected == letter
-                            let markerState: QuestionBankOptionMarkerState = {
+                            let markerState: StudyOptionMarkerState = {
                                 guard let answer else { return .unselected }
                                 guard !correctOption.isEmpty else { return selected ? .selected : .unselected }
                                 if letter == correctOption { return .correct }
@@ -410,7 +423,7 @@ struct ReviewView: View {
                             }()
                             Button { submit(record: record, selected: letter) } label: {
                                 HStack(alignment: .top, spacing: 10) {
-                                    QuestionBankOptionMarker(letter: letter, state: markerState, diameter: 27, font: AppTheme.inputFont)
+                                    StudyOptionMarker(letter: letter, state: markerState, diameter: 27, font: AppTheme.inputFont)
                                     Text(option).font(AppTheme.bodyFont).foregroundStyle(.primary).frame(maxWidth: .infinity, alignment: .leading)
                                 }.padding(12).background(optionBackground(letter: letter, correct: correctOption), in: RoundedRectangle(cornerRadius: 12))
                             }.buttonStyle(ReviewLockedAnswerButtonStyle()).disabled(answer != nil)
