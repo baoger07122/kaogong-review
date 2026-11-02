@@ -412,27 +412,46 @@ private struct LibraryErrorRecordCard: View {
                 )
             }
 
-            if !snapshot.knowledgePoints.isEmpty {
-                tagLine(
-                    label: knowledgePointLabel,
-                    values: snapshot.knowledgePoints,
-                    foreground: AppTheme.accent,
-                    background: AppTheme.accent.opacity(0.10),
-                    weight: .medium
-                )
-            }
-
             let causes = splitTags(snapshot.errorCause)
-            if !isQuantityRelations, !causes.isEmpty {
-                if isAnalogyReasoning {
-                    plainField(label: errorCauseLabel, value: snapshot.errorCause)
-                } else {
+            if isDataAnalysis {
+                if !causes.isEmpty {
                     tagLine(
                         label: errorCauseLabel,
                         values: causes,
+                        foreground: AppTheme.accent,
+                        background: AppTheme.accent.opacity(0.10),
+                        weight: .medium
+                    )
+                }
+                if !snapshot.knowledgePoints.isEmpty {
+                    tagLine(
+                        label: knowledgePointLabel,
+                        values: snapshot.knowledgePoints,
                         foreground: .secondary,
                         background: Color.primary.opacity(0.045)
                     )
+                }
+            } else {
+                if !snapshot.knowledgePoints.isEmpty {
+                    tagLine(
+                        label: knowledgePointLabel,
+                        values: snapshot.knowledgePoints,
+                        foreground: AppTheme.accent,
+                        background: AppTheme.accent.opacity(0.10),
+                        weight: .medium
+                    )
+                }
+                if !isQuantityRelations, !causes.isEmpty {
+                    if isAnalogyReasoning {
+                        plainField(label: errorCauseLabel, value: snapshot.errorCause)
+                    } else {
+                        tagLine(
+                            label: errorCauseLabel,
+                            values: causes,
+                            foreground: .secondary,
+                            background: Color.primary.opacity(0.045)
+                        )
+                    }
                 }
             }
 
@@ -547,6 +566,7 @@ private struct LibraryErrorRecordCard: View {
     }
 
     private var isQuantityRelations: Bool { snapshot.record.subject == "数量关系" }
+    private var isDataAnalysis: Bool { snapshot.record.subject == "资料分析" }
 
     private var knowledgePointLabel: String { isLogicJudgment ? "结构" : "考点" }
     private var errorCauseLabel: String {
