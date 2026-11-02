@@ -21,6 +21,8 @@ final class LibrarySnapshotCache {
 
     private struct Entry {
         let updatedAt: Date?
+        let payloadCount: Int
+        let indexPayloadCount: Int
         let includesImages: Bool
         let snapshot: LibraryRecordSnapshot
     }
@@ -78,8 +80,12 @@ final class LibrarySnapshotCache {
         linkedWordNamesByID: [String: String],
         includeImages: Bool
     ) -> LibraryRecordSnapshot {
+        let payloadCount = record.payload.count
+        let indexPayloadCount = record.indexPayload?.count ?? 0
         if let cached = entries[record.compoundID],
            cached.updatedAt == record.updatedAt,
+           cached.payloadCount == payloadCount,
+           cached.indexPayloadCount == indexPayloadCount,
            cached.includesImages == includeImages {
             return cached.snapshot
         }
@@ -90,6 +96,8 @@ final class LibrarySnapshotCache {
         )
         entries[record.compoundID] = Entry(
             updatedAt: record.updatedAt,
+            payloadCount: payloadCount,
+            indexPayloadCount: indexPayloadCount,
             includesImages: includeImages,
             snapshot: value
         )

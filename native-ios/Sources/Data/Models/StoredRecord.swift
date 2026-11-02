@@ -99,8 +99,9 @@ final class StoredRecord {
             keys = [
                 "id", "subject", "module", "knowledgePoints", "knowledgePoint", "errorCause", "status",
                 "question", "title", "type", "category", "isShenlun", "createdAt", "updatedAt", "lastReviewDate",
-                "questionSource", "questionNumber", "sourceYear", "sourceExamType", "sourceRegion",
+                "questionSource", "source", "questionNumber", "sourceYear", "sourceExamType", "sourceRegion",
                 "accuracy", "reviewCount", "sourceExamId", "pitfall", "linkedWordIds", "options",
+                "dataAnalysisMaterialText",
                 "questionBankPaperID", "questionBankQuestionID",
                 "shenlunFormatVersion",
                 "quantityStructure", "weaknessTags", "reviewSource", "examType", "paperType", "sourceType"

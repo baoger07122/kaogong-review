@@ -696,7 +696,8 @@ struct LibraryView: View {
             .compactMap { $0 }
             .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .map { QuestionBankModuleTitle.normalized($0) } ?? ""
-        return subject == "判断推理" && module == "图形推理"
+        return (subject == "判断推理" && module == "图形推理")
+            || (subject == "资料分析" && module == "综合题")
     }
 
     private var isQuantityContext: Bool { scope.subject == "数量关系" && scope.module == nil }

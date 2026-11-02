@@ -365,9 +365,19 @@ struct LibraryRecordCard: View {
     }
 }
 
+private struct LibraryErrorCardWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        if next > 0 { value = next }
+    }
+}
+
 private struct LibraryErrorRecordCard: View {
     let snapshot: LibraryRecordSnapshot
     let size: LibraryCardSize
+    @State private var cardWidth: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -376,6 +386,15 @@ private struct LibraryErrorRecordCard: View {
                     .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+            }
+
+            if isDataAnalysisComposite, !snapshot.dataAnalysisMaterialText.isEmpty {
+                Text(snapshot.dataAnalysisMaterialText)
+                    .font(.system(size: 11.5, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(1.5)
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             images
@@ -387,7 +406,18 @@ private struct LibraryErrorRecordCard: View {
                 .lineLimit(size.questionLineLimit)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            if isAnalogyReasoning, !snapshot.options.isEmpty {
+            if isDataAnalysisComposite, !snapshot.dataAnalysisOptionRows.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(snapshot.dataAnalysisOptionRows.enumerated()), id: \.offset) { _, row in
+                        Text(row)
+                            .font(.system(size: 11.5, weight: .regular))
+                            .foregroundStyle(.primary)
+                            .lineSpacing(1.5)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            } else if isAnalogyReasoning, !snapshot.options.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(snapshot.options.enumerated()), id: \.offset) { index, option in
                         Text("\(String(UnicodeScalar(65 + index)!)).  \(option)")
@@ -412,16 +442,11 @@ private struct LibraryErrorRecordCard: View {
                 )
             }
 
-            let causes = splitTags(snapshot.errorCause)
+            let causes = isDataAnalysis ? [] : splitTags(snapshot.errorCause)
+            let dataAnalysisCause = snapshot.dataAnalysisErrorCause.trimmingCharacters(in: .whitespacesAndNewlines)
             if isDataAnalysis {
-                if !causes.isEmpty {
-                    tagLine(
-                        label: errorCauseLabel,
-                        values: causes,
-                        foreground: AppTheme.accent,
-                        background: AppTheme.accent.opacity(0.10),
-                        weight: .medium
-                    )
+                if !dataAnalysisCause.isEmpty {
+                    sentenceTagLine(label: errorCauseLabel, value: dataAnalysisCause)
                 }
                 if !snapshot.knowledgePoints.isEmpty {
                     tagLine(
@@ -468,7 +493,19 @@ private struct LibraryErrorRecordCard: View {
             }
         }
         .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 110, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: isDataAnalysisComposite ? 0 : 110, alignment: .leading)
+        .background {
+            if isDataAnalysisComposite {
+                GeometryReader { proxy in
+                    Color.clear.preference(key: LibraryErrorCardWidthPreferenceKey.self, value: proxy.size.width)
+                }
+            }
+        }
+        .onPreferenceChange(LibraryErrorCardWidthPreferenceKey.self) { width in
+            guard isDataAnalysisComposite else { return }
+            guard width > 0, abs(width - cardWidth) > 0.5 else { return }
+            cardWidth = width
+        }
         .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -480,13 +517,20 @@ private struct LibraryErrorRecordCard: View {
     @ViewBuilder
     private var images: some View {
         if !snapshot.imageValues.isEmpty {
-            VStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
                 ForEach(Array(snapshot.imageValues.prefix(3).enumerated()), id: \.offset) { index, source in
-                    LibraryCardThumbnail(
-                        source: source,
-                        cacheKey: "\(snapshot.id)-\(snapshot.record.updatedAt?.timeIntervalSince1970 ?? 0)-\(index)-\(source.count)",
-                        maximumHeight: isGraphReasoning ? nil : size.imageMaximumHeight
-                    )
+                    HStack(spacing: 0) {
+                        LibraryCardThumbnail(
+                            source: source,
+                            cacheKey: "\(snapshot.id)-\(snapshot.record.updatedAt?.timeIntervalSince1970 ?? 0)-\(index)-\(source.count)",
+                            maximumHeight: isGraphReasoning ? nil : size.imageMaximumHeight,
+                            availableWidth: isDataAnalysisComposite && cardWidth > 0
+                                ? max(1, cardWidth - 28) : nil,
+                            widthFraction: isDataAnalysisComposite && snapshot.imageWidthFractions.indices.contains(index)
+                                ? snapshot.imageWidthFractions[index] : 1
+                        )
+                        Spacer(minLength: 0)
+                    }
                 }
                 if snapshot.imageValues.count > 3 {
                     Text("+\(snapshot.imageValues.count - 3) 张图片")
@@ -534,6 +578,21 @@ private struct LibraryErrorRecordCard: View {
         }
     }
 
+    private func sentenceTagLine(label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 2) {
+            Text("\(label)：")
+                .font(.system(size: 12, weight: .semibold))
+            Text(value)
+                .font(.system(size: 11, weight: .medium))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .foregroundStyle(AppTheme.accent)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(AppTheme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
     private func splitTags(_ value: String) -> [String] {
         value.split(whereSeparator: { "、,，".contains($0) })
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -565,8 +624,13 @@ private struct LibraryErrorRecordCard: View {
             && QuestionBankModuleTitle.normalized(snapshot.record.module) == "图形推理"
     }
 
+    private var isDataAnalysisComposite: Bool {
+        QuestionBankModuleTitle.normalized(snapshot.subject) == "资料分析"
+            && QuestionBankModuleTitle.normalized(snapshot.module) == "综合题"
+    }
+
     private var isQuantityRelations: Bool { snapshot.record.subject == "数量关系" }
-    private var isDataAnalysis: Bool { snapshot.record.subject == "资料分析" }
+    private var isDataAnalysis: Bool { QuestionBankModuleTitle.normalized(snapshot.subject) == "资料分析" }
 
     private var knowledgePointLabel: String { isLogicJudgment ? "结构" : "考点" }
     private var errorCauseLabel: String {
@@ -580,6 +644,8 @@ private struct LibraryCardThumbnail: View {
     let source: String
     let cacheKey: String
     let maximumHeight: CGFloat?
+    let availableWidth: CGFloat?
+    let widthFraction: Double
     @State private var image: UIImage?
     @State private var didFail = false
 
@@ -603,7 +669,12 @@ private struct LibraryCardThumbnail: View {
                     .frame(height: min(110, maximumHeight ?? 110))
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: maximumHeight)
+        .frame(width: availableWidth.map { max(1, $0 * CGFloat(widthFraction)) })
+        .frame(
+            maxWidth: availableWidth == nil ? .infinity : nil,
+            maxHeight: maximumHeight,
+            alignment: .leading
+        )
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -720,14 +791,24 @@ struct LibraryMasonryGrid: View {
     private func estimatedHeight(of record: LibraryRecordSnapshot) -> CGFloat {
         guard kind == .errors else { return 145 }
         let textLines = min(cardSize.questionLineLimit, max(1, Int(ceil(Double(record.title.count) / 24.0))))
+        let isDataAnalysisComposite = QuestionBankModuleTitle.normalized(record.subject) == "资料分析"
+            && QuestionBankModuleTitle.normalized(record.module) == "综合题"
         let imageHeight = record.imageValues.isEmpty
             ? CGFloat.zero
             : CGFloat(min(3, record.imageValues.count)) * (cardSize.imageMaximumHeight * 0.72 + 8)
+        let materialLines = isDataAnalysisComposite && !record.dataAnalysisMaterialText.isEmpty
+            ? min(3, max(1, Int(ceil(Double(record.dataAnalysisMaterialText.count) / 34.0))))
+            : 0
+        let materialHeight = CGFloat(materialLines * 16)
         let tagRows = record.knowledgePoints.isEmpty && record.errorCause.isEmpty ? 0 : max(1, Int(ceil(Double(record.knowledgePoints.count + (record.errorCause.isEmpty ? 0 : 1)) / 2.0)))
         let analogyOptionHeight = record.record.subject == "判断推理" && record.record.module == "类比推理"
             ? CGFloat(record.options.count * 22 + (record.options.isEmpty ? 0 : 4))
             : 0
-        return 54 + CGFloat(textLines * 20) + analogyOptionHeight + imageHeight + CGFloat(tagRows * 27) + (record.pitfall.isEmpty ? 0 : 40)
+        let compositeOptionHeight = isDataAnalysisComposite
+            ? CGFloat(record.dataAnalysisOptionRows.count * 30 + (record.dataAnalysisOptionRows.isEmpty ? 0 : 4))
+            : 0
+        return 54 + CGFloat(textLines * 20) + materialHeight + analogyOptionHeight + compositeOptionHeight
+            + imageHeight + CGFloat(tagRows * 27) + (record.pitfall.isEmpty ? 0 : 40)
     }
 }
 

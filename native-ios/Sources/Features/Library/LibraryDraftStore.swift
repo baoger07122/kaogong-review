@@ -26,6 +26,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
     var score: String
     var totalScore: String
     var materials: [String]?
+    var dataAnalysisMaterialText: String?
     var myAnswer: String?
     var referenceAnswer: String?
     var myAnswerIssues: String?
@@ -89,6 +90,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         score = draft.score
         totalScore = draft.totalScore
         materials = draft.materials.map(\.content)
+        dataAnalysisMaterialText = draft.dataAnalysisMaterialText
         myAnswer = draft.myAnswer
         referenceAnswer = draft.referenceAnswer
         myAnswerIssues = draft.myAnswerIssues
@@ -154,6 +156,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
         draft.totalScore = totalScore
         let restoredMaterials = (materials ?? []).map { ShenlunMaterialDraft(content: $0) }
         draft.materials = restoredMaterials.isEmpty ? [.init()] : restoredMaterials
+        draft.dataAnalysisMaterialText = dataAnalysisMaterialText ?? ""
         draft.myAnswer = myAnswer ?? ""
         draft.referenceAnswer = referenceAnswer ?? ""
         draft.myAnswerIssues = myAnswerIssues ?? ""
@@ -198,6 +201,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
             || !(legacyDrawingPreview ?? "").isEmpty
             || !mindMapData.isEmpty
             || (materials ?? []).contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            || !(dataAnalysisMaterialText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !(myAnswer ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !(referenceAnswer ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !(myAnswerIssues ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

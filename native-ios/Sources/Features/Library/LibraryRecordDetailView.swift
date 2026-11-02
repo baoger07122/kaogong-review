@@ -178,9 +178,15 @@ struct LibraryRecordDetailView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 metadata
-                questionBankMaterialBlock
-                questionBlock
-                imagesBlock(availableWidth: max(0, readingColumnWidth - 32))
+                if kind == .errors && isDataAnalysis {
+                    dataAnalysisMaterialBlock
+                    imagesBlock(availableWidth: max(0, readingColumnWidth - 32))
+                    questionBlock
+                } else {
+                    questionBankMaterialBlock
+                    questionBlock
+                    imagesBlock(availableWidth: max(0, readingColumnWidth - 32))
+                }
                 optionsBlock
                 answerAndSource
                 explanationBlock
@@ -386,6 +392,30 @@ struct LibraryRecordDetailView: View {
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(detailBackground, in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    @ViewBuilder private var dataAnalysisMaterialBlock: some View {
+        let material = firstText(["dataAnalysisMaterialText"]) ?? ""
+        if !material.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("材料")
+                    .font(AppTheme.sectionTitleFont)
+                    .foregroundStyle(.primary)
+                Text(verbatim: cleanMultiline(material))
+                    .font(AppTheme.questionTextFont)
+                    .lineSpacing(AppTheme.questionLineSpacing)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
+            }
         }
     }
 

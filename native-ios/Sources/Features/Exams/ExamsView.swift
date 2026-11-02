@@ -7,6 +7,30 @@ private enum ExamRange: String, CaseIterable, Identifiable { case all = "全部"
 private enum ExamTypeFilter: String, CaseIterable, Identifiable { case all = "全部", real = "真题", mock = "模拟卷", pending = "未分类"; var id: String { rawValue } }
 private enum ExamSort: String, CaseIterable, Identifiable { case latest = "最新", accuracyHigh = "正确率高→低", accuracyLow = "正确率低→高"; var id: String { rawValue } }
 
+private enum ExamDisplayFormatting {
+    static func score(_ value: Any?) -> String {
+        guard let value, !(value is NSNull) else { return "" }
+        let raw = (value as? NSNumber)?.stringValue ?? (value as? String ?? "")
+        guard let decimal = Decimal(string: raw, locale: Locale(identifier: "en_US_POSIX")) else { return raw }
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = false
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 16
+        return formatter.string(from: NSDecimalNumber(decimal: decimal)) ?? raw
+    }
+
+    static func duration(_ seconds: Int) -> String {
+        let hours = seconds / 3_600
+        let minutes = (seconds % 3_600) / 60
+        let remainder = seconds % 60
+        if hours > 0 { return "\(hours)小时\(minutes)分\(remainder)秒" }
+        if minutes > 0 { return "\(minutes)分\(remainder)秒" }
+        return "\(remainder)秒"
+    }
+}
+
 struct ExamsView: View {
     @Query private var records: [StoredRecord]
     @State private var searchText = ""
@@ -86,11 +110,17 @@ struct ExamsView: View {
                             ForEach(ExamSort.allCases) { value in Button(value.rawValue) { selectedSort = value } }
                         }
                     }
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 10)], spacing: 10) {
+                    LazyVStack(alignment: .leading, spacing: 10) {
                         ForEach(exams, id: \.recordID) { exam in
-                            Button { attemptTarget = ExamRecordTarget(recordID: exam.recordID) } label: { examCard(exam) }.buttonStyle(.plain)
+                            Button { attemptTarget = ExamRecordTarget(recordID: exam.recordID) } label: {
+                                examCard(exam)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }.padding(20)
         }
@@ -145,30 +175,42 @@ struct ExamsView: View {
         let object = exam.indexObject ?? [:]
         let examDraft = ExamDraft(record: exam)
         let type = LibraryReviewSource.explicitValue(in: object) ?? .pending
-        let score = numberText(object["score"])
-        let maximum = numberText(object["maximumScore"])
+        let score = ExamDisplayFormatting.score(object["score"])
+        let maximum = ExamDisplayFormatting.score(object["maximumScore"])
         let correctCount = examDraft.metrics.correctCount.map(String.init) ?? "—"
         let resultCount = examDraft.metrics.totalQuestions.map(String.init) ?? "—"
-        let duration = examDraft.metrics.totalTimeSeconds.map(formatDuration) ?? "—"
+        let duration = examDraft.metrics.totalTimeSeconds.map(ExamDisplayFormatting.duration) ?? "—"
         return VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 6) {
-                Text(object["name"] as? String ?? "未命名套卷").font(AppTheme.cardTitleFont).foregroundStyle(.primary).lineLimit(2)
-                Spacer(minLength: 4)
-                Text("\(score.isEmpty ? "—" : score)分")
-                    .font(.system(size: 17, weight: .semibold, design: .rounded))
-                    .foregroundStyle(AppTheme.accent)
-                if !maximum.isEmpty { Text("/ \(maximum)").font(AppTheme.auxiliaryFont).foregroundStyle(.secondary) }
-            }
             HStack(spacing: 6) {
                 Text(type.title).font(.system(size: 9, weight: .semibold)).foregroundStyle(type == .pending ? AppTheme.warning : AppTheme.accent)
                     .padding(.horizontal, 7).padding(.vertical, 3).background((type == .pending ? AppTheme.warning : AppTheme.accent).opacity(0.08), in: Capsule())
                 Text(examDate(exam), format: .dateTime.year().month().day()).font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
             }
-            HStack(spacing: 12) {
-                Label("\(correctCount)/\(resultCount) 题", systemImage: "checkmark.circle")
-                Label(examDraft.metrics.accuracyPercent.map { String(format: "%.2f%%", $0) } ?? "—", systemImage: "checkmark.circle")
-                Label(duration, systemImage: "clock")
-            }.font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+            HStack(alignment: .center, spacing: 8) {
+                Text(object["name"] as? String ?? "未命名套卷")
+                    .font(AppTheme.cardTitleFont)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text("\(score.isEmpty ? "—" : score)分")
+                        .font(.system(size: 19, weight: .semibold, design: .rounded))
+                        .foregroundStyle(AppTheme.accent)
+                    if !maximum.isEmpty {
+                        Text("/ \(maximum)")
+                            .font(AppTheme.auxiliaryFont)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .fixedSize(horizontal: true, vertical: false)
+            }
+            HStack(spacing: 8) {
+                examMetric("\(correctCount)/\(resultCount)题", systemImage: "checkmark.circle")
+                examMetric(examDraft.metrics.accuracyPercent.map { String(format: "%.2f%%", $0) } ?? "—", systemImage: "percent")
+                examMetric(duration, systemImage: "clock")
+            }
+            .font(AppTheme.auxiliaryFont)
+            .foregroundStyle(.secondary)
             if let note = object["reviewNote"] as? String, !note.isEmpty {
                 Text(plainText(note)).font(AppTheme.bodyFont).foregroundStyle(.secondary).lineLimit(2)
             }
@@ -177,7 +219,21 @@ struct ExamsView: View {
                 Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(AppTheme.accent)
                 Spacer()
             }
-        }.nativeCard()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .nativeCard()
+    }
+
+    private func examMetric(_ value: String, systemImage: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .font(.system(size: 10, weight: .regular))
+            Text(value)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .monospacedDigit()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func metric(_ title: String, _ value: String) -> some View {
@@ -254,11 +310,6 @@ struct ExamsView: View {
     }
     private func intValue(_ value: Any?) -> Int? { Int(numberText(value)) }
     private func formatNumber(_ value: Double) -> String { value.rounded() == value ? String(Int(value)) : String(format: "%.2f", value) }
-    private func formatDuration(_ seconds: Int) -> String {
-        if seconds >= 3_600 { return "\(seconds / 3_600)小时\((seconds % 3_600) / 60)分" }
-        if seconds >= 60 { return "\(seconds / 60)分\(seconds % 60)秒" }
-        return "\(seconds)秒"
-    }
     private func plainText(_ value: String) -> String {
         value.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
@@ -331,13 +382,15 @@ private struct ExamAttemptDetailView: View {
     }
 
     private var summaryCard: some View {
+        let score = ExamDisplayFormatting.score(object["score"])
+        let maximum = ExamDisplayFormatting.score(object["maximumScore"])
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(type.title).font(AppTheme.auxiliaryFont.weight(.semibold)).foregroundStyle(type == .pending ? AppTheme.warning : AppTheme.accent)
                 Spacer()
                 if let value = object["examDate"] as? String { Text(value).font(AppTheme.auxiliaryFont).foregroundStyle(.secondary) }
             }
-            Text("得分：\(numberText(object["score"]).isEmpty ? "未知" : numberText(object["score"])) / \(numberText(object["maximumScore"]).isEmpty ? "未知" : numberText(object["maximumScore"]))")
+            Text("得分：\(score.isEmpty ? "未知" : score) / \(maximum.isEmpty ? "未知" : maximum)")
                 .font(AppTheme.bodyFont.weight(.semibold))
             HStack(spacing: 14) {
                 detailMetric("总题数", draft.metrics.totalQuestions.map(String.init) ?? "未知")
@@ -345,7 +398,7 @@ private struct ExamAttemptDetailView: View {
                 detailMetric("答错", draft.metrics.wrongCount.map(String.init) ?? "未知")
                 detailMetric("正确率", draft.metrics.accuracyPercent.map { String(format: "%.2f%%", $0) } ?? "未知")
             }
-            detailMetric("总用时", draft.metrics.totalTimeSeconds.map { formatDuration($0) } ?? "未知")
+            detailMetric("总用时", draft.metrics.totalTimeSeconds.map(ExamDisplayFormatting.duration) ?? "未知")
         }.nativeCard()
     }
 
@@ -358,7 +411,7 @@ private struct ExamAttemptDetailView: View {
                     Spacer()
                     Text("\(line.correctCount.isEmpty ? "—" : line.correctCount)/\(line.totalQuestions.isEmpty ? "—" : line.totalQuestions)")
                     Text(line.reportedAccuracy.isEmpty ? "—" : "\(line.reportedAccuracy)%")
-                    Text(Int(line.timeSeconds).map { formatDuration($0) } ?? "—")
+                    Text(Int(line.timeSeconds).map(ExamDisplayFormatting.duration) ?? "—")
                 }.font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
             }
             if !draft.metrics.conflictModules.isEmpty {
@@ -398,13 +451,5 @@ private struct ExamAttemptDetailView: View {
             Text(value).font(.system(size: 12, weight: .semibold)).monospacedDigit()
             Text(title).font(.system(size: 9)).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, alignment: .leading)
-    }
-    private func numberText(_ value: Any?) -> String {
-        guard let value, !(value is NSNull) else { return "" }
-        return (value as? NSNumber)?.stringValue ?? (value as? String ?? "")
-    }
-    private func formatDuration(_ seconds: Int) -> String {
-        if seconds >= 3600 { return String(format: "%d:%02d:%02d", seconds / 3600, (seconds % 3600) / 60, seconds % 60) }
-        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }

@@ -263,6 +263,8 @@ struct LibraryImageDisplaySetting: Identifiable, Codable, Equatable {
 
 struct LibraryRecordSnapshot: Identifiable {
     let record: StoredRecord
+    let subject: String
+    let module: String
     let title: String
     let summary: String
     let wordCardBody: String
@@ -277,11 +279,15 @@ struct LibraryRecordSnapshot: Identifiable {
     let wordEntryKinds: [String]
     let knowledgePoints: [String]
     let errorCause: String
+    let dataAnalysisErrorCause: String
+    let dataAnalysisMaterialText: String
     let pitfall: String
     let options: [String]
+    let dataAnalysisOptionRows: [String]
     let quantityStructure: String
     let weaknessTags: [String]
     let imageValues: [String]
+    let imageWidthFractions: [Double]
     let comparisonWords: [String]
     let questionSource: String
     let questionNumber: String
@@ -295,6 +301,12 @@ struct LibraryRecordSnapshot: Identifiable {
     ) {
         self.record = record
         let object = record.indexObject ?? [:]
+        subject = [record.subject, object["subject"] as? String]
+            .compactMap { $0 }
+            .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
+        module = [record.module, object["module"] as? String]
+            .compactMap { $0 }
+            .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
         let titleKeys = record.collection == "errors"
             ? ["question", "title", "name", "text", "content"]
             : ["title", "question", "name", "words", "text", "content"]
@@ -341,11 +353,22 @@ struct LibraryRecordSnapshot: Identifiable {
         }
         errorCause = Self.firstText(in: object, keys: ["errorCause", "cause", "reason"])
             .map(Self.plainText) ?? ""
+        dataAnalysisErrorCause = Self.firstText(in: object, keys: ["errorCause", "cause", "reason"]) ?? ""
+        dataAnalysisMaterialText = Self.firstText(in: object, keys: ["dataAnalysisMaterialText"])
+            .map(Self.plainText) ?? ""
         pitfall = Self.firstText(in: object, keys: ["pitfall", "misconception", "thinkingTrap"])
             .map(Self.plainText) ?? ""
         options = (object["options"] as? [String] ?? [])
             .map(Self.plainText)
             .filter { !$0.isEmpty }
+        dataAnalysisOptionRows = (object["options"] as? [String] ?? [])
+            .prefix(4)
+            .enumerated()
+            .compactMap { index, value in
+                let text = Self.plainText(value)
+                guard !text.isEmpty, let letter = UnicodeScalar(65 + index) else { return nil }
+                return "\(String(letter)). \(text)"
+            }
         quantityStructure = Self.firstText(in: object, keys: ["quantityStructure"])
             .map(Self.plainText) ?? ""
         weaknessTags = (object["weaknessTags"] as? [String] ?? [])
@@ -359,6 +382,10 @@ struct LibraryRecordSnapshot: Identifiable {
         } else {
             imageValues = Self.firstText(in: imageObject, keys: ["image"]).map { [$0] } ?? []
         }
+        imageWidthFractions = LibraryImageDisplaySetting.widthFractions(
+            from: imageObject["imageDisplayMetadata"],
+            count: imageValues.count
+        )
         let linkedWordIDs = object["linkedWordIds"] as? [String] ?? []
         comparisonWords = linkedWordIDs.compactMap { linkedWordNamesByID[$0] }
         questionSource = Self.firstText(in: object, keys: ["questionSource", "source"])
@@ -378,7 +405,7 @@ struct LibraryRecordSnapshot: Identifiable {
         var seen = Set<String>()
         tags = Array(values.filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(3))
 
-        var searchValues = [title, summary, quantityStructure, questionSource, questionNumber]
+        var searchValues = [title, summary, quantityStructure, dataAnalysisMaterialText, questionSource, questionNumber]
         searchValues.append(contentsOf: tags)
         searchValues.append(contentsOf: weaknessTags)
         searchValues.append(contentsOf: ["pinyin", "meaning", "judgmentHint", "commonMeaning", "example", "compareNote", "myUnderstanding", "collocations", "pos"]

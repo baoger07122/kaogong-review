@@ -163,9 +163,14 @@ struct LibraryRecordEditorView: View {
             }
         }
         .onChange(of: draft.reviewSource) { _, source in
-            guard kind == .errors, !draft.sourceExamID.isEmpty,
-                  let exam = records.first(where: { $0.collection == "exams" && $0.recordID == draft.sourceExamID }) else { return }
-            if LibraryReviewSource.explicitValue(in: exam.indexObject ?? [:]) != source { draft.sourceExamID = "" }
+            guard kind == .errors, !draft.sourceExamID.isEmpty else { return }
+            guard let exam = records.first(where: { $0.collection == "exams" && $0.recordID == draft.sourceExamID }) else {
+                draft.sourceExamID = ""
+                return
+            }
+            if LibraryReviewSource.explicitValue(in: exam.indexObject ?? [:]) != source {
+                draft.sourceExamID = ""
+            }
         }
         .sheet(item: $linkedEditorTarget) { target in
             if let record = records.first(where: { $0.collection == target.collection && $0.recordID == target.recordID }) {
@@ -210,7 +215,14 @@ struct LibraryRecordEditorView: View {
                     if isQuestionBank { questionBankContextCard }
                     else { contextCard }
                 }
-                if kind != .words && !isQuestionBank { reviewSourcePicker }
+                if (kind == .notes || kind == .stickies) && !isQuestionBank { reviewSourcePicker }
+                if kind == .errors && !isQuestionBank && draft.reviewSource == .pending {
+                    Label("请选择真题复盘或模拟题复盘后再保存。", systemImage: "exclamationmark.circle.fill")
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(AppTheme.warning)
+                        .padding(.horizontal, 4)
+                        .accessibilityIdentifier("library-error-source-required")
+                }
                 if hasPausedQuestionBankAssociation {
                     Label(
                         "已保留真题关联；当前保存只修改错题，不回写真题内容。",
@@ -352,46 +364,106 @@ struct LibraryRecordEditorView: View {
             }
     }
     private var contextCard: some View {
+        Group {
+            if kind == .errors {
+                ViewThatFits(in: .horizontal) {
+                    contextControlsRow
+                        .fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            subjectPicker.fixedSize(horizontal: true, vertical: false)
+                            modulePicker.fixedSize(horizontal: true, vertical: false)
+                            Spacer(minLength: 0)
+                        }
+                        HStack(spacing: 8) {
+                            reviewSourceMenu.fixedSize(horizontal: true, vertical: false)
+                            Spacer(minLength: 0)
+                            addImagePicker.fixedSize(horizontal: true, vertical: false)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                contextControlsRow
+            }
+        }
+    }
+
+    private var contextControlsRow: some View {
         HStack(spacing: 8) {
-            Menu {
-                ForEach(SubjectDefinition.all) { subject in
-                    Button(subject.name) {
-                        draft.subject = subject.name
-                        draft.module = subject.name == "数量关系"
-                            ? ""
-                            : (subject.modules.first ?? "")
-                    }
-                }
-            } label: {
-                compactProperty(title: "科目", value: draft.subject, image: "books.vertical")
-            }
-            if isQuantityRelations {
-                Button { showQuantityQuestionTypes = true } label: {
-                    compactProperty(title: "题型", value: draft.module, image: "square.stack.3d.up")
-                }
-                .buttonStyle(.plain)
-            } else if let subject = SubjectDefinition.all.first(where: { $0.name == draft.subject }), !subject.modules.isEmpty {
-                Menu {
-                    ForEach(subject.modules, id: \.self) { module in Button(module) { draft.module = module } }
-                } label: {
-                    compactProperty(title: "模块", value: draft.module, image: "square.stack.3d.up")
-                }
-            }
+            subjectPicker
+            modulePicker
+            if kind == .errors { reviewSourceMenu }
             Spacer(minLength: 0)
-            if kind == .errors, draft.images.isEmpty {
-                PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 12, matching: .images) {
-                    ViewThatFits(in: .horizontal) {
-                        Label("添加图片", systemImage: "photo.badge.plus")
-                        Image(systemName: "photo.badge.plus")
-                    }
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(AppTheme.accent)
-                    .frame(minWidth: 36, minHeight: 36)
-                    .contentShape(Rectangle())
+            addImagePicker
+        }
+    }
+
+    private var subjectPicker: some View {
+        Menu {
+            ForEach(SubjectDefinition.all) { subject in
+                Button(subject.name) {
+                    draft.subject = subject.name
+                    draft.module = subject.name == "数量关系"
+                        ? ""
+                        : (subject.modules.first ?? "")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("添加题干图片")
             }
+        } label: {
+            compactProperty(title: "科目", value: draft.subject, image: "books.vertical")
+        }
+    }
+
+    @ViewBuilder private var modulePicker: some View {
+        if isQuantityRelations {
+            Button { showQuantityQuestionTypes = true } label: {
+                compactProperty(title: "题型", value: draft.module, image: "square.stack.3d.up")
+            }
+            .buttonStyle(.plain)
+        } else if let subject = SubjectDefinition.all.first(where: { $0.name == draft.subject }), !subject.modules.isEmpty {
+            Menu {
+                ForEach(subject.modules, id: \.self) { module in Button(module) { draft.module = module } }
+            } label: {
+                compactProperty(title: "模块", value: draft.module, image: "square.stack.3d.up")
+            }
+        }
+    }
+
+    private var reviewSourceMenu: some View {
+        Menu {
+            ForEach([LibraryReviewSource.real, .mock]) { source in
+                Button(source.title) { draft.reviewSource = source }
+            }
+        } label: {
+            compactProperty(title: "来源", value: reviewSourceCompactTitle, image: "tray.full")
+        }
+        .accessibilityLabel("复盘来源：\(draft.reviewSource == .pending ? "未选择" : draft.reviewSource.title)")
+        .accessibilityIdentifier("library-error-source-menu")
+    }
+
+    private var reviewSourceCompactTitle: String {
+        switch draft.reviewSource {
+        case .real: "真题"
+        case .mock: "模拟题"
+        case .pending: "未选择"
+        }
+    }
+
+    @ViewBuilder private var addImagePicker: some View {
+        if kind == .errors, draft.images.isEmpty {
+            PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 12, matching: .images) {
+                ViewThatFits(in: .horizontal) {
+                    Label("添加图片", systemImage: "photo.badge.plus")
+                    Image(systemName: "photo.badge.plus")
+                }
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(AppTheme.accent)
+                .frame(minWidth: 36, minHeight: 36)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("添加题干图片")
         }
     }
 
@@ -594,6 +666,7 @@ struct LibraryRecordEditorView: View {
     private var regularErrorFields: some View {
         VStack(alignment: .leading, spacing: 10) {
             if recordID != nil { errorAnalysisCard }
+            if isDataAnalysis { dataAnalysisMaterialEditor }
             errorImageCard
 
             errorFormCard {
@@ -637,6 +710,15 @@ struct LibraryRecordEditorView: View {
 
         }
         .background(Color.white)
+    }
+
+    @ViewBuilder private var dataAnalysisMaterialEditor: some View {
+        errorFormCard {
+            compactFormSection("材料（可选）", image: "doc.text") {
+                shenlunGrowingEditor(text: $draft.dataAnalysisMaterialText)
+                    .accessibilityIdentifier("library-data-analysis-material-editor")
+            }
+        }
     }
 
     @ViewBuilder private var errorImageCard: some View {
@@ -1645,7 +1727,10 @@ struct LibraryRecordEditorView: View {
 
     private var canSave: Bool {
         switch kind {
-        case .errors, .notes, .words: !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .errors:
+            !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && (isQuestionBank || draft.reviewSource != .pending)
+        case .notes, .words: !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .stickies: !draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
     }
@@ -1679,6 +1764,10 @@ struct LibraryRecordEditorView: View {
 
     private func save() {
         guard !isSaving else { return }
+        guard kind != .errors || isQuestionBank || draft.reviewSource != .pending else {
+            saveErrorMessage = "请选择真题复盘或模拟题复盘后再保存。"
+            return
+        }
         isSaving = true
         saveErrorMessage = nil
         Task { @MainActor in

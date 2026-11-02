@@ -58,6 +58,7 @@ struct LibraryRecordDraft {
     var score = ""
     var totalScore = ""
     var materials: [ShenlunMaterialDraft] = [.init()]
+    var dataAnalysisMaterialText = ""
     var myAnswer = ""
     var referenceAnswer = ""
     var myAnswerIssues = ""
@@ -164,6 +165,7 @@ struct LibraryRecordDraft {
         if let storedMaterials = original["materials"] as? [String], !storedMaterials.isEmpty {
             materials = storedMaterials.map { ShenlunMaterialDraft(content: $0) }
         }
+        dataAnalysisMaterialText = LibraryRecordDraft.text(original, keys: ["dataAnalysisMaterialText"])
         myAnswer = LibraryRecordDraft.text(original, keys: ["myAnswer"])
         referenceAnswer = LibraryRecordDraft.text(original, keys: ["referenceAnswer"])
         myAnswerIssues = LibraryRecordDraft.text(original, keys: ["myAnswerIssues"])
@@ -310,6 +312,17 @@ enum ShenlunAdaptationError: LocalizedError, Equatable {
     }
 }
 
+enum LibraryRecordSaveError: LocalizedError {
+    case pendingReviewSource
+
+    var errorDescription: String? {
+        switch self {
+        case .pendingReviewSource:
+            "请选择真题复盘或模拟题复盘后再保存。"
+        }
+    }
+}
+
 enum LibraryRecordRepository {
     @MainActor
     @discardableResult static func save(
@@ -318,10 +331,21 @@ enum LibraryRecordRepository {
         records: [StoredRecord],
         context: ModelContext
     ) throws -> String {
+        guard kind != .errors || draft.reviewSource != .pending else {
+            throw LibraryRecordSaveError.pendingReviewSource
+        }
         let performanceStart = ProcessInfo.processInfo.systemUptime
         let now = Date()
         let id = draft.id.isEmpty ? makeID(kind: kind) : draft.id
         let existing = records.first { $0.collection == kind.collection && $0.recordID == id }
+        var sourceExamIDToSave = draft.sourceExamID
+        if kind == .errors, !sourceExamIDToSave.isEmpty {
+            let exam = records.first { $0.collection == "exams" && $0.recordID == sourceExamIDToSave }
+            if exam == nil
+                || LibraryReviewSource.explicitValue(in: exam?.indexObject ?? [:]) != draft.reviewSource {
+                sourceExamIDToSave = ""
+            }
+        }
         var object = draft.original
         let previousSourceExamID = object["sourceExamId"] as? String ?? ""
         let previousLinkedErrors = (object["linkedErrors"] as? [String]) ?? (object["relatedErrorIds"] as? [String]) ?? []
@@ -377,6 +401,13 @@ enum LibraryRecordRepository {
             object["weaknessTags"] = splitList(draft.weaknessTags)
             object["questionSource"] = draft.questionSource
             object["questionNumber"] = draft.questionNumber
+            if draft.subject == "资料分析" {
+                if draft.dataAnalysisMaterialText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    object.removeValue(forKey: "dataAnalysisMaterialText")
+                } else {
+                    object["dataAnalysisMaterialText"] = draft.dataAnalysisMaterialText
+                }
+            }
             let sourceMetadata = QuestionSourceMetadata.parse(draft.questionSource)
             object["sourceYear"] = sourceMetadata.year.map { $0 as Any } ?? NSNull()
             object["sourceExamType"] = sourceMetadata.examType.map { $0 as Any } ?? NSNull()
@@ -396,7 +427,7 @@ enum LibraryRecordRepository {
             object.removeValue(forKey: "compareGroups")
             object["graphRule"] = draft.graphRule
             object["recognition"] = draft.recognition
-            object["sourceExamId"] = draft.sourceExamID.isEmpty ? NSNull() : draft.sourceExamID
+            object["sourceExamId"] = sourceExamIDToSave.isEmpty ? NSNull() : sourceExamIDToSave
             object["linkedNoteIds"] = draft.linkedNoteIDs
             object["linkedWordIds"] = draft.linkedWordIDs
             object["pencilKitData"] = draft.pencilKitData
@@ -535,12 +566,12 @@ enum LibraryRecordRepository {
             }
             switch kind {
             case .errors:
-                try syncSingleRelation(collection: "exams", arrayKey: "linkedErrorIds", oldID: previousSourceExamID, newID: draft.sourceExamID, linkedID: id, records: records)
+                try syncSingleRelation(collection: "exams", arrayKey: "linkedErrorIds", oldID: previousSourceExamID, newID: sourceExamIDToSave, linkedID: id, records: records)
                 try syncArrayRelations(collection: "notes", arrayKey: "linkedErrors", oldIDs: previousLinkedNotes, newIDs: draft.linkedNoteIDs, linkedID: id, records: records)
                 try syncArrayRelations(collection: "words", arrayKey: "linkedErrors", oldIDs: previousLinkedWords, newIDs: draft.linkedWordIDs, linkedID: id, records: records)
                 try syncArrayRelations(collection: "words", arrayKey: "relatedErrorIds", oldIDs: previousLinkedWords, newIDs: draft.linkedWordIDs, linkedID: id, records: records)
                 if existing == nil, draft.reviewSource == .mock {
-                    try LibraryMockExamMemory.remember(draft.sourceExamID, records: records, context: context)
+                    try LibraryMockExamMemory.remember(sourceExamIDToSave, records: records, context: context)
                 }
             case .notes:
                 try syncArrayRelations(collection: "errors", arrayKey: "linkedNoteIds", oldIDs: previousLinkedErrors, newIDs: draft.linkedErrorIDs, linkedID: id, records: records)
