@@ -149,13 +149,16 @@ struct LinkedWordDetailTarget: Identifiable, Hashable {
 }
 
 struct LibraryScope: Equatable {
+    static let dataAnalysisReviewBucket = "待分类"
+
     var subject: String?
     var module: String?
+    var reviewSource: LibraryReviewSource = .real
 
     var isAll: Bool { subject == nil }
     var hasModuleContext: Bool {
         guard let subject else { return false }
-        return module != nil || subject == "资料分析"
+        return module != nil
     }
     var isLogicFill: Bool { subject == "言语理解" && module == "逻辑填空" }
 
@@ -169,8 +172,30 @@ struct LibraryScope: Equatable {
         guard let subject else { return true }
         guard record.subject == subject else { return false }
         guard let module else { return true }
+        if subject == "资料分析", (module == Self.dataAnalysisReviewBucket || module == "未分类") {
+            let storedModule = record.module?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return storedModule == nil
+                || storedModule?.isEmpty == true
+                || storedModule == "未分类"
+                || storedModule == Self.dataAnalysisReviewBucket
+                || storedModule.map { SubjectDefinition.legacyDataAnalysisModules.contains($0) } == true
+        }
         return record.module == module
     }
+}
+
+struct LibraryPartitionState {
+    var scope: LibraryScope
+    var expandedSubject: String?
+    var kind: LibraryContentKind
+    var searchText: String
+    var selectedStatus: String
+    var selectedTag: String
+    var selectedQuantityType: String
+    var renderLimit: Int
+    var wordCategory: WordCategory
+    var wordSentiment: String
+    var wordEntryKind: String
 }
 
 struct LibraryImageDisplaySetting: Identifiable, Codable, Equatable {

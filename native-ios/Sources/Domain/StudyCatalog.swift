@@ -7,7 +7,9 @@ struct SubjectDefinition: Identifiable, Hashable {
     let modules: [String]
 
     var id: String { name }
-    var isFlat: Bool { name == "资料分析" || name == "数量关系" }
+    var isFlat: Bool { name == "数量关系" }
+
+    static let legacyDataAnalysisModules: Set<String> = ["文字材料", "表格材料", "图表材料", "综合材料"]
 
     static let all: [SubjectDefinition] = [
         .init(name: "言语理解", systemImage: "book", color: .blue,
@@ -17,7 +19,7 @@ struct SubjectDefinition: Identifiable, Hashable {
         .init(name: "判断推理", systemImage: "square.grid.2x2", color: .green,
               modules: ["图形推理", "定义判断", "类比推理", "逻辑判断"]),
         .init(name: "资料分析", systemImage: "chart.bar", color: .purple,
-              modules: ["文字材料", "表格材料", "图表材料", "综合材料"]),
+              modules: ["单题", "综合题"]),
         .init(name: "常识判断", systemImage: "lightbulb", color: .yellow,
               modules: ["政治", "法律", "经济", "人文", "科技", "地理"]),
         .init(name: "申论", systemImage: "pencil.and.outline", color: .mint,

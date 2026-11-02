@@ -23,7 +23,7 @@ struct LibrarySidebar: View {
                 }
 
                 Button {
-                    scope = LibraryScope()
+                    scope = LibraryScope(reviewSource: scope.reviewSource)
                     expandedSubject = nil
                     onScopeChanged()
                 } label: {
@@ -31,7 +31,7 @@ struct LibrarySidebar: View {
                         title: "全部",
                         systemImage: "tray.full.fill",
                         color: AppTheme.accent,
-                        count: records.filter { ["errors", "notes", "stickies"].contains($0.collection) }.count,
+                        count: records.filter { ["errors", "notes", "stickies"].contains($0.collection) && LibraryReviewSource.classify($0, records: records) == scope.reviewSource }.count,
                         selected: scope.isAll,
                         showsArrow: false,
                         expanded: false
@@ -82,7 +82,7 @@ struct LibrarySidebar: View {
             VStack(spacing: 1) {
                 ForEach(subject.modules, id: \.self) { module in
                     Button {
-                        scope = LibraryScope(subject: subject.name, module: module)
+                        scope = LibraryScope(subject: subject.name, module: module, reviewSource: scope.reviewSource)
                         onScopeChanged()
                     } label: {
                         Group {
@@ -129,6 +129,27 @@ struct LibrarySidebar: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("library-module-\(subject.name)-\(module)")
+                }
+                if subject.name == "资料分析" {
+                    Button {
+                        scope = LibraryScope(subject: subject.name, module: LibraryScope.dataAnalysisReviewBucket, reviewSource: scope.reviewSource)
+                        onScopeChanged()
+                    } label: {
+                        HStack {
+                            Text("待分类").font(.system(size: 12, weight: scope.subject == subject.name && scope.module == LibraryScope.dataAnalysisReviewBucket ? .semibold : .regular))
+                            Spacer(minLength: 4)
+                            let moduleCount = count(subject: subject.name, module: LibraryScope.dataAnalysisReviewBucket)
+                            if moduleCount > 0 { Text("\(moduleCount)").font(AppTheme.auxiliaryFont.monospacedDigit()).foregroundStyle(.secondary) }
+                        }
+                        .padding(.leading, compact ? 14 : 42)
+                        .padding(.trailing, 12)
+                        .frame(height: compact ? 36 : 34)
+                        .foregroundStyle(scope.subject == subject.name && scope.module == LibraryScope.dataAnalysisReviewBucket ? AppTheme.accent : Color.primary)
+                        .background(scope.subject == subject.name && scope.module == LibraryScope.dataAnalysisReviewBucket ? AppTheme.accent.opacity(0.09) : Color.white.opacity(0.82), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("包含未分类及历史资料分析模块记录")
+                    .accessibilityIdentifier("library-module-资料分析-待分类")
                 }
             }
         }
@@ -200,8 +221,9 @@ struct LibrarySidebar: View {
     private func count(subject: String, module: String? = nil) -> Int {
         records.lazy.filter {
             ["errors", "notes", "stickies"].contains($0.collection)
+                && LibraryReviewSource.classify($0, records: records) == scope.reviewSource
                 && $0.subject == subject
-                && (module == nil || $0.module == module)
+                && (module == nil || LibraryScope(subject: subject, module: module, reviewSource: scope.reviewSource).contains($0))
         }.count
     }
 }

@@ -123,6 +123,7 @@ final class LibraryRecordListCache {
         let subject: String?
         let module: String?
         let selectedQuantityType: String
+        let reviewSource: LibraryReviewSource
     }
 
     private var sortedQuery: Query?
@@ -142,7 +143,8 @@ final class LibraryRecordListCache {
             kind: kind,
             subject: scope.subject,
             module: scope.module,
-            selectedQuantityType: selectedQuantityType
+            selectedQuantityType: selectedQuantityType,
+            reviewSource: scope.reviewSource
         )
         guard sortedQuery != query else { return sortedRecords }
 
@@ -150,6 +152,8 @@ final class LibraryRecordListCache {
         let validQuantityTypes = Set(quantityTypes(records: records))
         sortedRecords = records.filter { record in
             guard record.collection == kind.collection, scope.contains(record) else { return false }
+            if kind != .words,
+               LibraryReviewSource.classify(record, records: records) != scope.reviewSource { return false }
             if isQuantityContext, kind == .errors || kind == .notes {
                 if selectedQuantityType == "未分类" {
                     guard !validQuantityTypes.contains(record.module ?? "") else { return false }

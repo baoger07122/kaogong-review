@@ -20,6 +20,7 @@ struct LibraryRecordEditorView: View {
     @Query(filter: #Predicate<StoredRecord> { record in
         record.collection == "errors"
             || record.collection == "notes"
+            || record.collection == "stickies"
             || record.collection == "words"
             || record.collection == "exams"
             || record.collection == "keyvalue"
@@ -60,6 +61,7 @@ struct LibraryRecordEditorView: View {
         scope: LibraryScope,
         record: StoredRecord? = nil,
         preferredType: String = "",
+        preferredSourceExamID: String? = nil,
         dismissAfterSave: Bool = true,
         onSaved: ((String) -> Void)? = nil
     ) {
@@ -82,6 +84,10 @@ struct LibraryRecordEditorView: View {
                   let saved = LibraryDraftStore.load(kind: kind, scope: scope) {
             saved.applying(to: &initialDraft)
             _restoredDraft = State(initialValue: true)
+        }
+        if record == nil, let preferredSourceExamID {
+            initialDraft.sourceExamID = preferredSourceExamID
+            initialDraft.reviewSource = .mock
         }
         if kind == .errors, !QuestionBankErrorBookCategory.allCases.contains(where: { $0.rawValue == initialDraft.type }) {
             initialDraft.type = "错题"
@@ -139,6 +145,28 @@ struct LibraryRecordEditorView: View {
             guard phase != .active, recordID == nil else { return }
             LibraryDraftStore.save(draftSnapshot, kind: kind, scope: scope)
         }
+        .onAppear {
+            if kind != .words,
+               let recordID,
+               let currentRecord = records.first(where: { $0.collection == kind.collection && $0.recordID == recordID }) {
+                draft.reviewSource = LibraryReviewSource.classify(currentRecord, records: records)
+            }
+            if recordID == nil, kind == .errors, scope.reviewSource == .mock,
+               draft.sourceExamID.isEmpty,
+               let remembered = LibraryMockExamMemory.selectedID(records: records) {
+                if !remembered.isEmpty,
+                   records.contains(where: { $0.collection == "exams" && $0.recordID == remembered && LibraryReviewSource.explicitValue(in: $0.indexObject ?? [:]) == .mock }) {
+                    draft.sourceExamID = remembered
+                } else {
+                    draft.sourceExamID = ""
+                }
+            }
+        }
+        .onChange(of: draft.reviewSource) { _, source in
+            guard kind == .errors, !draft.sourceExamID.isEmpty,
+                  let exam = records.first(where: { $0.collection == "exams" && $0.recordID == draft.sourceExamID }) else { return }
+            if LibraryReviewSource.explicitValue(in: exam.indexObject ?? [:]) != source { draft.sourceExamID = "" }
+        }
         .sheet(item: $linkedEditorTarget) { target in
             if let record = records.first(where: { $0.collection == target.collection && $0.recordID == target.recordID }) {
                 NavigationStack {
@@ -182,6 +210,7 @@ struct LibraryRecordEditorView: View {
                     if isQuestionBank { questionBankContextCard }
                     else { contextCard }
                 }
+                if kind != .words && !isQuestionBank { reviewSourcePicker }
                 if hasPausedQuestionBankAssociation {
                     Label(
                         "已保留真题关联；当前保存只修改错题，不回写真题内容。",
@@ -364,6 +393,21 @@ struct LibraryRecordEditorView: View {
                 .accessibilityLabel("添加题干图片")
             }
         }
+    }
+
+    private var reviewSourcePicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            NativeFieldLabel(title: "复盘来源")
+            Picker("复盘来源", selection: $draft.reviewSource) {
+                ForEach([LibraryReviewSource.real, .mock, .pending]) { source in
+                    Text(source.title).tag(source)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 11))
     }
 
     private func compactProperty(title: String, value: String, image: String) -> some View {
@@ -1530,7 +1574,13 @@ struct LibraryRecordEditorView: View {
 
     private func relationCandidates(collection: String) -> [StoredRecord] {
         records
-            .filter { $0.collection == collection && (isQuestionBank || $0.recordID != recordID) }
+            .filter {
+                guard $0.collection == collection, isQuestionBank || $0.recordID != recordID else { return false }
+                if collection == "exams", kind == .errors {
+                    return LibraryReviewSource.explicitValue(in: $0.indexObject ?? [:]) == draft.reviewSource
+                }
+                return true
+            }
             .sorted { ($0.updatedAt ?? $0.createdAt ?? .distantPast) > ($1.updatedAt ?? $1.createdAt ?? .distantPast) }
     }
 
@@ -1616,13 +1666,13 @@ struct LibraryRecordEditorView: View {
     }
 
     private var noteTypes: [NoteTypeDefinition] {
-        NoteTypeRepository.types(subject: draft.subject, module: draft.subject == "资料分析" ? "" : draft.module, records: records)
+        NoteTypeRepository.types(subject: draft.subject, module: draft.module, records: records)
     }
 
     private var stickyTags: [StickyTagDefinition] {
         StickyTagRepository.tags(
             subject: draft.subject,
-            module: draft.subject == "资料分析" ? "" : draft.module,
+            module: draft.module,
             records: records
         )
     }

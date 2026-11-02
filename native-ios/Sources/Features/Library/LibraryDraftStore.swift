@@ -3,6 +3,7 @@ import Foundation
 struct LibraryDraftSnapshot: Codable, Equatable {
     var subject: String
     var module: String
+    var reviewSource: String?
     var title: String
     var content: String
     var type: String
@@ -62,6 +63,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
     init(_ draft: LibraryRecordDraft) {
         subject = draft.subject
         module = draft.module
+        reviewSource = draft.reviewSource.rawValue
         title = draft.title
         content = draft.content
         type = draft.type
@@ -125,6 +127,7 @@ struct LibraryDraftSnapshot: Codable, Equatable {
     func applying(to draft: inout LibraryRecordDraft) {
         draft.subject = subject
         draft.module = module
+        if let reviewSource, let value = LibraryReviewSource(rawValue: reviewSource) { draft.reviewSource = value }
         draft.title = title
         draft.content = content
         draft.type = type
@@ -228,6 +231,11 @@ enum LibraryDraftStore {
            let snapshot = try? JSONDecoder().decode(LibraryDraftSnapshot.self, from: data) {
             return snapshot
         }
+        if scope.reviewSource == .real,
+           let legacyData = UserDefaults.standard.data(forKey: legacyKey(kind: kind, scope: scope)),
+           let legacySnapshot = try? JSONDecoder().decode(LibraryDraftSnapshot.self, from: legacyData) {
+            return legacySnapshot
+        }
         guard kind == .words, !category.isEmpty,
               let legacyData = UserDefaults.standard.data(forKey: legacyKey(kind: kind, scope: scope)),
               let legacySnapshot = try? JSONDecoder().decode(LibraryDraftSnapshot.self, from: legacyData),
@@ -254,7 +262,7 @@ enum LibraryDraftStore {
         let subject = scope.subject ?? "all"
         let module = scope.module ?? "subject"
         let categoryKey = kind == .words ? ".category.\(category.isEmpty ? "unselected" : category)" : ""
-        return "native.library.draft.\(kind.rawValue).\(subject).\(module)\(categoryKey)"
+        return "native.library.draft.\(kind.rawValue).\(scope.reviewSource.rawValue).\(subject).\(module)\(categoryKey)"
     }
 
     private static func legacyKey(kind: LibraryContentKind, scope: LibraryScope) -> String {

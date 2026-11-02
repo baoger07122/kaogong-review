@@ -35,6 +35,7 @@ struct LibraryRecordDraft {
     var id = ""
     var subject = "言语理解"
     var module = "逻辑填空"
+    var reviewSource: LibraryReviewSource = .real
     var title = ""
     var content = ""
     var type = ""
@@ -94,13 +95,20 @@ struct LibraryRecordDraft {
     init(kind: LibraryContentKind, scope: LibraryScope, record: StoredRecord? = nil) {
         original = record?.jsonObject ?? [:]
         id = record?.recordID ?? ""
+        reviewSource = record == nil
+            ? scope.reviewSource
+            : (LibraryReviewSource.explicitValue(in: original) ?? ((original["questionBankPaperID"] as? String)?.isEmpty == false ? .real : .pending))
         subject = (original["subject"] as? String)
             ?? ((kind == .errors && (original["isShenlun"] as? Bool) == true) ? "申论" : nil)
             ?? scope.subject
             ?? "言语理解"
         let defaultModules = SubjectDefinition.all.first { $0.name == subject }?.modules ?? []
         let storedModule = (original["module"] as? String) ?? scope.module
-        if subject == "数量关系" {
+        let hasOriginalModule = original["module"] as? String
+        if record != nil, subject == "资料分析",
+           hasOriginalModule?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            module = hasOriginalModule ?? ""
+        } else if subject == "数量关系" {
             let cleanedModule = storedModule?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             module = QuantityQuestionTypeCatalog.legacyModules.contains(cleanedModule) ? "" : cleanedModule
         } else {
@@ -322,12 +330,25 @@ enum LibraryRecordRepository {
         let previousPencilKitData = object["pencilKitData"] as? String ?? ""
         object["id"] = id
         object["subject"] = draft.subject
-        object["module"] = draft.module
+        let preservesUnassignedAnalysisModule = existing != nil
+            && draft.subject == "资料分析"
+            && draft.module.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (draft.original["module"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+        if preservesUnassignedAnalysisModule {
+            if let originalModule = draft.original["module"] as? String {
+                object["module"] = originalModule
+            } else {
+                object.removeValue(forKey: "module")
+            }
+        } else {
+            object["module"] = draft.module
+        }
         object["updatedAt"] = iso(now)
         object["createdAt"] = object["createdAt"] ?? iso(existing?.createdAt ?? now)
 
         switch kind {
         case .errors:
+            object["reviewSource"] = draft.reviewSource.rawValue
             let knowledgePoints = draft.knowledgePoint
                 .split(whereSeparator: { "、,，".contains($0) })
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -423,6 +444,7 @@ enum LibraryRecordRepository {
                 object["errorCause"] = ""
             }
         case .notes:
+            object["reviewSource"] = draft.reviewSource.rawValue
             object["title"] = draft.title
             object["content"] = draft.content
             object["type"] = draft.type
@@ -444,6 +466,7 @@ enum LibraryRecordRepository {
                 object["drawingPreview"] = draft.legacyDrawingPreview
             }
         case .stickies:
+            object["reviewSource"] = draft.reviewSource.rawValue
             object["content"] = draft.content
             object["tag"] = draft.type.trimmingCharacters(in: .whitespacesAndNewlines)
             object["color"] = draft.colorHex
@@ -493,43 +516,48 @@ enum LibraryRecordRepository {
         let payloadStart = ProcessInfo.processInfo.systemUptime
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         LibraryPerformanceLog.mark("record.save.payload", since: payloadStart)
-        if let existing {
-            existing.replacePayload(payload)
-            existing.subject = draft.subject
-            existing.module = draft.module
-            existing.updatedAt = now
-        } else {
-            context.insert(StoredRecord(
-                collection: kind.collection,
-                recordID: id,
-                payload: payload,
-                subject: draft.subject,
-                module: draft.module,
-                createdAt: now,
-                updatedAt: now
-            ))
-        }
-        switch kind {
-        case .errors:
-            try syncSingleRelation(collection: "exams", arrayKey: "linkedErrorIds", oldID: previousSourceExamID, newID: draft.sourceExamID, linkedID: id, records: records)
-            try syncArrayRelations(collection: "notes", arrayKey: "linkedErrors", oldIDs: previousLinkedNotes, newIDs: draft.linkedNoteIDs, linkedID: id, records: records)
-            try syncArrayRelations(collection: "words", arrayKey: "linkedErrors", oldIDs: previousLinkedWords, newIDs: draft.linkedWordIDs, linkedID: id, records: records)
-            try syncArrayRelations(collection: "words", arrayKey: "relatedErrorIds", oldIDs: previousLinkedWords, newIDs: draft.linkedWordIDs, linkedID: id, records: records)
-        case .notes:
-            try syncArrayRelations(collection: "errors", arrayKey: "linkedNoteIds", oldIDs: previousLinkedErrors, newIDs: draft.linkedErrorIDs, linkedID: id, records: records)
-        case .words:
-            try syncArrayRelations(collection: "errors", arrayKey: "linkedWordIds", oldIDs: previousLinkedErrors, newIDs: draft.linkedErrorIDs, linkedID: id, records: records)
-        case .stickies:
-            break
-        }
-        if let linkedQuestionUpdate {
-            linkedQuestionUpdate.record.replacePayload(linkedQuestionUpdate.payload)
-            linkedQuestionUpdate.record.searchText = linkedQuestionUpdate.searchText
-            _ = try QuestionBankCatalogService.updateQuestion(
-                paperID: linkedQuestionUpdate.record.paperID,
-                questionID: linkedQuestionUpdate.record.stableID,
-                context: context
-            )
+        try context.transaction {
+            if let existing {
+                existing.replacePayload(payload)
+                existing.subject = draft.subject
+                existing.module = preservesUnassignedAnalysisModule ? draft.original["module"] as? String : draft.module
+                existing.updatedAt = now
+            } else {
+                context.insert(StoredRecord(
+                    collection: kind.collection,
+                    recordID: id,
+                    payload: payload,
+                    subject: draft.subject,
+                    module: draft.module,
+                    createdAt: now,
+                    updatedAt: now
+                ))
+            }
+            switch kind {
+            case .errors:
+                try syncSingleRelation(collection: "exams", arrayKey: "linkedErrorIds", oldID: previousSourceExamID, newID: draft.sourceExamID, linkedID: id, records: records)
+                try syncArrayRelations(collection: "notes", arrayKey: "linkedErrors", oldIDs: previousLinkedNotes, newIDs: draft.linkedNoteIDs, linkedID: id, records: records)
+                try syncArrayRelations(collection: "words", arrayKey: "linkedErrors", oldIDs: previousLinkedWords, newIDs: draft.linkedWordIDs, linkedID: id, records: records)
+                try syncArrayRelations(collection: "words", arrayKey: "relatedErrorIds", oldIDs: previousLinkedWords, newIDs: draft.linkedWordIDs, linkedID: id, records: records)
+                if existing == nil, draft.reviewSource == .mock {
+                    try LibraryMockExamMemory.remember(draft.sourceExamID, records: records, context: context)
+                }
+            case .notes:
+                try syncArrayRelations(collection: "errors", arrayKey: "linkedNoteIds", oldIDs: previousLinkedErrors, newIDs: draft.linkedErrorIDs, linkedID: id, records: records)
+            case .words:
+                try syncArrayRelations(collection: "errors", arrayKey: "linkedWordIds", oldIDs: previousLinkedErrors, newIDs: draft.linkedErrorIDs, linkedID: id, records: records)
+            case .stickies:
+                break
+            }
+            if let linkedQuestionUpdate {
+                linkedQuestionUpdate.record.replacePayload(linkedQuestionUpdate.payload)
+                linkedQuestionUpdate.record.searchText = linkedQuestionUpdate.searchText
+                _ = try QuestionBankCatalogService.updateQuestion(
+                    paperID: linkedQuestionUpdate.record.paperID,
+                    questionID: linkedQuestionUpdate.record.stableID,
+                    context: context
+                )
+            }
         }
         let contextSaveStart = ProcessInfo.processInfo.systemUptime
         try context.save()
@@ -703,47 +731,49 @@ enum LibraryRecordRepository {
             linkedQuestionWritePermit = nil
         }
         defer { linkedQuestionWritePermit?.release() }
-        switch kind {
-        case .errors:
-            try syncSingleRelation(
-                collection: "exams", arrayKey: "linkedErrorIds",
-                oldID: object["sourceExamId"] as? String ?? "", newID: "", linkedID: id, records: records
-            )
-            try syncArrayRelations(
-                collection: "notes", arrayKey: "linkedErrors",
-                oldIDs: object["linkedNoteIds"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
-            )
-            try syncArrayRelations(
-                collection: "words", arrayKey: "linkedErrors",
-                oldIDs: object["linkedWordIds"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
-            )
-            try syncArrayRelations(
-                collection: "words", arrayKey: "relatedErrorIds",
-                oldIDs: object["linkedWordIds"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
-            )
-        case .notes:
-            try syncArrayRelations(
-                collection: "errors", arrayKey: "linkedNoteIds",
-                oldIDs: object["linkedErrors"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
-            )
-        case .words:
-            try syncArrayRelations(
-                collection: "errors", arrayKey: "linkedWordIds",
-                oldIDs: (object["linkedErrors"] as? [String]) ?? (object["relatedErrorIds"] as? [String]) ?? [], newIDs: [], linkedID: id, records: records
-            )
-        case .stickies:
-            break
+        try context.transaction {
+            switch kind {
+            case .errors:
+                try syncSingleRelation(
+                    collection: "exams", arrayKey: "linkedErrorIds",
+                    oldID: object["sourceExamId"] as? String ?? "", newID: "", linkedID: id, records: records
+                )
+                try syncArrayRelations(
+                    collection: "notes", arrayKey: "linkedErrors",
+                    oldIDs: object["linkedNoteIds"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
+                )
+                try syncArrayRelations(
+                    collection: "words", arrayKey: "linkedErrors",
+                    oldIDs: object["linkedWordIds"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
+                )
+                try syncArrayRelations(
+                    collection: "words", arrayKey: "relatedErrorIds",
+                    oldIDs: object["linkedWordIds"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
+                )
+            case .notes:
+                try syncArrayRelations(
+                    collection: "errors", arrayKey: "linkedNoteIds",
+                    oldIDs: object["linkedErrors"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
+                )
+            case .words:
+                try syncArrayRelations(
+                    collection: "errors", arrayKey: "linkedWordIds",
+                    oldIDs: (object["linkedErrors"] as? [String]) ?? (object["relatedErrorIds"] as? [String]) ?? [], newIDs: [], linkedID: id, records: records
+                )
+            case .stickies:
+                break
+            }
+            if let linkedQuestionUpdate {
+                linkedQuestionUpdate.record.replacePayload(linkedQuestionUpdate.payload)
+                linkedQuestionUpdate.record.searchText = linkedQuestionUpdate.searchText
+                _ = try QuestionBankCatalogService.updateQuestion(
+                    paperID: linkedQuestionUpdate.record.paperID,
+                    questionID: linkedQuestionUpdate.record.stableID,
+                    context: context
+                )
+            }
+            context.delete(record)
         }
-        if let linkedQuestionUpdate {
-            linkedQuestionUpdate.record.replacePayload(linkedQuestionUpdate.payload)
-            linkedQuestionUpdate.record.searchText = linkedQuestionUpdate.searchText
-            _ = try QuestionBankCatalogService.updateQuestion(
-                paperID: linkedQuestionUpdate.record.paperID,
-                questionID: linkedQuestionUpdate.record.stableID,
-                context: context
-            )
-        }
-        context.delete(record)
         try context.save()
         if let linkedQuestionUpdate {
             QuestionBankRecordChangeSignal.postQuestionChange(

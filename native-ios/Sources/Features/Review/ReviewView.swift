@@ -167,15 +167,22 @@ private enum ReviewOverviewCalculator {
 struct ReviewView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
-    @Query(filter: #Predicate<StoredRecord> { record in record.collection == "errors" }) private var records: [StoredRecord]
+    @Query(filter: #Predicate<StoredRecord> { record in record.collection == "errors" || record.collection == "exams" }) private var records: [StoredRecord]
+    @AppStorage("native.review.sourcePartition.v1") private var sourceRawValue = LibraryReviewSource.real.rawValue
     @State private var queueIDs: [String] = []
     @State private var index = 0
     @State private var answer: ReviewAnswer?
     @State private var isSession = false
     @State private var cachedOverview: ReviewOverview?
-    private let sessionKey = "native.review.activeSession"
+    private var reviewSource: LibraryReviewSource { LibraryReviewSource(rawValue: sourceRawValue) ?? .real }
+    private var sessionKey: String { "native.review.activeSession.\(reviewSource.rawValue)" }
 
-    private var errors: [StoredRecord] { records }
+    private var errors: [StoredRecord] {
+        records.filter { $0.collection == "errors" && LibraryReviewSource.classify($0, records: records) == reviewSource }
+    }
+    private var pendingErrorCount: Int {
+        records.lazy.filter { $0.collection == "errors" && LibraryReviewSource.classify($0, records: records) == .pending }.count
+    }
     private var reviewPool: [StoredRecord] {
         cachedOverview?.pool ?? []
     }
@@ -208,6 +215,7 @@ struct ReviewView: View {
             .onChange(of: queueIDs) { _, _ in persistSession() }
             .onChange(of: index) { _, _ in persistSession() }
             .onChange(of: isSession) { _, _ in persistSession() }
+            .onChange(of: sourceRawValue) { _, _ in cachedOverview = nil }
             .onChange(of: scenePhase) { _, phase in
                 if phase != .active { persistSession() }
             }
@@ -222,6 +230,7 @@ struct ReviewView: View {
                     Text("今日复习").font(AppTheme.pageTitleFont)
                     Text("重新抽取历史错题，及时巩固薄弱知识点").font(AppTheme.bodyFont).foregroundStyle(.secondary)
                 }
+                reviewSourceSelector
                 HStack(spacing: 10) {
                     overviewCard("待复习", overview.due.count, overview.due.isEmpty ? "暂无到期错题" : "超过3天未复习")
                     overviewCard("本轮题量", overview.pool.count, "可按科目开始")
@@ -283,21 +292,20 @@ struct ReviewView: View {
     }
 
     private var overviewRevision: [String] {
-        records.map { record in
-            "\(record.compoundID)|\(record.updatedAt?.timeIntervalSinceReferenceDate ?? 0)"
-        }
+        [sourceRawValue] + records.map { "\($0.compoundID)|\($0.updatedAt?.timeIntervalSinceReferenceDate ?? 0)" }
     }
 
     @MainActor
     private func refreshOverview() async {
         let started = ProcessInfo.processInfo.systemUptime
-        let inputs = records.map(ReviewRecordInput.init)
+        let scopedErrors = errors
+        let inputs = scopedErrors.map(ReviewRecordInput.init)
         let values = await Task.detached(priority: .utility) {
             let snapshots = inputs.map(ReviewRecordSnapshot.init)
             return ReviewOverviewCalculator.make(from: snapshots)
         }.value
         guard !Task.isCancelled else { return }
-        let byID = Dictionary(records.map { ($0.recordID, $0) }, uniquingKeysWith: { first, _ in first })
+        let byID = Dictionary(scopedErrors.map { ($0.recordID, $0) }, uniquingKeysWith: { first, _ in first })
         cachedOverview = ReviewOverview(
             due: values.dueIDs.compactMap { byID[$0] },
             pool: values.poolIDs.compactMap { byID[$0] },
@@ -306,6 +314,28 @@ struct ReviewView: View {
             moduleStats: values.moduleStats
         )
         NativePerformanceLog.mark("review overview records=\(inputs.count)", since: started)
+    }
+
+    private var reviewSourceSelector: some View {
+        HStack(spacing: 7) {
+            ForEach([LibraryReviewSource.real, .mock], id: \.self) { value in
+                Button { sourceRawValue = value.rawValue } label: {
+                    Text(value == .real ? "真题复盘" : "模拟题复盘")
+                        .font(AppTheme.auxiliaryFont.weight(.semibold))
+                        .frame(maxWidth: .infinity).padding(.vertical, 7)
+                        .foregroundStyle(reviewSource == value ? AppTheme.accent : Color.primary)
+                        .background(reviewSource == value ? AppTheme.secondaryBackground : Color.clear, in: Capsule())
+                }.buttonStyle(.plain)
+            }
+            Button { sourceRawValue = LibraryReviewSource.pending.rawValue } label: {
+                Text("待确认 \(pendingErrorCount)")
+                    .font(AppTheme.auxiliaryFont.weight(.semibold))
+                    .padding(.horizontal, 9).padding(.vertical, 7)
+                    .foregroundStyle(reviewSource == .pending ? AppTheme.warning : Color.secondary)
+                    .background(reviewSource == .pending ? AppTheme.warning.opacity(0.12) : Color.primary.opacity(0.045), in: Capsule())
+            }.buttonStyle(.plain)
+        }
+        .padding(3).background(Color.primary.opacity(0.05), in: Capsule())
     }
 
     private func isDue(_ record: StoredRecord, now: Date) -> Bool {
@@ -371,12 +401,19 @@ struct ReviewView: View {
                     VStack(spacing: 9) {
                         ForEach(Array(options.enumerated()), id: \.offset) { offset, option in
                             let letter = String(UnicodeScalar(65 + offset)!)
+                            let selected = answer?.selected == letter
+                            let markerState: QuestionBankOptionMarkerState = {
+                                guard let answer else { return .unselected }
+                                guard !correctOption.isEmpty else { return selected ? .selected : .unselected }
+                                if letter == correctOption { return .correct }
+                                return selected ? .incorrect : .unselected
+                            }()
                             Button { submit(record: record, selected: letter) } label: {
                                 HStack(alignment: .top, spacing: 10) {
-                                    Text(letter).font(AppTheme.inputFont.weight(.bold)).foregroundStyle(AppTheme.accent).frame(width: 27, height: 27).background(AppTheme.accent.opacity(0.10), in: Circle())
+                                    QuestionBankOptionMarker(letter: letter, state: markerState, diameter: 27, font: AppTheme.inputFont)
                                     Text(option).font(AppTheme.bodyFont).foregroundStyle(.primary).frame(maxWidth: .infinity, alignment: .leading)
                                 }.padding(12).background(optionBackground(letter: letter, correct: correctOption), in: RoundedRectangle(cornerRadius: 12))
-                            }.buttonStyle(.plain).disabled(answer != nil)
+                            }.buttonStyle(ReviewLockedAnswerButtonStyle()).disabled(answer != nil)
                         }
                     }
                 }
@@ -500,5 +537,13 @@ struct ReviewView: View {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+}
+
+private struct ReviewLockedAnswerButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.opacity(configuration.isPressed && isEnabled ? 0.86 : 1)
     }
 }

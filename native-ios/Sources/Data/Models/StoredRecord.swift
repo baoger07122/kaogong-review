@@ -94,15 +94,15 @@ final class StoredRecord {
                 "accuracy", "reviewCount", "sourceExamId", "pitfall", "linkedWordIds", "options",
                 "questionBankPaperID", "questionBankQuestionID",
                 "shenlunFormatVersion",
-                "quantityStructure", "weaknessTags"
+                "quantityStructure", "weaknessTags", "reviewSource", "examType", "paperType", "sourceType"
             ]
         case "notes":
             keys = [
                 "id", "subject", "module", "title", "content", "type", "category", "createdAt", "updatedAt",
-                "knowledgePoint", "knowledgePoints", "quantityStructure", "weaknessTags"
+                "knowledgePoint", "knowledgePoints", "quantityStructure", "weaknessTags", "reviewSource"
             ]
         case "stickies":
-            keys = ["id", "subject", "module", "content", "tag", "color", "colorHex", "pinned", "createdAt", "updatedAt"]
+            keys = ["id", "subject", "module", "content", "tag", "color", "colorHex", "pinned", "createdAt", "updatedAt", "reviewSource"]
         case "words":
             keys = [
                 "id", "subject", "module", "title", "name", "words", "type", "category", "meaning", "pinyin",

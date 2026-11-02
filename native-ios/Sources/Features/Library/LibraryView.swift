@@ -10,6 +10,7 @@ struct LibraryView: View {
             || record.collection == "notes"
             || record.collection == "stickies"
             || record.collection == "words"
+            || record.collection == "exams"
             || record.collection == "keyvalue"
     }) private var records: [StoredRecord]
     @State private var scope = LibraryScope()
@@ -31,6 +32,9 @@ struct LibraryView: View {
     @State private var selectedQuantityType = ""
     @State private var snapshotCache = LibrarySnapshotCache()
     @State private var recordListCache = LibraryRecordListCache()
+    @State private var partitionStates: [LibraryReviewSource: LibraryPartitionState] = [:]
+    @State private var showBulkSourcePicker = false
+    @State private var sourceAssignmentError: String?
     @AppStorage("native.library.graphDisplayMode") private var graphDisplayMode = "cards"
     @AppStorage("native.library.legacyIndexMigrationVersion") private var legacyIndexMigrationVersion = 0
 
@@ -64,6 +68,17 @@ struct LibraryView: View {
             destination(for: route)
                 .secondaryPageTabBarHidden()
         }
+        .sheet(isPresented: $showBulkSourcePicker) {
+            LibraryBulkSourceAssignmentView(records: pendingSourceRecords) { selected, source in
+                assignPendingRecords(selected, to: source)
+            }
+        }
+        .alert("来源确认失败", isPresented: Binding(
+            get: { sourceAssignmentError != nil },
+            set: { if !$0 { sourceAssignmentError = nil } }
+        )) {
+            Button("好", role: .cancel) { sourceAssignmentError = nil }
+        } message: { Text(sourceAssignmentError ?? "") }
         .overlay {
             if showNewNoteType {
                 noteTypeDialog
@@ -210,7 +225,7 @@ struct LibraryView: View {
 
     private var creationScope: LibraryScope {
         guard scope.subject == "数量关系" else { return scope }
-        return LibraryScope(subject: "数量关系", module: nil)
+        return LibraryScope(subject: "数量关系", module: nil, reviewSource: scope.reviewSource)
     }
 
     private func popCurrentRoute() {
@@ -344,6 +359,14 @@ struct LibraryView: View {
                 Spacer()
                 Menu {
                     Button { showSearch = true } label: { Label("搜索", systemImage: "magnifyingglass") }
+                    Button { selectReviewSource(.pending) } label: {
+                        Label("待确认来源（\(pendingSourceCount)）", systemImage: "questionmark.folder")
+                    }
+                    if pendingSourceCount > 0 {
+                        Button { showBulkSourcePicker = true } label: {
+                            Label("批量确认来源（\(pendingSourceCount)）", systemImage: "checkmark.square")
+                        }
+                    }
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 16, weight: .semibold))
@@ -353,6 +376,8 @@ struct LibraryView: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            reviewSourceSelector
 
             HStack(spacing: 4) {
                 ForEach(availableKinds) { value in
@@ -382,6 +407,84 @@ struct LibraryView: View {
         .padding(.top, 14)
         .padding(.bottom, 10)
         .background(AppTheme.groupedBackground)
+    }
+
+    private var reviewSourceSelector: some View {
+        HStack(spacing: 7) {
+            ForEach([LibraryReviewSource.real, .mock], id: \.self) { source in
+                Button { selectReviewSource(source) } label: {
+                    Text(source.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .foregroundStyle(scope.reviewSource == source ? AppTheme.accent : Color.primary)
+                        .background(scope.reviewSource == source ? AppTheme.secondaryBackground : Color.clear, in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(Color.primary.opacity(0.05), in: Capsule())
+    }
+
+    private var pendingSourceCount: Int {
+        records.lazy.filter { record in
+            ["errors", "notes", "stickies"].contains(record.collection)
+                && scope.contains(record)
+                && LibraryReviewSource.classify(record, records: records) == .pending
+        }.count
+    }
+
+    private var pendingSourceRecords: [StoredRecord] {
+        records.filter { record in
+            ["errors", "notes", "stickies"].contains(record.collection)
+                && scope.contains(record)
+                && LibraryReviewSource.classify(record, records: records) == .pending
+        }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
+
+    private func assignPendingRecords(_ selectedRecords: [StoredRecord], to source: LibraryReviewSource) {
+        do {
+            try LibraryReviewSourceRepository.assign(source, to: selectedRecords, allRecords: records, context: modelContext)
+            showBulkSourcePicker = false
+        } catch {
+            sourceAssignmentError = error.localizedDescription
+        }
+    }
+
+    private func selectReviewSource(_ source: LibraryReviewSource) {
+        guard source != scope.reviewSource else { return }
+        partitionStates[scope.reviewSource] = LibraryPartitionState(
+            scope: scope,
+            expandedSubject: expandedSubject,
+            kind: kind,
+            searchText: searchText,
+            selectedStatus: selectedStatus,
+            selectedTag: selectedTag,
+            selectedQuantityType: selectedQuantityType,
+            renderLimit: renderLimit,
+            wordCategory: wordCategory,
+            wordSentiment: wordSentiment,
+            wordEntryKind: wordEntryKind
+        )
+        if let saved = partitionStates[source] {
+            scope = saved.scope
+            expandedSubject = saved.expandedSubject
+            kind = saved.kind
+            searchText = saved.searchText
+            selectedStatus = saved.selectedStatus
+            selectedTag = saved.selectedTag
+            selectedQuantityType = saved.selectedQuantityType
+            renderLimit = saved.renderLimit
+            wordCategory = saved.wordCategory
+            wordSentiment = saved.wordSentiment
+            wordEntryKind = saved.wordEntryKind
+        } else {
+            scope = LibraryScope(reviewSource: source)
+            expandedSubject = nil
+            kind = .errors
+            resetContextFilters()
+        }
     }
 
     private func filterBar(availableTags: [String]) -> some View {
@@ -609,12 +712,12 @@ struct LibraryView: View {
             return ("数量关系", selectedQuantityType)
         }
         guard let subject = scope.subject, scope.hasModuleContext else { return nil }
-        return (subject, subject == "资料分析" ? "" : (scope.module ?? ""))
+        return (subject, scope.module ?? "")
     }
 
     private var stickyContext: (subject: String, module: String)? {
         guard let subject = scope.subject, scope.hasModuleContext else { return nil }
-        return (subject, subject == "资料分析" ? "" : (scope.module ?? ""))
+        return (subject, scope.module ?? "")
     }
 
     private var noteTypeBar: some View {
@@ -697,7 +800,8 @@ struct LibraryView: View {
         let values: [(String, LibraryContentKind)] = [("错题", .errors), ("笔记", .notes), ("便签", .stickies)]
         return values.map { label, value in
             let count = records.lazy.filter { record in
-                guard record.collection == value.collection, scope.contains(record) else { return false }
+                guard record.collection == value.collection, scope.contains(record),
+                      LibraryReviewSource.classify(record, records: records) == scope.reviewSource else { return false }
                 guard isQuantityContext, !selectedQuantityType.isEmpty else { return true }
                 if selectedQuantityType == "未分类" { return !quantityQuestionTypes.contains(record.module ?? "") }
                 return record.module == selectedQuantityType
@@ -754,7 +858,8 @@ struct LibraryView: View {
     }
 
     private var canCreateRecord: Bool {
-        !((kind == .stickies && !scope.hasModuleContext) || (kind == .words && !scope.isLogicFill))
+        scope.reviewSource != .pending
+            && !((kind == .stickies && !scope.hasModuleContext) || (kind == .words && !scope.isLogicFill))
     }
 
     private func remove(_ target: LibraryDeleteTarget) {
@@ -794,6 +899,65 @@ struct LibraryView: View {
             ))
         }
         try? modelContext.save()
+    }
+}
+
+private struct LibraryBulkSourceAssignmentView: View {
+    @Environment(\.dismiss) private var dismiss
+    let records: [StoredRecord]
+    let onAssign: ([StoredRecord], LibraryReviewSource) -> Void
+    @State private var selectedIDs = Set<String>()
+    @State private var searchText = ""
+
+    private var visibleRecords: [StoredRecord] {
+        guard !searchText.isEmpty else { return records }
+        return records.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("已选 \(selectedIDs.count) / \(records.count)").font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                    Spacer()
+                    Button(selectedIDs.count == records.count ? "清空" : "全选当前范围") {
+                        selectedIDs = selectedIDs.count == records.count ? [] : Set(records.map(\.compoundID))
+                    }.font(AppTheme.auxiliaryFont.weight(.semibold))
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                List(visibleRecords, id: \.compoundID) { record in
+                    Button {
+                        if selectedIDs.contains(record.compoundID) { selectedIDs.remove(record.compoundID) }
+                        else { selectedIDs.insert(record.compoundID) }
+                    } label: {
+                        HStack(spacing: 9) {
+                            Image(systemName: selectedIDs.contains(record.compoundID) ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(selectedIDs.contains(record.compoundID) ? AppTheme.accent : .secondary)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(record.title).font(AppTheme.inputFont).foregroundStyle(.primary).lineLimit(2)
+                                Text("\(record.collection == "errors" ? "错题" : (record.collection == "notes" ? "笔记" : "便签")) · \([record.subject, record.module].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " / "))")
+                                    .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                    }.buttonStyle(.plain)
+                }
+                HStack(spacing: 10) {
+                    Button("设为真题") { submit(.real) }.buttonStyle(NativeSecondaryButtonStyle()).disabled(selectedIDs.isEmpty)
+                    Button("设为模拟题") { submit(.mock) }.buttonStyle(NativePrimaryButtonStyle()).disabled(selectedIDs.isEmpty)
+                }
+                .padding(14)
+            }
+            .navigationTitle("确认待分类来源")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $searchText, prompt: "搜索题目或笔记")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+        }
+    }
+
+    private func submit(_ source: LibraryReviewSource) {
+        onAssign(records.filter { selectedIDs.contains($0.compoundID) }, source)
+        dismiss()
     }
 }
 
