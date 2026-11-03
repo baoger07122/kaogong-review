@@ -50,6 +50,7 @@ struct LibraryRecordDraft {
     var correctOption = ""
     var userOption = ""
     var pitfall = ""
+    var reminder = ""
     var quantityStructure = ""
     var weaknessTags = ""
     var questionSource = ""
@@ -157,6 +158,7 @@ struct LibraryRecordDraft {
         correctOption = LibraryRecordDraft.text(original, keys: ["correctOption"])
         userOption = LibraryRecordDraft.text(original, keys: ["userOption"])
         pitfall = LibraryRecordDraft.text(original, keys: ["pitfall"])
+        reminder = LibraryRecordDraft.text(original, keys: ["reminder"])
         quantityStructure = LibraryRecordDraft.text(original, keys: ["quantityStructure"])
         if let values = original["weaknessTags"] as? [String], !values.isEmpty {
             weaknessTags = values.joined(separator: "、")
@@ -431,6 +433,7 @@ enum LibraryRecordRepository {
             object["correctOption"] = draft.correctOption
             object["userOption"] = draft.userOption
             object["pitfall"] = draft.pitfall
+            object["reminder"] = draft.reminder
             object["quantityStructure"] = draft.quantityStructure
             object["weaknessTags"] = splitList(draft.weaknessTags)
             object["questionSource"] = draft.questionSource

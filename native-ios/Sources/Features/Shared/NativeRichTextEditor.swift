@@ -1,6 +1,7 @@
 import PhotosUI
 import SwiftUI
 import UIKit
+import ImageIO
 
 enum RichTextToolbarMode { case full, compact, minimal }
 
@@ -548,8 +549,6 @@ struct NativeRichTextDisplayRenderResult {
 @MainActor
 enum NativeRichTextDisplayRenderer {
     private static let maximumImportedHTMLBytes = 512 * 1024
-    private static let maximumFallbackCharacters = 10_000
-    private static let maximumScannedCharacters = 512 * 1024
 
     static func render(_ html: String) -> NativeRichTextDisplayRenderResult {
         guard html.utf8.count <= maximumImportedHTMLBytes else {
@@ -563,57 +562,63 @@ enum NativeRichTextDisplayRenderer {
     }
 
     private static func fallback(_ html: String) -> NativeRichTextDisplayRenderResult {
-        let plainText = plainTextPreview(from: html)
+        let attributed = NSMutableAttributedString(string: "")
+        let font = UIFont.systemFont(ofSize: RichTextMetrics.bodySize)
+        let textAttributes: [NSAttributedString.Key: Any] = [.font: font]
+        for run in NativeRichTextFallbackParser.parse(html) {
+            switch run {
+            case .text(let text):
+                attributed.append(NSAttributedString(string: text, attributes: textAttributes))
+            case .image(let dataURL):
+                if let attachment = NativeImageAttachment(dataURL: dataURL) {
+                    attributed.append(NSAttributedString(attachment: attachment))
+                } else {
+                    appendFallbackPlaceholder("[图片无法显示]", to: attributed, attributes: textAttributes)
+                }
+            case .table(let encoded):
+                if let table = fallbackTable(from: encoded) {
+                    attributed.append(NSAttributedString(attachment: NativeTableAttachment(table: table)))
+                } else {
+                    appendFallbackPlaceholder("[表格无法显示]", to: attributed, attributes: textAttributes)
+                }
+            case .formula(let encoded):
+                if let formula = fallbackFormula(from: encoded) {
+                    attributed.append(NSAttributedString(attachment: NativeFormulaAttachment(formula: formula)))
+                } else {
+                    appendFallbackPlaceholder("[公式无法显示]", to: attributed, attributes: textAttributes)
+                }
+            case .placeholder(let label):
+                let text = label == "其余附件已省略" ? "[\(label)]" : "[\(label)无法显示]"
+                appendFallbackPlaceholder(text, to: attributed, attributes: textAttributes)
+            }
+        }
         return NativeRichTextDisplayRenderResult(
-            attributedText: NSAttributedString(
-                string: plainText,
-                attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]
-            ),
+            attributedText: attributed,
             usedSafeFallback: true
         )
     }
 
-    private static func plainTextPreview(from html: String) -> String {
-        var output = String()
-        output.reserveCapacity(min(html.count, maximumFallbackCharacters))
-        var isTag = false
-        var tag = String()
+    private static func appendFallbackPlaceholder(
+        _ value: String,
+        to output: NSMutableAttributedString,
+        attributes: [NSAttributedString.Key: Any]
+    ) {
+        output.append(NSAttributedString(string: value, attributes: attributes))
+    }
 
-        for (index, character) in html.enumerated() {
-            if index >= maximumScannedCharacters { break }
-            if isTag {
-                if character == ">" {
-                    let normalizedTag = tag.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                    if normalizedTag.hasPrefix("br") || normalizedTag.hasPrefix("/p")
-                        || normalizedTag.hasPrefix("/div") || normalizedTag.hasPrefix("/li") {
-                        if output.last != "\n" { output.append("\n") }
-                    }
-                    isTag = false
-                    tag.removeAll(keepingCapacity: true)
-                } else {
-                    if tag.count < 512 { tag.append(character) }
-                }
-                continue
-            }
-            if character == "<" {
-                isTag = true
-                tag.removeAll(keepingCapacity: true)
-                continue
-            }
-            output.append(character)
-            if output.count >= maximumFallbackCharacters { break }
-        }
+    private static func fallbackTable(from encoded: String) -> RichTextTable? {
+        guard let data = Data(base64Encoded: encoded), data.count <= 48 * 1024,
+              let table = try? JSONDecoder().decode(RichTextTable.self, from: data),
+              (1...16).contains(table.rowCount),
+              (1...8).contains(table.columnCount),
+              table.cells.allSatisfy({ $0.count == table.columnCount && $0.allSatisfy { $0.utf8.count <= 512 } })
+        else { return nil }
+        return table
+    }
 
-        let decoded = output
-            .replacingOccurrences(of: "&nbsp;", with: " ")
-            .replacingOccurrences(of: "&#160;", with: " ")
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&#39;", with: "'")
-            .replacingOccurrences(of: "&amp;", with: "&")
-        guard html.count > maximumFallbackCharacters else { return decoded }
-        return decoded + "\n…（预览已截断，原内容仍保留）"
+    private static func fallbackFormula(from encoded: String) -> RichTextFormula? {
+        guard let data = Data(base64Encoded: encoded), data.count <= 4 * 1024 else { return nil }
+        return try? JSONDecoder().decode(RichTextFormula.self, from: data)
     }
 }
 
@@ -1376,6 +1381,7 @@ private struct RichTextTextView: UIViewRepresentable {
         serializable.enumerateAttribute(.attachment, in: NSRange(location: 0, length: serializable.length)) { attribute, range, _ in
             if let table = attribute as? NativeTableAttachment, let marker = table.marker { replacements.append((range, marker)) }
             else if let image = attribute as? NativeImageAttachment { replacements.append((range, image.marker)) }
+            else if let image = attribute as? NativeUnavailableImageAttachment { replacements.append((range, image.marker)) }
             else if let formula = attribute as? NativeFormulaAttachment, let marker = formula.marker { replacements.append((range, marker)) }
         }
         for (range, marker) in replacements.reversed() { serializable.replaceCharacters(in: range, with: marker) }
@@ -1399,8 +1405,17 @@ private struct RichTextTextView: UIViewRepresentable {
         for match in imageExpression.matches(in: value.string, range: NSRange(location: 0, length: updatedText.length)).reversed() {
             guard match.numberOfRanges == 2 else { continue }
             let encoded = updatedText.substring(with: match.range(at: 1))
-            guard let data = Data(base64Encoded: encoded), let dataURL = String(data: data, encoding: .utf8), let attachment = NativeImageAttachment(dataURL: dataURL) else { continue }
-            value.replaceCharacters(in: match.range, with: NSAttributedString(attachment: attachment))
+            let marker = updatedText.substring(with: match.range)
+            let replacement: NSTextAttachment
+            if encoded.utf8.count <= NativeImageAttachment.maximumEncodedBytes,
+               let data = Data(base64Encoded: encoded),
+               let dataURL = String(data: data, encoding: .utf8),
+               let attachment = NativeImageAttachment(dataURL: dataURL) {
+                replacement = attachment
+            } else {
+                replacement = NativeUnavailableImageAttachment(marker: marker)
+            }
+            value.replaceCharacters(in: match.range, with: NSAttributedString(attachment: replacement))
         }
         let formulaPattern = #"\[\[NATIVE_FORMULA:([A-Za-z0-9+/=]+)\]\]"#
         guard let formulaExpression = try? NSRegularExpression(pattern: formulaPattern) else { return }
@@ -1551,13 +1566,24 @@ private final class NativeTableAttachment: NSTextAttachment {
 }
 
 private final class NativeImageAttachment: NSTextAttachment {
+    static let maximumEncodedBytes = 11 * 1024 * 1024
     let dataURL: String
 
     init?(dataURL: String) {
-        guard let comma = dataURL.firstIndex(of: ","),
-              let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...])),
-              let source = UIImage(data: data)
+        guard let comma = dataURL.firstIndex(of: ",") else { return nil }
+        let encoded = String(dataURL[dataURL.index(after: comma)...])
+        guard encoded.utf8.count <= Self.maximumEncodedBytes,
+              let data = Data(base64Encoded: encoded),
+              data.count <= 8 * 1024 * 1024,
+              let imageSource = CGImageSourceCreateWithData(data as CFData, nil)
         else { return nil }
+        let thumbnailOptions = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 1_200
+        ] as CFDictionary
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, thumbnailOptions) else { return nil }
+        let source = UIImage(cgImage: thumbnail)
         self.dataURL = dataURL
         super.init(data: nil, ofType: "com.kaogong.native-image")
         image = source
@@ -1571,6 +1597,27 @@ private final class NativeImageAttachment: NSTextAttachment {
     var marker: String {
         "[[NATIVE_IMAGE:\(Data(dataURL.utf8).base64EncodedString())]]"
     }
+}
+
+private final class NativeUnavailableImageAttachment: NSTextAttachment {
+    let marker: String
+
+    init(marker: String) {
+        self.marker = marker
+        super.init(data: nil, ofType: "com.kaogong.native-image-placeholder")
+        let size = CGSize(width: 38, height: 28)
+        image = UIGraphicsImageRenderer(size: size).image { context in
+            UIColor.secondarySystemBackground.setFill()
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 5).fill()
+            let symbol = UIImage(systemName: "photo")?.withTintColor(.secondaryLabel, renderingMode: .alwaysOriginal)
+            symbol?.draw(in: CGRect(x: 8, y: 4, width: 22, height: 20))
+            context.cgContext.setStrokeColor(UIColor.separator.cgColor)
+            context.cgContext.stroke(CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5), width: 1)
+        }
+        bounds = CGRect(x: 0, y: -3, width: size.width, height: size.height)
+    }
+
+    required init?(coder: NSCoder) { nil }
 }
 
 private final class NativeFormulaAttachment: NSTextAttachment {

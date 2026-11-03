@@ -97,6 +97,11 @@ jobs:
             native-ios/Tests/ExamDomainBehavior.swift \
             -o "$RUNNER_TEMP/exam-domain-behavior"
           "$RUNNER_TEMP/exam-domain-behavior"
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Shared/NativeRichTextFallbackParser.swift \
+            native-ios/Tests/NativeRichTextFallbackBehavior.swift \
+            -o "$RUNNER_TEMP/native-rich-text-fallback-behavior"
+          "$RUNNER_TEMP/native-rich-text-fallback-behavior"
 
       - name: Detect simulator test scope
         id: simulator_scope
@@ -492,6 +497,57 @@ jobs:
               | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g; s/^/::error title=Xcode archive::/' || true
             exit 1
           fi
+
+      - name: Preserve and verify archive dSYMs
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE_PATH="build/native-ios/KaogongReviewNative.xcarchive"
+          APP_PATH="$ARCHIVE_PATH/Products/Applications/KaogongReviewNative.app"
+          DSYM_PATH="$ARCHIVE_PATH/dSYMs/KaogongReviewNative.app.dSYM"
+          APP_BINARY="$APP_PATH/KaogongReviewNative"
+          DSYM_BINARY="$DSYM_PATH/Contents/Resources/DWARF/KaogongReviewNative"
+          test -x "$APP_BINARY"
+          test -f "$DSYM_BINARY"
+
+          APP_UUID=$(dwarfdump --uuid "$APP_BINARY" | awk 'NR == 1 { print $2 }')
+          DSYM_UUID=$(dwarfdump --uuid "$DSYM_BINARY" | awk 'NR == 1 { print $2 }')
+          if [ -z "$APP_UUID" ] || [ "$APP_UUID" != "$DSYM_UUID" ]; then
+            echo "Archive dSYM UUID does not match the App binary: App=${APP_UUID:-missing}, dSYM=${DSYM_UUID:-missing}"
+            exit 1
+          fi
+
+          SYMBOLS_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Info.plist")
+          SYMBOLS_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")
+          mkdir -p build/native-dsym
+          cp -R "$DSYM_PATH" build/native-dsym/
+          {
+            printf 'commit_sha=%s\n' "$GITHUB_SHA"
+            printf 'version=%s\n' "$SYMBOLS_VERSION"
+            printf 'build=%s\n' "$SYMBOLS_BUILD"
+            printf 'app_uuid=%s\n' "$APP_UUID"
+            printf 'dsym_uuid=%s\n' "$DSYM_UUID"
+            printf '\nApp binary UUIDs:\n'
+            dwarfdump --uuid "$APP_BINARY"
+            printf '\ndSYM UUIDs:\n'
+            dwarfdump --uuid "$DSYM_BINARY"
+          } > build/native-dsym/metadata.txt
+          {
+            printf '### Archive symbols\n\n'
+            printf -- '- Commit: `%s`\n' "$GITHUB_SHA"
+            printf -- '- Version/build: `%s` / `%s`\n' "$SYMBOLS_VERSION" "$SYMBOLS_BUILD"
+            printf -- '- App and dSYM UUID: `%s`\n' "$APP_UUID"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "SYMBOLS_VERSION=$SYMBOLS_VERSION" >> "$GITHUB_ENV"
+          echo "SYMBOLS_BUILD=$SYMBOLS_BUILD" >> "$GITHUB_ENV"
+
+      - name: Upload archive dSYMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: KaogongReviewNative-dSYMs-${{ env.SYMBOLS_VERSION }}-${{ env.SYMBOLS_BUILD }}-${{ github.sha }}
+          path: build/native-dsym/
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Verify native App resources
         shell: bash

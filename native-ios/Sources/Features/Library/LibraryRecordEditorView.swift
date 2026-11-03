@@ -9,7 +9,7 @@ private struct LinkedRecordEditorTarget: Identifiable {
     var id: String { "\(collection):\(recordID)" }
 }
 
-private enum ErrorAnswerField: Hashable {
+enum ErrorAnswerField: Hashable {
     case correct, selected
 }
 
@@ -105,16 +105,11 @@ struct LibraryRecordEditorView: View {
     }
 
     var body: some View {
-        Group {
-            if recordID == nil {
-                configuredEditor
-                    .onChange(of: draftSnapshot) { _, snapshot in
-                        draftPersistenceCleared = false
-                        LibraryDraftStore.save(snapshot, kind: kind, scope: scope)
-                    }
-            } else {
-                configuredEditor
-            }
+        configuredEditor
+        .onChange(of: draftSnapshot) { _, snapshot in
+            guard recordID == nil else { return }
+            draftPersistenceCleared = false
+            LibraryDraftStore.save(snapshot, kind: kind, scope: scope)
         }
         .onChange(of: selectedPhotos) { _, items in
             Task { await appendImages(items) }
@@ -232,12 +227,7 @@ struct LibraryRecordEditorView: View {
                         .foregroundStyle(AppTheme.danger)
                         .padding(.horizontal, 4)
                 }
-                switch kind {
-                case .errors: errorFields
-                case .notes: noteFields
-                case .stickies: stickyFields
-                case .words: wordFields
-                }
+                recordKindFields
             }
             .padding(.horizontal, kind == .errors ? 16 : 20)
             .padding(.top, kind == .errors ? 5 : 20)
@@ -247,6 +237,17 @@ struct LibraryRecordEditorView: View {
         }
         .background(kind == .errors || kind == .words ? Color.white : AppTheme.groupedBackground)
         .scrollDismissesKeyboard(.interactively)
+    }
+
+    /// The record-category switch is intentionally type-erased at this stable routing
+    /// boundary; each selected form remains a concrete view with its own smaller tree.
+    private var recordKindFields: AnyView {
+        switch kind {
+        case .errors: AnyView(errorFields)
+        case .notes: AnyView(noteFields)
+        case .stickies: AnyView(stickyFields)
+        case .words: AnyView(wordFields)
+        }
     }
 
     private var configuredEditor: some View {
@@ -305,49 +306,54 @@ struct LibraryRecordEditorView: View {
         }
     }
 
-    @ViewBuilder private var editorDialogs: some View {
-            if showSmartSplit {
-                smartSplitDialog
-            }
-            if let activeTags {
-                LibraryTagSelectionDialog(kind: activeTags, module: draft.module,
-                    selection: activeTags == .knowledgePoint ? $draft.knowledgePoint : $draft.errorCause,
-                    onClose: { self.activeTags = nil },
-                    titleOverride: activeTags == .knowledgePoint ? knowledgePointLabel : errorCauseLabel)
-            }
-            if showQuantityKnowledgePoints {
-                QuantityKnowledgePointSelectionDialog(
-                    currentType: draft.module,
-                    selection: $draft.knowledgePoint,
-                    onClose: { showQuantityKnowledgePoints = false }
-                )
-            }
-            if showQuantityWeaknessTags {
-                LibraryTagSelectionDialog(
-                    kind: .thinkingTrap,
-                    module: "数量关系-弱项",
-                    selection: $draft.weaknessTags,
-                    onClose: { showQuantityWeaknessTags = false },
-                    titleOverride: "弱项标签",
-                    maximumOverride: 8
-                )
-            }
-            if showQuantityQuestionTypes {
-                QuantityQuestionTypeSelectionDialog(
-                    selection: $draft.module,
-                    onClose: { showQuantityQuestionTypes = false }
-                )
-            }
-            if let activeRelation {
-                LibraryRelationSelectionDialog(collection: activeRelation,
-                    candidates: relationCandidates(collection: activeRelation),
-                    selection: relationBinding(activeRelation),
-                    onClose: { self.activeRelation = nil },
-                    onCreateWord: activeRelation == "words" ? { category in
-                        self.activeRelation = nil
-                        linkedWordCreationCategory = category
-                    } : nil)
-            }
+    private var editorDialogs: AnyView {
+        var overlays: [AnyView] = []
+        if showSmartSplit { overlays.append(AnyView(smartSplitDialog)) }
+        if let activeTags {
+            overlays.append(AnyView(LibraryTagSelectionDialog(
+                kind: activeTags,
+                module: draft.module,
+                selection: activeTags == .knowledgePoint ? $draft.knowledgePoint : $draft.errorCause,
+                onClose: { self.activeTags = nil },
+                titleOverride: activeTags == .knowledgePoint ? knowledgePointLabel : errorCauseLabel
+            )))
+        }
+        if showQuantityKnowledgePoints {
+            overlays.append(AnyView(QuantityKnowledgePointSelectionDialog(
+                currentType: draft.module,
+                selection: $draft.knowledgePoint,
+                onClose: { showQuantityKnowledgePoints = false }
+            )))
+        }
+        if showQuantityWeaknessTags {
+            overlays.append(AnyView(LibraryTagSelectionDialog(
+                kind: .thinkingTrap,
+                module: "数量关系-弱项",
+                selection: $draft.weaknessTags,
+                onClose: { showQuantityWeaknessTags = false },
+                titleOverride: "弱项标签",
+                maximumOverride: 8
+            )))
+        }
+        if showQuantityQuestionTypes {
+            overlays.append(AnyView(QuantityQuestionTypeSelectionDialog(
+                selection: $draft.module,
+                onClose: { showQuantityQuestionTypes = false }
+            )))
+        }
+        if let activeRelation {
+            overlays.append(AnyView(LibraryRelationSelectionDialog(
+                collection: activeRelation,
+                candidates: relationCandidates(collection: activeRelation),
+                selection: relationBinding(activeRelation),
+                onClose: { self.activeRelation = nil },
+                onCreateWord: activeRelation == "words" ? { category in
+                    self.activeRelation = nil
+                    linkedWordCreationCategory = category
+                } : nil
+            )))
+        }
+        return AnyView(ZStack { ForEach(overlays.indices, id: \.self) { overlays[$0] } })
     }
     private var contextCard: some View {
         Group {
@@ -494,240 +500,29 @@ struct LibraryRecordEditorView: View {
         .contentShape(Rectangle())
     }
 
-    private var sourceAndQuestionNumberFields: some View {
-        HStack(spacing: 6) {
-            TextField("题目来源，例如：2024国考", text: $draft.questionSource)
-                .textFieldStyle(ErrorFormTextFieldStyle())
-            TextField("题号", text: $draft.questionNumber)
-                .keyboardType(.numberPad)
-                .frame(width: 72)
-                .textFieldStyle(ErrorFormTextFieldStyle())
-        }
-    }
-
     private var errorFields: some View {
-        Group {
-            if draft.subject == "申论" { shenlunFields }
-            else if draft.subject == "判断推理", draft.module == "图形推理" { graphErrorPriorityFields }
-            else { regularErrorFields }
-            if draft.subject != "申论" { errorRelations }
-        }
-    }
-
-    private var graphErrorPriorityFields: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if recordID != nil { errorAnalysisCard }
-            errorImageCard
-            errorFormCard {
-                compactFormSection("题目与选项", image: "list.bullet.rectangle") {
-                    HStack {
-                        NativeFieldLabel(title: "题干")
-                        Spacer()
-                        Button(action: openSmartSplit) {
-                            Label("智能拆分", systemImage: "sparkles")
-                                .font(AppTheme.auxiliaryFont.weight(.semibold))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    errorQuestionEditor(text: $draft.title)
-                    NativeFieldLabel(title: "选项")
-                    ForEach(draft.options.indices, id: \.self) { index in
-                        optionEditorRow(index)
-                    }
-                }
-            }
-            errorFormCard {
-                compactFormSection("答案与来源", image: "checkmark.circle") {
-                    HStack(alignment: .top, spacing: 8) {
-                        answerPicker(title: "正确选项", field: .correct, selection: $draft.correctOption)
-                        answerPicker(title: "我的选项", field: .selected, selection: $draft.userOption)
-                    }
-                    HStack(spacing: 8) {
-                        TextField("全站正确率（%）", text: $draft.accuracy)
-                            .keyboardType(.decimalPad).textFieldStyle(ErrorFormTextFieldStyle())
-                        sourceAndQuestionNumberFields
-                    }
-                }
-            }
-            errorFormCard {
-                compactFormSection("规律与识别思路", image: "eye") {
-                    TextField("图形规律", text: $draft.graphRule).textFieldStyle(ErrorFormTextFieldStyle())
-                    TextField("识别思路", text: $draft.recognition).textFieldStyle(ErrorFormTextFieldStyle())
-                }
-            }
-            if recordID == nil { errorAnalysisCard }
-        }
-        .background(Color.white)
-    }
-
-    private var regularErrorFields: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if recordID != nil { errorAnalysisCard }
-            if isDataAnalysis { dataAnalysisMaterialEditor }
-            errorImageCard
-
-            errorFormCard {
-                compactFormSection("题目与选项", image: "list.bullet.rectangle") {
-                HStack {
-                    NativeFieldLabel(title: "题干")
-                    Spacer()
-                    Button(action: openSmartSplit) {
-                        Label("智能拆分", systemImage: "sparkles")
-                            .font(AppTheme.auxiliaryFont.weight(.semibold))
-                    }
-                    .buttonStyle(.plain)
-                }
-                if let splitMessage {
-                    Text(splitMessage).font(AppTheme.auxiliaryFont)
-                        .foregroundStyle(splitMessage.hasPrefix("已") ? AppTheme.success : AppTheme.warning)
-                }
-                errorQuestionEditor(text: $draft.title)
-                NativeFieldLabel(title: "选项")
-                ForEach(draft.options.indices, id: \.self) { index in
-                    optionEditorRow(index)
-                }
-            }
-            }
-
-            errorFormCard {
-                compactFormSection("答案与来源", image: "checkmark.circle") {
-                HStack(alignment: .top, spacing: 8) {
-                    answerPicker(title: "正确选项", field: .correct, selection: $draft.correctOption)
-                    answerPicker(title: "我的选项", field: .selected, selection: $draft.userOption)
-                }
-                HStack(spacing: 8) {
-                    TextField("全站正确率（%）", text: $draft.accuracy)
-                        .keyboardType(.decimalPad).textFieldStyle(ErrorFormTextFieldStyle())
-                    sourceAndQuestionNumberFields
-                }
-            }
-            }
-
-            if recordID == nil { errorAnalysisCard }
-
-        }
-        .background(Color.white)
-    }
-
-    @ViewBuilder private var dataAnalysisMaterialEditor: some View {
-        errorFormCard {
-            compactFormSection("材料（可选）", image: "doc.text") {
-                shenlunGrowingEditor(text: $draft.dataAnalysisMaterialText)
-                    .accessibilityIdentifier("library-data-analysis-material-editor")
-            }
-        }
-    }
-
-    @ViewBuilder private var errorImageCard: some View {
-        if !draft.images.isEmpty {
-            errorFormCard { imagePicker }
-        }
-    }
-
-    private var errorAnalysisCard: some View {
-        errorFormCard {
-            if isQuantityRelations {
-                compactFormSection("题型分析", image: "tag") {
-                    quantityTextInput(title: "题目结构", placeholder: "例如：矩形边界植树", text: $draft.quantityStructure)
-                    quantityTagInput(title: "考点", value: draft.knowledgePoint) {
-                        showQuantityKnowledgePoints = true
-                    }
-                    quantityTagInput(title: "弱项标签", value: draft.weaknessTags) {
-                        showQuantityWeaknessTags = true
-                    }
-                }
-            } else {
-                compactFormSection("\(knowledgePointLabel)与\(errorCauseLabel)", image: "tag") {
-                    tagInput(
-                        title: "\(knowledgePointLabel)（可选）",
-                        text: $draft.knowledgePoint,
-                        suggestions: TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records),
-                        allowsMultiple: true
-                    )
-                    if isDataAnalysis || isAnalogyReasoning {
-                        plainTextInput(label: errorCauseLabel, placeholder: "可留空", text: $draft.errorCause)
-                    } else {
-                        tagInput(
-                            title: "\(errorCauseLabel)（可选）",
-                            text: $draft.errorCause,
-                            suggestions: TagLibraryRepository.tags(kind: .errorCause, module: draft.module, records: records)
-                        )
-                    }
-                    plainTextInput(
-                        label: isDataAnalysis ? "提醒" : "思维误区",
-                        placeholder: "可留空",
-                        text: $draft.pitfall
-                    )
-                }
-            }
-            compactFormSection("题目标记", image: "tag") {
-                Toggle("难题", isOn: $draft.isDifficult)
-                    .accessibilityIdentifier("library-error-tag-difficult")
-                Toggle("待复习", isOn: $draft.needsReview)
-                    .accessibilityIdentifier("library-error-tag-needs-review")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func optionEditorRow(_ index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: StudyOptionRowLayout.verticalAlignment(hasText: !draft.options[index].isEmpty), spacing: 7) {
-                let letter = String(UnicodeScalar(65 + index)!)
-                Text(letter)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(AppTheme.accent)
-                    .frame(width: 28, height: 28)
-                    .background(AppTheme.accent.opacity(0.10), in: Capsule())
-                TextField("", text: $draft.options[index], axis: .vertical)
-                    .lineLimit(1...5)
-                    .font(.system(size: 12.5, weight: .regular))
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, minHeight: 36, alignment: .topLeading)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
-                    .accessibilityLabel("选项 \(letter)")
-                    .accessibilityIdentifier("library-error-option-\(index)")
-                if isDataAnalysis {
-                    DataAnalysisOptionImagePicker(hasImage: !optionImageBinding(index).wrappedValue.isEmpty) { value in
-                        optionImageBinding(index).wrappedValue = value
-                    }
-                    .alignmentGuide(.firstTextBaseline) { dimensions in
-                        dimensions[.top] + dimensions.height / 2
-                    }
-                }
-            }
-            let optionImageSource = optionImageBinding(index).wrappedValue
-            if isDataAnalysis && !optionImageSource.isEmpty {
-                HStack(alignment: .top, spacing: 8) {
-                    Color.clear.frame(width: 21, height: 1)
-                    LibraryEditorImagePreview(
-                        source: optionImageSource,
-                        imageID: draft.optionImageIDs.indices.contains(index) ? draft.optionImageIDs[index] : "option-\(index)",
-                        width: nil,
-                        height: 190,
-                        contentMode: .fit,
-                        maximumPixelSize: 1_200
-                    )
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.09), lineWidth: 0.8))
-                    Button {
-                        optionImageBinding(index).wrappedValue = ""
-                    } label: {
-                        Image(systemName: "trash").foregroundStyle(AppTheme.danger)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("删除\(String(UnicodeScalar(65 + index)!))选项图片")
-                }
-            }
-        }
-    }
-
-    private func optionImageBinding(_ index: Int) -> Binding<String> {
-        Binding(
-            get: { index < draft.optionImages.count ? draft.optionImages[index] : "" },
-            set: { draft.setOptionImage($0, at: index) }
+        LibraryErrorEditorFieldsView(
+            recordID: recordID,
+            records: records,
+            splitMessage: splitMessage,
+            internalLinks: internalLinkCandidates,
+            onOpenSmartSplit: openSmartSplit,
+            onQuestionImageWidth: questionImageWidth,
+            questionImageWidthBinding: questionImageWidthBinding,
+            onCommitQuestionImageWidth: commitQuestionImageWidth,
+            onOpenInternalLink: { link in
+                linkedEditorTarget = LinkedRecordEditorTarget(collection: link.collection, recordID: link.recordID)
+            },
+            onOpenLinkedWord: { id in linkedWordDetailTarget = LinkedWordDetailTarget(recordID: id) },
+            draft: $draft,
+            selectedPhotos: $selectedPhotos,
+            activeTags: $activeTags,
+            activeRelation: $activeRelation,
+            expandedAnswerField: $expandedAnswerField,
+            showQuantityKnowledgePoints: $showQuantityKnowledgePoints,
+            showQuantityWeaknessTags: $showQuantityWeaknessTags,
+            isCurrentAffairsSupplementExpanded: $isCurrentAffairsSupplementExpanded,
+            questionImageWidthPreview: $questionImageWidthPreview
         )
     }
 
@@ -758,156 +553,6 @@ struct LibraryRecordEditorView: View {
         }
         .pickerStyle(.segmented)
         .frame(maxWidth: 300)
-    }
-
-    private func answerPicker(title: String, field: ErrorAnswerField, selection: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
-            Button {
-                withoutAnimation { expandedAnswerField = expandedAnswerField == field ? nil : field }
-            } label: {
-                HStack(spacing: 6) {
-                    Text(selection.wrappedValue.isEmpty ? "请选择" : selection.wrappedValue)
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(selection.wrappedValue.isEmpty ? Color.secondary : Color.primary)
-                    Spacer()
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
-                }
-                .padding(.horizontal, 11)
-                .frame(maxWidth: .infinity, minHeight: 38)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.12), lineWidth: 0.8))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if expandedAnswerField == field {
-                HStack(spacing: 5) {
-                    ForEach(answerOptionLetters, id: \.self) { value in
-                        Button {
-                            selection.wrappedValue = value
-                            withoutAnimation { expandedAnswerField = nil }
-                        } label: {
-                            Text(value)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(selection.wrappedValue == value ? AppTheme.accent : Color.primary)
-                                .frame(maxWidth: .infinity, minHeight: 27)
-                                .background(selection.wrappedValue == value ? AppTheme.accent.opacity(0.09) : Color.white,
-                                            in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .stroke(selection.wrappedValue == value ? AppTheme.accent.opacity(0.55) : Color.primary.opacity(0.1), lineWidth: 0.8))
-                        }.buttonStyle(.plain)
-                    }
-                }
-                .padding(4)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Color.primary.opacity(0.1), lineWidth: 0.7))
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var answerOptionLetters: [String] {
-        return ["A", "B", "C", "D"]
-    }
-
-    private func withoutAnimation(_ changes: () -> Void) {
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction, changes)
-    }
-
-    private func compactFormSection<Content: View>(
-        _ title: String,
-        image: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Label(title, systemImage: image)
-                .font(.system(size: 13, weight: .medium))
-            content()
-        }
-    }
-
-    private func errorFormCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            content()
-        }
-        .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.8)
-        }
-    }
-
-    private func errorQuestionEditor(text: Binding<String>, minHeight: CGFloat = 70) -> some View {
-        ShenlunAdaptiveTextEditor(
-            text: text,
-            minimumHeight: minHeight,
-            growsWithContent: true,
-            accessibilityIdentifier: "library-error-question"
-        )
-            .padding(.horizontal, 7)
-            .padding(.vertical, 5)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
-    }
-
-    private func tagInput(
-        title: String,
-        text: Binding<String>,
-        suggestions: [String],
-        allowsMultiple: Bool = false
-    ) -> some View {
-        Button {
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-            activeTags = allowsMultiple ? .knowledgePoint : .errorCause
-        } label: {
-            HStack(spacing: 8) {
-                Text(allowsMultiple ? knowledgePointLabel : errorCauseLabel)
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .frame(width: 66, alignment: .leading)
-                if text.wrappedValue.isEmpty {
-                    Text("选择或新增").font(.system(size: 12)).foregroundStyle(.tertiary)
-                    Spacer()
-                } else {
-                    NativeTagFlow {
-                        ForEach(allowsMultiple ? splitTags(text.wrappedValue) : [text.wrappedValue], id: \.self) { value in
-                            Text(value).font(.system(size: 11)).foregroundStyle(AppTheme.accent)
-                                .padding(.horizontal, 7).padding(.vertical, 4)
-                                .background(AppTheme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 4))
-                        }
-                    }
-                }
-                Image(systemName: "chevron.down").font(.system(size: 9)).foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.1), lineWidth: 0.7))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func plainTextInput(label: String, placeholder: String, text: Binding<String>) -> some View {
-        HStack(alignment: .center, spacing: 8) {
-            Text(label)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .frame(width: 66, alignment: .leading)
-            TextField(placeholder, text: text, axis: .vertical)
-                .font(.system(size: 12.5, weight: .regular))
-                .lineLimit(1...5)
-                .frame(minHeight: 22, alignment: .center)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(minHeight: 38, alignment: .center)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.1), lineWidth: 0.7))
     }
 
     private func splitTags(_ rawValue: String) -> [String] {
@@ -945,199 +590,6 @@ struct LibraryRecordEditorView: View {
         .overlay {
             RoundedRectangle(cornerRadius: AppTheme.cardRadius)
                 .stroke(Color.primary.opacity(0.055), lineWidth: 0.7)
-        }
-    }
-
-    private var imagePicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                NativeFieldLabel(title: "题干图片")
-                Spacer()
-                PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 12, matching: .images) {
-                    Label("添加图片", systemImage: "photo.badge.plus").font(AppTheme.inputFont.weight(.semibold))
-                }
-            }
-            if !draft.imageDisplaySettings.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(draft.imageDisplaySettings) { setting in
-                            if let index = draft.imageDisplaySettings.firstIndex(where: { $0.id == setting.id }),
-                               draft.images.indices.contains(index) {
-                                VStack(alignment: .leading, spacing: 5) {
-                                    ZStack(alignment: .topTrailing) {
-                                        LibraryEditorImagePreview(
-                                            source: draft.images[index],
-                                            imageID: setting.id,
-                                            width: 90,
-                                            height: 74
-                                        )
-                                        Button { draft.removeQuestionImage(at: index) } label: {
-                                            Image(systemName: "xmark.circle.fill").symbolRenderingMode(.palette).foregroundStyle(.white, .black.opacity(0.55))
-                                        }.buttonStyle(.plain).offset(x: 5, y: -5)
-                                    }
-                                    HStack(spacing: 4) {
-                                        let displayedWidth = questionImageWidth(for: setting.id)
-                                        Text("\(Int((displayedWidth * 100).rounded()))%")
-                                            .font(.system(size: 11, weight: .medium).monospacedDigit())
-                                            .foregroundStyle(.secondary)
-                                            .frame(width: 38, alignment: .leading)
-                                        Slider(
-                                            value: questionImageWidthBinding(for: setting.id),
-                                            in: LibraryImageDisplaySetting.minimumWidthFraction...LibraryImageDisplaySetting.maximumWidthFraction,
-                                            step: LibraryImageDisplaySetting.stepWidthFraction,
-                                            onEditingChanged: { isEditing in
-                                                if !isEditing { commitQuestionImageWidth(for: setting.id) }
-                                            }
-                                        )
-                                        .accessibilityLabel("题干图片显示宽度")
-                                        Button("全宽") {
-                                            draft.setQuestionImageWidth(id: setting.id, fraction: LibraryImageDisplaySetting.maximumWidthFraction)
-                                            questionImageWidthPreview[setting.id] = nil
-                                        }
-                                        .font(.system(size: 11, weight: .medium))
-                                        .buttonStyle(.plain)
-                                        .foregroundStyle(AppTheme.accent)
-                                        .disabled(displayedWidth >= LibraryImageDisplaySetting.maximumWidthFraction)
-                                    }
-                                }
-                                .frame(width: 205, alignment: .leading)
-                            }
-                        }
-                    }.padding(.vertical, 4)
-                }
-            }
-        }
-    }
-
-    private var shenlunFields: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            errorFormCard {
-                compactFormSection("题型及来源", image: "doc.text.magnifyingglass") {
-                    HStack(spacing: 8) {
-                        TextField("题目来源（可选，如：2025国考申论）", text: $draft.questionSource)
-                            .textFieldStyle(ErrorFormTextFieldStyle())
-                        TextField("题号", text: $draft.questionNumber)
-                            .keyboardType(.numberPad)
-                            .frame(width: 72)
-                            .textFieldStyle(ErrorFormTextFieldStyle())
-                    }
-                    HStack {
-                        TextField("得分（可选）", text: $draft.score).keyboardType(.numberPad).textFieldStyle(ErrorFormTextFieldStyle())
-                        TextField("总分（可选）", text: $draft.totalScore).keyboardType(.numberPad).textFieldStyle(ErrorFormTextFieldStyle())
-                    }
-                }
-            }
-
-            errorFormCard {
-                compactFormSection("时政补充（可选）", image: "text.book.closed") {
-                    DisclosureGroup(isExpanded: $isCurrentAffairsSupplementExpanded) {
-                        shenlunGrowingEditor(text: $draft.currentAffairsSupplement)
-                    } label: {
-                        HStack {
-                            Text(draft.currentAffairsSupplement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "点击填写" : "已填写")
-                                .font(AppTheme.auxiliaryFont)
-                                .foregroundStyle(draft.currentAffairsSupplement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : AppTheme.accent)
-                            Spacer()
-                        }
-                    }
-                    .tint(AppTheme.accent)
-                }
-            }
-
-            errorFormCard {
-                compactFormSection("我的作答", image: "pencil.line") {
-                    shenlunGrowingEditor(text: $draft.myAnswer)
-                }
-            }
-
-            errorFormCard {
-                compactFormSection("参考答案", image: "checkmark.document") {
-                    shenlunGrowingEditor(text: $draft.referenceAnswer)
-                }
-            }
-
-            errorFormCard {
-                compactFormSection("我的作答问题（可选）", image: "exclamationmark.bubble") {
-                    shenlunGrowingEditor(text: $draft.myAnswerIssues)
-                }
-            }
-
-            errorFormCard {
-                compactFormSection("材料分析（可选）", image: "doc.text.magnifyingglass") {
-                    shenlunGrowingEditor(text: $draft.materialsAnalysis)
-                }
-            }
-
-            errorFormCard {
-                compactFormSection("复盘笔记（可选）", image: "note.text") {
-                    errorFormRichEditor(text: $draft.content, height: 220)
-                }
-            }
-
-            errorFormCard {
-                compactFormSection("材料（可选）", image: "doc.on.doc") {
-                    HStack {
-                        Spacer()
-                        Button { draft.materials.append(.init()) } label: {
-                            Label("增加材料", systemImage: "plus")
-                                .font(AppTheme.auxiliaryFont.weight(.semibold))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    ForEach(draft.materials) { material in
-                        shenlunMaterialEditor(material)
-                    }
-                }
-            }
-
-            errorFormCard {
-                compactFormSection("题干", image: "text.alignleft") {
-                    shenlunGrowingEditor(text: $draft.title)
-                }
-            }
-        }
-    }
-
-    private func shenlunMaterialEditor(_ material: ShenlunMaterialDraft) -> some View {
-        let materialIndex = draft.materials.firstIndex(where: { $0.id == material.id }) ?? 0
-        return VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                NativeFieldLabel(title: "材料 \(materialIndex + 1)")
-                Spacer()
-                if draft.materials.count > 1 {
-                    Button("删除") { draft.materials.removeAll { $0.id == material.id } }
-                        .font(AppTheme.auxiliaryFont)
-                        .foregroundStyle(AppTheme.danger)
-                        .buttonStyle(.plain)
-                }
-            }
-            shenlunFixedEditor(text: shenlunMaterialBinding(id: material.id), height: 170)
-        }
-    }
-
-    private func shenlunMaterialBinding(id: UUID) -> Binding<String> {
-        Binding(
-            get: { draft.materials.first(where: { $0.id == id })?.content ?? "" },
-            set: { value in
-                guard let index = draft.materials.firstIndex(where: { $0.id == id }) else { return }
-                draft.materials[index].content = value
-            }
-        )
-    }
-
-    private func stringList(title: String, values: Binding<[String]>) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                NativeFieldLabel(title: title)
-                Spacer()
-                Button { values.wrappedValue.append("") } label: { Image(systemName: "plus.circle") }
-            }
-            ForEach(values.wrappedValue.indices, id: \.self) { index in
-                HStack {
-                    TextField(title, text: values[index]).textFieldStyle(NativeTextFieldStyle())
-                    Button { values.wrappedValue.remove(at: index) } label: { Image(systemName: "trash").foregroundStyle(AppTheme.danger) }
-                }
-            }
         }
     }
 
@@ -1404,81 +856,6 @@ struct LibraryRecordEditorView: View {
         if !names.isEmpty { draft.title = names.joined(separator: " vs ") }
     }
 
-    private var errorRelations: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("内容关联").font(.system(size: 11)).foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            ForEach(["exams", "notes"], id: \.self) { collection in
-                Button {
-                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                    activeRelation = collection
-                } label: {
-                    NativeDocumentProperty(title: collection == "exams" ? "来源套卷" : (collection == "notes" ? "关联笔记" : "关联词语"),
-                        value: relationSummary(collection))
-                }.buttonStyle(.plain)
-            }
-            if draft.subject == "言语理解", draft.module == "逻辑填空" {
-                linkedWordSection
-            }
-        }
-    }
-
-    private var linkedWordSection: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text("关联词语库").font(.system(size: 12, weight: .medium))
-                Spacer()
-                Button {
-                    activeRelation = "words"
-                } label: {
-                    Label("筛选关联", systemImage: "plus")
-                        .font(.system(size: 11, weight: .semibold))
-                }
-                .buttonStyle(.plain)
-            }
-            if linkedWordRecords.isEmpty {
-                Text("尚未关联，可从词语库筛选或直接新建")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-            } else {
-                ForEach(linkedWordRecords, id: \.compoundID) { record in
-                    Button {
-                        linkedWordDetailTarget = LinkedWordDetailTarget(recordID: record.recordID)
-                    } label: {
-                        let snapshot = LibraryRecordSnapshot(record: record)
-                        HStack(spacing: 8) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(snapshot.title).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.primary).lineLimit(1)
-                                if !snapshot.summary.isEmpty {
-                                    Text(snapshot.summary).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
-                                }
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
-                        }
-                        .padding(.horizontal, 10)
-                        .frame(minHeight: 40)
-                        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .padding(.vertical, 7)
-    }
-
-    private var linkedWordRecords: [StoredRecord] {
-        let ids = Set(draft.linkedWordIDs)
-        return records.filter { $0.collection == "words" && ids.contains($0.recordID) }
-    }
-
-    private func relationSummary(_ collection: String) -> String {
-        if collection == "exams" { return relationTitle(collection: collection, id: draft.sourceExamID) }
-        let count = collection == "notes" ? draft.linkedNoteIDs.count : draft.linkedWordIDs.count
-        return count == 0 ? "未关联" : "已关联 \(count) 项"
-    }
-
     private func relationBinding(_ collection: String) -> Binding<[String]> {
         switch collection {
         case "exams": return Binding(get: { draft.sourceExamID.isEmpty ? [] : [draft.sourceExamID] }, set: { draft.sourceExamID = $0.first ?? "" })
@@ -1544,29 +921,6 @@ struct LibraryRecordEditorView: View {
             .frame(minHeight: height)
             .padding(8)
             .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
-    }
-
-    private func errorFormRichEditor(text: Binding<String>, height: CGFloat) -> some View {
-        NativeRichTextEditor(
-            html: text,
-            minHeight: height,
-            documentStyle: true,
-            internalLinks: internalLinkCandidates,
-            onOpenInternalLink: { link in
-                linkedEditorTarget = LinkedRecordEditorTarget(collection: link.collection, recordID: link.recordID)
-            }
-        )
-        .padding(8)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
-    }
-
-    private func shenlunGrowingEditor(text: Binding<String>) -> some View {
-        ShenlunAdaptiveTextEditor(text: text, minimumHeight: 82, growsWithContent: true)
-    }
-
-    private func shenlunFixedEditor(text: Binding<String>, height: CGFloat) -> some View {
-        ShenlunAdaptiveTextEditor(text: text, minimumHeight: height, growsWithContent: false)
     }
 
     private func richEditor(text: Binding<String>, height: CGFloat) -> some View {
@@ -1744,7 +1098,7 @@ struct LibraryRecordEditorView: View {
     }
 }
 
-private struct ErrorFormTextFieldStyle: TextFieldStyle {
+struct ErrorFormTextFieldStyle: TextFieldStyle {
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration
             .font(.system(size: 12.5, weight: .regular))
@@ -1755,7 +1109,7 @@ private struct ErrorFormTextFieldStyle: TextFieldStyle {
     }
 }
 
-private struct DataAnalysisOptionImagePicker: View {
+struct DataAnalysisOptionImagePicker: View {
     let hasImage: Bool
     let onPicked: (String) -> Void
     @State private var item: PhotosPickerItem?

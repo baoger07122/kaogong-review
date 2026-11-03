@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 enum LibraryLegacyIndexMigration {
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     @MainActor
     static func runIfNeeded(in container: ModelContainer, storedVersion: Int) async throws -> Int {
@@ -25,6 +25,7 @@ enum LibraryLegacyIndexMigration {
                 let needsRepair: Bool
                 if record.collection == "errors" {
                     needsRepair = (index["pitfall"] == nil && payload["pitfall"] != nil)
+                        || (index["reminder"] == nil && payload["reminder"] != nil)
                         || (index["options"] == nil && payload["options"] != nil)
                 } else {
                     needsRepair = index["entryKind"] == nil && payload["entryKind"] != nil

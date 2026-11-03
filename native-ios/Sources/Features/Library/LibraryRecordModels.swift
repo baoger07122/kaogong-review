@@ -285,6 +285,7 @@ struct LibraryRecordSnapshot: Identifiable {
     let dataAnalysisErrorCause: String
     let dataAnalysisMaterialText: String
     let pitfall: String
+    let reminder: String
     let options: [String]
     let dataAnalysisOptionRows: [String]
     let quantityStructure: String
@@ -296,12 +297,17 @@ struct LibraryRecordSnapshot: Identifiable {
     let comparisonWords: [String]
     let questionSource: String
     let questionNumber: String
+    let reviewSource: LibraryReviewSource
+    let sourceExamID: String
+    let sourceExamTitle: String
 
     var id: String { record.compoundID }
 
     init(
         record: StoredRecord,
         linkedWordNamesByID: [String: String] = [:],
+        sourceExamTitlesByID: [String: String] = [:],
+        reviewSource: LibraryReviewSource = .pending,
         includeImages: Bool = false,
         previousImageSnapshot: LibraryRecordSnapshot? = nil
     ) {
@@ -366,6 +372,8 @@ struct LibraryRecordSnapshot: Identifiable {
             .map(Self.plainText) ?? ""
         pitfall = Self.firstText(in: object, keys: ["pitfall", "misconception", "thinkingTrap"])
             .map(Self.plainText) ?? ""
+        reminder = Self.firstText(in: object, keys: ["reminder"])
+            .map(Self.plainText) ?? ""
         options = (object["options"] as? [String] ?? [])
             .map(Self.plainText)
             .filter { !$0.isEmpty }
@@ -424,6 +432,9 @@ struct LibraryRecordSnapshot: Identifiable {
             .map(Self.plainText) ?? ""
         questionNumber = Self.firstText(in: object, keys: ["questionNumber"])
             .map(Self.plainText) ?? ""
+        self.reviewSource = reviewSource
+        sourceExamID = Self.firstText(in: object, keys: ["sourceExamId"]) ?? ""
+        sourceExamTitle = sourceExamTitlesByID[sourceExamID] ?? ""
 
         var values: [String] = []
         if record.collection == "words" {
@@ -442,7 +453,8 @@ struct LibraryRecordSnapshot: Identifiable {
         var seen = Set<String>()
         tags = Array(values.filter { !$0.isEmpty && seen.insert($0).inserted })
 
-        var searchValues = [title, summary, quantityStructure, dataAnalysisMaterialText, questionSource, questionNumber]
+        let searchableSource = reviewSource == .mock ? sourceExamTitle : questionSource
+        var searchValues = [title, summary, quantityStructure, dataAnalysisMaterialText, searchableSource, questionNumber, pitfall, reminder]
         searchValues.append(contentsOf: tags)
         searchValues.append(contentsOf: weaknessTags)
         searchValues.append(contentsOf: ["pinyin", "meaning", "judgmentHint", "commonMeaning", "example", "compareNote", "myUnderstanding", "collocations", "pos"]
@@ -455,13 +467,62 @@ struct LibraryRecordSnapshot: Identifiable {
         searchableText = searchValues.joined(separator: "\n")
     }
 
+    var mockSourceTitleDisplay: String? {
+        guard record.collection == "errors", reviewSource == .mock else { return nil }
+        let title = Self.abbreviatedMockExamTitle(sourceExamTitle) ?? sourceExamTitle
+        return title.isEmpty ? "未关联套卷" : title
+    }
+
+    var mockQuestionNumberDisplay: String {
+        guard !questionNumber.isEmpty else { return "" }
+        return questionNumber.contains("第") || questionNumber.contains("题")
+            ? questionNumber
+            : "第\(questionNumber)题"
+    }
+
     var sourceDisplay: String {
+        if let title = mockSourceTitleDisplay {
+            return mockQuestionNumberDisplay.isEmpty ? title : "\(title) · \(mockQuestionNumberDisplay)"
+        }
         switch (questionSource.isEmpty, questionNumber.isEmpty) {
         case (false, false): return "\(questionSource)-\(questionNumber)"
         case (false, true): return questionSource
         case (true, false): return questionNumber
         case (true, true): return ""
         }
+    }
+
+    private static func abbreviatedMockExamTitle(_ title: String) -> String? {
+        let compact = title.filter { !$0.isWhitespace }
+        let pattern = #"^(20\d{2})年?国考.*?(?:第)?([0-9]+|[零〇一二两三四五六七八九十百千]+)季"#
+        guard let expression = try? NSRegularExpression(pattern: pattern),
+              let match = expression.firstMatch(in: compact, range: NSRange(compact.startIndex..., in: compact)),
+              match.numberOfRanges == 3,
+              let yearRange = Range(match.range(at: 1), in: compact),
+              let seasonRange = Range(match.range(at: 2), in: compact),
+              let season = seasonNumber(String(compact[seasonRange]))
+        else { return nil }
+        return "\(compact[yearRange])国考\(season)季"
+    }
+
+    private static func seasonNumber(_ value: String) -> Int? {
+        if let arabic = Int(value) { return arabic }
+        let digits: [Character: Int] = ["零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9]
+        let units: [Character: Int] = ["十": 10, "百": 100, "千": 1000]
+        var section = 0
+        var digit = 0
+        for character in value {
+            if let number = digits[character] {
+                digit = number
+            } else if let unit = units[character] {
+                section += (digit == 0 ? 1 : digit) * unit
+                digit = 0
+            } else {
+                return nil
+            }
+        }
+        let number = section + digit
+        return number > 0 ? number : nil
     }
 
     private static func firstText(in object: [String: Any], keys: [String]) -> String? {

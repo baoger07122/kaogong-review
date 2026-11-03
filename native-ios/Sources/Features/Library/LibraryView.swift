@@ -333,6 +333,7 @@ struct LibraryView: View {
                             records: visibleRecords,
                             kind: kind,
                             cardSize: cardSize,
+                            partitionKey: "\(kind.collection)|\(scope.subject ?? "")|\(scope.module ?? "")|\(scope.reviewSource.rawValue)|\(selectedTag)",
                             onOpen: { open($0) },
                             onDelete: { deleteTarget = LibraryDeleteTarget(kind: kind, recordID: $0.record.recordID) },
                             hiddenTags: kind == .notes && !selectedTag.isEmpty ? [selectedTag] : []
@@ -460,21 +461,26 @@ struct LibraryView: View {
     }
 
     private var reviewSourceSelector: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 2) {
             ForEach([LibraryReviewSource.real, .mock], id: \.self) { source in
                 Button { selectReviewSource(source) } label: {
                     Text(source.title)
                         .font(.system(size: 12, weight: .semibold))
-                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .frame(width: 116, height: 34)
                         .foregroundStyle(scope.reviewSource == source ? AppTheme.accent : Color.primary)
-                        .background(scope.reviewSource == source ? AppTheme.secondaryBackground : Color.clear, in: Capsule())
+                        .background(scope.reviewSource == source ? Color.primary.opacity(0.075) : Color.clear, in: Capsule())
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .frame(width: 116, height: 44)
+                .contentShape(Rectangle())
             }
         }
-        .padding(3)
-        .background(Color.primary.opacity(0.05), in: Capsule())
+        .padding(.horizontal, 3)
+        .frame(height: 44)
+        .background {
+            Capsule().fill(Color.primary.opacity(0.04)).frame(height: 36)
+        }
     }
 
     private var pendingSourceCount: Int {
@@ -682,11 +688,14 @@ struct LibraryView: View {
 
     private func snapshots(from scopedRecords: [StoredRecord]) -> [LibraryRecordSnapshot] {
         let wordNames = snapshotCache.wordNames(in: records)
+        let examTitles = snapshotCache.examTitles(in: records)
         return Array(scopedRecords.prefix(renderLimit)).map {
             snapshotCache.snapshot(
                 record: $0,
                 linkedWordNamesByID: wordNames,
-                includeImages: includesQuestionImages(in: $0)
+                includeImages: includesQuestionImages(in: $0),
+                reviewSource: scope.reviewSource,
+                sourceExamTitlesByID: examTitles
             )
         }
     }

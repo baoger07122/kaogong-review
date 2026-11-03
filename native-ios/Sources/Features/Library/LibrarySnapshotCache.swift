@@ -19,11 +19,18 @@ final class LibrarySnapshotCache {
         let value: String
     }
 
+    private struct ExamTitleRevision: Equatable {
+        let compoundID: String
+        let updatedAt: Date?
+        let indexPayload: Data?
+    }
+
     private struct Entry {
         let updatedAt: Date?
         let payloadCount: Int
         let indexPayloadCount: Int
         let includesImages: Bool
+        let reviewSource: LibraryReviewSource
         let snapshot: LibraryRecordSnapshot
     }
 
@@ -31,6 +38,8 @@ final class LibrarySnapshotCache {
     private var names: [String: WordNameEntry] = [:]
     private var cachedWordNameRevision: [WordNameRevision]?
     private var cachedWordNames: [String: String] = [:]
+    private var cachedExamTitleRevision: [ExamTitleRevision]?
+    private var cachedExamTitles: [String: String] = [:]
 
     func wordNames(in records: [StoredRecord]) -> [String: String] {
         let wordRecords = records.filter { $0.collection == "words" }
@@ -75,10 +84,45 @@ final class LibrarySnapshotCache {
         return result
     }
 
+    func examTitles(in records: [StoredRecord]) -> [String: String] {
+        let exams = records.filter { $0.collection == "exams" }.sorted { $0.recordID < $1.recordID }
+        let revision = exams.map {
+            ExamTitleRevision(
+                compoundID: $0.compoundID,
+                updatedAt: $0.updatedAt,
+                indexPayload: $0.indexPayload
+            )
+        }
+        if cachedExamTitleRevision == revision { return cachedExamTitles }
+
+        let previous = cachedExamTitles
+        var result: [String: String] = [:]
+        for record in exams {
+            let object = record.indexObject ?? [:]
+            let title = ["title", "name", "text"]
+                .compactMap { object[$0] as? String }
+                .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                ?? record.title
+            result[record.recordID] = title
+        }
+        let changedExamIDs = Set(previous.keys).union(result.keys).filter { previous[$0] != result[$0] }
+        if !changedExamIDs.isEmpty {
+            let changedIDs = Set(changedExamIDs)
+            entries = entries.filter { _, entry in
+                entry.reviewSource != .mock || !changedIDs.contains(entry.snapshot.sourceExamID)
+            }
+        }
+        cachedExamTitleRevision = revision
+        cachedExamTitles = result
+        return result
+    }
+
     func snapshot(
         record: StoredRecord,
         linkedWordNamesByID: [String: String],
-        includeImages: Bool
+        includeImages: Bool,
+        reviewSource: LibraryReviewSource = .pending,
+        sourceExamTitlesByID: [String: String] = [:]
     ) -> LibraryRecordSnapshot {
         let payloadCount = record.payload.count
         let indexPayloadCount = record.indexPayload?.count ?? 0
@@ -86,13 +130,16 @@ final class LibrarySnapshotCache {
            cached.updatedAt == record.updatedAt,
            cached.payloadCount == payloadCount,
            cached.indexPayloadCount == indexPayloadCount,
-           cached.includesImages == includeImages {
+           cached.includesImages == includeImages,
+           cached.reviewSource == reviewSource {
             return cached.snapshot
         }
         let previousImageSnapshot = entries[record.compoundID]?.snapshot
         let value = LibraryRecordSnapshot(
             record: record,
             linkedWordNamesByID: linkedWordNamesByID,
+            sourceExamTitlesByID: sourceExamTitlesByID,
+            reviewSource: reviewSource,
             includeImages: includeImages,
             previousImageSnapshot: previousImageSnapshot
         )
@@ -101,6 +148,7 @@ final class LibrarySnapshotCache {
             payloadCount: payloadCount,
             indexPayloadCount: indexPayloadCount,
             includesImages: includeImages,
+            reviewSource: reviewSource,
             snapshot: value
         )
         return value
@@ -111,6 +159,8 @@ final class LibrarySnapshotCache {
         names.removeAll()
         cachedWordNameRevision = nil
         cachedWordNames.removeAll()
+        cachedExamTitleRevision = nil
+        cachedExamTitles.removeAll()
     }
 }
 

@@ -16,6 +16,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
     var correctOption: String
     var userOption: String
     var pitfall: String
+    var reminder: String?
     var quantityStructure: String?
     var weaknessTags: String?
     var isDifficult: Bool?
@@ -80,6 +81,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         correctOption = draft.correctOption
         userOption = draft.userOption
         pitfall = draft.pitfall
+        reminder = draft.reminder
         quantityStructure = draft.quantityStructure
         weaknessTags = draft.weaknessTags
         isDifficult = draft.isDifficult
@@ -154,6 +156,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         draft.correctOption = correctOption
         draft.userOption = userOption
         draft.pitfall = pitfall
+        draft.reminder = reminder ?? ""
         draft.quantityStructure = quantityStructure ?? ""
         draft.weaknessTags = weaknessTags ?? ""
         draft.isDifficult = isDifficult ?? false

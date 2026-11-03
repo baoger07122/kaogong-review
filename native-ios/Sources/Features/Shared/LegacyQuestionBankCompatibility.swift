@@ -91,6 +91,7 @@ struct QuestionBankQuestion: Codable, Equatable, Sendable, Identifiable {
     var weaknessTags: [String]? = nil
     var errorCause: String? = nil
     var pitfall: String? = nil
+    var reminder: String? = nil
     var quantityStructure: String? = nil
     var graphRule: String? = nil
     var recognition: String? = nil
@@ -103,7 +104,7 @@ struct QuestionBankQuestion: Codable, Equatable, Sendable, Identifiable {
         case id, paperID, moduleID, number, subject, type, materialID, stem, stemImageAssetID
         case options, answer, explanation, originalPage, provenance
         case isDifficult, needsReview, knowledgePoints, weaknessTags, accuracy
-        case errorCause, pitfall, quantityStructure, graphRule, recognition, note
+        case errorCause, pitfall, reminder, quantityStructure, graphRule, recognition, note
         case linkedWordIDs = "linkedWordIds"
         case linkedErrorRecordIDs
     }
@@ -130,6 +131,7 @@ struct QuestionBankQuestion: Codable, Equatable, Sendable, Identifiable {
         weaknessTags = try container.decodeIfPresent([String].self, forKey: .weaknessTags)
         errorCause = try container.decodeIfPresent(String.self, forKey: .errorCause)
         pitfall = try container.decodeIfPresent(String.self, forKey: .pitfall)
+        reminder = try container.decodeIfPresent(String.self, forKey: .reminder)
         quantityStructure = try container.decodeIfPresent(String.self, forKey: .quantityStructure)
         graphRule = try container.decodeIfPresent(String.self, forKey: .graphRule)
         recognition = try container.decodeIfPresent(String.self, forKey: .recognition)
@@ -344,6 +346,7 @@ struct QuestionBankQuestionAnalysisContext {
         object["needsReview"] = current.needsReview ?? false
         object["errorCause"] = current.errorCause ?? ""
         object["pitfall"] = current.pitfall ?? ""
+        object["reminder"] = current.reminder ?? ""
         object["quantityStructure"] = current.quantityStructure ?? ""
         object["graphRule"] = current.graphRule ?? ""
         object["recognition"] = current.recognition ?? ""

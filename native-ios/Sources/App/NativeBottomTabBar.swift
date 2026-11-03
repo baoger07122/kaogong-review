@@ -13,12 +13,18 @@ struct NativeBottomTabBar: View {
         }
         .padding(6)
         .frame(maxWidth: 520)
-        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+        .background {
+            if #available(iOS 26.0, *) {
+                Color.clear.glassEffect(.regular, in: Capsule(style: .continuous))
+            } else {
+                Capsule(style: .continuous).fill(.ultraThinMaterial)
+            }
+        }
         .overlay {
             Capsule(style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.75)
+                .strokeBorder(Color.primary.opacity(0.065), lineWidth: 0.75)
         }
-        .shadow(color: .black.opacity(0.11), radius: 16, y: 6)
+        .shadow(color: .black.opacity(0.08), radius: 16, y: 6)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
         .padding(.top, 7)
@@ -37,7 +43,7 @@ struct NativeBottomTabBar: View {
             ZStack {
                 if isSelected {
                     Capsule(style: .continuous)
-                        .fill(AppTheme.accent.opacity(0.12))
+                        .fill(Color.primary.opacity(0.075))
                         .matchedGeometryEffect(id: "root-tab-selection", in: selectionBackground)
                         .animation(
                             reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82),
@@ -53,7 +59,7 @@ struct NativeBottomTabBar: View {
                         .font(.system(size: 10, weight: .medium))
                         .lineLimit(1)
                 }
-                .foregroundStyle(isSelected ? AppTheme.accent : Color.primary.opacity(0.66))
+                .foregroundStyle(isSelected ? AppTheme.accent : Color.primary)
                 .transaction { $0.animation = nil }
             }
             .frame(maxWidth: .infinity)

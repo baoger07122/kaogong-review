@@ -27,6 +27,13 @@ enum StudyOptionRowLayout {
     }
 }
 
+enum StudyOptionFeedbackPalette {
+    static let correct = Color(red: 52.0 / 255.0, green: 199.0 / 255.0, blue: 89.0 / 255.0)
+    static let incorrect = AppTheme.danger
+    static let correctBackground = correct.opacity(0.10)
+    static let incorrectBackground = incorrect.opacity(0.09)
+}
+
 struct StudyOptionMarker: View {
     let letter: String
     let state: StudyOptionMarkerState
@@ -59,8 +66,8 @@ struct StudyOptionMarker: View {
     private var fillColor: Color {
         switch state {
         case .unselected, .selected: .clear
-        case .correct: AppTheme.success
-        case .incorrect: AppTheme.danger
+        case .correct: StudyOptionFeedbackPalette.correct
+        case .incorrect: StudyOptionFeedbackPalette.incorrect
         }
     }
 
@@ -68,8 +75,8 @@ struct StudyOptionMarker: View {
         switch state {
         case .unselected: Color(uiColor: .separator).opacity(0.8)
         case .selected: AppTheme.accent
-        case .correct: AppTheme.success
-        case .incorrect: AppTheme.danger
+        case .correct: StudyOptionFeedbackPalette.correct
+        case .incorrect: StudyOptionFeedbackPalette.incorrect
         }
     }
 }

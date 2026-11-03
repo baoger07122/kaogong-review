@@ -390,7 +390,22 @@ private struct LibraryErrorRecordCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !snapshot.sourceDisplay.isEmpty {
+            if let mockSourceTitle = snapshot.mockSourceTitleDisplay {
+                HStack(spacing: 5) {
+                    Text(mockSourceTitle)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if !snapshot.mockQuestionNumberDisplay.isEmpty {
+                        Text(snapshot.mockQuestionNumberDisplay)
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+            } else if !snapshot.sourceDisplay.isEmpty {
                 Text(snapshot.sourceDisplay)
                     .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(.secondary)
@@ -489,11 +504,15 @@ private struct LibraryErrorRecordCard: View {
                 }
             }
 
-            if !isQuantityRelations, !snapshot.pitfall.isEmpty {
+            if !snapshot.pitfall.isEmpty {
+                plainField(label: "思维误区", value: snapshot.pitfall)
+            }
+
+            if !snapshot.reminder.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Image(systemName: "lightbulb.min")
                         .font(.system(size: 10, weight: .regular))
-                    Text(snapshot.pitfall)
+                    Text(snapshot.reminder)
                         .lineLimit(size == .small ? 2 : 3)
                 }
                 .font(.system(size: 11, weight: .regular))
@@ -589,18 +608,20 @@ private struct LibraryErrorRecordCard: View {
     }
 
     private func sentenceTagLine(label: String, value: String) -> some View {
-        HStack(alignment: .top, spacing: 2) {
+        HStack(alignment: .top, spacing: 5) {
             Text("\(label)：")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: true, vertical: false)
             Text(value)
                 .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(AppTheme.accent)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 5)
+                .background(AppTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .foregroundStyle(AppTheme.accent)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(AppTheme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private func splitTags(_ value: String) -> [String] {
@@ -959,11 +980,14 @@ struct LibraryMasonryGrid: View {
     let records: [LibraryRecordSnapshot]
     let kind: LibraryContentKind
     let cardSize: LibraryCardSize
+    let partitionKey: String
     let onOpen: (LibraryRecordSnapshot) -> Void
     let onDelete: (LibraryRecordSnapshot) -> Void
     var hiddenTags: Set<String> = []
     @State private var columnAssignments: [String: Int] = [:]
     @State private var lastColumnCount: Int?
+    @State private var lastPartitionKey: String?
+    @State private var lastReconciledRecordIDs: [String]?
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -979,6 +1003,7 @@ struct LibraryMasonryGrid: View {
         .onAppear(perform: reconcileColumns)
         .onChange(of: recordIDs) { _, _ in reconcileColumns() }
         .onChange(of: cardSize.columnCount) { _, _ in reconcileColumns() }
+        .onChange(of: partitionKey) { _, _ in reconcileColumns() }
     }
 
     private func cardLink(_ record: LibraryRecordSnapshot) -> some View {
@@ -1018,22 +1043,18 @@ struct LibraryMasonryGrid: View {
 
     private func reconcileColumns() {
         let count = max(1, cardSize.columnCount)
-        if lastColumnCount != count {
-            columnAssignments.removeAll(keepingCapacity: true)
-            lastColumnCount = count
-        }
+        let currentIDs = recordIDs
+        guard lastColumnCount != count
+                || lastPartitionKey != partitionKey
+                || lastReconciledRecordIDs != currentIDs else { return }
 
-        let currentIDs = Set(recordIDs)
-        columnAssignments = columnAssignments.filter { currentIDs.contains($0.key) && (0..<count).contains($0.value) }
-        var heights = Array(repeating: CGFloat.zero, count: count)
-        for record in records where columnAssignments[record.id] != nil {
-            heights[columnAssignments[record.id]!] += estimatedHeight(of: record)
+        columnAssignments.removeAll(keepingCapacity: true)
+        for (index, recordID) in currentIDs.enumerated() {
+            columnAssignments[recordID] = index % count
         }
-        for record in records where columnAssignments[record.id] == nil {
-            let index = heights.enumerated().min(by: { $0.element < $1.element })?.offset ?? 0
-            columnAssignments[record.id] = index
-            heights[index] += estimatedHeight(of: record)
-        }
+        lastColumnCount = count
+        lastPartitionKey = partitionKey
+        lastReconciledRecordIDs = currentIDs
     }
 
     private func estimatedHeight(of record: LibraryRecordSnapshot) -> CGFloat {

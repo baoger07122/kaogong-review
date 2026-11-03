@@ -306,12 +306,13 @@ struct LibraryRecordDetailView: View {
                 } else {
                     metadataTagLine(errorCauseLabel, values: splitTags(firstText(["errorCause", "cause", "reason"]) ?? ""), emphasis: .subtle)
                 }
-                metadataTextLine(isDataAnalysis ? "提醒" : "思维误区", value: firstText(["pitfall", "misconception", "thinkingTrap"]) ?? "")
                 if isGraphReasoning {
                     metadataTextLine("图形规律", value: firstText(["graphRule", "patternRule"]) ?? "")
                     metadataTextLine("识别思路", value: firstText(["recognition", "recognitionPath"]) ?? "")
                 }
             }
+            metadataTextLine("思维误区", value: firstText(["pitfall", "misconception", "thinkingTrap"]) ?? "")
+            metadataTextLine("提醒", value: firstText(["reminder"]) ?? "")
         }
     }
 
@@ -753,7 +754,10 @@ struct LibraryRecordDetailView: View {
         Set((value ?? "").uppercased().filter { "ABCD".contains($0) }.map(String.init))
     }
     private func optionBackground(correct: Bool, chosen: Bool) -> Color {
-        return Color.white
+        guard displayQuestionBankContext == nil || questionBankShowsAnswer else { return .white }
+        if correct { return StudyOptionFeedbackPalette.correctBackground }
+        if chosen { return StudyOptionFeedbackPalette.incorrectBackground }
+        return .white
     }
 
     private func optionMarkerState(correct: Bool, chosen: Bool) -> StudyOptionMarkerState {
@@ -766,7 +770,8 @@ struct LibraryRecordDetailView: View {
     }
 
     private func optionBorderColor(correct: Bool, chosen: Bool) -> Color {
-        return correct ? webSuccess : (chosen ? AppTheme.danger : webBorder)
+        guard displayQuestionBankContext == nil || questionBankShowsAnswer else { return webBorder }
+        return correct ? StudyOptionFeedbackPalette.correct : (chosen ? StudyOptionFeedbackPalette.incorrect : webBorder)
     }
 
     private var questionBankShowsAnswer: Bool {
@@ -784,7 +789,6 @@ struct LibraryRecordDetailView: View {
             .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
     }
 
-    private var webSuccess: Color { Color(red: 52.0 / 255.0, green: 199.0 / 255.0, blue: 89.0 / 255.0) }
     private var webBorder: Color { Color(red: 240.0 / 255.0, green: 240.0 / 255.0, blue: 242.0 / 255.0) }
 
     private var detailBackground: Color { Color(red: 245.0 / 255.0, green: 245.0 / 255.0, blue: 247.0 / 255.0) }

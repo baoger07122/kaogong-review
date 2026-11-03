@@ -100,7 +100,7 @@ final class StoredRecord {
                 "id", "subject", "module", "knowledgePoints", "knowledgePoint", "errorCause", "status",
                 "question", "title", "type", "category", "isShenlun", "createdAt", "updatedAt", "lastReviewDate",
                 "questionSource", "source", "questionNumber", "sourceYear", "sourceExamType", "sourceRegion",
-                "accuracy", "reviewCount", "sourceExamId", "pitfall", "linkedWordIds", "options",
+                "accuracy", "reviewCount", "sourceExamId", "pitfall", "reminder", "linkedWordIds", "options",
                 "dataAnalysisMaterialText",
                 "imageDisplayMetadata", "imageCount", "optionImageIDs",
                 "questionBankPaperID", "questionBankQuestionID",
