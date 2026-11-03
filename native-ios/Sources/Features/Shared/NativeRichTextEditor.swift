@@ -1599,7 +1599,7 @@ private struct RichTextTextView: UIViewRepresentable {
         let text = value.string
         var updates: [(NSRange, UIFont)] = []
         text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: .byParagraphs) { substring, range, _, _ in
-            guard let substring, let range else { return }
+            guard let substring else { return }
             let visibleText = substring.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !visibleText.isEmpty else { return }
 

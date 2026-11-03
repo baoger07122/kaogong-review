@@ -42,16 +42,38 @@ struct NativeBottomTabBar: View {
 
     @ViewBuilder
     private var selectionIndicators: some View {
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer(spacing: 5) {
+        Group {
+            if #available(iOS 26.0, *) {
+                GlassEffectContainer(spacing: 5) {
+                    HStack(spacing: 5) {
+                        ForEach(RootTab.availableTabs) { tab in
+                            Group {
+                                if selection == tab {
+                                    Capsule(style: .continuous)
+                                        .fill(Color.clear)
+                                        .glassEffect(.clear.interactive(), in: Capsule(style: .continuous))
+                                        .glassEffectID("root-tab-selection", in: selectionBackground)
+                                } else {
+                                    Color.clear
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                        }
+                    }
+                }
+            } else {
                 HStack(spacing: 5) {
                     ForEach(RootTab.availableTabs) { tab in
                         Group {
                             if selection == tab {
                                 Capsule(style: .continuous)
-                                    .fill(Color.clear)
-                                    .glassEffect(.clear.interactive(), in: Capsule(style: .continuous))
-                                    .glassEffectID("root-tab-selection", in: selectionBackground)
+                                    .fill(Color.primary.opacity(0.075))
+                                    .matchedGeometryEffect(id: "root-tab-selection", in: selectionBackground)
+                                    .animation(
+                                        reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82),
+                                        value: selection
+                                    )
                             } else {
                                 Color.clear
                             }
@@ -59,26 +81,6 @@ struct NativeBottomTabBar: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
                     }
-                }
-            }
-        } else {
-            HStack(spacing: 5) {
-                ForEach(RootTab.availableTabs) { tab in
-                    Group {
-                        if selection == tab {
-                            Capsule(style: .continuous)
-                                .fill(Color.primary.opacity(0.075))
-                                .matchedGeometryEffect(id: "root-tab-selection", in: selectionBackground)
-                                .animation(
-                                    reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82),
-                                    value: selection
-                                )
-                        } else {
-                            Color.clear
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
                 }
             }
         }
