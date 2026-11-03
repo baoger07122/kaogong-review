@@ -458,10 +458,10 @@ enum NativeRichTextFallbackParser {
     private static func previewRun(for marker: ScannedNativeMarker) -> NativeRichTextFallbackRun? {
         guard marker.isClosed else { return nil }
         switch marker.kind {
-        case "NATIVE_IMAGE": decodedMarkerRun(payload: marker.payload, label: "图片")
-        case "NATIVE_TABLE": decodedMarkerRun(payload: marker.payload, label: "表格")
-        case "NATIVE_FORMULA": decodedMarkerRun(payload: marker.payload, label: "公式")
-        default: nil
+        case "NATIVE_IMAGE": return decodedMarkerRun(payload: marker.payload, label: "图片")
+        case "NATIVE_TABLE": return decodedMarkerRun(payload: marker.payload, label: "表格")
+        case "NATIVE_FORMULA": return decodedMarkerRun(payload: marker.payload, label: "公式")
+        default: return nil
         }
     }
 
