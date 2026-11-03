@@ -724,7 +724,16 @@ private final class RichTextPasteTextView: UITextView {
     var onPaste: ((UITextView) -> Bool)?
 
     init(pasteEnabledUsingTextLayoutManager: Bool) {
-        super.init(usingTextLayoutManager: pasteEnabledUsingTextLayoutManager)
+        if pasteEnabledUsingTextLayoutManager {
+            let layoutManager = NSTextLayoutManager()
+            let textContainer = NSTextContainer(size: .zero)
+            layoutManager.textContainer = textContainer
+            let contentStorage = NSTextContentStorage()
+            contentStorage.addTextLayoutManager(layoutManager)
+            super.init(frame: .zero, textContainer: textContainer)
+        } else {
+            super.init(frame: .zero, textContainer: nil)
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -1016,8 +1025,8 @@ private struct RichTextTextView: UIViewRepresentable {
                         options: [.documentType: documentType],
                         documentAttributes: nil
                       ), imported.length > 0 else { continue }
-                Self.restoreNativeTables(in: imported)
-                Self.normalizeFonts(in: imported)
+                RichTextTextView.restoreNativeTables(in: imported)
+                RichTextTextView.normalizeFonts(in: imported)
                 return imported
             }
             return nil

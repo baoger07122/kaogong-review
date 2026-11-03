@@ -332,7 +332,7 @@ struct LibraryInlineNoteView: View {
                     minHeight: noteCanvasMinimumHeight,
                     accessibilityIdentifier: "library-inline-note-display",
                     onFallback: {
-                        displayWarning = currentPreparedNote?.editableAttributedText == nil
+                        displayWarning = currentPreparedNote.editableAttributedText == nil
                             ? "预览已降级；笔记过长或含有未闭合附件，当前仅保留原内容并以只读方式显示。"
                             : "预览已切换为安全模式；编辑时会保留正文和已有附件。"
                     }
