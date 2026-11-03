@@ -1026,7 +1026,7 @@ private struct RichTextTextView: UIViewRepresentable {
                         documentAttributes: nil
                       ), imported.length > 0 else { continue }
                 RichTextTextView.restoreNativeTables(in: imported)
-                RichTextTextView.normalizeFonts(in: imported)
+                RichTextTextView.normalizePastedFonts(in: imported)
                 return imported
             }
             return nil
@@ -1590,6 +1590,50 @@ private struct RichTextTextView: UIViewRepresentable {
             let descriptor = UIFont.systemFont(ofSize: size).fontDescriptor.withSymbolicTraits(source.fontDescriptor.symbolicTraits)
                 ?? UIFont.systemFont(ofSize: size).fontDescriptor
             value.addAttribute(.font, value: UIFont(descriptor: descriptor, size: size), range: range)
+        }
+    }
+
+    private static func normalizePastedFonts(in value: NSMutableAttributedString) {
+        guard value.length > 0 else { return }
+
+        let text = value.string
+        var updates: [(NSRange, UIFont)] = []
+        text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: .byParagraphs) { substring, range, _, _ in
+            guard let substring, let range else { return }
+            let visibleText = substring.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !visibleText.isEmpty else { return }
+
+            let paragraphRange = NSRange(range, in: text)
+            var sizes: [CGFloat] = []
+            var allFontRunsBold = true
+            value.enumerateAttribute(.font, in: paragraphRange) { attribute, _, _ in
+                let font = attribute as? UIFont ?? .systemFont(ofSize: RichTextMetrics.bodySize)
+                sizes.append(font.pointSize)
+                allFontRunsBold = allFontRunsBold && font.fontDescriptor.symbolicTraits.contains(.traitBold)
+            }
+
+            let isUniformSize = sizes.first.map { firstSize in
+                sizes.allSatisfy { abs($0 - firstSize) < 0.1 }
+            } ?? false
+            let paragraphSize = sizes.first ?? RichTextMetrics.bodySize
+            let isNativeHeadingSize = allFontRunsBold && (abs(paragraphSize - RichTextMetrics.heading2Size) < 0.5
+                || abs(paragraphSize - RichTextMetrics.heading1Size) < 0.5
+            )
+            let isLargerEmphasizedHeading = paragraphSize > RichTextMetrics.heading1Size
+                && allFontRunsBold
+                && visibleText.count <= 100
+            let preservesHeadingSize = isUniformSize && (isNativeHeadingSize || isLargerEmphasizedHeading)
+
+            value.enumerateAttribute(.font, in: paragraphRange) { attribute, fontRange, _ in
+                let source = attribute as? UIFont ?? .systemFont(ofSize: RichTextMetrics.bodySize)
+                let size = preservesHeadingSize ? source.pointSize : RichTextMetrics.bodySize
+                let descriptor = UIFont.systemFont(ofSize: size).fontDescriptor.withSymbolicTraits(source.fontDescriptor.symbolicTraits)
+                    ?? UIFont.systemFont(ofSize: size).fontDescriptor
+                updates.append((fontRange, UIFont(descriptor: descriptor, size: size)))
+            }
+        }
+        for (range, font) in updates {
+            value.addAttribute(.font, value: font, range: range)
         }
     }
 }

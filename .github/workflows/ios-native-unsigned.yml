@@ -103,6 +103,11 @@ jobs:
             -o "$RUNNER_TEMP/library-relation-candidate-behavior"
           "$RUNNER_TEMP/library-relation-candidate-behavior"
           swiftc -parse-as-library \
+            native-ios/Sources/Features/Library/LibraryQuantityTypeSelectionPolicy.swift \
+            native-ios/Tests/LibraryQuantityTypeSelectionBehavior.swift \
+            -o "$RUNNER_TEMP/library-quantity-type-selection-behavior"
+          "$RUNNER_TEMP/library-quantity-type-selection-behavior"
+          swiftc -parse-as-library \
             native-ios/Sources/Features/Shared/NativeRichTextFallbackParser.swift \
             native-ios/Tests/NativeRichTextFallbackBehavior.swift \
             -o "$RUNNER_TEMP/native-rich-text-fallback-behavior"

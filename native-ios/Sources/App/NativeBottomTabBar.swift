@@ -6,20 +6,19 @@ struct NativeBottomTabBar: View {
     @Namespace private var selectionBackground
 
     var body: some View {
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer(spacing: 6) {
-                tabBar
-            }
-        } else {
-            tabBar
-        }
+        tabBar
     }
 
     private var tabBar: some View {
-        HStack(spacing: 5) {
-            ForEach(RootTab.availableTabs) { tab in
-                tabButton(tab)
+        ZStack {
+            selectionIndicators
+
+            HStack(spacing: 5) {
+                ForEach(RootTab.availableTabs) { tab in
+                    tabButton(tab)
+                }
             }
+            .zIndex(1)
         }
         .padding(6)
         .frame(maxWidth: 520)
@@ -41,6 +40,53 @@ struct NativeBottomTabBar: View {
         .padding(.bottom, 2)
     }
 
+    @ViewBuilder
+    private var selectionIndicators: some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: 5) {
+                HStack(spacing: 5) {
+                    ForEach(RootTab.availableTabs) { tab in
+                        Group {
+                            if selection == tab {
+                                Capsule(style: .continuous)
+                                    .fill(Color.clear)
+                                    .glassEffect(.clear.interactive(), in: Capsule(style: .continuous))
+                                    .glassEffectID("root-tab-selection", in: selectionBackground)
+                            } else {
+                                Color.clear
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                    }
+                }
+            }
+        } else {
+            HStack(spacing: 5) {
+                ForEach(RootTab.availableTabs) { tab in
+                    Group {
+                        if selection == tab {
+                            Capsule(style: .continuous)
+                                .fill(Color.primary.opacity(0.075))
+                                .matchedGeometryEffect(id: "root-tab-selection", in: selectionBackground)
+                                .animation(
+                                    reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82),
+                                    value: selection
+                                )
+                        } else {
+                            Color.clear
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                }
+            }
+        }
+        .frame(height: 44)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
     private func tabButton(_ tab: RootTab) -> some View {
         let isSelected = selection == tab
 
@@ -50,34 +96,16 @@ struct NativeBottomTabBar: View {
             // animation below is scoped to the matched capsule only.
             selection = tab
         } label: {
-            ZStack {
-                if isSelected {
-                    if #available(iOS 26.0, *) {
-                        Capsule(style: .continuous)
-                            .glassEffect(.clear.interactive(), in: Capsule(style: .continuous))
-                            .glassEffectID("root-tab-selection", in: selectionBackground)
-                    } else {
-                        Capsule(style: .continuous)
-                            .fill(Color.primary.opacity(0.075))
-                            .matchedGeometryEffect(id: "root-tab-selection", in: selectionBackground)
-                            .animation(
-                                reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82),
-                                value: selection
-                            )
-                    }
-                }
-
-                VStack(spacing: 2) {
-                    Image(systemName: tab.systemImage)
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(height: 19)
-                    Text(tab.title)
-                        .font(.system(size: 10, weight: .medium))
-                        .lineLimit(1)
-                }
-                .foregroundStyle(isSelected ? AppTheme.accent : Color.primary)
-                .transaction { $0.animation = nil }
+            VStack(spacing: 2) {
+                Image(systemName: tab.systemImage)
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(height: 19)
+                Text(tab.title)
+                    .font(.system(size: 10, weight: .medium))
+                    .lineLimit(1)
             }
+            .foregroundStyle(isSelected ? AppTheme.accent : Color.primary)
+            .transaction { $0.animation = nil }
             .frame(maxWidth: .infinity)
             .frame(height: 44)
             .contentShape(Capsule(style: .continuous))

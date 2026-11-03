@@ -238,7 +238,14 @@ struct LibraryView: View {
 
     private var creationScope: LibraryScope {
         guard scope.subject == "数量关系" else { return scope }
-        return LibraryScope(subject: "数量关系", module: nil, reviewSource: scope.reviewSource)
+        return LibraryScope(
+            subject: "数量关系",
+            module: LibraryQuantityTypeSelectionPolicy.concreteType(
+                selected: selectedQuantityType,
+                availableTypes: quantityQuestionTypes
+            ),
+            reviewSource: scope.reviewSource
+        )
     }
 
     private func popCurrentRoute() {
@@ -338,10 +345,15 @@ struct LibraryView: View {
                             records: visibleRecords,
                             kind: kind,
                             cardSize: cardSize,
-                            partitionKey: "\(kind.collection)|\(scope.subject ?? "")|\(scope.module ?? "")|\(scope.reviewSource.rawValue)|\(selectedTag)",
+                            partitionKey: "\(kind.collection)|\(scope.subject ?? "")|\(scope.module ?? "")|\(scope.reviewSource.rawValue)|\(selectedTag)|\(selectedQuantityType)",
                             onOpen: { open($0) },
                             onDelete: { deleteTarget = LibraryDeleteTarget(kind: kind, recordID: $0.record.recordID) },
-                            hiddenTags: kind == .notes && !selectedTag.isEmpty ? [selectedTag] : []
+                            hiddenTags: kind == .notes && !selectedTag.isEmpty ? [selectedTag] : [],
+                            hidesQuantityTypeLabel: isQuantityContext
+                                && LibraryQuantityTypeSelectionPolicy.concreteType(
+                                    selected: selectedQuantityType,
+                                    availableTypes: quantityQuestionTypes
+                                ) != nil
                         )
                     }
                     if hasMoreVisibleRecords {

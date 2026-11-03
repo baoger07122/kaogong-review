@@ -358,10 +358,20 @@ struct LibraryRecordEditorView: View {
         Group {
             if kind == .errors {
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        reviewSourceMenu
-                        Spacer(minLength: 0)
-                        recordTypePicker
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            errorReviewSourcePicker
+                            Spacer(minLength: 0)
+                            recordTypePicker
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            errorReviewSourcePicker
+                                .frame(maxWidth: 160, alignment: .leading)
+                            recordTypePicker
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     HStack(spacing: 8) {
@@ -417,24 +427,15 @@ struct LibraryRecordEditorView: View {
         }
     }
 
-    private var reviewSourceMenu: some View {
-        Menu {
-            ForEach([LibraryReviewSource.real, .mock]) { source in
-                Button(source.title) { draft.reviewSource = source }
-            }
-        } label: {
-            compactProperty(title: "来源", value: reviewSourceCompactTitle, image: "tray.full")
+    private var errorReviewSourcePicker: some View {
+        Picker("题目来源", selection: $draft.reviewSource) {
+            Text("真题").tag(LibraryReviewSource.real)
+            Text("模拟题").tag(LibraryReviewSource.mock)
         }
-        .accessibilityLabel("复盘来源：\(draft.reviewSource == .pending ? "未选择" : draft.reviewSource.title)")
-        .accessibilityIdentifier("library-error-source-menu")
-    }
-
-    private var reviewSourceCompactTitle: String {
-        switch draft.reviewSource {
-        case .real: "真题"
-        case .mock: "模拟题"
-        case .pending: "未选择"
-        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .accessibilityLabel("题目来源")
+        .accessibilityIdentifier("library-error-source-segmented-control")
     }
 
     @ViewBuilder private var addImagePicker: some View {

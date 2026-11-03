@@ -420,7 +420,8 @@ struct LibraryRecordDetailView: View {
                             source: source,
                             cacheKey: imageCacheKey(kind: "image", index: index, source: source, metadataID: imageMetadataID),
                             availableWidth: availableWidth,
-                            widthFraction: widthFractions[index]
+                            widthFraction: widthFractions[index],
+                            showsFrame: false
                         )
                     }
                 }
@@ -439,6 +440,10 @@ struct LibraryRecordDetailView: View {
                 .textSelection(.enabled)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(webBorder, lineWidth: 0.8)
+                }
                 .accessibilityIdentifier(
                     displayQuestionBankContext.map { "question-bank-detail-stem-\($0.question.id)" }
                         ?? "library-record-detail-stem"
@@ -1156,36 +1161,23 @@ private struct LibraryDetailImage: View {
     let cacheKey: String
     let availableWidth: CGFloat?
     let widthFraction: Double
+    var showsFrame = true
     @State private var image: UIImage?
     @State private var didFail = false
     @State private var appearanceRevision: UInt64 = 0
 
     var body: some View {
         Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-            } else {
-                Color(uiColor: .secondarySystemBackground)
-                    .frame(height: 120)
+            if showsFrame {
+                imageContent
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay {
-                        if didFail {
-                            Label("图片无法加载", systemImage: "exclamationmark.triangle")
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ProgressView().controlSize(.small)
-                        }
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
                     }
+            } else {
+                imageContent
             }
-        }
-        .frame(width: availableWidth.map { max(1, $0 * CGFloat(widthFraction)) })
-        .frame(maxWidth: availableWidth == nil ? .infinity : nil)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
         }
         .task(id: "\(cacheKey)|\(appearanceRevision)") {
             didFail = false
@@ -1218,6 +1210,30 @@ private struct LibraryDetailImage: View {
             didFail = false
         }
         .onDisappear { image = nil }
+    }
+
+    private var imageContent: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Color(uiColor: .secondarySystemBackground)
+                    .frame(height: 120)
+                    .overlay {
+                        if didFail {
+                            Label("图片无法加载", systemImage: "exclamationmark.triangle")
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+            }
+        }
+        .frame(width: availableWidth.map { max(1, $0 * CGFloat(widthFraction)) })
+        .frame(maxWidth: availableWidth == nil ? .infinity : nil)
     }
 }
 

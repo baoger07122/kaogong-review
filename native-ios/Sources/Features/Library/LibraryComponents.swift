@@ -386,6 +386,7 @@ private struct LibraryErrorCardWidthPreferenceKey: PreferenceKey {
 private struct LibraryErrorRecordCard: View {
     let snapshot: LibraryRecordSnapshot
     let size: LibraryCardSize
+    let hidesQuantityTypeLabel: Bool
     @State private var cardWidth: CGFloat = 0
 
     var body: some View {
@@ -454,16 +455,24 @@ private struct LibraryErrorRecordCard: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
+                if isQuantityRelations, !hidesQuantityTypeLabel {
+                    plainField(label: "题型", value: quantityQuestionTypeTitle)
+                }
+
                 if isQuantityRelations, !snapshot.quantityStructure.isEmpty {
                     plainField(label: "结构", value: snapshot.quantityStructure)
                 }
 
                 if !snapshot.comparisonWords.isEmpty {
+                    let logicFill = isLogicFill
                     tagLine(
                         label: "辨析",
                         values: snapshot.comparisonWords,
-                        foreground: AppTheme.accent.opacity(0.82),
-                        background: AppTheme.accent.opacity(0.06)
+                        foreground: logicFill ? AppTheme.accent : AppTheme.accent.opacity(0.82),
+                        background: logicFill ? AppTheme.accent.opacity(0.10) : AppTheme.accent.opacity(0.06),
+                        weight: logicFill ? .medium : .regular,
+                        labelAlignment: logicFill ? .firstTextBaseline : .top,
+                        labelTopPadding: logicFill ? 0 : 3
                     )
                 }
 
@@ -596,13 +605,15 @@ private struct LibraryErrorRecordCard: View {
         values: [String],
         foreground: Color,
         background: Color,
-        weight: Font.Weight = .regular
+        weight: Font.Weight = .regular,
+        labelAlignment: VerticalAlignment = .top,
+        labelTopPadding: CGFloat = 3
     ) -> some View {
-        HStack(alignment: .top, spacing: 5) {
+        HStack(alignment: labelAlignment, spacing: 5) {
             Text("\(label)：")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.primary)
-                .padding(.top, 3)
+                .padding(.top, labelTopPadding)
             NativeTagFlow(spacing: 5) {
                 ForEach(values, id: \.self) { value in
                     tag(value, foreground: foreground, background: background, weight: weight)
@@ -681,6 +692,13 @@ private struct LibraryErrorRecordCard: View {
 
     private var isQuantityRelations: Bool { snapshot.record.subject == "数量关系" }
     private var isDataAnalysis: Bool { SubjectModuleTitle.normalized(snapshot.subject) == "资料分析" }
+    private var isLogicFill: Bool {
+        snapshot.record.subject == "言语理解" && snapshot.record.module == "逻辑填空"
+    }
+    private var quantityQuestionTypeTitle: String {
+        let module = snapshot.record.module?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return module.isEmpty ? "未分类" : module
+    }
 
     private var knowledgePointLabel: String { isLogicJudgment ? "结构" : "考点" }
     private var errorCauseLabel: String {
@@ -1003,6 +1021,7 @@ struct LibraryMasonryGrid: View {
     let onOpen: (LibraryRecordSnapshot) -> Void
     let onDelete: (LibraryRecordSnapshot) -> Void
     var hiddenTags: Set<String> = []
+    var hidesQuantityTypeLabel = false
     @State private var columnAssignments: [String: Int] = [:]
     @State private var lastColumnCount: Int?
     @State private var lastPartitionKey: String?
@@ -1040,7 +1059,11 @@ struct LibraryMasonryGrid: View {
     private func openButton(_ record: LibraryRecordSnapshot) -> some View {
         Button { onOpen(record) } label: {
             if kind == .errors {
-                LibraryErrorRecordCard(snapshot: record, size: cardSize)
+                LibraryErrorRecordCard(
+                    snapshot: record,
+                    size: cardSize,
+                    hidesQuantityTypeLabel: hidesQuantityTypeLabel
+                )
             } else {
                 LibraryRecordCard(snapshot: record, kind: kind, size: cardSize, hiddenTags: hiddenTags)
             }
