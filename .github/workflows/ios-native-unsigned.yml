@@ -98,10 +98,21 @@ jobs:
             -o "$RUNNER_TEMP/exam-domain-behavior"
           "$RUNNER_TEMP/exam-domain-behavior"
           swiftc -parse-as-library \
+            native-ios/Sources/Features/Library/LibraryRelationCandidateScope.swift \
+            native-ios/Tests/LibraryRelationCandidateBehavior.swift \
+            -o "$RUNNER_TEMP/library-relation-candidate-behavior"
+          "$RUNNER_TEMP/library-relation-candidate-behavior"
+          swiftc -parse-as-library \
             native-ios/Sources/Features/Shared/NativeRichTextFallbackParser.swift \
             native-ios/Tests/NativeRichTextFallbackBehavior.swift \
             -o "$RUNNER_TEMP/native-rich-text-fallback-behavior"
           "$RUNNER_TEMP/native-rich-text-fallback-behavior"
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Shared/NativeRichTextMarkdown.swift \
+            native-ios/Sources/Features/Shared/NativeRichTextPastePolicy.swift \
+            native-ios/Tests/NativeRichTextPasteBehavior.swift \
+            -o "$RUNNER_TEMP/native-rich-text-paste-behavior"
+          "$RUNNER_TEMP/native-rich-text-paste-behavior"
 
       - name: Detect simulator test scope
         id: simulator_scope

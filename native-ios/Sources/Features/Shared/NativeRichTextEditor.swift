@@ -2,6 +2,7 @@ import PhotosUI
 import SwiftUI
 import UIKit
 import ImageIO
+import UniformTypeIdentifiers
 
 enum RichTextToolbarMode { case full, compact, minimal }
 
@@ -575,11 +576,23 @@ enum NativeRichTextDisplayRenderer {
                 } else {
                     appendFallbackPlaceholder("[图片无法显示]", to: attributed, attributes: textAttributes)
                 }
+            case .imageWithMarker(let dataURL, let marker):
+                if let attachment = NativeImageAttachment(dataURL: dataURL, marker: marker) {
+                    attributed.append(NSAttributedString(attachment: attachment))
+                } else {
+                    attributed.append(NSAttributedString(attachment: NativeOpaqueRichTextAttachment(label: "图片", marker: marker)))
+                }
             case .table(let encoded):
                 if let table = fallbackTable(from: encoded) {
                     attributed.append(NSAttributedString(attachment: NativeTableAttachment(table: table)))
                 } else {
                     appendFallbackPlaceholder("[表格无法显示]", to: attributed, attributes: textAttributes)
+                }
+            case .tableWithMarker(let encoded, let marker):
+                if let table = fallbackTable(from: encoded) {
+                    attributed.append(NSAttributedString(attachment: NativeTableAttachment(table: table, marker: marker)))
+                } else {
+                    attributed.append(NSAttributedString(attachment: NativeOpaqueRichTextAttachment(label: "表格", marker: marker)))
                 }
             case .formula(let encoded):
                 if let formula = fallbackFormula(from: encoded) {
@@ -587,6 +600,14 @@ enum NativeRichTextDisplayRenderer {
                 } else {
                     appendFallbackPlaceholder("[公式无法显示]", to: attributed, attributes: textAttributes)
                 }
+            case .formulaWithMarker(let encoded, let marker):
+                if let formula = fallbackFormula(from: encoded) {
+                    attributed.append(NSAttributedString(attachment: NativeFormulaAttachment(formula: formula, marker: marker)))
+                } else {
+                    attributed.append(NSAttributedString(attachment: NativeOpaqueRichTextAttachment(label: "公式", marker: marker)))
+                }
+            case .opaque(let label, let marker):
+                attributed.append(NSAttributedString(attachment: NativeOpaqueRichTextAttachment(label: label, marker: marker)))
             case .placeholder(let label):
                 let text = label == "其余附件已省略" ? "[\(label)]" : "[\(label)无法显示]"
                 appendFallbackPlaceholder(text, to: attributed, attributes: textAttributes)
@@ -596,6 +617,48 @@ enum NativeRichTextDisplayRenderer {
             attributedText: attributed,
             usedSafeFallback: true
         )
+    }
+
+    static func editableAttributedText(from runs: [NativeRichTextFallbackRun]) -> NSAttributedString? {
+        let attributed = NSMutableAttributedString(string: "")
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize),
+            .foregroundColor: UIColor.label
+        ]
+        var imagePayloadBytes = 0
+        let maximumImagePayloadBytes = 8 * 1024 * 1024
+
+        for run in runs {
+            switch run {
+            case .text(let text):
+                attributed.append(NSAttributedString(string: text, attributes: attributes))
+            case .imageWithMarker(let dataURL, let marker):
+                imagePayloadBytes += dataURL.utf8.count
+                if imagePayloadBytes <= maximumImagePayloadBytes,
+                   let attachment = NativeImageAttachment(dataURL: dataURL, marker: marker) {
+                    attributed.append(NSAttributedString(attachment: attachment))
+                } else {
+                    attributed.append(NSAttributedString(attachment: NativeOpaqueRichTextAttachment(label: "图片", marker: marker)))
+                }
+            case .tableWithMarker(let encoded, let marker):
+                if let table = fallbackTable(from: encoded) {
+                    attributed.append(NSAttributedString(attachment: NativeTableAttachment(table: table, marker: marker)))
+                } else {
+                    attributed.append(NSAttributedString(attachment: NativeOpaqueRichTextAttachment(label: "表格", marker: marker)))
+                }
+            case .formulaWithMarker(let encoded, let marker):
+                if let formula = fallbackFormula(from: encoded) {
+                    attributed.append(NSAttributedString(attachment: NativeFormulaAttachment(formula: formula, marker: marker)))
+                } else {
+                    attributed.append(NSAttributedString(attachment: NativeOpaqueRichTextAttachment(label: "公式", marker: marker)))
+                }
+            case .opaque(let label, let marker):
+                attributed.append(NSAttributedString(attachment: NativeOpaqueRichTextAttachment(label: label, marker: marker)))
+            case .image, .table, .formula, .placeholder:
+                return nil
+            }
+        }
+        return attributed.copy() as? NSAttributedString ?? attributed
     }
 
     private static func appendFallbackPlaceholder(
@@ -657,6 +720,24 @@ private final class RichTextKeyboardAccessoryView: UIView {
 }
 
 @MainActor
+private final class RichTextPasteTextView: UITextView {
+    var onPaste: ((UITextView) -> Bool)?
+
+    init(pasteEnabledUsingTextLayoutManager: Bool) {
+        super.init(usingTextLayoutManager: pasteEnabledUsingTextLayoutManager)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    override func paste(_ sender: Any?) {
+        if onPaste?(self) == true { return }
+        super.paste(sender)
+    }
+}
+
+@MainActor
 private struct RichTextTextView: UIViewRepresentable {
     @Binding var html: String
     @Binding var command: RichTextCommand?
@@ -678,7 +759,10 @@ private struct RichTextTextView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
     func makeUIView(context: Context) -> UITextView {
-        let view = UITextView(usingTextLayoutManager: true)
+        let view = RichTextPasteTextView(pasteEnabledUsingTextLayoutManager: true)
+        view.onPaste = { [weak coordinator = context.coordinator] textView in
+            coordinator?.handlePaste(textView) ?? false
+        }
         view.delegate = context.coordinator
         view.backgroundColor = .clear
         view.font = .systemFont(ofSize: RichTextMetrics.bodySize)
@@ -834,11 +918,7 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
-            if text.count > 1, MarkdownRichTextConverter.isMarkdown(text) {
-                let replacement = RichTextTextView.attributed(from: MarkdownRichTextConverter.html(from: text))
-                replaceAttributed(replacement, in: range, view: textView)
-                return false
-            }
+            if textView.markedTextRange != nil { return true }
             if text.isEmpty, range.length == 1, removeEmptyListPrefixBeforeBackspace(in: textView, range: range) {
                 return false
             }
@@ -887,18 +967,60 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         private func replaceAttributed(_ replacement: NSAttributedString, in range: NSRange, view: UITextView) {
-            let previous = view.attributedText.attributedSubstring(from: range)
-            view.undoManager?.registerUndo(withTarget: self) { coordinator in
-                coordinator.replaceAttributed(
-                    previous,
-                    in: NSRange(location: range.location, length: replacement.length),
-                    view: view
-                )
+            NativeRichTextPastePolicy.replace(
+                replacement,
+                in: range,
+                of: view.textStorage,
+                undoManager: view.undoManager,
+                onReplacement: { [weak self, weak view] replacementRange, replacedText in
+                    guard let self, let view else { return }
+                    view.selectedRange = NSRange(location: replacementRange.location + replacedText.length, length: 0)
+                    view.invalidateIntrinsicContentSize()
+                    self.schedulePublish(view)
+                }
+            )
+        }
+
+        func handlePaste(_ textView: UITextView) -> Bool {
+            guard textView.markedTextRange == nil else { return false }
+            let range = textView.selectedRange
+            guard range.location >= 0,
+                  range.length >= 0,
+                  NSMaxRange(range) <= textView.attributedText.length else { return false }
+
+            if let richText = richClipboardAttributedText() {
+                let replacement = NativeRichTextPastePolicy.compactParagraphSpacing(in: richText)
+                replaceAttributed(replacement, in: range, view: textView)
+                return true
             }
-            view.textStorage.replaceCharacters(in: range, with: replacement)
-            view.selectedRange = NSRange(location: range.location + replacement.length, length: 0)
-            view.invalidateIntrinsicContentSize()
-            schedulePublish(view)
+            guard let plainText = UIPasteboard.general.string,
+                  let markdownHTML = NativeRichTextMarkdown.htmlIfMarkdown(plainText) else { return false }
+            let replacement = NativeRichTextPastePolicy.compactParagraphSpacing(in: RichTextTextView.attributed(from: markdownHTML))
+            replaceAttributed(replacement, in: range, view: textView)
+            return true
+        }
+
+        private func richClipboardAttributedText() -> NSAttributedString? {
+            let pasteboard = UIPasteboard.general
+            let candidates: [(String, NSAttributedString.DocumentType)] = [
+                ("com.apple.flat-rtfd", .rtfd),
+                (UTType.rtfd.identifier, .rtfd),
+                (UTType.rtf.identifier, .rtf),
+                (UTType.html.identifier, .html)
+            ]
+            for (type, documentType) in candidates where pasteboard.contains(pasteboardTypes: [type]) {
+                guard let data = pasteboard.data(forPasteboardType: type),
+                      data.count <= 8 * 1024 * 1024,
+                      let imported = try? NSMutableAttributedString(
+                        data: data,
+                        options: [.documentType: documentType],
+                        documentAttributes: nil
+                      ), imported.length > 0 else { continue }
+                Self.restoreNativeTables(in: imported)
+                Self.normalizeFonts(in: imported)
+                return imported
+            }
+            return nil
         }
 
         func apply(_ command: RichTextCommandKind, to view: UITextView) {
@@ -1364,7 +1486,7 @@ private struct RichTextTextView: UIViewRepresentable {
     }
 
     fileprivate static func attributed(from value: String) -> NSAttributedString {
-        let source = !value.contains("<") && MarkdownRichTextConverter.isMarkdown(value) ? MarkdownRichTextConverter.html(from: value) : value
+        let source = !value.contains("<") ? (NativeRichTextMarkdown.htmlIfMarkdown(value) ?? value) : value
         if source.contains("<"), let data = source.data(using: .utf8), let result = try? NSMutableAttributedString(
             data: data, options: [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue], documentAttributes: nil
         ) {
@@ -1382,6 +1504,7 @@ private struct RichTextTextView: UIViewRepresentable {
             if let table = attribute as? NativeTableAttachment, let marker = table.marker { replacements.append((range, marker)) }
             else if let image = attribute as? NativeImageAttachment { replacements.append((range, image.marker)) }
             else if let image = attribute as? NativeUnavailableImageAttachment { replacements.append((range, image.marker)) }
+            else if let opaque = attribute as? NativeOpaqueRichTextAttachment { replacements.append((range, opaque.marker)) }
             else if let formula = attribute as? NativeFormulaAttachment, let marker = formula.marker { replacements.append((range, marker)) }
         }
         for (range, marker) in replacements.reversed() { serializable.replaceCharacters(in: range, with: marker) }
@@ -1396,8 +1519,11 @@ private struct RichTextTextView: UIViewRepresentable {
         for match in expression.matches(in: value.string, range: NSRange(location: 0, length: text.length)).reversed() {
             guard match.numberOfRanges == 2 else { continue }
             let encoded = text.substring(with: match.range(at: 1))
-            guard let data = Data(base64Encoded: encoded), let table = try? JSONDecoder().decode(RichTextTable.self, from: data) else { continue }
-            value.replaceCharacters(in: match.range, with: NSAttributedString(attachment: NativeTableAttachment(table: table)))
+            let marker = text.substring(with: match.range)
+            guard encoded.utf8.count <= 64 * 1024,
+                  let data = Data(base64Encoded: encoded),
+                  let table = try? JSONDecoder().decode(RichTextTable.self, from: data) else { continue }
+            value.replaceCharacters(in: match.range, with: NSAttributedString(attachment: NativeTableAttachment(table: table, marker: marker)))
         }
         let imagePattern = #"\[\[NATIVE_IMAGE:([A-Za-z0-9+/=]+)\]\]"#
         guard let imageExpression = try? NSRegularExpression(pattern: imagePattern) else { return }
@@ -1410,7 +1536,7 @@ private struct RichTextTextView: UIViewRepresentable {
             if encoded.utf8.count <= NativeImageAttachment.maximumEncodedBytes,
                let data = Data(base64Encoded: encoded),
                let dataURL = String(data: data, encoding: .utf8),
-               let attachment = NativeImageAttachment(dataURL: dataURL) {
+               let attachment = NativeImageAttachment(dataURL: dataURL, marker: marker) {
                 replacement = attachment
             } else {
                 replacement = NativeUnavailableImageAttachment(marker: marker)
@@ -1423,8 +1549,27 @@ private struct RichTextTextView: UIViewRepresentable {
         for match in formulaExpression.matches(in: value.string, range: NSRange(location: 0, length: formulaText.length)).reversed() {
             guard match.numberOfRanges == 2 else { continue }
             let encoded = formulaText.substring(with: match.range(at: 1))
-            guard let data = Data(base64Encoded: encoded), let formula = try? JSONDecoder().decode(RichTextFormula.self, from: data) else { continue }
-            value.replaceCharacters(in: match.range, with: NSAttributedString(attachment: NativeFormulaAttachment(formula: formula)))
+            let marker = formulaText.substring(with: match.range)
+            guard encoded.utf8.count <= 8 * 1024,
+                  let data = Data(base64Encoded: encoded),
+                  let formula = try? JSONDecoder().decode(RichTextFormula.self, from: data) else { continue }
+            value.replaceCharacters(in: match.range, with: NSAttributedString(attachment: NativeFormulaAttachment(formula: formula, marker: marker)))
+        }
+
+        let opaquePattern = #"\[\[NATIVE_[A-Z0-9_]+:[^\]]{0,7168000}\]\]"#
+        guard let opaqueExpression = try? NSRegularExpression(pattern: opaquePattern) else { return }
+        let opaqueText = value.string as NSString
+        for match in opaqueExpression.matches(in: value.string, range: NSRange(location: 0, length: opaqueText.length)).reversed() {
+            let marker = opaqueText.substring(with: match.range)
+            let kind = marker.dropFirst(2).split(separator: ":", maxSplits: 1).first.map(String.init) ?? ""
+            let label: String
+            switch kind {
+            case "NATIVE_IMAGE", "NATIVE_RAW_HTML": label = "图片"
+            case "NATIVE_TABLE": label = "表格"
+            case "NATIVE_FORMULA": label = "公式"
+            default: label = "附件"
+            }
+            value.replaceCharacters(in: match.range, with: NSAttributedString(attachment: NativeOpaqueRichTextAttachment(label: label, marker: marker)))
         }
     }
 
@@ -1440,87 +1585,13 @@ private struct RichTextTextView: UIViewRepresentable {
     }
 }
 
-private enum MarkdownRichTextConverter {
-    static func isMarkdown(_ value: String) -> Bool {
-        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return false }
-        if value.contains("\n") { return true }
-        let patterns = [#"^#{1,4}\s"#, #"^[-*]\s"#, #"^\d+\.\s"#, #"^>\s?"#, #"^```"#, #"^---+$"#, #"\*\*.+\*\*"#, #"~~.+~~"#, #"`[^`]+`"#, #"\[.+\]\(.+\)"#]
-        return patterns.contains { text.range(of: $0, options: .regularExpression) != nil }
-    }
-
-    static func html(from markdown: String) -> String {
-        var output: [String] = []
-        var codeLines: [String] = []
-        var inCode = false
-        for rawLine in markdown.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n") {
-            let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("```") {
-                if inCode {
-                    output.append("<pre><code>\(escape(codeLines.joined(separator: "\n")))</code></pre>")
-                    codeLines = []
-                }
-                inCode.toggle()
-                continue
-            }
-            if inCode { codeLines.append(rawLine); continue }
-            if trimmed.isEmpty { output.append("<p><br></p>"); continue }
-            if trimmed == "---" { output.append("<p style=\"color:#999;font-size:10px\">────────────────</p>"); continue }
-            if let heading = trimmed.range(of: #"^#{1,4}\s+"#, options: .regularExpression) {
-                let level = min(2, trimmed[heading].filter { $0 == "#" }.count)
-                output.append("<h\(level)>\(inline(String(trimmed[heading.upperBound...])))</h\(level)>")
-                continue
-            }
-            if let item = trimmed.range(of: #"^[-*]\s+\[[ xX]\]\s+"#, options: .regularExpression) {
-                let checked = trimmed[item].lowercased().contains("[x]")
-                output.append("<p>\(checked ? "☑" : "☐") \(inline(String(trimmed[item.upperBound...])))</p>")
-                continue
-            }
-            if let item = trimmed.range(of: #"^[-*]\s+"#, options: .regularExpression) {
-                output.append("<p>• \(inline(String(trimmed[item.upperBound...])))</p>")
-                continue
-            }
-            if trimmed.range(of: #"^\d+\.\s+"#, options: .regularExpression) != nil {
-                output.append("<p>\(inline(trimmed))</p>")
-                continue
-            }
-            if let quote = trimmed.range(of: #"^>\s?"#, options: .regularExpression) {
-                output.append("<blockquote>\(inline(String(trimmed[quote.upperBound...])))</blockquote>")
-                continue
-            }
-            output.append("<p>\(inline(rawLine))</p>")
-        }
-        if inCode { output.append("<pre><code>\(escape(codeLines.joined(separator: "\n")))</code></pre>") }
-        return output.joined()
-    }
-
-    private static func inline(_ value: String) -> String {
-        var result = escape(value)
-        let replacements = [
-            (#"\[([^\]]+)\]\(([^)]+)\)"#, #"<a href="$2">$1</a>"#),
-            (#"\*\*(.+?)\*\*"#, #"<strong>$1</strong>"#),
-            (#"~~(.+?)~~"#, #"<del>$1</del>"#),
-            (#"`([^`]+)`"#, #"<code>$1</code>"#),
-            (#"(?<!\*)\*([^*]+)\*(?!\*)"#, #"<em>$1</em>"#)
-        ]
-        for (pattern, replacement) in replacements {
-            result = result.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
-        }
-        return result
-    }
-
-    private static func escape(_ value: String) -> String {
-        value.replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-    }
-}
-
 private final class NativeTableAttachment: NSTextAttachment {
     let table: RichTextTable
+    private let originalMarker: String?
 
-    init(table: RichTextTable) {
+    init(table: RichTextTable, marker: String? = nil) {
         self.table = table
+        originalMarker = marker
         super.init(data: nil, ofType: "com.kaogong.native-table")
         image = Self.render(table)
         let height = CGFloat(max(1, table.rowCount)) * 34
@@ -1530,6 +1601,7 @@ private final class NativeTableAttachment: NSTextAttachment {
     required init?(coder: NSCoder) { nil }
 
     var marker: String? {
+        if let originalMarker { return originalMarker }
         guard let data = try? JSONEncoder().encode(table) else { return nil }
         return "[[NATIVE_TABLE:\(data.base64EncodedString())]]"
     }
@@ -1568,8 +1640,9 @@ private final class NativeTableAttachment: NSTextAttachment {
 private final class NativeImageAttachment: NSTextAttachment {
     static let maximumEncodedBytes = 11 * 1024 * 1024
     let dataURL: String
+    private let originalMarker: String?
 
-    init?(dataURL: String) {
+    init?(dataURL: String, marker: String? = nil) {
         guard let comma = dataURL.firstIndex(of: ",") else { return nil }
         let encoded = String(dataURL[dataURL.index(after: comma)...])
         guard encoded.utf8.count <= Self.maximumEncodedBytes,
@@ -1585,6 +1658,7 @@ private final class NativeImageAttachment: NSTextAttachment {
         guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, thumbnailOptions) else { return nil }
         let source = UIImage(cgImage: thumbnail)
         self.dataURL = dataURL
+        originalMarker = marker
         super.init(data: nil, ofType: "com.kaogong.native-image")
         image = source
         let maxWidth: CGFloat = 420
@@ -1595,7 +1669,8 @@ private final class NativeImageAttachment: NSTextAttachment {
     required init?(coder: NSCoder) { nil }
 
     var marker: String {
-        "[[NATIVE_IMAGE:\(Data(dataURL.utf8).base64EncodedString())]]"
+        if let originalMarker { return originalMarker }
+        return "[[NATIVE_IMAGE:\(Data(dataURL.utf8).base64EncodedString())]]"
     }
 }
 
@@ -1620,11 +1695,41 @@ private final class NativeUnavailableImageAttachment: NSTextAttachment {
     required init?(coder: NSCoder) { nil }
 }
 
+private final class NativeOpaqueRichTextAttachment: NSTextAttachment {
+    let label: String
+    let marker: String
+
+    init(label: String, marker: String) {
+        self.label = label
+        self.marker = marker
+        super.init(data: nil, ofType: "com.kaogong.native-opaque-attachment")
+        let width: CGFloat = 72
+        let size = CGSize(width: width, height: 28)
+        image = UIGraphicsImageRenderer(size: size).image { context in
+            UIColor.secondarySystemBackground.setFill()
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 5).fill()
+            UIImage(systemName: "paperclip")?.withTintColor(.secondaryLabel, renderingMode: .alwaysOriginal)
+                .draw(in: CGRect(x: 6, y: 7, width: 14, height: 14))
+            ("\(label)已保留" as NSString).draw(
+                in: CGRect(x: 23, y: 7, width: width - 27, height: 15),
+                withAttributes: [.font: UIFont.systemFont(ofSize: 9), .foregroundColor: UIColor.secondaryLabel]
+            )
+            context.cgContext.setStrokeColor(UIColor.separator.cgColor)
+            context.cgContext.stroke(CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5), width: 1)
+        }
+        bounds = CGRect(x: 0, y: -3, width: size.width, height: size.height)
+    }
+
+    required init?(coder: NSCoder) { nil }
+}
+
 private final class NativeFormulaAttachment: NSTextAttachment {
     let formula: RichTextFormula
+    private let originalMarker: String?
 
-    init(formula: RichTextFormula) {
+    init(formula: RichTextFormula, marker: String? = nil) {
         self.formula = formula
+        originalMarker = marker
         super.init(data: nil, ofType: "com.kaogong.data-analysis-formula")
         let text = formula.preset.expression
         let font = UIFont.systemFont(ofSize: 14, weight: .medium)
@@ -1656,6 +1761,7 @@ private final class NativeFormulaAttachment: NSTextAttachment {
     required init?(coder: NSCoder) { nil }
 
     var marker: String? {
+        if let originalMarker { return originalMarker }
         guard let data = try? JSONEncoder().encode(formula) else { return nil }
         return "[[NATIVE_FORMULA:\(data.base64EncodedString())]]"
     }

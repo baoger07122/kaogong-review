@@ -460,6 +460,10 @@ struct LibraryRelationSelectionDialog: View {
 
     private var filteredCandidates: [StoredRecord] {
         candidates.filter { record in
+            guard LibraryRelationCandidateScope.includes(
+                candidateCollection: record.collection,
+                targetCollection: collection
+            ) else { return false }
             let snapshot = LibraryRecordSnapshot(record: record)
             let matchesSearch = search.isEmpty || snapshot.searchableText.localizedCaseInsensitiveContains(search)
             let matchesCategory = collection != "words" || wordCategoryFilter.isEmpty || snapshot.category == wordCategoryFilter

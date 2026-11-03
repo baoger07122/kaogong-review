@@ -5,6 +5,7 @@ struct ShenlunAdaptiveTextEditor: View {
     @Binding var text: String
     let minimumHeight: CGFloat
     let growsWithContent: Bool
+    let fontSize: CGFloat?
     let accessibilityIdentifier: String?
     @State private var measuredHeight: CGFloat
 
@@ -12,11 +13,13 @@ struct ShenlunAdaptiveTextEditor: View {
         text: Binding<String>,
         minimumHeight: CGFloat,
         growsWithContent: Bool,
+        fontSize: CGFloat? = nil,
         accessibilityIdentifier: String? = nil
     ) {
         _text = text
         self.minimumHeight = minimumHeight
         self.growsWithContent = growsWithContent
+        self.fontSize = fontSize
         self.accessibilityIdentifier = accessibilityIdentifier
         _measuredHeight = State(initialValue: minimumHeight)
     }
@@ -29,6 +32,7 @@ struct ShenlunAdaptiveTextEditor: View {
                 height: $measuredHeight,
                 minimumHeight: minimumHeight,
                 growsWithContent: growsWithContent,
+                fontSize: fontSize,
                 availableWidth: width,
                 accessibilityIdentifier: accessibilityIdentifier
             )
@@ -49,6 +53,7 @@ struct ShenlunTextView: UIViewRepresentable {
     @Binding var height: CGFloat
     let minimumHeight: CGFloat
     let growsWithContent: Bool
+    let fontSize: CGFloat?
     let availableWidth: CGFloat
     let accessibilityIdentifier: String?
 
@@ -59,7 +64,7 @@ struct ShenlunTextView: UIViewRepresentable {
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView()
         view.delegate = context.coordinator
-        view.font = AppTheme.inputUIFont
+        view.font = UIFont.systemFont(ofSize: fontSize ?? AppTheme.inputUIFont.pointSize)
         view.textColor = .label
         view.backgroundColor = .clear
         view.accessibilityIdentifier = accessibilityIdentifier
@@ -68,7 +73,7 @@ struct ShenlunTextView: UIViewRepresentable {
         view.textContainer.lineFragmentPadding = 0
         view.textContainer.widthTracksTextView = true
         view.textContainer.lineBreakMode = .byCharWrapping
-        view.typingAttributes = Self.typingAttributes
+        view.typingAttributes = Self.typingAttributes(fontSize: fontSize)
         view.isScrollEnabled = !growsWithContent
         view.alwaysBounceVertical = false
         view.showsVerticalScrollIndicator = growsWithContent == false
@@ -81,10 +86,10 @@ struct ShenlunTextView: UIViewRepresentable {
     func updateUIView(_ view: UITextView, context: Context) {
         context.coordinator.parent = self
         view.accessibilityIdentifier = accessibilityIdentifier
-        view.font = AppTheme.inputUIFont
+        view.font = UIFont.systemFont(ofSize: fontSize ?? AppTheme.inputUIFont.pointSize)
         view.textContainer.widthTracksTextView = true
         view.textContainer.lineBreakMode = .byCharWrapping
-        view.typingAttributes = Self.typingAttributes
+        view.typingAttributes = Self.typingAttributes(fontSize: fontSize)
         if view.text != text, !view.isFirstResponder {
             view.text = text
         }
@@ -110,12 +115,12 @@ struct ShenlunTextView: UIViewRepresentable {
         )
     }
 
-    private static var typingAttributes: [NSAttributedString.Key: Any] {
+    private static func typingAttributes(fontSize: CGFloat?) -> [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = AppTheme.inputLineSpacing
         paragraph.lineBreakMode = .byCharWrapping
         return [
-            .font: AppTheme.inputUIFont,
+            .font: UIFont.systemFont(ofSize: fontSize ?? AppTheme.inputUIFont.pointSize),
             .foregroundColor: UIColor.label,
             .paragraphStyle: paragraph
         ]

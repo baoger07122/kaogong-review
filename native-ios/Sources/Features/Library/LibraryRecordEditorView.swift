@@ -192,7 +192,6 @@ struct LibraryRecordEditorView: View {
     private var editorContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                if kind == .errors { recordTypePicker }
                 if kind != .words {
                     contextCard
                 }
@@ -358,21 +357,18 @@ struct LibraryRecordEditorView: View {
     private var contextCard: some View {
         Group {
             if kind == .errors {
-                ViewThatFits(in: .horizontal) {
-                    contextControlsRow
-                        .fixedSize(horizontal: true, vertical: false)
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 8) {
-                            subjectPicker.fixedSize(horizontal: true, vertical: false)
-                            modulePicker.fixedSize(horizontal: true, vertical: false)
-                            Spacer(minLength: 0)
-                        }
-                        HStack(spacing: 8) {
-                            reviewSourceMenu.fixedSize(horizontal: true, vertical: false)
-                            Spacer(minLength: 0)
-                            addImagePicker.fixedSize(horizontal: true, vertical: false)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        reviewSourceMenu
+                        Spacer(minLength: 0)
+                        recordTypePicker
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 8) {
+                        subjectPicker
+                        modulePicker
+                        Spacer(minLength: 0)
+                        addImagePicker
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -386,7 +382,6 @@ struct LibraryRecordEditorView: View {
         HStack(spacing: 8) {
             subjectPicker
             modulePicker
-            if kind == .errors { reviewSourceMenu }
             Spacer(minLength: 0)
             addImagePicker
         }
@@ -552,7 +547,7 @@ struct LibraryRecordEditorView: View {
             Text("不会做").tag("不会做")
         }
         .pickerStyle(.segmented)
-        .frame(maxWidth: 300)
+        .frame(maxWidth: 235)
     }
 
     private func splitTags(_ rawValue: String) -> [String] {
@@ -564,9 +559,8 @@ struct LibraryRecordEditorView: View {
 
     private var smartSplitDialog: some View {
         ErrorSmartSplitDialog(
-            text: $smartSplitDraft,
+            initialText: smartSplitDraft,
             errorMessage: splitMessage?.hasPrefix("已") == false ? splitMessage : nil,
-            canApply: !smartSplitDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             onCancel: {
                 showSmartSplit = false
                 splitMessage = nil
@@ -900,7 +894,10 @@ struct LibraryRecordEditorView: View {
     private func relationCandidates(collection: String) -> [StoredRecord] {
         records
             .filter {
-                guard $0.collection == collection, $0.recordID != recordID else { return false }
+                guard LibraryRelationCandidateScope.includes(
+                    candidateCollection: $0.collection,
+                    targetCollection: collection
+                ), $0.recordID != recordID else { return false }
                 if collection == "exams", kind == .errors {
                     return LibraryReviewSource.explicitValue(in: $0.indexObject ?? [:]) == draft.reviewSource
                 }
@@ -1048,8 +1045,9 @@ struct LibraryRecordEditorView: View {
         showSmartSplit = true
     }
 
-    private func applySmartSplit() {
-        switch ErrorQuestionParser.parse(smartSplitDraft) {
+    private func applySmartSplit(_ rawText: String) {
+        let separatesLogicFillTerms = draft.subject == "言语理解" && draft.module == "逻辑填空"
+        switch ErrorQuestionParser.parse(rawText, separateOptionLines: separatesLogicFillTerms) {
         case .success(let result):
             draft.title = result.question
             draft.options = result.options + Array(repeating: "", count: max(0, 4 - result.options.count))
@@ -1138,11 +1136,26 @@ struct DataAnalysisOptionImagePicker: View {
 }
 
 private struct ErrorSmartSplitDialog: View {
-    @Binding var text: String
+    @State private var text: String
     let errorMessage: String?
-    let canApply: Bool
     let onCancel: () -> Void
-    let onApply: () -> Void
+    let onApply: (String) -> Void
+
+    init(
+        initialText: String,
+        errorMessage: String?,
+        onCancel: @escaping () -> Void,
+        onApply: @escaping (String) -> Void
+    ) {
+        _text = State(initialValue: initialText)
+        self.errorMessage = errorMessage
+        self.onCancel = onCancel
+        self.onApply = onApply
+    }
+
+    private var canApply: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
         ZStack {
@@ -1181,7 +1194,7 @@ private struct ErrorSmartSplitDialog: View {
                 HStack(spacing: 10) {
                     Button("取消", action: onCancel)
                         .buttonStyle(NativeSecondaryButtonStyle())
-                    Button("识别并填入", action: onApply)
+                    Button("识别并填入") { onApply(text) }
                         .buttonStyle(NativePrimaryButtonStyle())
                         .disabled(!canApply)
                 }
@@ -1215,7 +1228,7 @@ private enum ErrorQuestionParser {
         var errorDescription: String? { message }
     }
 
-    static func parse(_ rawValue: String) -> Result<ParsedErrorQuestion, Error> {
+    static func parse(_ rawValue: String, separateOptionLines: Bool = false) -> Result<ParsedErrorQuestion, Error> {
         let source = normalized(rawValue)
         guard !source.isEmpty else {
             return .failure(ParseFailure(message: "请先粘贴完整题目。"))
@@ -1262,7 +1275,10 @@ private enum ErrorQuestionParser {
         for (index, marker) in best.enumerated() {
             let start = marker.range.location + marker.range.length
             let end = index + 1 < best.count ? best[index + 1].range.location : answerStart
-            let value = cleanedOption(sourceNSString.substring(with: NSRange(location: start, length: max(0, end - start))))
+            let value = cleanedOption(
+                sourceNSString.substring(with: NSRange(location: start, length: max(0, end - start))),
+                separateOptionLines: separateOptionLines
+            )
             if !value.isEmpty { options.append(value) }
         }
         guard !question.isEmpty, options.count >= 2 else {
@@ -1297,7 +1313,7 @@ private enum ErrorQuestionParser {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func cleanedOption(_ value: String) -> String {
+    private static func cleanedOption(_ value: String, separateOptionLines: Bool) -> String {
         value.components(separatedBy: .newlines)
             .map {
                 $0.replacingOccurrences(of: "\t", with: " ")
@@ -1305,7 +1321,7 @@ private enum ErrorQuestionParser {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             }
             .filter { !$0.isEmpty }
-            .joined()
+            .joined(separator: separateOptionLines ? " " : "")
     }
 
     /// Removes copy/paste wrapping while preserving one intentional break

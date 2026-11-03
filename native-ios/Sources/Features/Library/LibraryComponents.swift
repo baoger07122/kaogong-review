@@ -424,7 +424,7 @@ private struct LibraryErrorRecordCard: View {
             images
 
             Text(snapshot.title)
-                .font(.system(size: 13, weight: .regular))
+                .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(Color.primary)
                 .lineSpacing(2.5)
                 .lineLimit(size.questionLineLimit)
@@ -434,7 +434,7 @@ private struct LibraryErrorRecordCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(snapshot.dataAnalysisOptionRows.enumerated()), id: \.offset) { _, row in
                         Text(row)
-                            .font(.system(size: 11.5, weight: .regular))
+                            .font(.system(size: 12.5, weight: .regular))
                             .foregroundStyle(.primary)
                             .lineSpacing(1.5)
                             .lineLimit(2)
@@ -445,7 +445,7 @@ private struct LibraryErrorRecordCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(snapshot.options.enumerated()), id: \.offset) { index, option in
                         Text("\(String(UnicodeScalar(65 + index)!)).  \(option)")
-                            .font(.system(size: 12, weight: .regular))
+                            .font(.system(size: 13, weight: .regular))
                             .foregroundStyle(.primary)
                             .lineSpacing(2)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -453,71 +453,75 @@ private struct LibraryErrorRecordCard: View {
                 }
             }
 
-            if isQuantityRelations, !snapshot.quantityStructure.isEmpty {
-                plainField(label: "结构", value: snapshot.quantityStructure)
-            }
-
-            if !snapshot.comparisonWords.isEmpty {
-                tagLine(
-                    label: "辨析",
-                    values: snapshot.comparisonWords,
-                    foreground: AppTheme.accent.opacity(0.82),
-                    background: AppTheme.accent.opacity(0.06)
-                )
-            }
-
-            let causes = isDataAnalysis ? [] : splitTags(snapshot.errorCause)
-            let dataAnalysisCause = snapshot.dataAnalysisErrorCause.trimmingCharacters(in: .whitespacesAndNewlines)
-            if isDataAnalysis {
-                if !dataAnalysisCause.isEmpty {
-                    sentenceTagLine(label: errorCauseLabel, value: dataAnalysisCause)
+            VStack(alignment: .leading, spacing: 4) {
+                if isQuantityRelations, !snapshot.quantityStructure.isEmpty {
+                    plainField(label: "结构", value: snapshot.quantityStructure)
                 }
-                if !snapshot.knowledgePoints.isEmpty {
+
+                if !snapshot.comparisonWords.isEmpty {
                     tagLine(
-                        label: knowledgePointLabel,
-                        values: snapshot.knowledgePoints,
-                        foreground: .secondary,
-                        background: Color.primary.opacity(0.045)
+                        label: "辨析",
+                        values: snapshot.comparisonWords,
+                        foreground: AppTheme.accent.opacity(0.82),
+                        background: AppTheme.accent.opacity(0.06)
                     )
                 }
-            } else {
-                if !snapshot.knowledgePoints.isEmpty {
-                    tagLine(
-                        label: knowledgePointLabel,
-                        values: snapshot.knowledgePoints,
-                        foreground: AppTheme.accent,
-                        background: AppTheme.accent.opacity(0.10),
-                        weight: .medium
-                    )
-                }
-                if !isQuantityRelations, !causes.isEmpty {
-                    if isAnalogyReasoning {
-                        plainField(label: errorCauseLabel, value: snapshot.errorCause)
-                    } else {
+
+                let causes = isDataAnalysis ? [] : splitTags(snapshot.errorCause)
+                let dataAnalysisCause = snapshot.dataAnalysisErrorCause.trimmingCharacters(in: .whitespacesAndNewlines)
+                if isDataAnalysis {
+                    if !dataAnalysisCause.isEmpty {
+                        sentenceTagLine(label: errorCauseLabel, value: dataAnalysisCause)
+                    }
+                    if !snapshot.knowledgePoints.isEmpty {
                         tagLine(
-                            label: errorCauseLabel,
-                            values: causes,
+                            label: knowledgePointLabel,
+                            values: snapshot.knowledgePoints,
                             foreground: .secondary,
                             background: Color.primary.opacity(0.045)
                         )
                     }
+                } else {
+                    if !snapshot.knowledgePoints.isEmpty {
+                        tagLine(
+                            label: knowledgePointLabel,
+                            values: snapshot.knowledgePoints,
+                            foreground: AppTheme.accent,
+                            background: AppTheme.accent.opacity(0.10),
+                            weight: .medium
+                        )
+                    }
+                    if !isQuantityRelations, !causes.isEmpty {
+                        if isAnalogyReasoning {
+                            plainField(label: errorCauseLabel, value: snapshot.errorCause)
+                        } else {
+                            tagLine(
+                                label: errorCauseLabel,
+                                values: causes,
+                                foreground: .secondary,
+                                background: Color.primary.opacity(0.045)
+                            )
+                        }
+                    }
                 }
-            }
 
-            if !snapshot.pitfall.isEmpty {
-                plainField(label: "思维误区", value: snapshot.pitfall)
-            }
-
-            if !snapshot.reminder.isEmpty {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Image(systemName: "lightbulb.min")
-                        .font(.system(size: 10, weight: .regular))
-                    Text(snapshot.reminder)
-                        .lineLimit(size == .small ? 2 : 3)
+                if !snapshot.pitfall.isEmpty {
+                    pitfallLine(value: snapshot.pitfall)
                 }
-                .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(.secondary)
-                .lineSpacing(1.5)
+
+                if !snapshot.reminder.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Image(systemName: "lightbulb.min")
+                            .font(.system(size: 10, weight: .regular))
+                        Text(isAnalogyReasoning ? "常识：" : "提醒：")
+                            .fixedSize(horizontal: true, vertical: false)
+                        Text(snapshot.reminder)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .lineSpacing(1.5)
+                    }
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(14)
@@ -608,7 +612,7 @@ private struct LibraryErrorRecordCard: View {
     }
 
     private func sentenceTagLine(label: String, value: String) -> some View {
-        HStack(alignment: .top, spacing: 5) {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
             Text("\(label)：")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.primary)
@@ -620,6 +624,21 @@ private struct LibraryErrorRecordCard: View {
                 .padding(.horizontal, 7)
                 .padding(.vertical, 5)
                 .background(AppTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func pitfallLine(value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text("误区：")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: true, vertical: false)
+            Text(value)
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(Color(red: 0.38, green: 0.18, blue: 0.53))
+                .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(1.5)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

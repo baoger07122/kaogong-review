@@ -9,6 +9,7 @@ enum NativeRichTextFallbackBehavior {
         verifyInlineDataImageIsPreserved()
         verifyLongQuotedImageTagIsPreserved()
         verifyOversizedAndUnclosedImageTagsAreBounded()
+        verifyEditableParsingPreservesCompleteTextAndMarkers()
     }
 
     private static func verifyStyleAndScriptContentsAreSkipped() {
@@ -40,6 +41,10 @@ enum NativeRichTextFallbackBehavior {
             case .image: return "<image>"
             case .table: return "<table>"
             case .formula: return "<formula>"
+            case .imageWithMarker: return "<image>"
+            case .tableWithMarker: return "<table>"
+            case .formulaWithMarker: return "<formula>"
+            case .opaque(let label, _): return "<\(label)>"
             case .placeholder(let value): return "<\(value)>"
             }
         }
@@ -74,6 +79,10 @@ enum NativeRichTextFallbackBehavior {
             case .image: return "<image>"
             case .table: return "<table>"
             case .formula: return "<formula>"
+            case .imageWithMarker: return "<image>"
+            case .tableWithMarker: return "<table>"
+            case .formulaWithMarker: return "<formula>"
+            case .opaque(let label, _): return "<\(label)>"
             case .placeholder(let value): return "<\(value)>"
             }
         }
@@ -93,6 +102,10 @@ enum NativeRichTextFallbackBehavior {
             case .image: return "<image>"
             case .table: return "<table>"
             case .formula: return "<formula>"
+            case .imageWithMarker: return "<image>"
+            case .tableWithMarker: return "<table>"
+            case .formulaWithMarker: return "<formula>"
+            case .opaque(let label, _): return "<\(label)>"
             case .placeholder(let value): return "<\(value)>"
             }
         }
@@ -116,6 +129,34 @@ enum NativeRichTextFallbackBehavior {
         let unclosedVisibleText = visibleText(in: unclosedRuns)
         precondition(unclosedVisibleText.contains("前"), "text before an unclosed tag should remain readable")
         precondition(!unclosedVisibleText.contains(unclosedDataURL), "unclosed base64 must not leak into body text")
+    }
+
+    private static func verifyEditableParsingPreservesCompleteTextAndMarkers() {
+        let longText = String(repeating: "正文内容", count: 45_000)
+        let longHTML = "<p>\(longText)</p>"
+        precondition(longHTML.utf8.count > 512 * 1024, "fixture must take the safe fallback path")
+        guard let longRuns = NativeRichTextFallbackParser.parseForEditing(longHTML) else {
+            preconditionFailure("complete bounded HTML should be editable")
+        }
+        let recoveredText = longRuns.compactMap { run -> String? in
+            if case .text(let value) = run { return value }
+            return nil
+        }.joined()
+        precondition(recoveredText == "\(longText)\n", "editable fallback must preserve the whole body without preview truncation")
+        precondition(!recoveredText.contains("预览已截断"), "preview trailer must never enter editable content")
+
+        let imageDataURL = "data:image/png;base64,Zmlyc3Q="
+        let image = imageMarker(imageDataURL)
+        let table = "[[NATIVE_TABLE:\(Data(#"{"cells":[["A"]]}"#.utf8).base64EncodedString())]]"
+        let unknown = "[[NATIVE_CUSTOM:YWJj]]"
+        let markerRuns = NativeRichTextFallbackParser.parseForEditing("前\(image)中\(table)后\(unknown)")
+        precondition(markerRuns != nil, "valid and unknown native markers should remain editable")
+        precondition(markerRuns?.contains(.imageWithMarker(dataURL: imageDataURL, marker: image)) == true, "image marker must round-trip exactly")
+        precondition(markerRuns?.contains(.tableWithMarker(encoded: String(table.dropFirst("[[NATIVE_TABLE:".count).dropLast(2)), marker: table)) == true, "table marker must round-trip exactly")
+        precondition(markerRuns?.contains(.opaque(label: "附件", marker: unknown)) == true, "unknown native markers must remain opaque and intact")
+
+        precondition(NativeRichTextFallbackParser.parseForEditing("<p>未闭合<img src=\"data:image/png;base64,QQ==\"") == nil, "unclosed tags must be read-only")
+        precondition(NativeRichTextFallbackParser.parseForEditing(String(repeating: "x", count: 8 * 1024 * 1024 + 1)) == nil, "oversized documents must be read-only")
     }
 
     private static func visibleText(in runs: [NativeRichTextFallbackRun]) -> String {

@@ -6,6 +6,16 @@ struct NativeBottomTabBar: View {
     @Namespace private var selectionBackground
 
     var body: some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: 6) {
+                tabBar
+            }
+        } else {
+            tabBar
+        }
+    }
+
+    private var tabBar: some View {
         HStack(spacing: 5) {
             ForEach(RootTab.availableTabs) { tab in
                 tabButton(tab)
@@ -28,7 +38,7 @@ struct NativeBottomTabBar: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
         .padding(.top, 7)
-        .padding(.bottom, 7)
+        .padding(.bottom, 2)
     }
 
     private func tabButton(_ tab: RootTab) -> some View {
@@ -42,13 +52,19 @@ struct NativeBottomTabBar: View {
         } label: {
             ZStack {
                 if isSelected {
-                    Capsule(style: .continuous)
-                        .fill(Color.primary.opacity(0.075))
-                        .matchedGeometryEffect(id: "root-tab-selection", in: selectionBackground)
-                        .animation(
-                            reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82),
-                            value: selection
-                        )
+                    if #available(iOS 26.0, *) {
+                        Capsule(style: .continuous)
+                            .glassEffect(.clear.interactive(), in: Capsule(style: .continuous))
+                            .glassEffectID("root-tab-selection", in: selectionBackground)
+                    } else {
+                        Capsule(style: .continuous)
+                            .fill(Color.primary.opacity(0.075))
+                            .matchedGeometryEffect(id: "root-tab-selection", in: selectionBackground)
+                            .animation(
+                                reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82),
+                                value: selection
+                            )
+                    }
                 }
 
                 VStack(spacing: 2) {

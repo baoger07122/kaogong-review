@@ -166,6 +166,7 @@ private struct LibraryErrorQuestionOptionsSection: View {
                     text: $draft.title,
                     minimumHeight: 70,
                     growsWithContent: true,
+                    fontSize: 15,
                     accessibilityIdentifier: "library-error-question"
                 )
                 .padding(.horizontal, 7)
@@ -224,13 +225,15 @@ private struct LibraryErrorOptionEditorRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: StudyOptionRowLayout.verticalAlignment(hasText: !text.isEmpty), spacing: 7) {
                 Text(letter)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(AppTheme.accent)
-                    .frame(width: 28, height: 28)
-                    .background(AppTheme.accent.opacity(0.10), in: Capsule())
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.black)
+                    .frame(width: 28, height: 36)
+                    .alignmentGuide(.firstTextBaseline) { dimensions in
+                        dimensions[.firstTextBaseline]
+                    }
                 TextField("", text: $text, axis: .vertical)
                     .lineLimit(1...5)
-                    .font(.system(size: 12.5, weight: .regular))
+                    .font(.system(size: 13.5, weight: .regular))
                     .padding(.horizontal, 11)
                     .padding(.vertical, 6)
                     .frame(maxWidth: .infinity, minHeight: 36, alignment: .topLeading)
@@ -524,14 +527,6 @@ private struct LibraryErrorAnalysisSection: View {
             } else {
                 generalAnalysis
             }
-            VStack(alignment: .leading, spacing: 7) {
-                Label("题目标记", systemImage: "tag").font(.system(size: 13, weight: .medium))
-                Toggle("难题", isOn: $draft.isDifficult).accessibilityIdentifier("library-error-tag-difficult")
-                Toggle("待复习", isOn: $draft.needsReview).accessibilityIdentifier("library-error-tag-needs-review")
-            }
-            .padding(14)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.8))
         }
     }
 
@@ -558,7 +553,7 @@ private struct LibraryErrorAnalysisSection: View {
                 tagInput(title: causeLabel, text: $draft.errorCause, allowsMultiple: false)
             }
             plainTextInput(label: "思维误区", text: $draft.pitfall)
-            plainTextInput(label: "提醒", text: $draft.reminder)
+            plainTextInput(label: isAnalogy ? "常识" : "提醒", text: $draft.reminder)
         }
         .padding(14)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))

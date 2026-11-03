@@ -161,8 +161,13 @@ struct LibraryView: View {
                             remove(LibraryDeleteTarget(kind: kind, recordID: recordID))
                             popCurrentRoute()
                         },
+                        orderedRecordIDs: kind == .errors ? orderedVisibleErrorRecordIDs : [],
+                        onNavigateToRecord: { nextRecordID in
+                            replaceCurrentRoute(with: .detail(kind: .errors, recordID: nextRecordID))
+                        },
                         onOpenLinkedWord: { navigationPath.append(.detail(kind: .words, recordID: $0)) }
                     )
+                    .id(recordID)
                 }
             } else {
                 NativeStatusCard(title: "记录不存在", detail: "这条记录可能已经被删除", systemImage: "exclamationmark.triangle", color: .secondary)
@@ -351,6 +356,7 @@ struct LibraryView: View {
                 }
                 .padding(14)
             }
+            .contentMargins(.bottom, 12, for: .scrollContent)
         }
         .overlay(alignment: .bottomTrailing) {
             if canCreateRecord {
@@ -377,6 +383,7 @@ struct LibraryView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 9) {
                 reviewSourceSelector
+                Spacer(minLength: 0)
                 headerMenu
             }
 
@@ -734,6 +741,15 @@ struct LibraryView: View {
         )
     }
 
+    private var orderedVisibleErrorRecordIDs: [String] {
+        guard kind == .errors else { return [] }
+        let scoped = filterRecords(matching: selectedTag, from: sortedScopedRecords)
+        let lightSnapshots = scoped.map {
+            LibraryRecordSnapshot(record: $0, reviewSource: scope.reviewSource)
+        }
+        return displayedRecords(from: lightSnapshots).map { $0.record.recordID }
+    }
+
     private func displayedRecords(from snapshots: [LibraryRecordSnapshot]) -> [LibraryRecordSnapshot] {
         let keyword = normalizedSearch(searchText)
         return snapshots.filter { snapshot in
@@ -754,12 +770,16 @@ struct LibraryView: View {
     }
 
     private var quantityTypeBar: some View {
-        NativeTagFlow(spacing: 7) {
-            ForEach(quantityQuestionTypes, id: \.self) { type in
-                quantityTypeChip(type, value: type)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                ForEach(quantityQuestionTypes, id: \.self) { type in
+                    quantityTypeChip(type, value: type)
+                }
+                quantityTypeChip("未分类", value: "未分类")
             }
-            quantityTypeChip("未分类", value: "未分类")
         }
+        .contentMargins(.horizontal, 1, for: .scrollContent)
+        .accessibilityIdentifier("library-quantity-type-filter")
     }
 
     private func quantityTypeChip(_ title: String, value: String) -> some View {

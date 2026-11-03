@@ -13,6 +13,8 @@ struct LibraryRecordDetailView: View {
     let record: StoredRecord?
     let onEdit: () -> Void
     let onDelete: () -> Void
+    var orderedRecordIDs: [String] = []
+    var onNavigateToRecord: ((String) -> Void)? = nil
     var onOpenLinkedWord: ((String) -> Void)? = nil
 
     @State private var object: [String: Any]
@@ -35,6 +37,8 @@ struct LibraryRecordDetailView: View {
         record: StoredRecord,
         onEdit: @escaping () -> Void,
         onDelete: @escaping () -> Void,
+        orderedRecordIDs: [String] = [],
+        onNavigateToRecord: ((String) -> Void)? = nil,
         onOpenLinkedWord: ((String) -> Void)? = nil
     ) {
         self.kind = kind
@@ -42,6 +46,8 @@ struct LibraryRecordDetailView: View {
         self.record = record
         self.onEdit = onEdit
         self.onDelete = onDelete
+        self.orderedRecordIDs = orderedRecordIDs
+        self.onNavigateToRecord = onNavigateToRecord
         self.onOpenLinkedWord = onOpenLinkedWord
         if let decodedObject = record.jsonObject {
             _object = State(initialValue: decodedObject)
@@ -189,9 +195,29 @@ struct LibraryRecordDetailView: View {
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(Color.white)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 30)
+                .onEnded(navigateFromHorizontalSwipe)
+        )
         .accessibilityIdentifier(displayQuestionBankContext.map {
             "question-bank-detail-scroll-\($0.question.id)"
         } ?? "library-record-detail-scroll")
+    }
+
+    private func navigateFromHorizontalSwipe(_ value: DragGesture.Value) {
+        guard kind == .errors,
+              !doodleSession.isPresented,
+              !noteSession.isEditing,
+              let onNavigateToRecord,
+              let record,
+              let currentIndex = orderedRecordIDs.firstIndex(of: record.recordID),
+              abs(value.translation.width) >= 80,
+              abs(value.translation.height) <= max(36, abs(value.translation.width) * 0.35)
+        else { return }
+
+        let nextIndex = currentIndex + (value.translation.width < 0 ? 1 : -1)
+        guard orderedRecordIDs.indices.contains(nextIndex) else { return }
+        onNavigateToRecord(orderedRecordIDs[nextIndex])
     }
 
     @ViewBuilder
@@ -206,7 +232,12 @@ struct LibraryRecordDetailView: View {
         } else if showWordSelection {
             LibraryRelationSelectionDialog(
                 collection: "words",
-                candidates: records,
+                candidates: records.filter {
+                    LibraryRelationCandidateScope.includes(
+                        candidateCollection: $0.collection,
+                        targetCollection: "words"
+                    )
+                },
                 selection: linkedWordSelection,
                 onClose: { showWordSelection = false },
                 onCreateWord: { category in
@@ -311,8 +342,14 @@ struct LibraryRecordDetailView: View {
                     metadataTextLine("识别思路", value: firstText(["recognition", "recognitionPath"]) ?? "")
                 }
             }
-            metadataTextLine("思维误区", value: firstText(["pitfall", "misconception", "thinkingTrap"]) ?? "")
-            metadataTextLine("提醒", value: firstText(["reminder"]) ?? "")
+            let pitfall = firstText(["pitfall", "misconception", "thinkingTrap"]) ?? ""
+            let reminder = firstText(["reminder"]) ?? ""
+            if !isAnalogyReasoning || !pitfall.isEmpty {
+                metadataTextLine("误区", value: pitfall)
+            }
+            if !isAnalogyReasoning || !reminder.isEmpty {
+                metadataTextLine(isAnalogyReasoning ? "常识" : "提醒", value: reminder)
+            }
         }
     }
 
@@ -397,12 +434,11 @@ struct LibraryRecordDetailView: View {
         if let rawQuestion = firstText(["question", "title", "name", "text", "content"]),
            !clean(rawQuestion).isEmpty {
             Text(cleanMultiline(rawQuestion))
-                .font(AppTheme.questionTextFont)
+                .font(.system(size: 14.5, weight: .regular))
                 .lineSpacing(AppTheme.questionLineSpacing)
                 .textSelection(.enabled)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(detailBackground, in: RoundedRectangle(cornerRadius: 10))
                 .accessibilityIdentifier(
                     displayQuestionBankContext.map { "question-bank-detail-stem-\($0.question.id)" }
                         ?? "library-record-detail-stem"
@@ -745,7 +781,7 @@ struct LibraryRecordDetailView: View {
 
     private func optionText(_ option: String) -> Text {
         Text(cleanMultiline(option))
-            .font(.system(size: 14, weight: .regular))
+            .font(.system(size: 15, weight: .regular))
     }
 
     private var answerLetters: Set<String> { letterSet(firstText(["correctOption", "answer", "correctAnswer"])) }

@@ -16,7 +16,12 @@ private enum LibraryInlineNoteSaveError: LocalizedError {
 /// The parent can finish editing before entering drawing mode without observing every keystroke.
 @MainActor
 final class LibraryInlineNoteSession: ObservableObject {
+    @Published private(set) var isEditing = false
     var finishEditing: ((@escaping (Bool) -> Void) -> Void)?
+
+    func setEditing(_ value: Bool) {
+        isEditing = value
+    }
 
     func finish(completion: @escaping (Bool) -> Void) {
         guard let finishEditing else { completion(true); return }
@@ -43,6 +48,7 @@ private struct LibraryInlineNotePreparationKey: Equatable {
 private struct PreparedLibraryInlineNote {
     let key: LibraryInlineNoteRenderKey
     let result: NativeRichTextDisplayRenderResult
+    let editableAttributedText: NSAttributedString?
 }
 
 @MainActor
@@ -65,6 +71,8 @@ struct LibraryInlineNoteView: View {
     @State private var preparedNote: PreparedLibraryInlineNote?
     @State private var errorMessage: String?
     @State private var displayWarning: String?
+    @State private var editingInitialHTML: String?
+    @State private var editingInitialAttributedText: NSAttributedString?
 
     private let noteCanvasMinimumHeight: CGFloat = 360
 
@@ -193,8 +201,8 @@ struct LibraryInlineNoteView: View {
                     minHeight: noteCanvasMinimumHeight,
                     documentStyle: true,
                     focusOnAppear: true,
-                    preparedInitialHTML: currentPreparedNote?.key.html,
-                    preparedInitialAttributedText: currentPreparedNote?.result.attributedText,
+                    preparedInitialHTML: editingInitialHTML,
+                    preparedInitialAttributedText: editingInitialAttributedText,
                     editorSession: editorSession
                 )
                 .accessibilityIdentifier("library-inline-note-editor")
@@ -204,10 +212,18 @@ struct LibraryInlineNoteView: View {
                     .padding(.horizontal, 8)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        guard storedNote.isEmpty || currentPreparedNote.map({ !$0.result.usedSafeFallback }) == true else { return }
+                        guard storedNote.isEmpty || currentPreparedNote?.editableAttributedText != nil else {
+                            displayWarning = "笔记超出安全编辑范围，原内容已保留为只读。"
+                            return
+                        }
                         draft = storedNote
                         saved = draft
+                        editingInitialHTML = storedNote
+                        editingInitialAttributedText = currentPreparedNote?.editableAttributedText
+                            ?? NSAttributedString(string: "")
                         editing = true
+                        session.setEditing(true)
+                        displayWarning = nil
                     }
             }
             if let errorMessage {
@@ -245,6 +261,7 @@ struct LibraryInlineNoteView: View {
         .onDisappear {
             saveTask?.cancel()
             if editing { finishEditing { _ in } }
+            session.setEditing(false)
             session.finishEditing = nil
         }
         .task(id: LibraryInlineNotePreparationKey(note: noteRenderKey, isEditing: editing)) {
@@ -254,17 +271,50 @@ struct LibraryInlineNoteView: View {
     }
 
     @MainActor
-    private func prepareNote(for key: LibraryInlineNoteRenderKey) {
+    private func prepareNote(for key: LibraryInlineNoteRenderKey) async {
         guard !editing, !key.html.isEmpty else { return }
         if let preparedNote,
            preparedNote.key.documentID == key.documentID,
            preparedNote.key.html == key.html {
-            self.preparedNote = PreparedLibraryInlineNote(key: key, result: preparedNote.result)
+            self.preparedNote = PreparedLibraryInlineNote(
+                key: key,
+                result: preparedNote.result,
+                editableAttributedText: preparedNote.editableAttributedText
+            )
             return
         }
         let result = NativeRichTextDisplayRenderer.render(key.html)
+        let editableAttributedText: NSAttributedString?
+        if result.usedSafeFallback {
+            let html = key.html
+            let runs = await Task.detached(priority: .utility) {
+                NativeRichTextFallbackParser.parseForEditing(html)
+            }.value
+            guard !Task.isCancelled else { return }
+            editableAttributedText = runs.flatMap {
+                NativeRichTextDisplayRenderer.editableAttributedText(from: $0)
+            }
+        } else {
+            editableAttributedText = result.attributedText.copy() as? NSAttributedString ?? result.attributedText
+        }
         guard !Task.isCancelled, !editing, key == noteRenderKey else { return }
-        preparedNote = PreparedLibraryInlineNote(key: key, result: result)
+        let displayResult: NativeRichTextDisplayRenderResult
+        if result.usedSafeFallback, let editableAttributedText {
+            displayResult = NativeRichTextDisplayRenderResult(
+                attributedText: editableAttributedText,
+                usedSafeFallback: true
+            )
+        } else {
+            displayResult = result
+        }
+        preparedNote = PreparedLibraryInlineNote(
+            key: key,
+            result: displayResult,
+            editableAttributedText: editableAttributedText
+        )
+        if result.usedSafeFallback, editableAttributedText == nil {
+            displayWarning = "预览已降级；笔记过长或含有未闭合附件，当前仅保留原内容并以只读方式显示。"
+        }
     }
 
     @ViewBuilder private var noteDisplay: some View {
@@ -281,7 +331,11 @@ struct LibraryInlineNoteView: View {
                     renderVersion: currentPreparedNote.key.rendererVersion,
                     minHeight: noteCanvasMinimumHeight,
                     accessibilityIdentifier: "library-inline-note-display",
-                    onFallback: { displayWarning = "富文本预览已降级，原笔记完整保留；当前不能编辑此笔记" }
+                    onFallback: {
+                        displayWarning = currentPreparedNote?.editableAttributedText == nil
+                            ? "预览已降级；笔记过长或含有未闭合附件，当前仅保留原内容并以只读方式显示。"
+                            : "预览已切换为安全模式；编辑时会保留正文和已有附件。"
+                    }
                 )
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             } else {
@@ -302,6 +356,17 @@ struct LibraryInlineNoteView: View {
         editorSession.endEditing { latestHTML in
             let latestDraft = latestHTML ?? self.draft
             let latestAttributedText = self.editorSession.latestAttributedText()
+            let baselineAttributedText = self.editingInitialAttributedText ?? NSAttributedString(string: "")
+            if latestAttributedText?.isEqual(to: baselineAttributedText) == true {
+                self.draft = self.saved
+                self.editing = false
+                self.session.setEditing(false)
+                self.editingInitialHTML = nil
+                self.editingInitialAttributedText = nil
+                self.isFinishing = false
+                completion(true)
+                return
+            }
             self.draft = latestDraft
             guard self.save(latestDraft, preparedAttributedText: latestAttributedText) else {
                 self.isFinishing = false
@@ -309,6 +374,9 @@ struct LibraryInlineNoteView: View {
                 return
             }
             self.editing = false
+            self.session.setEditing(false)
+            self.editingInitialHTML = nil
+            self.editingInitialAttributedText = nil
             self.isFinishing = false
             completion(true)
         }
@@ -332,7 +400,8 @@ struct LibraryInlineNoteView: View {
                     result: NativeRichTextDisplayRenderResult(
                         attributedText: attributedText.copy() as? NSAttributedString ?? attributedText,
                         usedSafeFallback: false
-                    )
+                    ),
+                    editableAttributedText: attributedText.copy() as? NSAttributedString ?? attributedText
                 )
             }
             return true

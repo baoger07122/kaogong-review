@@ -1,11 +1,15 @@
 import Foundation
 
-enum NativeRichTextFallbackRun: Equatable {
+enum NativeRichTextFallbackRun: Equatable, Sendable {
     case text(String)
     case image(String)
     case table(String)
     case formula(String)
     case placeholder(String)
+    case imageWithMarker(dataURL: String, marker: String)
+    case tableWithMarker(encoded: String, marker: String)
+    case formulaWithMarker(encoded: String, marker: String)
+    case opaque(label: String, marker: String)
 }
 
 /// Bounded, Foundation-only parser used when the system HTML importer is skipped
@@ -20,6 +24,9 @@ enum NativeRichTextFallbackParser {
     private static let maximumTableJSONBytes = 48 * 1024
     private static let maximumFormulaJSONBytes = 4 * 1024
     private static let maximumAttachments = 32
+    private static let maximumEditableDocumentBytes = 8 * 1024 * 1024
+    private static let maximumEditableTextCharacters = 1_000_000
+    private static let maximumEditableAttachments = 64
     private static let skippedElements: Set<String> = ["head", "style", "script"]
 
     private struct ScannedTag {
@@ -28,9 +35,10 @@ enum NativeRichTextFallbackParser {
         let byteCount: Int
     }
 
-    private struct ScannedMarker {
-        let run: NativeRichTextFallbackRun?
-        let placeholder: String?
+    private struct ScannedNativeMarker {
+        let raw: String
+        let kind: String
+        let payload: String
         let endIndex: String.Index
         let byteCount: Int
         let isClosed: Bool
@@ -112,21 +120,19 @@ enum NativeRichTextFallbackParser {
                 continue
             }
 
-            if html[cursor...].hasPrefix("[[NATIVE_IMAGE:")
-                || html[cursor...].hasPrefix("[[NATIVE_TABLE:")
-                || html[cursor...].hasPrefix("[[NATIVE_FORMULA:") {
+            if html[cursor...].hasPrefix("[[NATIVE_") {
                 flushText()
-                guard let marker = scanMarker(in: html, from: cursor) else {
+                guard let marker = scanNativeMarker(in: html, from: cursor) else {
                     appendPlaceholder("附件无法显示")
                     wasTruncated = true
                     break
                 }
                 scannedBytes += marker.byteCount
                 cursor = marker.endIndex
-                if let run = marker.run {
+                if let run = previewRun(for: marker) {
                     appendAttachment(run)
                 } else {
-                    appendPlaceholder(marker.placeholder ?? "附件无法显示")
+                    appendPlaceholder(markerLabel(for: marker.kind))
                 }
                 if !marker.isClosed {
                     wasTruncated = true
@@ -195,6 +201,139 @@ enum NativeRichTextFallbackParser {
         if wasTruncated {
             runs.append(.text("\n…（预览已截断，原内容仍保留）"))
         }
+        return runs
+    }
+
+    /// Returns nil unless the whole document and every retained attachment fit the
+    /// editing limits. Unlike the preview parser, this path never truncates text.
+    static func parseForEditing(_ html: String) -> [NativeRichTextFallbackRun]? {
+        guard html.utf8.count <= maximumEditableDocumentBytes else { return nil }
+        var runs: [NativeRichTextFallbackRun] = []
+        var textBuffer = String()
+        var bufferedCharacters = 0
+        var outputCharacters = 0
+        var attachmentCount = 0
+        var ignoredElements: [String] = []
+        var cursor = html.startIndex
+
+        func flushText() {
+            guard !textBuffer.isEmpty else { return }
+            let decoded = decodeEntities(textBuffer)
+            if !decoded.isEmpty {
+                runs.append(.text(decoded))
+                outputCharacters += decoded.count
+            }
+            textBuffer.removeAll(keepingCapacity: true)
+            bufferedCharacters = 0
+        }
+
+        func appendText(_ value: String) -> Bool {
+            guard outputCharacters + bufferedCharacters + value.count <= maximumEditableTextCharacters else {
+                return false
+            }
+            textBuffer.append(value)
+            bufferedCharacters += value.count
+            return true
+        }
+
+        func appendAttachment(_ run: NativeRichTextFallbackRun) -> Bool {
+            guard attachmentCount < maximumEditableAttachments else { return false }
+            flushText()
+            attachmentCount += 1
+            runs.append(run)
+            return true
+        }
+
+        while cursor < html.endIndex {
+            if !ignoredElements.isEmpty {
+                if html[cursor] == "<", let tag = scanTag(in: html, from: cursor) {
+                    cursor = tag.endIndex
+                    guard let parsed = parseTag(tag.raw) else { continue }
+                    if parsed.isClosing, ignoredElements.last == parsed.name {
+                        ignoredElements.removeLast()
+                    } else if !parsed.isClosing, !parsed.isSelfClosing, skippedElements.contains(parsed.name) {
+                        ignoredElements.append(parsed.name)
+                    }
+                    continue
+                }
+                cursor = html.index(after: cursor)
+                continue
+            }
+
+            if html[cursor...].hasPrefix("[[NATIVE_") {
+                flushText()
+                guard let marker = scanNativeMarker(in: html, from: cursor), marker.isClosed else { return nil }
+                cursor = marker.endIndex
+                let run: NativeRichTextFallbackRun
+                switch marker.kind {
+                case "NATIVE_IMAGE":
+                    if let decoded = decodedMarkerRun(payload: marker.payload, label: "图片"),
+                       case .image(let dataURL) = decoded {
+                        run = .imageWithMarker(dataURL: dataURL, marker: marker.raw)
+                    } else {
+                        run = .opaque(label: "图片", marker: marker.raw)
+                    }
+                case "NATIVE_TABLE":
+                    if let data = Data(base64Encoded: marker.payload), data.count <= maximumTableJSONBytes {
+                        run = .tableWithMarker(encoded: marker.payload, marker: marker.raw)
+                    } else {
+                        run = .opaque(label: "表格", marker: marker.raw)
+                    }
+                case "NATIVE_FORMULA":
+                    if let data = Data(base64Encoded: marker.payload), data.count <= maximumFormulaJSONBytes {
+                        run = .formulaWithMarker(encoded: marker.payload, marker: marker.raw)
+                    } else {
+                        run = .opaque(label: "公式", marker: marker.raw)
+                    }
+                default:
+                    run = .opaque(label: markerLabel(for: marker.kind), marker: marker.raw)
+                }
+                guard appendAttachment(run) else { return nil }
+                continue
+            }
+
+            if html[cursor] == "<" {
+                if let tag = scanTag(in: html, from: cursor) {
+                    cursor = tag.endIndex
+                    guard let parsed = parseTag(tag.raw) else { continue }
+                    if !parsed.isClosing, !parsed.isSelfClosing, skippedElements.contains(parsed.name) {
+                        flushText()
+                        ignoredElements.append(parsed.name)
+                    } else if parsed.name == "img", !parsed.isClosing {
+                        let run: NativeRichTextFallbackRun
+                        if let source = imageSource(in: parsed.raw), let dataURL = validatedImageDataURL(source) {
+                            let payload = Data(dataURL.utf8).base64EncodedString()
+                            run = .imageWithMarker(
+                                dataURL: dataURL,
+                                marker: "[[NATIVE_IMAGE:\(payload)]]"
+                            )
+                        } else {
+                            let payload = Data(parsed.raw.utf8).base64EncodedString()
+                            run = .opaque(label: "图片", marker: "[[NATIVE_RAW_HTML:\(payload)]]")
+                        }
+                        guard appendAttachment(run) else { return nil }
+                    } else if isLineBreakTag(parsed) {
+                        if (textBuffer.last ?? "\0") != "\n", !appendText("\n") { return nil }
+                    }
+                    continue
+                }
+
+                if isImageTagStart(in: html, at: cursor) || isLikelyTagStart(in: html, at: cursor) {
+                    return nil
+                }
+                if !appendText("<") { return nil }
+                cursor = html.index(after: cursor)
+                continue
+            }
+
+            let character = html[cursor]
+            cursor = html.index(after: cursor)
+            if !appendText(String(character)) { return nil }
+        }
+
+        guard ignoredElements.isEmpty else { return nil }
+        flushText()
+        guard outputCharacters <= maximumEditableTextCharacters else { return nil }
         return runs
     }
 
@@ -272,13 +411,8 @@ enum NativeRichTextFallbackParser {
         return tag.isClosing && ["p", "div", "li", "tr", "blockquote", "pre"].contains(tag.name)
     }
 
-    private static func scanMarker(in value: String, from start: String.Index) -> ScannedMarker? {
-        let kinds: [(prefix: String, label: String)] = [
-            ("[[NATIVE_IMAGE:", "图片"),
-            ("[[NATIVE_TABLE:", "表格"),
-            ("[[NATIVE_FORMULA:", "公式")
-        ]
-        guard let kind = kinds.first(where: { value[start...].hasPrefix($0.prefix) }) else { return nil }
+    private static func scanNativeMarker(in value: String, from start: String.Index) -> ScannedNativeMarker? {
+        guard value[start...].hasPrefix("[[NATIVE_") else { return nil }
         var cursor = start
         var byteCount = 0
         var marker = String()
@@ -287,19 +421,57 @@ enum NativeRichTextFallbackParser {
             marker.append(character)
             byteCount += String(character).utf8.count
             cursor = value.index(after: cursor)
-            if marker.hasSuffix("]]" ) {
-                let payloadStart = kind.prefix.count
-                let payload = String(marker.dropFirst(payloadStart).dropLast(2))
-                return ScannedMarker(
-                    run: decodedMarkerRun(payload: payload, label: kind.label),
-                    placeholder: kind.label,
+            guard marker.hasSuffix("]]" ) else { continue }
+            let body = marker.dropFirst(2).dropLast(2)
+            guard let separator = body.firstIndex(of: ":") else {
+                return ScannedNativeMarker(
+                    raw: marker,
+                    kind: "NATIVE_UNKNOWN",
+                    payload: "",
                     endIndex: cursor,
                     byteCount: byteCount,
                     isClosed: true
                 )
             }
+            return ScannedNativeMarker(
+                raw: marker,
+                kind: String(body[..<separator]),
+                payload: String(body[body.index(after: separator)...]),
+                endIndex: cursor,
+                byteCount: byteCount,
+                isClosed: true
+            )
         }
-        return ScannedMarker(run: nil, placeholder: kind.label, endIndex: cursor, byteCount: byteCount, isClosed: false)
+        let body = marker.dropFirst(min(2, marker.count))
+        let kind = body.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? "NATIVE_UNKNOWN"
+        let payload = body.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).dropFirst().first.map(String.init) ?? ""
+        return ScannedNativeMarker(
+            raw: marker,
+            kind: kind,
+            payload: payload,
+            endIndex: cursor,
+            byteCount: byteCount,
+            isClosed: false
+        )
+    }
+
+    private static func previewRun(for marker: ScannedNativeMarker) -> NativeRichTextFallbackRun? {
+        guard marker.isClosed else { return nil }
+        switch marker.kind {
+        case "NATIVE_IMAGE": decodedMarkerRun(payload: marker.payload, label: "图片")
+        case "NATIVE_TABLE": decodedMarkerRun(payload: marker.payload, label: "表格")
+        case "NATIVE_FORMULA": decodedMarkerRun(payload: marker.payload, label: "公式")
+        default: nil
+        }
+    }
+
+    private static func markerLabel(for kind: String) -> String {
+        switch kind {
+        case "NATIVE_IMAGE", "NATIVE_RAW_HTML": "图片"
+        case "NATIVE_TABLE": "表格"
+        case "NATIVE_FORMULA": "公式"
+        default: "附件"
+        }
     }
 
     private static func decodedMarkerRun(payload: String, label: String) -> NativeRichTextFallbackRun? {
