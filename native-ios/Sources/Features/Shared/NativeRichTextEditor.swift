@@ -23,7 +23,7 @@ private enum RichTextCommandKind: Equatable {
     case quote
     case code
     case table(RichTextTable)
-    case image(String)
+    case image(String, NativeRichTextInsertionTarget)
     case formula(RichTextFormula)
     case internalLink(RichTextInternalLink)
     case link(String)
@@ -153,6 +153,65 @@ private struct RichTextKeyboardAccessoryState: Equatable {
 private struct RichTextCommand: Equatable {
     let id = UUID()
     let kind: RichTextCommandKind
+    var imageCompletion: ((Result<Void, NativeRichTextEditorError>) -> Void)? = nil
+
+    static func == (lhs: RichTextCommand, rhs: RichTextCommand) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
+struct NativeRichTextEditorSnapshot {
+    let html: String
+    let attributedText: NSAttributedString
+    let selection: NSRange
+}
+
+struct NativeRichTextInsertionTarget: Equatable {
+    let documentID: String?
+    let sessionID: UUID
+    let range: NSRange
+}
+
+struct NativeRichTextMediaNotice: Equatable {
+    let documentID: String?
+    let message: String
+}
+
+enum NativeRichTextEditorError: LocalizedError {
+    case editorSessionChanged
+    case invalidSelection
+    case imageAttachmentInvalid
+
+    var errorDescription: String? {
+        switch self {
+        case .editorSessionChanged: "笔记页面已切换，图片没有插入到其他题目。请重新打开图片选择器。"
+        case .invalidSelection: "图片插入位置已失效，请重新选择插入位置后再试。"
+        case .imageAttachmentInvalid: "图片无法生成附件，原笔记没有被修改。"
+        }
+    }
+}
+
+private enum NativeRichTextPhotoError: LocalizedError {
+    case loadFailed(String)
+    case noData
+    case decodeFailed
+    case encodeFailed
+    case tooLarge
+
+    var errorDescription: String? {
+        switch self {
+        case .loadFailed(let detail): "读取图片失败：\(detail)"
+        case .noData: "没有读取到图片数据，笔记内容没有改变。"
+        case .decodeFailed: "无法解码所选图片，笔记内容没有改变。"
+        case .encodeFailed: "图片压缩失败，笔记内容没有改变。"
+        case .tooLarge: "图片超过笔记附件大小限制（8 MB），请选更小的图片。"
+        }
+    }
+}
+
+private enum RichTextEditorAlert {
+    case linkPrompt
+    case imageError(String)
 }
 
 @MainActor
@@ -167,11 +226,14 @@ struct NativeRichTextEditor: View {
     var preparedInitialHTML: String? = nil
     var preparedInitialAttributedText: NSAttributedString? = nil
     var editorSession: NativeRichTextEditorSession? = nil
-    var onEditingEnded: (() -> Void)? = nil
+    var editorDocumentID: String? = nil
+    var editorSessionID: UUID? = nil
     var internalLinks: [RichTextInternalLink] = []
     var onOpenInternalLink: ((RichTextInternalLink) -> Void)?
+    @StateObject private var localEditorSession = NativeRichTextEditorSession()
+    @State private var localEditorSessionID = UUID()
     @State private var command: RichTextCommand?
-    @State private var showLinkPrompt = false
+    @State private var activeAlert: RichTextEditorAlert?
     @State private var linkTarget = "https://"
     @State private var selectedTable: RichTextTable?
     @State private var tableEditor: RichTextTable?
@@ -183,6 +245,37 @@ struct NativeRichTextEditor: View {
     @State private var isEditing = false
     @State private var toolbarPage: RichTextToolbarPage = .main
     @State private var selectionState = RichTextSelectionState()
+    @State private var capturedPhotoTarget: NativeRichTextInsertionTarget?
+    @State private var photoLoadTask: Task<Void, Never>?
+    @State private var awaitingImageInsertion = false
+
+    private var activeEditorSession: NativeRichTextEditorSession { editorSession ?? localEditorSession }
+    private var activeEditorDocumentID: String? { editorDocumentID }
+    private var activeEditorSessionID: UUID { editorSessionID ?? localEditorSessionID }
+
+    private var activeAlertPresentation: Binding<Bool> {
+        Binding(
+            get: { activeAlert != nil },
+            set: { isPresented in
+                guard !isPresented, activeAlert != nil else { return }
+                if case .linkPrompt? = activeAlert { activeEditorSession.setAuxiliaryPanelPresented(false) }
+                activeAlert = nil
+            }
+        )
+    }
+
+    private var alertTitle: String {
+        if case .linkPrompt? = activeAlert { return "添加链接" }
+        return "无法插入图片"
+    }
+
+    private var alertMessage: String {
+        switch activeAlert {
+        case .linkPrompt: "选中文字后添加链接；没有选中文字时会直接插入链接地址。"
+        case .imageError(let message): message
+        case nil: ""
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -214,41 +307,27 @@ struct NativeRichTextEditor: View {
                 initialSelectionWidth: initialSelectionWidth,
                 preparedInitialHTML: preparedInitialHTML,
                 preparedInitialAttributedText: preparedInitialAttributedText,
-                editorSession: editorSession,
-                onEditingEnded: onEditingEnded
+                editorSession: activeEditorSession,
+                usesLazyHTMLInitialization: editorSession != nil
             )
                 .frame(minHeight: documentStyle ? nil : minHeight, alignment: .topLeading)
                 .padding(.horizontal, documentStyle ? 0 : 5)
         }
         .background(Color.primary.opacity(documentStyle ? 0 : 0.035), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
         .overlay(RoundedRectangle(cornerRadius: AppTheme.controlRadius).stroke(Color.primary.opacity(documentStyle ? 0 : 0.07), lineWidth: 0.7))
-        .alert("添加链接", isPresented: $showLinkPrompt) {
-            TextField("https://example.com", text: $linkTarget)
-                .textInputAutocapitalization(.never)
-                .keyboardType(.URL)
-            Button("取消", role: .cancel) {}
-            Button("添加") {
-                let value = linkTarget.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !value.isEmpty else { return }
-                command = RichTextCommand(kind: .link(value))
-                linkTarget = "https://"
-            }
-        } message: {
-            Text("选中文字后添加链接；没有选中文字时会直接插入链接地址。")
-        }
-        .sheet(item: $tableEditor) { table in
+        .sheet(item: $tableEditor, onDismiss: { activeEditorSession.setAuxiliaryPanelPresented(false) }) { table in
             RichTextTableEditor(initial: table) { updated in
                 command = RichTextCommand(kind: .table(updated))
             }
             .presentationDetents([.medium, .large])
         }
-        .sheet(item: $formulaEditor) { formula in
+        .sheet(item: $formulaEditor, onDismiss: { activeEditorSession.setAuxiliaryPanelPresented(false) }) { formula in
             DataAnalysisFormulaPicker(initial: formula) { updated in
                 command = RichTextCommand(kind: .formula(updated))
             }
             .presentationDetents([.medium, .large])
         }
-        .sheet(item: $internalLinkPicker) { _ in
+        .sheet(item: $internalLinkPicker, onDismiss: { activeEditorSession.setAuxiliaryPanelPresented(false) }) { _ in
             RichTextInternalLinkPicker(links: internalLinks) { link in
                 command = RichTextCommand(kind: .internalLink(link))
             }
@@ -257,14 +336,52 @@ struct NativeRichTextEditor: View {
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
-            Task {
-                defer { photoItem = nil }
-                guard let data = try? await item.loadTransferable(type: Data.self),
-                      let image = UIImage(data: data),
-                      let compressed = image.jpegData(compressionQuality: 0.82)
-                else { return }
-                command = RichTextCommand(kind: .image("data:image/jpeg;base64,\(compressed.base64EncodedString())"))
+            photoLoadTask?.cancel()
+            photoLoadTask = Task { @MainActor in await loadAndInsertPhoto(item) }
+        }
+        .onChange(of: showPhotoPicker) { _, presented in
+            guard !presented else { return }
+            Task { @MainActor in
+                do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+                if photoItem == nil, photoLoadTask == nil {
+                    if !awaitingImageInsertion {
+                        capturedPhotoTarget = nil
+                        activeEditorSession.setMediaOperationInProgress(false)
+                    }
+                }
             }
+        }
+        .alert(alertTitle, isPresented: activeAlertPresentation) {
+            switch activeAlert {
+            case .linkPrompt:
+                TextField("https://example.com", text: $linkTarget)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.URL)
+                Button("取消", role: .cancel) {}
+                Button("添加") {
+                    let value = linkTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !value.isEmpty else { return }
+                    command = RichTextCommand(kind: .link(value))
+                    linkTarget = "https://"
+                }
+            case .imageError(_), nil:
+                Button("好", role: .cancel) {}
+            }
+        } message: {
+            Text(alertMessage)
+        }
+        .onAppear {
+            activeEditorSession.activate(documentID: activeEditorDocumentID, sessionID: activeEditorSessionID)
+        }
+        .onDisappear {
+            if activeEditorSession.isMediaOperationInProgress {
+                activeEditorSession.cancelMediaOperation(
+                    sessionID: activeEditorSessionID,
+                    message: "切换题目时已取消图片插入，没有把图片写入其他题目。"
+                )
+            }
+            photoLoadTask?.cancel()
+            activeEditorSession.deactivate(sessionID: activeEditorSessionID)
         }
         .onChange(of: isEditing) { _, active in
             if !active { toolbarPage = .main }
@@ -302,6 +419,7 @@ struct NativeRichTextEditor: View {
         .padding(.bottom, 7)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .background(Color.clear)
+        .disabled(activeEditorSession.isInputLocked || activeEditorSession.isMediaOperationInProgress)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("笔记格式栏")
     }
@@ -330,15 +448,112 @@ struct NativeRichTextEditor: View {
         }
     }
 
+    @MainActor
+    private func openPhotoPicker() {
+        guard activeEditorSession.canFinishEditing else {
+            presentImageError("请先完成输入并关闭当前编辑面板，再插入图片。")
+            return
+        }
+        guard let target = activeEditorSession.captureInsertionTarget(
+            expectedDocumentID: activeEditorDocumentID,
+            expectedSessionID: activeEditorSessionID
+        ) else {
+            presentImageError("无法确定当前笔记中的插入位置，请点选正文位置后重试。")
+            return
+        }
+        capturedPhotoTarget = target
+        activeEditorSession.setMediaOperationInProgress(true)
+        showPhotoPicker = true
+    }
+
+    @MainActor
+    private func loadAndInsertPhoto(_ item: PhotosPickerItem) async {
+        let target = capturedPhotoTarget
+        defer {
+            photoItem = nil
+            photoLoadTask = nil
+        }
+        do {
+            guard let target else { throw NativeRichTextEditorError.invalidSelection }
+            let sourceData: Data
+            do {
+                guard let loaded = try await item.loadTransferable(type: Data.self) else {
+                    throw NativeRichTextPhotoError.noData
+                }
+                sourceData = loaded
+            } catch let error as NativeRichTextEditorError {
+                throw error
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw NativeRichTextPhotoError.loadFailed(error.localizedDescription)
+            }
+            try Task.checkCancellation()
+            guard activeEditorSession.matches(target) else {
+                throw NativeRichTextEditorError.editorSessionChanged
+            }
+            guard sourceData.count <= 8 * 1024 * 1024 else {
+                throw NativeRichTextPhotoError.tooLarge
+            }
+            guard let image = UIImage(data: sourceData) else {
+                throw NativeRichTextPhotoError.decodeFailed
+            }
+            guard let compressed = image.jpegData(compressionQuality: 0.82) else {
+                throw NativeRichTextPhotoError.encodeFailed
+            }
+            guard compressed.count <= 8 * 1024 * 1024 else {
+                throw NativeRichTextPhotoError.tooLarge
+            }
+            let dataURL = "data:image/jpeg;base64,\(compressed.base64EncodedString())"
+            guard dataURL.utf8.count <= NativeImageAttachment.maximumEncodedBytes else {
+                throw NativeRichTextPhotoError.tooLarge
+            }
+            awaitingImageInsertion = true
+            command = RichTextCommand(
+                kind: .image(dataURL, target),
+                imageCompletion: { result in
+                    self.awaitingImageInsertion = false
+                    self.capturedPhotoTarget = nil
+                    self.activeEditorSession.setMediaOperationInProgress(false)
+                    if case .failure(let error) = result { self.presentImageError(error.localizedDescription) }
+                }
+            )
+        } catch is CancellationError {
+            capturedPhotoTarget = nil
+            activeEditorSession.setMediaOperationInProgress(false)
+        } catch {
+            capturedPhotoTarget = nil
+            activeEditorSession.setMediaOperationInProgress(false)
+            presentImageError(error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func presentImageError(_ message: String) {
+        activeAlert = .imageError(message)
+    }
+
     private var insertMenu: some View {
         Menu {
-            Button { showPhotoPicker = true } label: { Label("图片", systemImage: "photo") }
-            Button { tableEditor = selectedTable ?? RichTextTable() } label: { Label("表格", systemImage: "tablecells") }
+            Button { openPhotoPicker() } label: { Label("图片", systemImage: "photo") }
+            Button {
+                activeEditorSession.setAuxiliaryPanelPresented(true)
+                tableEditor = selectedTable ?? RichTextTable()
+            } label: { Label("表格", systemImage: "tablecells") }
             Button { run(.divider) } label: { Label("分割线", systemImage: "minus") }
-            Button { formulaEditor = selectedFormula ?? RichTextFormula() } label: { Label("公式", systemImage: "function") }
-            Button { showLinkPrompt = true } label: { Label("网页链接", systemImage: "link") }
+            Button {
+                activeEditorSession.setAuxiliaryPanelPresented(true)
+                formulaEditor = selectedFormula ?? RichTextFormula()
+            } label: { Label("公式", systemImage: "function") }
+            Button {
+                activeEditorSession.setAuxiliaryPanelPresented(true)
+                activeAlert = .linkPrompt
+            } label: { Label("网页链接", systemImage: "link") }
             if !internalLinks.isEmpty {
-                Button { internalLinkPicker = InternalLinkPickerRequest() } label: { Label("关联笔记", systemImage: "link.circle") }
+                Button {
+                    activeEditorSession.setAuxiliaryPanelPresented(true)
+                    internalLinkPicker = InternalLinkPickerRequest()
+                } label: { Label("关联笔记", systemImage: "link.circle") }
             }
         } label: {
             toolbarImage("plus")
@@ -443,12 +658,79 @@ struct NativeRichTextEditor: View {
 final class NativeRichTextEditorSession: ObservableObject {
     typealias EndEditingHandler = (@escaping (String?) -> Void) -> Void
 
+    @Published private(set) var isMediaOperationInProgress = false
+    @Published private(set) var isAuxiliaryPanelPresented = false
+    @Published private(set) var isComposingText = false
+    @Published private(set) var isInputLocked = false
+    @Published private(set) var mediaNotice: NativeRichTextMediaNotice?
+
     private var latestHTMLReader: (() -> String?)?
     private var latestAttributedTextReader: (() -> NSAttributedString?)?
+    private var snapshotReader: (() -> NativeRichTextEditorSnapshot?)?
+    private var selectionReader: (() -> NSRange?)?
     private var endEditingHandler: EndEditingHandler?
+    private(set) var documentID: String?
+    private(set) var sessionID: UUID?
+
+    var canFinishEditing: Bool {
+        !isMediaOperationInProgress && !isAuxiliaryPanelPresented && !isComposingText && !isInputLocked
+    }
+
+    func activate(documentID: String?, sessionID: UUID) {
+        if self.sessionID != sessionID {
+            isMediaOperationInProgress = false
+            isAuxiliaryPanelPresented = false
+            isComposingText = false
+            isInputLocked = false
+        }
+        self.documentID = documentID
+        self.sessionID = sessionID
+    }
+
+    func deactivate(sessionID: UUID) {
+        guard self.sessionID == sessionID else { return }
+        disconnect()
+        documentID = nil
+        self.sessionID = nil
+        isMediaOperationInProgress = false
+        isAuxiliaryPanelPresented = false
+        isComposingText = false
+        isInputLocked = false
+    }
 
     func latestHTML() -> String? { latestHTMLReader?() }
     func latestAttributedText() -> NSAttributedString? { latestAttributedTextReader?() }
+    func captureSnapshot() -> NativeRichTextEditorSnapshot? { snapshotReader?() }
+
+    func captureInsertionTarget(
+        expectedDocumentID: String?,
+        expectedSessionID: UUID
+    ) -> NativeRichTextInsertionTarget? {
+        guard documentID == expectedDocumentID,
+              sessionID == expectedSessionID,
+              let range = selectionReader?() else { return nil }
+        return NativeRichTextInsertionTarget(documentID: documentID, sessionID: expectedSessionID, range: range)
+    }
+
+    func matches(_ target: NativeRichTextInsertionTarget) -> Bool {
+        documentID == target.documentID && sessionID == target.sessionID
+    }
+
+    func cancelMediaOperation(sessionID: UUID, message: String) {
+        guard self.sessionID == sessionID, isMediaOperationInProgress else { return }
+        mediaNotice = NativeRichTextMediaNotice(documentID: documentID, message: message)
+        isMediaOperationInProgress = false
+    }
+
+    func clearMediaNotice(for documentID: String?) {
+        guard mediaNotice?.documentID == documentID else { return }
+        mediaNotice = nil
+    }
+
+    func setMediaOperationInProgress(_ value: Bool) { isMediaOperationInProgress = value }
+    func setAuxiliaryPanelPresented(_ value: Bool) { isAuxiliaryPanelPresented = value }
+    func setComposingText(_ value: Bool) { isComposingText = value }
+    func setInputLocked(_ value: Bool) { isInputLocked = value }
 
     func endEditing(_ completion: @escaping (String?) -> Void) {
         if let endEditingHandler {
@@ -461,16 +743,22 @@ final class NativeRichTextEditorSession: ObservableObject {
     fileprivate func connect(
         latestHTMLReader: @escaping () -> String?,
         latestAttributedTextReader: @escaping () -> NSAttributedString?,
+        snapshotReader: @escaping () -> NativeRichTextEditorSnapshot?,
+        selectionReader: @escaping () -> NSRange?,
         endEditingHandler: @escaping EndEditingHandler
     ) {
         self.latestHTMLReader = latestHTMLReader
         self.latestAttributedTextReader = latestAttributedTextReader
+        self.snapshotReader = snapshotReader
+        self.selectionReader = selectionReader
         self.endEditingHandler = endEditingHandler
     }
 
     fileprivate func disconnect() {
         latestHTMLReader = nil
         latestAttributedTextReader = nil
+        snapshotReader = nil
+        selectionReader = nil
         endEditingHandler = nil
     }
 }
@@ -823,7 +1111,7 @@ private struct RichTextTextView: UIViewRepresentable {
     var preparedInitialHTML: String? = nil
     var preparedInitialAttributedText: NSAttributedString? = nil
     var editorSession: NativeRichTextEditorSession? = nil
-    var onEditingEnded: (() -> Void)? = nil
+    var usesLazyHTMLInitialization = false
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -853,7 +1141,7 @@ private struct RichTextTextView: UIViewRepresentable {
         view.linkTextAttributes = [.foregroundColor: UIColor.systemBlue, .underlineStyle: NSUnderlineStyle.single.rawValue]
         if let preparedInitialAttributedText, preparedInitialHTML == html {
             view.attributedText = preparedInitialAttributedText
-        } else if editorSession == nil {
+        } else if !usesLazyHTMLInitialization {
             view.attributedText = Self.attributed(from: html)
         } else {
             view.attributedText = NSAttributedString(
@@ -905,22 +1193,26 @@ private struct RichTextTextView: UIViewRepresentable {
             state: keyboardAccessoryState,
             on: view
         )
-        if context.coordinator.connectedSession !== editorSession {
-            context.coordinator.connect(editorSession, to: view)
-        }
+        context.coordinator.connect(editorSession, to: view)
         if context.coordinator.lastHTML != html, !view.isFirstResponder {
             if let preparedInitialAttributedText, preparedInitialHTML == html {
                 view.attributedText = preparedInitialAttributedText
                 context.coordinator.setPublishedHTML(html)
-            } else if editorSession == nil {
+            } else if !usesLazyHTMLInitialization {
                 view.attributedText = Self.attributed(from: html)
                 context.coordinator.setPublishedHTML(html)
             }
         }
         if let command, context.coordinator.lastCommandID != command.id {
             context.coordinator.lastCommandID = command.id
-            context.coordinator.apply(command.kind, to: view)
-            DispatchQueue.main.async { self.command = nil }
+            let result = context.coordinator.apply(command.kind, to: view)
+            let imageCompletion = command.imageCompletion
+            DispatchQueue.main.async {
+                self.command = nil
+                if let imageCompletion {
+                    imageCompletion(result ?? .failure(NativeRichTextEditorError.imageAttachmentInvalid))
+                }
+            }
         }
     }
 
@@ -961,6 +1253,24 @@ private struct RichTextTextView: UIViewRepresentable {
                 latestAttributedTextReader: { [weak view] in
                     guard let view else { return nil }
                     return view.attributedText.copy() as? NSAttributedString
+                },
+                snapshotReader: { [weak self, weak view] in
+                    guard let self, let view else { return nil }
+                    let html = self.publishNow(view)
+                    let attributed = view.attributedText.copy() as? NSAttributedString ?? view.attributedText
+                    let selection = self.validSelection(self.lastEditingSelection, in: view)
+                        ? self.lastEditingSelection
+                        : view.selectedRange
+                    self.rememberSelection(selection)
+                    return NativeRichTextEditorSnapshot(html: html, attributedText: attributed, selection: selection)
+                },
+                selectionReader: { [weak self, weak view] in
+                    guard let self, let view else { return nil }
+                    let selection = self.validSelection(self.lastEditingSelection, in: view)
+                        ? self.lastEditingSelection
+                        : view.selectedRange
+                    self.rememberSelection(selection)
+                    return selection
                 },
                 endEditingHandler: { [weak self, weak view] completion in
                     guard let self, let view else { completion(nil); return }
@@ -1008,6 +1318,7 @@ private struct RichTextTextView: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) {
             textView.invalidateIntrinsicContentSize()
+            connectedSession?.setComposingText(textView.markedTextRange != nil)
             guard textView.markedTextRange == nil else { return }
             schedulePublish(textView)
             publishSelectionState(textView)
@@ -1023,17 +1334,15 @@ private struct RichTextTextView: UIViewRepresentable {
             let latestHTML = publishNow(textView)
             let completion = pendingEndEditingCompletion
             pendingEndEditingCompletion = nil
+            connectedSession?.setComposingText(false)
             DispatchQueue.main.async {
                 self.parent.isEditing = false
-                if let completion {
-                    completion(latestHTML)
-                } else {
-                    self.parent.onEditingEnded?()
-                }
+                completion?(latestHTML)
             }
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            connectedSession?.setComposingText(textView.markedTextRange != nil)
             guard textView.markedTextRange == nil else { return }
             rememberSelection(textView.selectedRange)
             let table = tableAttachment(near: textView.selectedRange, view: textView)?.attachment.table
@@ -1050,6 +1359,7 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            guard connectedSession?.isInputLocked != true else { return false }
             if textView.markedTextRange != nil { return true }
             if text.isEmpty, range.length == 1, removeEmptyListPrefixBeforeBackspace(in: textView, range: range) {
                 return false
@@ -1098,7 +1408,8 @@ private struct RichTextTextView: UIViewRepresentable {
             return true
         }
 
-        private func replaceAttributed(_ replacement: NSAttributedString, in range: NSRange, view: UITextView) {
+        @discardableResult
+        private func replaceAttributed(_ replacement: NSAttributedString, in range: NSRange, view: UITextView) -> Bool {
             NativeRichTextPastePolicy.replace(
                 replacement,
                 in: range,
@@ -1114,6 +1425,7 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func handlePaste(_ textView: UITextView) -> Bool {
+            guard connectedSession?.isInputLocked != true else { return true }
             guard textView.markedTextRange == nil else { return false }
             let range = textView.selectedRange
             guard range.location >= 0,
@@ -1211,11 +1523,23 @@ private struct RichTextTextView: UIViewRepresentable {
             return imported
         }
 
-        func apply(_ command: RichTextCommandKind, to view: UITextView) {
-            let range = validSelection(lastEditingSelection, in: view) ? lastEditingSelection : view.selectedRange
+        func apply(_ command: RichTextCommandKind, to view: UITextView) -> Result<Void, NativeRichTextEditorError>? {
+            let range: NSRange
+            if case .image(_, let target) = command {
+                guard connectedSession?.matches(target) == true else {
+                    return .failure(NativeRichTextEditorError.editorSessionChanged)
+                }
+                guard validSelection(target.range, in: view) else {
+                    return .failure(NativeRichTextEditorError.invalidSelection)
+                }
+                range = target.range
+            } else {
+                range = validSelection(lastEditingSelection, in: view) ? lastEditingSelection : view.selectedRange
+            }
             if !view.isFirstResponder { view.becomeFirstResponder() }
             view.selectedRange = range
             var restoreSelection = true
+            var imageResult: Result<Void, NativeRichTextEditorError>?
             switch command {
             case .bold: toggleFontTrait(.traitBold, view: view, range: range)
             case .italic: toggleFontTrait(.traitItalic, view: view, range: range)
@@ -1235,7 +1559,9 @@ private struct RichTextTextView: UIViewRepresentable {
             case .todos: toggleParagraphPrefixes("☐ ", view: view, range: range); restoreSelection = false
             case .divider: insertDivider(view: view, range: range); restoreSelection = false
             case let .table(table): upsertTable(table, view: view, range: range); restoreSelection = false
-            case let .image(dataURL): insertImage(dataURL, view: view, range: range); restoreSelection = false
+            case let .image(dataURL, target):
+                imageResult = insertImage(dataURL, target: target, view: view)
+                restoreSelection = false
             case let .formula(formula): upsertFormula(formula, view: view, range: range); restoreSelection = false
             case let .internalLink(link): insertInternalLink(link, view: view, range: range); restoreSelection = false
             case let .link(target): addLink(target, view: view, range: range); restoreSelection = false
@@ -1245,8 +1571,17 @@ private struct RichTextTextView: UIViewRepresentable {
             if restoreSelection { view.selectedRange = range }
             rememberSelection(view.selectedRange)
             view.invalidateIntrinsicContentSize()
+            if let imageResult {
+                if case .success = imageResult {
+                    _ = publishNow(view)
+                    connectedSession?.setMediaOperationInProgress(false)
+                }
+                publishSelectionState(view)
+                return imageResult
+            }
             schedulePublish(view)
             publishSelectionState(view)
+            return nil
         }
 
         func rememberSelection(_ range: NSRange) {
@@ -1534,11 +1869,26 @@ private struct RichTextTextView: UIViewRepresentable {
             parent.selectedTable = table
         }
 
-        private func insertImage(_ dataURL: String, view: UITextView, range: NSRange) {
-            guard let attachment = NativeImageAttachment(dataURL: dataURL) else { return }
+        private func insertImage(
+            _ dataURL: String,
+            target: NativeRichTextInsertionTarget,
+            view: UITextView
+        ) -> Result<Void, NativeRichTextEditorError> {
+            guard connectedSession?.matches(target) == true else {
+                return .failure(NativeRichTextEditorError.editorSessionChanged)
+            }
+            guard validSelection(target.range, in: view) else {
+                return .failure(NativeRichTextEditorError.invalidSelection)
+            }
+            guard let attachment = NativeImageAttachment(dataURL: dataURL) else {
+                return .failure(NativeRichTextEditorError.imageAttachmentInvalid)
+            }
             let replacement = NSMutableAttributedString(attributedString: NSAttributedString(attachment: attachment))
             replacement.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]))
-            replaceAttributed(replacement, in: range, view: view)
+            guard replaceAttributed(replacement, in: target.range, view: view) else {
+                return .failure(NativeRichTextEditorError.invalidSelection)
+            }
+            return .success(())
         }
 
         private func upsertFormula(_ formula: RichTextFormula, view: UITextView, range: NSRange) {

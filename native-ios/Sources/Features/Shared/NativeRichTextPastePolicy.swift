@@ -68,16 +68,17 @@ enum NativeRichTextPastePolicy {
         return result
     }
 
+    @discardableResult
     static func replace(
         _ replacement: NSAttributedString,
         in range: NSRange,
         of target: NSMutableAttributedString,
         undoManager: UndoManager?,
         onReplacement: ((NSRange, NSAttributedString) -> Void)? = nil
-    ) {
+    ) -> Bool {
         guard range.location >= 0,
               range.length >= 0,
-              NSMaxRange(range) <= target.length else { return }
+              NSMaxRange(range) <= target.length else { return false }
         let previous = target.attributedSubstring(from: range)
         undoManager?.registerUndo(withTarget: target) { target in
             replace(
@@ -90,5 +91,6 @@ enum NativeRichTextPastePolicy {
         }
         target.replaceCharacters(in: range, with: replacement)
         onReplacement?(range, replacement)
+        return true
     }
 }

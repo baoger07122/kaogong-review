@@ -18,13 +18,17 @@ private enum LibraryInlineNoteSaveError: LocalizedError {
 
 private enum LibraryInlineNoteSaveStatus: Equatable {
     case saved
-    case saving
+    case debouncing
+    case queued
+    case writing
     case failed
 
     var title: String {
         switch self {
         case .saved: "已保存"
-        case .saving: "保存中…"
+        case .debouncing: "等待保存…"
+        case .queued: "等待写入…"
+        case .writing: "保存中…"
         case .failed: "保存失败"
         }
     }
@@ -32,7 +36,7 @@ private enum LibraryInlineNoteSaveStatus: Equatable {
     var color: Color {
         switch self {
         case .saved: AppTheme.success
-        case .saving: .secondary
+        case .debouncing, .queued, .writing: .secondary
         case .failed: AppTheme.danger
         }
     }
@@ -80,6 +84,7 @@ private struct PreparedLibraryInlineNote {
 struct LibraryInlineNoteView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var saveService = LibraryInlineNoteSaveService.shared
     private let readNote: () -> String
     private let writeNote: (String, LibraryInlineNotePreparedSave?, String, ModelContext) throws -> String
     private let currentRecordVersion: () -> String
@@ -93,20 +98,20 @@ struct LibraryInlineNoteView: View {
     @StateObject private var editorSession = NativeRichTextEditorSession()
     @State private var editing = false
     @State private var draft = ""
-    @State private var saved = ""
     @State private var saveTask: Task<Void, Never>?
-    @State private var lastEnqueuedContent: String?
+    @State private var currentDraftVersion: UInt64?
     @State private var activeBaseVersion = ""
     @State private var activeBasePayload: Data?
-    @State private var restoredDraftVersion: UInt64 = 0
+    @State private var editingSessionID = UUID()
     @State private var didAttemptDraftRestoreForAppearance = false
     @State private var draftRestoreAppearanceID = UUID()
     @State private var isRestoringDraft = false
+    @State private var suppressNextDraftChange = false
     @State private var finishCompletionsWaitingForRestore: [(Bool) -> Void] = []
-    @State private var saveStatus: LibraryInlineNoteSaveStatus = .saved
+    @State private var finishCompletionsWaitingForCommit: [(Bool) -> Void] = []
     @State private var isFinishing = false
     @State private var preparedNote: PreparedLibraryInlineNote?
-    @State private var errorMessage: String?
+    @State private var transientErrorMessage: String?
     @State private var displayWarning: String?
     @State private var editingInitialHTML: String?
     @State private var editingInitialAttributedText: NSAttributedString?
@@ -203,6 +208,31 @@ struct LibraryInlineNoteView: View {
 
     private var storedNote: String { readNote() }
 
+    private var noteSaveState: LibraryInlineNoteRecordSaveState {
+        saveService.state(recordID: renderDocumentID)
+    }
+
+    private var hasPendingDraft: Bool {
+        noteSaveState.latestContent != noteSaveState.confirmedContent || noteSaveState.phase == .failed
+    }
+
+    private var saveStatus: LibraryInlineNoteSaveStatus {
+        switch noteSaveState.phase {
+        case .idle, .saved: .saved
+        case .debouncing: .debouncing
+        case .queued: .queued
+        case .writing: .writing
+        case .failed: .failed
+        }
+    }
+
+    private var errorMessage: String? {
+        if let transientErrorMessage { return transientErrorMessage }
+        if let saveError = noteSaveState.errorMessage { return saveError }
+        guard let notice = editorSession.mediaNotice, notice.documentID == renderDocumentID else { return nil }
+        return notice.message
+    }
+
     private var noteRenderKey: LibraryInlineNoteRenderKey {
         let version = questionBankContextVersion
         return LibraryInlineNoteRenderKey(
@@ -231,6 +261,13 @@ struct LibraryInlineNoteView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(saveStatus.color)
                     .accessibilityIdentifier("library-inline-note-save-status")
+                if editing {
+                    Button("完成") { finishEditing() }
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.blue)
+                        .disabled(isFinishing || !editorSession.canFinishEditing)
+                        .accessibilityIdentifier("library-inline-note-done")
+                }
             }
             if editing {
                 NativeRichTextEditor(
@@ -243,12 +280,13 @@ struct LibraryInlineNoteView: View {
                     preparedInitialHTML: editingInitialHTML,
                     preparedInitialAttributedText: editingInitialAttributedText,
                     editorSession: editorSession,
-                    onEditingEnded: { finishEditing() }
+                    editorDocumentID: renderDocumentID,
+                    editorSessionID: editingSessionID
                 )
                 .accessibilityIdentifier("library-inline-note-editor")
                 .padding(.horizontal, 8)
             } else {
-                if saveStatus != .saved && (draft != saved || errorMessage != nil) {
+                if hasPendingDraft || errorMessage != nil {
                     pendingDraftDisplay
                         .padding(.horizontal, 8)
                 } else {
@@ -257,12 +295,8 @@ struct LibraryInlineNoteView: View {
                 }
             }
             if let errorMessage {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(errorMessage)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button("重试保存") { enqueueSave(draft, preparedAttributedText: editorSession.latestAttributedText()) }
-                        .font(.system(size: 11, weight: .semibold))
-                }
+                Text(errorMessage)
+                    .fixedSize(horizontal: false, vertical: true)
                 .font(.system(size: 11))
                 .foregroundStyle(AppTheme.danger)
             } else if let displayWarning, !editing {
@@ -274,9 +308,21 @@ struct LibraryInlineNoteView: View {
         }
         .onAppear {
             session.finishEditing = { completion in finishEditing(completion: completion) }
-            saved = storedNote
-            activeBaseVersion = currentRecordVersion()
-            activeBasePayload = currentRecordPayload()
+            saveService.markExistingContentConfirmed(
+                recordID: renderDocumentID,
+                content: storedNote,
+                recordVersion: currentRecordVersion(),
+                payload: currentRecordPayload()
+            )
+            let state = saveService.state(recordID: renderDocumentID)
+            activeBaseVersion = state.latestBaseVersion ?? currentRecordVersion()
+            activeBasePayload = state.latestBasePayload ?? currentRecordPayload()
+            if state.latestContent != state.confirmedContent || state.phase == .failed {
+                setDraftWithoutScheduling(state.latestContent)
+                currentDraftVersion = state.latestDraftVersion
+            } else {
+                setDraftWithoutScheduling(storedNote)
+            }
             guard !didAttemptDraftRestoreForAppearance else { return }
             didAttemptDraftRestoreForAppearance = true
             isRestoringDraft = true
@@ -286,41 +332,94 @@ struct LibraryInlineNoteView: View {
             }
         }
         .onChange(of: draft) { _, _ in
-            guard editing, !isFinishing else { return }
-            guard draft != lastEnqueuedContent else { return }
-            guard draft != saved
-                    || LibraryInlineNoteSaveService.shared.hasPending(recordID: renderDocumentID)
-                    || saveStatus == .failed else {
-                saveTask?.cancel()
-                saveStatus = .saved
-                errorMessage = nil
+            if suppressNextDraftChange {
+                suppressNextDraftChange = false
                 return
             }
-            saveStatus = .saving
+            guard editing, !isFinishing, !isRestoringDraft else { return }
             saveTask?.cancel()
+            let content = draft
+            let version = saveService.registerDraft(
+                recordID: renderDocumentID,
+                content: content,
+                baseVersion: activeBaseVersion,
+                basePayload: activeBasePayload
+            )
+            currentDraftVersion = version
+            let state = saveService.state(recordID: renderDocumentID)
+            guard state.phase != .saved || content != state.confirmedContent else {
+                transientErrorMessage = nil
+                return
+            }
+            saveService.markDebouncing(recordID: renderDocumentID, draftVersion: version)
             saveTask = Task { @MainActor in
                 do { try await Task.sleep(for: .milliseconds(1_400)) } catch { return }
-                enqueueSave(draft)
+                guard !Task.isCancelled,
+                      self.editing,
+                      !self.isFinishing,
+                      self.draft == content,
+                      self.saveService.state(recordID: self.renderDocumentID).latestDraftVersion == version else { return }
+                let snapshot = self.editorSession.captureSnapshot()
+                self.enqueueSave(
+                    content,
+                    draftVersion: version,
+                    preparedAttributedText: snapshot?.attributedText
+                )
             }
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase != .active else { return }
             saveTask?.cancel()
-            let latest = editorSession.latestHTML() ?? draft
-            if latest != draft { draft = latest }
-            if latest != saved
-                || LibraryInlineNoteSaveService.shared.hasPending(recordID: renderDocumentID)
-                || saveStatus == .failed {
+            guard !editorSession.isMediaOperationInProgress else { return }
+            let snapshot = editorSession.captureSnapshot()
+            let latest = snapshot?.html ?? draft
+            if latest != draft { setDraftWithoutScheduling(latest) }
+            let state = saveService.state(recordID: renderDocumentID)
+            if latest != state.confirmedContent || saveService.hasPending(recordID: renderDocumentID) || state.phase == .failed {
+                let version = saveService.registerDraft(
+                    recordID: renderDocumentID,
+                    content: latest,
+                    baseVersion: activeBaseVersion,
+                    basePayload: activeBasePayload
+                )
+                currentDraftVersion = version
                 enqueueSave(
                     latest,
-                    preparedAttributedText: editorSession.latestAttributedText(),
+                    draftVersion: version,
+                    preparedAttributedText: snapshot?.attributedText,
                     requiresBackgroundTime: true
                 )
             }
         }
         .onDisappear {
             saveTask?.cancel()
-            if editing { finishEditing { _ in } }
+            if editorSession.isMediaOperationInProgress {
+                editorSession.cancelMediaOperation(
+                    sessionID: editingSessionID,
+                    message: "切换题目时已取消图片插入，没有把图片写入其他题目。"
+                )
+            }
+            if editing {
+                let snapshot = editorSession.captureSnapshot()
+                let latest = snapshot?.html ?? draft
+                let version = saveService.registerDraft(
+                    recordID: renderDocumentID,
+                    content: latest,
+                    baseVersion: activeBaseVersion,
+                    basePayload: activeBasePayload
+                )
+                currentDraftVersion = version
+                if latest != saveService.state(recordID: renderDocumentID).confirmedContent
+                    || saveService.state(recordID: renderDocumentID).phase == .failed {
+                    enqueueSave(
+                        latest,
+                        draftVersion: version,
+                        preparedAttributedText: snapshot?.attributedText,
+                        requiresBackgroundTime: true
+                    )
+                }
+                editorSession.deactivate(sessionID: editingSessionID)
+            }
             session.setEditing(false)
             session.finishEditing = nil
             didAttemptDraftRestoreForAppearance = false
@@ -466,6 +565,13 @@ struct LibraryInlineNoteView: View {
                 }
             )
             .frame(maxWidth: .infinity, alignment: .topLeading)
+            Button(saveStatus == .failed ? "重试保存" : "保存") {
+                retryPendingDraft()
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Color.blue)
+            .disabled(saveService.hasPending(recordID: renderDocumentID))
+            .accessibilityIdentifier("library-inline-note-pending-save")
         }
     }
 
@@ -475,18 +581,27 @@ struct LibraryInlineNoteView: View {
         selectionOffset: Int,
         sourceWidth: CGFloat?
     ) {
-        saved = storedNote
-        activeBaseVersion = currentRecordVersion()
-        activeBasePayload = currentRecordPayload()
-        lastEnqueuedContent = nil
-        draft = html
+        editorSession.clearMediaNotice(for: renderDocumentID)
+        let state = saveService.state(recordID: renderDocumentID)
+        let isResumingPendingDraft = html != storedNote && state.latestContent == html
+        if !isResumingPendingDraft {
+            activeBaseVersion = currentRecordVersion()
+            activeBasePayload = currentRecordPayload()
+        } else {
+            activeBaseVersion = state.latestBaseVersion ?? activeBaseVersion
+            activeBasePayload = state.latestBasePayload ?? activeBasePayload
+        }
+        currentDraftVersion = isResumingPendingDraft ? state.latestDraftVersion : nil
+        setDraftWithoutScheduling(html)
         editingInitialHTML = html
         editingInitialAttributedText = snapshot.copy() as? NSAttributedString ?? snapshot
         initialSelectionOffset = max(0, min(selectionOffset, snapshot.length))
         initialSelectionWidth = sourceWidth
+        editingSessionID = UUID()
+        editorSession.activate(documentID: renderDocumentID, sessionID: editingSessionID)
         editing = true
         session.setEditing(true)
-        errorMessage = nil
+        transientErrorMessage = nil
         displayWarning = nil
     }
 
@@ -505,39 +620,99 @@ struct LibraryInlineNoteView: View {
             }
         }
         do {
-            guard let pending = try await LibraryInlineNoteDraftStorage.load(recordID: renderDocumentID) else { return }
+            guard let pending = try await LibraryInlineNoteDraftStorage.shared.load(recordID: renderDocumentID) else {
+                let state = saveService.state(recordID: renderDocumentID)
+                if state.latestContent != state.confirmedContent, state.phase == .debouncing {
+                    activeBaseVersion = state.latestBaseVersion ?? activeBaseVersion
+                    activeBasePayload = state.latestBasePayload ?? activeBasePayload
+                    currentDraftVersion = state.latestDraftVersion
+                    enqueueSave(state.latestContent, draftVersion: state.latestDraftVersion)
+                }
+                return
+            }
             guard appearanceID == draftRestoreAppearanceID else { return }
             guard !editing else { return }
-            if pending.content == storedNote {
-                try await LibraryInlineNoteDraftStorage.removeIfContentMatches(
+            let currentState = saveService.state(recordID: renderDocumentID)
+            if currentState.latestDraftVersion > pending.draftVersion {
+                if currentState.latestContent != currentState.confirmedContent {
+                    try await LibraryInlineNoteDraftStorage.shared.write(
+                        LibraryInlineNoteDraftSnapshot(
+                            recordID: renderDocumentID,
+                            baseVersion: currentState.latestBaseVersion ?? currentRecordVersion(),
+                            draftVersion: currentState.latestDraftVersion,
+                            content: currentState.latestContent,
+                            updatedAt: .now
+                        )
+                    )
+                }
+                try await LibraryInlineNoteDraftStorage.shared.removeIfMatching(
                     recordID: renderDocumentID,
-                    content: pending.content
+                    draftVersion: pending.draftVersion
                 )
-                LibraryInlineNoteSaveService.shared.markExistingContentConfirmed(recordID: renderDocumentID)
-                draft = storedNote
-                saved = storedNote
-                errorMessage = nil
-                saveStatus = .saved
+                setDraftWithoutScheduling(currentState.latestContent)
+                activeBaseVersion = currentState.latestBaseVersion ?? activeBaseVersion
+                activeBasePayload = currentState.latestBasePayload ?? activeBasePayload
+                currentDraftVersion = currentState.latestDraftVersion
+                if currentState.latestContent != currentState.confirmedContent,
+                   currentState.phase == .debouncing,
+                   !saveService.hasPending(recordID: renderDocumentID) {
+                    enqueueSave(currentState.latestContent, draftVersion: currentState.latestDraftVersion)
+                }
+                return
+            }
+            if pending.content == storedNote {
+                try await LibraryInlineNoteDraftStorage.shared.removeIfMatching(
+                    recordID: renderDocumentID,
+                    draftVersion: pending.draftVersion
+                )
+                saveService.markExistingContentConfirmed(
+                    recordID: renderDocumentID,
+                    content: storedNote,
+                    recordVersion: currentRecordVersion(),
+                    payload: currentRecordPayload()
+                )
+                setDraftWithoutScheduling(storedNote)
+                transientErrorMessage = nil
                 return
             }
 
-            saved = storedNote
-            draft = pending.content
             activeBaseVersion = pending.baseVersion
             activeBasePayload = currentRecordPayload()
-            restoredDraftVersion = pending.draftVersion
-            errorMessage = "已恢复上次未完成的笔记草稿，正在尝试保存。"
-            saveStatus = .saving
-            enqueueSave(
-                pending.content,
+            let adopted = saveService.restoreDraft(
+                recordID: renderDocumentID,
+                content: pending.content,
+                draftVersion: pending.draftVersion,
                 baseVersion: pending.baseVersion,
-                basePayload: activeBasePayload,
-                atLeastDraftVersion: pending.draftVersion
+                basePayload: activeBasePayload
             )
+            guard adopted else {
+                let state = saveService.state(recordID: renderDocumentID)
+                try await LibraryInlineNoteDraftStorage.shared.removeIfMatching(
+                    recordID: renderDocumentID,
+                    draftVersion: pending.draftVersion
+                )
+                setDraftWithoutScheduling(state.latestContent)
+                activeBaseVersion = state.latestBaseVersion ?? activeBaseVersion
+                activeBasePayload = state.latestBasePayload ?? activeBasePayload
+                currentDraftVersion = state.latestDraftVersion
+                if state.latestContent != state.confirmedContent,
+                   state.phase != .failed,
+                   !saveService.hasPending(recordID: renderDocumentID) {
+                    enqueueSave(state.latestContent, draftVersion: state.latestDraftVersion)
+                }
+                return
+            }
+            setDraftWithoutScheduling(pending.content)
+            currentDraftVersion = pending.draftVersion
+            if saveService.state(recordID: renderDocumentID).phase == .failed {
+                transientErrorMessage = nil
+            } else {
+                transientErrorMessage = "已恢复上次未完成的笔记草稿，正在尝试保存。"
+                enqueueSave(pending.content, draftVersion: pending.draftVersion)
+            }
         } catch {
             guard appearanceID == draftRestoreAppearanceID else { return }
-            errorMessage = "笔记草稿读取失败：\(error.localizedDescription)"
-            saveStatus = .failed
+            transientErrorMessage = "笔记草稿读取失败：\(error.localizedDescription)"
         }
     }
 
@@ -545,8 +720,8 @@ struct LibraryInlineNoteView: View {
         guard !isRestoringDraft, !finishCompletionsWaitingForRestore.isEmpty else { return }
         let completions = finishCompletionsWaitingForRestore
         finishCompletionsWaitingForRestore = []
-        LibraryInlineNoteSaveService.shared.whenIdle(recordID: renderDocumentID) { saved in
-            let canProceed = allowSuccess && saved && self.saveStatus != .failed
+        saveService.whenIdle(recordID: renderDocumentID) { saved in
+            let canProceed = allowSuccess && saved && self.saveService.state(recordID: self.renderDocumentID).phase != .failed
             completions.forEach { $0(canProceed) }
         }
     }
@@ -556,8 +731,16 @@ struct LibraryInlineNoteView: View {
             finishCompletionsWaitingForRestore.append(completion)
             return
         }
-        LibraryInlineNoteSaveService.shared.whenIdle(recordID: renderDocumentID) { saved in
-            completion(saved && self.saveStatus != .failed)
+        let state = saveService.state(recordID: renderDocumentID)
+        if !saveService.hasPending(recordID: renderDocumentID),
+           state.latestContent != state.confirmedContent,
+           state.phase == .debouncing {
+            activeBaseVersion = state.latestBaseVersion ?? activeBaseVersion
+            activeBasePayload = state.latestBasePayload ?? activeBasePayload
+            enqueueSave(state.latestContent, draftVersion: state.latestDraftVersion)
+        }
+        saveService.whenIdle(recordID: renderDocumentID) { saved in
+            completion(saved && self.saveService.state(recordID: self.renderDocumentID).phase != .failed)
         }
     }
 
@@ -566,15 +749,74 @@ struct LibraryInlineNoteView: View {
             finishWhenCurrentSaveSettles(completion)
             return
         }
-        guard !isFinishing else { completion(false); return }
+        if isFinishing {
+            finishCompletionsWaitingForCommit.append(completion)
+            return
+        }
+        guard editorSession.canFinishEditing else { completion(false); return }
         isFinishing = true
         saveTask?.cancel()
-        editorSession.endEditing { latestHTML in
-            let latestDraft = latestHTML ?? self.draft
-            let latestAttributedText = self.editorSession.latestAttributedText()
-            let hasQueuedSave = LibraryInlineNoteSaveService.shared.hasPending(recordID: self.renderDocumentID)
-            let unchanged = latestDraft == self.saved && !hasQueuedSave && self.saveStatus != .failed
-            self.draft = latestDraft
+        guard let snapshot = editorSession.captureSnapshot() else {
+            isFinishing = false
+            resolveFinishCompletions(primary: completion, result: false)
+            return
+        }
+        let latestDraft = snapshot.html
+        setDraftWithoutScheduling(latestDraft)
+        editorSession.setInputLocked(true)
+        let version = saveService.registerDraft(
+            recordID: renderDocumentID,
+            content: latestDraft,
+            baseVersion: activeBaseVersion,
+            basePayload: activeBasePayload
+        )
+        currentDraftVersion = version
+        let state = saveService.state(recordID: renderDocumentID)
+        if state.confirmedDraftVersion == version,
+           state.confirmedContent == latestDraft,
+           !saveService.hasPending(recordID: renderDocumentID) {
+            finishEditorAfterConfirmedSave(version: version, content: latestDraft, completion: completion)
+            return
+        }
+        enqueueSave(
+            latestDraft,
+            draftVersion: version,
+            preparedAttributedText: snapshot.attributedText,
+            onCompletion: { result in
+                switch result {
+                case .success:
+                    self.finishEditorAfterConfirmedSave(version: version, content: latestDraft, completion: completion)
+                case .failure(let error):
+                    self.editorSession.setInputLocked(false)
+                    self.isFinishing = false
+                    self.transientErrorMessage = "笔记未保存，原记录未覆盖：\(error.localizedDescription)"
+                    self.resolveFinishCompletions(primary: completion, result: false)
+                }
+            }
+        )
+    }
+
+    private func finishEditorAfterConfirmedSave(
+        version: UInt64,
+        content: String,
+        completion: @escaping (Bool) -> Void
+    ) {
+        let state = saveService.state(recordID: renderDocumentID)
+        guard state.confirmedDraftVersion == version, state.confirmedContent == content else {
+            editorSession.setInputLocked(false)
+            isFinishing = false
+            transientErrorMessage = "最新笔记版本尚未确认写入，编辑器仍保持打开。"
+            resolveFinishCompletions(primary: completion, result: false)
+            return
+        }
+        editorSession.endEditing { _ in
+            guard self.saveService.state(recordID: self.renderDocumentID).confirmedDraftVersion == version else {
+                self.editorSession.setInputLocked(false)
+                self.isFinishing = false
+                self.transientErrorMessage = "保存期间笔记又有更新，请核对后再完成。"
+                self.resolveFinishCompletions(primary: completion, result: false)
+                return
+            }
             self.editing = false
             self.session.setEditing(false)
             self.editingInitialHTML = nil
@@ -582,60 +824,75 @@ struct LibraryInlineNoteView: View {
             self.initialSelectionOffset = nil
             self.initialSelectionWidth = nil
             self.isFinishing = false
-            if unchanged {
-                self.saveStatus = .saved
-                self.finishWhenCurrentSaveSettles(completion)
-                return
-            }
-            self.enqueueSave(
-                latestDraft,
-                preparedAttributedText: latestAttributedText,
-                onCompletion: { result in
-                    switch result {
-                    case .success: completion(true)
-                    case .failure: completion(false)
-                    }
-                }
-            )
+            self.transientErrorMessage = nil
+            self.resolveFinishCompletions(primary: completion, result: true)
         }
+    }
+
+    private func resolveFinishCompletions(primary: @escaping (Bool) -> Void, result: Bool) {
+        primary(result)
+        let additional = finishCompletionsWaitingForCommit
+        finishCompletionsWaitingForCommit = []
+        additional.forEach { $0(result) }
+    }
+
+    private func retryPendingDraft() {
+        let state = saveService.state(recordID: renderDocumentID)
+        let content = state.latestContent
+        let version: UInt64
+        if state.latestDraftVersion == 0 || content == state.confirmedContent {
+            version = saveService.registerDraft(
+                recordID: renderDocumentID,
+                content: draft,
+                baseVersion: activeBaseVersion,
+                basePayload: activeBasePayload
+            )
+        } else {
+            version = state.latestDraftVersion
+            activeBaseVersion = state.latestBaseVersion ?? activeBaseVersion
+            activeBasePayload = state.latestBasePayload ?? activeBasePayload
+        }
+        currentDraftVersion = version
+        transientErrorMessage = nil
+        enqueueSave(state.latestDraftVersion == 0 || content == state.confirmedContent ? draft : content, draftVersion: version)
+    }
+
+    private func setDraftWithoutScheduling(_ value: String) {
+        guard draft != value else { return }
+        suppressNextDraftChange = true
+        draft = value
     }
 
     private func enqueueSave(
         _ content: String,
+        draftVersion: UInt64,
         preparedAttributedText: NSAttributedString? = nil,
         baseVersion: String? = nil,
         basePayload: Data? = nil,
-        atLeastDraftVersion: UInt64? = nil,
         requiresBackgroundTime: Bool = false,
         onCompletion: ((Result<String, Error>) -> Void)? = nil
     ) {
-        saveStatus = .saving
-        errorMessage = nil
-        let effectiveBaseVersion = baseVersion ?? activeBaseVersion
-        let effectiveBasePayload = basePayload ?? activeBasePayload
-        lastEnqueuedContent = content
-        let revision = LibraryInlineNoteSaveService.shared.enqueue(
+        transientErrorMessage = nil
+        let state = saveService.state(recordID: renderDocumentID)
+        let effectiveBaseVersion = baseVersion ?? state.latestBaseVersion ?? activeBaseVersion
+        let effectiveBasePayload = basePayload ?? state.latestBasePayload ?? activeBasePayload
+        saveService.enqueue(
             recordID: renderDocumentID,
+            draftVersion: draftVersion,
             baseVersion: effectiveBaseVersion,
             basePayload: effectiveBasePayload,
             collection: recordCollection,
             content: content,
-            atLeastDraftVersion: atLeastDraftVersion ?? restoredDraftVersion,
             requiresBackgroundTime: requiresBackgroundTime,
             commit: { prepared, expectedVersion in
                 try self.writeNote(content, prepared, expectedVersion, self.modelContext)
             },
             completion: { result in
-                onCompletion?(result)
                 switch result {
                 case .success(let version):
-                    self.saved = content
                     self.activeBaseVersion = version
                     self.activeBasePayload = self.currentRecordPayload()
-                    self.errorMessage = nil
-                    self.saveStatus = self.draft == content ? .saved : .saving
-                    self.onSaved?(content)
-                    if let attributedText = preparedAttributedText ?? self.editorSession.latestAttributedText() {
+                    if let attributedText = preparedAttributedText {
                         self.preparedNote = PreparedLibraryInlineNote(
                             key: self.noteRenderKey,
                             result: NativeRichTextDisplayRenderResult(
@@ -645,12 +902,17 @@ struct LibraryInlineNoteView: View {
                             editableAttributedText: attributedText.copy() as? NSAttributedString ?? attributedText
                         )
                     }
+                    if self.saveService.state(recordID: self.renderDocumentID).latestDraftVersion == draftVersion {
+                        self.transientErrorMessage = nil
+                        self.onSaved?(content)
+                    }
                 case .failure(let error):
-                    self.errorMessage = "笔记未保存，原记录未覆盖：\(error.localizedDescription)"
-                    self.saveStatus = .failed
+                    if self.saveService.state(recordID: self.renderDocumentID).latestDraftVersion == draftVersion {
+                        self.transientErrorMessage = "笔记未保存，原记录未覆盖：\(error.localizedDescription)"
+                    }
                 }
+                onCompletion?(result)
             }
         )
-        restoredDraftVersion = revision
     }
 }
