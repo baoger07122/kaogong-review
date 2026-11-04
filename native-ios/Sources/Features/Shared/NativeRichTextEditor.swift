@@ -1257,7 +1257,8 @@ private struct RichTextTextView: UIViewRepresentable {
                 snapshotReader: { [weak self, weak view] in
                     guard let self, let view else { return nil }
                     let html = self.publishNow(view)
-                    let attributed = view.attributedText.copy() as? NSAttributedString ?? view.attributedText
+                    let attributed = view.attributedText?.copy() as? NSAttributedString
+                        ?? NSAttributedString(string: view.text ?? "")
                     let selection = self.validSelection(self.lastEditingSelection, in: view)
                         ? self.lastEditingSelection
                         : view.selectedRange
