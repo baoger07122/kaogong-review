@@ -63,9 +63,9 @@ struct ExamsView: View {
     private func matchesSelectedType(_ record: StoredRecord) -> Bool {
         let type = LibraryReviewSource.explicitValue(in: record.indexObject ?? [:]) ?? .pending
         switch selectedType {
-        case .all: true
-        case .real: type == .real
-        case .mock: type == .mock
+        case .all: return true
+        case .real: return type == .real
+        case .mock: return type == .mock
         }
     }
 
