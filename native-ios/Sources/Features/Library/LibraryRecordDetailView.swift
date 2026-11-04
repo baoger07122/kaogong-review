@@ -1,13 +1,45 @@
 import Foundation
+import CoreFoundation
 import ImageIO
 import SwiftData
 import SwiftUI
 import UIKit
 
+private struct LibraryRedoAttempt: Equatable {
+    var selectedLetters: Set<String> = []
+    var submitted = false
+    var showingPastReview = false
+}
+
+private struct LibraryDetailAttribute: Identifiable {
+    let key: String
+    let label: String
+    let value: String
+    var choices: [String] = []
+    var id: String { key }
+}
+
+@MainActor
+private final class LibraryRedoAttemptSession: ObservableObject {
+    static let shared = LibraryRedoAttemptSession()
+    @Published private var attempts: [String: LibraryRedoAttempt] = [:]
+
+    func attempt(for recordID: String) -> LibraryRedoAttempt {
+        attempts[recordID] ?? LibraryRedoAttempt()
+    }
+
+    func update(_ recordID: String, _ change: (inout LibraryRedoAttempt) -> Void) {
+        guard !recordID.isEmpty else { return }
+        var attempt = attempts[recordID] ?? LibraryRedoAttempt()
+        change(&attempt)
+        attempts[recordID] = attempt
+    }
+}
+
 struct LibraryRecordDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var doodleSession: LibraryDoodleSession
-    @Query(filter: #Predicate<StoredRecord> { record in record.collection == "words" || record.collection == "errors" }) private var records: [StoredRecord]
+    @Query(filter: #Predicate<StoredRecord> { record in record.collection == "words" || record.collection == "errors" || record.collection == "exams" }) private var records: [StoredRecord]
     let kind: LibraryContentKind
     let scope: LibraryScope
     let record: StoredRecord?
@@ -24,12 +56,13 @@ struct LibraryRecordDetailView: View {
 
     @State private var showDelete = false
     @StateObject private var noteSession = LibraryInlineNoteSession()
-    @State private var expandedQuestionSourceID: String?
+    @StateObject private var redoSession = LibraryRedoAttemptSession.shared
     @State private var showWordSelection = false
     @State private var linkedWordCreationCategory: WordCategory?
     @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
     @State private var linkedQuestionBankContext: QuestionBankQuestionAnalysisContext?
     @State private var linkedQuestionFallbackObject: [String: Any] = [:]
+    @State private var editingAttribute: LibraryDetailAttribute?
 
     init(
         kind: LibraryContentKind,
@@ -87,9 +120,6 @@ struct LibraryRecordDetailView: View {
                     payloadDecodeFailed = true
                 }
             }
-            .onChange(of: questionSourceIdentity) { _, _ in
-                expandedQuestionSourceID = nil
-            }
     }
 
     private var detailNavigationDestination: some View {
@@ -112,6 +142,12 @@ struct LibraryRecordDetailView: View {
                         onSaved: linkNewWord
                     )
                 }
+            }
+            .sheet(item: $editingAttribute) { attribute in
+                LibraryDetailAttributeEditor(attribute: attribute) { value in
+                    saveDetailAttribute(attribute, value: value)
+                }
+                .presentationDetents([.medium, .large])
             }
     }
 
@@ -163,7 +199,9 @@ struct LibraryRecordDetailView: View {
         let readingColumnWidth = min(availableWidth.isFinite ? max(0, availableWidth) : 0, 920)
         return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                metadata
+                if !isRedoPractice || redoAttempt.showingPastReview {
+                    metadata
+                }
                 if kind == .errors && isDataAnalysis {
                     dataAnalysisMaterialBlock
                     imagesBlock(availableWidth: max(0, readingColumnWidth - 32))
@@ -174,13 +212,18 @@ struct LibraryRecordDetailView: View {
                     imagesBlock(availableWidth: max(0, readingColumnWidth - 32))
                 }
                 optionsBlock
-                answerAndSource
-                explanationBlock
-                comparisonBlock
-                linkedErrorBlock
-                reviewBlock
-                noteBlock
-                dateBlock
+                if isRedoPractice && !redoAttempt.showingPastReview {
+                    redoFeedbackBlock
+                    questionSourceBlock
+                } else {
+                    answerAndSource
+                    explanationBlock
+                    comparisonBlock
+                    linkedErrorBlock
+                    reviewBlock
+                    noteBlock
+                    dateBlock
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 5)
@@ -262,6 +305,19 @@ struct LibraryRecordDetailView: View {
             toolbarPlaceholder
             toolbarPlaceholder
         } else {
+            if isRedoPractice {
+                Button {
+                    redoSession.update(activeRecordID) { $0.showingPastReview.toggle() }
+                } label: {
+                    Label(
+                        redoAttempt.showingPastReview ? "返回复练" : "查看复盘",
+                        systemImage: redoAttempt.showingPastReview ? "arrow.uturn.backward" : "doc.text.magnifyingglass"
+                    )
+                    .font(.system(size: 12, weight: .medium))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("library-record-review-toggle")
+            }
             Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
                 .accessibilityLabel("涂鸦")
             questionActionsMenu
@@ -305,20 +361,27 @@ struct LibraryRecordDetailView: View {
             if isDifficult || needsReview || displayQuestionBankContext != nil {
                 HStack(spacing: 6) {
                     if isDifficult || displayQuestionBankContext?.currentQuestion.isDifficult == true {
-                        metadataBadge("难题", color: AppTheme.danger)
+                        editableMetadataBadge(
+                            "难题",
+                            color: AppTheme.danger,
+                            key: "isDifficult",
+                            value: isDifficult ? "是" : "否",
+                            choices: ["否", "是"]
+                        )
                     }
                     if needsReview || displayQuestionBankContext?.currentQuestion.needsReview == true {
-                        metadataBadge("待复习", color: AppTheme.warning)
+                        editableMetadataBadge(
+                            "待复习",
+                            color: AppTheme.warning,
+                            key: "needsReview",
+                            value: needsReview ? "是" : "否",
+                            choices: ["否", "是"]
+                        )
                     }
                 }
             }
-            if let status = recordType {
-                Text(clean(status))
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(statusColor(status))
-                    .padding(.horizontal, 8)
-                    .frame(height: 24)
-                    .background(statusColor(status).opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+            if let status = firstText(["status", "masteryStatus"]) {
+                editableMetadataText("掌握状态", value: clean(status), key: existingAttributeKey(["status", "masteryStatus"], fallback: "status"), choices: ["未掌握", "已掌握"])
             }
             if isQuantityRelations {
                 metadataTextLine("题型", value: QuantityQuestionTypeCatalog.displayName(for: activeModule))
@@ -382,11 +445,8 @@ struct LibraryRecordDetailView: View {
         let material = firstText(["dataAnalysisMaterialText"]) ?? ""
         if !material.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text("材料")
-                    .font(AppTheme.sectionTitleFont)
-                    .foregroundStyle(.primary)
                 Text(verbatim: cleanMultiline(material))
-                    .font(AppTheme.questionTextFont)
+                    .font(detailQuestionFont)
                     .lineSpacing(AppTheme.questionLineSpacing)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -435,7 +495,7 @@ struct LibraryRecordDetailView: View {
         if let rawQuestion = firstText(["question", "title", "name", "text", "content"]),
            !clean(rawQuestion).isEmpty {
             Text(cleanMultiline(rawQuestion))
-                .font(.system(size: 14.5, weight: .regular))
+                .font(detailQuestionFont)
                 .lineSpacing(AppTheme.questionLineSpacing)
                 .textSelection(.enabled)
                 .padding(12)
@@ -461,43 +521,34 @@ struct LibraryRecordDetailView: View {
                     let option = index < options.count ? options[index] : ""
                     let optionImage = index < optionImages.count ? optionImages[index] : ""
                     let letter = String(UnicodeScalar(65 + index)!)
-                    let correct = answerLetters.contains(letter)
-                    let chosen = userAnswerLetters.contains(letter)
+                    let showingPastAnswer = isRedoPractice && redoAttempt.showingPastReview
+                    let canShowCurrentFeedback = isRedoPractice && redoAttempt.submitted && !showingPastAnswer
+                    let correct = isRedoPractice
+                        ? ((showingPastAnswer || canShowCurrentFeedback) && answerLetters.contains(letter))
+                        : answerLetters.contains(letter)
+                    let chosen = isRedoPractice
+                        ? (showingPastAnswer ? userAnswerLetters.contains(letter) : redoAttempt.selectedLetters.contains(letter))
+                        : userAnswerLetters.contains(letter)
                     let hasText = !clean(option).isEmpty
-                    HStack(
-                        alignment: StudyOptionRowLayout.verticalAlignment(hasText: hasText),
-                        spacing: 8
-                    ) {
-                        StudyOptionMarker(
-                            letter: letter,
-                            state: optionMarkerState(correct: correct, chosen: chosen),
-                            diameter: 26,
-                            font: .system(size: 14)
-                        )
-                        VStack(alignment: .leading, spacing: 8) {
-                            if hasText {
-                                optionText(option)
-                                    .lineSpacing(5.5)
-                            }
-                            if !optionImage.isEmpty {
-                                if let asset = displayQuestionBankContext?.assetsByID[optionImage] {
-                                    LegacyQuestionBankAssetImage(asset: asset, sizing: .option)
+                    if isRedoPractice && !showingPastAnswer && !redoAttempt.submitted {
+                        Button {
+                            redoSession.update(activeRecordID) { attempt in
+                                if answerLetters.count == 1 {
+                                    attempt.selectedLetters = attempt.selectedLetters.contains(letter) ? [] : [letter]
+                                } else if attempt.selectedLetters.contains(letter) {
+                                    attempt.selectedLetters.remove(letter)
                                 } else {
-                                    let optionImageIDs = object["optionImageIDs"] as? [String] ?? []
-                                    let optionImageID = optionImageIDs.indices.contains(index) ? optionImageIDs[index] : ""
-                                    LibraryDetailImage(
-                                        source: optionImage,
-                                        cacheKey: imageCacheKey(kind: "option", index: index, source: optionImage, metadataID: optionImageID),
-                                        availableWidth: nil,
-                                        widthFraction: LibraryImageDisplaySetting.maximumWidthFraction
-                                    )
+                                    attempt.selectedLetters.insert(letter)
                                 }
                             }
+                        } label: {
+                            optionRow(option, image: optionImage, letter: letter, index: index, hasText: hasText, correct: false, chosen: chosen)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .alignmentGuide(.firstTextBaseline) { dimensions in
-                            dimensions[.firstTextBaseline]
-                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("选项\(letter)：\(clean(option))")
+                        .accessibilityAddTraits(chosen ? .isSelected : [])
+                    } else {
+                        optionRow(option, image: optionImage, letter: letter, index: index, hasText: hasText, correct: correct, chosen: chosen)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
@@ -515,66 +566,105 @@ struct LibraryRecordDetailView: View {
         }
     }
 
+    private func optionRow(
+        _ option: String,
+        image: String,
+        letter: String,
+        index: Int,
+        hasText: Bool,
+        correct: Bool,
+        chosen: Bool
+    ) -> some View {
+        HStack(
+            alignment: StudyOptionRowLayout.verticalAlignment(hasText: hasText),
+            spacing: 8
+        ) {
+            StudyOptionMarker(
+                letter: letter,
+                state: optionMarkerState(correct: correct, chosen: chosen),
+                diameter: 26,
+                font: .system(size: 14)
+            )
+            VStack(alignment: .leading, spacing: 8) {
+                if hasText {
+                    optionText(option)
+                        .lineSpacing(5.5)
+                }
+                if !image.isEmpty {
+                    if let asset = displayQuestionBankContext?.assetsByID[image] {
+                        LegacyQuestionBankAssetImage(asset: asset, sizing: .option)
+                    } else {
+                        let optionImageIDs = object["optionImageIDs"] as? [String] ?? []
+                        let optionImageID = optionImageIDs.indices.contains(index) ? optionImageIDs[index] : ""
+                        LibraryDetailImage(
+                            source: image,
+                            cacheKey: imageCacheKey(kind: "option", index: index, source: image, metadataID: optionImageID),
+                            availableWidth: nil,
+                            widthFraction: LibraryImageDisplaySetting.maximumWidthFraction
+                        )
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .alignmentGuide(.firstTextBaseline) { dimensions in
+                dimensions[.firstTextBaseline]
+            }
+        }
+    }
+
     private var answerAndSource: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let accuracy = formattedAccuracy {
                 supportingLine("参考正确率", value: accuracy, systemImage: "chart.bar.fill")
             }
-            if !questionSourceRows.isEmpty {
-                questionSourceDisclosure(rows: questionSourceRows)
-            }
+            questionSourceBlock
         }
         .padding(.top, 4)
     }
 
-    private func questionSourceDisclosure(rows: [String]) -> some View {
-        let isExpanded = expandedQuestionSourceID == questionSourceIdentity
-        return VStack(alignment: .leading, spacing: 5) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    expandedQuestionSourceID = isExpanded ? nil : questionSourceIdentity
-                }
-            } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: "books.vertical.fill")
+    @ViewBuilder private var questionSourceBlock: some View {
+        if !questionSourceRows.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Label("题目来源", systemImage: "books.vertical.fill")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(.secondary)
+                ForEach(Array(questionSourceRows.enumerated()), id: \.offset) { _, row in
+                    Text(row)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
-                        .frame(width: 16)
-                    Text("题目来源")
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(.secondary)
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("题目来源")
-            .accessibilityValue(isExpanded ? "已展开" : "已折叠")
-            .accessibilityIdentifier("question-source-disclosure")
-
-            if isExpanded {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                        Text(row)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .padding(.leading, 23)
-                .accessibilityIdentifier("question-source-rows")
-            }
+            .accessibilityIdentifier("question-source-rows")
+            .padding(.vertical, 2)
         }
-        .padding(.vertical, 2)
     }
 
     private var questionSourceRows: [String] {
         if let context = displayQuestionBankContext, !context.sourceRows.isEmpty {
             return context.sourceRows
         }
-        guard let source = firstText(["questionSource", "source"]) else { return [] }
+        if kind == .errors, scope.reviewSource == .mock {
+            let examID = firstText(["sourceExamId"]) ?? ""
+            let examObject = records.first(where: { $0.collection == "exams" && $0.recordID == examID })?.indexObject
+            let linkedTitle = [examObject?["name"] as? String, examObject?["title"] as? String]
+                .compactMap { $0 }
+                .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            let title = clean(firstText(["sourceExamTitle", "mockExamTitle"]) ?? linkedTitle ?? "")
+            let number = firstText(["questionNumber"]).map(clean).filter { !$0.isEmpty }
+            let questionNumber = number.map { $0.contains("第") || $0.contains("题") ? $0 : "第\($0)题" }
+            return [([title.isEmpty ? "未关联套卷" : title] + (questionNumber.map { [$0] } ?? [])).joined(separator: " · ")]
+        }
+        guard let source = firstText(["questionSource", "source"]) else {
+            if kind == .errors, scope.reviewSource == .real {
+                let number = firstText(["questionNumber"]).map(clean).filter { !$0.isEmpty }
+                let displayNumber = number.map { $0.contains("第") || $0.contains("题") ? $0 : "第\($0)题" }
+                return [(["真题来源未填写"] + (displayNumber.map { [$0] } ?? [])).joined(separator: " · ")]
+            }
+            if kind == .errors, scope.reviewSource == .pending { return ["来源待确认"] }
+            return []
+        }
         let fallbackNumber = sourceQuestionNumber(in: firstText(["questionNumber"]) ?? "")
         var seen = Set<String>()
         return source.components(separatedBy: .newlines).compactMap { rawRow in
@@ -593,13 +683,6 @@ struct LibraryRecordDetailView: View {
         }
     }
 
-    private var questionSourceIdentity: String {
-        if let question = displayQuestionBankContext?.currentQuestion {
-            return "\(question.paperID)|\(question.id)"
-        }
-        return record?.compoundID ?? "library-record"
-    }
-
     private func sourceQuestionNumber(in value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty, trimmed.allSatisfy({ $0.isNumber }) { return trimmed }
@@ -612,7 +695,7 @@ struct LibraryRecordDetailView: View {
     }
 
     @ViewBuilder private var explanationBlock: some View {
-        if displayQuestionBankContext?.isAnswerRevealed == true,
+        if (isRedoPractice && redoAttempt.showingPastReview) || displayQuestionBankContext?.isAnswerRevealed == true,
            let explanation = firstText(["explanation"]),
            !clean(explanation).isEmpty {
             VStack(alignment: .leading, spacing: 6) {
@@ -719,14 +802,30 @@ struct LibraryRecordDetailView: View {
     }
 
     @ViewBuilder private var reviewBlock: some View {
+        if isRedoPractice && redoAttempt.showingPastReview {
+            pastAnswerReviewBlock
+        }
         if let value = firstText(["reviewNote", "reviewPlan", "nextReviewAt"]), !clean(value).isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
+            let key = existingAttributeKey(["reviewNote", "reviewPlan", "nextReviewAt"], fallback: "reviewNote")
+            let content = VStack(alignment: .leading, spacing: 8) {
                 Label("复盘记录", systemImage: "arrow.triangle.2.circlepath")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
-                Text(cleanMultiline(value)).font(.system(size: 14, weight: .regular)).lineSpacing(6)
+                Text(cleanMultiline(value))
+                    .font(.system(size: 14, weight: .regular))
+                    .lineSpacing(6)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.top, 4)
+            if canEditReviewAttributes {
+                Button {
+                    beginAttributeEdit(key: key, label: "复盘记录", value: cleanMultiline(value))
+                } label: { content }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .padding(.top, 4)
+            } else {
+                content.padding(.top, 4)
+            }
         }
     }
 
@@ -736,7 +835,7 @@ struct LibraryRecordDetailView: View {
     private func metadataTagLine(_ label: String, values: [String], emphasis: MetadataTagEmphasis) -> some View {
         let cleanedValues = values.map(clean).filter { !$0.isEmpty }
         if !cleanedValues.isEmpty {
-            HStack(alignment: .top, spacing: 6) {
+            let row = HStack(alignment: .top, spacing: 6) {
                 Text("\(label)：")
                     .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(.primary)
@@ -757,16 +856,80 @@ struct LibraryRecordDetailView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            if canEditReviewAttributes {
+                Button {
+                    let key = attributeKey(for: label)
+                    beginAttributeEdit(key: key, label: label, value: cleanedValues.joined(separator: "、"))
+                } label: { row }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+            } else {
+                row
+            }
         }
     }
 
-    private func metadataTextLine(_ label: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+    @ViewBuilder private func metadataTextLine(_ label: String, value: String) -> some View {
+        let row = HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text("\(label)：")
-            Text(clean(value)).frame(maxWidth: .infinity, alignment: .leading)
+            Text(clean(value))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .font(.system(size: 12.5, weight: .regular))
         .foregroundStyle(.primary)
+        if canEditReviewAttributes {
+            Button {
+                let key = attributeKey(for: label)
+                beginAttributeEdit(key: key, label: label, value: clean(value))
+            } label: { row }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+        } else {
+            row
+        }
+    }
+
+    private func editableMetadataText(_ label: String, value: String, key: String, choices: [String] = []) -> some View {
+        Group {
+            if canEditReviewAttributes {
+                Button {
+                    beginAttributeEdit(key: key, label: label, value: value, choices: choices)
+                } label: {
+                    Text(value)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(statusColor(value))
+                        .padding(.horizontal, 8)
+                        .frame(height: 24)
+                        .background(statusColor(value).opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text(value)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(statusColor(value))
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    .background(statusColor(value).opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+            }
+        }
+    }
+
+    @ViewBuilder private func editableMetadataBadge(
+        _ title: String,
+        color: Color,
+        key: String,
+        value: String,
+        choices: [String]
+    ) -> some View {
+        if canEditReviewAttributes {
+            Button {
+                beginAttributeEdit(key: key, label: title, value: value, choices: choices)
+            } label: { metadataBadge(title, color: color) }
+                .buttonStyle(.plain)
+        } else {
+            metadataBadge(title, color: color)
+        }
     }
 
     private func supportingLine(_ label: String, value: String, systemImage: String) -> some View {
@@ -791,10 +954,93 @@ struct LibraryRecordDetailView: View {
 
     private var answerLetters: Set<String> { letterSet(firstText(["correctOption", "answer", "correctAnswer"])) }
     private var userAnswerLetters: Set<String> { letterSet(firstText(["userOption", "myAnswer"])) }
+
+    private var redoAttempt: LibraryRedoAttempt { redoSession.attempt(for: activeRecordID) }
+
+    private var isRedoPractice: Bool {
+        kind == .errors
+            && record?.isShenlunRecord != true
+            && object["questionBankPaperID"] == nil
+            && object["questionBankQuestionID"] == nil
+            && displayQuestionBankContext == nil
+    }
+
+    @ViewBuilder private var redoFeedbackBlock: some View {
+        if redoAttempt.submitted {
+            let isCorrect = !answerLetters.isEmpty && redoAttempt.selectedLetters == answerLetters
+            VStack(alignment: .leading, spacing: 7) {
+                Label(isCorrect ? "本次回答正确" : "本次回答错误", systemImage: isCorrect ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(isCorrect ? StudyOptionFeedbackPalette.correct : StudyOptionFeedbackPalette.incorrect)
+                Text("正确答案：\(answerLetters.sorted().joined())")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .accessibilityIdentifier("library-redo-correct-answer")
+                Button("重新作答") {
+                    redoSession.update(activeRecordID) { $0 = LibraryRedoAttempt() }
+                }
+                .font(.system(size: 12, weight: .medium))
+                .buttonStyle(.plain)
+                .foregroundStyle(AppTheme.accent)
+            }
+            .padding(.top, 4)
+        } else if answerLetters.isEmpty {
+            Text("暂无标准答案，暂时无法提交")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+        } else {
+            Button {
+                guard !redoAttempt.selectedLetters.isEmpty else { return }
+                redoSession.update(activeRecordID) { $0.submitted = true }
+            } label: {
+                Text("提交答案")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 42)
+                    .foregroundStyle(.white)
+                    .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(redoAttempt.selectedLetters.isEmpty)
+            .opacity(redoAttempt.selectedLetters.isEmpty ? 0.55 : 1)
+            .accessibilityIdentifier("library-redo-submit")
+        }
+    }
+
+    private var pastAnswerReviewBlock: some View {
+        let previous = firstText(["userOption", "myAnswer"]) ?? ""
+        return VStack(alignment: .leading, spacing: 6) {
+            Label("历史作答", systemImage: "clock.arrow.circlepath")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+            if !clean(previous).isEmpty {
+                Text("之前选择：\(clean(previous))")
+                    .font(.system(size: 13))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !answerLetters.isEmpty {
+                Text("正确答案：\(answerLetters.sorted().joined())")
+                    .font(.system(size: 13))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Button("标记为已掌握") {
+                beginAttributeEdit(
+                    key: existingAttributeKey(["status", "masteryStatus"], fallback: "status"),
+                    label: "掌握状态",
+                    value: masteryStatus,
+                    choices: ["未掌握", "已掌握"]
+                )
+            }
+            .font(.system(size: 12, weight: .medium))
+            .buttonStyle(.plain)
+            .foregroundStyle(AppTheme.accent)
+        }
+        .padding(.top, 4)
+    }
     private func letterSet(_ value: String?) -> Set<String> {
         Set((value ?? "").uppercased().filter { "ABCD".contains($0) }.map(String.init))
     }
     private func optionBackground(correct: Bool, chosen: Bool) -> Color {
+        if isRedoPractice && !redoAttempt.showingPastReview && !redoAttempt.submitted { return .white }
         guard displayQuestionBankContext == nil || questionBankShowsAnswer else { return .white }
         if correct { return StudyOptionFeedbackPalette.correctBackground }
         if chosen { return StudyOptionFeedbackPalette.incorrectBackground }
@@ -802,6 +1048,9 @@ struct LibraryRecordDetailView: View {
     }
 
     private func optionMarkerState(correct: Bool, chosen: Bool) -> StudyOptionMarkerState {
+        if isRedoPractice && !redoAttempt.showingPastReview && !redoAttempt.submitted {
+            return chosen ? .selected : .unselected
+        }
         guard questionBankShowsAnswer || displayQuestionBankContext == nil else {
             return chosen ? .selected : .unselected
         }
@@ -811,6 +1060,7 @@ struct LibraryRecordDetailView: View {
     }
 
     private func optionBorderColor(correct: Bool, chosen: Bool) -> Color {
+        if isRedoPractice && !redoAttempt.showingPastReview && !redoAttempt.submitted { return webBorder }
         guard displayQuestionBankContext == nil || questionBankShowsAnswer else { return webBorder }
         return correct ? StudyOptionFeedbackPalette.correct : (chosen ? StudyOptionFeedbackPalette.incorrect : webBorder)
     }
@@ -832,10 +1082,114 @@ struct LibraryRecordDetailView: View {
 
     private var webBorder: Color { Color(red: 240.0 / 255.0, green: 240.0 / 255.0, blue: 242.0 / 255.0) }
 
+    private var detailQuestionFont: Font { .system(size: 14.5, weight: .regular) }
+
     private var detailBackground: Color { Color(red: 245.0 / 255.0, green: 245.0 / 255.0, blue: 247.0 / 255.0) }
 
-    private var recordType: String? {
-        firstText(["type", "status", "masteryStatus"]).map(clean)
+    private var canEditReviewAttributes: Bool {
+        isRedoPractice && redoAttempt.showingPastReview
+    }
+
+    private var masteryStatus: String {
+        firstText(["status", "masteryStatus"]).map(clean) ?? "未掌握"
+    }
+
+    private func existingAttributeKey(_ keys: [String], fallback: String) -> String {
+        keys.first { key in
+            if let value = object[key] as? String {
+                return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            if let values = object[key] as? [String] { return !values.isEmpty }
+            return object[key] != nil
+        } ?? keys.first(where: { object[$0] != nil }) ?? fallback
+    }
+
+    private func attributeKey(for label: String) -> String {
+        if label.contains("逻辑结构") {
+            return existingAttributeKey(["logicStructure", "questionLogicStructure"], fallback: "logicStructure")
+        }
+        if label.contains("考点") || label.contains("知识") {
+            return existingAttributeKey(["knowledgePoints", "knowledgePoint", "point", "topic"], fallback: "knowledgePoints")
+        }
+        if label.contains("弱项") {
+            return existingAttributeKey(["weaknessTags"], fallback: "weaknessTags")
+        }
+        if label.contains("错因") || label.contains("原因") {
+            return existingAttributeKey(["errorCause", "cause", "reason"], fallback: "errorCause")
+        }
+        if label == "误区" { return existingAttributeKey(["pitfall", "misconception", "thinkingTrap"], fallback: "pitfall") }
+        if label == "提醒" || label == "常识" { return "reminder" }
+        if label.contains("结构") { return "quantityStructure" }
+        if label.contains("规律") { return existingAttributeKey(["graphRule", "patternRule"], fallback: "graphRule") }
+        if label.contains("识别") { return existingAttributeKey(["recognition", "recognitionPath"], fallback: "recognition") }
+        if label.contains("题型") { return "module" }
+        return label
+    }
+
+    private func beginAttributeEdit(
+        key: String,
+        label: String,
+        value: String,
+        choices: [String] = []
+    ) {
+        guard canEditReviewAttributes else { return }
+        let rawValue = object[key]
+        let resolvedValue: String
+        if let values = rawValue as? [String] {
+            resolvedValue = values.joined(separator: "、")
+        } else if let boolean = rawValue as? Bool {
+            resolvedValue = boolean ? "是" : "否"
+        } else if let number = rawValue as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() {
+            resolvedValue = number.boolValue ? "是" : "否"
+        } else {
+            resolvedValue = value
+        }
+        let inferredChoices = (rawValue is Bool || (rawValue as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() } == true)
+            ? ["否", "是"] : choices
+        editingAttribute = LibraryDetailAttribute(key: key, label: label, value: resolvedValue, choices: inferredChoices)
+    }
+
+    private func saveDetailAttribute(_ attribute: LibraryDetailAttribute, value: String) -> String? {
+        guard let record else { return "题目记录不存在，修改未保存。" }
+        var updated = object
+        let originalValue = updated[attribute.key]
+        if originalValue is Bool || (originalValue as? NSNumber).map({ CFGetTypeID($0) == CFBooleanGetTypeID() }) == true {
+            updated[attribute.key] = value == "是"
+        } else if originalValue is [String] {
+            updated[attribute.key] = value
+                .split(whereSeparator: { "、,，\n".contains($0) })
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        } else {
+            updated[attribute.key] = value
+        }
+        updated["updatedAt"] = ISO8601DateFormatter().string(from: .now)
+        guard JSONSerialization.isValidJSONObject(updated),
+              let payload = try? JSONSerialization.data(withJSONObject: updated, options: [.sortedKeys]) else {
+            return "字段格式无效，修改未保存。"
+        }
+
+        let previousPayload = record.payload
+        let previousIndexPayload = record.indexPayload
+        let previousUpdatedAt = record.updatedAt
+        let previousModule = record.module
+        let wasAutosaveEnabled = modelContext.autosaveEnabled
+        modelContext.autosaveEnabled = false
+        defer { modelContext.autosaveEnabled = wasAutosaveEnabled }
+        record.replacePayload(payload)
+        if attribute.key == "module" { record.module = value }
+        record.updatedAt = .now
+        do {
+            try modelContext.save()
+            object = updated
+            return nil
+        } catch {
+            record.payload = previousPayload
+            record.indexPayload = previousIndexPayload
+            record.updatedAt = previousUpdatedAt
+            record.module = previousModule
+            return "保存失败：\(error.localizedDescription)"
+        }
     }
 
     private var knowledgePoints: [String] {
@@ -1013,7 +1367,9 @@ struct LibraryRecordDetailView: View {
     }
 
     private func statusColor(_ value: String) -> Color {
-        value.contains("不确定") ? AppTheme.warning : AppTheme.danger
+        if value.contains("不确定") { return AppTheme.warning }
+        if value.contains("已掌握") { return AppTheme.success }
+        return AppTheme.danger
     }
 
     private func textValues(_ keys: [String]) -> [String] {
@@ -1022,6 +1378,7 @@ struct LibraryRecordDetailView: View {
 
     private func openDoodle() {
         let openStart = ProcessInfo.processInfo.systemUptime
+        LibraryPerformanceLog.event("doodle.tap id=\(LibraryPerformanceLog.shortIdentifier(activeRecordID))")
         let drawingData = firstText(["pencilKitData", "drawingData"]) ?? ""
         let targetID = activeRecordID
         doodleSession.present(
@@ -1030,15 +1387,14 @@ struct LibraryRecordDetailView: View {
             legacyPreviewDataURL: drawingData.isEmpty
                 ? (firstText(["drawingPreview", "doodle", "drawingDataURL"]) ?? "") : "",
             source: "library-record-detail",
+            interactionStartedAt: openStart,
+            onFirstCanvasFrame: {
+                noteSession.finish { _ in }
+            },
             onSave: { updatedDrawing, legacyPreviewCleared, _, _ in
                 return saveDrawing(updatedDrawing, legacyPreviewCleared: legacyPreviewCleared)
             }
         )
-        LibraryPerformanceLog.mark("doodle.tap-to-feedback", since: openStart)
-        LibraryPerformanceLog.mark("doodle.tap-to-present", since: openStart)
-        // The drawing overlay is already presented; finish the editor through
-        // UITextView's end-editing callback before committing the final draft.
-        noteSession.finish { _ in }
     }
     private func saveDrawing(_ drawingData: String, legacyPreviewCleared: Bool) -> String? {
         guard let record else { return nil }
@@ -1234,6 +1590,74 @@ private struct LibraryDetailImage: View {
         }
         .frame(width: availableWidth.map { max(1, $0 * CGFloat(widthFraction)) })
         .frame(maxWidth: availableWidth == nil ? .infinity : nil)
+    }
+}
+
+@MainActor
+private struct LibraryDetailAttributeEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let attribute: LibraryDetailAttribute
+    let onSave: (String) -> String?
+    @State private var value: String
+    @State private var errorMessage: String?
+
+    init(attribute: LibraryDetailAttribute, onSave: @escaping (String) -> String?) {
+        self.attribute = attribute
+        self.onSave = onSave
+        _value = State(initialValue: attribute.value)
+    }
+
+    private var choices: [String] {
+        guard !attribute.choices.isEmpty else { return [] }
+        return attribute.choices.contains(value) ? attribute.choices : attribute.choices + [value]
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                if choices.isEmpty {
+                    TextEditor(text: $value)
+                        .font(.system(size: 15))
+                        .scrollContentBackground(.hidden)
+                        .padding(8)
+                        .frame(minHeight: 180)
+                        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .accessibilityIdentifier("library-detail-attribute-editor")
+                } else {
+                    Picker(attribute.label, selection: $value) {
+                        ForEach(choices, id: \.self) { choice in
+                            Text(choice).tag(choice)
+                        }
+                    }
+                    .accessibilityIdentifier("library-detail-attribute-picker")
+                }
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 12))
+                        .foregroundStyle(AppTheme.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .navigationTitle(attribute.label)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("确认") {
+                        if let error = onSave(value) {
+                            errorMessage = error
+                        } else {
+                            dismiss()
+                        }
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
     }
 }
 

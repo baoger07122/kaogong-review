@@ -13,6 +13,38 @@ private enum LibraryInlineNoteSaveError: LocalizedError {
     }
 }
 
+private enum LibraryInlineNoteSaveStatus: Equatable {
+    case saved
+    case saving
+    case failed
+
+    var title: String {
+        switch self {
+        case .saved: "已保存"
+        case .saving: "保存中…"
+        case .failed: "保存失败"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .saved: AppTheme.success
+        case .saving: .secondary
+        case .failed: AppTheme.danger
+        }
+    }
+}
+
+@MainActor
+private final class LibraryInlineNotePendingDrafts {
+    static let shared = LibraryInlineNotePendingDrafts()
+    private var drafts: [String: String] = [:]
+
+    func draft(for id: String) -> String? { drafts[id] }
+    func save(_ draft: String, for id: String) { drafts[id] = draft }
+    func remove(_ id: String) { drafts.removeValue(forKey: id) }
+}
+
 /// The parent can finish editing before entering drawing mode without observing every keystroke.
 @MainActor
 final class LibraryInlineNoteSession: ObservableObject {
@@ -67,6 +99,10 @@ struct LibraryInlineNoteView: View {
     @State private var draft = ""
     @State private var saved = ""
     @State private var saveTask: Task<Void, Never>?
+    @State private var persistTask: Task<Void, Never>?
+    @State private var pendingSaveContent: String?
+    @State private var pendingSaveAttributedText: NSAttributedString?
+    @State private var saveStatus: LibraryInlineNoteSaveStatus = .saved
     @State private var isFinishing = false
     @State private var preparedNote: PreparedLibraryInlineNote?
     @State private var errorMessage: String?
@@ -189,6 +225,10 @@ struct LibraryInlineNoteView: View {
                 Label(title, systemImage: "note.text")
                     .font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
                 Spacer()
+                Text(saveStatus.title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(saveStatus.color)
+                    .accessibilityIdentifier("library-inline-note-save-status")
                 if editing {
                     Button("完成") { finishEditing() }
                         .font(.system(size: 12))
@@ -208,29 +248,34 @@ struct LibraryInlineNoteView: View {
                 .accessibilityIdentifier("library-inline-note-editor")
                 .padding(.horizontal, 8)
             } else {
-                noteDisplay
-                    .padding(.horizontal, 8)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard storedNote.isEmpty || currentPreparedNote?.editableAttributedText != nil else {
-                            displayWarning = "笔记超出安全编辑范围，原内容已保留为只读。"
-                            return
+                if saveStatus != .saved && draft != saved {
+                    pendingDraftDisplay
+                        .padding(.horizontal, 8)
+                } else {
+                    noteDisplay
+                        .padding(.horizontal, 8)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            guard storedNote.isEmpty || currentPreparedNote?.editableAttributedText != nil else {
+                                displayWarning = "笔记超出安全编辑范围，原内容已保留为只读。"
+                                return
+                            }
+                            draft = storedNote
+                            saved = draft
+                            editingInitialHTML = storedNote
+                            editingInitialAttributedText = currentPreparedNote?.editableAttributedText
+                                ?? NSAttributedString(string: "")
+                            editing = true
+                            session.setEditing(true)
+                            displayWarning = nil
                         }
-                        draft = storedNote
-                        saved = draft
-                        editingInitialHTML = storedNote
-                        editingInitialAttributedText = currentPreparedNote?.editableAttributedText
-                            ?? NSAttributedString(string: "")
-                        editing = true
-                        session.setEditing(true)
-                        displayWarning = nil
-                    }
+                }
             }
             if let errorMessage {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(errorMessage)
                         .fixedSize(horizontal: false, vertical: true)
-                    Button("重试保存") { save() }
+                    Button("重试保存") { enqueueSave(draft, preparedAttributedText: editorSession.latestAttributedText()) }
                         .font(.system(size: 11, weight: .semibold))
                 }
                 .font(.system(size: 11))
@@ -242,13 +287,28 @@ struct LibraryInlineNoteView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .onAppear { session.finishEditing = { completion in finishEditing(completion: completion) } }
+        .onAppear {
+            session.finishEditing = { completion in finishEditing(completion: completion) }
+            saved = storedNote
+            if let pendingDraft = LibraryInlineNotePendingDrafts.shared.draft(for: renderDocumentID), pendingDraft != storedNote {
+                draft = pendingDraft
+                errorMessage = "上次笔记保存未完成，草稿已保留。"
+                saveStatus = .failed
+            }
+        }
         .onChange(of: draft) { _, _ in
             guard editing, !isFinishing else { return }
+            guard draft != saved else {
+                saveTask?.cancel()
+                saveStatus = .saved
+                errorMessage = nil
+                return
+            }
+            saveStatus = .saving
             saveTask?.cancel()
             saveTask = Task { @MainActor in
                 do { try await Task.sleep(for: .milliseconds(1_400)) } catch { return }
-                save()
+                enqueueSave(draft)
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -256,7 +316,7 @@ struct LibraryInlineNoteView: View {
             saveTask?.cancel()
             let latest = editorSession.latestHTML() ?? draft
             if latest != draft { draft = latest }
-            _ = save(latest)
+            enqueueSave(latest, preparedAttributedText: editorSession.latestAttributedText())
         }
         .onDisappear {
             saveTask?.cancel()
@@ -348,6 +408,20 @@ struct LibraryInlineNoteView: View {
         }
     }
 
+    private var pendingDraftDisplay: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("未保存草稿", systemImage: "exclamationmark.triangle")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(AppTheme.warning)
+            NativeRichTextDisplay(
+                html: draft,
+                minHeight: noteCanvasMinimumHeight,
+                accessibilityIdentifier: "library-inline-note-pending-draft"
+            )
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
     private func finishEditing(completion: @escaping (Bool) -> Void = { _ in }) {
         guard editing else { completion(true); return }
         guard !isFinishing else { completion(false); return }
@@ -357,42 +431,73 @@ struct LibraryInlineNoteView: View {
             let latestDraft = latestHTML ?? self.draft
             let latestAttributedText = self.editorSession.latestAttributedText()
             let baselineAttributedText = self.editingInitialAttributedText ?? NSAttributedString(string: "")
-            if latestAttributedText?.isEqual(to: baselineAttributedText) == true {
-                self.draft = self.saved
-                self.editing = false
-                self.session.setEditing(false)
-                self.editingInitialHTML = nil
-                self.editingInitialAttributedText = nil
-                self.isFinishing = false
-                completion(true)
-                return
-            }
+            let unchanged = latestAttributedText?.isEqual(to: baselineAttributedText) == true
+                || latestDraft == self.saved
             self.draft = latestDraft
-            guard self.save(latestDraft, preparedAttributedText: latestAttributedText) else {
-                self.isFinishing = false
-                completion(false)
-                return
-            }
             self.editing = false
             self.session.setEditing(false)
             self.editingInitialHTML = nil
             self.editingInitialAttributedText = nil
             self.isFinishing = false
+            if unchanged {
+                self.draft = self.saved
+                self.saveStatus = .saved
+                completion(true)
+                return
+            }
+            self.enqueueSave(latestDraft, preparedAttributedText: latestAttributedText)
             completion(true)
         }
     }
 
-    @discardableResult private func save(
-        _ content: String? = nil,
+    private func enqueueSave(
+        _ content: String,
+        preparedAttributedText: NSAttributedString? = nil
+    ) {
+        if content == saved {
+            pendingSaveContent = nil
+            pendingSaveAttributedText = nil
+            if persistTask == nil { saveStatus = .saved }
+            return
+        }
+        pendingSaveContent = content
+        pendingSaveAttributedText = preparedAttributedText
+        saveStatus = .saving
+        errorMessage = nil
+        guard persistTask == nil else { return }
+        persistTask = Task { @MainActor in
+            await Task.yield()
+            while !Task.isCancelled, let content = self.pendingSaveContent {
+                let attributedText = self.pendingSaveAttributedText
+                self.pendingSaveContent = nil
+                self.pendingSaveAttributedText = nil
+                guard self.persist(content, preparedAttributedText: attributedText) else {
+                    self.persistTask = nil
+                    return
+                }
+            }
+            if self.pendingSaveContent == nil, self.draft == self.saved {
+                self.saveStatus = .saved
+            }
+            self.persistTask = nil
+        }
+    }
+
+    @discardableResult private func persist(
+        _ content: String,
         preparedAttributedText: NSAttributedString? = nil
     ) -> Bool {
-        guard editing else { return true }
-        let content = content ?? draft
-        guard content != saved else { return true }
+        guard content != saved else {
+            saveStatus = .saved
+            LibraryInlineNotePendingDrafts.shared.remove(renderDocumentID)
+            return true
+        }
         do {
             try writeNote(content, modelContext)
             saved = content
             errorMessage = nil
+            saveStatus = .saved
+            LibraryInlineNotePendingDrafts.shared.remove(renderDocumentID)
             onSaved?(content)
             if let attributedText = preparedAttributedText ?? editorSession.latestAttributedText() {
                 preparedNote = PreparedLibraryInlineNote(
@@ -407,6 +512,9 @@ struct LibraryInlineNoteView: View {
             return true
         } catch {
             errorMessage = "笔记未保存，原内容未更改：\(error.localizedDescription)"
+            draft = content
+            saveStatus = .failed
+            LibraryInlineNotePendingDrafts.shared.save(content, for: renderDocumentID)
             return false
         }
     }

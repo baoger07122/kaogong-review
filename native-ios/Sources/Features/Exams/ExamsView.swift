@@ -29,6 +29,25 @@ private enum ExamDisplayFormatting {
         if minutes > 0 { return "\(minutes)分\(remainder)秒" }
         return "\(remainder)秒"
     }
+
+    static func detailedDuration(_ seconds: Int) -> String {
+        let hours = seconds / 3_600
+        let minutes = (seconds % 3_600) / 60
+        let remainder = seconds % 60
+        if hours > 0 { return "\(hours)时\(minutes)分\(remainder)秒" }
+        if minutes > 0 { return "\(minutes)分\(remainder)秒" }
+        return "\(remainder)秒"
+    }
+
+    static func compactDuration(_ seconds: Int) -> String {
+        guard seconds >= 0 else { return "—" }
+        let hours = seconds / 3_600
+        let minutes = (seconds % 3_600) / 60
+        let remainder = seconds % 60
+        if hours > 0 { return String(format: "%d:%02d:%02d", hours, minutes, remainder) }
+        if minutes > 0 { return "\(minutes)′\(String(format: "%02d", remainder))″" }
+        return "\(remainder)″"
+    }
 }
 
 struct ExamsView: View {
@@ -317,11 +336,32 @@ struct ExamsView: View {
     }
 }
 
+private struct ExamModuleDisplayRow: Identifiable {
+    let id: String
+    let subject: String
+    let parentSubject: String
+    let result: ExamModuleResult?
+    let isChild: Bool
+    let isFoldableParent: Bool
+    let startsGroup: Bool
+}
+
+private struct ExamSummaryMetric: Identifiable {
+    let title: String
+    let value: String
+    var id: String { title }
+}
+
 private struct ExamAttemptDetailView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query private var records: [StoredRecord]
+    @AppStorage("native.exams.detail.verbalExpanded.v1") private var verbalExpanded = true
+    @AppStorage("native.exams.detail.reasoningExpanded.v1") private var reasoningExpanded = true
     @State private var showEdit = false
     @State private var showAddError = false
     let recordID: String
+
+    private let foldableSubjects = ["言语理解与表达", "判断推理"]
 
     private var record: StoredRecord? { records.first { $0.collection == "exams" && $0.recordID == recordID } }
     private var draft: ExamDraft { ExamDraft(record: record) }
@@ -330,38 +370,31 @@ private struct ExamAttemptDetailView: View {
     private var linkedErrors: [StoredRecord] { records.filter { $0.collection == "errors" && $0.jsonObject?["sourceExamId"] as? String == recordID } }
 
     var body: some View {
-        ScrollView {
-            if let record {
-                VStack(alignment: .leading, spacing: 14) {
-                    summaryCard
-                    resultCard
-                    if !draft.rawReport.isEmpty {
-                        DisclosureGroup("报告原文") {
-                            Text(draft.rawReport).font(AppTheme.auxiliaryFont).textSelection(.enabled).padding(.top, 6)
-                        }.nativeCard()
+        GeometryReader { geometry in
+            let horizontalPadding: CGFloat = geometry.size.width < 360 ? 12 : (geometry.size.width < 520 ? 16 : 20)
+            let cardPadding: CGFloat = geometry.size.width < 360 ? 12 : (geometry.size.width < 520 ? 16 : 20)
+            let contentWidth = min(geometry.size.width - horizontalPadding * 2, 900) - cardPadding * 2
+
+            ScrollView {
+                if record != nil {
+                    VStack(alignment: .leading, spacing: 16) {
+                        summaryCard(padding: cardPadding)
+                        resultCard(availableWidth: contentWidth, padding: cardPadding)
+                        linkedErrorsCard(padding: cardPadding)
                     }
-                    if !draft.reviewNote.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            NativeFieldLabel(title: "复盘笔记")
-                            Text(draft.reviewNote.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression))
-                                .font(AppTheme.bodyFont).foregroundStyle(.secondary)
-                        }.nativeCard()
-                    }
-                    linkedErrorsCard
-                    HStack {
-                        Button("编辑本次记录") { showEdit = true }.buttonStyle(NativeSecondaryButtonStyle())
-                        if type == .mock {
-                            Button { showAddError = true } label: { Label("添加错题", systemImage: "plus") }
-                                .buttonStyle(NativePrimaryButtonStyle())
-                        }
-                    }
-                }.padding(20)
-            } else {
-                NativeStatusCard(title: "考试记录不存在", detail: "本次考试可能已被删除", systemImage: "doc.text", color: .secondary).padding(20)
+                    .padding(.horizontal, horizontalPadding)
+                    .padding(.vertical, 20)
+                    .frame(maxWidth: 940)
+                    .frame(maxWidth: .infinity)
+                } else {
+                    NativeStatusCard(title: "考试记录不存在", detail: "本次考试可能已被删除", systemImage: "doc.text", color: .secondary)
+                        .padding(20)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
+            .background(AppTheme.groupedBackground)
         }
-        .background(AppTheme.groupedBackground)
-        .navigationTitle(object["name"] as? String ?? "考试详情")
+        .navigationTitle("套卷记录")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) { Button("编辑") { showEdit = true }.disabled(record == nil) }
@@ -381,75 +414,376 @@ private struct ExamAttemptDetailView: View {
         }
     }
 
-    private var summaryCard: some View {
-        let score = ExamDisplayFormatting.score(object["score"])
-        let maximum = ExamDisplayFormatting.score(object["maximumScore"])
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(type.title).font(AppTheme.auxiliaryFont.weight(.semibold)).foregroundStyle(type == .pending ? AppTheme.warning : AppTheme.accent)
-                Spacer()
-                if let value = object["examDate"] as? String { Text(value).font(AppTheme.auxiliaryFont).foregroundStyle(.secondary) }
-            }
-            Text("得分：\(score.isEmpty ? "未知" : score) / \(maximum.isEmpty ? "未知" : maximum)")
-                .font(AppTheme.bodyFont.weight(.semibold))
-            HStack(spacing: 14) {
-                detailMetric("总题数", draft.metrics.totalQuestions.map(String.init) ?? "未知")
-                detailMetric("答对", draft.metrics.correctCount.map(String.init) ?? "未知")
-                detailMetric("答错", draft.metrics.wrongCount.map(String.init) ?? "未知")
-                detailMetric("正确率", draft.metrics.accuracyPercent.map { String(format: "%.2f%%", $0) } ?? "未知")
-            }
-            detailMetric("总用时", draft.metrics.totalTimeSeconds.map(ExamDisplayFormatting.duration) ?? "未知")
-        }.nativeCard()
+    private var formattedExamDate: String {
+        guard let value = object["examDate"] as? String,
+              !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let date = ExamDraft.dayFormatter.date(from: value) ?? ISO8601DateFormatter().date(from: value) else {
+            return "—"
+        }
+        return date.formatted(.dateTime.year().month().day().locale(Locale(identifier: "zh_CN")))
     }
 
-    private var resultCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            NativeFieldLabel(title: "模块成绩")
-            ForEach(draft.moduleResults) { line in
-                HStack(alignment: .firstTextBaseline) {
-                    Text(line.subject).font(AppTheme.inputFont.weight(.medium))
-                    Spacer()
-                    Text("\(line.correctCount.isEmpty ? "—" : line.correctCount)/\(line.totalQuestions.isEmpty ? "—" : line.totalQuestions)")
-                    Text(line.reportedAccuracy.isEmpty ? "—" : "\(line.reportedAccuracy)%")
-                    Text(Int(line.timeSeconds).map(ExamDisplayFormatting.duration) ?? "—")
-                }.font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+    private var scoreValue: String { ExamDisplayFormatting.score(object["score"]).nilIfEmpty ?? "—" }
+    private var maximumScoreValue: String { ExamDisplayFormatting.score(object["maximumScore"]).nilIfEmpty ?? "—" }
+
+    private func summaryCard(padding: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 8) {
+                Text(type.title)
+                    .font(.system(.subheadline, weight: .medium))
+                    .foregroundStyle(type == .pending ? AppTheme.warning : AppTheme.accent)
+                Spacer(minLength: 8)
+                Text(formattedExamDate)
+                    .font(.system(.subheadline))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
             }
+
+            Text(object["name"] as? String ?? "未命名套卷")
+                .font(.system(.title2, weight: .bold))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("本次得分")
+                    .font(.system(.subheadline))
+                    .foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(scoreValue)
+                        .font(.system(size: 44, weight: .bold, design: .rounded))
+                        .foregroundStyle(AppTheme.accent)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Text("/ \(maximumScoreValue)")
+                        .font(.system(.title3))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(summaryMetrics) { metric in detailMetric(metric.title, metric.value) }
+                }
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), alignment: .leading, spacing: 14) {
+                    ForEach(summaryMetrics) { metric in detailMetric(metric.title, metric.value) }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .nativeCard(padding: padding)
+    }
+
+    private var summaryMetrics: [ExamSummaryMetric] {
+        let metrics = draft.metrics
+        return [
+            ExamSummaryMetric(title: "总题数", value: metrics.totalQuestions.map(String.init) ?? "—"),
+            ExamSummaryMetric(title: "答对", value: metrics.correctCount.map(String.init) ?? "—"),
+            ExamSummaryMetric(title: "答错", value: metrics.wrongCount.map(String.init) ?? "—"),
+            ExamSummaryMetric(title: "正确率", value: metrics.accuracyPercent.map { String(format: "%.2f%%", $0) } ?? "—"),
+            ExamSummaryMetric(title: "本次用时", value: metrics.totalTimeSeconds.map(ExamDisplayFormatting.detailedDuration) ?? "—")
+        ]
+    }
+
+    private func resultCard(availableWidth: CGFloat, padding: CGFloat) -> some View {
+        let columns = moduleColumnWidths(for: availableWidth)
+        let rows = moduleDisplayRows
+        let header = moduleTableHeader(columns: columns)
+
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("模块成绩")
+                .font(.system(.title3, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            if rows.isEmpty {
+                Text("暂无模块成绩")
+                    .font(.system(.body))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+            } else {
+                header
+                ForEach(visibleModuleRows) { row in
+                    if row.startsGroup {
+                        Rectangle()
+                            .fill(Color.primary.opacity(0.07))
+                            .frame(height: 0.5)
+                            .padding(.vertical, 3)
+                    }
+                    moduleResultRow(row, columns: columns)
+                }
+            }
+
             if !draft.metrics.conflictModules.isEmpty {
-                Text("重复模块有冲突：\(draft.metrics.conflictModules.sorted().joined(separator: "、"))").font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.warning)
+                Text("重复模块有冲突：\(draft.metrics.conflictModules.sorted().joined(separator: "、"))")
+                    .font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.warning)
             }
             ForEach(draft.metrics.hierarchyWarnings, id: \.self) { warning in
                 Text(warning + "；按父项统计，不重复累计子项。")
                     .font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.warning)
             }
-        }.nativeCard()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .nativeCard(padding: padding)
     }
 
-    private var linkedErrorsCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                NativeFieldLabel(title: "关联错题")
-                Spacer()
-                Text("\(linkedErrors.count) 条").font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
-            }
-            Text("这次报告中的答错数与应用中已录入错题数分别统计。")
-                .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
-            ForEach(linkedErrors, id: \.recordID) { error in
-                HStack {
-                    Text(error.title).font(AppTheme.inputFont).lineLimit(2)
-                    Spacer()
-                    Text([error.subject, error.module].compactMap { $0 }.joined(separator: " · "))
-                        .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+    private func moduleColumnWidths(for width: CGFloat) -> ModuleColumnWidths {
+        if width < 260 { return ModuleColumnWidths(correct: 50, accuracy: 48, time: 56, spacing: 4) }
+        if width < 300 { return ModuleColumnWidths(correct: 54, accuracy: 50, time: 60, spacing: 6) }
+        if width < 420 { return ModuleColumnWidths(correct: 64, accuracy: 58, time: 76, spacing: 8) }
+        return ModuleColumnWidths(correct: 88, accuracy: 72, time: 104, spacing: 12)
+    }
+
+    private func moduleTableHeader(columns: ModuleColumnWidths) -> some View {
+        HStack(alignment: .bottom, spacing: columns.spacing) {
+            Text("模块")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("答对/题数")
+                .frame(width: columns.correct, alignment: .trailing)
+            Text("正确率")
+                .frame(width: columns.accuracy, alignment: .trailing)
+            Text("用时")
+                .frame(width: columns.time, alignment: .trailing)
+        }
+        .font(.system(.caption, weight: .medium))
+        .foregroundStyle(.secondary)
+        .padding(.bottom, 2)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func moduleResultRow(_ row: ExamModuleDisplayRow, columns: ModuleColumnWidths) -> some View {
+        let counts = "\(displayValue(row.result?.correctCount))/\(displayValue(row.result?.totalQuestions))"
+        let rawAccuracy = displayValue(row.result?.reportedAccuracy)
+        let accuracy = rawAccuracy == "—" || rawAccuracy.hasSuffix("%") ? rawAccuracy : "\(rawAccuracy)%"
+        let time = Int(row.result?.timeSeconds ?? "").map(ExamDisplayFormatting.compactDuration) ?? "—"
+        let minimumHeight: CGFloat = row.isChild ? 40 : 44
+
+        let content = HStack(alignment: .center, spacing: columns.spacing) {
+            HStack(alignment: .center, spacing: 4) {
+                if row.isFoldableParent {
+                    Image(systemName: isExpanded(row.parentSubject) ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 14)
                 }
-                .padding(.vertical, 4)
+                Text(row.subject)
+                    .font(row.isChild ? .system(.body) : .system(.body, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            if linkedErrors.isEmpty { Text("尚未关联错题").font(AppTheme.auxiliaryFont).foregroundStyle(.tertiary) }
-        }.nativeCard()
+            .padding(.leading, row.isChild ? 16 : 0)
+            .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .leading)
+
+            moduleValue(counts, minimumHeight: minimumHeight)
+                .frame(width: columns.correct, alignment: .trailing)
+            moduleValue(accuracy, minimumHeight: minimumHeight)
+                .frame(width: columns.accuracy, alignment: .trailing)
+            moduleValue(time, minimumHeight: minimumHeight)
+                .frame(width: columns.time, alignment: .trailing)
+        }
+
+        Group {
+            if row.isFoldableParent {
+                Button { toggleExpanded(row.parentSubject) } label: {
+                    content.contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(row.subject)
+                .accessibilityValue(isExpanded(row.parentSubject) ? "已展开" : "已收起")
+                .accessibilityHint("轻点切换子模块显示")
+            } else {
+                content
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func moduleValue(_ value: String, minimumHeight: CGFloat) -> some View {
+        Text(value)
+            .font(.system(.body))
+            .foregroundStyle(.primary)
+            .monospacedDigit()
+            .multilineTextAlignment(.trailing)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .trailing)
+    }
+
+    private func displayValue(_ value: String?) -> String {
+        guard let value, !value.isEmpty else { return "—" }
+        return value
+    }
+
+    private var moduleDisplayRows: [ExamModuleDisplayRow] {
+        let lines = draft.moduleResults.filter { $0.subject != ExamModuleCatalog.placeholderSubject }
+        var orderedParents: [String] = []
+        for line in lines where !orderedParents.contains(line.parentSubject) {
+            orderedParents.append(line.parentSubject)
+        }
+
+        var rows: [ExamModuleDisplayRow] = []
+        for (groupIndex, parent) in orderedParents.enumerated() {
+            let group = lines.filter { $0.parentSubject == parent }
+            let parents = group.filter { $0.subject == parent }
+            let children = group.filter { $0.subject != parent }
+            let isFoldable = foldableSubjects.contains(parent) && !children.isEmpty
+            let beginsGroup = groupIndex > 0
+
+            if parents.isEmpty, !children.isEmpty, ExamModuleCatalog.topLevel.contains(parent) {
+                rows.append(ExamModuleDisplayRow(
+                    id: "module-parent-\(parent)", subject: parent, parentSubject: parent, result: nil,
+                    isChild: false, isFoldableParent: isFoldable, startsGroup: beginsGroup
+                ))
+            } else {
+                for (parentIndex, line) in parents.enumerated() {
+                    rows.append(ExamModuleDisplayRow(
+                        id: line.id, subject: line.subject, parentSubject: parent, result: line,
+                        isChild: false, isFoldableParent: isFoldable, startsGroup: beginsGroup && parentIndex == 0
+                    ))
+                }
+            }
+
+            for (childIndex, line) in children.enumerated() {
+                rows.append(ExamModuleDisplayRow(
+                    id: line.id, subject: line.subject, parentSubject: parent, result: line,
+                    isChild: true, isFoldableParent: false,
+                    startsGroup: beginsGroup && parents.isEmpty && !(ExamModuleCatalog.topLevel.contains(parent)) && childIndex == 0
+                ))
+            }
+        }
+        return rows
+    }
+
+    private var visibleModuleRows: [ExamModuleDisplayRow] {
+        moduleDisplayRows.filter { row in
+            !row.isChild || !foldableSubjects.contains(row.parentSubject) || isExpanded(row.parentSubject)
+        }
+    }
+
+    private func isExpanded(_ parent: String) -> Bool {
+        switch parent {
+        case "言语理解与表达": verbalExpanded
+        case "判断推理": reasoningExpanded
+        default: true
+        }
+    }
+
+    private func toggleExpanded(_ parent: String) {
+        let animation: Animation = reduceMotion ? .easeOut(duration: 0.12) : .easeInOut(duration: 0.22)
+        withAnimation(animation) {
+            switch parent {
+            case "言语理解与表达": verbalExpanded.toggle()
+            case "判断推理": reasoningExpanded.toggle()
+            default: break
+            }
+        }
+    }
+
+    private func linkedErrorsCard(padding: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("关联错题")
+                .font(.system(.title3, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    linkedErrorSummary
+                    Spacer(minLength: 0)
+                    linkedErrorActions
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    linkedErrorSummary
+                    linkedErrorActions
+                }
+            }
+
+            if linkedErrors.isEmpty {
+                Text("尚未关联错题")
+                    .font(.system(.body))
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(linkedErrors, id: \.recordID) { error in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(error.title)
+                            .font(.system(.body))
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        let metadata = [error.subject, error.module].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                        if !metadata.isEmpty {
+                            Text(metadata)
+                                .font(.system(.subheadline))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 6)
+                    .overlay(alignment: .bottom) {
+                        if error.recordID != linkedErrors.last?.recordID {
+                            Rectangle().fill(Color.primary.opacity(0.06)).frame(height: 0.5)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .nativeCard(padding: padding)
+    }
+
+    private var linkedErrorSummary: some View {
+        let wrongCount = draft.metrics.wrongCount.map(String.init) ?? "—"
+        return Text("本次答错 \(wrongCount) 题 · 已关联 \(linkedErrors.count) 题")
+            .font(.system(.subheadline))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var linkedErrorActions: some View {
+        Menu {
+            Button("选择已有错题") { showEdit = true }
+            if type == .mock {
+                Button("新增并关联错题") { showAddError = true }
+            }
+        } label: {
+            Text("关联错题")
+                .font(.system(.subheadline, weight: .semibold))
+                .foregroundStyle(AppTheme.accent)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .background(AppTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("关联错题")
     }
 
     private func detailMetric(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.system(size: 12, weight: .semibold)).monospacedDigit()
-            Text(title).font(.system(size: 9)).foregroundStyle(.secondary)
-        }.frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 3) {
+            Text(value)
+                .font(.system(.title3, weight: .semibold))
+                .foregroundStyle(.primary)
+                .monospacedDigit()
+                .fixedSize(horizontal: false, vertical: true)
+            Text(title)
+                .font(.system(.caption))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
+}
+
+private struct ModuleColumnWidths {
+    let correct: CGFloat
+    let accuracy: CGFloat
+    let time: CGFloat
+    let spacing: CGFloat
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

@@ -4,7 +4,7 @@ import UIKit
 import ImageIO
 import UniformTypeIdentifiers
 
-enum RichTextToolbarMode { case full, compact, minimal }
+enum RichTextToolbarMode: Equatable { case full, compact, minimal }
 
 private enum RichTextMetrics {
     static let bodySize: CGFloat = 16
@@ -139,6 +139,17 @@ private struct RichTextSelectionState: Equatable {
     var canRedo = false
 }
 
+private struct RichTextKeyboardAccessoryState: Equatable {
+    let selection: RichTextSelectionState
+    let table: RichTextTable?
+    let formula: RichTextFormula?
+    let toolbarPage: RichTextToolbarPage
+    let isEditing: Bool
+    let showsFullTools: Bool
+    let internalLinks: [RichTextInternalLink]
+    let height: CGFloat
+}
+
 private struct RichTextCommand: Equatable {
     let id = UUID()
     let kind: RichTextCommandKind
@@ -183,6 +194,16 @@ struct NativeRichTextEditor: View {
                 onOpenInternalLink: onOpenInternalLink,
                 keyboardAccessory: AnyView(keyboardToolbar),
                 keyboardAccessoryHeight: keyboardAccessoryHeight,
+                keyboardAccessoryState: RichTextKeyboardAccessoryState(
+                    selection: selectionState,
+                    table: selectedTable,
+                    formula: selectedFormula,
+                    toolbarPage: toolbarPage,
+                    isEditing: isEditing,
+                    showsFullTools: mode == .full,
+                    internalLinks: internalLinks,
+                    height: keyboardAccessoryHeight
+                ),
                 growsWithContent: documentStyle,
                 minimumContentHeight: documentStyle ? minHeight : 0,
                 focusOnAppear: focusOnAppear,
@@ -758,6 +779,7 @@ private struct RichTextTextView: UIViewRepresentable {
     let onOpenInternalLink: ((RichTextInternalLink) -> Void)?
     let keyboardAccessory: AnyView
     let keyboardAccessoryHeight: CGFloat
+    let keyboardAccessoryState: RichTextKeyboardAccessoryState
     var growsWithContent = false
     var minimumContentHeight: CGFloat = 0
     var focusOnAppear = false
@@ -798,13 +820,30 @@ private struct RichTextTextView: UIViewRepresentable {
                 attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]
             )
         }
-        context.coordinator.lastHTML = html
+        context.coordinator.setPublishedHTML(html)
         context.coordinator.connect(editorSession, to: view)
         context.coordinator.rememberSelection(view.selectedRange)
-        context.coordinator.installKeyboardAccessory(keyboardAccessory, height: keyboardAccessoryHeight, on: view)
+        context.coordinator.installKeyboardAccessory(
+            keyboardAccessory,
+            height: keyboardAccessoryHeight,
+            state: keyboardAccessoryState,
+            on: view
+        )
         if focusOnAppear {
-            view.selectedRange = NSRange(location: 0, length: 0)
-            DispatchQueue.main.async { view.becomeFirstResponder() }
+            let end = view.attributedText.length
+            let caret = NSRange(location: end, length: 0)
+            view.selectedRange = caret
+            let focusEditor = {
+                guard view.window != nil else { return false }
+                view.becomeFirstResponder()
+                view.scrollRangeToVisible(caret)
+                return true
+            }
+            DispatchQueue.main.async {
+                if !focusEditor() {
+                    DispatchQueue.main.async { _ = focusEditor() }
+                }
+            }
         }
         return view
     }
@@ -817,17 +856,22 @@ private struct RichTextTextView: UIViewRepresentable {
 
     func updateUIView(_ view: UITextView, context: Context) {
         context.coordinator.parent = self
-        context.coordinator.updateKeyboardAccessory(keyboardAccessory, height: keyboardAccessoryHeight, on: view)
+        context.coordinator.updateKeyboardAccessory(
+            keyboardAccessory,
+            height: keyboardAccessoryHeight,
+            state: keyboardAccessoryState,
+            on: view
+        )
         if context.coordinator.connectedSession !== editorSession {
             context.coordinator.connect(editorSession, to: view)
         }
         if context.coordinator.lastHTML != html, !view.isFirstResponder {
             if let preparedInitialAttributedText, preparedInitialHTML == html {
                 view.attributedText = preparedInitialAttributedText
-                context.coordinator.lastHTML = html
+                context.coordinator.setPublishedHTML(html)
             } else if editorSession == nil {
                 view.attributedText = Self.attributed(from: html)
-                context.coordinator.lastHTML = html
+                context.coordinator.setPublishedHTML(html)
             }
         }
         if let command, context.coordinator.lastCommandID != command.id {
@@ -845,9 +889,22 @@ private struct RichTextTextView: UIViewRepresentable {
         private var pendingEndEditingCompletion: ((String?) -> Void)?
         private var lastEditingSelection = NSRange(location: 0, length: 0)
         private var pendingPublish: DispatchWorkItem?
+        private var documentRevision: UInt64 = 0
+        private var publishedRevision: UInt64 = 0
+        private var publishedHTML = ""
+        private var lastSelectionTable: RichTextTable?
+        private var lastSelectionFormula: RichTextFormula?
+        private var lastQueuedSelectionState: RichTextSelectionState?
         private var accessoryController: UIHostingController<AnyView>?
         private weak var accessoryContainer: RichTextKeyboardAccessoryView?
+        private var lastKeyboardAccessoryState: RichTextKeyboardAccessoryState?
         init(parent: RichTextTextView) { self.parent = parent }
+
+        func setPublishedHTML(_ html: String) {
+            lastHTML = html
+            publishedHTML = html
+            publishedRevision = documentRevision
+        }
 
         func connect(_ session: NativeRichTextEditorSession?, to view: UITextView) {
             if connectedSession !== session { connectedSession?.disconnect() }
@@ -877,16 +934,29 @@ private struct RichTextTextView: UIViewRepresentable {
             )
         }
 
-        func installKeyboardAccessory(_ content: AnyView, height: CGFloat, on textView: UITextView) {
+        func installKeyboardAccessory(
+            _ content: AnyView,
+            height: CGFloat,
+            state: RichTextKeyboardAccessoryState,
+            on textView: UITextView
+        ) {
             let controller = UIHostingController(rootView: content)
             controller.view.backgroundColor = .clear
             let container = RichTextKeyboardAccessoryView(contentView: controller.view, height: height)
             accessoryController = controller
             accessoryContainer = container
+            lastKeyboardAccessoryState = state
             textView.inputAccessoryView = container
         }
 
-        func updateKeyboardAccessory(_ content: AnyView, height: CGFloat, on textView: UITextView) {
+        func updateKeyboardAccessory(
+            _ content: AnyView,
+            height: CGFloat,
+            state: RichTextKeyboardAccessoryState,
+            on textView: UITextView
+        ) {
+            guard lastKeyboardAccessoryState != state else { return }
+            lastKeyboardAccessoryState = state
             accessoryController?.rootView = content
             if accessoryContainer?.updateHeight(height) == true, textView.isFirstResponder {
                 textView.reloadInputViews()
@@ -895,6 +965,7 @@ private struct RichTextTextView: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) {
             textView.invalidateIntrinsicContentSize()
+            guard textView.markedTextRange == nil else { return }
             schedulePublish(textView)
             publishSelectionState(textView)
         }
@@ -916,12 +987,17 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            guard textView.markedTextRange == nil else { return }
             rememberSelection(textView.selectedRange)
             let table = tableAttachment(near: textView.selectedRange, view: textView)?.attachment.table
             let formula = formulaAttachment(near: textView.selectedRange, view: textView)?.attachment.formula
-            DispatchQueue.main.async {
-                self.parent.selectedTable = table
-                self.parent.selectedFormula = formula
+            if lastSelectionTable != table || lastSelectionFormula != formula {
+                lastSelectionTable = table
+                lastSelectionFormula = formula
+                DispatchQueue.main.async {
+                    if self.parent.selectedTable != table { self.parent.selectedTable = table }
+                    if self.parent.selectedFormula != formula { self.parent.selectedFormula = formula }
+                }
             }
             publishSelectionState(textView)
         }
@@ -1026,7 +1102,8 @@ private struct RichTextTextView: UIViewRepresentable {
                         documentAttributes: nil
                       ), imported.length > 0 else { continue }
                 RichTextTextView.restoreNativeTables(in: imported)
-                RichTextTextView.normalizePastedFonts(in: imported)
+                let headings = documentType == .html ? RichTextTextView.semanticHeadingSizes(in: data) : [:]
+                RichTextTextView.normalizePastedFonts(in: imported, semanticHeadingSizes: headings)
                 return imported
             }
             return nil
@@ -1397,28 +1474,33 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         private func schedulePublish(_ view: UITextView) {
+            documentRevision &+= 1
             pendingPublish?.cancel()
             let work = DispatchWorkItem { [weak self, weak view] in
                 guard let self, let view else { return }
                 _ = self.publishNow(view)
             }
             pendingPublish = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
         }
 
         private func publishNow(_ view: UITextView) -> String {
             pendingPublish?.cancel()
             pendingPublish = nil
-            view.invalidateIntrinsicContentSize()
+            guard publishedRevision != documentRevision else { return publishedHTML }
             let html = RichTextTextView.html(from: view.attributedText)
+            publishedHTML = html
+            publishedRevision = documentRevision
             if html != lastHTML {
                 lastHTML = html
                 parent.html = html
+                view.invalidateIntrinsicContentSize()
             }
             return html
         }
 
         private func publishSelectionState(_ view: UITextView) {
+            guard view.markedTextRange == nil else { return }
             let range = view.selectedRange
             let attributes = attributesForCaretOrSelection(range, view: view)
             let font = attributes[.font] as? UIFont ?? .systemFont(ofSize: RichTextMetrics.bodySize)
@@ -1461,8 +1543,12 @@ private struct RichTextTextView: UIViewRepresentable {
                 canUndo: view.undoManager?.canUndo == true,
                 canRedo: view.undoManager?.canRedo == true
             )
-            guard state != parent.selectionState else { return }
-            DispatchQueue.main.async { self.parent.selectionState = state }
+            guard state != parent.selectionState, state != lastQueuedSelectionState else { return }
+            lastQueuedSelectionState = state
+            DispatchQueue.main.async {
+                guard self.parent.selectionState != state else { return }
+                self.parent.selectionState = state
+            }
         }
 
         private func attributesForCaretOrSelection(_ range: NSRange, view: UITextView) -> [NSAttributedString.Key: Any] {
@@ -1593,10 +1679,46 @@ private struct RichTextTextView: UIViewRepresentable {
         }
     }
 
-    private static func normalizePastedFonts(in value: NSMutableAttributedString) {
+    private static func semanticHeadingSizes(in data: Data) -> [String: [CGFloat]] {
+        guard let html = String(data: data, encoding: .utf8),
+              let expression = try? NSRegularExpression(pattern: #"(?is)<h([1-6])\b[^>]*>(.*?)</h\1\s*>"#) else { return [:] }
+        let source = html as NSString
+        let matches = expression.matches(in: html, range: NSRange(location: 0, length: source.length)).prefix(32)
+        var result: [String: [CGFloat]] = [:]
+        for match in matches {
+            guard match.numberOfRanges > 2 else { continue }
+            let innerHTML = source.substring(with: match.range(at: 2))
+            guard innerHTML.utf8.count <= 16 * 1024,
+                  let fragmentData = "<html><head><meta charset=\"utf-8\"></head><body>\(innerHTML)</body></html>".data(using: .utf8),
+                  let fragment = try? NSAttributedString(
+                    data: fragmentData,
+                    options: [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue],
+                    documentAttributes: nil
+                  ) else { continue }
+            let level = source.substring(with: match.range(at: 1))
+            let size = level == "1" ? RichTextMetrics.heading1Size : RichTextMetrics.heading2Size
+            for paragraph in fragment.string.components(separatedBy: .newlines) {
+                let key = semanticHeadingKey(paragraph)
+                guard !key.isEmpty else { continue }
+                result[key, default: []].append(size)
+            }
+        }
+        return result
+    }
+
+    private static func semanticHeadingKey(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+    }
+
+    private static func normalizePastedFonts(
+        in value: NSMutableAttributedString,
+        semanticHeadingSizes: [String: [CGFloat]] = [:]
+    ) {
         guard value.length > 0 else { return }
 
         let text = value.string
+        var remainingHeadingSizes = semanticHeadingSizes
         var updates: [(NSRange, UIFont)] = []
         text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: .byParagraphs) { substring, range, _, _ in
             guard let substring else { return }
@@ -1604,29 +1726,17 @@ private struct RichTextTextView: UIViewRepresentable {
             guard !visibleText.isEmpty else { return }
 
             let paragraphRange = NSRange(range, in: text)
-            var sizes: [CGFloat] = []
-            var allFontRunsBold = true
-            value.enumerateAttribute(.font, in: paragraphRange) { attribute, _, _ in
-                let font = attribute as? UIFont ?? .systemFont(ofSize: RichTextMetrics.bodySize)
-                sizes.append(font.pointSize)
-                allFontRunsBold = allFontRunsBold && font.fontDescriptor.symbolicTraits.contains(.traitBold)
-            }
-
-            let isUniformSize = sizes.first.map { firstSize in
-                sizes.allSatisfy { abs($0 - firstSize) < 0.1 }
-            } ?? false
-            let paragraphSize = sizes.first ?? RichTextMetrics.bodySize
-            let isNativeHeadingSize = allFontRunsBold && (abs(paragraphSize - RichTextMetrics.heading2Size) < 0.5
-                || abs(paragraphSize - RichTextMetrics.heading1Size) < 0.5
-            )
-            let isLargerEmphasizedHeading = paragraphSize > RichTextMetrics.heading1Size
-                && allFontRunsBold
-                && visibleText.count <= 100
-            let preservesHeadingSize = isUniformSize && (isNativeHeadingSize || isLargerEmphasizedHeading)
+            let headingKey = semanticHeadingKey(visibleText)
+            let headingSize: CGFloat? = {
+                guard var sizes = remainingHeadingSizes[headingKey], !sizes.isEmpty else { return nil }
+                let size = sizes.removeFirst()
+                remainingHeadingSizes[headingKey] = sizes
+                return size
+            }()
 
             value.enumerateAttribute(.font, in: paragraphRange) { attribute, fontRange, _ in
                 let source = attribute as? UIFont ?? .systemFont(ofSize: RichTextMetrics.bodySize)
-                let size = preservesHeadingSize ? source.pointSize : RichTextMetrics.bodySize
+                let size = headingSize ?? RichTextMetrics.bodySize
                 let descriptor = UIFont.systemFont(ofSize: size).fontDescriptor.withSymbolicTraits(source.fontDescriptor.symbolicTraits)
                     ?? UIFont.systemFont(ofSize: size).fontDescriptor
                 updates.append((fontRange, UIFont(descriptor: descriptor, size: size)))

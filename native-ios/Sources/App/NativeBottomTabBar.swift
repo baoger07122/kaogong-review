@@ -62,6 +62,10 @@ struct NativeBottomTabBar: View {
                         }
                     }
                 }
+                .animation(
+                    reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82),
+                    value: selection
+                )
             } else {
                 HStack(spacing: 5) {
                     ForEach(RootTab.availableTabs) { tab in

@@ -2,6 +2,28 @@ import SwiftUI
 import UIKit
 
 @MainActor
+private final class LibraryOneShotDisplayLink: NSObject {
+    private var displayLink: CADisplayLink?
+    private let action: () -> Void
+
+    init(action: @escaping () -> Void) {
+        self.action = action
+    }
+
+    func schedule() {
+        let link = CADisplayLink(target: self, selector: #selector(didDisplayFrame(_:)))
+        displayLink = link
+        link.add(to: .main, forMode: .common)
+    }
+
+    @objc private func didDisplayFrame(_ link: CADisplayLink) {
+        link.invalidate()
+        displayLink = nil
+        action()
+    }
+}
+
+@MainActor
 final class LibraryDoodleSession: ObservableObject {
     @Published var isPresented = false
     @Published var saveError: String?
@@ -19,6 +41,8 @@ final class LibraryDoodleSession: ObservableObject {
     private var presentationStartedAt: TimeInterval?
     private var didLogCanvasFrame = false
     private var didLogCanvasInteractive = false
+    private var pendingFirstFrameCallback: LibraryOneShotDisplayLink?
+    private var onFirstCanvasFrame: (() -> Void)?
 
     var userDrawingRevision: Int { canvas.controller.userDrawingRevision }
 
@@ -33,6 +57,8 @@ final class LibraryDoodleSession: ObservableObject {
         legacyPreviewDataURL: String,
         isLoadingDrawing: Bool = false,
         source: String,
+        interactionStartedAt: TimeInterval? = nil,
+        onFirstCanvasFrame: (() -> Void)? = nil,
         onSave: @escaping (String, Bool, Int, Int) -> String?
     ) {
         guard !isPresented else { return }
@@ -46,9 +72,11 @@ final class LibraryDoodleSession: ObservableObject {
         drawingLoadDataReceived = false
         self.isLoadingDrawing = isLoadingDrawing
         presentationSource = source
-        presentationStartedAt = preparationStart
+        presentationStartedAt = interactionStartedAt ?? preparationStart
         didLogCanvasFrame = false
         didLogCanvasInteractive = false
+        pendingFirstFrameCallback = nil
+        self.onFirstCanvasFrame = onFirstCanvasFrame
         self.targetRecordID = targetRecordID
         canvas.canvasFrameInGlobal = nil
         canvas.controller.canvasReady = false
@@ -63,7 +91,7 @@ final class LibraryDoodleSession: ObservableObject {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { isPresented = true }
-        LibraryPerformanceLog.mark("doodle.overlay-state", since: preparationStart)
+        LibraryPerformanceLog.mark("doodle.overlay-state", since: presentationStartedAt)
     }
 
     func completeDrawingLoad(_ drawingData: String) {
@@ -197,6 +225,20 @@ final class LibraryDoodleSession: ObservableObject {
         if !didLogCanvasFrame {
             didLogCanvasFrame = true
             LibraryPerformanceLog.mark("doodle.canvas-frame-preference", since: presentationStartedAt)
+            let generation = presentationGeneration
+            let callback = LibraryOneShotDisplayLink { [weak self] in
+                guard let self,
+                      self.isPresented,
+                      self.presentationGeneration == generation,
+                      let presentationStartedAt = self.presentationStartedAt else { return }
+                LibraryPerformanceLog.mark("doodle.canvas-first-frame", since: presentationStartedAt)
+                let onFirstCanvasFrame = self.onFirstCanvasFrame
+                self.onFirstCanvasFrame = nil
+                self.pendingFirstFrameCallback = nil
+                onFirstCanvasFrame?()
+            }
+            pendingFirstFrameCallback = callback
+            callback.schedule()
         }
         noteCanvasInteractive()
     }
@@ -212,6 +254,8 @@ final class LibraryDoodleSession: ObservableObject {
     }
 
     private func finishDismissal() {
+        pendingFirstFrameCallback = nil
+        onFirstCanvasFrame = nil
         canvas.controller.showSettings = false
         isLoadingDrawing = false
         drawingLoadFailed = false
