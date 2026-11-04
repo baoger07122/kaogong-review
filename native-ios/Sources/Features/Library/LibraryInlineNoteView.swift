@@ -229,11 +229,6 @@ struct LibraryInlineNoteView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(saveStatus.color)
                     .accessibilityIdentifier("library-inline-note-save-status")
-                if editing {
-                    Button("完成") { finishEditing() }
-                        .font(.system(size: 12))
-                        .accessibilityIdentifier("library-inline-note-finish")
-                }
             }
             if editing {
                 NativeRichTextEditor(
@@ -243,7 +238,8 @@ struct LibraryInlineNoteView: View {
                     focusOnAppear: true,
                     preparedInitialHTML: editingInitialHTML,
                     preparedInitialAttributedText: editingInitialAttributedText,
-                    editorSession: editorSession
+                    editorSession: editorSession,
+                    onEditingEnded: { finishEditing() }
                 )
                 .accessibilityIdentifier("library-inline-note-editor")
                 .padding(.horizontal, 8)

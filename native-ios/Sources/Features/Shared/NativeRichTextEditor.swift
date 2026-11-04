@@ -165,6 +165,7 @@ struct NativeRichTextEditor: View {
     var preparedInitialHTML: String? = nil
     var preparedInitialAttributedText: NSAttributedString? = nil
     var editorSession: NativeRichTextEditorSession? = nil
+    var onEditingEnded: (() -> Void)? = nil
     var internalLinks: [RichTextInternalLink] = []
     var onOpenInternalLink: ((RichTextInternalLink) -> Void)?
     @State private var command: RichTextCommand?
@@ -209,7 +210,8 @@ struct NativeRichTextEditor: View {
                 focusOnAppear: focusOnAppear,
                 preparedInitialHTML: preparedInitialHTML,
                 preparedInitialAttributedText: preparedInitialAttributedText,
-                editorSession: editorSession
+                editorSession: editorSession,
+                onEditingEnded: onEditingEnded
             )
                 .frame(minHeight: documentStyle ? nil : minHeight, alignment: .topLeading)
                 .padding(.horizontal, documentStyle ? 0 : 5)
@@ -786,6 +788,7 @@ private struct RichTextTextView: UIViewRepresentable {
     var preparedInitialHTML: String? = nil
     var preparedInitialAttributedText: NSAttributedString? = nil
     var editorSession: NativeRichTextEditorSession? = nil
+    var onEditingEnded: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -982,7 +985,11 @@ private struct RichTextTextView: UIViewRepresentable {
             pendingEndEditingCompletion = nil
             DispatchQueue.main.async {
                 self.parent.isEditing = false
-                completion?(latestHTML)
+                if let completion {
+                    completion(latestHTML)
+                } else {
+                    self.parent.onEditingEnded?()
+                }
             }
         }
 

@@ -3,8 +3,7 @@ import SwiftUI
 
 private struct ExamRecordTarget: Identifiable { let recordID: String; var id: String { recordID } }
 private struct ExamEditorTarget: Identifiable { let recordID: String?; var id: String { recordID ?? "new" } }
-private enum ExamRange: String, CaseIterable, Identifiable { case all = "全部", month = "本月", threeMonths = "近三月"; var id: String { rawValue } }
-private enum ExamTypeFilter: String, CaseIterable, Identifiable { case all = "全部", real = "真题", mock = "模拟卷", pending = "未分类"; var id: String { rawValue } }
+private enum ExamTypeFilter: String, CaseIterable, Identifiable { case all = "全部", real = "真题", mock = "模拟卷"; var id: String { rawValue } }
 private enum ExamSort: String, CaseIterable, Identifiable { case latest = "最新", accuracyHigh = "正确率高→低", accuracyLow = "正确率低→高"; var id: String { rawValue } }
 
 private enum ExamDisplayFormatting {
@@ -30,15 +29,6 @@ private enum ExamDisplayFormatting {
         return "\(remainder)秒"
     }
 
-    static func detailedDuration(_ seconds: Int) -> String {
-        let hours = seconds / 3_600
-        let minutes = (seconds % 3_600) / 60
-        let remainder = seconds % 60
-        if hours > 0 { return "\(hours)时\(minutes)分\(remainder)秒" }
-        if minutes > 0 { return "\(minutes)分\(remainder)秒" }
-        return "\(remainder)秒"
-    }
-
     static func compactDuration(_ seconds: Int) -> String {
         guard seconds >= 0 else { return "—" }
         let hours = seconds / 3_600
@@ -52,47 +42,17 @@ private enum ExamDisplayFormatting {
 
 struct ExamsView: View {
     @Query private var records: [StoredRecord]
-    @State private var searchText = ""
-    @State private var selectedRange: ExamRange = .all
     @State private var selectedType: ExamTypeFilter = .all
     @State private var selectedSort: ExamSort = .latest
     @State private var editorTarget: ExamEditorTarget?
     @State private var attemptTarget: ExamRecordTarget?
 
     private var allExams: [StoredRecord] { records.filter { $0.collection == "exams" } }
-    private var pendingExamCount: Int {
-        allExams.filter {
-            LibraryReviewSource.explicitValue(in: $0.indexObject ?? [:]) == nil
-                || LibraryReviewSource.explicitValue(in: $0.indexObject ?? [:]) == .pending
-        }.count
-    }
     private var statisticsExams: [StoredRecord] {
-        allExams.filter { record in
-            let type = LibraryReviewSource.explicitValue(in: record.indexObject ?? [:]) ?? .pending
-            let matchesType: Bool = switch selectedType {
-            case .all: true
-            case .real: type == .real
-            case .mock: type == .mock
-            case .pending: type == .pending
-            }
-            return matchesType && matchesRange(examDate(record))
-        }
+        allExams.filter(matchesSelectedType)
     }
     private var exams: [StoredRecord] {
-        allExams.filter { record in
-            let object = record.indexObject ?? [:]
-            let name = object["name"] as? String ?? ""
-            let note = object["reviewNote"] as? String ?? ""
-            let matchesSearch = searchText.isEmpty || name.localizedCaseInsensitiveContains(searchText) || note.localizedCaseInsensitiveContains(searchText)
-            let type = LibraryReviewSource.explicitValue(in: object) ?? .pending
-            let matchesType: Bool = switch selectedType {
-            case .all: true
-            case .real: type == .real
-            case .mock: type == .mock
-            case .pending: type == .pending
-            }
-            return matchesSearch && matchesRange(examDate(record)) && matchesType
-        }.sorted { left, right in
+        statisticsExams.sorted { left, right in
             switch selectedSort {
             case .latest: examDate(left) > examDate(right)
             case .accuracyHigh: accuracy(left) > accuracy(right)
@@ -100,31 +60,29 @@ struct ExamsView: View {
             }
         }
     }
+    private func matchesSelectedType(_ record: StoredRecord) -> Bool {
+        let type = LibraryReviewSource.explicitValue(in: record.indexObject ?? [:]) ?? .pending
+        switch selectedType {
+        case .all: true
+        case .real: type == .real
+        case .mock: type == .mock
+        }
+    }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 12) {
                 filterHeader
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)], spacing: 10) {
-                    metric("套卷记录", "\(statisticsExams.count)")
+                HStack(spacing: 10) {
+                    metric("套卷次数", "\(statisticsExams.count)")
                     metric(scoreMetricTitle, averageScoreText)
                     metric("总体正确率", overallAccuracyText)
-                }
-                HStack(alignment: .center, spacing: 10) {
-                    Text("套卷记录").font(AppTheme.sectionTitleFont)
-                    Spacer(minLength: 8)
-                    HStack { Image(systemName: "magnifyingglass").foregroundStyle(.secondary); TextField("搜索套卷或复盘内容", text: $searchText).font(AppTheme.inputFont) }
-                        .padding(.horizontal, 11).frame(maxWidth: 300).frame(height: 38).background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 10))
-                    Button { editorTarget = ExamEditorTarget(recordID: nil) } label: {
-                        Image(systemName: "plus").font(.system(size: 14, weight: .bold)).frame(width: 38, height: 38).background(AppTheme.accent.opacity(0.10), in: Circle())
-                    }.buttonStyle(.plain).accessibilityLabel("记录新套卷")
                 }
                 if exams.isEmpty {
                     NativeStatusCard(title: "暂无套卷", detail: "点击加号记录一次真题或模拟卷", systemImage: "doc.text", color: AppTheme.accent)
                 } else {
                     HStack {
-                        Text("共 \(exams.count) 次").font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
-                        Spacer()
+                        Spacer(minLength: 0)
                         filterMenu(title: selectedSort.rawValue) {
                             ForEach(ExamSort.allCases) { value in Button(value.rawValue) { selectedSort = value } }
                         }
@@ -144,6 +102,21 @@ struct ExamsView: View {
             }.padding(20)
         }
         .background(AppTheme.groupedBackground)
+        .overlay(alignment: .bottomTrailing) {
+            Button { editorTarget = ExamEditorTarget(recordID: nil) } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 23, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 54, height: 54)
+                    .background(AppTheme.accent, in: Circle())
+                    .shadow(color: AppTheme.accent.opacity(0.28), radius: 12, y: 5)
+            }
+            .buttonStyle(NativePressButtonStyle())
+            .accessibilityLabel("记录新套卷")
+            .accessibilityIdentifier("exams-add-record")
+            .padding(.trailing, 18)
+            .padding(.bottom, 72)
+        }
         .navigationTitle("套卷统计")
         .navigationBarTitleDisplayMode(.inline)
         .rootTabBarContentInset()
@@ -156,38 +129,21 @@ struct ExamsView: View {
     }
 
     private var filterHeader: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 2) {
-                ForEach([ExamTypeFilter.all, .real, .mock]) { value in
-                    Button { selectedType = value } label: {
-                        Text(value.rawValue)
-                            .font(.system(size: 12, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .foregroundStyle(selectedType == value ? AppTheme.accent : Color.primary)
-                            .background(selectedType == value ? Color.white : Color.clear, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
+        HStack(spacing: 2) {
+            ForEach(ExamTypeFilter.allCases) { value in
+                Button { selectedType = value } label: {
+                    Text(value.rawValue)
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .foregroundStyle(selectedType == value ? AppTheme.accent : Color.primary)
+                        .background(selectedType == value ? Color.white : Color.clear, in: Capsule())
                 }
+                .buttonStyle(.plain)
             }
-            .padding(3)
-            .background(Color.primary.opacity(0.055), in: Capsule())
-            Spacer(minLength: 4)
-            filterMenu(title: selectedRange.rawValue) {
-                ForEach(ExamRange.allCases) { value in Button(value.rawValue) { selectedRange = value } }
-            }
-            Menu {
-                Button("查看未分类套卷（\(pendingExamCount)）") { selectedType = .pending }
-                Button("返回当前分类") { selectedType = .all }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 34, height: 34)
-                    .background(AppTheme.secondaryBackground, in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("更多套卷分类")
         }
+        .padding(3)
+        .background(Color.primary.opacity(0.055), in: Capsule())
     }
 
     private func examCard(_ exam: StoredRecord) -> some View {
@@ -199,25 +155,29 @@ struct ExamsView: View {
         let correctCount = examDraft.metrics.correctCount.map(String.init) ?? "—"
         let resultCount = examDraft.metrics.totalQuestions.map(String.init) ?? "—"
         let duration = examDraft.metrics.totalTimeSeconds.map(ExamDisplayFormatting.duration) ?? "—"
-        return VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 6) {
-                Text(type.title).font(.system(size: 9, weight: .semibold)).foregroundStyle(type == .pending ? AppTheme.warning : AppTheme.accent)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                Text(type.title).font(.system(size: 11, weight: .semibold)).foregroundStyle(type == .pending ? AppTheme.warning : AppTheme.accent)
                     .padding(.horizontal, 7).padding(.vertical, 3).background((type == .pending ? AppTheme.warning : AppTheme.accent).opacity(0.08), in: Capsule())
-                Text(examDate(exam), format: .dateTime.year().month().day()).font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+                Text(examDate(exam), format: .dateTime.year().month().day()).font(.system(size: 11)).foregroundStyle(.secondary)
             }
-            HStack(alignment: .center, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
                 Text(object["name"] as? String ?? "未命名套卷")
-                    .font(AppTheme.cardTitleFont)
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text("\(score.isEmpty ? "—" : score)分")
-                        .font(.system(size: 19, weight: .semibold, design: .rounded))
+                    Text(score.isEmpty ? "—" : score)
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                        .foregroundStyle(AppTheme.accent)
+                    Text("分")
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(AppTheme.accent)
                     if !maximum.isEmpty {
                         Text("/ \(maximum)")
-                            .font(AppTheme.auxiliaryFont)
+                            .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -225,28 +185,22 @@ struct ExamsView: View {
             }
             HStack(spacing: 8) {
                 examMetric("\(correctCount)/\(resultCount)题", systemImage: "checkmark.circle")
-                examMetric(examDraft.metrics.accuracyPercent.map { String(format: "%.2f%%", $0) } ?? "—", systemImage: "percent")
+                examMetric(examDraft.metrics.accuracyPercent.map { String(format: "%.2f%%", $0) } ?? "—", systemImage: nil)
                 examMetric(duration, systemImage: "clock")
             }
-            .font(AppTheme.auxiliaryFont)
+            .font(.system(size: 12))
             .foregroundStyle(.secondary)
-            if let note = object["reviewNote"] as? String, !note.isEmpty {
-                Text(plainText(note)).font(AppTheme.bodyFont).foregroundStyle(.secondary).lineLimit(2)
-            }
-            HStack {
-                Text("查看本次统计").font(AppTheme.auxiliaryFont.weight(.semibold)).foregroundStyle(AppTheme.accent)
-                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(AppTheme.accent)
-                Spacer()
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .nativeCard()
+        .nativeCard(padding: 14)
     }
 
-    private func examMetric(_ value: String, systemImage: String) -> some View {
+    private func examMetric(_ value: String, systemImage: String?) -> some View {
         HStack(spacing: 5) {
-            Image(systemName: systemImage)
-                .font(.system(size: 10, weight: .regular))
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: 10, weight: .regular))
+            }
             Text(value)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
@@ -256,10 +210,12 @@ struct ExamsView: View {
     }
 
     private func metric(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(value).font(.system(size: 19, weight: .semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.72)
-            Text(title).font(AppTheme.auxiliaryFont).foregroundStyle(.secondary).lineLimit(1)
-        }.frame(maxWidth: .infinity, alignment: .leading).nativeCard()
+        VStack(alignment: .leading, spacing: 3) {
+            Text(value).font(.system(size: 24, weight: .semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.72)
+            Text(title).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .nativeCard(padding: 12)
     }
 
     private func filterMenu<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -308,17 +264,6 @@ struct ExamsView: View {
         guard let total = intValue(object["totalQuestions"]), let correct = intValue(object["correctCount"]), total > 0 else { return -1 }
         return Double(correct) / Double(total)
     }
-    private func matchesRange(_ date: Date) -> Bool {
-        let calendar = Calendar.current
-        switch selectedRange {
-        case .all: return true
-        case .month:
-            let components = calendar.dateComponents([.year, .month], from: .now)
-            return date >= (calendar.date(from: components) ?? .distantPast)
-        case .threeMonths:
-            return date >= (calendar.date(byAdding: .month, value: -3, to: .now) ?? .distantPast)
-        }
-    }
     private func examDate(_ record: StoredRecord) -> Date {
         guard let value = record.indexObject?["examDate"] as? String else { return record.createdAt ?? .distantPast }
         return ExamDraft.dayFormatter.date(from: value) ?? ISO8601DateFormatter().date(from: value) ?? record.createdAt ?? .distantPast
@@ -329,11 +274,6 @@ struct ExamsView: View {
     }
     private func intValue(_ value: Any?) -> Int? { Int(numberText(value)) }
     private func formatNumber(_ value: Double) -> String { value.rounded() == value ? String(Int(value)) : String(format: "%.2f", value) }
-    private func plainText(_ value: String) -> String {
-        value.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 }
 
 private struct ExamModuleDisplayRow: Identifiable {
@@ -377,13 +317,13 @@ private struct ExamAttemptDetailView: View {
 
             ScrollView {
                 if record != nil {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 12) {
                         summaryCard(padding: cardPadding)
                         resultCard(availableWidth: contentWidth, padding: cardPadding)
                         linkedErrorsCard(padding: cardPadding)
                     }
                     .padding(.horizontal, horizontalPadding)
-                    .padding(.vertical, 20)
+                    .padding(.vertical, 14)
                     .frame(maxWidth: 940)
                     .frame(maxWidth: .infinity)
                 } else {
@@ -427,37 +367,37 @@ private struct ExamAttemptDetailView: View {
     private var maximumScoreValue: String { ExamDisplayFormatting.score(object["maximumScore"]).nilIfEmpty ?? "—" }
 
     private func summaryCard(padding: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text(type.title)
-                    .font(.system(.subheadline, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(type == .pending ? AppTheme.warning : AppTheme.accent)
                 Spacer(minLength: 8)
                 Text(formattedExamDate)
-                    .font(.system(.subheadline))
+                    .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
 
             Text(object["name"] as? String ?? "未命名套卷")
-                .font(.system(.title2, weight: .bold))
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("本次得分")
-                    .font(.system(.subheadline))
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(scoreValue)
-                        .font(.system(size: 44, weight: .bold, design: .rounded))
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
                         .foregroundStyle(AppTheme.accent)
                         .monospacedDigit()
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                     Text("/ \(maximumScoreValue)")
-                        .font(.system(.title3))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                         .lineLimit(1)
@@ -486,7 +426,7 @@ private struct ExamAttemptDetailView: View {
             ExamSummaryMetric(title: "答对", value: metrics.correctCount.map(String.init) ?? "—"),
             ExamSummaryMetric(title: "答错", value: metrics.wrongCount.map(String.init) ?? "—"),
             ExamSummaryMetric(title: "正确率", value: metrics.accuracyPercent.map { String(format: "%.2f%%", $0) } ?? "—"),
-            ExamSummaryMetric(title: "本次用时", value: metrics.totalTimeSeconds.map(ExamDisplayFormatting.detailedDuration) ?? "—")
+            ExamSummaryMetric(title: "本次用时", value: metrics.totalTimeSeconds.map(ExamDisplayFormatting.compactDuration) ?? "—")
         ]
     }
 
@@ -497,12 +437,12 @@ private struct ExamAttemptDetailView: View {
 
         return VStack(alignment: .leading, spacing: 8) {
             Text("模块成绩")
-                .font(.system(.title3, weight: .semibold))
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.primary)
 
             if rows.isEmpty {
                 Text("暂无模块成绩")
-                    .font(.system(.body))
+                    .font(.system(size: 14))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 8)
@@ -550,7 +490,7 @@ private struct ExamAttemptDetailView: View {
             Text("用时")
                 .frame(width: columns.time, alignment: .trailing)
         }
-        .font(.system(.caption, weight: .medium))
+        .font(.system(size: 11, weight: .medium))
         .foregroundStyle(.secondary)
         .padding(.bottom, 2)
         .accessibilityElement(children: .combine)
@@ -561,7 +501,7 @@ private struct ExamAttemptDetailView: View {
         let rawAccuracy = displayValue(row.result?.reportedAccuracy)
         let accuracy = rawAccuracy == "—" || rawAccuracy.hasSuffix("%") ? rawAccuracy : "\(rawAccuracy)%"
         let time = Int(row.result?.timeSeconds ?? "").map(ExamDisplayFormatting.compactDuration) ?? "—"
-        let minimumHeight: CGFloat = row.isChild ? 40 : 44
+        let minimumHeight: CGFloat = row.isFoldableParent ? 44 : (row.isChild ? 34 : 38)
 
         let content = HStack(alignment: .center, spacing: columns.spacing) {
             HStack(alignment: .center, spacing: 4) {
@@ -572,7 +512,7 @@ private struct ExamAttemptDetailView: View {
                         .frame(width: 14)
                 }
                 Text(row.subject)
-                    .font(row.isChild ? .system(.body) : .system(.body, weight: .semibold))
+                    .font(row.isChild ? .system(size: 14) : .system(size: 15, weight: .semibold))
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -605,10 +545,12 @@ private struct ExamAttemptDetailView: View {
 
     private func moduleValue(_ value: String, minimumHeight: CGFloat) -> some View {
         Text(value)
-            .font(.system(.body))
+            .font(.system(size: 14))
             .foregroundStyle(.primary)
             .monospacedDigit()
             .multilineTextAlignment(.trailing)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .trailing)
     }
@@ -709,13 +651,13 @@ private struct ExamAttemptDetailView: View {
                 ForEach(linkedErrors, id: \.recordID) { error in
                     VStack(alignment: .leading, spacing: 3) {
                         Text(error.title)
-                            .font(.system(.body))
+                            .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.primary)
                             .fixedSize(horizontal: false, vertical: true)
                         let metadata = [error.subject, error.module].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
                         if !metadata.isEmpty {
                             Text(metadata)
-                                .font(.system(.subheadline))
+                                .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -737,7 +679,7 @@ private struct ExamAttemptDetailView: View {
     private var linkedErrorSummary: some View {
         let wrongCount = draft.metrics.wrongCount.map(String.init) ?? "—"
         return Text("本次答错 \(wrongCount) 题 · 已关联 \(linkedErrors.count) 题")
-            .font(.system(.subheadline))
+        .font(.system(size: 12))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -750,7 +692,7 @@ private struct ExamAttemptDetailView: View {
             }
         } label: {
             Text("关联错题")
-                .font(.system(.subheadline, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(AppTheme.accent)
                 .padding(.horizontal, 12)
                 .frame(minHeight: 44)
@@ -763,12 +705,12 @@ private struct ExamAttemptDetailView: View {
     private func detailMetric(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(value)
-                .font(.system(.title3, weight: .semibold))
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.primary)
                 .monospacedDigit()
                 .fixedSize(horizontal: false, vertical: true)
             Text(title)
-                .font(.system(.caption))
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

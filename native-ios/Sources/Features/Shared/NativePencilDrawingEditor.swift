@@ -422,6 +422,8 @@ struct NativePencilDrawingEditor: View {
         .padding(.top, 18)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity)
+        .safeAreaPadding(.bottom, 12)
+        .fixedSize(horizontal: false, vertical: true)
         .background(.regularMaterial, in: UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24))
         .shadow(color: Color.black.opacity(0.10), radius: 18, y: -4)
     }

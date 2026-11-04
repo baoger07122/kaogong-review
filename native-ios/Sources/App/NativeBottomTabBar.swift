@@ -6,19 +6,28 @@ struct NativeBottomTabBar: View {
     @Namespace private var selectionBackground
 
     var body: some View {
-        tabBar
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: 5) {
+                tabBar
+            }
+            .animation(
+                reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82),
+                value: selection
+            )
+        } else {
+            tabBar
+                .animation(
+                    reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82),
+                    value: selection
+                )
+        }
     }
 
     private var tabBar: some View {
-        ZStack {
-            selectionIndicators
-
-            HStack(spacing: 5) {
-                ForEach(RootTab.availableTabs) { tab in
-                    tabButton(tab)
-                }
+        HStack(spacing: 5) {
+            ForEach(RootTab.availableTabs) { tab in
+                tabButton(tab)
             }
-            .zIndex(1)
         }
         .padding(6)
         .frame(maxWidth: 520)
@@ -38,59 +47,6 @@ struct NativeBottomTabBar: View {
         .padding(.horizontal, 20)
         .padding(.top, 7)
         .padding(.bottom, 2)
-    }
-
-    @ViewBuilder
-    private var selectionIndicators: some View {
-        Group {
-            if #available(iOS 26.0, *) {
-                GlassEffectContainer(spacing: 5) {
-                    HStack(spacing: 5) {
-                        ForEach(RootTab.availableTabs) { tab in
-                            Group {
-                                if selection == tab {
-                                    Capsule(style: .continuous)
-                                        .fill(Color.clear)
-                                        .glassEffect(.clear.interactive(), in: Capsule(style: .continuous))
-                                        .glassEffectID("root-tab-selection", in: selectionBackground)
-                                } else {
-                                    Color.clear
-                                }
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 44)
-                        }
-                    }
-                }
-                .animation(
-                    reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82),
-                    value: selection
-                )
-            } else {
-                HStack(spacing: 5) {
-                    ForEach(RootTab.availableTabs) { tab in
-                        Group {
-                            if selection == tab {
-                                Capsule(style: .continuous)
-                                    .fill(Color.primary.opacity(0.075))
-                                    .matchedGeometryEffect(id: "root-tab-selection", in: selectionBackground)
-                                    .animation(
-                                        reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.82),
-                                        value: selection
-                                    )
-                            } else {
-                                Color.clear
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                    }
-                }
-            }
-        }
-        .frame(height: 44)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 
     private func tabButton(_ tab: RootTab) -> some View {
@@ -115,6 +71,19 @@ struct NativeBottomTabBar: View {
             .frame(maxWidth: .infinity)
             .frame(height: 44)
             .contentShape(Capsule(style: .continuous))
+            .background {
+                if isSelected {
+                    if #available(iOS 26.0, *) {
+                        Capsule(style: .continuous)
+                            .glassEffect(.clear.interactive(!reduceMotion), in: Capsule(style: .continuous))
+                            .glassEffectID("root-tab-selection", in: selectionBackground)
+                    } else {
+                        Capsule(style: .continuous)
+                            .fill(Color.primary.opacity(0.075))
+                            .matchedGeometryEffect(id: "root-tab-selection", in: selectionBackground)
+                    }
+                }
+            }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(tab.title)

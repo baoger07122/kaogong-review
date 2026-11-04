@@ -8,7 +8,6 @@ import UIKit
 private struct LibraryRedoAttempt: Equatable {
     var selectedLetters: Set<String> = []
     var submitted = false
-    var showingPastReview = false
 }
 
 private struct LibraryDetailAttribute: Identifiable {
@@ -55,6 +54,7 @@ struct LibraryRecordDetailView: View {
     @State private var lastLocallySavedNoteUpdate: Date?
 
     @State private var showDelete = false
+    @AppStorage("native.library.errors.redoMode") private var redoPracticeEnabled = false
     @StateObject private var noteSession = LibraryInlineNoteSession()
     @StateObject private var redoSession = LibraryRedoAttemptSession.shared
     @State private var showWordSelection = false
@@ -199,7 +199,7 @@ struct LibraryRecordDetailView: View {
         let readingColumnWidth = min(availableWidth.isFinite ? max(0, availableWidth) : 0, 920)
         return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                if !isRedoPractice || redoAttempt.showingPastReview {
+                if !isRedoPractice {
                     metadata
                 }
                 if kind == .errors && isDataAnalysis {
@@ -212,7 +212,7 @@ struct LibraryRecordDetailView: View {
                     imagesBlock(availableWidth: max(0, readingColumnWidth - 32))
                 }
                 optionsBlock
-                if isRedoPractice && !redoAttempt.showingPastReview {
+                if isRedoPractice {
                     redoFeedbackBlock
                     questionSourceBlock
                 } else {
@@ -305,19 +305,6 @@ struct LibraryRecordDetailView: View {
             toolbarPlaceholder
             toolbarPlaceholder
         } else {
-            if isRedoPractice {
-                Button {
-                    redoSession.update(activeRecordID) { $0.showingPastReview.toggle() }
-                } label: {
-                    Label(
-                        redoAttempt.showingPastReview ? "返回复练" : "查看复盘",
-                        systemImage: redoAttempt.showingPastReview ? "arrow.uturn.backward" : "doc.text.magnifyingglass"
-                    )
-                    .font(.system(size: 12, weight: .medium))
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("library-record-review-toggle")
-            }
             Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
                 .accessibilityLabel("涂鸦")
             questionActionsMenu
@@ -333,6 +320,10 @@ struct LibraryRecordDetailView: View {
 
     private var questionActionsMenu: some View {
         Menu {
+            if supportsRedoMode {
+                Toggle("重做模式", isOn: $redoPracticeEnabled)
+                Divider()
+            }
             Button {
                 noteSession.finish { saved in
                     if saved { onEdit() }
@@ -380,7 +371,14 @@ struct LibraryRecordDetailView: View {
                     }
                 }
             }
-            if let status = firstText(["status", "masteryStatus"]) {
+            if supportsRedoMode {
+                editableMetadataText(
+                    "掌握状态",
+                    value: masteryStatus,
+                    key: existingAttributeKey(["status", "masteryStatus"], fallback: "status"),
+                    choices: ["未掌握", "已掌握"]
+                )
+            } else if let status = firstText(["status", "masteryStatus"]) {
                 editableMetadataText("掌握状态", value: clean(status), key: existingAttributeKey(["status", "masteryStatus"], fallback: "status"), choices: ["未掌握", "已掌握"])
             }
             if isQuantityRelations {
@@ -521,17 +519,29 @@ struct LibraryRecordDetailView: View {
                     let option = index < options.count ? options[index] : ""
                     let optionImage = index < optionImages.count ? optionImages[index] : ""
                     let letter = String(UnicodeScalar(65 + index)!)
-                    let showingPastAnswer = isRedoPractice && redoAttempt.showingPastReview
-                    let canShowCurrentFeedback = isRedoPractice && redoAttempt.submitted && !showingPastAnswer
+                    let canShowCurrentFeedback = isRedoPractice && redoAttempt.submitted
                     let correct = isRedoPractice
-                        ? ((showingPastAnswer || canShowCurrentFeedback) && answerLetters.contains(letter))
+                        ? (canShowCurrentFeedback && answerLetters.contains(letter))
                         : answerLetters.contains(letter)
                     let chosen = isRedoPractice
-                        ? (showingPastAnswer ? userAnswerLetters.contains(letter) : redoAttempt.selectedLetters.contains(letter))
+                        ? redoAttempt.selectedLetters.contains(letter)
                         : userAnswerLetters.contains(letter)
                     let hasText = !clean(option).isEmpty
+                    let row = optionRow(
+                        option,
+                        image: optionImage,
+                        letter: letter,
+                        index: index,
+                        hasText: hasText,
+                        correct: correct,
+                        chosen: chosen
+                    )
+                    let paddedRow = row
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
                     Group {
-                        if isRedoPractice && !showingPastAnswer && !redoAttempt.submitted {
+                        if isRedoPractice && !redoAttempt.submitted {
                             Button {
                                 redoSession.update(activeRecordID) { attempt in
                                     if answerLetters.count == 1 {
@@ -543,17 +553,16 @@ struct LibraryRecordDetailView: View {
                                     }
                                 }
                             } label: {
-                                optionRow(option, image: optionImage, letter: letter, index: index, hasText: hasText, correct: false, chosen: chosen)
+                                paddedRow
+                                    .contentShape(RoundedRectangle(cornerRadius: 8))
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("选项\(letter)：\(clean(option))")
                             .accessibilityAddTraits(chosen ? .isSelected : [])
                         } else {
-                            optionRow(option, image: optionImage, letter: letter, index: index, hasText: hasText, correct: correct, chosen: chosen)
+                            paddedRow
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
                     .background(optionBackground(correct: correct, chosen: chosen), in: RoundedRectangle(cornerRadius: 8))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8)
@@ -699,7 +708,7 @@ struct LibraryRecordDetailView: View {
     }
 
     @ViewBuilder private var explanationBlock: some View {
-        if (isRedoPractice && redoAttempt.showingPastReview) || displayQuestionBankContext?.isAnswerRevealed == true,
+        if shouldShowExplanation,
            let explanation = firstText(["explanation"]),
            !clean(explanation).isEmpty {
             VStack(alignment: .leading, spacing: 6) {
@@ -806,9 +815,6 @@ struct LibraryRecordDetailView: View {
     }
 
     @ViewBuilder private var reviewBlock: some View {
-        if isRedoPractice && redoAttempt.showingPastReview {
-            pastAnswerReviewBlock
-        }
         if let value = firstText(["reviewNote", "reviewPlan", "nextReviewAt"]), !clean(value).isEmpty {
             let key = existingAttributeKey(["reviewNote", "reviewPlan", "nextReviewAt"], fallback: "reviewNote")
             let content = VStack(alignment: .leading, spacing: 8) {
@@ -962,11 +968,22 @@ struct LibraryRecordDetailView: View {
     private var redoAttempt: LibraryRedoAttempt { redoSession.attempt(for: activeRecordID) }
 
     private var isRedoPractice: Bool {
+        supportsRedoMode && redoPracticeEnabled
+    }
+
+    private var supportsRedoMode: Bool {
         kind == .errors
             && record?.isShenlunRecord != true
             && object["questionBankPaperID"] == nil
             && object["questionBankQuestionID"] == nil
             && displayQuestionBankContext == nil
+    }
+
+    private var shouldShowExplanation: Bool {
+        if let displayQuestionBankContext {
+            return displayQuestionBankContext.isAnswerRevealed
+        }
+        return !isRedoPractice || redoAttempt.submitted
     }
 
     @ViewBuilder private var redoFeedbackBlock: some View {
@@ -998,53 +1015,25 @@ struct LibraryRecordDetailView: View {
                 redoSession.update(activeRecordID) { $0.submitted = true }
             } label: {
                 Text("提交答案")
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(maxWidth: .infinity, minHeight: 42)
-                    .foregroundStyle(.white)
-                    .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AppTheme.accent)
+                    .padding(.horizontal, 15)
+                    .frame(height: 36)
+                    .background(AppTheme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(redoAttempt.selectedLetters.isEmpty)
             .opacity(redoAttempt.selectedLetters.isEmpty ? 0.55 : 1)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .accessibilityIdentifier("library-redo-submit")
         }
     }
 
-    private var pastAnswerReviewBlock: some View {
-        let previous = firstText(["userOption", "myAnswer"]) ?? ""
-        return VStack(alignment: .leading, spacing: 6) {
-            Label("历史作答", systemImage: "clock.arrow.circlepath")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
-            if !clean(previous).isEmpty {
-                Text("之前选择：\(clean(previous))")
-                    .font(.system(size: 13))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if !answerLetters.isEmpty {
-                Text("正确答案：\(answerLetters.sorted().joined())")
-                    .font(.system(size: 13))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Button("标记为已掌握") {
-                beginAttributeEdit(
-                    key: existingAttributeKey(["status", "masteryStatus"], fallback: "status"),
-                    label: "掌握状态",
-                    value: masteryStatus,
-                    choices: ["未掌握", "已掌握"]
-                )
-            }
-            .font(.system(size: 12, weight: .medium))
-            .buttonStyle(.plain)
-            .foregroundStyle(AppTheme.accent)
-        }
-        .padding(.top, 4)
-    }
     private func letterSet(_ value: String?) -> Set<String> {
         Set((value ?? "").uppercased().filter { "ABCD".contains($0) }.map(String.init))
     }
     private func optionBackground(correct: Bool, chosen: Bool) -> Color {
-        if isRedoPractice && !redoAttempt.showingPastReview && !redoAttempt.submitted { return .white }
+        if isRedoPractice && !redoAttempt.submitted { return .white }
         guard displayQuestionBankContext == nil || questionBankShowsAnswer else { return .white }
         if correct { return StudyOptionFeedbackPalette.correctBackground }
         if chosen { return StudyOptionFeedbackPalette.incorrectBackground }
@@ -1052,8 +1041,8 @@ struct LibraryRecordDetailView: View {
     }
 
     private func optionMarkerState(correct: Bool, chosen: Bool) -> StudyOptionMarkerState {
-        if isRedoPractice && !redoAttempt.showingPastReview && !redoAttempt.submitted {
-            return chosen ? .selected : .unselected
+        if isRedoPractice && !redoAttempt.submitted {
+            return chosen ? .selectedFilled : .unselected
         }
         guard questionBankShowsAnswer || displayQuestionBankContext == nil else {
             return chosen ? .selected : .unselected
@@ -1064,7 +1053,7 @@ struct LibraryRecordDetailView: View {
     }
 
     private func optionBorderColor(correct: Bool, chosen: Bool) -> Color {
-        if isRedoPractice && !redoAttempt.showingPastReview && !redoAttempt.submitted { return webBorder }
+        if isRedoPractice && !redoAttempt.submitted { return webBorder }
         guard displayQuestionBankContext == nil || questionBankShowsAnswer else { return webBorder }
         return correct ? StudyOptionFeedbackPalette.correct : (chosen ? StudyOptionFeedbackPalette.incorrect : webBorder)
     }
@@ -1091,7 +1080,7 @@ struct LibraryRecordDetailView: View {
     private var detailBackground: Color { Color(red: 245.0 / 255.0, green: 245.0 / 255.0, blue: 247.0 / 255.0) }
 
     private var canEditReviewAttributes: Bool {
-        isRedoPractice && redoAttempt.showingPastReview
+        supportsRedoMode && !isRedoPractice
     }
 
     private var masteryStatus: String {

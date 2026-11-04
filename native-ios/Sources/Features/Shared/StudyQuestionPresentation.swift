@@ -17,6 +17,7 @@ enum SubjectModuleTitle {
 enum StudyOptionMarkerState: Equatable {
     case unselected
     case selected
+    case selectedFilled
     case correct
     case incorrect
 }
@@ -59,6 +60,7 @@ struct StudyOptionMarker: View {
         switch state {
         case .unselected: .primary
         case .selected: AppTheme.accent
+        case .selectedFilled: .white
         case .correct, .incorrect: .white
         }
     }
@@ -66,6 +68,7 @@ struct StudyOptionMarker: View {
     private var fillColor: Color {
         switch state {
         case .unselected, .selected: .clear
+        case .selectedFilled: AppTheme.accent
         case .correct: StudyOptionFeedbackPalette.correct
         case .incorrect: StudyOptionFeedbackPalette.incorrect
         }
@@ -74,7 +77,7 @@ struct StudyOptionMarker: View {
     private var outlineColor: Color {
         switch state {
         case .unselected: Color(uiColor: .separator).opacity(0.8)
-        case .selected: AppTheme.accent
+        case .selected, .selectedFilled: AppTheme.accent
         case .correct: StudyOptionFeedbackPalette.correct
         case .incorrect: StudyOptionFeedbackPalette.incorrect
         }
