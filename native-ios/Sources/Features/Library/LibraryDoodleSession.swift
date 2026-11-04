@@ -63,6 +63,7 @@ final class LibraryDoodleSession: ObservableObject {
     ) {
         guard !isPresented else { return }
         let preparationStart = ProcessInfo.processInfo.systemUptime
+        let interactionStart = interactionStartedAt ?? preparationStart
         drawingLoadTask?.cancel()
         drawingLoadTask = nil
         presentationGeneration &+= 1
@@ -72,7 +73,7 @@ final class LibraryDoodleSession: ObservableObject {
         drawingLoadDataReceived = false
         self.isLoadingDrawing = isLoadingDrawing
         presentationSource = source
-        presentationStartedAt = interactionStartedAt ?? preparationStart
+        presentationStartedAt = interactionStart
         didLogCanvasFrame = false
         didLogCanvasInteractive = false
         pendingFirstFrameCallback = nil
@@ -91,7 +92,7 @@ final class LibraryDoodleSession: ObservableObject {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { isPresented = true }
-        LibraryPerformanceLog.mark("doodle.overlay-state", since: presentationStartedAt)
+        LibraryPerformanceLog.mark("doodle.overlay-state", since: interactionStart)
     }
 
     func completeDrawingLoad(_ drawingData: String) {

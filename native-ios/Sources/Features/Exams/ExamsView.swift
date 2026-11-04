@@ -587,7 +587,7 @@ private struct ExamAttemptDetailView: View {
                 .frame(width: columns.time, alignment: .trailing)
         }
 
-        Group {
+        return Group {
             if row.isFoldableParent {
                 Button { toggleExpanded(row.parentSubject) } label: {
                     content.contentShape(Rectangle())

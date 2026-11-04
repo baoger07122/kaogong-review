@@ -530,25 +530,27 @@ struct LibraryRecordDetailView: View {
                         ? (showingPastAnswer ? userAnswerLetters.contains(letter) : redoAttempt.selectedLetters.contains(letter))
                         : userAnswerLetters.contains(letter)
                     let hasText = !clean(option).isEmpty
-                    if isRedoPractice && !showingPastAnswer && !redoAttempt.submitted {
-                        Button {
-                            redoSession.update(activeRecordID) { attempt in
-                                if answerLetters.count == 1 {
-                                    attempt.selectedLetters = attempt.selectedLetters.contains(letter) ? [] : [letter]
-                                } else if attempt.selectedLetters.contains(letter) {
-                                    attempt.selectedLetters.remove(letter)
-                                } else {
-                                    attempt.selectedLetters.insert(letter)
+                    Group {
+                        if isRedoPractice && !showingPastAnswer && !redoAttempt.submitted {
+                            Button {
+                                redoSession.update(activeRecordID) { attempt in
+                                    if answerLetters.count == 1 {
+                                        attempt.selectedLetters = attempt.selectedLetters.contains(letter) ? [] : [letter]
+                                    } else if attempt.selectedLetters.contains(letter) {
+                                        attempt.selectedLetters.remove(letter)
+                                    } else {
+                                        attempt.selectedLetters.insert(letter)
+                                    }
                                 }
+                            } label: {
+                                optionRow(option, image: optionImage, letter: letter, index: index, hasText: hasText, correct: false, chosen: chosen)
                             }
-                        } label: {
-                            optionRow(option, image: optionImage, letter: letter, index: index, hasText: hasText, correct: false, chosen: chosen)
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("选项\(letter)：\(clean(option))")
+                            .accessibilityAddTraits(chosen ? .isSelected : [])
+                        } else {
+                            optionRow(option, image: optionImage, letter: letter, index: index, hasText: hasText, correct: correct, chosen: chosen)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("选项\(letter)：\(clean(option))")
-                        .accessibilityAddTraits(chosen ? .isSelected : [])
-                    } else {
-                        optionRow(option, image: optionImage, letter: letter, index: index, hasText: hasText, correct: correct, chosen: chosen)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
@@ -652,13 +654,15 @@ struct LibraryRecordDetailView: View {
                 .compactMap { $0 }
                 .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             let title = clean(firstText(["sourceExamTitle", "mockExamTitle"]) ?? linkedTitle ?? "")
-            let number = firstText(["questionNumber"]).map(clean).filter { !$0.isEmpty }
+            let cleanedNumber = firstText(["questionNumber"]).map { clean($0) } ?? ""
+            let number = cleanedNumber.isEmpty ? nil : cleanedNumber
             let questionNumber = number.map { $0.contains("第") || $0.contains("题") ? $0 : "第\($0)题" }
             return [([title.isEmpty ? "未关联套卷" : title] + (questionNumber.map { [$0] } ?? [])).joined(separator: " · ")]
         }
         guard let source = firstText(["questionSource", "source"]) else {
             if kind == .errors, scope.reviewSource == .real {
-                let number = firstText(["questionNumber"]).map(clean).filter { !$0.isEmpty }
+                let cleanedNumber = firstText(["questionNumber"]).map { clean($0) } ?? ""
+                let number = cleanedNumber.isEmpty ? nil : cleanedNumber
                 let displayNumber = number.map { $0.contains("第") || $0.contains("题") ? $0 : "第\($0)题" }
                 return [(["真题来源未填写"] + (displayNumber.map { [$0] } ?? [])).joined(separator: " · ")]
             }
