@@ -102,8 +102,11 @@ struct LibraryView: View {
     }
 
     private func openEditorAfterMenuDismisses(kind: LibraryContentKind, recordID: String) {
+        LibraryPerformanceLog.editorTransition("push-request", recordID: recordID)
         Task { @MainActor in
+            LibraryPerformanceLog.editorTransition("push-start", recordID: recordID)
             await Task.yield()
+            LibraryPerformanceLog.editorTransition("push-append", recordID: recordID)
             if kind == .errors,
                let record = records.first(where: { $0.collection == kind.collection && $0.recordID == recordID }),
                record.isShenlunRecord,
@@ -112,6 +115,11 @@ struct LibraryView: View {
             } else {
                 navigationPath.append(.editor(kind: kind, recordID: recordID))
             }
+            LibraryPerformanceLog.editorTransition(
+                "push-end",
+                recordID: recordID,
+                completes: true
+            )
         }
     }
 

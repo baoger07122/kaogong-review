@@ -325,6 +325,25 @@ struct LibraryDoodleOverlay: View {
                     .padding(.trailing, proxy.safeAreaInsets.trailing + 12)
                     .zIndex(1)
 
+                if controller.showSettings {
+                    let toolbarTop = max(proxy.safeAreaInsets.top + 5, 28)
+                    let reservedTop = toolbarTop + 40 + 12
+                    let availablePanelHeight = max(
+                        0,
+                        proxy.size.height - reservedTop - proxy.safeAreaInsets.bottom - 12
+                    )
+                    NativePencilDrawingSettingsPanel(
+                        controller: controller,
+                        includesSafeAreaBottomPadding: false
+                    )
+                        .transition(.opacity)
+                        .frame(maxWidth: .infinity)
+                        .frame(maxHeight: availablePanelHeight, alignment: .bottom)
+                        .padding(.bottom, proxy.safeAreaInsets.bottom + 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .zIndex(2)
+                }
+
                 if let saveError = session.saveError {
                     statusMessage(saveError)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -333,6 +352,7 @@ struct LibraryDoodleOverlay: View {
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
+            .animation(.easeInOut(duration: 0.16), value: controller.showSettings)
         }
         .ignoresSafeArea()
         .allowsHitTesting(session.isPresented)
@@ -515,6 +535,7 @@ struct LibraryDoodleContentLayer: View {
                         toolbarAtTop: false,
                         isActive: session.isPresented,
                         minimumCanvasHeight: minimumCanvasHeight,
+                        settingsPanelPresentedExternally: true,
                         controller: controller,
                         onClose: session.dismiss
                     )

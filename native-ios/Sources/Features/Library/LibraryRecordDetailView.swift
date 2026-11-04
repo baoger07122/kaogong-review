@@ -320,16 +320,34 @@ struct LibraryRecordDetailView: View {
 
     private var questionActionsMenu: some View {
         Menu {
-            if supportsRedoMode {
-                Toggle("重做模式", isOn: $redoPracticeEnabled)
-                Divider()
-            }
             Button {
+                LibraryPerformanceLog.editorTransition(
+                    "menu-action",
+                    recordID: record?.recordID ?? activeRecordID,
+                    begins: true
+                )
                 noteSession.finish { saved in
+                    LibraryPerformanceLog.editorTransition(
+                        "menu-note-finish",
+                        recordID: record?.recordID ?? activeRecordID,
+                        details: "saved=\(saved)",
+                        completes: !saved
+                    )
                     if saved { onEdit() }
                 }
             } label: {
                 Label("编辑错题", systemImage: "pencil")
+            }
+            if supportsRedoMode {
+                Button {
+                    redoPracticeEnabled.toggle()
+                } label: {
+                    Label {
+                        Text("重做模式")
+                    } icon: {
+                        Image(systemName: redoPracticeEnabled ? "checkmark.circle.fill" : "arrow.counterclockwise")
+                    }
+                }
             }
             Button(role: .destructive) {
                 noteSession.finish { saved in
@@ -635,17 +653,17 @@ struct LibraryRecordDetailView: View {
 
     @ViewBuilder private var questionSourceBlock: some View {
         if !questionSourceRows.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Label("题目来源", systemImage: "books.vertical.fill")
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(.secondary)
-                ForEach(Array(questionSourceRows.enumerated()), id: \.offset) { _, row in
-                    Text(row)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                    .fixedSize(horizontal: true, vertical: false)
+                Text(questionSourceRows.joined(separator: " · "))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .accessibilityIdentifier("question-source-rows")
             .padding(.vertical, 2)
@@ -880,23 +898,26 @@ struct LibraryRecordDetailView: View {
     }
 
     @ViewBuilder private func metadataTextLine(_ label: String, value: String) -> some View {
-        let row = HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text("\(label)：")
-            Text(clean(value))
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .font(.system(size: 12.5, weight: .regular))
-        .foregroundStyle(.primary)
-        if canEditReviewAttributes {
-            Button {
-                let key = attributeKey(for: label)
-                beginAttributeEdit(key: key, label: label, value: clean(value))
-            } label: { row }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
-        } else {
-            row
+        let cleanedValue = clean(value)
+        if !cleanedValue.isEmpty {
+            let row = HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("\(label)：")
+                Text(cleanedValue)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .font(.system(size: 12.5, weight: .regular))
+            .foregroundStyle(.primary)
+            if canEditReviewAttributes {
+                Button {
+                    let key = attributeKey(for: label)
+                    beginAttributeEdit(key: key, label: label, value: cleanedValue)
+                } label: { row }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+            } else {
+                row
+            }
         }
     }
 

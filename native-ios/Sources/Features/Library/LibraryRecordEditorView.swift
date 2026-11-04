@@ -9,6 +9,50 @@ private struct LinkedRecordEditorTarget: Identifiable {
     var id: String { "\(collection):\(recordID)" }
 }
 
+private struct LibraryEditorFirstFrameProbe: UIViewRepresentable {
+    let onDisplay: () -> Void
+
+    func makeUIView(context: Context) -> FirstFrameView {
+        let view = FirstFrameView()
+        view.onDisplay = onDisplay
+        return view
+    }
+
+    func updateUIView(_ view: FirstFrameView, context: Context) {
+        view.onDisplay = onDisplay
+    }
+
+    final class FirstFrameView: UIView {
+        var onDisplay: (() -> Void)?
+        private var displayLink: CADisplayLink?
+        private var didReport = false
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard window != nil, !didReport, displayLink == nil else { return }
+            let link = CADisplayLink(target: self, selector: #selector(reportDisplayedFrame))
+            displayLink = link
+            link.add(to: .main, forMode: .common)
+        }
+
+        @objc private func reportDisplayedFrame() {
+            guard window != nil else {
+                displayLink?.invalidate()
+                displayLink = nil
+                return
+            }
+            displayLink?.invalidate()
+            displayLink = nil
+            didReport = true
+            onDisplay?()
+        }
+
+        deinit {
+            displayLink?.invalidate()
+        }
+    }
+}
+
 enum ErrorAnswerField: Hashable {
     case correct, selected
 }
@@ -32,6 +76,7 @@ struct LibraryRecordEditorView: View {
     let onSaved: ((String) -> Void)?
     let dismissAfterSave: Bool
     @State private var draft: LibraryRecordDraft
+    @State private var editBaseline: LibraryRecordDraft
     @State private var showDelete = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var restoredDraft = false
@@ -101,11 +146,14 @@ struct LibraryRecordEditorView: View {
         _isCurrentAffairsSupplementExpanded = State(
             initialValue: !initialDraft.currentAffairsSupplement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         )
+        _editBaseline = State(initialValue: initialDraft)
         _draft = State(initialValue: initialDraft)
     }
 
     var body: some View {
         configuredEditor
+        .disabled(isSaving)
+        .background { editorLayoutProbe }
         .onChange(of: draftSnapshot) { _, snapshot in
             guard recordID == nil else { return }
             draftPersistenceCleared = false
@@ -187,6 +235,42 @@ struct LibraryRecordEditorView: View {
             }
         }
         .overlay { editorDialogs }
+    }
+
+    private var editorLayoutProbe: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear {
+                    LibraryPerformanceLog.editorTransition(
+                        "first-layout",
+                        recordID: editorDiagnosticID,
+                        details: "size=\(Int(proxy.size.width))x\(Int(proxy.size.height))"
+                    )
+                }
+                .onChange(of: proxy.size) { _, size in
+                    LibraryPerformanceLog.editorTransition(
+                        "size-change",
+                        recordID: editorDiagnosticID,
+                        details: "size=\(Int(size.width))x\(Int(size.height))"
+                    )
+                }
+                .overlay(alignment: .topLeading) {
+                    LibraryEditorFirstFrameProbe {
+                        LibraryPerformanceLog.editorTransition(
+                            "first-frame",
+                            recordID: editorDiagnosticID,
+                            details: "size=\(Int(proxy.size.width))x\(Int(proxy.size.height))",
+                            completes: true
+                        )
+                    }
+                    .frame(width: 1, height: 1)
+                    .accessibilityHidden(true)
+                }
+        }
+    }
+
+    private var editorDiagnosticID: String {
+        recordID ?? "new-\(kind.collection)"
     }
 
     private var editorContent: some View {
@@ -985,7 +1069,30 @@ struct LibraryRecordEditorView: View {
 
     private func save() {
         guard !isSaving else { return }
-        guard kind != .errors || draft.reviewSource != .pending else {
+        let saveRequestStart = ProcessInfo.processInfo.systemUptime
+        let saveIdentifier = recordID ?? "new-\(kind.collection)"
+        LibraryPerformanceLog.event(
+            "record.save.action id=\(LibraryPerformanceLog.shortIdentifier(saveIdentifier))",
+            minimumInterval: 0
+        )
+        let captureStart = ProcessInfo.processInfo.systemUptime
+        commitPendingQuestionImageWidths()
+        let saveDraft = draft
+        let saveDraftSnapshot = draftSnapshot
+        LibraryPerformanceLog.mark("record.save.capture", since: captureStart)
+
+        if let recordID, saveDraft.hasSameEditableValues(as: editBaseline) {
+            saveErrorMessage = nil
+            LibraryPerformanceLog.event("record.save.unchanged", minimumInterval: 0)
+            onSaved?(recordID)
+            if dismissAfterSave {
+                LibraryPerformanceLog.mark("record.save.noop-return", since: saveRequestStart)
+                dismiss()
+            }
+            return
+        }
+
+        guard kind != .errors || saveDraft.reviewSource != .pending else {
             saveErrorMessage = "请选择真题复盘或模拟题复盘后再保存。"
             return
         }
@@ -995,38 +1102,25 @@ struct LibraryRecordEditorView: View {
             await Task.yield()
             do {
                 if recordID == nil {
-                    commitPendingQuestionImageWidths()
-                    await LibraryDraftStore.flush(draftSnapshot, kind: kind, scope: scope)
-                }
-                if kind == .errors || (kind == .notes && isQuantityRelations) {
-                    try TagLibraryRepository.add(
-                        splitTags(draft.knowledgePoint),
-                        kind: .knowledgePoint,
-                        module: draft.module,
-                        records: records,
-                        context: modelContext,
-                        persist: false
-                    )
-                    if kind == .errors && !isDataAnalysis && !isAnalogyReasoning && !isQuantityRelations {
-                        try TagLibraryRepository.add(
-                            [draft.errorCause],
-                            kind: .errorCause,
-                            module: draft.module,
-                            records: records,
-                            context: modelContext,
-                            persist: false
-                        )
-                    }
+                    await LibraryDraftStore.flush(saveDraftSnapshot, kind: kind, scope: scope)
                 }
                 // 思维误区是普通文字，不写入标签库。
-                let savedID = try LibraryRecordRepository.save(kind: kind, draft: draft, records: records, context: modelContext)
+                let savedID = try await LibraryRecordRepository.save(
+                    kind: kind,
+                    draft: saveDraft,
+                    records: records,
+                    context: modelContext
+                )
                 if recordID == nil {
-                    await LibraryDraftStore.clearAndWait(kind: kind, scope: scope, category: draft.type)
+                    await LibraryDraftStore.clearAndWait(kind: kind, scope: scope, category: saveDraft.type)
                     draftPersistenceCleared = true
                 }
                 isSaving = false
                 onSaved?(savedID)
-                if dismissAfterSave { dismiss() }
+                if dismissAfterSave {
+                    LibraryPerformanceLog.mark("record.save.to-return", since: saveRequestStart)
+                    dismiss()
+                }
             } catch {
                 isSaving = false
                 saveErrorMessage = "保存失败：\(error.localizedDescription)"

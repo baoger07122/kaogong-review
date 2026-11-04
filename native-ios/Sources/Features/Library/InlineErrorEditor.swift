@@ -10,7 +10,9 @@ struct InlineErrorEditor: View {
     let onClose: () -> Void
     let onFullEdit: () -> Void
     @State private var draft: LibraryRecordDraft
+    @State private var editBaseline: LibraryRecordDraft
     @State private var saveMessage = ""
+    @State private var isSaving = false
 
     init(
         record: StoredRecord,
@@ -24,7 +26,9 @@ struct InlineErrorEditor: View {
         self.records = records
         self.onClose = onClose
         self.onFullEdit = onFullEdit
-        _draft = State(initialValue: LibraryRecordDraft(kind: .errors, scope: scope, record: record))
+        let initialDraft = LibraryRecordDraft(kind: .errors, scope: scope, record: record)
+        _draft = State(initialValue: initialDraft)
+        _editBaseline = State(initialValue: initialDraft)
     }
 
     var body: some View {
@@ -67,9 +71,9 @@ struct InlineErrorEditor: View {
                     Text(saveMessage).font(AppTheme.auxiliaryFont).foregroundStyle(AppTheme.success)
                 }
                 Spacer()
-                Button("保存修改", action: save)
+                Button(isSaving ? "保存中…" : "保存修改", action: save)
                     .buttonStyle(.borderedProminent)
-                    .disabled(draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(isSaving || draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(14)
@@ -81,12 +85,27 @@ struct InlineErrorEditor: View {
     }
 
     private func save() {
-        do {
-            try LibraryRecordRepository.save(kind: .errors, draft: draft, records: records, context: modelContext)
+        guard !isSaving else { return }
+        let saveDraft = draft
+        guard !saveDraft.hasSameEditableValues(as: editBaseline) else {
             saveMessage = "已保存"
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        } catch {
-            saveMessage = "保存失败"
+            return
+        }
+        isSaving = true
+        Task { @MainActor in
+            do {
+                try await LibraryRecordRepository.save(
+                    kind: .errors,
+                    draft: saveDraft,
+                    records: records,
+                    context: modelContext
+                )
+                saveMessage = "已保存"
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            } catch {
+                saveMessage = "保存失败：\(error.localizedDescription)"
+            }
+            isSaving = false
         }
     }
 }

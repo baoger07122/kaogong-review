@@ -8,6 +8,47 @@ import AppKit
 enum NativeRichTextPastePolicy {
     static let maximumParagraphSpacing: CGFloat = 4
 
+    static func removeOnlyProvenBoundaryNewlines(
+        from value: NSMutableAttributedString,
+        matching plainText: String
+    ) {
+        guard value.length > 0,
+              !plainText.isEmpty,
+              !plainText.hasPrefix("\n"), !plainText.hasPrefix("\r"),
+              !plainText.hasSuffix("\n"), !plainText.hasSuffix("\r") else { return }
+
+        var containsAttachment = false
+        value.enumerateAttribute(.attachment, in: NSRange(location: 0, length: value.length)) { attribute, _, stop in
+            guard attribute != nil else { return }
+            containsAttachment = true
+            stop.pointee = true
+        }
+        guard !containsAttachment else { return }
+
+        let richText = value.string
+        var leadingLength = 0
+        var trailingLength = 0
+        for prefix in ["", "\n", "\r\n"] {
+            for suffix in ["", "\n", "\r\n"] {
+                guard !prefix.isEmpty || !suffix.isEmpty,
+                      prefix.utf16.count <= 2,
+                      suffix.utf16.count <= 2,
+                      richText == prefix + plainText + suffix else { continue }
+                leadingLength = prefix.utf16.count
+                trailingLength = suffix.utf16.count
+                break
+            }
+            if leadingLength > 0 || trailingLength > 0 { break }
+        }
+        guard leadingLength > 0 || trailingLength > 0 else { return }
+        if trailingLength > 0 {
+            value.deleteCharacters(in: NSRange(location: value.length - trailingLength, length: trailingLength))
+        }
+        if leadingLength > 0 {
+            value.deleteCharacters(in: NSRange(location: 0, length: leadingLength))
+        }
+    }
+
     static func compactParagraphSpacing(in source: NSAttributedString) -> NSAttributedString {
         guard source.length > 0 else { return source.copy() as? NSAttributedString ?? source }
         let result = NSMutableAttributedString(attributedString: source)

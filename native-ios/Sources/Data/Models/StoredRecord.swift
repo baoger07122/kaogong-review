@@ -20,13 +20,14 @@ final class StoredRecord {
         subject: String? = nil,
         module: String? = nil,
         createdAt: Date? = nil,
-        updatedAt: Date? = nil
+        updatedAt: Date? = nil,
+        precomputedIndexPayload: Data? = nil
     ) {
         self.compoundID = "\(collection):\(recordID)"
         self.collection = collection
         self.recordID = recordID
         self.payload = payload
-        self.indexPayload = Self.makeIndexPayload(from: payload, collection: collection)
+        self.indexPayload = precomputedIndexPayload ?? Self.makeIndexPayload(from: payload, collection: collection)
         self.subject = subject
         self.module = module
         self.createdAt = createdAt
@@ -78,8 +79,12 @@ final class StoredRecord {
     }
 
     func replacePayload(_ value: Data) {
+        replacePayload(value, indexPayload: Self.makeIndexPayload(from: value, collection: collection))
+    }
+
+    func replacePayload(_ value: Data, indexPayload: Data?) {
         payload = value
-        indexPayload = Self.makeIndexPayload(from: value, collection: collection)
+        self.indexPayload = indexPayload
     }
 
     var title: String {
@@ -91,7 +96,7 @@ final class StoredRecord {
             ?? "未命名记录"
     }
 
-    private static func makeIndexPayload(from payload: Data, collection: String) -> Data? {
+    static func makeIndexPayload(from payload: Data, collection: String) -> Data? {
         guard let object = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any] else { return nil }
         let keys: Set<String>
         switch collection {

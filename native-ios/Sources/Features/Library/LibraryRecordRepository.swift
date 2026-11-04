@@ -32,6 +32,7 @@ struct WordComparisonTermDraft: Identifiable, Codable, Equatable, Sendable {
 
 struct LibraryRecordDraft {
     var original: [String: Any] = [:]
+    var originalPayload: Data?
     var id = ""
     var subject = "言语理解"
     var module = "逻辑填空"
@@ -99,6 +100,7 @@ struct LibraryRecordDraft {
 
     init(kind: LibraryContentKind, scope: LibraryScope, record: StoredRecord? = nil) {
         original = record?.jsonObject ?? [:]
+        originalPayload = record?.payload
         id = record?.recordID ?? ""
         reviewSource = record == nil
             ? scope.reviewSource
@@ -245,6 +247,72 @@ struct LibraryRecordDraft {
         }
     }
 
+    func hasSameEditableValues(as other: LibraryRecordDraft) -> Bool {
+        subject == other.subject
+            && module == other.module
+            && reviewSource == other.reviewSource
+            && title == other.title
+            && content == other.content
+            && type == other.type
+            && knowledgePoint == other.knowledgePoint
+            && errorCause == other.errorCause
+            && status == other.status
+            && isDifficult == other.isDifficult
+            && needsReview == other.needsReview
+            && options == other.options
+            && optionImages == other.optionImages
+            && optionImageIDs == other.optionImageIDs
+            && correctOption == other.correctOption
+            && userOption == other.userOption
+            && pitfall == other.pitfall
+            && reminder == other.reminder
+            && quantityStructure == other.quantityStructure
+            && weaknessTags == other.weaknessTags
+            && questionSource == other.questionSource
+            && accuracy == other.accuracy
+            && questionNumber == other.questionNumber
+            && images == other.images
+            && imageDisplaySettings == other.imageDisplaySettings
+            && compareGroups == other.compareGroups
+            && score == other.score
+            && totalScore == other.totalScore
+            && materials == other.materials
+            && dataAnalysisMaterialText == other.dataAnalysisMaterialText
+            && myAnswer == other.myAnswer
+            && referenceAnswer == other.referenceAnswer
+            && myAnswerIssues == other.myAnswerIssues
+            && materialsAnalysis == other.materialsAnalysis
+            && currentAffairsSupplement == other.currentAffairsSupplement
+            && myFramework == other.myFramework
+            && standardFramework == other.standardFramework
+            && paragraph == other.paragraph
+            && bias == other.bias
+            && wrongList == other.wrongList
+            && missedList == other.missedList
+            && graphRule == other.graphRule
+            && recognition == other.recognition
+            && pencilKitData == other.pencilKitData
+            && legacyDrawingPreview == other.legacyDrawingPreview
+            && mindMapData == other.mindMapData
+            && sourceExamID == other.sourceExamID
+            && linkedErrorIDs == other.linkedErrorIDs
+            && linkedNoteIDs == other.linkedNoteIDs
+            && linkedWordIDs == other.linkedWordIDs
+            && colorHex == other.colorHex
+            && pinned == other.pinned
+            && pinyin == other.pinyin
+            && sentiment == other.sentiment
+            && partOfSpeech == other.partOfSpeech
+            && example == other.example
+            && myUnderstanding == other.myUnderstanding
+            && collocations == other.collocations
+            && wordSource == other.wordSource
+            && compareNote == other.compareNote
+            && commonMeaning == other.commonMeaning
+            && wordEntryKind == other.wordEntryKind
+            && wordCompareTerms == other.wordCompareTerms
+    }
+
     mutating func appendQuestionImage(_ source: String) {
         synchronizeQuestionImageSettings()
         images.append(source)
@@ -338,57 +406,68 @@ enum ShenlunAdaptationError: LocalizedError, Equatable {
 enum LibraryRecordSaveError: LocalizedError {
     case pendingReviewSource
     case invalidExistingPayload(String)
+    case recordChanged(String)
+    case invalidPreparedIndex
 
     var errorDescription: String? {
         switch self {
         case .pendingReviewSource:
             "请选择真题复盘或模拟题复盘后再保存。"
         case .invalidExistingPayload(let recordID):
-            "记录 (recordID) 的原始数据无法解析，未覆盖原记录。"
+            "记录 \(recordID) 的原始数据无法解析，未覆盖原记录。"
+        case .recordChanged(let recordID):
+            "记录 \(recordID) 已在其他位置更新，请重新载入后再保存。"
+        case .invalidPreparedIndex:
+            "题目索引准备失败，未写入记录。"
         }
     }
 }
 
+// Captured by value on the main actor. The worker reads this JSON-backed draft
+// snapshot and never receives a StoredRecord or ModelContext reference.
+fileprivate struct LibraryRecordPayloadPreparationInput: @unchecked Sendable {
+    let draft: LibraryRecordDraft
+    let kind: LibraryContentKind
+    let id: String
+    let now: Date
+    let existingCreatedAt: Date
+    let sourceExamIDToSave: String
+    let preservesUnassignedAnalysisModule: Bool
+}
+
+private struct LibraryRecordPreparedPayload: Sendable {
+    let payload: Data
+    let indexPayload: Data
+}
+
+private enum LibraryRecordPayloadPreparer {
+    static func prepare(input: LibraryRecordPayloadPreparationInput) async throws -> LibraryRecordPreparedPayload {
+        try await Task.detached(priority: .userInitiated) {
+            let preparationStart = ProcessInfo.processInfo.systemUptime
+            let object = LibraryRecordRepository.makePayloadObject(from: input)
+            let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            guard let indexPayload = StoredRecord.makeIndexPayload(from: payload, collection: input.kind.collection) else {
+                throw LibraryRecordSaveError.invalidPreparedIndex
+            }
+            LibraryPerformanceLog.mark("record.save.data-and-index.prepare", since: preparationStart)
+            return LibraryRecordPreparedPayload(payload: payload, indexPayload: indexPayload)
+        }.value
+    }
+}
+
 enum LibraryRecordRepository {
-    @MainActor
-    @discardableResult static func save(
-        kind: LibraryContentKind,
-        draft: LibraryRecordDraft,
-        records: [StoredRecord],
-        context: ModelContext
-    ) throws -> String {
-        guard kind != .errors || draft.reviewSource != .pending else {
-            throw LibraryRecordSaveError.pendingReviewSource
-        }
-        let performanceStart = ProcessInfo.processInfo.systemUptime
-        let now = Date()
-        let id = draft.id.isEmpty ? makeID(kind: kind) : draft.id
-        let existing = records.first { $0.collection == kind.collection && $0.recordID == id }
-        if let existing {
-            guard let _ = existing.jsonObject else {
-                throw LibraryRecordSaveError.invalidExistingPayload(existing.recordID)
-            }
-        }
-        var sourceExamIDToSave = draft.sourceExamID
-        if kind == .errors, !sourceExamIDToSave.isEmpty {
-            let exam = records.first { $0.collection == "exams" && $0.recordID == sourceExamIDToSave }
-            if exam == nil
-                || LibraryReviewSource.explicitValue(in: exam?.indexObject ?? [:]) != draft.reviewSource {
-                sourceExamIDToSave = ""
-            }
-        }
+    fileprivate static func makePayloadObject(from input: LibraryRecordPayloadPreparationInput) -> [String: Any] {
+        let draft = input.draft
+        let kind = input.kind
+        let id = input.id
+        let now = input.now
+        let existingCreatedAt = input.existingCreatedAt
+        let sourceExamIDToSave = input.sourceExamIDToSave
+        let preservesUnassignedAnalysisModule = input.preservesUnassignedAnalysisModule
         var object = draft.original
-        let previousSourceExamID = object["sourceExamId"] as? String ?? ""
-        let previousLinkedErrors = (object["linkedErrors"] as? [String]) ?? (object["relatedErrorIds"] as? [String]) ?? []
-        let previousLinkedNotes = object["linkedNoteIds"] as? [String] ?? []
-        let previousLinkedWords = object["linkedWordIds"] as? [String] ?? []
         let previousPencilKitData = object["pencilKitData"] as? String ?? ""
         object["id"] = id
         object["subject"] = draft.subject
-        let preservesUnassignedAnalysisModule = existing != nil
-            && draft.subject == "资料分析"
-            && draft.module.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && (draft.original["module"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
         if preservesUnassignedAnalysisModule {
             if let originalModule = draft.original["module"] as? String {
                 object["module"] = originalModule
@@ -399,7 +478,7 @@ enum LibraryRecordRepository {
             object["module"] = draft.module
         }
         object["updatedAt"] = iso(now)
-        object["createdAt"] = object["createdAt"] ?? iso(existing?.createdAt ?? now)
+        object["createdAt"] = object["createdAt"] ?? iso(existingCreatedAt)
 
         switch kind {
         case .errors:
@@ -564,12 +643,98 @@ enum LibraryRecordRepository {
                 .map { ["name": $0.name, "meaning": $0.meaning, "wordId": $0.wordID, "entryKind": draft.wordEntryKind] }
         }
 
-        let payloadStart = ProcessInfo.processInfo.systemUptime
-        let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-        LibraryPerformanceLog.mark("record.save.payload", since: payloadStart)
+        return object
+    }
+
+    @MainActor
+    @discardableResult static func save(
+        kind: LibraryContentKind,
+        draft: LibraryRecordDraft,
+        records: [StoredRecord],
+        context: ModelContext
+    ) async throws -> String {
+        guard kind != .errors || draft.reviewSource != .pending else {
+            throw LibraryRecordSaveError.pendingReviewSource
+        }
+        let performanceStart = ProcessInfo.processInfo.systemUptime
+        let now = Date()
+        let id = draft.id.isEmpty ? makeID(kind: kind) : draft.id
+        let existing = records.first { $0.collection == kind.collection && $0.recordID == id }
+        let expectedExistingPayload = existing?.payload
+        let expectedExistingUpdatedAt = existing?.updatedAt
+        if let existing {
+            guard let _ = existing.jsonObject else {
+                throw LibraryRecordSaveError.invalidExistingPayload(existing.recordID)
+            }
+            guard let originalPayload = draft.originalPayload,
+                  originalPayload == existing.payload else {
+                throw LibraryRecordSaveError.recordChanged(existing.recordID)
+            }
+        }
+        var sourceExamIDToSave = draft.sourceExamID
+        if kind == .errors, !sourceExamIDToSave.isEmpty {
+            let exam = records.first { $0.collection == "exams" && $0.recordID == sourceExamIDToSave }
+            if exam == nil
+                || LibraryReviewSource.explicitValue(in: exam?.indexObject ?? [:]) != draft.reviewSource {
+                sourceExamIDToSave = ""
+            }
+        }
+        let previousSourceExamID = draft.original["sourceExamId"] as? String ?? ""
+        let previousLinkedErrors = (draft.original["linkedErrors"] as? [String]) ?? (draft.original["relatedErrorIds"] as? [String]) ?? []
+        let previousLinkedNotes = draft.original["linkedNoteIds"] as? [String] ?? []
+        let previousLinkedWords = draft.original["linkedWordIds"] as? [String] ?? []
+        let preservesUnassignedAnalysisModule = existing != nil
+            && draft.subject == "资料分析"
+            && draft.module.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (draft.original["module"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+        let payloadInput = LibraryRecordPayloadPreparationInput(
+            draft: draft,
+            kind: kind,
+            id: id,
+            now: now,
+            existingCreatedAt: existing?.createdAt ?? now,
+            sourceExamIDToSave: sourceExamIDToSave,
+            preservesUnassignedAnalysisModule: preservesUnassignedAnalysisModule
+        )
+        let preparedPayload = try await LibraryRecordPayloadPreparer.prepare(input: payloadInput)
+
+        let transactionStart = ProcessInfo.processInfo.systemUptime
         try context.transaction {
             if let existing {
-                existing.replacePayload(payload)
+                guard existing.payload == expectedExistingPayload,
+                      existing.updatedAt == expectedExistingUpdatedAt,
+                      existing.payload == draft.originalPayload else {
+                    throw LibraryRecordSaveError.recordChanged(existing.recordID)
+                }
+            }
+            if kind == .errors || (kind == .notes && draft.subject == "数量关系") {
+                try TagLibraryRepository.add(
+                    splitList(draft.knowledgePoint),
+                    kind: .knowledgePoint,
+                    module: draft.module,
+                    records: records,
+                    context: context,
+                    persist: false
+                )
+                if kind == .errors,
+                   draft.subject != "资料分析",
+                   !(draft.subject == "判断推理" && draft.module == "类比推理"),
+                   draft.subject != "数量关系" {
+                    try TagLibraryRepository.add(
+                        [draft.errorCause],
+                        kind: .errorCause,
+                        module: draft.module,
+                        records: records,
+                        context: context,
+                        persist: false
+                    )
+                }
+            }
+            if let existing {
+                existing.replacePayload(
+                    preparedPayload.payload,
+                    indexPayload: preparedPayload.indexPayload
+                )
                 existing.subject = draft.subject
                 existing.module = preservesUnassignedAnalysisModule ? draft.original["module"] as? String : draft.module
                 existing.updatedAt = now
@@ -577,11 +742,12 @@ enum LibraryRecordRepository {
                 context.insert(StoredRecord(
                     collection: kind.collection,
                     recordID: id,
-                    payload: payload,
+                    payload: preparedPayload.payload,
                     subject: draft.subject,
                     module: draft.module,
                     createdAt: now,
-                    updatedAt: now
+                    updatedAt: now,
+                    precomputedIndexPayload: preparedPayload.indexPayload
                 ))
             }
             switch kind {
@@ -601,6 +767,7 @@ enum LibraryRecordRepository {
                 break
             }
         }
+        LibraryPerformanceLog.mark("record.save.transaction", since: transactionStart)
         let contextSaveStart = ProcessInfo.processInfo.systemUptime
         try context.save()
         LibraryPerformanceLog.mark("record.save.context", since: contextSaveStart)

@@ -220,6 +220,7 @@ struct NativePencilDrawingEditor: View {
     let toolbarAtTop: Bool
     let isActive: Bool
     let minimumCanvasHeight: CGFloat
+    let settingsPanelPresentedExternally: Bool
     let onClose: (() -> Void)?
     @StateObject private var controller: PencilDrawingController
     @State private var decodedLegacyImage: UIImage?
@@ -231,6 +232,7 @@ struct NativePencilDrawingEditor: View {
         toolbarAtTop: Bool = false,
         isActive: Bool = true,
         minimumCanvasHeight: CGFloat = 260,
+        settingsPanelPresentedExternally: Bool = false,
         controller: PencilDrawingController? = nil,
         onClose: (() -> Void)? = nil
     ) {
@@ -240,6 +242,7 @@ struct NativePencilDrawingEditor: View {
         self.toolbarAtTop = toolbarAtTop
         self.isActive = isActive
         self.minimumCanvasHeight = minimumCanvasHeight
+        self.settingsPanelPresentedExternally = settingsPanelPresentedExternally
         self.onClose = onClose
         _controller = StateObject(wrappedValue: controller ?? PencilDrawingController())
     }
@@ -290,8 +293,8 @@ struct NativePencilDrawingEditor: View {
         canvas
             .overlay(alignment: .bottom) {
                 ZStack(alignment: .bottom) {
-                    if controller.showSettings {
-                        penSettingsPanel
+                    if controller.showSettings && !settingsPanelPresentedExternally {
+                        NativePencilDrawingSettingsPanel(controller: controller)
                             .transition(.opacity)
                     }
                 }
@@ -360,72 +363,6 @@ struct NativePencilDrawingEditor: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(minHeight: minimumCanvasHeight)
-    }
-
-    private var penSettingsPanel: some View {
-        VStack(spacing: 18) {
-            HStack {
-                Text("画笔调节")
-                    .font(.system(size: 15, weight: .semibold))
-                Spacer()
-                Button("取消") {
-                    controller.showSettings = false
-                }
-                .font(AppTheme.inputFont)
-            }
-
-            HStack(spacing: 18) {
-                ForEach([UIColor.black, .systemRed, .systemBlue, .systemGreen], id: \.description) { value in
-                    Button {
-                        controller.selectPen(color: value)
-                    } label: {
-                        Circle()
-                            .fill(Color(uiColor: value))
-                            .frame(width: 34, height: 34)
-                            .overlay(
-                                Circle()
-                                    .stroke(
-                                        !controller.eraser && controller.color == value ? AppTheme.accent : Color.primary.opacity(0.10),
-                                        lineWidth: !controller.eraser && controller.color == value ? 3 : 1
-                                    )
-                                    .padding(-3)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("选择画笔颜色")
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 7) {
-                Text("画笔粗细").font(AppTheme.fieldLabelFont).foregroundStyle(.secondary)
-                Picker("画笔粗细", selection: penWidthBinding) {
-                    Text("细").tag(CGFloat(2))
-                    Text("中").tag(CGFloat(4))
-                    Text("粗").tag(CGFloat(8))
-                }
-                .pickerStyle(.segmented)
-
-                Text("橡皮擦大小").font(AppTheme.fieldLabelFont).foregroundStyle(.secondary)
-                Picker("橡皮擦大小", selection: eraserWidthBinding) {
-                    Text("小").tag(CGFloat(14))
-                    Text("中").tag(CGFloat(28))
-                    Text("大").tag(CGFloat(44))
-                }
-                .pickerStyle(.segmented)
-                Text("只擦除橡皮擦圆圈内的部分，笔画其他位置会保留。")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: 310)
-        }
-        .padding(.horizontal, 28)
-        .padding(.top, 18)
-        .padding(.bottom, 24)
-        .frame(maxWidth: .infinity)
-        .safeAreaPadding(.bottom, 12)
-        .fixedSize(horizontal: false, vertical: true)
-        .background(.regularMaterial, in: UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24))
-        .shadow(color: Color.black.opacity(0.10), radius: 18, y: -4)
     }
 
     private var toolStrip: some View {
@@ -509,6 +446,105 @@ struct NativePencilDrawingEditor: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+struct NativePencilDrawingSettingsPanel: View {
+    @ObservedObject private var controller: PencilDrawingController
+    private let includesSafeAreaBottomPadding: Bool
+
+    init(controller: PencilDrawingController, includesSafeAreaBottomPadding: Bool = true) {
+        _controller = ObservedObject(wrappedValue: controller)
+        self.includesSafeAreaBottomPadding = includesSafeAreaBottomPadding
+    }
+
+    @ViewBuilder
+    var body: some View {
+        let fittedPanel = ViewThatFits(in: .vertical) {
+            panelContent.fixedSize(horizontal: false, vertical: true)
+            ScrollView(.vertical) {
+                panelContent
+            }
+            .scrollIndicators(.hidden)
+        }
+        .frame(maxWidth: .infinity)
+        if includesSafeAreaBottomPadding {
+            fittedPanel.safeAreaPadding(.bottom, 12)
+        } else {
+            fittedPanel
+        }
+    }
+
+    private var panelContent: some View {
+        VStack(spacing: 18) {
+            HStack {
+                Text("画笔调节")
+                    .font(.system(size: 15, weight: .semibold))
+                Spacer()
+                Button("取消") {
+                    controller.showSettings = false
+                }
+                .font(AppTheme.inputFont)
+            }
+
+            HStack(spacing: 18) {
+                ForEach([UIColor.black, .systemRed, .systemBlue, .systemGreen], id: \.description) { value in
+                    Button {
+                        controller.selectPen(color: value)
+                    } label: {
+                        Circle()
+                            .fill(Color(uiColor: value))
+                            .frame(width: 34, height: 34)
+                            .overlay(
+                                Circle()
+                                    .stroke(
+                                        !controller.eraser && controller.color == value ? AppTheme.accent : Color.primary.opacity(0.10),
+                                        lineWidth: !controller.eraser && controller.color == value ? 3 : 1
+                                    )
+                                    .padding(-3)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("选择画笔颜色")
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 7) {
+                Text("画笔粗细").font(AppTheme.fieldLabelFont).foregroundStyle(.secondary)
+                Picker("画笔粗细", selection: penWidthBinding) {
+                    Text("细").tag(CGFloat(2))
+                    Text("中").tag(CGFloat(4))
+                    Text("粗").tag(CGFloat(8))
+                }
+                .pickerStyle(.segmented)
+
+                Text("橡皮擦大小").font(AppTheme.fieldLabelFont).foregroundStyle(.secondary)
+                Picker("橡皮擦大小", selection: eraserWidthBinding) {
+                    Text("小").tag(CGFloat(14))
+                    Text("中").tag(CGFloat(28))
+                    Text("大").tag(CGFloat(44))
+                }
+                .pickerStyle(.segmented)
+                Text("只擦除橡皮擦圆圈内的部分，笔画其他位置会保留。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: 310)
+        }
+        .padding(.horizontal, 28)
+        .padding(.top, 18)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity)
+        .background(.regularMaterial, in: UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24))
+        .shadow(color: Color.black.opacity(0.10), radius: 18, y: -4)
+    }
+
+    private var penWidthBinding: Binding<CGFloat> {
+        Binding(get: { controller.width }, set: { controller.selectWidth($0) })
+    }
+
+    private var eraserWidthBinding: Binding<CGFloat> {
+        Binding(get: { controller.eraserWidth }, set: { controller.selectEraserWidth($0) })
     }
 }
 

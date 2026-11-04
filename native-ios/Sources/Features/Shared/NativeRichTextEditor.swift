@@ -162,6 +162,8 @@ struct NativeRichTextEditor: View {
     var mode: RichTextToolbarMode = .full
     var documentStyle = false
     var focusOnAppear = false
+    var initialSelectionOffset: Int? = nil
+    var initialSelectionWidth: CGFloat? = nil
     var preparedInitialHTML: String? = nil
     var preparedInitialAttributedText: NSAttributedString? = nil
     var editorSession: NativeRichTextEditorSession? = nil
@@ -208,6 +210,8 @@ struct NativeRichTextEditor: View {
                 growsWithContent: documentStyle,
                 minimumContentHeight: documentStyle ? minHeight : 0,
                 focusOnAppear: focusOnAppear,
+                initialSelectionOffset: initialSelectionOffset,
+                initialSelectionWidth: initialSelectionWidth,
                 preparedInitialHTML: preparedInitialHTML,
                 preparedInitialAttributedText: preparedInitialAttributedText,
                 editorSession: editorSession,
@@ -477,6 +481,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     var minHeight: CGFloat = 0
     var accessibilityIdentifier: String? = nil
     var onFallback: (() -> Void)? = nil
+    var onTapTextOffset: ((Int, NSAttributedString, CGFloat) -> Void)? = nil
     private var preparedSnapshot: NativeRichTextDisplayRenderResult?
     private var renderVersion: String?
 
@@ -484,12 +489,14 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         html: String,
         minHeight: CGFloat = 0,
         accessibilityIdentifier: String? = nil,
-        onFallback: (() -> Void)? = nil
+        onFallback: (() -> Void)? = nil,
+        onTapTextOffset: ((Int, NSAttributedString, CGFloat) -> Void)? = nil
     ) {
         self.html = html
         self.minHeight = minHeight
         self.accessibilityIdentifier = accessibilityIdentifier
         self.onFallback = onFallback
+        self.onTapTextOffset = onTapTextOffset
         preparedSnapshot = nil
         renderVersion = nil
     }
@@ -500,23 +507,41 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         renderVersion: String,
         minHeight: CGFloat = 0,
         accessibilityIdentifier: String? = nil,
-        onFallback: (() -> Void)? = nil
+        onFallback: (() -> Void)? = nil,
+        onTapTextOffset: ((Int, NSAttributedString, CGFloat) -> Void)? = nil
     ) {
         self.html = html
         self.minHeight = minHeight
         self.accessibilityIdentifier = accessibilityIdentifier
         self.onFallback = onFallback
+        self.onTapTextOffset = onTapTextOffset
         self.preparedSnapshot = preparedSnapshot
         self.renderVersion = renderVersion
     }
 
-    final class Coordinator {
+    @MainActor
+    final class Coordinator: NSObject {
+        var parent: NativeRichTextDisplay
         var lastHTML = ""
         var lastRenderVersion: String?
         var fallbackReportedHTML: String?
+
+        init(parent: NativeRichTextDisplay) {
+            self.parent = parent
+            super.init()
+        }
+
+        @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
+            guard let view = recognizer.view as? UITextView,
+                  recognizer.state == .ended,
+                  let position = view.closestPosition(to: recognizer.location(in: view)) else { return }
+            let offset = view.offset(from: view.beginningOfDocument, to: position)
+            let snapshot = view.attributedText.copy() as? NSAttributedString ?? view.attributedText
+            parent.onTapTextOffset?(max(0, min(offset, snapshot.length)), snapshot, view.bounds.width)
+        }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView(usingTextLayoutManager: true)
@@ -526,11 +551,16 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         view.isEditable = false
         view.isSelectable = false
         view.isScrollEnabled = false
-        view.isUserInteractionEnabled = false
+        view.isUserInteractionEnabled = onTapTextOffset != nil
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
         view.adjustsFontForContentSizeCategory = false
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        if onTapTextOffset != nil {
+            let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+            tap.cancelsTouchesInView = false
+            view.addGestureRecognizer(tap)
+        }
         applyContent(to: view, coordinator: context.coordinator)
         context.coordinator.lastHTML = html
         context.coordinator.lastRenderVersion = renderVersion
@@ -538,8 +568,10 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
+        context.coordinator.parent = self
         view.isAccessibilityElement = true
         view.accessibilityIdentifier = accessibilityIdentifier
+        view.isUserInteractionEnabled = onTapTextOffset != nil
         guard context.coordinator.lastHTML != html
                 || context.coordinator.lastRenderVersion != renderVersion else { return }
         applyContent(to: view, coordinator: context.coordinator)
@@ -785,6 +817,8 @@ private struct RichTextTextView: UIViewRepresentable {
     var growsWithContent = false
     var minimumContentHeight: CGFloat = 0
     var focusOnAppear = false
+    var initialSelectionOffset: Int? = nil
+    var initialSelectionWidth: CGFloat? = nil
     var preparedInitialHTML: String? = nil
     var preparedInitialAttributedText: NSAttributedString? = nil
     var editorSession: NativeRichTextEditorSession? = nil
@@ -806,6 +840,9 @@ private struct RichTextTextView: UIViewRepresentable {
             view.isScrollEnabled = false
             view.textContainerInset = .zero
             view.textContainer.lineFragmentPadding = 0
+            if let initialSelectionWidth, initialSelectionWidth.isFinite, initialSelectionWidth > 0 {
+                view.textContainer.size.width = initialSelectionWidth
+            }
             view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         }
         view.allowsEditingTextAttributes = true
@@ -834,8 +871,10 @@ private struct RichTextTextView: UIViewRepresentable {
         )
         if focusOnAppear {
             let end = view.attributedText.length
-            let caret = NSRange(location: end, length: 0)
+            let offset = max(0, min(initialSelectionOffset ?? end, end))
+            let caret = NSRange(location: offset, length: 0)
             view.selectedRange = caret
+            context.coordinator.rememberSelection(caret)
             let focusEditor = {
                 guard view.window != nil else { return false }
                 view.becomeFirstResponder()
@@ -1080,40 +1119,95 @@ private struct RichTextTextView: UIViewRepresentable {
                   range.length >= 0,
                   NSMaxRange(range) <= textView.attributedText.length else { return false }
 
-            if let richText = richClipboardAttributedText() {
-                let replacement = NativeRichTextPastePolicy.compactParagraphSpacing(in: richText)
-                replaceAttributed(replacement, in: range, view: textView)
-                return true
-            }
-            guard let plainText = UIPasteboard.general.string,
-                  let markdownHTML = NativeRichTextMarkdown.htmlIfMarkdown(plainText) else { return false }
-            let replacement = NativeRichTextPastePolicy.compactParagraphSpacing(in: RichTextTextView.attributed(from: markdownHTML))
-            replaceAttributed(replacement, in: range, view: textView)
+            guard let replacement = preparedClipboardText() else { return false }
+            let compacted = NativeRichTextPastePolicy.compactParagraphSpacing(in: replacement)
+            replaceAttributed(compacted, in: range, view: textView)
             return true
         }
 
-        private func richClipboardAttributedText() -> NSAttributedString? {
+        private func preparedClipboardText() -> NSAttributedString? {
             let pasteboard = UIPasteboard.general
-            let candidates: [(String, NSAttributedString.DocumentType)] = [
+            let richCandidates: [(String, NSAttributedString.DocumentType)] = [
                 ("com.apple.flat-rtfd", .rtfd),
                 (UTType.rtfd.identifier, .rtfd),
                 (UTType.rtf.identifier, .rtf),
                 (UTType.html.identifier, .html)
             ]
-            for (type, documentType) in candidates where pasteboard.contains(pasteboardTypes: [type]) {
-                guard let data = pasteboard.data(forPasteboardType: type),
-                      data.count <= 8 * 1024 * 1024,
-                      let imported = try? NSMutableAttributedString(
-                        data: data,
-                        options: [.documentType: documentType],
-                        documentAttributes: nil
-                      ), imported.length > 0 else { continue }
-                RichTextTextView.restoreNativeTables(in: imported)
-                let headings = documentType == .html ? RichTextTextView.semanticHeadingSizes(in: data) : [:]
-                RichTextTextView.normalizePastedFonts(in: imported, semanticHeadingSizes: headings)
-                return imported
+            let plainTypes = [
+                UTType.utf8PlainText.identifier,
+                UTType.plainText.identifier,
+                UTType.text.identifier
+            ]
+
+            for item in pasteboard.items {
+                let plainText = plainTypes.compactMap { type in
+                    item[type].flatMap(Self.stringRepresentation)
+                }.first
+
+                for (type, documentType) in richCandidates {
+                    guard let raw = item[type],
+                          let imported = Self.attributedRepresentation(raw, documentType: documentType) else { continue }
+                    let richText = NSMutableAttributedString(attributedString: imported)
+                    RichTextTextView.restoreNativeTables(in: richText)
+                    if let plainText {
+                        NativeRichTextPastePolicy.removeOnlyProvenBoundaryNewlines(from: richText, matching: plainText)
+                    }
+                    let headings: [String: [CGFloat]]
+                    if documentType == .html, let data = Self.dataRepresentation(raw) {
+                        headings = RichTextTextView.semanticHeadingSizes(in: data)
+                    } else {
+                        headings = [:]
+                    }
+                    RichTextTextView.normalizePastedFonts(in: richText, semanticHeadingSizes: headings)
+                    return richText
+                }
+
+                guard let plainText else { continue }
+                if let markdownHTML = NativeRichTextMarkdown.htmlIfMarkdown(plainText) {
+                    let formatted = NSMutableAttributedString(
+                        attributedString: RichTextTextView.attributed(from: markdownHTML)
+                    )
+                    NativeRichTextPastePolicy.removeOnlyProvenBoundaryNewlines(from: formatted, matching: plainText)
+                    return formatted
+                }
+                return NSAttributedString(
+                    string: plainText,
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize),
+                        .foregroundColor: UIColor.label
+                    ]
+                )
             }
             return nil
+        }
+
+        private static func dataRepresentation(_ value: Any) -> Data? {
+            if let data = value as? Data { return data }
+            if let data = value as? NSData { return data as Data }
+            if let string = value as? String { return string.data(using: .utf8) }
+            return nil
+        }
+
+        private static func stringRepresentation(_ value: Any) -> String? {
+            if let string = value as? String { return string }
+            guard let data = dataRepresentation(value) else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+
+        private static func attributedRepresentation(
+            _ value: Any,
+            documentType: NSAttributedString.DocumentType
+        ) -> NSAttributedString? {
+            if let attributed = value as? NSAttributedString {
+                return attributed.copy() as? NSAttributedString ?? attributed
+            }
+            guard let data = dataRepresentation(value), data.count <= 8 * 1024 * 1024,
+                  let imported = try? NSMutableAttributedString(
+                    data: data,
+                    options: [.documentType: documentType],
+                    documentAttributes: nil
+                  ), imported.length > 0 else { return nil }
+            return imported
         }
 
         func apply(_ command: RichTextCommandKind, to view: UITextView) {
@@ -1593,7 +1687,7 @@ private struct RichTextTextView: UIViewRepresentable {
             data: data, options: [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue], documentAttributes: nil
         ) {
             restoreNativeTables(in: result)
-            normalizeFonts(in: result)
+            normalizeFonts(in: result, semanticHeadingSizes: semanticHeadingSizes(in: data))
             return result
         }
         return NSAttributedString(string: value, attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)])
@@ -1675,15 +1769,11 @@ private struct RichTextTextView: UIViewRepresentable {
         }
     }
 
-    private static func normalizeFonts(in value: NSMutableAttributedString) {
-        let fullRange = NSRange(location: 0, length: value.length)
-        value.enumerateAttribute(.font, in: fullRange) { attribute, range, _ in
-            let source = attribute as? UIFont ?? .systemFont(ofSize: RichTextMetrics.bodySize)
-            let size = source.pointSize <= RichTextMetrics.bodySize ? RichTextMetrics.bodySize : source.pointSize
-            let descriptor = UIFont.systemFont(ofSize: size).fontDescriptor.withSymbolicTraits(source.fontDescriptor.symbolicTraits)
-                ?? UIFont.systemFont(ofSize: size).fontDescriptor
-            value.addAttribute(.font, value: UIFont(descriptor: descriptor, size: size), range: range)
-        }
+    private static func normalizeFonts(
+        in value: NSMutableAttributedString,
+        semanticHeadingSizes: [String: [CGFloat]] = [:]
+    ) {
+        normalizePastedFonts(in: value, semanticHeadingSizes: semanticHeadingSizes)
     }
 
     private static func semanticHeadingSizes(in data: Data) -> [String: [CGFloat]] {

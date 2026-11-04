@@ -8,19 +8,6 @@ private struct RootTabSelectionKey: EnvironmentKey {
 private struct RootWindowTopInsetKey: EnvironmentKey {
     static let defaultValue: CGFloat = 0
 }
-private struct RootTabContextKey: EnvironmentKey {
-    static let defaultValue: RootTab = .home
-}
-
-struct RootTabBarVisibilityPreferenceKey: PreferenceKey {
-    static var defaultValue: [RootTab: Bool] = [:]
-
-    static func reduce(value: inout [RootTab: Bool], nextValue: () -> [RootTab: Bool]) {
-        for (tab, isVisible) in nextValue() {
-            value[tab] = (value[tab] ?? true) && isVisible
-        }
-    }
-}
 extension EnvironmentValues {
     var rootTabSelection: Binding<RootTab> {
         get { self[RootTabSelectionKey.self] }
@@ -29,10 +16,6 @@ extension EnvironmentValues {
     var rootWindowTopInset: CGFloat {
         get { self[RootWindowTopInsetKey.self] }
         set { self[RootWindowTopInsetKey.self] = newValue }
-    }
-    var rootTabContext: RootTab {
-        get { self[RootTabContextKey.self] }
-        set { self[RootTabContextKey.self] = newValue }
     }
 }
 
@@ -71,9 +54,9 @@ enum RootTab: String, CaseIterable, Identifiable {
 }
 
 struct RootTabView: View {
+    @Environment(\.horizontalSizeClass) private var windowHorizontalSizeClass
     @State private var selection: RootTab = .home
     @State private var selectionGeneration = 0
-    @State private var rootTabBarVisibility: [RootTab: Bool] = [:]
     @State private var homePath: [AppRoute] = []
     @State private var libraryPath: [LibraryRoute] = []
     @State private var settingsPath: [SettingsRoute] = []
@@ -84,19 +67,9 @@ struct RootTabView: View {
             TabView(selection: tabSelectionBinding) {
                 tabPages
             }
-            .toolbar(.hidden, for: .tabBar)
+            .environment(\.horizontalSizeClass, .compact)
             .environment(\.rootWindowTopInset, window.safeAreaInsets.top)
             .environment(\.rootTabSelection, $selection)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if rootTabBarVisibility[selection] ?? true {
-                    NativeBottomTabBar(selection: tabSelectionBinding)
-                        .accessibilityHidden(libraryDoodleSession.isPresented)
-                        .allowsHitTesting(!libraryDoodleSession.isPresented)
-                }
-            }
-            .onPreferenceChange(RootTabBarVisibilityPreferenceKey.self) { value in
-                rootTabBarVisibility = value
-            }
         }
         .tint(AppTheme.accent)
         .overlay {
@@ -115,6 +88,7 @@ struct RootTabView: View {
     private var tabPages: some View {
         ForEach(RootTab.availableTabs) { tab in
             tabContent(tab)
+                .environment(\.horizontalSizeClass, windowHorizontalSizeClass)
                 .modifier(RootTabFirstFrameMarker(
                     tab: tab,
                     isSelected: selection == tab,
@@ -153,27 +127,17 @@ struct RootTabView: View {
         switch tab {
         case .home:
             NavigationStack(path: $homePath) { HomeView() }
-                .toolbar(.hidden, for: .tabBar)
-                .preference(key: RootTabBarVisibilityPreferenceKey.self, value: [.home: homePath.isEmpty])
-                .environment(\.rootTabContext, .home)
         case .library:
             NavigationStack(path: $libraryPath) {
                 LibraryView(navigationPath: $libraryPath)
             }
-                .toolbar(.hidden, for: .tabBar)
                 .environmentObject(libraryDoodleSession)
-                .environment(\.rootTabContext, .library)
         case .review:
             NavigationStack { ReviewView() }
-                .toolbar(.hidden, for: .tabBar)
-                .environment(\.rootTabContext, .review)
         case .questionBank:
             EmptyView()
         case .settings:
             NavigationStack(path: $settingsPath) { SettingsView() }
-                .toolbar(.hidden, for: .tabBar)
-                .preference(key: RootTabBarVisibilityPreferenceKey.self, value: [.settings: settingsPath.isEmpty])
-                .environment(\.rootTabContext, .settings)
         }
     }
 
