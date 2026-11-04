@@ -536,7 +536,8 @@ struct NativeRichTextDisplay: UIViewRepresentable {
                   recognizer.state == .ended,
                   let position = view.closestPosition(to: recognizer.location(in: view)) else { return }
             let offset = view.offset(from: view.beginningOfDocument, to: position)
-            let snapshot = view.attributedText.copy() as? NSAttributedString ?? view.attributedText
+            let snapshot = view.attributedText.map { $0.copy() as? NSAttributedString ?? $0 }
+                ?? NSAttributedString(string: "")
             parent.onTapTextOffset?(max(0, min(offset, snapshot.length)), snapshot, view.bounds.width)
         }
     }
