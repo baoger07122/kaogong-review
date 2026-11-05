@@ -9,7 +9,7 @@ enum LibraryQuantityErrorCauseCompatibility {
 
     static func values(in object: [String: Any]) -> [String] {
         let authoritative = isAuthoritative(in: object)
-        values(
+        return values(
             errorCause: authoritative
                 ? [object["errorCause"]]
                 : [object["errorCause"], object["cause"], object["reason"]],
