@@ -969,7 +969,7 @@ struct LibraryInlineNoteView: View {
             guard let compressed = image.jpegData(compressionQuality: 0.82) else { throw LibraryInlineNotePhotoError.encodeFailed }
             guard compressed.count <= 8 * 1024 * 1024 else { throw LibraryInlineNotePhotoError.tooLarge }
             let dataURL = "data:image/jpeg;base64,\(compressed.base64EncodedString())"
-            guard dataURL.utf8.count <= NativeImageAttachment.maximumEncodedBytes else {
+            guard dataURL.utf8.count <= NativeRichTextImageLimits.maximumEncodedBytes else {
                 throw LibraryInlineNotePhotoError.tooLarge
             }
 

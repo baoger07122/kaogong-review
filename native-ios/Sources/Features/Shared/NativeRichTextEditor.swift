@@ -167,6 +167,10 @@ struct NativeRichTextEditorSnapshot {
     let documentRevision: UInt64
 }
 
+enum NativeRichTextImageLimits {
+    static let maximumEncodedBytes = 11 * 1024 * 1024
+}
+
 struct NativeRichTextInsertionTarget: Equatable {
     let documentID: String?
     let sessionID: UUID
@@ -527,7 +531,7 @@ struct NativeRichTextEditor: View {
                 throw NativeRichTextPhotoError.tooLarge
             }
             let dataURL = "data:image/jpeg;base64,\(compressed.base64EncodedString())"
-            guard dataURL.utf8.count <= NativeImageAttachment.maximumEncodedBytes else {
+            guard dataURL.utf8.count <= NativeRichTextImageLimits.maximumEncodedBytes else {
                 throw NativeRichTextPhotoError.tooLarge
             }
             awaitingImageInsertion = true
@@ -2388,7 +2392,7 @@ private struct RichTextTextView: UIViewRepresentable {
             let encoded = updatedText.substring(with: match.range(at: 1))
             let marker = updatedText.substring(with: match.range)
             let replacement: NSTextAttachment
-            if encoded.utf8.count <= NativeImageAttachment.maximumEncodedBytes,
+            if encoded.utf8.count <= NativeRichTextImageLimits.maximumEncodedBytes,
                let data = Data(base64Encoded: encoded),
                let dataURL = String(data: data, encoding: .utf8),
                let attachment = NativeImageAttachment(dataURL: dataURL, marker: marker) {
@@ -2557,14 +2561,13 @@ private final class NativeTableAttachment: NSTextAttachment {
 }
 
 private final class NativeImageAttachment: NSTextAttachment {
-    static let maximumEncodedBytes = 11 * 1024 * 1024
     let dataURL: String
     private let originalMarker: String?
 
     init?(dataURL: String, marker: String? = nil) {
         guard let comma = dataURL.firstIndex(of: ",") else { return nil }
         let encoded = String(dataURL[dataURL.index(after: comma)...])
-        guard encoded.utf8.count <= Self.maximumEncodedBytes,
+        guard encoded.utf8.count <= NativeRichTextImageLimits.maximumEncodedBytes,
               let data = Data(base64Encoded: encoded),
               data.count <= 8 * 1024 * 1024,
               let imageSource = CGImageSourceCreateWithData(data as CFData, nil)
