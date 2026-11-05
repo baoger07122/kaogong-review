@@ -403,10 +403,16 @@ struct LibraryDoodleOverlay: View {
             toolbarButton("xmark", label: "退出涂鸦", action: session.dismiss)
                 .accessibilityIdentifier("library-doodle-close")
             toolbarButton(
+                controller.eraser ? "pencil.tip.crop.circle" : "pencil.tip.crop.circle.fill",
+                label: "画笔",
+                active: !controller.eraser,
+                action: controller.selectPenTool
+            )
+            toolbarButton(
                 controller.eraser ? "eraser.fill" : "eraser",
                 label: "橡皮擦",
                 active: controller.eraser,
-                action: controller.toggleEraser
+                action: controller.selectEraserTool
             )
             toolbarButton("arrow.uturn.backward", label: "撤销", action: controller.undo)
             toolbarButton("trash", label: "清空涂鸦", action: controller.requestClear)

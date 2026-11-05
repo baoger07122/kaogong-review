@@ -1,6 +1,7 @@
 import SwiftData
 import SwiftUI
 import UIKit
+import PhotosUI
 
 private enum LibraryInlineNoteSaveError: LocalizedError {
     case invalidRecordPayload
@@ -12,6 +13,24 @@ private enum LibraryInlineNoteSaveError: LocalizedError {
             return "原题目数据无法解析，笔记未写入，也没有覆盖原记录。"
         case .versionConflict:
             return "题目记录已在其他位置更新；本地笔记草稿已保留，没有覆盖新记录。"
+        }
+    }
+}
+
+private enum LibraryInlineNotePhotoError: LocalizedError {
+    case noData
+    case loadFailed(String)
+    case tooLarge
+    case decodeFailed
+    case encodeFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .noData: "相册没有返回图片数据。"
+        case .loadFailed(let message): "读取图片失败：\(message)"
+        case .tooLarge: "图片超过笔记允许的大小，请选择较小的图片。"
+        case .decodeFailed: "无法识别所选图片。"
+        case .encodeFailed: "图片压缩失败，请换一张图片重试。"
         }
     }
 }
@@ -78,6 +97,7 @@ private struct PreparedLibraryInlineNote {
     let key: LibraryInlineNoteRenderKey
     let result: NativeRichTextDisplayRenderResult
     let editableAttributedText: NSAttributedString?
+    let editorDocumentRevision: UInt64?
 }
 
 @MainActor
@@ -117,6 +137,11 @@ struct LibraryInlineNoteView: View {
     @State private var editingInitialAttributedText: NSAttributedString?
     @State private var initialSelectionOffset: Int?
     @State private var initialSelectionWidth: CGFloat?
+    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var isPhotoPickerPresented = false
+    @State private var photoImportTarget: NativeRichTextInsertionTarget?
+    @State private var photoImportRequestID: UUID?
+    @State private var photoLoadTask: Task<Void, Never>?
 
     private let noteCanvasMinimumHeight: CGFloat = 360
 
@@ -306,6 +331,25 @@ struct LibraryInlineNoteView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .photosPicker(isPresented: $isPhotoPickerPresented, selection: $selectedPhoto, matching: .images)
+        .onChange(of: editorSession.imageImportRequest) { _, _ in advanceImageImportRequest() }
+        .onChange(of: editorSession.isComposingText) { _, isComposing in
+            if !isComposing { advanceImageImportRequest() }
+        }
+        .onChange(of: selectedPhoto) { _, item in
+            guard let item else { return }
+            photoLoadTask?.cancel()
+            photoLoadTask = Task { @MainActor in await loadAndInsertPhoto(item) }
+        }
+        .onChange(of: isPhotoPickerPresented) { _, presented in
+            guard !presented else { return }
+            Task { @MainActor in
+                await Task.yield()
+                guard !isPhotoPickerPresented, selectedPhoto == nil,
+                      let requestID = photoImportRequestID else { return }
+                finishImageImport(requestID: requestID)
+            }
+        }
         .onAppear {
             session.finishEditing = { completion in finishEditing(completion: completion) }
             saveService.markExistingContentConfirmed(
@@ -359,11 +403,27 @@ struct LibraryInlineNoteView: View {
                       !self.isFinishing,
                       self.draft == content,
                       self.saveService.state(recordID: self.renderDocumentID).latestDraftVersion == version else { return }
+                guard !self.editorSession.isComposingText else { return }
                 let snapshot = self.editorSession.captureSnapshot()
+                guard let snapshot else { return }
+                let latestContent = snapshot.html
+                let latestVersion: UInt64
+                if latestContent == content {
+                    latestVersion = version
+                } else {
+                    self.setDraftWithoutScheduling(latestContent)
+                    latestVersion = self.saveService.registerDraft(
+                        recordID: self.renderDocumentID,
+                        content: latestContent,
+                        baseVersion: self.activeBaseVersion,
+                        basePayload: self.activeBasePayload
+                    )
+                    self.currentDraftVersion = latestVersion
+                }
                 self.enqueueSave(
-                    content,
-                    draftVersion: version,
-                    preparedAttributedText: snapshot?.attributedText
+                    latestContent,
+                    draftVersion: latestVersion,
+                    editorSnapshot: snapshot
                 )
             }
         }
@@ -371,7 +431,8 @@ struct LibraryInlineNoteView: View {
             guard phase != .active else { return }
             saveTask?.cancel()
             guard !editorSession.isMediaOperationInProgress else { return }
-            let snapshot = editorSession.captureSnapshot()
+            editorSession.commitCompositionIfNeeded()
+            let snapshot = editorSession.isComposingText ? nil : editorSession.captureSnapshot()
             let latest = snapshot?.html ?? draft
             if latest != draft { setDraftWithoutScheduling(latest) }
             let state = saveService.state(recordID: renderDocumentID)
@@ -386,20 +447,26 @@ struct LibraryInlineNoteView: View {
                 enqueueSave(
                     latest,
                     draftVersion: version,
-                    preparedAttributedText: snapshot?.attributedText,
+                    editorSnapshot: snapshot,
                     requiresBackgroundTime: true
                 )
             }
         }
         .onDisappear {
             saveTask?.cancel()
+            photoLoadTask?.cancel()
             if editorSession.isMediaOperationInProgress {
                 editorSession.cancelMediaOperation(
                     sessionID: editingSessionID,
                     message: "切换题目时已取消图片插入，没有把图片写入其他题目。"
                 )
             }
+            if let requestID = photoImportRequestID {
+                finishImageImport(requestID: requestID)
+            }
+            isPhotoPickerPresented = false
             if editing {
+                editorSession.commitCompositionIfNeeded()
                 let snapshot = editorSession.captureSnapshot()
                 let latest = snapshot?.html ?? draft
                 let version = saveService.registerDraft(
@@ -414,7 +481,7 @@ struct LibraryInlineNoteView: View {
                     enqueueSave(
                         latest,
                         draftVersion: version,
-                        preparedAttributedText: snapshot?.attributedText,
+                        editorSnapshot: snapshot,
                         requiresBackgroundTime: true
                     )
                 }
@@ -444,7 +511,8 @@ struct LibraryInlineNoteView: View {
             self.preparedNote = PreparedLibraryInlineNote(
                 key: key,
                 result: preparedNote.result,
-                editableAttributedText: preparedNote.editableAttributedText
+                editableAttributedText: preparedNote.editableAttributedText,
+                editorDocumentRevision: preparedNote.editorDocumentRevision
             )
             return
         }
@@ -475,7 +543,8 @@ struct LibraryInlineNoteView: View {
         preparedNote = PreparedLibraryInlineNote(
             key: key,
             result: displayResult,
-            editableAttributedText: editableAttributedText
+            editableAttributedText: editableAttributedText,
+            editorDocumentRevision: nil
         )
         if result.usedSafeFallback, editableAttributedText == nil {
             displayWarning = "预览已降级；笔记过长或含有未闭合附件，当前仅保留原内容并以只读方式显示。"
@@ -781,7 +850,7 @@ struct LibraryInlineNoteView: View {
         enqueueSave(
             latestDraft,
             draftVersion: version,
-            preparedAttributedText: snapshot.attributedText,
+            editorSnapshot: snapshot,
             onCompletion: { result in
                 switch result {
                 case .success:
@@ -836,6 +905,107 @@ struct LibraryInlineNoteView: View {
         additional.forEach { $0(result) }
     }
 
+    private func advanceImageImportRequest() {
+        guard let request = editorSession.imageImportRequest,
+              request.insertMenuDismissed,
+              photoImportRequestID == nil else { return }
+        guard editing,
+              request.documentID == renderDocumentID,
+              request.sessionID == editingSessionID else {
+            finishImageImport(
+                requestID: request.id,
+                errorMessage: "笔记编辑会话已切换，图片没有插入。"
+            )
+            return
+        }
+        guard !editorSession.isComposingText else {
+            editorSession.commitCompositionIfNeeded()
+            return
+        }
+        guard let target = editorSession.captureInsertionTarget(for: request) else {
+            finishImageImport(
+                requestID: request.id,
+                errorMessage: "无法确定当前笔记中的插入位置，请点选正文后重试。"
+            )
+            return
+        }
+        photoImportTarget = target
+        photoImportRequestID = request.id
+        transientErrorMessage = nil
+        isPhotoPickerPresented = true
+    }
+
+    @MainActor
+    private func loadAndInsertPhoto(_ item: PhotosPickerItem) async {
+        guard let requestID = photoImportRequestID,
+              let target = photoImportTarget,
+              editorSession.imageImportRequest?.id == requestID else { return }
+        defer {
+            selectedPhoto = nil
+            photoLoadTask = nil
+        }
+
+        do {
+            let sourceData: Data
+            do {
+                guard let loaded = try await item.loadTransferable(type: Data.self) else {
+                    throw LibraryInlineNotePhotoError.noData
+                }
+                sourceData = loaded
+            } catch let error as LibraryInlineNotePhotoError {
+                throw error
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw LibraryInlineNotePhotoError.loadFailed(error.localizedDescription)
+            }
+            try Task.checkCancellation()
+            guard editorSession.imageImportRequest?.id == requestID,
+                  editorSession.matches(target) else {
+                throw NativeRichTextEditorError.editorSessionChanged
+            }
+            guard sourceData.count <= 8 * 1024 * 1024 else { throw LibraryInlineNotePhotoError.tooLarge }
+            guard let image = UIImage(data: sourceData) else { throw LibraryInlineNotePhotoError.decodeFailed }
+            guard let compressed = image.jpegData(compressionQuality: 0.82) else { throw LibraryInlineNotePhotoError.encodeFailed }
+            guard compressed.count <= 8 * 1024 * 1024 else { throw LibraryInlineNotePhotoError.tooLarge }
+            let dataURL = "data:image/jpeg;base64,\(compressed.base64EncodedString())"
+            guard dataURL.utf8.count <= NativeImageAttachment.maximumEncodedBytes else {
+                throw LibraryInlineNotePhotoError.tooLarge
+            }
+
+            editorSession.insertImage(dataURL, target: target) { result in
+                switch result {
+                case .success:
+                    self.finishImageImport(requestID: requestID)
+                case .failure(let error):
+                    self.finishImageImport(
+                        requestID: requestID,
+                        errorMessage: "图片插入失败：\(error.localizedDescription)"
+                    )
+                }
+            }
+        } catch is CancellationError {
+            finishImageImport(requestID: requestID)
+        } catch {
+            finishImageImport(
+                requestID: requestID,
+                errorMessage: "图片插入失败：\(error.localizedDescription)"
+            )
+        }
+    }
+
+    private func finishImageImport(requestID: UUID, errorMessage: String? = nil) {
+        guard photoImportRequestID == requestID || editorSession.imageImportRequest?.id == requestID else { return }
+        if let errorMessage { transientErrorMessage = errorMessage }
+        photoImportTarget = nil
+        photoImportRequestID = nil
+        photoLoadTask?.cancel()
+        photoLoadTask = nil
+        selectedPhoto = nil
+        isPhotoPickerPresented = false
+        editorSession.finishImageImport(requestID: requestID)
+    }
+
     private func retryPendingDraft() {
         let state = saveService.state(recordID: renderDocumentID)
         let content = state.latestContent
@@ -866,7 +1036,7 @@ struct LibraryInlineNoteView: View {
     private func enqueueSave(
         _ content: String,
         draftVersion: UInt64,
-        preparedAttributedText: NSAttributedString? = nil,
+        editorSnapshot: NativeRichTextEditorSnapshot? = nil,
         baseVersion: String? = nil,
         basePayload: Data? = nil,
         requiresBackgroundTime: Bool = false,
@@ -892,14 +1062,16 @@ struct LibraryInlineNoteView: View {
                 case .success(let version):
                     self.activeBaseVersion = version
                     self.activeBasePayload = self.currentRecordPayload()
-                    if let attributedText = preparedAttributedText {
+                    if let editorSnapshot, editorSnapshot.html == content {
+                        let attributedText = editorSnapshot.attributedText
                         self.preparedNote = PreparedLibraryInlineNote(
                             key: self.noteRenderKey,
                             result: NativeRichTextDisplayRenderResult(
                                 attributedText: attributedText.copy() as? NSAttributedString ?? attributedText,
                                 usedSafeFallback: false
                             ),
-                            editableAttributedText: attributedText.copy() as? NSAttributedString ?? attributedText
+                            editableAttributedText: attributedText.copy() as? NSAttributedString ?? attributedText,
+                            editorDocumentRevision: editorSnapshot.documentRevision
                         )
                     }
                     if self.saveService.state(recordID: self.renderDocumentID).latestDraftVersion == draftVersion {

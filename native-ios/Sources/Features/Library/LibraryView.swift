@@ -653,6 +653,10 @@ struct LibraryView: View {
                 guard let value = object[key] as? String else { return false }
                 return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }) { return true }
+            if record.subject == "数量关系",
+               !LibraryQuantityErrorCauseCompatibility.values(in: object).isEmpty {
+                return true
+            }
             return !(object["knowledgePoints"] as? [String] ?? []).isEmpty
                 || !(object["weaknessTags"] as? [String] ?? []).isEmpty
                 || (object["isDifficult"] as? Bool) == true
@@ -877,7 +881,11 @@ struct LibraryView: View {
         } else if let point = object["knowledgePoint"] as? String {
             values.append(contentsOf: point.split(whereSeparator: { "、,，".contains($0) }).map(String.init))
         }
-        values.append(contentsOf: object["weaknessTags"] as? [String] ?? [])
+        if record.subject == "数量关系" || object["subject"] as? String == "数量关系" {
+            values.append(contentsOf: LibraryQuantityErrorCauseCompatibility.values(in: object))
+        } else {
+            values.append(contentsOf: object["weaknessTags"] as? [String] ?? [])
+        }
         var seen = Set<String>()
         return values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && seen.insert($0).inserted }

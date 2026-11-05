@@ -164,12 +164,20 @@ struct NativeRichTextEditorSnapshot {
     let html: String
     let attributedText: NSAttributedString
     let selection: NSRange
+    let documentRevision: UInt64
 }
 
 struct NativeRichTextInsertionTarget: Equatable {
     let documentID: String?
     let sessionID: UUID
     let range: NSRange
+}
+
+struct NativeRichTextImageImportRequest: Equatable {
+    let id: UUID
+    let documentID: String?
+    let sessionID: UUID
+    var insertMenuDismissed = false
 }
 
 struct NativeRichTextMediaNotice: Equatable {
@@ -214,6 +222,14 @@ private enum RichTextEditorAlert {
     case imageError(String)
 }
 
+private enum RichTextInsertMenuAction {
+    case divider
+    case table(RichTextTable)
+    case formula(RichTextFormula)
+    case link
+    case internalLink
+}
+
 @MainActor
 struct NativeRichTextEditor: View {
     @Binding var html: String
@@ -248,10 +264,16 @@ struct NativeRichTextEditor: View {
     @State private var capturedPhotoTarget: NativeRichTextInsertionTarget?
     @State private var photoLoadTask: Task<Void, Never>?
     @State private var awaitingImageInsertion = false
+    @State private var showsDeferredInsertMenu = false
+    @State private var pendingPhotoImportRequestID: UUID?
+    @State private var deferredInsertMenuAction: RichTextInsertMenuAction?
 
     private var activeEditorSession: NativeRichTextEditorSession { editorSession ?? localEditorSession }
     private var activeEditorDocumentID: String? { editorDocumentID }
     private var activeEditorSessionID: UUID { editorSessionID ?? localEditorSessionID }
+    private var usesDeferredPhotoPicker: Bool {
+        editorSession != nil && editorDocumentID != nil && editorSessionID != nil
+    }
 
     private var activeAlertPresentation: Binding<Bool> {
         Binding(
@@ -533,7 +555,26 @@ struct NativeRichTextEditor: View {
         activeAlert = .imageError(message)
     }
 
+    @ViewBuilder
     private var insertMenu: some View {
+        if usesDeferredPhotoPicker {
+            Button {
+                activeEditorSession.setAuxiliaryPanelPresented(true)
+                showsDeferredInsertMenu = true
+            } label: {
+                toolbarImage("plus")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("插入")
+            .popover(isPresented: $showsDeferredInsertMenu) {
+                deferredInsertMenuContent
+            }
+        } else {
+            legacyInsertMenu
+        }
+    }
+
+    private var legacyInsertMenu: some View {
         Menu {
             Button { openPhotoPicker() } label: { Label("图片", systemImage: "photo") }
             Button {
@@ -560,6 +601,99 @@ struct NativeRichTextEditor: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("插入")
+    }
+
+    private var deferredInsertMenuContent: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            deferredInsertButton("图片", systemImage: "photo") {
+                guard let requestID = activeEditorSession.requestImageImport(
+                    expectedDocumentID: activeEditorDocumentID,
+                    expectedSessionID: activeEditorSessionID
+                ) else {
+                    presentImageError("当前已有插入操作，请完成后再试。")
+                    return
+                }
+                pendingPhotoImportRequestID = requestID
+                deferredInsertMenuAction = nil
+                showsDeferredInsertMenu = false
+            }
+            deferredInsertButton("表格", systemImage: "tablecells") {
+                deferredInsertMenuAction = .table(selectedTable ?? RichTextTable())
+                showsDeferredInsertMenu = false
+            }
+            deferredInsertButton("分割线", systemImage: "minus") {
+                deferredInsertMenuAction = .divider
+                showsDeferredInsertMenu = false
+            }
+            deferredInsertButton("公式", systemImage: "function") {
+                deferredInsertMenuAction = .formula(selectedFormula ?? RichTextFormula())
+                showsDeferredInsertMenu = false
+            }
+            deferredInsertButton("网页链接", systemImage: "link") {
+                deferredInsertMenuAction = .link
+                showsDeferredInsertMenu = false
+            }
+            if !internalLinks.isEmpty {
+                deferredInsertButton("关联笔记", systemImage: "link.circle") {
+                    deferredInsertMenuAction = .internalLink
+                    showsDeferredInsertMenu = false
+                }
+            }
+        }
+        .padding(8)
+        .frame(minWidth: 168, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .onDisappear(perform: completeDeferredInsertMenuDismissal)
+    }
+
+    private func deferredInsertButton(
+        _ title: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 14))
+                .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func completeDeferredInsertMenuDismissal() {
+        if let requestID = pendingPhotoImportRequestID {
+            pendingPhotoImportRequestID = nil
+            activeEditorSession.setAuxiliaryPanelPresented(false)
+            activeEditorSession.markImageImportMenuDismissed(requestID: requestID)
+            return
+        }
+
+        guard let action = deferredInsertMenuAction else {
+            if tableEditor == nil, formulaEditor == nil, internalLinkPicker == nil {
+                if case .linkPrompt? = activeAlert { return }
+                activeEditorSession.setAuxiliaryPanelPresented(false)
+            }
+            return
+        }
+        deferredInsertMenuAction = nil
+
+        switch action {
+        case .divider:
+            activeEditorSession.setAuxiliaryPanelPresented(false)
+            run(.divider)
+        case .table(let table):
+            activeEditorSession.setAuxiliaryPanelPresented(true)
+            tableEditor = table
+        case .formula(let formula):
+            activeEditorSession.setAuxiliaryPanelPresented(true)
+            formulaEditor = formula
+        case .link:
+            activeEditorSession.setAuxiliaryPanelPresented(true)
+            activeAlert = .linkPrompt
+        case .internalLink:
+            activeEditorSession.setAuxiliaryPanelPresented(true)
+            internalLinkPicker = InternalLinkPickerRequest()
+        }
     }
 
     private var paragraphMenu: some View {
@@ -663,11 +797,14 @@ final class NativeRichTextEditorSession: ObservableObject {
     @Published private(set) var isComposingText = false
     @Published private(set) var isInputLocked = false
     @Published private(set) var mediaNotice: NativeRichTextMediaNotice?
+    @Published private(set) var imageImportRequest: NativeRichTextImageImportRequest?
 
     private var latestHTMLReader: (() -> String?)?
     private var latestAttributedTextReader: (() -> NSAttributedString?)?
     private var snapshotReader: (() -> NativeRichTextEditorSnapshot?)?
     private var selectionReader: (() -> NSRange?)?
+    private var compositionCommitHandler: (() -> Void)?
+    private var imageInsertionHandler: ((String, NativeRichTextInsertionTarget, @escaping (Result<Void, NativeRichTextEditorError>) -> Void) -> Void)?
     private var endEditingHandler: EndEditingHandler?
     private(set) var documentID: String?
     private(set) var sessionID: UUID?
@@ -682,6 +819,7 @@ final class NativeRichTextEditorSession: ObservableObject {
             isAuxiliaryPanelPresented = false
             isComposingText = false
             isInputLocked = false
+            imageImportRequest = nil
         }
         self.documentID = documentID
         self.sessionID = sessionID
@@ -696,6 +834,7 @@ final class NativeRichTextEditorSession: ObservableObject {
         isAuxiliaryPanelPresented = false
         isComposingText = false
         isInputLocked = false
+        imageImportRequest = nil
     }
 
     func latestHTML() -> String? { latestHTMLReader?() }
@@ -719,7 +858,67 @@ final class NativeRichTextEditorSession: ObservableObject {
     func cancelMediaOperation(sessionID: UUID, message: String) {
         guard self.sessionID == sessionID, isMediaOperationInProgress else { return }
         mediaNotice = NativeRichTextMediaNotice(documentID: documentID, message: message)
+        imageImportRequest = nil
         isMediaOperationInProgress = false
+    }
+
+    @discardableResult
+    func requestImageImport(expectedDocumentID: String?, expectedSessionID: UUID) -> UUID? {
+        guard documentID == expectedDocumentID,
+              sessionID == expectedSessionID,
+              !isMediaOperationInProgress,
+              imageImportRequest == nil else { return nil }
+        let request = NativeRichTextImageImportRequest(
+            id: UUID(),
+            documentID: documentID,
+            sessionID: expectedSessionID
+        )
+        imageImportRequest = request
+        isMediaOperationInProgress = true
+        return request.id
+    }
+
+    func markImageImportMenuDismissed(requestID: UUID) {
+        guard var request = imageImportRequest, request.id == requestID else { return }
+        request.insertMenuDismissed = true
+        imageImportRequest = request
+        compositionCommitHandler?()
+    }
+
+    func commitCompositionIfNeeded() {
+        compositionCommitHandler?()
+    }
+
+    func captureInsertionTarget(for request: NativeRichTextImageImportRequest) -> NativeRichTextInsertionTarget? {
+        guard imageImportRequest == request,
+              request.insertMenuDismissed,
+              !isComposingText else { return nil }
+        return captureInsertionTarget(
+            expectedDocumentID: request.documentID,
+            expectedSessionID: request.sessionID
+        )
+    }
+
+    func insertImage(
+        _ dataURL: String,
+        target: NativeRichTextInsertionTarget,
+        completion: @escaping (Result<Void, NativeRichTextEditorError>) -> Void
+    ) {
+        guard matches(target), let imageInsertionHandler else {
+            completion(.failure(.editorSessionChanged))
+            return
+        }
+        imageInsertionHandler(dataURL, target, completion)
+    }
+
+    func finishImageImport(requestID: UUID) {
+        guard imageImportRequest?.id == requestID else { return }
+        imageImportRequest = nil
+        isMediaOperationInProgress = false
+    }
+
+    func setMediaNotice(_ message: String, documentID: String?) {
+        mediaNotice = NativeRichTextMediaNotice(documentID: documentID, message: message)
     }
 
     func clearMediaNotice(for documentID: String?) {
@@ -745,12 +944,16 @@ final class NativeRichTextEditorSession: ObservableObject {
         latestAttributedTextReader: @escaping () -> NSAttributedString?,
         snapshotReader: @escaping () -> NativeRichTextEditorSnapshot?,
         selectionReader: @escaping () -> NSRange?,
+        compositionCommitHandler: @escaping () -> Void,
+        imageInsertionHandler: @escaping (String, NativeRichTextInsertionTarget, @escaping (Result<Void, NativeRichTextEditorError>) -> Void) -> Void,
         endEditingHandler: @escaping EndEditingHandler
     ) {
         self.latestHTMLReader = latestHTMLReader
         self.latestAttributedTextReader = latestAttributedTextReader
         self.snapshotReader = snapshotReader
         self.selectionReader = selectionReader
+        self.compositionCommitHandler = compositionCommitHandler
+        self.imageInsertionHandler = imageInsertionHandler
         self.endEditingHandler = endEditingHandler
     }
 
@@ -759,6 +962,8 @@ final class NativeRichTextEditorSession: ObservableObject {
         latestAttributedTextReader = nil
         snapshotReader = nil
         selectionReader = nil
+        compositionCommitHandler = nil
+        imageInsertionHandler = nil
         endEditingHandler = nil
     }
 }
@@ -1181,7 +1386,11 @@ private struct RichTextTextView: UIViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
         guard growsWithContent, let width = proposal.width, width > 0 else { return nil }
+        let measurementStart = ProcessInfo.processInfo.systemUptime
         let size = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        if editorSession != nil {
+            LibraryPerformanceLog.markIfSlow("note.editor.height-measure", since: measurementStart)
+        }
         return CGSize(width: width, height: max(42, minimumContentHeight, ceil(size.height)))
     }
 
@@ -1224,9 +1433,13 @@ private struct RichTextTextView: UIViewRepresentable {
         private var pendingEndEditingCompletion: ((String?) -> Void)?
         private var lastEditingSelection = NSRange(location: 0, length: 0)
         private var pendingPublish: DispatchWorkItem?
+        private var layoutRefreshScheduled = false
+        private var layoutRefreshUpdatesToolbar = false
+        private weak var pendingLayoutRefreshView: UITextView?
         private var documentRevision: UInt64 = 0
         private var publishedRevision: UInt64 = 0
         private var publishedHTML = ""
+        private var cachedSnapshot: NativeRichTextEditorSnapshot?
         private var lastSelectionTable: RichTextTable?
         private var lastSelectionFormula: RichTextFormula?
         private var lastQueuedSelectionState: RichTextSelectionState?
@@ -1236,9 +1449,11 @@ private struct RichTextTextView: UIViewRepresentable {
         init(parent: RichTextTextView) { self.parent = parent }
 
         func setPublishedHTML(_ html: String) {
+            if lastHTML != html { documentRevision &+= 1 }
             lastHTML = html
             publishedHTML = html
             publishedRevision = documentRevision
+            cachedSnapshot = nil
         }
 
         func connect(_ session: NativeRichTextEditorSession?, to view: UITextView) {
@@ -1250,20 +1465,15 @@ private struct RichTextTextView: UIViewRepresentable {
                     guard let self, let view else { return nil }
                     return self.publishNow(view)
                 },
-                latestAttributedTextReader: { [weak view] in
-                    guard let view else { return nil }
-                    return view.attributedText.copy() as? NSAttributedString
+                latestAttributedTextReader: { [weak self, weak view] in
+                    guard let self, let view else { return nil }
+                    return self.snapshotNow(view).attributedText
                 },
                 snapshotReader: { [weak self, weak view] in
                     guard let self, let view else { return nil }
-                    let html = self.publishNow(view)
-                    let attributed = view.attributedText?.copy() as? NSAttributedString
-                        ?? NSAttributedString(string: view.text ?? "")
-                    let selection = self.validSelection(self.lastEditingSelection, in: view)
-                        ? self.lastEditingSelection
-                        : view.selectedRange
-                    self.rememberSelection(selection)
-                    return NativeRichTextEditorSnapshot(html: html, attributedText: attributed, selection: selection)
+                    let snapshot = self.snapshotNow(view)
+                    self.publish(snapshot.html)
+                    return snapshot
                 },
                 selectionReader: { [weak self, weak view] in
                     guard let self, let view else { return nil }
@@ -1272,6 +1482,25 @@ private struct RichTextTextView: UIViewRepresentable {
                         : view.selectedRange
                     self.rememberSelection(selection)
                     return selection
+                },
+                compositionCommitHandler: { [weak self, weak view] in
+                    guard let self, let view else { return }
+                    if view.markedTextRange != nil { view.unmarkText() }
+                    let composing = view.markedTextRange != nil
+                    self.connectedSession?.setComposingText(composing)
+                    self.rememberSelection(view.selectedRange)
+                    self.scheduleLayoutAndToolbarRefresh(view, updatesToolbar: !composing)
+                    if !composing { self.schedulePublish(view) }
+                },
+                imageInsertionHandler: { [weak self] dataURL, target, completion in
+                    guard let self else {
+                        completion(.failure(.editorSessionChanged))
+                        return
+                    }
+                    self.parent.command = RichTextCommand(
+                        kind: .image(dataURL, target),
+                        imageCompletion: completion
+                    )
                 },
                 endEditingHandler: { [weak self, weak view] completion in
                     guard let self, let view else { completion(nil); return }
@@ -1318,16 +1547,22 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
-            textView.invalidateIntrinsicContentSize()
-            connectedSession?.setComposingText(textView.markedTextRange != nil)
-            guard textView.markedTextRange == nil else { return }
-            schedulePublish(textView)
-            publishSelectionState(textView)
+            let isComposing = textView.markedTextRange != nil
+            connectedSession?.setComposingText(isComposing)
+            scheduleLayoutAndToolbarRefresh(textView, updatesToolbar: !isComposing)
+            if isComposing {
+                documentRevision &+= 1
+                cachedSnapshot = nil
+                pendingPublish?.cancel()
+                pendingPublish = nil
+            } else {
+                schedulePublish(textView)
+            }
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
             rememberSelection(textView.selectedRange)
-            publishSelectionState(textView)
+            scheduleLayoutAndToolbarRefresh(textView, updatesToolbar: true)
             DispatchQueue.main.async { self.parent.isEditing = true }
         }
 
@@ -1343,8 +1578,9 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
-            connectedSession?.setComposingText(textView.markedTextRange != nil)
-            guard textView.markedTextRange == nil else { return }
+            let isComposing = textView.markedTextRange != nil
+            connectedSession?.setComposingText(isComposing)
+            guard !isComposing else { return }
             rememberSelection(textView.selectedRange)
             let table = tableAttachment(near: textView.selectedRange, view: textView)?.attachment.table
             let formula = formulaAttachment(near: textView.selectedRange, view: textView)?.attachment.formula
@@ -1356,7 +1592,7 @@ private struct RichTextTextView: UIViewRepresentable {
                     if self.parent.selectedFormula != formula { self.parent.selectedFormula = formula }
                 }
             }
-            publishSelectionState(textView)
+            scheduleLayoutAndToolbarRefresh(textView, updatesToolbar: true)
         }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
@@ -1379,7 +1615,7 @@ private struct RichTextTextView: UIViewRepresentable {
                 textView.textStorage.replaceCharacters(in: range, with: "\n" + prefix)
                 textView.selectedRange = NSRange(location: range.location + prefix.utf16.count + 1, length: 0)
             }
-            textView.invalidateIntrinsicContentSize()
+            scheduleLayoutAndToolbarRefresh(textView, updatesToolbar: true)
             schedulePublish(textView)
             return false
         }
@@ -1404,7 +1640,7 @@ private struct RichTextTextView: UIViewRepresentable {
             guard let list = listPrefix(in: line), line == list.current, caret == lineRange.location + list.current.utf16.count else { return false }
             view.textStorage.replaceCharacters(in: NSRange(location: lineRange.location, length: list.current.utf16.count), with: "")
             view.selectedRange = NSRange(location: lineRange.location, length: 0)
-            view.invalidateIntrinsicContentSize()
+            scheduleLayoutAndToolbarRefresh(view, updatesToolbar: true)
             schedulePublish(view)
             return true
         }
@@ -1419,7 +1655,7 @@ private struct RichTextTextView: UIViewRepresentable {
                 onReplacement: { [weak self, weak view] replacementRange, replacedText in
                     guard let self, let view else { return }
                     view.selectedRange = NSRange(location: replacementRange.location + replacedText.length, length: 0)
-                    view.invalidateIntrinsicContentSize()
+                    self.scheduleLayoutAndToolbarRefresh(view, updatesToolbar: true)
                     self.schedulePublish(view)
                 }
             )
@@ -1525,6 +1761,7 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func apply(_ command: RichTextCommandKind, to view: UITextView) -> Result<Void, NativeRichTextEditorError>? {
+            let revisionBeforeCommand = documentRevision
             let range: NSRange
             if case .image(_, let target) = command {
                 guard connectedSession?.matches(target) == true else {
@@ -1571,17 +1808,15 @@ private struct RichTextTextView: UIViewRepresentable {
             }
             if restoreSelection { view.selectedRange = range }
             rememberSelection(view.selectedRange)
-            view.invalidateIntrinsicContentSize()
+            scheduleLayoutAndToolbarRefresh(view, updatesToolbar: true)
             if let imageResult {
                 if case .success = imageResult {
                     _ = publishNow(view)
                     connectedSession?.setMediaOperationInProgress(false)
                 }
-                publishSelectionState(view)
                 return imageResult
             }
-            schedulePublish(view)
-            publishSelectionState(view)
+            if documentRevision == revisionBeforeCommand { schedulePublish(view) }
             return nil
         }
 
@@ -1928,6 +2163,7 @@ private struct RichTextTextView: UIViewRepresentable {
 
         private func schedulePublish(_ view: UITextView) {
             documentRevision &+= 1
+            cachedSnapshot = nil
             pendingPublish?.cancel()
             let work = DispatchWorkItem { [weak self, weak view] in
                 guard let self, let view else { return }
@@ -1940,20 +2176,91 @@ private struct RichTextTextView: UIViewRepresentable {
         private func publishNow(_ view: UITextView) -> String {
             pendingPublish?.cancel()
             pendingPublish = nil
+            let html = currentHTML(view)
+            publish(html)
+            return html
+        }
+
+        private func snapshotNow(_ view: UITextView) -> NativeRichTextEditorSnapshot {
+            let liveSelection = view.selectedRange
+            let selection = validSelection(liveSelection, in: view)
+                ? liveSelection
+                : lastEditingSelection
+            if let cachedSnapshot, cachedSnapshot.documentRevision == documentRevision {
+                return NativeRichTextEditorSnapshot(
+                    html: cachedSnapshot.html,
+                    attributedText: cachedSnapshot.attributedText,
+                    selection: selection,
+                    documentRevision: documentRevision
+                )
+            }
+
+            let snapshotStart = ProcessInfo.processInfo.systemUptime
+            let html = currentHTML(view)
+            let attributedText = view.attributedText.copy() as? NSAttributedString
+                ?? NSAttributedString(string: view.text ?? "")
+            let snapshot = NativeRichTextEditorSnapshot(
+                html: html,
+                attributedText: attributedText,
+                selection: selection,
+                documentRevision: documentRevision
+            )
+            cachedSnapshot = snapshot
+            if parent.editorSession != nil {
+                LibraryPerformanceLog.markIfSlow("note.editor.rich-text-snapshot", since: snapshotStart)
+            }
+            return snapshot
+        }
+
+        private func currentHTML(_ view: UITextView) -> String {
             guard publishedRevision != documentRevision else { return publishedHTML }
+            let htmlStart = ProcessInfo.processInfo.systemUptime
             let html = RichTextTextView.html(from: view.attributedText)
+            if parent.editorSession != nil {
+                LibraryPerformanceLog.markIfSlow("note.editor.html-export", since: htmlStart)
+            }
             publishedHTML = html
             publishedRevision = documentRevision
-            if html != lastHTML {
-                lastHTML = html
-                parent.html = html
-                view.invalidateIntrinsicContentSize()
-            }
             return html
+        }
+
+        private func publish(_ html: String) {
+            guard html != lastHTML else { return }
+            lastHTML = html
+            parent.html = html
+        }
+
+        private func scheduleLayoutAndToolbarRefresh(_ view: UITextView, updatesToolbar: Bool) {
+            pendingLayoutRefreshView = view
+            layoutRefreshUpdatesToolbar = layoutRefreshUpdatesToolbar || updatesToolbar
+            guard !layoutRefreshScheduled else { return }
+            layoutRefreshScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.layoutRefreshScheduled = false
+                let shouldUpdateToolbar = self.layoutRefreshUpdatesToolbar
+                self.layoutRefreshUpdatesToolbar = false
+                guard let view = self.pendingLayoutRefreshView else { return }
+                self.pendingLayoutRefreshView = nil
+                let refreshStart = ProcessInfo.processInfo.systemUptime
+                view.invalidateIntrinsicContentSize()
+                if shouldUpdateToolbar, view.markedTextRange == nil {
+                    self.publishSelectionState(view)
+                }
+                if self.parent.editorSession != nil {
+                    LibraryPerformanceLog.markIfSlow("note.editor.layout-toolbar-refresh", since: refreshStart)
+                }
+            }
         }
 
         private func publishSelectionState(_ view: UITextView) {
             guard view.markedTextRange == nil else { return }
+            let toolbarUpdateStart = ProcessInfo.processInfo.systemUptime
+            defer {
+                if parent.editorSession != nil {
+                    LibraryPerformanceLog.markIfSlow("note.editor.format-toolbar-update", since: toolbarUpdateStart)
+                }
+            }
             let range = view.selectedRange
             let attributes = attributesForCaretOrSelection(range, view: view)
             let font = attributes[.font] as? UIFont ?? .systemFont(ofSize: RichTextMetrics.bodySize)

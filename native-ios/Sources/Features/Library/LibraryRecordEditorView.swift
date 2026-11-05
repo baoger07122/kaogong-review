@@ -393,12 +393,29 @@ struct LibraryRecordEditorView: View {
         var overlays: [AnyView] = []
         if showSmartSplit { overlays.append(AnyView(smartSplitDialog)) }
         if let activeTags {
+            let selection: Binding<String>
+            if activeTags == .knowledgePoint {
+                selection = $draft.knowledgePoint
+            } else if isQuantityRelations {
+                selection = Binding(
+                    get: { draft.errorCause },
+                    set: {
+                        draft.errorCause = $0
+                        draft.quantityErrorCauseIsAuthoritative = true
+                    }
+                )
+            } else {
+                selection = $draft.errorCause
+            }
             overlays.append(AnyView(LibraryTagSelectionDialog(
                 kind: activeTags,
                 module: draft.module,
-                selection: activeTags == .knowledgePoint ? $draft.knowledgePoint : $draft.errorCause,
+                selection: selection,
                 onClose: { self.activeTags = nil },
-                titleOverride: activeTags == .knowledgePoint ? knowledgePointLabel : errorCauseLabel
+                titleOverride: activeTags == .knowledgePoint ? knowledgePointLabel : errorCauseLabel,
+                maximumOverride: isQuantityRelations && activeTags == .errorCause
+                    ? max(8, splitTags(draft.errorCause).count)
+                    : nil
             )))
         }
         if showQuantityKnowledgePoints {

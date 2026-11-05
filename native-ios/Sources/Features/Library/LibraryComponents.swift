@@ -391,27 +391,7 @@ private struct LibraryErrorRecordCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let mockSourceTitle = snapshot.mockSourceTitleDisplay {
-                HStack(spacing: 5) {
-                    Text(mockSourceTitle)
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if !snapshot.mockQuestionNumberDisplay.isEmpty {
-                        Text(snapshot.mockQuestionNumberDisplay)
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                }
-            } else if !snapshot.sourceDisplay.isEmpty {
-                Text(snapshot.sourceDisplay)
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            quantitySourceLine
 
             if isDataAnalysisComposite, !snapshot.dataAnalysisMaterialText.isEmpty {
                 Text(snapshot.dataAnalysisMaterialText)
@@ -444,10 +424,6 @@ private struct LibraryErrorRecordCard: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                if isQuantityRelations, !hidesQuantityTypeLabel {
-                    plainField(label: "题型", value: quantityQuestionTypeTitle)
-                }
-
                 if isQuantityRelations, !snapshot.quantityStructure.isEmpty {
                     plainField(label: "结构", value: snapshot.quantityStructure)
                 }
@@ -489,7 +465,7 @@ private struct LibraryErrorRecordCard: View {
                             weight: .medium
                         )
                     }
-                    if !isQuantityRelations, !causes.isEmpty {
+                    if !causes.isEmpty {
                         if isAnalogyReasoning {
                             plainField(label: errorCauseLabel, value: snapshot.errorCause)
                         } else {
@@ -680,6 +656,39 @@ private struct LibraryErrorRecordCard: View {
     }
 
     private var isQuantityRelations: Bool { snapshot.record.subject == "数量关系" }
+    private var showsQuantityTypeInHeader: Bool { isQuantityRelations && !hidesQuantityTypeLabel }
+
+    @ViewBuilder
+    private var quantitySourceLine: some View {
+        let source = snapshot.mockSourceTitleDisplay ?? snapshot.sourceDisplay
+        let questionNumber = snapshot.mockQuestionNumberDisplay
+        if !source.isEmpty || !questionNumber.isEmpty || showsQuantityTypeInHeader {
+            HStack(spacing: 6) {
+                HStack(spacing: 5) {
+                    if !source.isEmpty {
+                        Text(source)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if !questionNumber.isEmpty {
+                        Text(questionNumber)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if showsQuantityTypeInHeader {
+                    Text("题型：\(quantityQuestionTypeTitle)")
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+            }
+            .font(.system(size: 11, weight: .regular))
+            .foregroundStyle(.secondary)
+        }
+    }
+
     private var isDataAnalysis: Bool { SubjectModuleTitle.normalized(snapshot.subject) == "资料分析" }
     private var isLogicFill: Bool {
         snapshot.record.subject == "言语理解" && snapshot.record.module == "逻辑填空"

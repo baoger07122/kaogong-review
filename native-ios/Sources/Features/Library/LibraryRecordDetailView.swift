@@ -403,7 +403,7 @@ struct LibraryRecordDetailView: View {
                 metadataTextLine("题型", value: QuantityQuestionTypeCatalog.displayName(for: activeModule))
                 metadataTextLine("题目结构", value: firstText(["quantityStructure"]) ?? "")
                 metadataTagLine("考点", values: knowledgePoints, emphasis: .strong)
-                metadataTagLine("弱项标签", values: weaknessTags, emphasis: .subtle)
+                metadataTagLine(errorCauseLabel, values: quantityErrorCauseValues, emphasis: .subtle)
             } else {
                 if displayQuestionBankContext != nil, !activeModule.isEmpty {
                     metadataTextLine("题型", value: activeModule)
@@ -1129,6 +1129,7 @@ struct LibraryRecordDetailView: View {
             return existingAttributeKey(["weaknessTags"], fallback: "weaknessTags")
         }
         if label.contains("错因") || label.contains("原因") {
+            if isQuantityRelations { return "errorCause" }
             return existingAttributeKey(["errorCause", "cause", "reason"], fallback: "errorCause")
         }
         if label == "误区" { return existingAttributeKey(["pitfall", "misconception", "thinkingTrap"], fallback: "pitfall") }
@@ -1176,6 +1177,9 @@ struct LibraryRecordDetailView: View {
                 .filter { !$0.isEmpty }
         } else {
             updated[attribute.key] = value
+        }
+        if isQuantityRelations, attribute.key == "errorCause" {
+            LibraryQuantityErrorCauseCompatibility.markAuthoritative(in: &updated)
         }
         updated["updatedAt"] = ISO8601DateFormatter().string(from: .now)
         guard JSONSerialization.isValidJSONObject(updated),
@@ -1281,6 +1285,10 @@ struct LibraryRecordDetailView: View {
         if let values = stringArray("weaknessTags"), !values.isEmpty { return values }
         return textValues(["weaknessTags"])
             .flatMap { $0.split(whereSeparator: { "、,，".contains($0) }).map(String.init) }
+    }
+
+    private var quantityErrorCauseValues: [String] {
+        LibraryQuantityErrorCauseCompatibility.values(in: object)
     }
 
     private var isLogicFillError: Bool {

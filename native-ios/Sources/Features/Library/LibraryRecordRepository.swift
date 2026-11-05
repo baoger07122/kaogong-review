@@ -54,6 +54,7 @@ struct LibraryRecordDraft {
     var reminder = ""
     var quantityStructure = ""
     var weaknessTags = ""
+    var quantityErrorCauseIsAuthoritative = false
     var questionSource = ""
     var accuracy = ""
     var questionNumber = ""
@@ -140,7 +141,10 @@ struct LibraryRecordDraft {
         if let values = original["knowledgePoints"] as? [String], !values.isEmpty {
             knowledgePoint = values.joined(separator: "、")
         }
-        errorCause = LibraryRecordDraft.text(original, keys: ["errorCause"])
+        quantityErrorCauseIsAuthoritative = LibraryQuantityErrorCauseCompatibility.isAuthoritative(in: original)
+        errorCause = kind == .errors && subject == "数量关系"
+            ? LibraryQuantityErrorCauseCompatibility.values(in: original).joined(separator: "、")
+            : LibraryRecordDraft.text(original, keys: ["errorCause"])
         status = LibraryRecordDraft.text(original, keys: ["status", "masteryStatus"]).isEmpty ? "未掌握" : LibraryRecordDraft.text(original, keys: ["status", "masteryStatus"])
         isDifficult = (original["isDifficult"] as? Bool) ?? (original["isDifficult"] as? NSNumber)?.boolValue ?? false
         needsReview = (original["needsReview"] as? Bool) ?? (original["needsReview"] as? NSNumber)?.boolValue ?? false
@@ -268,6 +272,7 @@ struct LibraryRecordDraft {
             && reminder == other.reminder
             && quantityStructure == other.quantityStructure
             && weaknessTags == other.weaknessTags
+            && quantityErrorCauseIsAuthoritative == other.quantityErrorCauseIsAuthoritative
             && questionSource == other.questionSource
             && accuracy == other.accuracy
             && questionNumber == other.questionNumber
@@ -514,7 +519,14 @@ enum LibraryRecordRepository {
             object["pitfall"] = draft.pitfall
             object["reminder"] = draft.reminder
             object["quantityStructure"] = draft.quantityStructure
-            object["weaknessTags"] = splitList(draft.weaknessTags)
+            if draft.subject == "数量关系" {
+                if let legacyWeaknessTags = draft.original["weaknessTags"] {
+                    object["weaknessTags"] = legacyWeaknessTags
+                }
+                LibraryQuantityErrorCauseCompatibility.markAuthoritative(in: &object)
+            } else {
+                object["weaknessTags"] = splitList(draft.weaknessTags)
+            }
             object["questionSource"] = draft.questionSource
             object["questionNumber"] = draft.questionNumber
             if draft.subject == "资料分析" {
@@ -718,10 +730,16 @@ enum LibraryRecordRepository {
                 )
                 if kind == .errors,
                    draft.subject != "资料分析",
-                   !(draft.subject == "判断推理" && draft.module == "类比推理"),
-                   draft.subject != "数量关系" {
+                   !(draft.subject == "判断推理" && draft.module == "类比推理") {
+                    let causes = draft.subject == "数量关系"
+                        ? LibraryQuantityErrorCauseCompatibility.values(
+                            errorCause: draft.errorCause,
+                            weaknessTags: nil,
+                            authoritative: true
+                        )
+                        : [draft.errorCause]
                     try TagLibraryRepository.add(
-                        [draft.errorCause],
+                        causes,
                         kind: .errorCause,
                         module: draft.module,
                         records: records,

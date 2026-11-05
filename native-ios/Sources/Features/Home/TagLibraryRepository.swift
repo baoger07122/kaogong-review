@@ -122,9 +122,23 @@ enum TagLibraryRepository {
                     object["knowledgePoint"] = newName ?? ""
                     changed = true
                 }
-            } else if kind == .errorCause, object["errorCause"] as? String == oldName {
-                object["errorCause"] = newName ?? ""
-                changed = true
+            } else if kind == .errorCause {
+                if record.subject == "数量关系" {
+                    let values = LibraryQuantityErrorCauseCompatibility.values(
+                        errorCause: object["errorCause"],
+                        weaknessTags: nil,
+                        authoritative: true
+                    )
+                    if values.contains(oldName) {
+                        let updatedValues = values.compactMap { $0 == oldName ? newName : $0 }
+                        object["errorCause"] = updatedValues.joined(separator: "、")
+                        LibraryQuantityErrorCauseCompatibility.markAuthoritative(in: &object)
+                        changed = true
+                    }
+                } else if object["errorCause"] as? String == oldName {
+                    object["errorCause"] = newName ?? ""
+                    changed = true
+                }
             } else if kind == .thinkingTrap {
                 if module == "数量关系-弱项", var values = object["weaknessTags"] as? [String], values.contains(oldName) {
                     values = values.compactMap { $0 == oldName ? newName : $0 }

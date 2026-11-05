@@ -365,8 +365,12 @@ struct LibraryRecordSnapshot: Identifiable {
         } else {
             knowledgePoints = []
         }
-        errorCause = Self.firstText(in: object, keys: ["errorCause", "cause", "reason"])
-            .map(Self.plainText) ?? ""
+        let quantityErrorCauses = record.collection == "errors" && subject == "数量关系"
+            ? LibraryQuantityErrorCauseCompatibility.values(in: object)
+            : []
+        errorCause = record.collection == "errors" && subject == "数量关系"
+            ? quantityErrorCauses.joined(separator: "、")
+            : Self.firstText(in: object, keys: ["errorCause", "cause", "reason"]).map(Self.plainText) ?? ""
         dataAnalysisErrorCause = Self.firstText(in: object, keys: ["errorCause", "cause", "reason"]) ?? ""
         dataAnalysisMaterialText = Self.firstText(in: object, keys: ["dataAnalysisMaterialText"])
             .map(Self.plainText) ?? ""
@@ -448,7 +452,11 @@ struct LibraryRecordSnapshot: Identifiable {
             if needsReview { values.append("待复习") }
         }
         if let points = object["knowledgePoints"] as? [String] { values.append(contentsOf: points) }
-        values.append(contentsOf: weaknessTags)
+        if record.collection == "errors", subject == "数量关系" {
+            values.append(contentsOf: quantityErrorCauses)
+        } else {
+            values.append(contentsOf: weaknessTags)
+        }
         if let point = Self.firstText(in: object, keys: ["knowledgePoint"]) { values.append(point) }
         var seen = Set<String>()
         tags = Array(values.filter { !$0.isEmpty && seen.insert($0).inserted })
@@ -456,7 +464,11 @@ struct LibraryRecordSnapshot: Identifiable {
         let searchableSource = reviewSource == .mock ? sourceExamTitle : questionSource
         var searchValues = [title, summary, quantityStructure, dataAnalysisMaterialText, searchableSource, questionNumber, pitfall, reminder]
         searchValues.append(contentsOf: tags)
-        searchValues.append(contentsOf: weaknessTags)
+        if record.collection == "errors", subject == "数量关系" {
+            searchValues.append(contentsOf: quantityErrorCauses)
+        } else {
+            searchValues.append(contentsOf: weaknessTags)
+        }
         searchValues.append(contentsOf: ["pinyin", "meaning", "judgmentHint", "commonMeaning", "example", "compareNote", "myUnderstanding", "collocations", "pos"]
             .compactMap { object[$0] as? String })
         if let terms = object["compareWords"] as? [[String: Any]] {

@@ -519,6 +519,15 @@ private struct LibraryErrorAnalysisSection: View {
     private var isLogicJudgment: Bool { draft.subject == "判断推理" && draft.module == "逻辑判断" }
     private var knowledgeLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
     private var causeLabel: String { isLogicJudgment ? "选项逻辑作用" : (isAnalogy ? "二级辨析" : "错因") }
+    private var quantityErrorCause: Binding<String> {
+        Binding(
+            get: { draft.errorCause },
+            set: {
+                draft.errorCause = $0
+                draft.quantityErrorCauseIsAuthoritative = true
+            }
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -535,7 +544,7 @@ private struct LibraryErrorAnalysisSection: View {
             Label("题型分析", systemImage: "tag").font(.system(size: 13, weight: .medium))
             quantityTextInput(title: "题目结构", placeholder: "例如：矩形边界植树", text: $draft.quantityStructure)
             quantityTagInput(title: "考点", value: draft.knowledgePoint) { showQuantityKnowledgePoints = true }
-            quantityTagInput(title: "弱项标签", value: draft.weaknessTags) { showQuantityWeaknessTags = true }
+            tagInput(title: "错因", text: quantityErrorCause, allowsMultiple: true)
             plainTextInput(label: "提醒", text: $draft.reminder)
         }
         .padding(14)

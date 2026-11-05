@@ -109,14 +109,24 @@ final class PencilDrawingController: ObservableObject {
 
     func toggleEraser() {
         if eraser {
-            color = previousPenColor
-            width = previousPenWidth
-            eraser = false
+            selectPenTool()
         } else {
-            previousPenColor = color
-            previousPenWidth = width
-            eraser = true
+            selectEraserTool()
         }
+    }
+
+    func selectPenTool() {
+        color = previousPenColor
+        width = previousPenWidth
+        eraser = false
+        persist()
+    }
+
+    func selectEraserTool() {
+        guard !eraser else { return }
+        previousPenColor = color
+        previousPenWidth = width
+        eraser = true
         persist()
     }
 
@@ -169,6 +179,7 @@ final class PencilDrawingController: ObservableObject {
         drawingLoadRevision += 1
         showSettings = false
         fingerDrawingEnabled = false
+        selectPenTool()
         legacyPreviewCleared = false
         restoreLegacyOnNextUndo = false
         hasPendingDrawingPublish = false

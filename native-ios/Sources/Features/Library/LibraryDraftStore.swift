@@ -19,6 +19,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
     var reminder: String?
     var quantityStructure: String?
     var weaknessTags: String?
+    var quantityErrorCauseIsAuthoritative: Bool?
     var isDifficult: Bool?
     var needsReview: Bool?
     var questionSource: String
@@ -84,6 +85,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         reminder = draft.reminder
         quantityStructure = draft.quantityStructure
         weaknessTags = draft.weaknessTags
+        quantityErrorCauseIsAuthoritative = draft.quantityErrorCauseIsAuthoritative
         isDifficult = draft.isDifficult
         needsReview = draft.needsReview
         questionSource = draft.questionSource
@@ -142,7 +144,17 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         draft.content = content
         draft.type = type
         draft.knowledgePoint = knowledgePoint
-        draft.errorCause = errorCause
+        let restoredCauseAuthority = quantityErrorCauseIsAuthoritative ?? false
+        draft.quantityErrorCauseIsAuthoritative = restoredCauseAuthority
+        if subject == "数量关系" {
+            draft.errorCause = LibraryQuantityErrorCauseCompatibility.serialized(
+                errorCause: errorCause,
+                weaknessTags: weaknessTags ?? "",
+                authoritative: restoredCauseAuthority
+            )
+        } else {
+            draft.errorCause = errorCause
+        }
         draft.status = status
         draft.options = options
         draft.optionImages = optionImages ?? Array(repeating: "", count: max(4, options.count))
