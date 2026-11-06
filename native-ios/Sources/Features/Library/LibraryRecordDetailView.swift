@@ -731,23 +731,17 @@ struct LibraryRecordDetailView: View {
     }
 
     private func invalidateEditorRequestOnExit() {
-        guard let pendingEditorRequestID else {
-            popoverEditRequestID = nil
-            isActionsPopoverPresented = false
-            return
-        }
+        guard let pendingEditorRequestID else { return }
         let wasHandedOff = didHandOffEditRequest
         let transitionRecordID = pendingEditorTransitionRecordID ?? pendingEditorRequestID
         self.pendingEditorRequestID = nil
         pendingEditorTransitionRecordID = nil
         didHandOffEditRequest = false
-        popoverEditRequestID = nil
-        isActionsPopoverPresented = false
         onCancelEditRequest()
         if !wasHandedOff {
             LibraryPerformanceLog.editorTransition(
                 "menu-action",
-                recordID: transitionRecordID ?? pendingEditorRequestID,
+                recordID: transitionRecordID,
                 details: "cancelled-after-detail-exit",
                 completes: true,
                 transitionKey: "menu-action"

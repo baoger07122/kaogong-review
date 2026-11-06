@@ -586,7 +586,7 @@ struct LibraryDoodleOverlay: View {
             Text(title)
                 .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
                 .foregroundStyle(isSelected ? AppTheme.accent : Color.secondary)
-                .frame(minWidth: 30, height: 30)
+                .frame(minWidth: 30, minHeight: 30)
                 .padding(.horizontal, 3)
                 .background(isSelected ? AppTheme.accent.opacity(0.12) : .clear, in: Capsule())
                 .contentShape(Capsule())
