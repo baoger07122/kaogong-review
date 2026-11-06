@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import SwiftData
 
 struct ExamSubjectScore: Identifiable, Equatable {
@@ -8,7 +9,8 @@ struct ExamSubjectScore: Identifiable, Equatable {
     var id: String { subject }
 }
 
-struct ExamDraft {
+@Observable
+final class ExamDraft {
     var original: [String: Any] = [:]
     var id = ""
     var examType: LibraryReviewSource = .real
@@ -80,13 +82,18 @@ struct ExamDraft {
 }
 
 enum ExamRepository {
-    static func save(_ draft: ExamDraft, records: [StoredRecord], context: ModelContext) throws -> String {
+    static func save(
+        _ draft: ExamDraft,
+        derivedMetrics: ExamDerivedMetrics? = nil,
+        records: [StoredRecord],
+        context: ModelContext
+    ) throws -> String {
         let now = Date()
         let id = draft.id.isEmpty ? "exam_\(Int(now.timeIntervalSince1970 * 1_000))_\(UUID().uuidString.prefix(6))" : draft.id
         let existing = records.first { $0.collection == "exams" && $0.recordID == id }
         var object = draft.original
         let uniqueErrorIDs = Array(draft.linkedErrorIDs).sorted()
-        let metrics = draft.metrics
+        let metrics = derivedMetrics ?? draft.metrics
         object["id"] = id
         object["name"] = draft.name
         object["examType"] = draft.examType.rawValue

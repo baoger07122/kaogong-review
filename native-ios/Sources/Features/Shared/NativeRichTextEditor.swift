@@ -248,6 +248,7 @@ struct NativeRichTextEditor: View {
     var editorSession: NativeRichTextEditorSession? = nil
     var editorDocumentID: String? = nil
     var editorSessionID: UUID? = nil
+    var defersPhotoPickerToParent = true
     var internalLinks: [RichTextInternalLink] = []
     var onOpenInternalLink: ((RichTextInternalLink) -> Void)?
     @StateObject private var localEditorSession = NativeRichTextEditorSession()
@@ -276,7 +277,7 @@ struct NativeRichTextEditor: View {
     private var activeEditorDocumentID: String? { editorDocumentID }
     private var activeEditorSessionID: UUID { editorSessionID ?? localEditorSessionID }
     private var usesDeferredPhotoPicker: Bool {
-        editorSession != nil && editorDocumentID != nil && editorSessionID != nil
+        defersPhotoPickerToParent && editorSession != nil && editorDocumentID != nil && editorSessionID != nil
     }
 
     private var activeAlertPresentation: Binding<Bool> {

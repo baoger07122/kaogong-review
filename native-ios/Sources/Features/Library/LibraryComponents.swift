@@ -661,25 +661,15 @@ private struct LibraryErrorRecordCard: View {
     @ViewBuilder
     private var quantitySourceLine: some View {
         let source = snapshot.mockSourceTitleDisplay ?? snapshot.sourceDisplay
-        let questionNumber = snapshot.mockQuestionNumberDisplay
-        if !source.isEmpty || !questionNumber.isEmpty || showsQuantityTypeInHeader {
+        if !source.isEmpty || showsQuantityTypeInHeader {
             HStack(spacing: 6) {
-                HStack(spacing: 5) {
-                    if !source.isEmpty {
-                        Text(source)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    if !questionNumber.isEmpty {
-                        Text(questionNumber)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(source)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 if showsQuantityTypeInHeader {
-                    Text("题型：\(quantityQuestionTypeTitle)")
+                    Text(quantityQuestionTypeTitle)
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
                 }
