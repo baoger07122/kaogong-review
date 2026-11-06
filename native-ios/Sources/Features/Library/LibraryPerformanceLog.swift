@@ -53,14 +53,16 @@ enum LibraryPerformanceLog {
         recordID: String,
         details: String = "",
         begins: Bool = false,
-        completes: Bool = false
+        completes: Bool = false,
+        transitionKey: String? = nil
     ) {
         let identifier = shortIdentifier(recordID)
+        let timingKey = transitionKey.map { "\(identifier)|\($0)" } ?? identifier
         let now = ProcessInfo.processInfo.systemUptime
         eventLock.lock()
-        if begins { editorTransitionStarts[identifier] = now }
-        let elapsed = editorTransitionStarts[identifier].map { (now - $0) * 1_000 }
-        if completes { editorTransitionStarts[identifier] = nil }
+        if begins { editorTransitionStarts[timingKey] = now }
+        let elapsed = editorTransitionStarts[timingKey].map { (now - $0) * 1_000 }
+        if completes { editorTransitionStarts[timingKey] = nil }
         eventLock.unlock()
 
         let timing = elapsed.map { String(format: " %.1f ms", $0) } ?? ""

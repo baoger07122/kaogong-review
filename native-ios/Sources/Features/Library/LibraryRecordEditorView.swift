@@ -154,6 +154,15 @@ struct LibraryRecordEditorView: View {
         configuredEditor
         .disabled(isSaving)
         .background { editorLayoutProbe }
+        .onAppear {
+            LibraryPerformanceLog.editorTransition(
+                "editor-appearance",
+                recordID: editorDiagnosticID,
+                details: "destination-visible",
+                begins: true,
+                transitionKey: "editor-appearance"
+            )
+        }
         .onChange(of: draftSnapshot) { _, snapshot in
             guard recordID == nil else { return }
             draftPersistenceCleared = false
@@ -260,7 +269,8 @@ struct LibraryRecordEditorView: View {
                             "first-frame",
                             recordID: editorDiagnosticID,
                             details: "size=\(Int(proxy.size.width))x\(Int(proxy.size.height))",
-                            completes: true
+                            completes: true,
+                            transitionKey: "editor-appearance"
                         )
                     }
                     .frame(width: 1, height: 1)

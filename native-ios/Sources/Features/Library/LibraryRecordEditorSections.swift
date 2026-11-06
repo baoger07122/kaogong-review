@@ -555,13 +555,13 @@ private struct LibraryErrorAnalysisSection: View {
     private var generalAnalysis: some View {
         VStack(alignment: .leading, spacing: 7) {
             Label("\(knowledgeLabel)与\(causeLabel)", systemImage: "tag").font(.system(size: 13, weight: .medium))
-            tagInput(title: knowledgeLabel, text: $draft.knowledgePoint, allowsMultiple: true)
+            tagInput(title: knowledgeLabel, text: $draft.knowledgePoint, allowsMultiple: true, showsChevron: false)
             if isDataAnalysis || isAnalogy {
                 plainTextInput(label: causeLabel, text: $draft.errorCause)
             } else {
                 tagInput(title: causeLabel, text: $draft.errorCause, allowsMultiple: false)
             }
-            plainTextInput(label: "思维误区", text: $draft.pitfall)
+            plainTextInput(label: isDataAnalysis ? "陷阱" : "思维误区", text: $draft.pitfall)
             plainTextInput(label: isAnalogy ? "常识" : "提醒", text: $draft.reminder)
         }
         .padding(14)
@@ -569,7 +569,7 @@ private struct LibraryErrorAnalysisSection: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.8))
     }
 
-    private func tagInput(title: String, text: Binding<String>, allowsMultiple: Bool) -> some View {
+    private func tagInput(title: String, text: Binding<String>, allowsMultiple: Bool, showsChevron: Bool = true) -> some View {
         Button {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             activeTags = allowsMultiple ? .knowledgePoint : .errorCause
@@ -588,7 +588,9 @@ private struct LibraryErrorAnalysisSection: View {
                         }
                     }
                 }
-                Image(systemName: "chevron.down").font(.system(size: 9)).foregroundStyle(.tertiary)
+                if showsChevron {
+                    Image(systemName: "chevron.down").font(.system(size: 9)).foregroundStyle(.tertiary)
+                }
             }
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)

@@ -65,14 +65,34 @@ private enum LibraryInlineNoteSaveStatus: Equatable {
 @MainActor
 final class LibraryInlineNoteSession: ObservableObject {
     @Published private(set) var isEditing = false
+    @Published private(set) var hasPendingChanges = false
+    @Published private(set) var finishFailureMessage: String?
     var finishEditing: ((@escaping (Bool) -> Void) -> Void)?
 
     func setEditing(_ value: Bool) {
         isEditing = value
+        if value { hasPendingChanges = true }
+    }
+
+    func setPendingChanges(_ value: Bool) {
+        hasPendingChanges = value
+    }
+
+    func setFinishFailureMessage(_ value: String?) {
+        finishFailureMessage = value
     }
 
     func finish(completion: @escaping (Bool) -> Void) {
-        guard let finishEditing else { completion(true); return }
+        guard isEditing || hasPendingChanges else {
+            finishFailureMessage = nil
+            completion(true)
+            return
+        }
+        guard let finishEditing else {
+            finishFailureMessage = "笔记仍有未完成的保存，暂时无法离开。"
+            completion(false)
+            return
+        }
         finishEditing(completion)
     }
 }
@@ -367,9 +387,11 @@ struct LibraryInlineNoteView: View {
             } else {
                 setDraftWithoutScheduling(storedNote)
             }
+            updateSessionPendingState()
             guard !didAttemptDraftRestoreForAppearance else { return }
             didAttemptDraftRestoreForAppearance = true
             isRestoringDraft = true
+            session.setPendingChanges(true)
             let appearanceID = draftRestoreAppearanceID
             LibraryInlineNoteSaveService.shared.whenIdle(recordID: renderDocumentID) { _ in
                 Task { await restorePendingDraft(for: appearanceID) }
@@ -391,6 +413,7 @@ struct LibraryInlineNoteView: View {
             )
             currentDraftVersion = version
             let state = saveService.state(recordID: renderDocumentID)
+            updateSessionPendingState()
             guard state.phase != .saved || content != state.confirmedContent else {
                 transientErrorMessage = nil
                 return
@@ -488,11 +511,13 @@ struct LibraryInlineNoteView: View {
                 editorSession.deactivate(sessionID: editingSessionID)
             }
             session.setEditing(false)
+            updateSessionPendingState()
             session.finishEditing = nil
             didAttemptDraftRestoreForAppearance = false
             draftRestoreAppearanceID = UUID()
             if isRestoringDraft {
                 isRestoringDraft = false
+                updateSessionPendingState()
                 resolveFinishCompletionsWaitingForRestore(allowSuccess: false)
             }
         }
@@ -500,6 +525,7 @@ struct LibraryInlineNoteView: View {
             let key = noteRenderKey
             await prepareNote(for: key)
         }
+        .onChange(of: noteSaveState) { _, _ in updateSessionPendingState() }
     }
 
     @MainActor
@@ -670,6 +696,7 @@ struct LibraryInlineNoteView: View {
         editorSession.activate(documentID: renderDocumentID, sessionID: editingSessionID)
         editing = true
         session.setEditing(true)
+        session.setPendingChanges(true)
         transientErrorMessage = nil
         displayWarning = nil
     }
@@ -685,6 +712,7 @@ struct LibraryInlineNoteView: View {
         defer {
             if appearanceID == draftRestoreAppearanceID {
                 isRestoringDraft = false
+                updateSessionPendingState()
                 resolveFinishCompletionsWaitingForRestore()
             }
         }
@@ -791,6 +819,7 @@ struct LibraryInlineNoteView: View {
         finishCompletionsWaitingForRestore = []
         saveService.whenIdle(recordID: renderDocumentID) { saved in
             let canProceed = allowSuccess && saved && self.saveService.state(recordID: self.renderDocumentID).phase != .failed
+            self.updateFinishResult(canProceed)
             completions.forEach { $0(canProceed) }
         }
     }
@@ -798,6 +827,11 @@ struct LibraryInlineNoteView: View {
     private func finishWhenCurrentSaveSettles(_ completion: @escaping (Bool) -> Void) {
         if isRestoringDraft {
             finishCompletionsWaitingForRestore.append(completion)
+            return
+        }
+        if transientErrorMessage?.hasPrefix("笔记草稿读取失败：") == true {
+            updateFinishResult(false)
+            completion(false)
             return
         }
         let state = saveService.state(recordID: renderDocumentID)
@@ -809,7 +843,9 @@ struct LibraryInlineNoteView: View {
             enqueueSave(state.latestContent, draftVersion: state.latestDraftVersion)
         }
         saveService.whenIdle(recordID: renderDocumentID) { saved in
-            completion(saved && self.saveService.state(recordID: self.renderDocumentID).phase != .failed)
+            let canProceed = saved && self.saveService.state(recordID: self.renderDocumentID).phase != .failed
+            self.updateFinishResult(canProceed)
+            completion(canProceed)
         }
     }
 
@@ -822,15 +858,33 @@ struct LibraryInlineNoteView: View {
             finishCompletionsWaitingForCommit.append(completion)
             return
         }
-        guard editorSession.canFinishEditing else { completion(false); return }
+        guard editorSession.canFinishEditing else {
+            transientErrorMessage = "笔记编辑器仍在处理输入，请稍后重试。"
+            updateFinishResult(false)
+            completion(false)
+            return
+        }
         isFinishing = true
         saveTask?.cancel()
         guard let snapshot = editorSession.captureSnapshot() else {
             isFinishing = false
+            transientErrorMessage = "无法读取当前笔记内容，编辑页面没有打开。"
             resolveFinishCompletions(primary: completion, result: false)
             return
         }
         let latestDraft = snapshot.html
+        let currentState = saveService.state(recordID: renderDocumentID)
+        if latestDraft == currentState.confirmedContent,
+           !saveService.hasPending(recordID: renderDocumentID),
+           currentState.phase != .failed {
+            editorSession.setInputLocked(true)
+            finishEditorAfterConfirmedSave(
+                version: currentState.confirmedDraftVersion,
+                content: latestDraft,
+                completion: completion
+            )
+            return
+        }
         setDraftWithoutScheduling(latestDraft)
         editorSession.setInputLocked(true)
         let version = saveService.registerDraft(
@@ -894,15 +948,42 @@ struct LibraryInlineNoteView: View {
             self.initialSelectionWidth = nil
             self.isFinishing = false
             self.transientErrorMessage = nil
+            self.updateSessionPendingState()
             self.resolveFinishCompletions(primary: completion, result: true)
         }
     }
 
     private func resolveFinishCompletions(primary: @escaping (Bool) -> Void, result: Bool) {
+        updateFinishResult(result)
         primary(result)
         let additional = finishCompletionsWaitingForCommit
         finishCompletionsWaitingForCommit = []
         additional.forEach { $0(result) }
+    }
+
+    private var finishFailureDescription: String {
+        if let transientErrorMessage, !transientErrorMessage.isEmpty { return transientErrorMessage }
+        if let errorMessage, !errorMessage.isEmpty { return errorMessage }
+        return "笔记尚未成功保存，编辑页面没有打开。"
+    }
+
+    private func updateFinishResult(_ succeeded: Bool) {
+        session.setFinishFailureMessage(succeeded ? nil : finishFailureDescription)
+        updateSessionPendingState()
+    }
+
+    private func updateSessionPendingState() {
+        let state = saveService.state(recordID: renderDocumentID)
+        let draftRestoreFailed = transientErrorMessage?.hasPrefix("笔记草稿读取失败：") == true
+        session.setPendingChanges(
+            editing
+                || isRestoringDraft
+                || draftRestoreFailed
+                || state.latestContent != state.confirmedContent
+                || state.phase == .failed
+                || saveService.hasPending(recordID: renderDocumentID)
+        )
+        if !session.hasPendingChanges { session.setFinishFailureMessage(nil) }
     }
 
     private func advanceImageImportRequest() {

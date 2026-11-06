@@ -447,24 +447,7 @@ private struct LibraryErrorRecordCard: View {
                     if !dataAnalysisCause.isEmpty {
                         sentenceTagLine(label: errorCauseLabel, value: dataAnalysisCause)
                     }
-                    if !snapshot.knowledgePoints.isEmpty {
-                        tagLine(
-                            label: knowledgePointLabel,
-                            values: snapshot.knowledgePoints,
-                            foreground: .secondary,
-                            background: Color.primary.opacity(0.045)
-                        )
-                    }
                 } else {
-                    if !snapshot.knowledgePoints.isEmpty {
-                        tagLine(
-                            label: knowledgePointLabel,
-                            values: snapshot.knowledgePoints,
-                            foreground: AppTheme.accent,
-                            background: AppTheme.accent.opacity(0.10),
-                            weight: .medium
-                        )
-                    }
                     if !causes.isEmpty {
                         if isAnalogyReasoning {
                             plainField(label: errorCauseLabel, value: snapshot.errorCause)
@@ -480,13 +463,11 @@ private struct LibraryErrorRecordCard: View {
                 }
 
                 if !snapshot.pitfall.isEmpty {
-                    pitfallLine(value: snapshot.pitfall)
+                    pitfallLine(value: snapshot.pitfall, label: isDataAnalysis ? "陷阱" : "误区")
                 }
 
                 if !snapshot.reminder.isEmpty {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Image(systemName: "lightbulb.min")
-                            .font(.system(size: 10, weight: .regular))
                         Text(isAnalogyReasoning ? "常识：" : "提醒：")
                             .fixedSize(horizontal: true, vertical: false)
                         Text(snapshot.reminder)
@@ -604,9 +585,9 @@ private struct LibraryErrorRecordCard: View {
         }
     }
 
-    private func pitfallLine(value: String) -> some View {
+    private func pitfallLine(value: String, label: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Text("误区：")
+            Text("\(label)：")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: true, vertical: false)
@@ -660,13 +641,19 @@ private struct LibraryErrorRecordCard: View {
 
     @ViewBuilder
     private var quantitySourceLine: some View {
-        let source = snapshot.mockSourceTitleDisplay ?? snapshot.sourceDisplay
-        if !source.isEmpty || showsQuantityTypeInHeader {
+        let points = snapshot.knowledgePoints.joined(separator: " | ")
+        if !points.isEmpty || showsQuantityTypeInHeader {
             HStack(spacing: 6) {
-                Text(source)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if !points.isEmpty {
+                    Image(systemName: "lightbulb.min")
+                        .font(.system(size: 10, weight: .regular))
+                    Text(points)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Spacer(minLength: 0)
+                }
 
                 if showsQuantityTypeInHeader {
                     Text(quantityQuestionTypeTitle)
@@ -688,7 +675,6 @@ private struct LibraryErrorRecordCard: View {
         return module.isEmpty ? "未分类" : module
     }
 
-    private var knowledgePointLabel: String { isLogicJudgment ? "结构" : "考点" }
     private var errorCauseLabel: String {
         if isLogicJudgment { return "选项" }
         if isAnalogyReasoning { return "二级辨析" }
@@ -1014,6 +1000,8 @@ struct LibraryMasonryGrid: View {
     @State private var lastColumnCount: Int?
     @State private var lastPartitionKey: String?
     @State private var lastReconciledRecordIDs: [String]?
+    @State private var availableWidth: CGFloat = 0
+    @State private var lastAvailableWidth: CGFloat?
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -1025,6 +1013,17 @@ struct LibraryMasonryGrid: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .top)
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(key: LibraryMasonryGridWidthPreferenceKey.self, value: proxy.size.width)
+            }
+        }
+        .onPreferenceChange(LibraryMasonryGridWidthPreferenceKey.self) { width in
+            guard width.isFinite, width > 0, abs(width - availableWidth) > 1 else { return }
+            availableWidth = width
+            reconcileColumns()
         }
         .onAppear(perform: reconcileColumns)
         .onChange(of: recordIDs) { _, _ in reconcileColumns() }
@@ -1074,39 +1073,172 @@ struct LibraryMasonryGrid: View {
     private func reconcileColumns() {
         let count = max(1, cardSize.columnCount)
         let currentIDs = recordIDs
+        let widthChanged: Bool
+        if let lastAvailableWidth {
+            widthChanged = abs(lastAvailableWidth - availableWidth) > 1
+        } else {
+            widthChanged = true
+        }
+        if kind == .errors,
+           count > 1,
+           availableWidth > 0,
+           lastColumnCount == count,
+           lastPartitionKey == partitionKey,
+           !widthChanged,
+           let lastReconciledRecordIDs,
+           currentIDs.count > lastReconciledRecordIDs.count,
+           currentIDs.starts(with: lastReconciledRecordIDs) {
+            var heights = Array(repeating: CGFloat.zero, count: count)
+            var columnCardCounts = Array(repeating: 0, count: count)
+            let columnWidth = max(1, (availableWidth - CGFloat(count - 1) * 12) / CGFloat(count))
+            for record in records.prefix(lastReconciledRecordIDs.count) {
+                guard let column = columnAssignments[record.id], heights.indices.contains(column) else { continue }
+                if columnCardCounts[column] > 0 { heights[column] += 12 }
+                heights[column] += estimatedHeight(of: record, availableWidth: columnWidth)
+                columnCardCounts[column] += 1
+            }
+            for record in records.dropFirst(lastReconciledRecordIDs.count) {
+                let shortestColumn = heights.indices.min { heights[$0] < heights[$1] } ?? 0
+                columnAssignments[record.id] = shortestColumn
+                if columnCardCounts[shortestColumn] > 0 { heights[shortestColumn] += 12 }
+                heights[shortestColumn] += estimatedHeight(of: record, availableWidth: columnWidth)
+                columnCardCounts[shortestColumn] += 1
+            }
+            self.lastReconciledRecordIDs = currentIDs
+            return
+        }
         guard lastColumnCount != count
                 || lastPartitionKey != partitionKey
-                || lastReconciledRecordIDs != currentIDs else { return }
+                || lastReconciledRecordIDs != currentIDs
+                || widthChanged else { return }
 
         columnAssignments.removeAll(keepingCapacity: true)
-        for (index, recordID) in currentIDs.enumerated() {
-            columnAssignments[recordID] = index % count
+        if kind == .errors, count > 1, availableWidth > 0 {
+            var heights = Array(repeating: CGFloat.zero, count: count)
+            var columnCardCounts = Array(repeating: 0, count: count)
+            let columnWidth = max(1, (availableWidth - CGFloat(count - 1) * 12) / CGFloat(count))
+            for record in records {
+                let shortestColumn = heights.indices.min { heights[$0] < heights[$1] } ?? 0
+                columnAssignments[record.id] = shortestColumn
+                if columnCardCounts[shortestColumn] > 0 { heights[shortestColumn] += 12 }
+                heights[shortestColumn] += estimatedHeight(of: record, availableWidth: columnWidth)
+                columnCardCounts[shortestColumn] += 1
+            }
+        } else {
+            for (index, recordID) in currentIDs.enumerated() {
+                columnAssignments[recordID] = index % count
+            }
         }
         lastColumnCount = count
         lastPartitionKey = partitionKey
         lastReconciledRecordIDs = currentIDs
+        lastAvailableWidth = availableWidth
     }
 
-    private func estimatedHeight(of record: LibraryRecordSnapshot) -> CGFloat {
+    private func estimatedHeight(of record: LibraryRecordSnapshot, availableWidth: CGFloat) -> CGFloat {
         guard kind == .errors else { return 145 }
-        let textLines = min(cardSize.questionLineLimit, max(1, Int(ceil(Double(record.title.count) / 24.0))))
         let isDataAnalysisComposite = SubjectModuleTitle.normalized(record.subject) == "资料分析"
             && SubjectModuleTitle.normalized(record.module) == "综合题"
-        let imageLimit = isDataAnalysisComposite ? 1 : 3
-        let imageHeight = record.imageValues.isEmpty
-            ? CGFloat.zero
-            : CGFloat(min(imageLimit, record.imageValues.count)) * (cardSize.imageMaximumHeight * 0.72 + 8)
-        let materialLines = isDataAnalysisComposite && !record.dataAnalysisMaterialText.isEmpty
-            ? min(2, max(1, Int(ceil(Double(record.dataAnalysisMaterialText.count) / 34.0))))
-            : 0
-        let materialHeight = CGFloat(materialLines * 16)
-        let tagRows = record.knowledgePoints.isEmpty && record.errorCause.isEmpty ? 0 : max(1, Int(ceil(Double(record.knowledgePoints.count + (record.errorCause.isEmpty ? 0 : 1)) / 2.0)))
-        let analogyOptionHeight = record.record.subject == "判断推理" && record.record.module == "类比推理"
-            ? CGFloat(record.options.count * 22 + (record.options.isEmpty ? 0 : 4))
-            : 0
-        return 54 + CGFloat((isDataAnalysisComposite ? min(2, textLines) : textLines) * 20) + materialHeight + analogyOptionHeight
-            + imageHeight + CGFloat(tagRows * 27) + (record.pitfall.isEmpty ? 0 : 40)
+        let isDataAnalysis = SubjectModuleTitle.normalized(record.subject) == "资料分析"
+        let isAnalogyReasoning = record.record.subject == "判断推理" && record.record.module == "类比推理"
+        let contentWidth = max(1, availableWidth - 28)
+        let titleLines = estimatedLineCount(record.title, width: contentWidth, fontSize: 14, limit: isDataAnalysisComposite ? 2 : cardSize.questionLineLimit)
+        var sections: [CGFloat] = []
+        if !record.knowledgePoints.isEmpty {
+            sections.append(CGFloat(estimatedLineCount(record.knowledgePoints.joined(separator: " | "), width: contentWidth, fontSize: 11, limit: 1)) * 14)
+        } else if record.record.subject == "数量关系", !hidesQuantityTypeLabel {
+            sections.append(14)
+        }
+
+        if isDataAnalysisComposite, !record.dataAnalysisMaterialText.isEmpty {
+            sections.append(CGFloat(estimatedLineCount(record.dataAnalysisMaterialText, width: contentWidth, fontSize: 11.5, limit: 2)) * 15)
+        }
+        if !record.imageValues.isEmpty {
+            let imageCount = min(isDataAnalysisComposite ? 1 : 3, record.imageValues.count)
+            sections.append(CGFloat(imageCount) * cardSize.imageMaximumHeight * 0.72 + CGFloat(max(0, imageCount - 1)) * 8)
+        }
+        sections.append(CGFloat(titleLines) * 19)
+
+        if !isDataAnalysisComposite, isAnalogyReasoning, !record.options.isEmpty {
+            var optionsHeight: CGFloat = CGFloat(max(0, record.options.count - 1)) * 4
+            for option in record.options {
+                optionsHeight += CGFloat(estimatedLineCount(option, width: contentWidth, fontSize: 13, limit: nil)) * 18
+            }
+            sections.append(optionsHeight)
+        }
+
+        var metadataRows: [CGFloat] = []
+        if record.record.subject == "数量关系", !record.quantityStructure.isEmpty {
+            metadataRows.append(estimatedFieldHeight("结构：" + record.quantityStructure, width: contentWidth, fontSize: 11))
+        }
+        if !record.comparisonWords.isEmpty {
+            metadataRows.append(estimatedTagLineHeight(label: "辨析", values: record.comparisonWords, width: contentWidth))
+        }
+        if isDataAnalysis {
+            if !record.dataAnalysisErrorCause.isEmpty {
+                metadataRows.append(estimatedFieldHeight("错因：" + record.dataAnalysisErrorCause, width: contentWidth, fontSize: 11))
+            }
+        } else {
+            if isAnalogyReasoning, !record.errorCause.isEmpty {
+                metadataRows.append(estimatedFieldHeight("二级辨析：" + record.errorCause, width: contentWidth, fontSize: 11))
+            } else {
+                let causes = splitTags(record.errorCause)
+                if !causes.isEmpty {
+                    metadataRows.append(estimatedTagLineHeight(label: "错因", values: causes, width: contentWidth))
+                }
+            }
+        }
+        if !record.pitfall.isEmpty {
+            metadataRows.append(estimatedFieldHeight("误区：" + record.pitfall, width: contentWidth, fontSize: 11))
+        }
+        if !record.reminder.isEmpty {
+            metadataRows.append(estimatedFieldHeight("提醒：" + record.reminder, width: contentWidth, fontSize: 11))
+        }
+        if !metadataRows.isEmpty {
+            sections.append(metadataRows.reduce(0, +) + CGFloat(metadataRows.count - 1) * 4)
+        }
+
+        let contentHeight = sections.reduce(0, +) + CGFloat(max(0, sections.count - 1)) * 8
+        return max(110, contentHeight + 28) // content plus vertical card padding
     }
+
+    private func estimatedFieldHeight(_ text: String, width: CGFloat, fontSize: CGFloat) -> CGFloat {
+        CGFloat(estimatedLineCount(text, width: width, fontSize: fontSize, limit: nil)) * 15
+    }
+
+    private func estimatedTagLineHeight(label: String, values: [String], width: CGFloat) -> CGFloat {
+        let labelWidth = CGFloat(label.count + 1) * 12
+        let contentWidth = max(1, width - labelWidth - 5)
+        var rows = 1
+        var rowWidth: CGFloat = 0
+        for value in values {
+            let itemWidth = CGFloat(value.count) * 11 + 14
+            if rowWidth > 0, rowWidth + 5 + itemWidth > contentWidth {
+                rows += 1
+                rowWidth = itemWidth
+            } else {
+                rowWidth += (rowWidth > 0 ? 5 : 0) + itemWidth
+            }
+        }
+        return CGFloat(rows) * 19
+    }
+
+    private func estimatedLineCount(_ text: String, width: CGFloat, fontSize: CGFloat, limit: Int?) -> Int {
+        let charactersPerLine = max(1, Int(floor(width / fontSize)))
+        let lineCount = max(1, Int(ceil(Double(text.count) / Double(charactersPerLine))))
+        return limit.map { min($0, lineCount) } ?? lineCount
+    }
+
+    private func splitTags(_ value: String) -> [String] {
+        value.split(whereSeparator: { "、,，".contains($0) })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+}
+
+private struct LibraryMasonryGridWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 private struct LibraryCardPressStyle: ButtonStyle {

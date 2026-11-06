@@ -44,6 +44,7 @@ struct LibraryRecordDetailView: View {
     let record: StoredRecord?
     let onEdit: () -> Void
     let onDelete: () -> Void
+    var onCancelEditRequest: () -> Void = {}
     var orderedRecordIDs: [String] = []
     var onNavigateToRecord: ((String) -> Void)? = nil
     var onOpenLinkedWord: ((String) -> Void)? = nil
@@ -63,6 +64,13 @@ struct LibraryRecordDetailView: View {
     @State private var linkedQuestionBankContext: QuestionBankQuestionAnalysisContext?
     @State private var linkedQuestionFallbackObject: [String: Any] = [:]
     @State private var editingAttribute: LibraryDetailAttribute?
+    @State private var isMaterialPaneOpen = false
+    @State private var pendingEditorRequestID: String?
+    @State private var pendingEditorTransitionRecordID: String?
+    @State private var editorTransitionErrorMessage: String?
+    @State private var didHandOffEditRequest = false
+    @State private var isActionsPopoverPresented = false
+    @State private var popoverEditRequestID: UUID?
 
     init(
         kind: LibraryContentKind,
@@ -70,6 +78,7 @@ struct LibraryRecordDetailView: View {
         record: StoredRecord,
         onEdit: @escaping () -> Void,
         onDelete: @escaping () -> Void,
+        onCancelEditRequest: @escaping () -> Void = {},
         orderedRecordIDs: [String] = [],
         onNavigateToRecord: ((String) -> Void)? = nil,
         onOpenLinkedWord: ((String) -> Void)? = nil
@@ -79,6 +88,7 @@ struct LibraryRecordDetailView: View {
         self.record = record
         self.onEdit = onEdit
         self.onDelete = onDelete
+        self.onCancelEditRequest = onCancelEditRequest
         self.orderedRecordIDs = orderedRecordIDs
         self.onNavigateToRecord = onNavigateToRecord
         self.onOpenLinkedWord = onOpenLinkedWord
@@ -119,6 +129,24 @@ struct LibraryRecordDetailView: View {
                     refreshObject([:])
                     payloadDecodeFailed = true
                 }
+            }
+            .onChange(of: activeRecordID) { _, _ in
+                if let pendingEditorRequestID {
+                    onCancelEditRequest()
+                    LibraryPerformanceLog.editorTransition(
+                        "menu-action",
+                        recordID: pendingEditorTransitionRecordID ?? pendingEditorRequestID,
+                        details: "cancelled-after-record-change",
+                        completes: true,
+                        transitionKey: "menu-action"
+                    )
+                    didHandOffEditRequest = false
+                }
+                isMaterialPaneOpen = false
+                pendingEditorRequestID = nil
+                pendingEditorTransitionRecordID = nil
+                editorTransitionErrorMessage = nil
+                didHandOffEditRequest = false
             }
     }
 
@@ -167,6 +195,25 @@ struct LibraryRecordDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .background(NativeNavigationInteraction(blocked: doodleSession.isPresented))
             .toolbar(.visible, for: .navigationBar)
+            .onAppear(perform: resetEditorRequestAfterReturn)
+            .onDisappear(perform: invalidateEditorRequestOnExit)
+            .onChange(of: isActionsPopoverPresented) { wasPresented, isPresented in
+                guard wasPresented, !isPresented, let requestID = popoverEditRequestID else { return }
+                Task { @MainActor in
+                    await Task.yield()
+                    guard popoverEditRequestID == requestID else { return }
+                    popoverEditRequestID = nil
+                    requestEdit()
+                }
+            }
+            .alert("无法打开编辑", isPresented: Binding(
+                get: { editorTransitionErrorMessage != nil },
+                set: { if !$0 { editorTransitionErrorMessage = nil } }
+            )) {
+                Button("好", role: .cancel) { editorTransitionErrorMessage = nil }
+            } message: {
+                Text(editorTransitionErrorMessage ?? "")
+            }
     }
 
     private var detailNavigationTitle: String {
@@ -187,24 +234,128 @@ struct LibraryRecordDetailView: View {
                     )
                     .padding(16)
                     .accessibilityIdentifier("library-record-detail-payload-error")
+                } else if showsDetachedDataAnalysisMaterial {
+                    dataAnalysisSplitLayout(availableSize: proxy.size)
                 } else {
                     detailScrollView(availableWidth: availableWidth)
                 }
                 detailModal
             }
+            .overlay(alignment: .top) {
+                if pendingEditorRequestID != nil {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("正在打开…")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.top, 8)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("正在打开编辑")
+                }
+            }
         }
     }
 
     private func detailScrollView(availableWidth: CGFloat) -> some View {
+        detailReadingScrollView(availableWidth: availableWidth, separatesDataAnalysisMaterial: false, showsDoodle: true)
+    }
+
+    @ViewBuilder
+    private func dataAnalysisSplitLayout(availableSize: CGSize) -> some View {
+        let horizontalSplit = availableSize.width >= 900 && availableSize.width > availableSize.height
+        if horizontalSplit {
+            let contentWidth = max(0, availableSize.width - 36)
+            let materialWidth = contentWidth * 0.49
+            let questionWidth = contentWidth - materialWidth
+            HStack(alignment: .top, spacing: 12) {
+                dataAnalysisMaterialPane(availableWidth: materialWidth)
+                    .frame(width: materialWidth)
+                    .frame(maxHeight: .infinity)
+                detailReadingScrollView(
+                    availableWidth: questionWidth,
+                    separatesDataAnalysisMaterial: true,
+                    showsDoodle: false
+                )
+                .frame(width: questionWidth)
+                .frame(maxHeight: .infinity)
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color.white)
+        } else {
+            let materialHeight = max(130, availableSize.height * 0.38)
+            let contentWidth = max(0, availableSize.width - 16)
+            VStack(spacing: 8) {
+                dataAnalysisMaterialPane(availableWidth: contentWidth)
+                    .frame(height: materialHeight)
+                detailReadingScrollView(
+                    availableWidth: contentWidth,
+                    separatesDataAnalysisMaterial: true,
+                    showsDoodle: false
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color.white)
+        }
+    }
+
+    private func dataAnalysisMaterialPane(availableWidth: CGFloat) -> some View {
+        VStack(spacing: 8) {
+            HStack {
+                Text("材料")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("收起材料") { isMaterialPaneOpen = false }
+                    .font(.system(size: 12, weight: .medium))
+                    .accessibilityIdentifier("library-data-analysis-material-close")
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    dataAnalysisMaterialBlock
+                    imagesBlock(availableWidth: max(1, availableWidth - 24))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+            }
+            .accessibilityIdentifier("library-data-analysis-material-scroll")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 0.8)
+        }
+    }
+
+    private func detailReadingScrollView(
+        availableWidth: CGFloat,
+        separatesDataAnalysisMaterial: Bool,
+        showsDoodle: Bool
+    ) -> some View {
         let readingColumnWidth = min(availableWidth.isFinite ? max(0, availableWidth) : 0, 920)
         return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                if kind == .errors {
+                    entryClassificationBadge
+                }
                 if !isRedoPractice {
                     metadata
                 }
                 if kind == .errors && isDataAnalysis {
-                    dataAnalysisMaterialBlock
-                    imagesBlock(availableWidth: max(0, readingColumnWidth - 32))
+                    if !separatesDataAnalysisMaterial {
+                        dataAnalysisMaterialAction
+                        dataAnalysisMaterialBlock
+                        imagesBlock(availableWidth: max(0, readingColumnWidth - 32))
+                    }
                     questionBlock
                 } else {
                     questionBankMaterialBlock
@@ -230,10 +381,12 @@ struct LibraryRecordDetailView: View {
             .padding(.bottom, 14)
             .frame(width: readingColumnWidth, alignment: .leading)
             .overlay {
-                LibraryDoodleContentLayer(
-                    session: doodleSession,
-                    targetRecordID: activeRecordID
-                )
+                if showsDoodle {
+                    LibraryDoodleContentLayer(
+                        session: doodleSession,
+                        targetRecordID: activeRecordID
+                    )
+                }
             }
             .frame(maxWidth: .infinity, alignment: .center)
         }
@@ -244,7 +397,31 @@ struct LibraryRecordDetailView: View {
         )
         .accessibilityIdentifier(displayQuestionBankContext.map {
             "question-bank-detail-scroll-\($0.question.id)"
-        } ?? "library-record-detail-scroll")
+        } ?? (separatesDataAnalysisMaterial ? "library-record-detail-question-scroll" : "library-record-detail-scroll"))
+    }
+
+    @ViewBuilder
+    private var dataAnalysisMaterialAction: some View {
+        if kind == .errors, isDataAnalysis, hasDataAnalysisMaterial {
+            Button {
+                isMaterialPaneOpen = true
+            } label: {
+                Label("弹出材料", systemImage: "rectangle.split.2x1")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier("library-data-analysis-material-open")
+        }
+    }
+
+    private var hasDataAnalysisMaterial: Bool {
+        !(firstText(["dataAnalysisMaterialText"]) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !imageValues.isEmpty
+    }
+
+    private var showsDetachedDataAnalysisMaterial: Bool {
+        kind == .errors && isDataAnalysis && hasDataAnalysisMaterial && isMaterialPaneOpen
     }
 
     private func navigateFromHorizontalSwipe(_ value: DragGesture.Value) {
@@ -307,7 +484,13 @@ struct LibraryRecordDetailView: View {
         } else {
             Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
                 .accessibilityLabel("涂鸦")
-            questionActionsMenu
+            if pendingEditorRequestID != nil || popoverEditRequestID != nil {
+                ProgressView()
+                    .frame(width: 44, height: 44)
+                    .accessibilityLabel("正在打开编辑")
+            } else {
+                questionActionsMenu
+            }
         }
     }
 
@@ -318,35 +501,87 @@ struct LibraryRecordDetailView: View {
             .accessibilityHidden(true)
     }
 
+    @ViewBuilder
     private var questionActionsMenu: some View {
+        if #available(iOS 18.1, *), UIDevice.current.userInterfaceIdiom == .pad {
+            Button {
+                isActionsPopoverPresented = true
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("题目操作")
+            .accessibilityIdentifier("library-record-actions")
+            .popover(
+                isPresented: $isActionsPopoverPresented,
+                attachmentAnchor: .point(.bottomTrailing),
+                arrowEdge: .top
+            ) {
+                actionPopoverContent
+                    .frame(width: 220)
+                    .presentationCompactAdaptation(.popover)
+            }
+        } else {
+            legacyQuestionActionsMenu
+        }
+    }
+
+    private var actionPopoverContent: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Button {
+                popoverEditRequestID = UUID()
+                isActionsPopoverPresented = false
+            } label: {
+                Label("编辑错题", systemImage: "pencil")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 8)
+            }
+            if supportsRedoMode {
+                Button {
+                    isActionsPopoverPresented = false
+                    redoPracticeEnabled.toggle()
+                } label: {
+                    Label(redoModeActionTitle, systemImage: "arrow.counterclockwise")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 8)
+                }
+            }
+            Button(role: .destructive) {
+                isActionsPopoverPresented = false
+                noteSession.finish { saved in
+                    if saved { showDelete = true }
+                }
+            } label: {
+                Label("删除错题", systemImage: "trash")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 8)
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(6)
+        .accessibilityIdentifier("library-record-actions-popover")
+    }
+
+    private var legacyQuestionActionsMenu: some View {
         Menu {
             Button {
-                LibraryPerformanceLog.editorTransition(
-                    "menu-action",
-                    recordID: record?.recordID ?? activeRecordID,
-                    begins: true
-                )
-                noteSession.finish { saved in
-                    LibraryPerformanceLog.editorTransition(
-                        "menu-note-finish",
-                        recordID: record?.recordID ?? activeRecordID,
-                        details: "saved=\(saved)",
-                        completes: !saved
-                    )
-                    if saved { onEdit() }
-                }
+                requestEdit()
             } label: {
                 Label("编辑错题", systemImage: "pencil")
             }
+            .disabled(pendingEditorRequestID != nil)
             if supportsRedoMode {
                 Button {
                     redoPracticeEnabled.toggle()
                 } label: {
-                    Label {
-                        Text("重做模式")
-                    } icon: {
-                        Image(systemName: redoPracticeEnabled ? "checkmark.circle.fill" : "arrow.counterclockwise")
-                    }
+                    Label(redoModeActionTitle, systemImage: "arrow.counterclockwise")
                 }
             }
             Button(role: .destructive) {
@@ -361,6 +596,113 @@ struct LibraryRecordDetailView: View {
         }
         .accessibilityLabel("题目操作")
         .accessibilityIdentifier("library-record-actions")
+    }
+
+    private func requestEdit() {
+        guard pendingEditorRequestID == nil, !doodleSession.isPresented else { return }
+        let requestID = activeRecordID
+        let transitionRecordID = record?.recordID ?? requestID
+        pendingEditorRequestID = requestID
+        pendingEditorTransitionRecordID = transitionRecordID
+        editorTransitionErrorMessage = nil
+        LibraryPerformanceLog.editorTransition(
+            "menu-action",
+            recordID: transitionRecordID,
+            details: "edit-request",
+            begins: true,
+            transitionKey: "menu-action"
+        )
+
+        guard noteSession.isEditing || noteSession.hasPendingChanges else {
+            handoffEditRequest(
+                requestID: requestID,
+                transitionRecordID: transitionRecordID,
+                detail: "note-clean-fast-path"
+            )
+            return
+        }
+
+        LibraryPerformanceLog.editorTransition(
+            "menu-note-finish",
+            recordID: transitionRecordID,
+            details: "waiting-for-note-save",
+            begins: true,
+            transitionKey: "note-finish"
+        )
+        noteSession.finish { saved in
+            LibraryPerformanceLog.editorTransition(
+                "menu-note-finish",
+                recordID: transitionRecordID,
+                details: "saved=\(saved)",
+                completes: true,
+                transitionKey: "note-finish"
+            )
+            guard self.pendingEditorRequestID == requestID, self.activeRecordID == requestID else { return }
+            guard saved else {
+                self.editorTransitionErrorMessage = self.noteSession.finishFailureMessage
+                    ?? "笔记尚未成功保存，编辑页面没有打开。"
+                self.pendingEditorRequestID = nil
+                self.pendingEditorTransitionRecordID = nil
+                LibraryPerformanceLog.editorTransition(
+                    "menu-action",
+                    recordID: transitionRecordID,
+                    details: "note-save-failed",
+                    completes: true,
+                    transitionKey: "menu-action"
+                )
+                return
+            }
+            self.handoffEditRequest(
+                requestID: requestID,
+                transitionRecordID: transitionRecordID,
+                detail: "note-saved"
+            )
+        }
+    }
+
+    private func handoffEditRequest(requestID: String, transitionRecordID: String, detail: String) {
+        guard pendingEditorRequestID == requestID, activeRecordID == requestID else { return }
+        didHandOffEditRequest = true
+        onEdit()
+        LibraryPerformanceLog.editorTransition(
+            "menu-action",
+            recordID: transitionRecordID,
+            details: detail,
+            completes: true,
+            transitionKey: "menu-action"
+        )
+    }
+
+    private func resetEditorRequestAfterReturn() {
+        guard pendingEditorRequestID != nil else { return }
+        pendingEditorRequestID = nil
+        pendingEditorTransitionRecordID = nil
+        didHandOffEditRequest = false
+    }
+
+    private func invalidateEditorRequestOnExit() {
+        guard let pendingEditorRequestID else {
+            popoverEditRequestID = nil
+            isActionsPopoverPresented = false
+            return
+        }
+        let wasHandedOff = didHandOffEditRequest
+        let transitionRecordID = pendingEditorTransitionRecordID ?? pendingEditorRequestID
+        self.pendingEditorRequestID = nil
+        pendingEditorTransitionRecordID = nil
+        didHandOffEditRequest = false
+        popoverEditRequestID = nil
+        isActionsPopoverPresented = false
+        onCancelEditRequest()
+        if !wasHandedOff {
+            LibraryPerformanceLog.editorTransition(
+                "menu-action",
+                recordID: transitionRecordID ?? pendingEditorRequestID,
+                details: "cancelled-after-detail-exit",
+                completes: true,
+                transitionKey: "menu-action"
+            )
+        }
     }
 
     private var metadata: some View {
@@ -424,7 +766,7 @@ struct LibraryRecordDetailView: View {
             let pitfall = firstText(["pitfall", "misconception", "thinkingTrap"]) ?? ""
             let reminder = firstText(["reminder"]) ?? ""
             if !isAnalogyReasoning || !pitfall.isEmpty {
-                metadataTextLine("误区", value: pitfall)
+                metadataTextLine(isDataAnalysis ? "陷阱" : "误区", value: pitfall)
             }
             if !isAnalogyReasoning || !reminder.isEmpty {
                 metadataTextLine(isAnalogyReasoning ? "常识" : "提醒", value: reminder)
@@ -1094,6 +1436,11 @@ struct LibraryRecordDetailView: View {
             .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
     }
 
+    private var entryClassificationBadge: some View {
+        metadataBadge(entryClassification, color: entryClassificationColor)
+            .accessibilityLabel("题目分类：\(entryClassification)")
+    }
+
     private var webBorder: Color { Color(red: 240.0 / 255.0, green: 240.0 / 255.0, blue: 242.0 / 255.0) }
 
     private var detailQuestionFont: Font { .system(size: 14.5, weight: .regular) }
@@ -1106,6 +1453,26 @@ struct LibraryRecordDetailView: View {
 
     private var masteryStatus: String {
         firstText(["status", "masteryStatus"]).map(clean) ?? "未掌握"
+    }
+
+    private var entryClassification: String {
+        switch clean(firstText(["type"]) ?? "") {
+        case "不确定题", "不确定": "不确定"
+        case "不会做": "不会做"
+        default: "错题"
+        }
+    }
+
+    private var entryClassificationColor: Color {
+        switch entryClassification {
+        case "不确定": AppTheme.warning
+        case "不会做": AppTheme.danger
+        default: AppTheme.accent
+        }
+    }
+
+    private var redoModeActionTitle: String {
+        redoPracticeEnabled ? "错题模式" : "重做模式"
     }
 
     private func existingAttributeKey(_ keys: [String], fallback: String) -> String {
@@ -1132,7 +1499,7 @@ struct LibraryRecordDetailView: View {
             if isQuantityRelations { return "errorCause" }
             return existingAttributeKey(["errorCause", "cause", "reason"], fallback: "errorCause")
         }
-        if label == "误区" { return existingAttributeKey(["pitfall", "misconception", "thinkingTrap"], fallback: "pitfall") }
+        if label == "误区" || label == "陷阱" { return existingAttributeKey(["pitfall", "misconception", "thinkingTrap"], fallback: "pitfall") }
         if label == "提醒" || label == "常识" { return "reminder" }
         if label.contains("结构") { return "quantityStructure" }
         if label.contains("规律") { return existingAttributeKey(["graphRule", "patternRule"], fallback: "graphRule") }
@@ -1399,6 +1766,23 @@ struct LibraryRecordDetailView: View {
     }
 
     private func openDoodle() {
+        if let pendingEditorRequestID {
+            let transitionRecordID = pendingEditorTransitionRecordID ?? record?.recordID ?? pendingEditorRequestID
+            self.pendingEditorRequestID = nil
+            pendingEditorTransitionRecordID = nil
+            didHandOffEditRequest = false
+            onCancelEditRequest()
+            LibraryPerformanceLog.editorTransition(
+                "menu-action",
+                recordID: transitionRecordID,
+                details: "cancelled-for-doodle",
+                completes: true,
+                transitionKey: "menu-action"
+            )
+        }
+        isActionsPopoverPresented = false
+        popoverEditRequestID = nil
+        isMaterialPaneOpen = false
         let openStart = ProcessInfo.processInfo.systemUptime
         LibraryPerformanceLog.event("doodle.tap id=\(LibraryPerformanceLog.shortIdentifier(activeRecordID))")
         let drawingData = firstText(["pencilKitData", "drawingData"]) ?? ""

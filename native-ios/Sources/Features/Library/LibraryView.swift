@@ -38,6 +38,7 @@ struct LibraryView: View {
     @State private var partitionStates: [LibraryReviewSource: LibraryPartitionState] = [:]
     @State private var showBulkSourcePicker = false
     @State private var sourceAssignmentError: String?
+    @State private var pendingEditorRouteKey: String?
     @AppStorage("native.library.graphDisplayMode") private var graphDisplayMode = "cards"
     @AppStorage("native.library.legacyIndexMigrationVersion") private var legacyIndexMigrationVersion = 0
 
@@ -102,11 +103,21 @@ struct LibraryView: View {
     }
 
     private func openEditorAfterMenuDismisses(kind: LibraryContentKind, recordID: String) {
-        LibraryPerformanceLog.editorTransition("push-request", recordID: recordID)
+        let routeKey = "\(kind.collection)|\(recordID)"
+        guard pendingEditorRouteKey == nil else { return }
+        pendingEditorRouteKey = routeKey
+        LibraryPerformanceLog.editorTransition(
+            "push-request",
+            recordID: recordID,
+            begins: true,
+            transitionKey: "route-push"
+        )
         Task { @MainActor in
-            LibraryPerformanceLog.editorTransition("push-start", recordID: recordID)
+            guard pendingEditorRouteKey == routeKey else { return }
+            LibraryPerformanceLog.editorTransition("push-start", recordID: recordID, transitionKey: "route-push")
             await Task.yield()
-            LibraryPerformanceLog.editorTransition("push-append", recordID: recordID)
+            guard pendingEditorRouteKey == routeKey else { return }
+            LibraryPerformanceLog.editorTransition("push-append", recordID: recordID, transitionKey: "route-push")
             if kind == .errors,
                let record = records.first(where: { $0.collection == kind.collection && $0.recordID == recordID }),
                record.isShenlunRecord,
@@ -115,12 +126,27 @@ struct LibraryView: View {
             } else {
                 navigationPath.append(.editor(kind: kind, recordID: recordID))
             }
+            pendingEditorRouteKey = nil
             LibraryPerformanceLog.editorTransition(
                 "push-end",
                 recordID: recordID,
-                completes: true
+                completes: true,
+                transitionKey: "route-push"
             )
         }
+    }
+
+    private func cancelPendingEditorRoute(kind: LibraryContentKind, recordID: String) {
+        let routeKey = "\(kind.collection)|\(recordID)"
+        guard pendingEditorRouteKey == routeKey else { return }
+        pendingEditorRouteKey = nil
+        LibraryPerformanceLog.editorTransition(
+            "push-cancel",
+            recordID: recordID,
+            details: "detail-action-cancelled",
+            completes: true,
+            transitionKey: "route-push"
+        )
     }
 
     @ViewBuilder
@@ -169,6 +195,7 @@ struct LibraryView: View {
                             remove(LibraryDeleteTarget(kind: kind, recordID: recordID))
                             popCurrentRoute()
                         },
+                        onCancelEditRequest: { cancelPendingEditorRoute(kind: kind, recordID: recordID) },
                         orderedRecordIDs: kind == .errors ? orderedVisibleErrorRecordIDs : [],
                         onNavigateToRecord: { nextRecordID in
                             replaceCurrentRoute(with: .detail(kind: .errors, recordID: nextRecordID))
@@ -353,7 +380,7 @@ struct LibraryView: View {
                             records: visibleRecords,
                             kind: kind,
                             cardSize: cardSize,
-                            partitionKey: "\(kind.collection)|\(scope.subject ?? "")|\(scope.module ?? "")|\(scope.reviewSource.rawValue)|\(selectedTag)|\(selectedQuantityType)",
+                            partitionKey: "\(kind.collection)|\(scope.subject ?? "")|\(scope.module ?? "")|\(scope.reviewSource.rawValue)|\(selectedStatus)|\(selectedTag)|\(selectedQuantityType)|\(searchText)",
                             onOpen: { open($0) },
                             onDelete: { deleteTarget = LibraryDeleteTarget(kind: kind, recordID: $0.record.recordID) },
                             hiddenTags: kind == .notes && !selectedTag.isEmpty ? [selectedTag] : [],
