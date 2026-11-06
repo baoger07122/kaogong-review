@@ -54,7 +54,6 @@ enum RootTab: String, CaseIterable, Identifiable {
 }
 
 struct RootTabView: View {
-    @Environment(\.horizontalSizeClass) private var windowHorizontalSizeClass
     @State private var selection: RootTab = .home
     @State private var selectionGeneration = 0
     @State private var homePath: [AppRoute] = []
@@ -67,7 +66,6 @@ struct RootTabView: View {
             TabView(selection: tabSelectionBinding) {
                 tabPages
             }
-            .environment(\.horizontalSizeClass, .compact)
             .environment(\.rootWindowTopInset, window.safeAreaInsets.top)
             .environment(\.rootTabSelection, $selection)
         }
@@ -88,7 +86,6 @@ struct RootTabView: View {
     private var tabPages: some View {
         ForEach(RootTab.availableTabs) { tab in
             tabContent(tab)
-                .environment(\.horizontalSizeClass, windowHorizontalSizeClass)
                 .modifier(RootTabFirstFrameMarker(
                     tab: tab,
                     isSelected: selection == tab,
@@ -127,6 +124,7 @@ struct RootTabView: View {
         switch tab {
         case .home:
             NavigationStack(path: $homePath) { HomeView() }
+                .toolbar(homePath.isEmpty ? .visible : .hidden, for: .tabBar)
         case .library:
             NavigationStack(path: $libraryPath) {
                 LibraryView(navigationPath: $libraryPath)
@@ -138,6 +136,7 @@ struct RootTabView: View {
             EmptyView()
         case .settings:
             NavigationStack(path: $settingsPath) { SettingsView() }
+                .toolbar(settingsPath.isEmpty ? .visible : .hidden, for: .tabBar)
         }
     }
 

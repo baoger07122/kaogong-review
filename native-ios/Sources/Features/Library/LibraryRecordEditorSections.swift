@@ -173,7 +173,6 @@ private struct LibraryErrorQuestionOptionsSection: View {
                 .padding(.vertical, 5)
                 .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
-                NativeFieldLabel(title: "选项")
                 ForEach(draft.options.indices, id: \.self) { index in
                     LibraryErrorOptionEditorRow(
                         index: index,
@@ -205,8 +204,8 @@ private struct LibraryErrorQuestionOptionsSection: View {
     }
 
     private func formCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6, content: content)
-            .padding(14)
+        VStack(alignment: .leading, spacing: 5, content: content)
+            .padding(10)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.8))
     }
@@ -222,12 +221,13 @@ private struct LibraryErrorOptionEditorRow: View {
     private var letter: String { String(UnicodeScalar(65 + index)!) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: StudyOptionRowLayout.verticalAlignment(hasText: !text.isEmpty), spacing: 7) {
                 Text(letter)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color.black)
-                    .frame(width: 28, height: 36)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppTheme.accent)
+                    .frame(width: 28, height: 28)
+                    .background(AppTheme.accent.opacity(0.10), in: Capsule())
                     .alignmentGuide(.firstTextBaseline) { dimensions in
                         dimensions[.firstTextBaseline]
                     }
@@ -235,8 +235,8 @@ private struct LibraryErrorOptionEditorRow: View {
                     .lineLimit(1...5)
                     .font(.system(size: 13.5, weight: .regular))
                     .padding(.horizontal, 11)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, minHeight: 36, alignment: .topLeading)
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .topLeading)
                     .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
                     .accessibilityLabel("选项 \(letter)")
@@ -267,7 +267,7 @@ private struct LibraryErrorOptionEditorRow: View {
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 }
 

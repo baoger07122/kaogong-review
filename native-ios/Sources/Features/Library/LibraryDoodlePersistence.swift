@@ -4,6 +4,70 @@ import SwiftData
 enum LibraryDoodlePersistence {
     @MainActor
     @discardableResult
+    static func saveSplitDrawings(
+        record: StoredRecord,
+        context: ModelContext,
+        drawingValues: [String: String]
+    ) -> String? {
+        guard !drawingValues.isEmpty else { return nil }
+        let totalStart = ProcessInfo.processInfo.systemUptime
+        let current = record.jsonObject ?? [:]
+        var storedByLayout = current["splitDoodleDrawings"] as? [String: Any] ?? [:]
+        var changed = false
+
+        for (storageKey, drawingData) in drawingValues {
+            let parts = storageKey.split(separator: ".", omittingEmptySubsequences: true).map(String.init)
+            guard parts.count == 2,
+                  LibraryDoodleLayoutDirection(rawValue: parts[0]) != nil,
+                  let pane = LibraryDoodlePane(rawValue: parts[1]) else { continue }
+            let layout = parts[0]
+            var storedByPane = storedByLayout[layout] as? [String: Any] ?? [:]
+            let oldValue = storedByPane[pane.rawValue] as? String ?? ""
+            guard oldValue != drawingData else { continue }
+            changed = true
+            if drawingData.isEmpty {
+                storedByPane.removeValue(forKey: pane.rawValue)
+            } else {
+                storedByPane[pane.rawValue] = drawingData
+            }
+            if storedByPane.isEmpty {
+                storedByLayout.removeValue(forKey: layout)
+            } else {
+                storedByLayout[layout] = storedByPane
+            }
+        }
+
+        guard changed else {
+            LibraryPerformanceLog.mark("doodle.split-save.skipped-unchanged", since: totalStart)
+            return nil
+        }
+
+        var updated = current
+        if storedByLayout.isEmpty {
+            updated.removeValue(forKey: "splitDoodleDrawings")
+        } else {
+            updated["splitDoodleDrawings"] = storedByLayout
+        }
+        updated["updatedAt"] = ISO8601DateFormatter().string(from: .now)
+
+        do {
+            let payloadStart = ProcessInfo.processInfo.systemUptime
+            let payload = try JSONSerialization.data(withJSONObject: updated, options: [.sortedKeys])
+            LibraryPerformanceLog.mark("doodle.split-save.payload", since: payloadStart)
+            record.replacePayload(payload)
+            record.updatedAt = .now
+            let contextSaveStart = ProcessInfo.processInfo.systemUptime
+            try context.save()
+            LibraryPerformanceLog.mark("doodle.split-save.context", since: contextSaveStart)
+        } catch {
+            return "涂鸦未保存：\(error.localizedDescription)"
+        }
+        LibraryPerformanceLog.mark("doodle.split-save.total", since: totalStart)
+        return nil
+    }
+
+    @MainActor
+    @discardableResult
     static func save(
         record: StoredRecord,
         context: ModelContext,

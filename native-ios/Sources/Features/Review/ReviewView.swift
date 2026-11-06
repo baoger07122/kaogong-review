@@ -207,7 +207,6 @@ struct ReviewView: View {
                     .background(AppTheme.groupedBackground)
                     .navigationTitle("复习训练")
                     .navigationBarTitleDisplayMode(.inline)
-                    .rootTabBarContentInset()
                     .secondaryPageTabBarHidden()
             }
             .onAppear {

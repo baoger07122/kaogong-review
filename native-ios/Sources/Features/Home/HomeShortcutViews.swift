@@ -12,6 +12,7 @@ struct HomeShortcutView: View {
             StudyReportView()
         case .speedPractice:
             SpeedPracticeView()
+                .secondaryPageTabBarHidden()
         case .exams:
             ExamsView()
         case .currentAffairs:

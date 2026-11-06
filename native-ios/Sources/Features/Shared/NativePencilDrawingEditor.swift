@@ -1046,3 +1046,54 @@ enum PencilDrawingCompatibility {
         return "data:image/png;base64,\(png.base64EncodedString())"
     }
 }
+
+struct NativePencilDrawingPreview: UIViewRepresentable {
+    let encodedData: String
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> PKCanvasView {
+        let canvas = PKCanvasView(frame: .zero)
+        canvas.backgroundColor = .clear
+        canvas.isOpaque = false
+        canvas.isUserInteractionEnabled = false
+        canvas.isScrollEnabled = false
+        canvas.minimumZoomScale = 1
+        canvas.maximumZoomScale = 1
+        canvas.bounces = false
+        canvas.bouncesZoom = false
+        canvas.showsVerticalScrollIndicator = false
+        canvas.showsHorizontalScrollIndicator = false
+        canvas.contentInsetAdjustmentBehavior = .never
+        return canvas
+    }
+
+    func updateUIView(_ canvas: PKCanvasView, context: Context) {
+        context.coordinator.load(encodedData, into: canvas)
+    }
+
+    final class Coordinator {
+        private var requestedData: String?
+        private var requestID = UUID()
+
+        func load(_ encodedData: String, into canvas: PKCanvasView) {
+            guard requestedData != encodedData else { return }
+            requestedData = encodedData
+            let requestID = UUID()
+            self.requestID = requestID
+
+            guard !encodedData.isEmpty else {
+                canvas.drawing = PKDrawing()
+                return
+            }
+
+            DispatchQueue.global(qos: .userInitiated).async { [weak self, weak canvas] in
+                let drawing = Data(base64Encoded: encodedData).flatMap { try? PKDrawing(data: $0) }
+                DispatchQueue.main.async {
+                    guard let self, let canvas, self.requestID == requestID else { return }
+                    canvas.drawing = drawing ?? PKDrawing()
+                }
+            }
+        }
+    }
+}

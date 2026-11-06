@@ -1,6 +1,16 @@
 import SwiftUI
 import UIKit
 
+enum LibraryDoodlePane: String, CaseIterable, Hashable {
+    case material
+    case question
+}
+
+enum LibraryDoodleLayoutDirection: String, CaseIterable, Hashable {
+    case horizontal
+    case vertical
+}
+
 @MainActor
 private final class LibraryOneShotDisplayLink: NSObject {
     private var displayLink: CADisplayLink?
@@ -30,9 +40,15 @@ final class LibraryDoodleSession: ObservableObject {
     @Published private(set) var isLoadingDrawing = false
     @Published private(set) var targetRecordID: String?
     @Published private(set) var presentationSource = "unknown"
+    @Published private(set) var activeSplitDrawingPane: LibraryDoodlePane?
+    @Published private(set) var splitDrawingValues: [String: String] = [:]
+    @Published private(set) var splitDrawingRecordID: String?
+    @Published private(set) var splitDrawingLayoutDirection: LibraryDoodleLayoutDirection = .vertical
+    @Published private(set) var hasPendingSplitDrawingChanges = false
     let canvas = LibraryDoodleCanvasState()
     private var saveHandler: ((String, Bool, Int, Int) -> String?)?
     private var isDismissing = false
+    private var splitDrawingBaseline: [String: String] = [:]
     private var drawingLoadFailed = false
     private var drawingLoadDataReceived = false
     private(set) var presentationGeneration = 0
@@ -49,6 +65,11 @@ final class LibraryDoodleSession: ObservableObject {
     var hasUnsavedDrawingChanges: Bool {
         canvas.controller.userDrawingRevision > drawingRevisionAtPresentation
             || canvas.controller.legacyPreviewCleared
+            || hasPendingSplitDrawingChanges
+    }
+
+    var isSplitDrawingSession: Bool {
+        activeSplitDrawingPane != nil
     }
 
     func present(
@@ -57,11 +78,15 @@ final class LibraryDoodleSession: ObservableObject {
         legacyPreviewDataURL: String,
         isLoadingDrawing: Bool = false,
         source: String,
+        splitDrawingPane: LibraryDoodlePane? = nil,
+        splitDrawingValues: [String: String] = [:],
+        splitDrawingBaseline: [String: String] = [:],
+        splitDrawingLayoutDirection: LibraryDoodleLayoutDirection = .vertical,
         interactionStartedAt: TimeInterval? = nil,
         onFirstCanvasFrame: (() -> Void)? = nil,
         onSave: @escaping (String, Bool, Int, Int) -> String?
     ) {
-        guard !isPresented else { return }
+        guard !isPresented, !isDismissing else { return }
         let preparationStart = ProcessInfo.processInfo.systemUptime
         let interactionStart = interactionStartedAt ?? preparationStart
         drawingLoadTask?.cancel()
@@ -73,6 +98,19 @@ final class LibraryDoodleSession: ObservableObject {
         drawingLoadDataReceived = false
         self.isLoadingDrawing = isLoadingDrawing
         presentationSource = source
+        activeSplitDrawingPane = splitDrawingPane
+        if splitDrawingPane != nil {
+            let keepPendingValues = hasPendingSplitDrawingChanges && splitDrawingRecordID == targetRecordID
+            if !keepPendingValues {
+                self.splitDrawingValues = splitDrawingValues
+                self.splitDrawingBaseline = splitDrawingBaseline.isEmpty ? splitDrawingValues : splitDrawingBaseline
+            }
+            self.splitDrawingRecordID = targetRecordID
+            self.splitDrawingLayoutDirection = splitDrawingLayoutDirection
+            hasPendingSplitDrawingChanges = !pendingSplitDrawingValues().isEmpty
+        } else if !(hasPendingSplitDrawingChanges && splitDrawingRecordID == targetRecordID) {
+            clearSplitDrawingSession()
+        }
         presentationStartedAt = interactionStart
         didLogCanvasFrame = false
         didLogCanvasInteractive = false
@@ -80,6 +118,7 @@ final class LibraryDoodleSession: ObservableObject {
         self.onFirstCanvasFrame = onFirstCanvasFrame
         self.targetRecordID = targetRecordID
         canvas.canvasFrameInGlobal = nil
+        canvas.canvasFrameOwnerID = nil
         canvas.controller.canvasReady = false
         canvas.controller.canvasLoadError = nil
         canvas.drawingData = drawingData
@@ -93,6 +132,68 @@ final class LibraryDoodleSession: ObservableObject {
         transaction.disablesAnimations = true
         withTransaction(transaction) { isPresented = true }
         LibraryPerformanceLog.mark("doodle.overlay-state", since: interactionStart)
+    }
+
+    func requestSplitDrawingPane(_ pane: LibraryDoodlePane) {
+        guard isPresented, !isDismissing, activeSplitDrawingPane != nil,
+              activeSplitDrawingPane != pane else { return }
+        let generation = presentationGeneration
+        canvas.controller.commit { [weak self] in
+            guard let self, self.isPresented,
+                  self.presentationGeneration == generation,
+                  self.activeSplitDrawingPane != nil else { return }
+            self.canvas.canvasFrameInGlobal = nil
+            self.canvas.canvasFrameOwnerID = nil
+            self.activeSplitDrawingPane = pane
+        }
+    }
+
+    func splitDrawingData(for pane: LibraryDoodlePane, layout: LibraryDoodleLayoutDirection) -> String {
+        splitDrawingValues[Self.splitDrawingStorageKey(pane: pane, layout: layout)] ?? ""
+    }
+
+    func updateSplitDrawingData(
+        _ drawingData: String,
+        for pane: LibraryDoodlePane,
+        layout: LibraryDoodleLayoutDirection
+    ) {
+        guard splitDrawingRecordID == targetRecordID else { return }
+        let key = Self.splitDrawingStorageKey(pane: pane, layout: layout)
+        guard splitDrawingValues[key] != drawingData else { return }
+        var values = splitDrawingValues
+        values[key] = drawingData
+        splitDrawingValues = values
+        hasPendingSplitDrawingChanges = !pendingSplitDrawingValues().isEmpty
+        if isPresented, activeSplitDrawingPane == pane, splitDrawingLayoutDirection == layout {
+            canvas.drawingData = drawingData
+        }
+    }
+
+    func pendingSplitDrawingValues() -> [String: String] {
+        Dictionary(uniqueKeysWithValues: splitDrawingValues.compactMap { key, value in
+            splitDrawingBaseline[key] == value ? nil : (key, value)
+        })
+    }
+
+    func splitDrawingBaselineValues() -> [String: String] {
+        splitDrawingBaseline
+    }
+
+    func markSplitDrawingValuesSaved() {
+        splitDrawingBaseline = splitDrawingValues
+        hasPendingSplitDrawingChanges = false
+    }
+
+    static func splitDrawingStorageKey(
+        pane: LibraryDoodlePane,
+        layout: LibraryDoodleLayoutDirection
+    ) -> String {
+        "\(layout.rawValue).\(pane.rawValue)"
+    }
+
+    func commitCurrentDrawing(_ completion: @escaping () -> Void) {
+        guard isPresented else { completion(); return }
+        canvas.controller.commit(completion)
     }
 
     func completeDrawingLoad(_ drawingData: String) {
@@ -144,20 +245,31 @@ final class LibraryDoodleSession: ObservableObject {
     }
 
     func dismiss() {
-        guard isPresented, !isDismissing else { return }
+        dismiss(reopenOnSaveFailure: true, completion: nil)
+    }
+
+    func dismiss(
+        reopenOnSaveFailure: Bool,
+        completion: ((String?) -> Void)?
+    ) {
+        guard isPresented, !isDismissing else { completion?(nil); return }
         if isLoadingDrawing {
             let closeStart = ProcessInfo.processInfo.systemUptime
             drawingLoadTask?.cancel()
             drawingLoadTask = nil
             saveHandler = nil
             finishDismissal()
+            clearSplitDrawingSession()
             isDismissing = false
             LibraryPerformanceLog.mark("doodle.close-while-loading", since: closeStart)
+            completion?(nil)
             return
         }
         if drawingLoadFailed {
             saveHandler = nil
             finishDismissal()
+            clearSplitDrawingSession()
+            completion?(nil)
             return
         }
         isDismissing = true
@@ -175,6 +287,7 @@ final class LibraryDoodleSession: ObservableObject {
                   self.targetRecordID == dismissalTargetRecordID else { return }
             guard self.canvas.controller.drawingLoadRevision == dismissalLoadRevision else {
                 self.isDismissing = false
+                completion?("涂鸦画布已切换，未能安全结束当前涂鸦。")
                 return
             }
             let drawingData = self.canvas.drawingData
@@ -191,8 +304,10 @@ final class LibraryDoodleSession: ObservableObject {
 
             guard hasChanges else {
                 self.saveHandler = nil
+                self.clearSplitDrawingSession()
                 self.isDismissing = false
                 LibraryPerformanceLog.mark("doodle.close-no-change", since: closeStart)
+                completion?(nil)
                 return
             }
 
@@ -201,14 +316,22 @@ final class LibraryDoodleSession: ObservableObject {
                 let saveStart = ProcessInfo.processInfo.systemUptime
                 if let error = handler?(drawingData, legacyPreviewCleared, dismissalGeneration, drawingRevision) {
                     self.saveError = error
-                    self.saveHandler = handler
                     self.isDismissing = false
-                    self.isPresented = true
+                    if reopenOnSaveFailure {
+                        self.saveHandler = handler
+                        self.isPresented = true
+                    } else {
+                        self.saveHandler = nil
+                        self.clearSplitDrawingSession(keepingPendingValues: true)
+                    }
+                    completion?(error)
                     return
                 }
                 LibraryPerformanceLog.mark("doodle.save-handler", since: saveStart)
                 self.saveHandler = nil
+                self.clearSplitDrawingSession()
                 self.isDismissing = false
+                completion?(nil)
             }
         }
 
@@ -219,6 +342,16 @@ final class LibraryDoodleSession: ObservableObject {
             // full PKDrawing serialization when there is no pending stroke.
             completeSnapshot()
         }
+    }
+
+    private func clearSplitDrawingSession(keepingPendingValues: Bool = false) {
+        activeSplitDrawingPane = nil
+        guard !keepingPendingValues || !hasPendingSplitDrawingChanges else { return }
+        splitDrawingValues = [:]
+        splitDrawingBaseline = [:]
+        splitDrawingRecordID = nil
+        splitDrawingLayoutDirection = .vertical
+        hasPendingSplitDrawingChanges = false
     }
 
     func noteCanvasFramePreference() {
@@ -258,6 +391,8 @@ final class LibraryDoodleSession: ObservableObject {
         pendingFirstFrameCallback = nil
         onFirstCanvasFrame = nil
         canvas.controller.showSettings = false
+        canvas.canvasFrameInGlobal = nil
+        canvas.canvasFrameOwnerID = nil
         isLoadingDrawing = false
         drawingLoadFailed = false
         drawingLoadDataReceived = false
@@ -274,6 +409,7 @@ final class LibraryDoodleCanvasState: ObservableObject {
     @Published var drawingData = ""
     @Published var legacyPreviewDataURL = ""
     @Published var canvasFrameInGlobal: CGRect?
+    @Published var canvasFrameOwnerID: String?
     let controller = PencilDrawingController()
 }
 
@@ -402,6 +538,15 @@ struct LibraryDoodleOverlay: View {
         NativeDoodleToolbarCapsule {
             toolbarButton("xmark", label: "退出涂鸦", action: session.dismiss)
                 .accessibilityIdentifier("library-doodle-close")
+            if session.isSplitDrawingSession {
+                splitPaneButton(.material, title: "材料")
+                splitPaneButton(.question, title: "题目")
+                Rectangle()
+                    .fill(Color.primary.opacity(0.12))
+                    .frame(width: 1, height: 20)
+                    .padding(.horizontal, 2)
+                    .accessibilityHidden(true)
+            }
             toolbarButton(
                 controller.eraser ? "pencil.tip.crop.circle" : "pencil.tip.crop.circle.fill",
                 label: "画笔",
@@ -431,6 +576,25 @@ struct LibraryDoodleOverlay: View {
                 controller.fingerDrawingEnabled.toggle()
             }
         }
+    }
+
+    private func splitPaneButton(_ pane: LibraryDoodlePane, title: String) -> some View {
+        let isSelected = session.activeSplitDrawingPane == pane
+        return Button {
+            session.requestSplitDrawingPane(pane)
+        } label: {
+            Text(title)
+                .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+                .foregroundStyle(isSelected ? AppTheme.accent : Color.secondary)
+                .frame(minWidth: 30, height: 30)
+                .padding(.horizontal, 3)
+                .background(isSelected ? AppTheme.accent.opacity(0.12) : .clear, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(LibraryDoodleToolbarButtonStyle())
+        .accessibilityLabel("涂鸦目标：\(title)")
+        .accessibilityValue(isSelected ? "当前目标" : "未选择")
+        .accessibilityIdentifier("library-doodle-target-\(pane.rawValue)")
     }
 
     private func toolbarButton(
@@ -563,16 +727,128 @@ struct LibraryDoodleContentLayer: View {
         .onPreferenceChange(LibraryDoodleCanvasFramePreferenceKey.self) { frames in
             guard session.targetRecordID == targetRecordID else { return }
             guard let frame = frames[canvasFramePreferenceID] else {
-                session.canvas.canvasFrameInGlobal = nil
+                if session.canvas.canvasFrameOwnerID == canvasFramePreferenceID {
+                    session.canvas.canvasFrameInGlobal = nil
+                    session.canvas.canvasFrameOwnerID = nil
+                }
                 return
             }
             session.canvas.canvasFrameInGlobal = frame
+            session.canvas.canvasFrameOwnerID = canvasFramePreferenceID
             session.noteCanvasFramePreference()
         }
         .onDisappear {
-            guard session.targetRecordID == targetRecordID else { return }
+            guard session.targetRecordID == targetRecordID,
+                  session.canvas.canvasFrameOwnerID == canvasFramePreferenceID else { return }
             session.canvas.canvasFrameInGlobal = nil
+            session.canvas.canvasFrameOwnerID = nil
         }
+    }
+}
+
+/// One split-pane PencilKit surface. The selected pane receives input while the
+/// other pane keeps a read-only drawing in the same scrolling content space.
+struct LibraryDoodleSplitContentLayer: View {
+    @ObservedObject var session: LibraryDoodleSession
+    let targetRecordID: String
+    let pane: LibraryDoodlePane
+    let layoutDirection: LibraryDoodleLayoutDirection
+    @Binding var drawingData: String
+    var minimumCanvasHeight: CGFloat = 260
+    @ObservedObject private var controller: PencilDrawingController
+
+    private var framePreferenceID: String {
+        "\(targetRecordID)|split|\(layoutDirection.rawValue)|\(pane.rawValue)|\(controller.drawingLoadRevision)"
+    }
+
+    private var isCurrentSplitSession: Bool {
+        session.isPresented
+            && session.isSplitDrawingSession
+            && session.targetRecordID == targetRecordID
+    }
+
+    private var isActiveTarget: Bool {
+        isCurrentSplitSession && session.activeSplitDrawingPane == pane
+    }
+
+    init(
+        session: LibraryDoodleSession,
+        targetRecordID: String,
+        pane: LibraryDoodlePane,
+        layoutDirection: LibraryDoodleLayoutDirection,
+        drawingData: Binding<String>,
+        minimumCanvasHeight: CGFloat = 260
+    ) {
+        self.session = session
+        self.targetRecordID = targetRecordID
+        self.pane = pane
+        self.layoutDirection = layoutDirection
+        _drawingData = drawingData
+        self.minimumCanvasHeight = minimumCanvasHeight
+        _controller = ObservedObject(wrappedValue: session.canvas.controller)
+    }
+
+    var body: some View {
+        Group {
+            if isCurrentSplitSession {
+                GeometryReader { proxy in
+                    Group {
+                        if isActiveTarget {
+                            NativePencilDrawingEditor(
+                                encodedData: $drawingData,
+                                transparentBackground: true,
+                                toolbarAtTop: false,
+                                isActive: true,
+                                minimumCanvasHeight: minimumCanvasHeight,
+                                settingsPanelPresentedExternally: true,
+                                controller: controller,
+                                onClose: session.dismiss
+                            )
+                        } else {
+                            NativePencilDrawingPreview(encodedData: drawingData)
+                        }
+                    }
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .preference(
+                        key: LibraryDoodleCanvasFramePreferenceKey.self,
+                        value: isActiveTarget ? [framePreferenceID: proxy.frame(in: .global)] : [:]
+                    )
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minHeight: minimumCanvasHeight)
+                .contentShape(Rectangle())
+                .allowsHitTesting(isActiveTarget)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("library-doodle-split-layer-\(pane.rawValue)-\(targetRecordID)")
+            } else {
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(minHeight: minimumCanvasHeight)
+                    .accessibilityHidden(true)
+                    .allowsHitTesting(false)
+            }
+        }
+        .onPreferenceChange(LibraryDoodleCanvasFramePreferenceKey.self) { frames in
+            guard isActiveTarget else { return }
+            guard let frame = frames[framePreferenceID] else {
+                clearCanvasFrameIfOwned()
+                return
+            }
+            session.canvas.canvasFrameInGlobal = frame
+            session.canvas.canvasFrameOwnerID = framePreferenceID
+            session.noteCanvasFramePreference()
+        }
+        .onChange(of: isActiveTarget) { _, isActive in
+            guard !isActive else { return }
+            clearCanvasFrameIfOwned()
+        }
+        .onDisappear(perform: clearCanvasFrameIfOwned)
+    }
+
+    private func clearCanvasFrameIfOwned() {
+        guard session.canvas.canvasFrameOwnerID == framePreferenceID else { return }
+        session.canvas.canvasFrameInGlobal = nil
+        session.canvas.canvasFrameOwnerID = nil
     }
 }
 

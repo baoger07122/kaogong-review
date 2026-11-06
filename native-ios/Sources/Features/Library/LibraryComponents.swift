@@ -391,7 +391,7 @@ private struct LibraryErrorRecordCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            quantitySourceLine
+            questionKnowledgeHeader
 
             if isDataAnalysisComposite, !snapshot.dataAnalysisMaterialText.isEmpty {
                 Text(snapshot.dataAnalysisMaterialText)
@@ -640,30 +640,48 @@ private struct LibraryErrorRecordCard: View {
     private var showsQuantityTypeInHeader: Bool { isQuantityRelations && !hidesQuantityTypeLabel }
 
     @ViewBuilder
-    private var quantitySourceLine: some View {
+    private var questionKnowledgeHeader: some View {
         let points = snapshot.knowledgePoints.joined(separator: " | ")
-        if !points.isEmpty || showsQuantityTypeInHeader {
-            HStack(spacing: 6) {
-                if !points.isEmpty {
-                    Image(systemName: "lightbulb.min")
-                        .font(.system(size: 10, weight: .regular))
-                    Text(points)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Spacer(minLength: 0)
-                }
-
+        if isQuantityRelations {
+            VStack(alignment: .leading, spacing: 6) {
                 if showsQuantityTypeInHeader {
-                    Text(quantityQuestionTypeTitle)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
+                    knowledgeHeaderTag(quantityQuestionTypeTitle)
+                }
+                if !points.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: "lightbulb.min")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(.secondary)
+                        Text(points)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .font(.system(size: 11, weight: .regular))
-            .foregroundStyle(.secondary)
+        } else if !points.isEmpty {
+            HStack(spacing: 6) {
+                Image(systemName: "lightbulb.min")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(AppTheme.accent)
+                knowledgeHeaderTag(points)
+                Spacer(minLength: 0)
+            }
         }
+    }
+
+    private func knowledgeHeaderTag(_ value: String) -> some View {
+        Text(value)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(AppTheme.accent)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(AppTheme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 
     private var isDataAnalysis: Bool { SubjectModuleTitle.normalized(snapshot.subject) == "资料分析" }
@@ -1144,10 +1162,16 @@ struct LibraryMasonryGrid: View {
         let contentWidth = max(1, availableWidth - 28)
         let titleLines = estimatedLineCount(record.title, width: contentWidth, fontSize: 14, limit: isDataAnalysisComposite ? 2 : cardSize.questionLineLimit)
         var sections: [CGFloat] = []
-        if !record.knowledgePoints.isEmpty {
-            sections.append(CGFloat(estimatedLineCount(record.knowledgePoints.joined(separator: " | "), width: contentWidth, fontSize: 11, limit: 1)) * 14)
-        } else if record.record.subject == "数量关系", !hidesQuantityTypeLabel {
-            sections.append(14)
+        if record.record.subject == "数量关系" {
+            var quantityHeaderHeight: CGFloat = 0
+            if !hidesQuantityTypeLabel { quantityHeaderHeight += 21 }
+            if !record.knowledgePoints.isEmpty {
+                if quantityHeaderHeight > 0 { quantityHeaderHeight += 6 }
+                quantityHeaderHeight += 14
+            }
+            if quantityHeaderHeight > 0 { sections.append(quantityHeaderHeight) }
+        } else if !record.knowledgePoints.isEmpty {
+            sections.append(21)
         }
 
         if isDataAnalysisComposite, !record.dataAnalysisMaterialText.isEmpty {
