@@ -3,6 +3,8 @@ import Foundation
 enum AppRoute: Hashable {
     case todoStats
     case studyReport
+    case wordReview
+    case wordReviewWordDetail(String)
     case speedPractice
     case exams
     case currentAffairs

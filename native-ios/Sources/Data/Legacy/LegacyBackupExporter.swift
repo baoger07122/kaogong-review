@@ -31,6 +31,8 @@ enum LegacyBackupExporter {
         ("todos", "todos"),
         ("subject_reviews", "subjectReviews"),
         ("words", "words"),
+        ("word_review_plans", "wordReviewPlans"),
+        ("word_review_history", "wordReviewHistory"),
         ("stickies", "stickies")
     ]
 

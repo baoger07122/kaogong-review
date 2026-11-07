@@ -190,7 +190,6 @@ struct LibraryPartitionState {
     var expandedSubject: String?
     var kind: LibraryContentKind
     var searchText: String
-    var selectedStatus: String
     var selectedTag: String
     var selectedQuantityType: String
     var renderLimit: Int

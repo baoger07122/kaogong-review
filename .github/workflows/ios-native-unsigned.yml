@@ -134,6 +134,12 @@ jobs:
             native-ios/Tests/SpeedGrowthPresentationBehavior.swift \
             -o "$RUNNER_TEMP/speed-growth-presentation-behavior"
           "$RUNNER_TEMP/speed-growth-presentation-behavior"
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Home/WordReviewSchedulingPolicy.swift \
+            native-ios/Sources/Data/Legacy/LegacyWordReviewRestorePolicy.swift \
+            native-ios/Tests/WordReviewDomainBehavior.swift \
+            -o "$RUNNER_TEMP/word-review-domain-behavior"
+          "$RUNNER_TEMP/word-review-domain-behavior"
 
       - name: Detect simulator test scope
         id: simulator_scope

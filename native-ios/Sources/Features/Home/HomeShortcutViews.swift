@@ -10,6 +10,10 @@ struct HomeShortcutView: View {
             TodoStatsView()
         case .studyReport:
             StudyReportView()
+        case .wordReview:
+            WordReviewView()
+        case let .wordReviewWordDetail(recordID):
+            WordReviewWordDetailDestination(recordID: recordID)
         case .speedPractice:
             SpeedPracticeView()
                 .secondaryPageTabBarHidden()
@@ -39,6 +43,8 @@ struct HomeShortcutView: View {
         switch route {
         case .todoStats: "待办统计"
         case .studyReport: "学习报告"
+        case .wordReview: "词语复习"
+        case .wordReviewWordDetail: "词语详情"
         case .speedPractice: "速算练习"
         case .exams: "套卷记录"
         case .currentAffairs: "时政常识"

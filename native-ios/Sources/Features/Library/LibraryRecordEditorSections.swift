@@ -224,10 +224,9 @@ private struct LibraryErrorOptionEditorRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: StudyOptionRowLayout.verticalAlignment(hasText: !text.isEmpty), spacing: 7) {
                 Text(letter)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(AppTheme.accent)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.black)
                     .frame(width: 28, height: 28)
-                    .background(AppTheme.accent.opacity(0.10), in: Capsule())
                     .alignmentGuide(.firstTextBaseline) { dimensions in
                         dimensions[.firstTextBaseline]
                     }
@@ -516,6 +515,7 @@ private struct LibraryErrorAnalysisSection: View {
     private var isQuantity: Bool { draft.subject == "数量关系" }
     private var isDataAnalysis: Bool { draft.subject == "资料分析" }
     private var isAnalogy: Bool { draft.subject == "判断推理" && draft.module == "类比推理" }
+    private var isLogicFill: Bool { draft.subject == "言语理解" && draft.module == "逻辑填空" }
     private var isLogicJudgment: Bool { draft.subject == "判断推理" && draft.module == "逻辑判断" }
     private var knowledgeLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
     private var causeLabel: String { isLogicJudgment ? "选项逻辑作用" : (isAnalogy ? "二级辨析" : "错因") }
@@ -539,32 +539,6 @@ private struct LibraryErrorAnalysisSection: View {
         }
     }
 
-    private var questionMarkers: some View {
-        HStack(spacing: 7) {
-            Text("题目标记")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-            markerChip("难题", isOn: $draft.isDifficult)
-            markerChip("待复习", isOn: $draft.needsReview)
-            Spacer(minLength: 0)
-        }
-    }
-
-    private func markerChip(_ title: String, isOn: Binding<Bool>) -> some View {
-        Button { isOn.wrappedValue.toggle() } label: {
-            Label(title, systemImage: isOn.wrappedValue ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(isOn.wrappedValue ? AppTheme.accent : Color.secondary)
-                .padding(.horizontal, 8)
-                .frame(height: 28)
-                .background(isOn.wrappedValue ? AppTheme.accent.opacity(0.08) : Color.white, in: Capsule())
-                .overlay(Capsule().stroke(isOn.wrappedValue ? AppTheme.accent.opacity(0.28) : Color.primary.opacity(0.10), lineWidth: 0.7))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(title)标记")
-        .accessibilityAddTraits(isOn.wrappedValue ? .isSelected : [])
-    }
-
     private var quantityAnalysis: some View {
         VStack(alignment: .leading, spacing: 7) {
             Label("题型分析", systemImage: "tag").font(.system(size: 13, weight: .medium))
@@ -572,7 +546,6 @@ private struct LibraryErrorAnalysisSection: View {
             quantityTagInput(title: "考点", value: draft.knowledgePoint) { showQuantityKnowledgePoints = true }
             tagInput(title: "错因", text: quantityErrorCause, allowsMultiple: true)
             plainTextInput(label: "提醒", text: $draft.reminder)
-            questionMarkers
         }
         .padding(14)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -590,9 +563,10 @@ private struct LibraryErrorAnalysisSection: View {
             } else {
                 tagInput(title: causeLabel, text: $draft.errorCause, allowsMultiple: false)
             }
-            plainTextInput(label: isDataAnalysis ? "陷阱" : "思维误区", text: $draft.pitfall)
+            if !isLogicFill {
+                plainTextInput(label: isDataAnalysis ? "陷阱" : "思维误区", text: $draft.pitfall)
+            }
             plainTextInput(label: isAnalogy ? "常识" : "提醒", text: $draft.reminder)
-            questionMarkers
         }
         .padding(14)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))

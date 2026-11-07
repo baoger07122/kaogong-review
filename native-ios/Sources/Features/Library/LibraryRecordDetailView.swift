@@ -173,7 +173,7 @@ struct LibraryRecordDetailView: View {
         detailSheets
             .navigationDestination(item: $linkedWordDetailTarget) { target in
                 if let word = records.first(where: { $0.collection == "words" && $0.recordID == target.recordID }) {
-                    WordLibraryRecordDetailView(record: word)
+                    WordLibraryRecordDetailView(record: word, showsReviewAction: true)
                 }
             }
     }
@@ -816,7 +816,7 @@ struct LibraryRecordDetailView: View {
             }
             let pitfall = firstText(["pitfall", "misconception", "thinkingTrap"]) ?? ""
             let reminder = firstText(["reminder"]) ?? ""
-            if !isAnalogyReasoning || !pitfall.isEmpty {
+            if !isLogicFillError && (!isAnalogyReasoning || !pitfall.isEmpty) {
                 metadataTextLine(isDataAnalysis ? "陷阱" : "误区", value: pitfall)
             }
             if !isAnalogyReasoning || !reminder.isEmpty {

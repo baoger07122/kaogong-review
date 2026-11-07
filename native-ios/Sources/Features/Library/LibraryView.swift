@@ -17,11 +17,10 @@ struct LibraryView: View {
     @State private var expandedSubject: String?
     @State private var kind: LibraryContentKind = .errors
     @State private var searchText = ""
-    @State private var selectedStatus = ""
     @State private var selectedTag = ""
     @AppStorage("native.library.errors.redoMode") private var redoPracticeEnabled = false
     @AppStorage("native.library.card-size.v1") private var storedCardSize = LibraryCardSize.medium.rawValue
-    @AppStorage("native.library.controls.status.v2") private var showsStatusControl = false
+    @AppStorage("native.library.errors.includeMastered.v1") private var includesMasteredErrors = false
     @AppStorage("native.library.controls.category.v2") private var showsCategoryControl = false
     @AppStorage("native.library.controls.card-size.v2") private var showsCardSizeControl = false
     @State private var showNewNoteType = false
@@ -162,6 +161,7 @@ struct LibraryView: View {
                 if kind == .words {
                     WordLibraryRecordDetailView(
                         record: record,
+                        showsReviewAction: true,
                         onEdit: { openEditorAfterMenuDismisses(kind: .words, recordID: recordID) },
                         onDelete: {
                             remove(LibraryDeleteTarget(kind: kind, recordID: recordID))
@@ -381,7 +381,7 @@ struct LibraryView: View {
                             records: visibleRecords,
                             kind: kind,
                             cardSize: cardSize,
-                            partitionKey: "\(kind.collection)|\(scope.subject ?? "")|\(scope.module ?? "")|\(scope.reviewSource.rawValue)|\(selectedStatus)|\(selectedTag)|\(selectedQuantityType)|\(searchText)",
+                            partitionKey: "\(kind.collection)|\(scope.subject ?? "")|\(scope.module ?? "")|\(scope.reviewSource.rawValue)|\(includesMasteredErrors)|\(selectedTag)|\(selectedQuantityType)|\(searchText)",
                             onOpen: { open($0) },
                             onDelete: { deleteTarget = LibraryDeleteTarget(kind: kind, recordID: $0.record.recordID) },
                             hiddenTags: kind == .notes && !selectedTag.isEmpty ? [selectedTag] : [],
@@ -443,7 +443,6 @@ struct LibraryView: View {
                 ForEach(availableKinds) { value in
                     Button {
                         withAnimation(.easeInOut(duration: 0.16)) { kind = value }
-                        selectedStatus = ""
                         selectedTag = ""
                         renderLimit = 40
                     } label: {
@@ -476,11 +475,11 @@ struct LibraryView: View {
                 Button { redoPracticeEnabled.toggle() } label: {
                     Label(redoPracticeEnabled ? "错题模式" : "重做模式", systemImage: redoPracticeEnabled ? "doc.text" : "arrow.counterclockwise")
                 }
+                Toggle(isOn: $includesMasteredErrors) {
+                    Label("已掌握", systemImage: "checkmark.circle")
+                }
             }
             Section("显示控件") {
-                if kind == .errors {
-                    Toggle(isOn: $showsStatusControl) { Label("状态筛选", systemImage: "checkmark.circle") }
-                }
                 if canShowCategoryControl {
                     Toggle(isOn: $showsCategoryControl) { Label("标签筛选", systemImage: "tag") }
                 }
@@ -488,7 +487,6 @@ struct LibraryView: View {
             }
             if hasActiveFilterConditions {
                 Section("当前生效筛选") {
-                    if !selectedStatus.isEmpty { Text("状态：\(selectedStatus)") }
                     if !selectedTag.isEmpty { Text("分类：\(selectedTag)") }
                     if !selectedQuantityType.isEmpty { Text("题型：\(selectedQuantityType)") }
                     if kind == .words, let category = WordCategory(rawValue: wordCategory.rawValue) {
@@ -581,7 +579,6 @@ struct LibraryView: View {
             expandedSubject: expandedSubject,
             kind: kind,
             searchText: searchText,
-            selectedStatus: selectedStatus,
             selectedTag: selectedTag,
             selectedQuantityType: selectedQuantityType,
             renderLimit: renderLimit,
@@ -594,7 +591,6 @@ struct LibraryView: View {
             expandedSubject = saved.expandedSubject
             kind = saved.kind
             searchText = saved.searchText
-            selectedStatus = saved.selectedStatus
             selectedTag = saved.selectedTag
             selectedQuantityType = saved.selectedQuantityType
             renderLimit = saved.renderLimit
@@ -613,16 +609,6 @@ struct LibraryView: View {
     private func filterBar(availableTags: [String]) -> some View {
         if hasVisibleFilterControls {
         HStack(spacing: 8) {
-            if kind == .errors && showsStatusControl {
-                Menu {
-                    Button("全部状态") { selectedStatus = "" }
-                    Button("未掌握") { selectedStatus = "未掌握" }
-                    Button("已掌握") { selectedStatus = "已掌握" }
-                } label: {
-                    filterLabel(selectedStatus.isEmpty ? "状态" : selectedStatus)
-                }
-            }
-
             if kind == .words {
                 Menu {
                     Button("全部内容类型") { wordEntryKind = "" }
@@ -702,20 +688,18 @@ struct LibraryView: View {
     }
 
     private var hasVisibleFilterControls: Bool {
-        (kind == .errors && showsStatusControl)
-            || (canShowCategoryControl && showsCategoryControl)
+        (canShowCategoryControl && showsCategoryControl)
             || showsCardSizeControl
             || kind == .words
             || isGraphReasoningContext
     }
 
     private var hasActiveFilterConditions: Bool {
-        !selectedStatus.isEmpty || !selectedTag.isEmpty || !selectedQuantityType.isEmpty
+        !selectedTag.isEmpty || !selectedQuantityType.isEmpty
             || (kind == .words && (!wordEntryKind.isEmpty || !wordSentiment.isEmpty))
     }
 
     private func clearActiveFilters() {
-        selectedStatus = ""
         selectedTag = ""
         selectedQuantityType = ""
         wordEntryKind = ""
@@ -815,12 +799,12 @@ struct LibraryView: View {
         let keyword = normalizedSearch(searchText)
         return snapshots.filter { snapshot in
             let matchesSearch = keyword.isEmpty || normalizedSearch(snapshot.searchableText).contains(keyword)
-            let matchesStatus = selectedStatus.isEmpty || snapshot.status == selectedStatus
+            let matchesMasteredVisibility = kind != .errors || includesMasteredErrors || snapshot.status != "已掌握"
             let matchesTag = selectedTag.isEmpty || snapshot.tags.contains(selectedTag)
             let matchesWordCategory = kind != .words || snapshot.category == wordCategory.rawValue
             let matchesWordSentiment = kind != .words || wordSentiment.isEmpty || snapshot.sentiment == wordSentiment
             let matchesWordEntryKind = kind != .words || wordEntryKind.isEmpty || snapshot.wordEntryKinds.contains(wordEntryKind)
-            return matchesSearch && matchesStatus && matchesTag && matchesWordCategory && matchesWordSentiment && matchesWordEntryKind
+            return matchesSearch && matchesMasteredVisibility && matchesTag && matchesWordCategory && matchesWordSentiment && matchesWordEntryKind
         }
     }
 
@@ -1058,7 +1042,6 @@ struct LibraryView: View {
 
     private func resetContextFilters() {
         searchText = ""
-        selectedStatus = ""
         selectedTag = ""
         wordSentiment = ""
         wordEntryKind = ""

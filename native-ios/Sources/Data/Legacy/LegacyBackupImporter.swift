@@ -19,6 +19,8 @@ struct LegacyImportPackage: @unchecked Sendable {
     let records: [LegacyRecordDraft]
     let counts: [String: Int]
     var questionBankAnswerStates: [QuestionBankAnswerStateBackup] = []
+    var includesWordReviewPlans = false
+    var includesWordReviewHistory = false
 }
 
 struct LegacyImportSummary: Equatable {
@@ -27,7 +29,7 @@ struct LegacyImportSummary: Equatable {
     let counts: [String: Int]
 
     var message: String {
-        let order = ["errors", "notes", "exams", "todos", "subject_reviews", "words", "stickies", "keyvalue", "questionBankAnswerStates"]
+        let order = ["errors", "notes", "exams", "todos", "subject_reviews", "words", "word_review_plans", "word_review_history", "stickies", "keyvalue", "questionBankAnswerStates"]
         let details = order.compactMap { key -> String? in
             guard let value = counts[key], value > 0 else { return nil }
             return "\(key) \(value)"
@@ -66,6 +68,8 @@ enum LegacyBackupImporter {
         ("todos", "todos"),
         ("subjectReviews", "subject_reviews"),
         ("words", "words"),
+        ("wordReviewPlans", "word_review_plans"),
+        ("wordReviewHistory", "word_review_history"),
         ("stickies", "stickies")
     ]
 
@@ -79,9 +83,13 @@ enum LegacyBackupImporter {
 
         var draftsByID: [String: LegacyRecordDraft] = [:]
         var counts: [String: Int] = [:]
+        var includesWordReviewPlans = false
+        var includesWordReviewHistory = false
 
         for mapping in collectionMappings {
             guard let raw = root[mapping.backup] else { continue }
+            if mapping.backup == "wordReviewPlans" { includesWordReviewPlans = true }
+            if mapping.backup == "wordReviewHistory" { includesWordReviewHistory = true }
             guard let items = raw as? [[String: Any]] else {
                 throw LegacyBackupImportError.invalidCollection(mapping.backup)
             }
@@ -110,7 +118,9 @@ enum LegacyBackupImporter {
             version: versionNumber.intValue,
             records: Array(draftsByID.values),
             counts: counts,
-            questionBankAnswerStates: answerStates
+            questionBankAnswerStates: answerStates,
+            includesWordReviewPlans: includesWordReviewPlans,
+            includesWordReviewHistory: includesWordReviewHistory
         )
     }
 
@@ -309,8 +319,43 @@ enum LegacyBackupRestorer {
     ) throws {
         try context.transaction {
             let existing = try context.fetch(FetchDescriptor<StoredRecord>())
+            let existingAnswerStates = try context.fetch(FetchDescriptor<QuestionBankAnswerStateRecord>())
+                .map(QuestionBankAnswerStateBackup.init(record:))
+            let protectiveData = try LegacyBackupExporter.makeData(records: existing, answerStates: existingAnswerStates)
+            let protectiveID = "auto_backup_restore_\(UUID().uuidString)"
+            let protectivePayload = try JSONSerialization.data(withJSONObject: [
+                "key": protectiveID,
+                "value": protectiveData.base64EncodedString()
+            ], options: [.sortedKeys])
+            context.insert(StoredRecord(collection: "keyvalue", recordID: protectiveID, payload: protectivePayload))
+
+            var restoreDrafts = package.records
+            let importedWordIDs = Set(package.records.filter { $0.collection == "words" }.map(\.recordID))
+            let importedReviewRecordIDs = Set(restoreDrafts.map(\.compoundID))
+            for local in existing {
+                let includesCollection = local.collection == "word_review_plans"
+                    ? package.includesWordReviewPlans
+                    : package.includesWordReviewHistory
+                guard LegacyWordReviewRestorePolicy.shouldPreserveLocalRecord(
+                    collection: local.collection,
+                    includesCollection: includesCollection,
+                    wordRecordID: localReviewWordID(local),
+                    importedWordIDs: importedWordIDs,
+                    importedReviewRecordIDs: importedReviewRecordIDs,
+                    recordID: local.recordID
+                ) else { continue }
+                restoreDrafts.append(LegacyRecordDraft(
+                    collection: local.collection,
+                    recordID: local.recordID,
+                    payload: local.payload,
+                    subject: local.subject,
+                    module: local.module,
+                    createdAt: local.createdAt,
+                    updatedAt: local.updatedAt
+                ))
+            }
             existing.forEach(context.delete)
-            for draft in package.records {
+            for draft in restoreDrafts {
                 context.insert(StoredRecord(
                     collection: draft.collection,
                     recordID: draft.recordID,
@@ -325,6 +370,12 @@ enum LegacyBackupRestorer {
             try beforeSave()
         }
         NotificationCenter.default.post(name: .legacyBackupRestoreDidComplete, object: nil)
+    }
+
+    private static func localReviewWordID(_ record: StoredRecord) -> String {
+        guard record.collection == "word_review_plans" || record.collection == "word_review_history" else { return "" }
+        if record.collection == "word_review_plans" { return record.recordID }
+        return record.jsonObject?["wordRecordID"] as? String ?? ""
     }
 
     static func replace(with package: LegacyImportPackage, in container: ModelContainer) async throws {

@@ -446,6 +446,10 @@ private struct LibraryErrorRecordCard: View {
                     if !dataAnalysisCauses.isEmpty {
                         sentenceTagLine(label: errorCauseLabel, values: dataAnalysisCauses)
                     }
+                } else if isLogicFill {
+                    if !causes.isEmpty {
+                        sentenceTagLine(label: errorCauseLabel, values: causes)
+                    }
                 } else {
                     if !causes.isEmpty {
                         if isAnalogyReasoning {
@@ -461,7 +465,7 @@ private struct LibraryErrorRecordCard: View {
                     }
                 }
 
-                if !snapshot.pitfall.isEmpty {
+                if !isLogicFill, !snapshot.pitfall.isEmpty {
                     pitfallLine(value: snapshot.pitfall, label: isDataAnalysis ? "陷阱" : "误区")
                 }
 
@@ -670,20 +674,14 @@ private struct LibraryErrorRecordCard: View {
             Image(systemName: "lightbulb.min")
                 .font(.system(size: 11, weight: .light))
                 .foregroundStyle(Color.black)
-            Group {
-                if isDataAnalysis {
-                    Text(value)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).stroke(Color.primary.opacity(0.15), lineWidth: 0.75))
-                } else {
-                    Text(value)
-                }
-            }
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Color(red: 34 / 255.0, green: 34 / 255.0, blue: 34 / 255.0))
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(value)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color(red: 34 / 255.0, green: 34 / 255.0, blue: 34 / 255.0))
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).stroke(Color.primary.opacity(0.15), lineWidth: 0.75))
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -712,33 +710,26 @@ private struct LibraryErrorRecordCard: View {
     }
 
     private var logicComparisonLine: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: "rectangle.split.2x1")
-                .font(.system(size: 11, weight: .light))
-                .foregroundStyle(Color.black)
-            NativeTagFlow(spacing: 5, alignsFirstTextBaseline: true) {
-                ForEach(Array(displayedLogicComparisonGroups.enumerated()), id: \.offset) { groupIndex, group in
-                    comparisonWordGroup(group.words)
-                    if !group.relation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(group.relation)
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+        NativeTagFlow(spacing: 5) {
+            ForEach(Array(displayedLogicComparisonGroups.enumerated()), id: \.offset) { _, group in
+                comparisonWordGroup(group.words)
+                if !group.relation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(group.relation)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func comparisonWordGroup(_ value: String) -> some View {
         let terms = LibraryLogicComparisonLayout.terms(in: value)
-        return NativeTagFlow(spacing: 3) {
+        return LibraryLogicComparisonPhraseFlow(spacing: 3) {
             ForEach(Array(terms.enumerated()), id: \.offset) { index, term in
                 if index > 0 {
-                    Rectangle()
-                        .fill(AppTheme.accent.opacity(0.38))
-                        .frame(width: 0.75, height: 13)
+                    LibraryLogicComparisonSeparator()
                 }
                 Text(term)
                     .font(.system(size: 11, weight: .medium))
@@ -760,6 +751,107 @@ private struct LibraryErrorRecordCard: View {
         if isAnalogyReasoning { return "二级辨析" }
         return "错因"
     }
+}
+
+private struct LibraryLogicComparisonSeparator: View {
+    var body: some View {
+        Rectangle().fill(AppTheme.accent.opacity(0.38))
+    }
+}
+
+/// Wraps complete terms inside one comparison-group background. A divider is
+/// placed only when the next term fits on the same row, so row edges stay clean.
+private struct LibraryLogicComparisonPhraseFlow: Layout {
+    var spacing: CGFloat = 3
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard !subviews.isEmpty else { return .zero }
+        let naturalWidth = naturalWidth(for: subviews)
+        let width: CGFloat
+        if let proposed = proposal.width, proposed.isFinite {
+            width = max(1, min(naturalWidth, proposed))
+        } else {
+            width = naturalWidth
+        }
+        return arrange(width: width, subviews: subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard !subviews.isEmpty else { return }
+        let width = bounds.width.isFinite ? max(1, bounds.width) : naturalWidth(for: subviews)
+        let result = arrange(width: width, subviews: subviews)
+        for (index, subview) in subviews.enumerated() {
+            let frame = result.frames[index]
+            subview.place(
+                at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                proposal: ProposedViewSize(frame.size)
+            )
+        }
+    }
+
+    private func naturalWidth(for subviews: Subviews) -> CGFloat {
+        subviews.enumerated().reduce(CGFloat.zero) { partial, entry in
+            let (index, subview) = entry
+            let itemWidth = index.isMultiple(of: 2)
+                ? finite(subview.sizeThatFits(.unspecified).width)
+                : Self.separatorWidth
+            return partial + itemWidth + (index == 0 ? 0 : finiteSpacing)
+        }
+    }
+
+    private func arrange(width: CGFloat, subviews: Subviews) -> (size: CGSize, frames: [CGRect]) {
+        var frames = Array(repeating: CGRect.zero, count: subviews.count)
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        let safeWidth = max(1, width)
+
+        for wordIndex in stride(from: 0, to: subviews.count, by: 2) {
+            var wordSize = finite(subviews[wordIndex].sizeThatFits(.unspecified))
+            if wordSize.width > safeWidth {
+                wordSize = finite(subviews[wordIndex].sizeThatFits(ProposedViewSize(width: safeWidth, height: nil)))
+                wordSize.width = min(safeWidth, wordSize.width)
+            }
+
+            if wordIndex > 0, x > 0 {
+                let separatorIndex = wordIndex - 1
+                let dividerWidth = Self.separatorWidth
+                let requiredWidth = finiteSpacing + dividerWidth + finiteSpacing + wordSize.width
+                if x + requiredWidth > safeWidth {
+                    y += rowHeight + Self.rowSpacing
+                    x = 0
+                    rowHeight = 0
+                } else {
+                    frames[separatorIndex] = CGRect(
+                        x: x + finiteSpacing,
+                        y: y + max(0, (max(rowHeight, wordSize.height) - Self.separatorHeight) / 2),
+                        width: dividerWidth,
+                        height: Self.separatorHeight
+                    )
+                    x += finiteSpacing + dividerWidth + finiteSpacing
+                }
+            }
+
+            frames[wordIndex] = CGRect(origin: CGPoint(x: x, y: y), size: wordSize)
+            x += wordSize.width
+            rowHeight = max(rowHeight, wordSize.height)
+        }
+
+        return (CGSize(width: safeWidth, height: y + rowHeight), frames)
+    }
+
+    private var finiteSpacing: CGFloat { spacing.isFinite ? max(0, spacing) : 0 }
+
+    private func finite(_ size: CGSize) -> CGSize {
+        CGSize(
+            width: size.width.isFinite ? max(0, size.width) : 0,
+            height: size.height.isFinite ? max(0, size.height) : 0
+        )
+    }
+
+    private static let separatorWidth: CGFloat = 0.75
+    private static let separatorHeight: CGFloat = 13
+    private static let rowSpacing: CGFloat = 2
 }
 
 private struct LibraryCardThumbnail: View {
@@ -1220,14 +1312,17 @@ struct LibraryMasonryGrid: View {
         let isDataAnalysisComposite = SubjectModuleTitle.normalized(record.subject) == "资料分析"
             && SubjectModuleTitle.normalized(record.module) == "综合题"
         let isDataAnalysis = SubjectModuleTitle.normalized(record.subject) == "资料分析"
+        let isLogicFill = SubjectModuleTitle.normalized(record.subject) == "言语理解"
+            && SubjectModuleTitle.normalized(record.module) == "逻辑填空"
         let isAnalogyReasoning = record.record.subject == "判断推理" && record.record.module == "类比推理"
         let contentWidth = max(1, availableWidth - 28)
         let titleLines = estimatedLineCount(record.title, width: contentWidth, fontSize: 14, limit: isDataAnalysisComposite ? 2 : cardSize.questionLineLimit)
         let knowledgePoints = record.knowledgePoints.joined(separator: " | ")
         let knowledgePointsWidth = max(1, contentWidth - 17) // lightbulb width plus its 6pt gap
+        let knowledgePointsTextWidth = max(1, knowledgePointsWidth - 12) // shared outline padding
         let knowledgePointsHeight = knowledgePoints.isEmpty
             ? 0
-            : CGFloat(estimatedLineCount(knowledgePoints, width: knowledgePointsWidth, fontSize: 11, limit: nil)) * 14
+            : CGFloat(estimatedLineCount(knowledgePoints, width: knowledgePointsTextWidth, fontSize: 11, limit: nil)) * 14 + 6
         var sections: [CGFloat] = []
         if record.record.subject == "数量关系" {
             var quantityHeaderHeight: CGFloat = 0
@@ -1239,6 +1334,14 @@ struct LibraryMasonryGrid: View {
             if quantityHeaderHeight > 0 { sections.append(quantityHeaderHeight) }
         } else if !knowledgePoints.isEmpty {
             sections.append(knowledgePointsHeight)
+        }
+
+        if isLogicFill {
+            let groups = record.comparisonWords.isEmpty
+                ? record.logicComparisonGroups
+                : record.comparisonWords.map { LogicComparisonDraft(words: $0, relation: "") }
+            let comparisonHeight = estimatedLogicComparisonHeight(groups, width: contentWidth)
+            if comparisonHeight > 0 { sections.append(comparisonHeight) }
         }
 
         if isDataAnalysisComposite, !record.dataAnalysisMaterialText.isEmpty {
@@ -1272,6 +1375,13 @@ struct LibraryMasonryGrid: View {
                     label: "错因", values: causes, width: contentWidth
                 ))
             }
+        } else if isLogicFill {
+            let causes = splitTags(record.errorCause)
+            if !causes.isEmpty {
+                metadataRows.append(LibraryDataAnalysisCauseLayout.estimatedTagLineHeight(
+                    label: "错因", values: causes, width: contentWidth
+                ))
+            }
         } else {
             if isAnalogyReasoning, !record.errorCause.isEmpty {
                 metadataRows.append(estimatedFieldHeight("二级辨析：" + record.errorCause, width: contentWidth, fontSize: 11))
@@ -1282,7 +1392,7 @@ struct LibraryMasonryGrid: View {
                 }
             }
         }
-        if !record.pitfall.isEmpty {
+        if !isLogicFill, !record.pitfall.isEmpty {
             metadataRows.append(estimatedFieldHeight("误区：" + record.pitfall, width: contentWidth, fontSize: 11))
         }
         if !record.reminder.isEmpty {
@@ -1294,6 +1404,81 @@ struct LibraryMasonryGrid: View {
 
         let contentHeight = sections.reduce(0, +) + CGFloat(max(0, sections.count - 1)) * 8
         return max(110, contentHeight + 28) // content plus vertical card padding
+    }
+
+    private func estimatedLogicComparisonHeight(_ groups: [LogicComparisonDraft], width: CGFloat) -> CGFloat {
+        var items: [(width: CGFloat, height: CGFloat)] = []
+        for group in groups {
+            let words = LibraryLogicComparisonLayout.terms(in: group.words)
+            if !words.isEmpty {
+                items.append(estimatedLogicComparisonGroup(words, maximumWidth: width))
+            }
+            let relation = group.relation.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !relation.isEmpty {
+                let size = estimatedTextSize(relation, font: UIFont.systemFont(ofSize: 10.5), width: width)
+                items.append((size.width, size.height))
+            }
+        }
+        guard !items.isEmpty else { return 0 }
+
+        var totalHeight: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var rowWidth: CGFloat = 0
+        for item in items {
+            if rowWidth > 0, rowWidth + 5 + item.width > width {
+                totalHeight += rowHeight + 5
+                rowWidth = 0
+                rowHeight = 0
+            }
+            rowWidth += (rowWidth > 0 ? 5 : 0) + item.width
+            rowHeight = max(rowHeight, item.height)
+        }
+        return totalHeight + rowHeight
+    }
+
+    private func estimatedLogicComparisonGroup(_ terms: [String], maximumWidth: CGFloat) -> (width: CGFloat, height: CGFloat) {
+        let horizontalPadding: CGFloat = 12
+        let verticalPadding: CGFloat = 6
+        let itemSpacing: CGFloat = 3
+        let font = UIFont.systemFont(ofSize: 11, weight: .medium)
+        let naturalSizes = terms.map { estimatedTextSize($0, font: font, width: nil) }
+        let naturalContentWidth = naturalSizes.reduce(0) { $0 + $1.width }
+            + CGFloat(max(0, terms.count - 1)) * (0.75 + itemSpacing * 2)
+        let groupWidth = min(maximumWidth, naturalContentWidth + horizontalPadding)
+        let contentWidth = max(1, groupWidth - horizontalPadding)
+
+        var totalHeight: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var rowWidth: CGFloat = 0
+        for (index, size) in naturalSizes.enumerated() {
+            let wordSize = size.width > contentWidth
+                ? estimatedTextSize(terms[index], font: font, width: contentWidth)
+                : size
+            if rowWidth > 0, rowWidth + itemSpacing + 0.75 + itemSpacing + wordSize.width > contentWidth {
+                totalHeight += rowHeight + 2
+                rowWidth = 0
+                rowHeight = 0
+            } else if rowWidth > 0 {
+                rowWidth += itemSpacing + 0.75 + itemSpacing
+            }
+            rowWidth += wordSize.width
+            rowHeight = max(rowHeight, wordSize.height)
+        }
+        return (groupWidth, totalHeight + rowHeight + verticalPadding)
+    }
+
+    private func estimatedTextSize(_ text: String, font: UIFont, width: CGFloat?) -> CGSize {
+        let natural = (text as NSString).size(withAttributes: [.font: font])
+        guard let width, width.isFinite, width > 0, natural.width > width else {
+            return CGSize(width: natural.width, height: max(font.lineHeight, natural.height))
+        }
+        let rect = (text as NSString).boundingRect(
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font],
+            context: nil
+        )
+        return CGSize(width: width, height: max(font.lineHeight, ceil(rect.height)))
     }
 
     private func estimatedFieldHeight(_ text: String, width: CGFloat, fontSize: CGFloat) -> CGFloat {
