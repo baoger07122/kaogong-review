@@ -103,19 +103,23 @@ struct ExamsView: View {
         }
         .background(AppTheme.groupedBackground)
         .overlay(alignment: .bottomTrailing) {
-            Button { editorTarget = ExamEditorTarget(recordID: nil) } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 23, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(width: 54, height: 54)
-                    .background(AppTheme.accent, in: Circle())
-                    .shadow(color: AppTheme.accent.opacity(0.28), radius: 12, y: 5)
+            GeometryReader { geometry in
+                Button { editorTarget = ExamEditorTarget(recordID: nil) } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 23, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 54, height: 54)
+                        .background(AppTheme.accent, in: Circle())
+                        .shadow(color: AppTheme.accent.opacity(0.28), radius: 12, y: 5)
+                }
+                .buttonStyle(NativePressButtonStyle())
+                .accessibilityLabel("记录新套卷")
+                .accessibilityIdentifier("exams-add-record")
+                .padding(.trailing, 18)
+                .padding(.bottom, 8)
+                .offset(y: NativeFloatingActionPlacement.maySitAtTabBarTopEdge(windowWidth: geometry.size.width) ? 34 : 0)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             }
-            .buttonStyle(NativePressButtonStyle())
-            .accessibilityLabel("记录新套卷")
-            .accessibilityIdentifier("exams-add-record")
-            .padding(.trailing, 18)
-            .padding(.bottom, 72)
         }
         .navigationTitle("套卷统计")
         .navigationBarTitleDisplayMode(.inline)

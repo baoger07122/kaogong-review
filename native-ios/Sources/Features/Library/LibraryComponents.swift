@@ -392,6 +392,9 @@ private struct LibraryErrorRecordCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             questionKnowledgeHeader
+            if isLogicFill, !displayedLogicComparisonGroups.isEmpty {
+                logicComparisonLine
+            }
 
             if isDataAnalysisComposite, !snapshot.dataAnalysisMaterialText.isEmpty {
                 Text(snapshot.dataAnalysisMaterialText)
@@ -404,7 +407,7 @@ private struct LibraryErrorRecordCard: View {
 
             images
 
-            Text(snapshot.title)
+            Text(isLogicFill ? LibraryLogicComparisonLayout.preview(snapshot.title) : snapshot.title)
                 .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(Color.primary)
                 .lineSpacing(2.5)
@@ -428,16 +431,12 @@ private struct LibraryErrorRecordCard: View {
                     plainField(label: "结构", value: snapshot.quantityStructure)
                 }
 
-                if !snapshot.comparisonWords.isEmpty {
-                    let logicFill = isLogicFill
+                if !snapshot.comparisonWords.isEmpty, !isLogicFill {
                     tagLine(
                         label: "辨析",
                         values: snapshot.comparisonWords,
-                        foreground: logicFill ? AppTheme.accent : AppTheme.accent.opacity(0.82),
-                        background: logicFill ? AppTheme.accent.opacity(0.10) : AppTheme.accent.opacity(0.06),
-                        weight: logicFill ? .medium : .regular,
-                        labelAlignment: logicFill ? .firstTextBaseline : .top,
-                        labelTopPadding: logicFill ? 0 : 3
+                        foreground: AppTheme.accent.opacity(0.82),
+                        background: AppTheme.accent.opacity(0.06)
                     )
                 }
 
@@ -671,11 +670,20 @@ private struct LibraryErrorRecordCard: View {
             Image(systemName: "lightbulb.min")
                 .font(.system(size: 11, weight: .light))
                 .foregroundStyle(Color.black)
-            Text(value)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color(red: 34 / 255.0, green: 34 / 255.0, blue: 34 / 255.0))
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Group {
+                if isDataAnalysis {
+                    Text(value)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).stroke(Color.primary.opacity(0.15), lineWidth: 0.75))
+                } else {
+                    Text(value)
+                }
+            }
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(Color(red: 34 / 255.0, green: 34 / 255.0, blue: 34 / 255.0))
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -694,6 +702,53 @@ private struct LibraryErrorRecordCard: View {
     private var isDataAnalysis: Bool { SubjectModuleTitle.normalized(snapshot.subject) == "资料分析" }
     private var isLogicFill: Bool {
         snapshot.record.subject == "言语理解" && snapshot.record.module == "逻辑填空"
+    }
+
+    private var displayedLogicComparisonGroups: [LogicComparisonDraft] {
+        if !snapshot.comparisonWords.isEmpty {
+            return snapshot.comparisonWords.map { LogicComparisonDraft(words: $0, relation: "") }
+        }
+        return snapshot.logicComparisonGroups
+    }
+
+    private var logicComparisonLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "rectangle.split.2x1")
+                .font(.system(size: 11, weight: .light))
+                .foregroundStyle(Color.black)
+            NativeTagFlow(spacing: 5, alignsFirstTextBaseline: true) {
+                ForEach(Array(displayedLogicComparisonGroups.enumerated()), id: \.offset) { groupIndex, group in
+                    comparisonWordGroup(group.words)
+                    if !group.relation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(group.relation)
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func comparisonWordGroup(_ value: String) -> some View {
+        let terms = LibraryLogicComparisonLayout.terms(in: value)
+        return NativeTagFlow(spacing: 3) {
+            ForEach(Array(terms.enumerated()), id: \.offset) { index, term in
+                if index > 0 {
+                    Rectangle()
+                        .fill(AppTheme.accent.opacity(0.38))
+                        .frame(width: 0.75, height: 13)
+                }
+                Text(term)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(AppTheme.accent)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(AppTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
     }
     private var quantityQuestionTypeTitle: String {
         let module = snapshot.record.module?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

@@ -7,6 +7,22 @@ enum LibraryDataAnalysisCauseLayout {
             .filter { !$0.isEmpty }
     }
 
+    static func splitLines(_ value: Any?) -> [String] {
+        if let values = value as? [String] { return values.flatMap(splitLines) }
+        return splitLines(value as? String ?? "")
+    }
+
+    static func rawCause(in object: [String: Any]) -> String {
+        if let canonical = object["errorCause"] {
+            return splitLines(canonical).joined(separator: "\n")
+        }
+        for key in ["cause", "reason"] {
+            let lines = splitLines(object[key])
+            if !lines.isEmpty { return lines.joined(separator: "\n") }
+        }
+        return ""
+    }
+
     static func estimatedTagLineHeight(label: String, values: [String], width: CGFloat) -> CGFloat {
         guard !values.isEmpty else { return 0 }
 
@@ -39,5 +55,31 @@ enum LibraryDataAnalysisCauseLayout {
         }
 
         return max(14, totalHeight + rowHeight)
+    }
+}
+
+enum LibraryLogicComparisonLayout {
+    static func terms(in text: String) -> [String] {
+        let normalized = text.replacingOccurrences(
+            of: #"(?i)(?<![A-Za-z])vs\.?(?![A-Za-z])"#,
+            with: "|",
+            options: .regularExpression
+        )
+        let values = normalized.split(whereSeparator: { "、,，;；/／|｜".contains($0) })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return values.isEmpty && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? [text.trimmingCharacters(in: .whitespacesAndNewlines)]
+            : values
+    }
+
+    static func preview(_ text: String, contextLength: Int = 24) -> String {
+        let pattern = #"_{2,}|＿{2,}|（\s*）|\(\s*\)|\[\s*\]"#
+        guard let range = text.range(of: pattern, options: .regularExpression) else { return text }
+        let start = text.index(range.lowerBound, offsetBy: -contextLength, limitedBy: text.startIndex) ?? text.startIndex
+        let end = text.index(range.upperBound, offsetBy: contextLength, limitedBy: text.endIndex) ?? text.endIndex
+        let prefix = start == text.startIndex ? "" : "…"
+        let suffix = end == text.endIndex ? "" : "…"
+        return prefix + text[start..<end] + suffix
     }
 }

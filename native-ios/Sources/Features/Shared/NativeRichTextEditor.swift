@@ -64,6 +64,11 @@ private struct RichTextTable: Codable, Equatable, Identifiable {
     var columnCount: Int { cells.first?.count ?? 0 }
 }
 
+private struct PendingRichTextTableMarker {
+    let marker: String
+    let table: RichTextTable
+}
+
 private struct RichTextFormula: Codable, Equatable, Identifiable {
     var id = UUID()
     var preset: DataAnalysisFormulaPreset = .baseAmount
@@ -154,6 +159,7 @@ private struct RichTextCommand: Equatable {
     let id = UUID()
     let kind: RichTextCommandKind
     var imageCompletion: ((Result<Void, NativeRichTextEditorError>) -> Void)? = nil
+    var tableEditTarget: RichTextTableEditTarget? = nil
 
     static func == (lhs: RichTextCommand, rhs: RichTextCommand) -> Bool {
         lhs.id == rhs.id
@@ -174,6 +180,13 @@ enum NativeRichTextImageLimits {
 struct NativeRichTextInsertionTarget: Equatable {
     let documentID: String?
     let sessionID: UUID
+    let range: NSRange
+}
+
+private struct RichTextTableEditTarget: Equatable {
+    let documentID: String?
+    let sessionID: UUID
+    let attachmentInstanceID: UUID
     let range: NSRange
 }
 
@@ -226,14 +239,6 @@ private enum RichTextEditorAlert {
     case imageError(String)
 }
 
-private enum RichTextInsertMenuAction {
-    case divider
-    case table(RichTextTable)
-    case formula(RichTextFormula)
-    case link
-    case internalLink
-}
-
 @MainActor
 struct NativeRichTextEditor: View {
     @Binding var html: String
@@ -258,6 +263,8 @@ struct NativeRichTextEditor: View {
     @State private var linkTarget = "https://"
     @State private var selectedTable: RichTextTable?
     @State private var tableEditor: RichTextTable?
+    @State private var tableEditTarget: RichTextTableEditTarget?
+    @State private var pendingPhotoImportRequestID: UUID?
     @State private var selectedFormula: RichTextFormula?
     @State private var formulaEditor: RichTextFormula?
     @State private var photoItem: PhotosPickerItem?
@@ -269,9 +276,6 @@ struct NativeRichTextEditor: View {
     @State private var capturedPhotoTarget: NativeRichTextInsertionTarget?
     @State private var photoLoadTask: Task<Void, Never>?
     @State private var awaitingImageInsertion = false
-    @State private var showsDeferredInsertMenu = false
-    @State private var pendingPhotoImportRequestID: UUID?
-    @State private var deferredInsertMenuAction: RichTextInsertMenuAction?
 
     private var activeEditorSession: NativeRichTextEditorSession { editorSession ?? localEditorSession }
     private var activeEditorDocumentID: String? { editorDocumentID }
@@ -310,6 +314,8 @@ struct NativeRichTextEditor: View {
                 html: $html,
                 command: $command,
                 selectedTable: $selectedTable,
+                tableEditor: $tableEditor,
+                tableEditTarget: $tableEditTarget,
                 selectedFormula: $selectedFormula,
                 isEditing: $isEditing,
                 selectionState: $selectionState,
@@ -335,6 +341,8 @@ struct NativeRichTextEditor: View {
                 preparedInitialHTML: preparedInitialHTML,
                 preparedInitialAttributedText: preparedInitialAttributedText,
                 editorSession: activeEditorSession,
+                editorDocumentID: activeEditorDocumentID,
+                editorSessionID: activeEditorSessionID,
                 usesLazyHTMLInitialization: editorSession != nil
             )
                 .frame(minHeight: documentStyle ? nil : minHeight, alignment: .topLeading)
@@ -342,9 +350,12 @@ struct NativeRichTextEditor: View {
         }
         .background(Color.primary.opacity(documentStyle ? 0 : 0.035), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
         .overlay(RoundedRectangle(cornerRadius: AppTheme.controlRadius).stroke(Color.primary.opacity(documentStyle ? 0 : 0.07), lineWidth: 0.7))
-        .sheet(item: $tableEditor, onDismiss: { activeEditorSession.setAuxiliaryPanelPresented(false) }) { table in
+        .sheet(item: $tableEditor, onDismiss: {
+            tableEditTarget = nil
+            activeEditorSession.setAuxiliaryPanelPresented(false)
+        }) { table in
             RichTextTableEditor(initial: table) { updated in
-                command = RichTextCommand(kind: .table(updated))
+                command = RichTextCommand(kind: .table(updated), tableEditTarget: tableEditTarget)
             }
             .presentationDetents([.medium, .large])
         }
@@ -560,28 +571,12 @@ struct NativeRichTextEditor: View {
         activeAlert = .imageError(message)
     }
 
-    @ViewBuilder
     private var insertMenu: some View {
-        if usesDeferredPhotoPicker {
-            Button {
-                activeEditorSession.setAuxiliaryPanelPresented(true)
-                showsDeferredInsertMenu = true
-            } label: {
-                toolbarImage("plus")
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("插入")
-            .popover(isPresented: $showsDeferredInsertMenu) {
-                deferredInsertMenuContent
-            }
-        } else {
-            legacyInsertMenu
-        }
-    }
-
-    private var legacyInsertMenu: some View {
         Menu {
-            Button { openPhotoPicker() } label: { Label("图片", systemImage: "photo") }
+            Button {
+                if usesDeferredPhotoPicker { requestParentPhotoImport() }
+                else { openPhotoPicker() }
+            } label: { Label("图片", systemImage: "photo") }
             Button {
                 activeEditorSession.setAuxiliaryPanelPresented(true)
                 tableEditor = selectedTable ?? RichTextTable()
@@ -608,96 +603,21 @@ struct NativeRichTextEditor: View {
         .accessibilityLabel("插入")
     }
 
-    private var deferredInsertMenuContent: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            deferredInsertButton("图片", systemImage: "photo") {
-                guard let requestID = activeEditorSession.requestImageImport(
-                    expectedDocumentID: activeEditorDocumentID,
-                    expectedSessionID: activeEditorSessionID
-                ) else {
-                    presentImageError("当前已有插入操作，请完成后再试。")
-                    return
-                }
-                pendingPhotoImportRequestID = requestID
-                deferredInsertMenuAction = nil
-                showsDeferredInsertMenu = false
-            }
-            deferredInsertButton("表格", systemImage: "tablecells") {
-                deferredInsertMenuAction = .table(selectedTable ?? RichTextTable())
-                showsDeferredInsertMenu = false
-            }
-            deferredInsertButton("分割线", systemImage: "minus") {
-                deferredInsertMenuAction = .divider
-                showsDeferredInsertMenu = false
-            }
-            deferredInsertButton("公式", systemImage: "function") {
-                deferredInsertMenuAction = .formula(selectedFormula ?? RichTextFormula())
-                showsDeferredInsertMenu = false
-            }
-            deferredInsertButton("网页链接", systemImage: "link") {
-                deferredInsertMenuAction = .link
-                showsDeferredInsertMenu = false
-            }
-            if !internalLinks.isEmpty {
-                deferredInsertButton("关联笔记", systemImage: "link.circle") {
-                    deferredInsertMenuAction = .internalLink
-                    showsDeferredInsertMenu = false
-                }
-            }
+    @MainActor
+    private func requestParentPhotoImport() {
+        guard let requestID = activeEditorSession.requestImageImport(
+            expectedDocumentID: activeEditorDocumentID,
+            expectedSessionID: activeEditorSessionID
+        ) else {
+            presentImageError("当前已有插入操作，请完成后再试。")
+            return
         }
-        .padding(8)
-        .frame(minWidth: 168, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .onDisappear(perform: completeDeferredInsertMenuDismissal)
-    }
-
-    private func deferredInsertButton(
-        _ title: String,
-        systemImage: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 14))
-                .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func completeDeferredInsertMenuDismissal() {
-        if let requestID = pendingPhotoImportRequestID {
+        pendingPhotoImportRequestID = requestID
+        Task { @MainActor in
+            await Task.yield()
+            guard pendingPhotoImportRequestID == requestID else { return }
             pendingPhotoImportRequestID = nil
-            activeEditorSession.setAuxiliaryPanelPresented(false)
             activeEditorSession.markImageImportMenuDismissed(requestID: requestID)
-            return
-        }
-
-        guard let action = deferredInsertMenuAction else {
-            if tableEditor == nil, formulaEditor == nil, internalLinkPicker == nil {
-                if case .linkPrompt? = activeAlert { return }
-                activeEditorSession.setAuxiliaryPanelPresented(false)
-            }
-            return
-        }
-        deferredInsertMenuAction = nil
-
-        switch action {
-        case .divider:
-            activeEditorSession.setAuxiliaryPanelPresented(false)
-            run(.divider)
-        case .table(let table):
-            activeEditorSession.setAuxiliaryPanelPresented(true)
-            tableEditor = table
-        case .formula(let formula):
-            activeEditorSession.setAuxiliaryPanelPresented(true)
-            formulaEditor = formula
-        case .link:
-            activeEditorSession.setAuxiliaryPanelPresented(true)
-            activeAlert = .linkPrompt
-        case .internalLink:
-            activeEditorSession.setAuxiliaryPanelPresented(true)
-            internalLinkPicker = InternalLinkPickerRequest()
         }
     }
 
@@ -1276,6 +1196,7 @@ private final class RichTextKeyboardAccessoryView: UIView {
 @MainActor
 private final class RichTextPasteTextView: UITextView {
     var onPaste: ((UITextView) -> Bool)?
+    var onLayout: ((UITextView) -> Void)?
 
     init(pasteEnabledUsingTextLayoutManager: Bool) {
         if pasteEnabledUsingTextLayoutManager {
@@ -1298,6 +1219,11 @@ private final class RichTextPasteTextView: UITextView {
         if onPaste?(self) == true { return }
         super.paste(sender)
     }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?(self)
+    }
 }
 
 @MainActor
@@ -1305,6 +1231,8 @@ private struct RichTextTextView: UIViewRepresentable {
     @Binding var html: String
     @Binding var command: RichTextCommand?
     @Binding var selectedTable: RichTextTable?
+    @Binding var tableEditor: RichTextTable?
+    @Binding var tableEditTarget: RichTextTableEditTarget?
     @Binding var selectedFormula: RichTextFormula?
     @Binding var isEditing: Bool
     @Binding var selectionState: RichTextSelectionState
@@ -1321,6 +1249,8 @@ private struct RichTextTextView: UIViewRepresentable {
     var preparedInitialHTML: String? = nil
     var preparedInitialAttributedText: NSAttributedString? = nil
     var editorSession: NativeRichTextEditorSession? = nil
+    var editorDocumentID: String? = nil
+    var editorSessionID: UUID = UUID()
     var usesLazyHTMLInitialization = false
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -1331,6 +1261,9 @@ private struct RichTextTextView: UIViewRepresentable {
             coordinator?.handlePaste(textView) ?? false
         }
         view.delegate = context.coordinator
+        view.onLayout = { [weak coordinator = context.coordinator] textView in
+            coordinator?.updateNativeTableWidths(in: textView)
+        }
         view.backgroundColor = .clear
         view.font = .systemFont(ofSize: RichTextMetrics.bodySize)
         view.adjustsFontForContentSizeCategory = false
@@ -1349,6 +1282,12 @@ private struct RichTextTextView: UIViewRepresentable {
         view.inputAssistantItem.trailingBarButtonGroups = []
         view.keyboardDismissMode = .interactive
         view.linkTextAttributes = [.foregroundColor: UIColor.systemBlue, .underlineStyle: NSUnderlineStyle.single.rawValue]
+        let tableTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleNativeTableTap(_:)))
+        tableTap.cancelsTouchesInView = false
+        tableTap.delaysTouchesBegan = false
+        tableTap.delaysTouchesEnded = false
+        tableTap.delegate = context.coordinator
+        view.addGestureRecognizer(tableTap)
         if let preparedInitialAttributedText, preparedInitialHTML == html {
             view.attributedText = preparedInitialAttributedText
         } else if !usesLazyHTMLInitialization {
@@ -1401,6 +1340,7 @@ private struct RichTextTextView: UIViewRepresentable {
 
     func updateUIView(_ view: UITextView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.updateNativeTableWidths(in: view)
         context.coordinator.updateKeyboardAccessory(
             keyboardAccessory,
             height: keyboardAccessoryHeight,
@@ -1419,7 +1359,7 @@ private struct RichTextTextView: UIViewRepresentable {
         }
         if let command, context.coordinator.lastCommandID != command.id {
             context.coordinator.lastCommandID = command.id
-            let result = context.coordinator.apply(command.kind, to: view)
+            let result = context.coordinator.apply(command.kind, to: view, tableEditTarget: command.tableEditTarget)
             let imageCompletion = command.imageCompletion
             DispatchQueue.main.async {
                 self.command = nil
@@ -1430,7 +1370,7 @@ private struct RichTextTextView: UIViewRepresentable {
         }
     }
 
-    final class Coordinator: NSObject, UITextViewDelegate {
+    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         var parent: RichTextTextView
         var lastHTML = ""
         var lastCommandID: UUID?
@@ -1587,15 +1527,20 @@ private struct RichTextTextView: UIViewRepresentable {
             connectedSession?.setComposingText(isComposing)
             guard !isComposing else { return }
             rememberSelection(textView.selectedRange)
-            let table = tableAttachment(near: textView.selectedRange, view: textView)?.attachment.table
+            let tableMatch = tableAttachment(near: textView.selectedRange, view: textView)
+            let table = tableMatch?.attachment.table
             let formula = formulaAttachment(near: textView.selectedRange, view: textView)?.attachment.formula
+            let tableTarget = tableMatch.map { makeTableEditTarget(for: $0.attachment, range: $0.range) }
             if lastSelectionTable != table || lastSelectionFormula != formula {
                 lastSelectionTable = table
                 lastSelectionFormula = formula
                 DispatchQueue.main.async {
                     if self.parent.selectedTable != table { self.parent.selectedTable = table }
+                    if self.parent.tableEditTarget != tableTarget { self.parent.tableEditTarget = tableTarget }
                     if self.parent.selectedFormula != formula { self.parent.selectedFormula = formula }
                 }
+            } else if parent.tableEditTarget != tableTarget {
+                DispatchQueue.main.async { self.parent.tableEditTarget = tableTarget }
             }
             scheduleLayoutAndToolbarRefresh(textView, updatesToolbar: true)
         }
@@ -1699,41 +1644,183 @@ private struct RichTextTextView: UIViewRepresentable {
                     item[type].flatMap(Self.stringRepresentation)
                 }.first
 
+                if let htmlValue = item[UTType.html.identifier],
+                   let html = Self.stringRepresentation(htmlValue),
+                   NativeRichTextTablePasteParser.containsHTMLTable(html) {
+                    if let tables = NativeRichTextTablePasteParser.htmlTables(in: html), !tables.isEmpty,
+                       let richTablePaste = prepareHTMLTablePaste(html, tables: tables, plainText: plainText) {
+                        return richTablePaste
+                    }
+                    if let plainText { return plainTextPaste(plainText) }
+                    if let imported = Self.attributedRepresentation(htmlValue, documentType: .html) {
+                        return finalizedRichPaste(imported, plainText: nil, htmlData: Self.dataRepresentation(htmlValue))
+                    }
+                }
+
+                if let plainText {
+                    let normalized = NativeRichTextTablePasteParser.normalizeLineEndings(plainText)
+                    let tables = NativeRichTextTablePasteParser.markdownTables(in: normalized)
+                    if !tables.isEmpty {
+                        let richRepresentation = [
+                            ("com.apple.flat-rtfd", NSAttributedString.DocumentType.rtfd),
+                            (UTType.rtfd.identifier, .rtfd),
+                            (UTType.rtf.identifier, .rtf)
+                        ].compactMap { type, documentType in
+                            item[type].flatMap { Self.attributedRepresentation($0, documentType: documentType) }
+                        }.first
+                        if let richRepresentation,
+                           richRepresentation.string == plainText,
+                           let enriched = replacingMarkdownTables(
+                            tables,
+                            in: normalizedAttributedLineEndings(richRepresentation)
+                           ) {
+                            return finalizedRichPaste(enriched, plainText: plainText, htmlData: nil)
+                        }
+                        return markdownTablePaste(normalized, tables: tables)
+                    }
+                }
+
                 for (type, documentType) in richCandidates {
                     guard let raw = item[type],
                           let imported = Self.attributedRepresentation(raw, documentType: documentType) else { continue }
-                    let richText = NSMutableAttributedString(attributedString: imported)
-                    RichTextTextView.restoreNativeTables(in: richText)
-                    if let plainText {
-                        NativeRichTextPastePolicy.removeOnlyProvenBoundaryNewlines(from: richText, matching: plainText)
-                    }
-                    let headings: [String: [CGFloat]]
-                    if documentType == .html, let data = Self.dataRepresentation(raw) {
-                        headings = RichTextTextView.semanticHeadingSizes(in: data)
-                    } else {
-                        headings = [:]
-                    }
-                    RichTextTextView.normalizePastedFonts(in: richText, semanticHeadingSizes: headings)
-                    return richText
+                    return finalizedRichPaste(
+                        imported,
+                        plainText: plainText,
+                        htmlData: documentType == .html ? Self.dataRepresentation(raw) : nil
+                    )
                 }
 
                 guard let plainText else { continue }
                 if let markdownHTML = NativeRichTextMarkdown.htmlIfMarkdown(plainText) {
-                    let formatted = NSMutableAttributedString(
-                        attributedString: RichTextTextView.attributed(from: markdownHTML)
+                    return finalizedRichPaste(
+                        RichTextTextView.attributed(from: markdownHTML),
+                        plainText: plainText,
+                        htmlData: nil
                     )
-                    NativeRichTextPastePolicy.removeOnlyProvenBoundaryNewlines(from: formatted, matching: plainText)
-                    return formatted
                 }
-                return NSAttributedString(
-                    string: plainText,
-                    attributes: [
-                        .font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize),
-                        .foregroundColor: UIColor.label
-                    ]
-                )
+                return plainTextPaste(plainText)
             }
             return nil
+        }
+
+        private func finalizedRichPaste(
+            _ source: NSAttributedString,
+            plainText: String?,
+            htmlData: Data?
+        ) -> NSAttributedString {
+            let richText = NSMutableAttributedString(attributedString: source)
+            RichTextTextView.restoreNativeTables(in: richText)
+            if let plainText {
+                NativeRichTextPastePolicy.removeOnlyProvenBoundaryNewlines(from: richText, matching: plainText)
+            }
+            RichTextTextView.normalizePastedFonts(
+                in: richText,
+                semanticHeadingSizes: htmlData.map { RichTextTextView.semanticHeadingSizes(in: $0) } ?? [:]
+            )
+            return richText
+        }
+
+        private func plainTextPaste(_ text: String) -> NSAttributedString {
+            NSAttributedString(
+                string: text,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize),
+                    .foregroundColor: UIColor.label
+                ]
+            )
+        }
+
+        private func prepareHTMLTablePaste(
+            _ html: String,
+            tables: [NativeRichTextPastedTable],
+            plainText: String?
+        ) -> NSAttributedString? {
+            let source = NSMutableString(string: html)
+            var pending: [PendingRichTextTableMarker] = []
+            for parsed in tables.reversed() {
+                guard parsed.range.location >= 0,
+                      NSMaxRange(parsed.range) <= source.length else { return nil }
+                let marker = "NATIVE_TABLE_PASTE_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+                source.replaceCharacters(in: parsed.range, with: "<p>\(marker)</p>")
+                pending.append(PendingRichTextTableMarker(marker: marker, table: RichTextTable(cells: parsed.cells)))
+            }
+            let imported = RichTextTextView.attributed(from: source as String)
+            let richText = NSMutableAttributedString(attributedString: imported)
+            RichTextTextView.restoreNativeTables(in: richText)
+            for item in pending {
+                let search = richText.string as NSString
+                let range = search.range(of: item.marker)
+                guard range.location != NSNotFound else { return nil }
+                richText.replaceCharacters(in: range, with: NSAttributedString(attachment: NativeTableAttachment(table: item.table)))
+            }
+            if let plainText {
+                NativeRichTextPastePolicy.removeOnlyProvenBoundaryNewlines(from: richText, matching: plainText)
+            }
+            RichTextTextView.normalizePastedFonts(in: richText, semanticHeadingSizes: RichTextTextView.semanticHeadingSizes(in: Data(html.utf8)))
+            return richText
+        }
+
+        private func normalizedAttributedLineEndings(_ source: NSAttributedString) -> NSAttributedString {
+            let normalized = NSMutableAttributedString(attributedString: source)
+            let original = source.string as NSString
+            var replacements: [(NSRange, [NSAttributedString.Key: Any])] = []
+            var location = 0
+            while location < original.length {
+                let character = original.character(at: location)
+                if character == 13 {
+                    let length = location + 1 < original.length && original.character(at: location + 1) == 10 ? 2 : 1
+                    replacements.append((NSRange(location: location, length: length), source.attributes(at: location, effectiveRange: nil)))
+                    location += length
+                } else {
+                    location += 1
+                }
+            }
+            for (range, attributes) in replacements.reversed() {
+                normalized.replaceCharacters(in: range, with: "\n")
+                normalized.setAttributes(attributes, range: NSRange(location: range.location, length: 1))
+            }
+            return normalized
+        }
+
+        private func markdownTablePaste(_ text: String, tables: [NativeRichTextPastedTable]) -> NSAttributedString {
+            let output = NSMutableAttributedString(string: "")
+            var cursor = 0
+            for parsed in tables {
+                guard parsed.range.location >= cursor, NSMaxRange(parsed.range) <= (text as NSString).length else { continue }
+                let prefixRange = NSRange(location: cursor, length: parsed.range.location - cursor)
+                if prefixRange.length > 0 {
+                    let prefix = (text as NSString).substring(with: prefixRange)
+                    output.append(formattedTextSegment(prefix))
+                }
+                output.append(NSAttributedString(attachment: NativeTableAttachment(table: RichTextTable(cells: parsed.cells))))
+                cursor = NSMaxRange(parsed.range)
+            }
+            let fullLength = (text as NSString).length
+            if cursor < fullLength {
+                output.append(formattedTextSegment((text as NSString).substring(from: cursor)))
+            }
+            if output.length == 0 { return plainTextPaste(text) }
+            return output
+        }
+
+        private func replacingMarkdownTables(
+            _ tables: [NativeRichTextPastedTable],
+            in source: NSAttributedString
+        ) -> NSAttributedString? {
+            let result = NSMutableAttributedString(attributedString: source)
+            guard tables.allSatisfy({ $0.range.location >= 0 && NSMaxRange($0.range) <= result.length }) else { return nil }
+            for parsed in tables.reversed() {
+                result.replaceCharacters(
+                    in: parsed.range,
+                    with: NSAttributedString(attachment: NativeTableAttachment(table: RichTextTable(cells: parsed.cells)))
+                )
+            }
+            return result
+        }
+
+        private func formattedTextSegment(_ text: String) -> NSAttributedString {
+            guard let markdownHTML = NativeRichTextMarkdown.htmlIfMarkdown(text) else { return plainTextPaste(text) }
+            return RichTextTextView.attributed(from: markdownHTML)
         }
 
         private static func dataRepresentation(_ value: Any) -> Data? {
@@ -1765,7 +1852,11 @@ private struct RichTextTextView: UIViewRepresentable {
             return imported
         }
 
-        func apply(_ command: RichTextCommandKind, to view: UITextView) -> Result<Void, NativeRichTextEditorError>? {
+        func apply(
+            _ command: RichTextCommandKind,
+            to view: UITextView,
+            tableEditTarget: RichTextTableEditTarget? = nil
+        ) -> Result<Void, NativeRichTextEditorError>? {
             let revisionBeforeCommand = documentRevision
             let range: NSRange
             if case .image(_, let target) = command {
@@ -1801,7 +1892,7 @@ private struct RichTextTextView: UIViewRepresentable {
             case .numbers: numberParagraphs(view: view, range: range); restoreSelection = false
             case .todos: toggleParagraphPrefixes("☐ ", view: view, range: range); restoreSelection = false
             case .divider: insertDivider(view: view, range: range); restoreSelection = false
-            case let .table(table): upsertTable(table, view: view, range: range); restoreSelection = false
+            case let .table(table): upsertTable(table, view: view, range: range, target: tableEditTarget); restoreSelection = false
             case let .image(dataURL, target):
                 imageResult = insertImage(dataURL, target: target, view: view)
                 restoreSelection = false
@@ -1874,6 +1965,97 @@ private struct RichTextTextView: UIViewRepresentable {
             else { return false }
             parent.onOpenInternalLink?(link)
             return false
+        }
+
+        func textView(
+            _ textView: UITextView,
+            shouldInteractWith textAttachment: NSTextAttachment,
+            in characterRange: NSRange,
+            interaction: UITextItemInteraction
+        ) -> Bool {
+            guard let tableAttachment = textAttachment as? NativeTableAttachment else { return true }
+            openTableEditor(tableAttachment, range: characterRange)
+            return false
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool { true }
+
+        @objc func handleNativeTableTap(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .ended,
+                  let view = recognizer.view as? UITextView,
+                  let match = tableAttachment(at: recognizer.location(in: view), in: view) else { return }
+            openTableEditor(match.attachment, range: match.range)
+        }
+
+        private func openTableEditor(_ attachment: NativeTableAttachment, range: NSRange) {
+            parent.selectedTable = attachment.table
+            parent.tableEditTarget = makeTableEditTarget(for: attachment, range: range)
+            parent.editorSession?.setAuxiliaryPanelPresented(true)
+            parent.tableEditor = attachment.table
+        }
+
+        private func makeTableEditTarget(for attachment: NativeTableAttachment, range: NSRange) -> RichTextTableEditTarget {
+            RichTextTableEditTarget(
+                documentID: parent.editorDocumentID,
+                sessionID: parent.editorSessionID,
+                attachmentInstanceID: attachment.instanceID,
+                range: range
+            )
+        }
+
+        func updateNativeTableWidths(in textView: UITextView) {
+            let proposedWidth = availableTableWidth(in: textView)
+            guard proposedWidth.isFinite, proposedWidth > 0,
+                  textView.textStorage.length > 0 else { return }
+            var updatedRanges: [NSRange] = []
+            textView.textStorage.enumerateAttribute(
+                .attachment,
+                in: NSRange(location: 0, length: textView.textStorage.length)
+            ) { value, range, _ in
+                guard let attachment = value as? NativeTableAttachment,
+                      attachment.updateDisplayWidth(proposedWidth) else { return }
+                updatedRanges.append(range)
+            }
+            guard !updatedRanges.isEmpty else { return }
+            textView.textStorage.beginEditing()
+            for range in updatedRanges {
+                textView.textStorage.edited(.editedAttributes, range: range, changeInLength: 0)
+            }
+            textView.textStorage.endEditing()
+            textView.invalidateIntrinsicContentSize()
+            textView.setNeedsLayout()
+        }
+
+        private func availableTableWidth(in textView: UITextView) -> CGFloat {
+            let viewportWidth = textView.bounds.width
+                - textView.textContainerInset.left
+                - textView.textContainerInset.right
+            let padding = textView.textContainer.lineFragmentPadding * 2
+            let availableViewportWidth = viewportWidth - padding
+            let configuredWidth = textView.textContainer.size.width - padding
+            guard configuredWidth.isFinite, configuredWidth > 0 else { return max(1, availableViewportWidth) }
+            return max(1, min(availableViewportWidth, configuredWidth))
+        }
+
+        private func tableAttachment(at point: CGPoint, in view: UITextView) -> (attachment: NativeTableAttachment, range: NSRange)? {
+            guard view.textStorage.length > 0 else { return nil }
+            guard let closestPosition = view.closestPosition(to: point) else { return nil }
+            let closestOffset = view.offset(from: view.beginningOfDocument, to: closestPosition)
+            for character in [closestOffset, closestOffset - 1] where character >= 0 && character < view.textStorage.length {
+                var range = NSRange()
+                guard let attachment = view.textStorage.attribute(.attachment, at: character, effectiveRange: &range) as? NativeTableAttachment,
+                      let start = view.position(from: view.beginningOfDocument, offset: character),
+                      let end = view.position(from: start, offset: 1),
+                      let textRange = view.textRange(from: start, to: end) else { continue }
+                let attachmentRect = view.firstRect(for: textRange)
+                if attachmentRect.insetBy(dx: -3, dy: -3).contains(point) {
+                    return (attachment, range)
+                }
+            }
+            return nil
         }
 
         private func toggleFontTrait(_ trait: UIFontDescriptor.SymbolicTraits, view: UITextView, range: NSRange) {
@@ -2098,11 +2280,23 @@ private struct RichTextTextView: UIViewRepresentable {
             view.typingAttributes = [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize), .foregroundColor: UIColor.label]
         }
 
-        private func upsertTable(_ table: RichTextTable, view: UITextView, range: NSRange) {
-            let attachment = NativeTableAttachment(table: table)
+        private func upsertTable(
+            _ table: RichTextTable,
+            view: UITextView,
+            range: NSRange,
+            target: RichTextTableEditTarget?
+        ) {
+            let availableWidth = availableTableWidth(in: view)
+            let attachment = NativeTableAttachment(table: table, displayWidth: availableWidth)
             let replacement = NSMutableAttributedString(attributedString: NSAttributedString(attachment: attachment))
-            if let existing = tableAttachment(near: range, view: view), existing.attachment.table.id == table.id {
-                replaceAttributed(replacement, in: existing.range, view: view)
+            if let target {
+                guard target.sessionID == parent.editorSessionID,
+                      target.documentID == parent.editorDocumentID,
+                      target.range.location >= 0,
+                      NSMaxRange(target.range) <= view.textStorage.length,
+                      let existing = view.textStorage.attribute(.attachment, at: target.range.location, effectiveRange: nil) as? NativeTableAttachment,
+                      existing.instanceID == target.attachmentInstanceID else { return }
+                replaceAttributed(replacement, in: target.range, view: view)
             } else {
                 replacement.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]))
                 replaceAttributed(replacement, in: range, view: view)
@@ -2511,18 +2705,37 @@ private struct RichTextTextView: UIViewRepresentable {
 
 private final class NativeTableAttachment: NSTextAttachment {
     let table: RichTextTable
+    let instanceID = UUID()
     private let originalMarker: String?
+    private(set) var displayWidth: CGFloat
 
-    init(table: RichTextTable, marker: String? = nil) {
+    init(table: RichTextTable, marker: String? = nil, displayWidth: CGFloat = 440) {
         self.table = table
         originalMarker = marker
+        self.displayWidth = max(80, displayWidth)
         super.init(data: nil, ofType: "com.kaogong.native-table")
-        image = Self.render(table)
-        let height = CGFloat(max(1, table.rowCount)) * 34
-        bounds = CGRect(x: 0, y: -4, width: 440, height: height)
+        let layout = Self.layout(table, width: self.displayWidth)
+        image = Self.render(table, layout: layout, width: self.displayWidth)
+        let height = layout.rowHeights.reduce(0, +)
+        bounds = CGRect(x: 0, y: -4, width: self.displayWidth, height: height)
     }
 
     required init?(coder: NSCoder) { nil }
+
+    override func copy(with zone: NSZone? = nil) -> Any {
+        NativeTableAttachment(table: table, marker: originalMarker, displayWidth: displayWidth)
+    }
+
+    @discardableResult
+    func updateDisplayWidth(_ width: CGFloat) -> Bool {
+        let updatedWidth = max(80, floor(width))
+        guard updatedWidth.isFinite, abs(updatedWidth - displayWidth) > 0.5 else { return false }
+        displayWidth = updatedWidth
+        let layout = Self.layout(table, width: displayWidth)
+        image = Self.render(table, layout: layout, width: displayWidth)
+        bounds = CGRect(x: 0, y: -4, width: displayWidth, height: layout.rowHeights.reduce(0, +))
+        return true
+    }
 
     var marker: String? {
         if let originalMarker { return originalMarker }
@@ -2530,31 +2743,98 @@ private final class NativeTableAttachment: NSTextAttachment {
         return "[[NATIVE_TABLE:\(data.base64EncodedString())]]"
     }
 
-    private static func render(_ table: RichTextTable) -> UIImage {
-        let width: CGFloat = 440
-        let rowHeight: CGFloat = 34
-        let height = CGFloat(max(1, table.rowCount)) * rowHeight
+    private struct TableLayout {
+        let columnWidths: [CGFloat]
+        let rowHeights: [CGFloat]
+    }
+
+    private static func layout(_ table: RichTextTable, width: CGFloat) -> TableLayout {
+        let columns = max(1, table.columnCount)
+        let font = UIFont.systemFont(ofSize: 12)
+        let desiredColumnWidths = (0..<columns).map { column in
+            let natural = table.cells.compactMap { row -> CGFloat? in
+                guard column < row.count else { return nil }
+                let measured = (row[column] as NSString).size(withAttributes: [.font: font]).width + 18
+                return min(220, max(72, measured))
+            }.max() ?? 96
+            return natural
+        }
+        let totalWidth = desiredColumnWidths.reduce(0, +)
+        var columnWidths = desiredColumnWidths
+        if totalWidth < width {
+            let addition = (width - totalWidth) / CGFloat(columns)
+            columnWidths = columnWidths.map { $0 + addition }
+        } else if totalWidth > width, totalWidth > 0 {
+            let scale = width / totalWidth
+            let minimumColumnWidth = min(36, width / CGFloat(columns))
+            columnWidths = columnWidths.map { max(minimumColumnWidth, $0 * scale) }
+            let overflow = columnWidths.reduce(0, +) - width
+            let flexibleWidth = columnWidths.reduce(0) { $0 + max(0, $1 - minimumColumnWidth) }
+            if overflow > 0, flexibleWidth > 0 {
+                columnWidths = columnWidths.map {
+                    $0 - overflow * max(0, $0 - minimumColumnWidth) / flexibleWidth
+                }
+            }
+        }
+        let rowHeights = table.cells.map { row in
+            row.enumerated().map { column, value in
+                let columnWidth = columnWidths[min(column, columnWidths.count - 1)]
+                let rect = (value as NSString).boundingRect(
+                    with: CGSize(width: max(1, columnWidth - 14), height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    attributes: [.font: font],
+                    context: nil
+                )
+                return max(20, ceil(rect.height))
+            }.max() ?? 20
+        }.map { max(34, $0 + 14) }
+        return TableLayout(columnWidths: columnWidths, rowHeights: rowHeights)
+    }
+
+    private static func render(_ table: RichTextTable, layout: TableLayout, width: CGFloat) -> UIImage {
+        let height = layout.rowHeights.reduce(0, +)
         return UIGraphicsImageRenderer(size: CGSize(width: width, height: height)).image { context in
             UIColor.secondarySystemBackground.setFill()
             context.cgContext.fill(CGRect(x: 0, y: 0, width: width, height: height))
             UIColor.separator.setStroke()
             context.cgContext.setLineWidth(1)
-            let columns = max(1, table.columnCount)
-            let columnWidth = width / CGFloat(columns)
-            for row in 0...table.rowCount {
-                let y = CGFloat(row) * rowHeight
+            var rowOrigins: [CGFloat] = [0]
+            for rowHeight in layout.rowHeights { rowOrigins.append((rowOrigins.last ?? 0) + rowHeight) }
+            for row in table.cells.indices where row == 0 {
+                UIColor.tertiarySystemGroupedBackground.setFill()
+                context.cgContext.fill(CGRect(x: 0, y: rowOrigins[row], width: width, height: layout.rowHeights[row]))
+            }
+            for y in rowOrigins {
                 context.cgContext.move(to: CGPoint(x: 0, y: y)); context.cgContext.addLine(to: CGPoint(x: width, y: y))
             }
-            for column in 0...columns {
-                let x = CGFloat(column) * columnWidth
+            var columnOrigins: [CGFloat] = [0]
+            for columnWidth in layout.columnWidths { columnOrigins.append((columnOrigins.last ?? 0) + columnWidth) }
+            for x in columnOrigins {
                 context.cgContext.move(to: CGPoint(x: x, y: 0)); context.cgContext.addLine(to: CGPoint(x: x, y: height))
             }
             context.cgContext.strokePath()
-            let attributes: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 12), .foregroundColor: UIColor.label]
+            let font = UIFont.systemFont(ofSize: 12)
             for (rowIndex, row) in table.cells.enumerated() {
                 for (columnIndex, cell) in row.enumerated() {
-                    let rect = CGRect(x: CGFloat(columnIndex) * columnWidth + 7, y: CGFloat(rowIndex) * rowHeight + 8, width: columnWidth - 14, height: rowHeight - 10)
-                    (cell as NSString).draw(in: rect, withAttributes: attributes)
+                    guard columnIndex < layout.columnWidths.count, rowIndex < layout.rowHeights.count else { continue }
+                    let rect = CGRect(
+                        x: columnOrigins[columnIndex] + 7,
+                        y: rowOrigins[rowIndex] + 7,
+                        width: max(1, layout.columnWidths[columnIndex] - 14),
+                        height: max(20, layout.rowHeights[rowIndex] - 10)
+                    )
+                    let paragraph = NSMutableParagraphStyle()
+                    paragraph.lineBreakMode = .byWordWrapping
+                    let attributes: [NSAttributedString.Key: Any] = [
+                        .font: rowIndex == 0 ? UIFont.systemFont(ofSize: 12, weight: .semibold) : font,
+                        .foregroundColor: UIColor.label,
+                        .paragraphStyle: paragraph
+                    ]
+                    NSAttributedString(string: cell, attributes: attributes).draw(
+                        with: rect,
+                        options: [.usesLineFragmentOrigin, .usesFontLeading],
+                        context: nil
+                    )
                 }
             }
         }

@@ -97,6 +97,7 @@ struct LibraryRecordEditorView: View {
     @State private var saveErrorMessage: String?
     @State private var showDiscardDraftConfirmation = false
     @State private var questionImageWidthPreview: [String: Double] = [:]
+    @State private var expandedComparisonTermIDs = Set<UUID>()
     @State private var draftPersistenceCleared = false
 
     init(
@@ -138,10 +139,6 @@ struct LibraryRecordEditorView: View {
             while initialDraft.wordCompareTerms.count < 2 {
                 initialDraft.wordCompareTerms.append(.init(entryKind: initialDraft.wordEntryKind))
             }
-            let names = initialDraft.wordCompareTerms
-                .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            if !names.isEmpty { initialDraft.title = names.joined(separator: " vs ") }
         }
         _isCurrentAffairsSupplementExpanded = State(
             initialValue: !initialDraft.currentAffairsSupplement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -821,35 +818,16 @@ struct LibraryRecordEditorView: View {
 
                 NativeFieldLabel(title: "辨析词语")
                 ForEach($draft.wordCompareTerms) { $term in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            compactWordTextField("词语 / 常见搭配", text: $term.name)
-                            if draft.wordCompareTerms.count > 2 {
-                                Button(role: .destructive) {
-                                    draft.wordCompareTerms.removeAll { $0.id == term.id }
-                                    syncComparisonTitle()
-                                } label: { Image(systemName: "minus.circle") }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        NativeRichTextEditor(
-                            html: $term.meaning,
-                            minHeight: 64,
-                            mode: .minimal,
-                            documentStyle: true
-                        )
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .stroke(Color.primary.opacity(0.10), lineWidth: 0.7)
-                        }
+                    if wordCategory == .wordComparison {
+                        wordComparisonTermEditor($term)
+                    } else {
+                        idiomComparisonTermEditor($term)
                     }
-                    .padding(.vertical, 4)
-                    .onChange(of: term.name) { _, _ in syncComparisonTitle() }
                 }
                 Button {
-                    draft.wordCompareTerms.append(.init())
+                    let term = WordComparisonTermDraft(entryKind: draft.wordEntryKind)
+                    draft.wordCompareTerms.append(term)
+                    if wordCategory == .wordComparison { expandedComparisonTermIDs.insert(term.id) }
                 } label: {
                     Label("增加词语", systemImage: "plus.circle")
                         .font(AppTheme.inputFont.weight(.semibold))
@@ -892,6 +870,96 @@ struct LibraryRecordEditorView: View {
 
     private var wordCategory: WordCategory {
         WordCategory(rawValue: draft.type) ?? .idiomDefinition
+    }
+
+    private func wordComparisonTermEditor(_ term: Binding<WordComparisonTermDraft>) -> some View {
+        let id = term.wrappedValue.id
+        return DisclosureGroup(
+            isExpanded: Binding(
+                get: { expandedComparisonTermIDs.contains(id) },
+                set: { isExpanded in
+                    if isExpanded { expandedComparisonTermIDs.insert(id) }
+                    else { expandedComparisonTermIDs.remove(id) }
+                }
+            )
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                compactWordTextField("词语 / 常见搭配", text: term.name)
+                    .onChange(of: term.wrappedValue.name) { _, _ in syncComparisonTitle() }
+                NativeFieldLabel(title: "词语释义")
+                NativeRichTextEditor(
+                    html: term.meaning,
+                    minHeight: 64,
+                    mode: .minimal,
+                    documentStyle: true
+                )
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(Color.primary.opacity(0.10), lineWidth: 0.7)
+                }
+                compactWordTextField("核心侧重（可选）", text: optionalTextBinding(term.coreFocus))
+                compactWordTextField("一眼判断（可选）", text: optionalTextBinding(term.quickDecision))
+                if draft.wordCompareTerms.count > 2 {
+                    Button(role: .destructive) {
+                        expandedComparisonTermIDs.remove(id)
+                        draft.wordCompareTerms.removeAll { $0.id == id }
+                        syncComparisonTitle()
+                    } label: {
+                        Label("删除该词", systemImage: "minus.circle")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.top, 8)
+        } label: {
+            HStack(spacing: 8) {
+                Text(term.wrappedValue.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未填写词语" : term.wrappedValue.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Text("逐词编辑").font(.system(size: 10)).foregroundStyle(.tertiary)
+            }
+            .frame(minHeight: 34)
+        }
+        .tint(AppTheme.accent)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+
+    private func idiomComparisonTermEditor(_ term: Binding<WordComparisonTermDraft>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                compactWordTextField("词语 / 常见搭配", text: term.name)
+                if draft.wordCompareTerms.count > 2 {
+                    Button(role: .destructive) {
+                        draft.wordCompareTerms.removeAll { $0.id == term.wrappedValue.id }
+                        syncComparisonTitle()
+                    } label: { Image(systemName: "minus.circle") }
+                    .buttonStyle(.plain)
+                }
+            }
+            NativeRichTextEditor(html: term.meaning, minHeight: 64, mode: .minimal, documentStyle: true)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(Color.primary.opacity(0.10), lineWidth: 0.7)
+                }
+        }
+        .padding(.vertical, 4)
+        .onChange(of: term.wrappedValue.name) { _, _ in syncComparisonTitle() }
+    }
+
+    private func optionalTextBinding(_ binding: Binding<String?>) -> Binding<String> {
+        Binding(
+            get: { binding.wrappedValue ?? "" },
+            set: { binding.wrappedValue = $0.isEmpty ? nil : $0 }
+        )
     }
 
     private func wordEntryKindPicker(selection: Binding<String>) -> some View {

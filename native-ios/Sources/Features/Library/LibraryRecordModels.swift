@@ -295,6 +295,7 @@ struct LibraryRecordSnapshot: Identifiable {
     let imageMetadataIDs: [String]
     let imageWidthFractions: [Double]
     let comparisonWords: [String]
+    let logicComparisonGroups: [LogicComparisonDraft]
     let questionSource: String
     let questionNumber: String
     let reviewSource: LibraryReviewSource
@@ -312,7 +313,7 @@ struct LibraryRecordSnapshot: Identifiable {
         previousImageSnapshot: LibraryRecordSnapshot? = nil
     ) {
         self.record = record
-        let object = record.indexObject ?? [:]
+        let object = record.compatibilityIndexObject ?? [:]
         subject = [record.subject, object["subject"] as? String]
             .compactMap { $0 }
             .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
@@ -370,8 +371,10 @@ struct LibraryRecordSnapshot: Identifiable {
             : []
         errorCause = record.collection == "errors" && subject == "数量关系"
             ? quantityErrorCauses.joined(separator: "、")
-            : Self.firstText(in: object, keys: ["errorCause", "cause", "reason"]).map(Self.plainText) ?? ""
-        dataAnalysisErrorCause = Self.firstText(in: object, keys: ["errorCause", "cause", "reason"]) ?? ""
+            : record.collection == "errors" && subject == "资料分析"
+                ? LibraryDataAnalysisCauseLayout.rawCause(in: object)
+                : Self.firstText(in: object, keys: ["errorCause", "cause", "reason"]).map(Self.plainText) ?? ""
+        dataAnalysisErrorCause = LibraryDataAnalysisCauseLayout.rawCause(in: object)
         dataAnalysisMaterialText = Self.firstText(in: object, keys: ["dataAnalysisMaterialText"])
             .map(Self.plainText) ?? ""
         pitfall = Self.firstText(in: object, keys: ["pitfall", "misconception", "thinkingTrap"])
@@ -432,6 +435,17 @@ struct LibraryRecordSnapshot: Identifiable {
         )
         let linkedWordIDs = object["linkedWordIds"] as? [String] ?? []
         comparisonWords = linkedWordIDs.compactMap { linkedWordNamesByID[$0] }
+        if let groups = object["compareGroups"] as? [[String: Any]] {
+            logicComparisonGroups = groups.compactMap { value in
+                let words = value["words"] as? String ?? ""
+                let relation = value["relation"] as? String ?? ""
+                guard !words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !relation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+                return LogicComparisonDraft(words: words, relation: relation)
+            }
+        } else {
+            logicComparisonGroups = []
+        }
         questionSource = Self.firstText(in: object, keys: ["questionSource", "source"])
             .map(Self.plainText) ?? ""
         questionNumber = Self.firstText(in: object, keys: ["questionNumber"])

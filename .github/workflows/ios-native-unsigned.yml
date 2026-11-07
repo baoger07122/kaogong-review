@@ -119,6 +119,7 @@ jobs:
           "$RUNNER_TEMP/native-rich-text-fallback-behavior"
           swiftc -parse-as-library \
             native-ios/Sources/Features/Shared/NativeRichTextMarkdown.swift \
+            native-ios/Sources/Features/Shared/NativeRichTextTablePasteParser.swift \
             native-ios/Sources/Features/Shared/NativeRichTextPastePolicy.swift \
             native-ios/Tests/NativeRichTextPasteBehavior.swift \
             -o "$RUNNER_TEMP/native-rich-text-paste-behavior"

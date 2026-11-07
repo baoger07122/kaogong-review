@@ -28,6 +28,9 @@ struct WordComparisonTermDraft: Identifiable, Codable, Equatable, Sendable {
     var meaning = ""
     var wordID = ""
     var entryKind = WordEntryKind.word.rawValue
+    var coreFocus: String?
+    var quickDecision: String?
+    var legacyID: String?
 }
 
 struct LibraryRecordDraft {
@@ -144,7 +147,9 @@ struct LibraryRecordDraft {
         quantityErrorCauseIsAuthoritative = LibraryQuantityErrorCauseCompatibility.isAuthoritative(in: original)
         errorCause = kind == .errors && subject == "数量关系"
             ? LibraryQuantityErrorCauseCompatibility.values(in: original).joined(separator: "、")
-            : LibraryRecordDraft.text(original, keys: ["errorCause"])
+            : (kind == .errors && subject == "资料分析"
+                ? LibraryDataAnalysisCauseLayout.rawCause(in: original)
+                : LibraryRecordDraft.text(original, keys: ["errorCause", "cause", "reason"]))
         status = LibraryRecordDraft.text(original, keys: ["status", "masteryStatus"]).isEmpty ? "未掌握" : LibraryRecordDraft.text(original, keys: ["status", "masteryStatus"])
         isDifficult = (original["isDifficult"] as? Bool) ?? (original["isDifficult"] as? NSNumber)?.boolValue ?? false
         needsReview = (original["needsReview"] as? Bool) ?? (original["needsReview"] as? NSNumber)?.boolValue ?? false
@@ -227,7 +232,10 @@ struct LibraryRecordDraft {
                     name: $0["name"] as? String ?? "",
                     meaning: $0["meaning"] as? String ?? "",
                     wordID: ($0["wordId"] as? String) ?? ($0["id"] as? String) ?? "",
-                    entryKind: ($0["entryKind"] as? String) ?? WordEntryKind.word.rawValue
+                    entryKind: ($0["entryKind"] as? String) ?? WordEntryKind.word.rawValue,
+                    coreFocus: ($0["coreFocus"] as? String) ?? ($0["focus"] as? String),
+                    quickDecision: ($0["quickDecision"] as? String) ?? ($0["decision"] as? String),
+                    legacyID: $0["id"] as? String
                 )
             }
             if storedWordEntryKind.isEmpty {
@@ -552,7 +560,6 @@ enum LibraryRecordRepository {
             } else {
                 object["imageDisplayMetadata"] = imageDisplaySettings.map(\.payloadObject)
             }
-            object.removeValue(forKey: "compareGroups")
             object["graphRule"] = draft.graphRule
             object["recognition"] = draft.recognition
             object["sourceExamId"] = sourceExamIDToSave.isEmpty ? NSNull() : sourceExamIDToSave
@@ -652,7 +659,24 @@ enum LibraryRecordRepository {
             object["compareNote"] = draft.compareNote
             object["compareWords"] = draft.wordCompareTerms
                 .filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                .map { ["name": $0.name, "meaning": $0.meaning, "wordId": $0.wordID, "entryKind": draft.wordEntryKind] }
+                .map { term -> [String: Any] in
+                    var value: [String: Any] = [
+                        "name": term.name,
+                        "meaning": term.meaning,
+                        "wordId": term.wordID,
+                        "entryKind": draft.wordEntryKind
+                    ]
+                    if let legacyID = term.legacyID, !legacyID.isEmpty { value["id"] = legacyID }
+                    if category == .wordComparison {
+                        if let coreFocus = term.coreFocus, !coreFocus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            value["coreFocus"] = coreFocus
+                        }
+                        if let quickDecision = term.quickDecision, !quickDecision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            value["quickDecision"] = quickDecision
+                        }
+                    }
+                    return value
+                }
         }
 
         return object

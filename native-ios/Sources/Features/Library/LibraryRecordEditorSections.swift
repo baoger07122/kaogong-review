@@ -539,6 +539,32 @@ private struct LibraryErrorAnalysisSection: View {
         }
     }
 
+    private var questionMarkers: some View {
+        HStack(spacing: 7) {
+            Text("题目标记")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            markerChip("难题", isOn: $draft.isDifficult)
+            markerChip("待复习", isOn: $draft.needsReview)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func markerChip(_ title: String, isOn: Binding<Bool>) -> some View {
+        Button { isOn.wrappedValue.toggle() } label: {
+            Label(title, systemImage: isOn.wrappedValue ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(isOn.wrappedValue ? AppTheme.accent : Color.secondary)
+                .padding(.horizontal, 8)
+                .frame(height: 28)
+                .background(isOn.wrappedValue ? AppTheme.accent.opacity(0.08) : Color.white, in: Capsule())
+                .overlay(Capsule().stroke(isOn.wrappedValue ? AppTheme.accent.opacity(0.28) : Color.primary.opacity(0.10), lineWidth: 0.7))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title)标记")
+        .accessibilityAddTraits(isOn.wrappedValue ? .isSelected : [])
+    }
+
     private var quantityAnalysis: some View {
         VStack(alignment: .leading, spacing: 7) {
             Label("题型分析", systemImage: "tag").font(.system(size: 13, weight: .medium))
@@ -546,6 +572,7 @@ private struct LibraryErrorAnalysisSection: View {
             quantityTagInput(title: "考点", value: draft.knowledgePoint) { showQuantityKnowledgePoints = true }
             tagInput(title: "错因", text: quantityErrorCause, allowsMultiple: true)
             plainTextInput(label: "提醒", text: $draft.reminder)
+            questionMarkers
         }
         .padding(14)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -556,13 +583,16 @@ private struct LibraryErrorAnalysisSection: View {
         VStack(alignment: .leading, spacing: 7) {
             Label("\(knowledgeLabel)与\(causeLabel)", systemImage: "tag").font(.system(size: 13, weight: .medium))
             tagInput(title: knowledgeLabel, text: $draft.knowledgePoint, allowsMultiple: true, showsChevron: false)
-            if isDataAnalysis || isAnalogy {
+            if isDataAnalysis {
+                LibraryDataAnalysisCauseLineFields(text: $draft.errorCause)
+            } else if isAnalogy {
                 plainTextInput(label: causeLabel, text: $draft.errorCause)
             } else {
                 tagInput(title: causeLabel, text: $draft.errorCause, allowsMultiple: false)
             }
             plainTextInput(label: isDataAnalysis ? "陷阱" : "思维误区", text: $draft.pitfall)
             plainTextInput(label: isAnalogy ? "常识" : "提醒", text: $draft.reminder)
+            questionMarkers
         }
         .padding(14)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -723,6 +753,65 @@ private struct LibraryErrorRelationsSection: View {
         guard !id.isEmpty else { return collection == "exams" ? "未关联套卷" : "未关联" }
         return records.first { $0.collection == collection && $0.recordID == id }?.title ?? "记录已不存在"
     }
+}
+
+struct LibraryDataAnalysisCauseLineFields: View {
+    @Binding var text: String
+    @State private var lines: [String] = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("错因").font(.system(size: 11)).foregroundStyle(.secondary)
+                Spacer()
+                Button { lines.append(""); writeBack() } label: {
+                    Label("添加错因", systemImage: "plus.circle")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.plain)
+            }
+            ForEach(Array(lines.indices), id: \.self) { index in
+                HStack(spacing: 7) {
+                    TextField("错因内容", text: lineBinding(at: index), axis: .vertical)
+                        .font(.system(size: 13))
+                        .lineLimit(1...4)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 7)
+                        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+                    Button(role: .destructive) {
+                        lines.remove(at: index)
+                        writeBack()
+                    } label: {
+                        Image(systemName: "minus.circle").font(.system(size: 16))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("删除错因第\(index + 1)行")
+                }
+            }
+            if lines.isEmpty {
+                Text("可逐行记录错因").font(.system(size: 11)).foregroundStyle(.tertiary)
+            }
+        }
+        .onAppear { lines = LibraryDataAnalysisCauseLayout.splitLines(text) }
+        .onChange(of: text) { _, value in
+            let normalized = lines.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            let incoming = LibraryDataAnalysisCauseLayout.splitLines(value)
+            if incoming != normalized { lines = incoming }
+        }
+    }
+
+    private func lineBinding(at index: Int) -> Binding<String> {
+        Binding(
+            get: { lines.indices.contains(index) ? lines[index] : "" },
+            set: { value in
+                guard lines.indices.contains(index) else { return }
+                lines[index] = value
+                writeBack()
+            }
+        )
+    }
+
+    private func writeBack() { text = lines.joined(separator: "\n") }
 }
 
 private struct LibraryShenlunEditorForm: View {

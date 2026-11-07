@@ -64,6 +64,8 @@ struct LibraryRecordDetailView: View {
     @State private var linkedQuestionBankContext: QuestionBankQuestionAnalysisContext?
     @State private var linkedQuestionFallbackObject: [String: Any] = [:]
     @State private var editingAttribute: LibraryDetailAttribute?
+    @State private var editingDataAnalysisCauses: LibraryDetailAttribute?
+    @State private var detailAttributeSaveError: String?
     @State private var isMaterialPaneOpen = false
     @State private var splitDoodleLayoutDirection: LibraryDoodleLayoutDirection = .vertical
     @State private var splitDoodleErrorMessage: String?
@@ -194,6 +196,12 @@ struct LibraryRecordDetailView: View {
                 }
                 .presentationDetents([.medium, .large])
             }
+            .sheet(item: $editingDataAnalysisCauses) { attribute in
+                LibraryDataAnalysisCauseEditor(attribute: attribute) { value in
+                    saveDetailAttribute(attribute, value: value)
+                }
+                .presentationDetents([.medium, .large])
+            }
     }
 
     private var detailToolbarContainer: some View {
@@ -213,6 +221,16 @@ struct LibraryRecordDetailView: View {
             .background(NativeNavigationInteraction(blocked: doodleSession.isPresented))
             .toolbar(.visible, for: .navigationBar)
             .onAppear(perform: resetEditorRequestAfterReturn)
+            .onAppear {
+                if isRedoPractice {
+                    redoSession.update(activeRecordID) { $0 = LibraryRedoAttempt() }
+                }
+            }
+            .onChange(of: activeRecordID) { _, newValue in
+                if isRedoPractice {
+                    redoSession.update(newValue) { $0 = LibraryRedoAttempt() }
+                }
+            }
             .onDisappear(perform: invalidateEditorRequestOnExit)
             .alert(
                 Text(splitDoodleErrorMessage == nil ? "无法打开编辑" : "涂鸦未保存"),
@@ -389,11 +407,9 @@ struct LibraryRecordDetailView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 if kind == .errors {
-                    entryClassificationBadge
+                    errorClassificationAndMasteryRow
                 }
-                if !isRedoPractice {
-                    metadata
-                }
+                reviewContent(metadata)
                 if kind == .errors && isDataAnalysis {
                     if !separatesDataAnalysisMaterial {
                         dataAnalysisMaterialAction
@@ -407,18 +423,17 @@ struct LibraryRecordDetailView: View {
                     imagesBlock(availableWidth: max(0, readingColumnWidth - 32))
                 }
                 optionsBlock
-                if isRedoPractice {
-                    redoFeedbackBlock
-                    questionSourceBlock
-                } else {
-                    answerAndSource
-                    explanationBlock
-                    comparisonBlock
-                    linkedErrorBlock
-                    reviewBlock
-                    noteBlock
-                    dateBlock
-                }
+                redoFeedbackBlock
+                    .opacity(isRedoPractice ? 1 : 0)
+                    .allowsHitTesting(isRedoPractice)
+                    .accessibilityHidden(!isRedoPractice)
+                reviewContent(answerAndSource)
+                reviewContent(explanationBlock)
+                reviewContent(comparisonBlock)
+                reviewContent(linkedErrorBlock)
+                reviewContent(reviewBlock)
+                reviewContent(noteBlock)
+                reviewContent(dateBlock)
             }
             .padding(.horizontal, 16)
             .padding(.top, 5)
@@ -629,9 +644,9 @@ struct LibraryRecordDetailView: View {
             .disabled(pendingEditorRequestID != nil)
             if supportsRedoMode {
                 Button {
-                    redoPracticeEnabled.toggle()
+                    toggleRedoMode()
                 } label: {
-                    Label(redoModeActionTitle, systemImage: "arrow.counterclockwise")
+                    Label(redoModeActionTitle, systemImage: redoModeActionImage)
                 }
             }
             Button(role: .destructive) {
@@ -775,16 +790,6 @@ struct LibraryRecordDetailView: View {
                     }
                 }
             }
-            if supportsRedoMode {
-                editableMetadataText(
-                    "掌握状态",
-                    value: masteryStatus,
-                    key: existingAttributeKey(["status", "masteryStatus"], fallback: "status"),
-                    choices: ["未掌握", "已掌握"]
-                )
-            } else if let status = firstText(["status", "masteryStatus"]) {
-                editableMetadataText("掌握状态", value: clean(status), key: existingAttributeKey(["status", "masteryStatus"], fallback: "status"), choices: ["未掌握", "已掌握"])
-            }
             if isQuantityRelations {
                 metadataTextLine("题型", value: QuantityQuestionTypeCatalog.displayName(for: activeModule))
                 metadataTextLine("题目结构", value: firstText(["quantityStructure"]) ?? "")
@@ -797,7 +802,9 @@ struct LibraryRecordDetailView: View {
                         .accessibilityIdentifier("question-bank-detail-question-type")
                 }
                 metadataTagLine(knowledgePointLabel, values: knowledgePoints, emphasis: .strong)
-                if isDataAnalysis || isAnalogyReasoning {
+                if isDataAnalysis {
+                    dataAnalysisCauseMetadata
+                } else if isAnalogyReasoning {
                     metadataTextLine(errorCauseLabel, value: firstText(["errorCause", "cause", "reason"]) ?? "")
                 } else {
                     metadataTagLine(errorCauseLabel, values: splitTags(firstText(["errorCause", "cause", "reason"]) ?? ""), emphasis: .subtle)
@@ -949,12 +956,13 @@ struct LibraryRecordDetailView: View {
                             Button {
                                 redoSession.update(activeRecordID) { attempt in
                                     if answerLetters.count == 1 {
-                                        attempt.selectedLetters = attempt.selectedLetters.contains(letter) ? [] : [letter]
+                                        attempt.selectedLetters = [letter]
                                     } else if attempt.selectedLetters.contains(letter) {
                                         attempt.selectedLetters.remove(letter)
                                     } else {
                                         attempt.selectedLetters.insert(letter)
                                     }
+                                    attempt.submitted = !answerLetters.isEmpty
                                 }
                             } label: {
                                 paddedRow
@@ -1112,8 +1120,7 @@ struct LibraryRecordDetailView: View {
     }
 
     @ViewBuilder private var explanationBlock: some View {
-        if shouldShowExplanation,
-           let explanation = firstText(["explanation"]),
+        if let explanation = firstText(["explanation"]),
            !clean(explanation).isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 Label("解析", systemImage: "text.book.closed")
@@ -1390,7 +1397,19 @@ struct LibraryRecordDetailView: View {
         if let displayQuestionBankContext {
             return displayQuestionBankContext.isAnswerRevealed
         }
-        return !isRedoPractice || redoAttempt.submitted
+        return !isRedoPractice || (redoAttempt.submitted && !answerLetters.isEmpty)
+    }
+
+    private var canShowReviewContentInCurrentMode: Bool {
+        !isRedoPractice || shouldShowExplanation
+    }
+
+    private func reviewContent<Content: View>(_ content: Content) -> some View {
+        let visible = canShowReviewContentInCurrentMode
+        return content
+            .opacity(visible ? 1 : 0)
+            .allowsHitTesting(visible)
+            .accessibilityHidden(!visible)
     }
 
     @ViewBuilder private var redoFeedbackBlock: some View {
@@ -1413,26 +1432,11 @@ struct LibraryRecordDetailView: View {
             }
             .padding(.top, 4)
         } else if answerLetters.isEmpty {
-            Text("暂无标准答案，暂时无法提交")
+            Text(redoAttempt.selectedLetters.isEmpty
+                ? "暂无标准答案；选择只会保留本次记录"
+                : "已记录你的选择；暂无标准答案，暂不显示解析")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
-        } else {
-            Button {
-                guard !redoAttempt.selectedLetters.isEmpty else { return }
-                redoSession.update(activeRecordID) { $0.submitted = true }
-            } label: {
-                Text("提交答案")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AppTheme.accent)
-                    .padding(.horizontal, 15)
-                    .frame(height: 36)
-                    .background(AppTheme.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .disabled(redoAttempt.selectedLetters.isEmpty)
-            .opacity(redoAttempt.selectedLetters.isEmpty ? 0.55 : 1)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .accessibilityIdentifier("library-redo-submit")
         }
     }
 
@@ -1481,8 +1485,112 @@ struct LibraryRecordDetailView: View {
     }
 
     private var entryClassificationBadge: some View {
-        metadataBadge(entryClassification, color: entryClassificationColor)
+        Group {
+            if entryClassification == "错题" {
+                Text(entryClassification)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color(red: 196 / 255, green: 47 / 255, blue: 50 / 255))
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    .background(Color(red: 253 / 255, green: 235 / 255, blue: 236 / 255), in: RoundedRectangle(cornerRadius: 6))
+            } else {
+                metadataBadge(entryClassification, color: entryClassificationColor)
+            }
+        }
             .accessibilityLabel("题目分类：\(entryClassification)")
+    }
+
+    private var errorClassificationAndMasteryRow: some View {
+        HStack(spacing: 7) {
+            entryClassificationBadge
+            Menu {
+                ForEach(["未掌握", "已掌握"], id: \.self) { value in
+                    Button {
+                        let attribute = LibraryDetailAttribute(
+                            key: existingAttributeKey(["status", "masteryStatus"], fallback: "status"),
+                            label: "掌握状态",
+                            value: masteryStatus,
+                            choices: ["未掌握", "已掌握"]
+                        )
+                        if let message = saveDetailAttribute(attribute, value: value) {
+                            detailAttributeSaveError = message
+                        }
+                    } label: {
+                        if masteryStatus == value { Label(value, systemImage: "checkmark") }
+                        else { Text(value) }
+                    }
+                }
+            } label: {
+                Group {
+                    if masteryStatus == "未掌握" {
+                        Text(masteryStatus)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Color(red: 168 / 255, green: 86 / 255, blue: 18 / 255))
+                            .padding(.horizontal, 8)
+                            .frame(height: 24)
+                            .background(Color(red: 255 / 255, green: 241 / 255, blue: 227 / 255), in: RoundedRectangle(cornerRadius: 6))
+                    } else {
+                        Text(masteryStatus)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(statusColor(masteryStatus))
+                            .padding(.horizontal, 8)
+                            .frame(height: 24)
+                            .background(statusColor(masteryStatus).opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("掌握状态：\(masteryStatus)")
+            Spacer(minLength: 0)
+        }
+        .alert("掌握状态未保存", isPresented: Binding(
+            get: { detailAttributeSaveError != nil },
+            set: { if !$0 { detailAttributeSaveError = nil } }
+        )) {
+            Button("好", role: .cancel) { detailAttributeSaveError = nil }
+        } message: {
+            Text(detailAttributeSaveError ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private var dataAnalysisCauseMetadata: some View {
+        let values = LibraryDataAnalysisCauseLayout.splitLines(LibraryDataAnalysisCauseLayout.rawCause(in: object))
+        if !values.isEmpty {
+            let row = HStack(alignment: .top, spacing: 6) {
+                Text("\(errorCauseLabel)：")
+                    .fixedSize(horizontal: true, vertical: false)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(.primary)
+                    .padding(.top, 2)
+                NativeTagFlow(spacing: 5) {
+                    ForEach(Array(values.enumerated()), id: \.offset) { _, value in
+                        Text(value)
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(Color(red: 165 / 255, green: 91 / 255, blue: 26 / 255))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .background(Color(red: 255 / 255, green: 244 / 255, blue: 230 / 255), in: RoundedRectangle(cornerRadius: 6))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if canEditReviewAttributes {
+                Button {
+                    editingDataAnalysisCauses = LibraryDetailAttribute(
+                        key: "errorCause",
+                        label: errorCauseLabel,
+                        value: values.joined(separator: "\n")
+                    )
+                } label: { row }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+            } else {
+                row
+            }
+        }
     }
 
     private var webBorder: Color { Color(red: 240.0 / 255.0, green: 240.0 / 255.0, blue: 242.0 / 255.0) }
@@ -1517,6 +1625,15 @@ struct LibraryRecordDetailView: View {
 
     private var redoModeActionTitle: String {
         redoPracticeEnabled ? "错题模式" : "重做模式"
+    }
+
+    private var redoModeActionImage: String { redoPracticeEnabled ? "doc.text" : "arrow.counterclockwise" }
+
+    private func toggleRedoMode() {
+        if !redoPracticeEnabled {
+            redoSession.update(activeRecordID) { $0 = LibraryRedoAttempt() }
+        }
+        redoPracticeEnabled.toggle()
     }
 
     private func existingAttributeKey(_ keys: [String], fallback: String) -> String {
@@ -2123,6 +2240,49 @@ private struct LibraryDetailAttributeEditor: View {
                         } else {
                             dismiss()
                         }
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+    }
+}
+
+@MainActor
+private struct LibraryDataAnalysisCauseEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let attribute: LibraryDetailAttribute
+    let onSave: (String) -> String?
+    @State private var value: String
+    @State private var errorMessage: String?
+
+    init(attribute: LibraryDetailAttribute, onSave: @escaping (String) -> String?) {
+        self.attribute = attribute
+        self.onSave = onSave
+        _value = State(initialValue: attribute.value)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                LibraryDataAnalysisCauseLineFields(text: $value)
+                    .padding(12)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 0.8))
+                if let errorMessage {
+                    Text(errorMessage).font(.system(size: 12)).foregroundStyle(AppTheme.danger)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .navigationTitle(attribute.label)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        if let error = onSave(value) { errorMessage = error }
+                        else { dismiss() }
                     }
                     .fontWeight(.semibold)
                 }

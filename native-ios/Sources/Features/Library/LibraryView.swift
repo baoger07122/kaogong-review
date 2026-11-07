@@ -19,6 +19,7 @@ struct LibraryView: View {
     @State private var searchText = ""
     @State private var selectedStatus = ""
     @State private var selectedTag = ""
+    @AppStorage("native.library.errors.redoMode") private var redoPracticeEnabled = false
     @AppStorage("native.library.card-size.v1") private var storedCardSize = LibraryCardSize.medium.rawValue
     @AppStorage("native.library.controls.status.v2") private var showsStatusControl = false
     @AppStorage("native.library.controls.category.v2") private var showsCategoryControl = false
@@ -53,7 +54,7 @@ struct LibraryView: View {
                     onScopeChanged: resetContextFilters
                 )
                 .frame(width: sidebarWidth(in: proxy.size.width))
-                content
+                content(availableWindowWidth: proxy.size.width)
             }
         }
         .background(AppTheme.groupedBackground)
@@ -312,7 +313,7 @@ struct LibraryView: View {
         }
     }
 
-    private var content: some View {
+    private func content(availableWindowWidth: CGFloat) -> some View {
         let scopedRecords = sortedScopedRecords
         let tagFilteredRecords = filterRecords(matching: selectedTag, from: scopedRecords)
         let renderedSnapshots = snapshots(from: tagFilteredRecords)
@@ -406,22 +407,26 @@ struct LibraryView: View {
             .contentMargins(.bottom, 12, for: .scrollContent)
         }
         .overlay(alignment: .bottomTrailing) {
-            if canCreateRecord {
-                Button {
-                    navigationPath.append(.editor(kind: kind, recordID: nil))
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 23, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 54, height: 54)
-                        .background(AppTheme.accent, in: Circle())
-                        .shadow(color: AppTheme.accent.opacity(0.28), radius: 12, y: 5)
+            GeometryReader { _ in
+                if canCreateRecord {
+                    Button {
+                        navigationPath.append(.editor(kind: kind, recordID: nil))
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 23, weight: .medium))
+                            .foregroundStyle(.white)
+                            .frame(width: 54, height: 54)
+                            .background(AppTheme.accent, in: Circle())
+                            .shadow(color: AppTheme.accent.opacity(0.28), radius: 12, y: 5)
+                    }
+                    .buttonStyle(NativePressButtonStyle())
+                    .accessibilityLabel("新增\(kind.rawValue)")
+                    .accessibilityIdentifier("library-add-record")
+                    .padding(.trailing, 18)
+                    .padding(.bottom, 8)
+                    .offset(y: NativeFloatingActionPlacement.maySitAtTabBarTopEdge(windowWidth: availableWindowWidth) ? 34 : 0)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 }
-                .buttonStyle(NativePressButtonStyle())
-                .accessibilityLabel("新增\(kind.rawValue)")
-                .accessibilityIdentifier("library-add-record")
-                .padding(.trailing, 18)
-                .padding(.bottom, 72)
             }
         }
     }
@@ -467,6 +472,11 @@ struct LibraryView: View {
     private var headerMenu: some View {
         Menu {
             Button { showSearch = true } label: { Label("搜索", systemImage: "magnifyingglass") }
+            if kind == .errors {
+                Button { redoPracticeEnabled.toggle() } label: {
+                    Label(redoPracticeEnabled ? "错题模式" : "重做模式", systemImage: redoPracticeEnabled ? "doc.text" : "arrow.counterclockwise")
+                }
+            }
             Section("显示控件") {
                 if kind == .errors {
                     Toggle(isOn: $showsStatusControl) { Label("状态筛选", systemImage: "checkmark.circle") }
@@ -892,9 +902,9 @@ struct LibraryView: View {
     private func tagValues(for record: StoredRecord) -> [String] {
         let object = record.indexObject ?? [:]
         var values: [String] = []
-        if let baseTag = ["type", "category", "errorCause"]
-            .compactMap({ object[$0] as? String })
-            .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+        let isDataAnalysis = record.subject == "资料分析" || object["subject"] as? String == "资料分析"
+        let baseKeys = isDataAnalysis ? ["type", "category"] : ["type", "category", "errorCause"]
+        if let baseTag = baseKeys.compactMap({ object[$0] as? String }).first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
             values.append(baseTag)
         }
         if record.collection == "errors" {
@@ -910,6 +920,8 @@ struct LibraryView: View {
         }
         if record.subject == "数量关系" || object["subject"] as? String == "数量关系" {
             values.append(contentsOf: LibraryQuantityErrorCauseCompatibility.values(in: object))
+        } else if isDataAnalysis {
+            values.append(contentsOf: LibraryDataAnalysisCauseLayout.splitLines(LibraryDataAnalysisCauseLayout.rawCause(in: record.compatibilityIndexObject ?? object)))
         } else {
             values.append(contentsOf: object["weaknessTags"] as? [String] ?? [])
         }

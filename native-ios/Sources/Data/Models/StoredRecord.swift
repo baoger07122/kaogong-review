@@ -12,6 +12,7 @@ final class StoredRecord {
     var module: String?
     var createdAt: Date?
     var updatedAt: Date?
+    @Transient private var cachedCompatibilityFields: [String: Any]? = nil
 
     init(
         collection: String,
@@ -41,6 +42,21 @@ final class StoredRecord {
     var indexObject: [String: Any]? {
         guard let indexPayload else { return jsonObject }
         return (try? JSONSerialization.jsonObject(with: indexPayload)) as? [String: Any]
+    }
+
+    var compatibilityIndexObject: [String: Any]? {
+        guard collection == "errors", var indexed = indexObject else { return indexObject }
+        let fields = ["errorCause", "cause", "reason", "compareGroups"]
+        let missing = fields.filter { indexed[$0] == nil }
+        guard !missing.isEmpty else { return indexed }
+        if cachedCompatibilityFields == nil {
+            let source = jsonObject ?? [:]
+            cachedCompatibilityFields = source.filter { fields.contains($0.key) }
+        }
+        for key in missing {
+            if let value = cachedCompatibilityFields?[key] { indexed[key] = value }
+        }
+        return indexed
     }
 
     var reviewSourceMetadata: [String: Any] {
@@ -85,6 +101,7 @@ final class StoredRecord {
     func replacePayload(_ value: Data, indexPayload: Data?) {
         payload = value
         self.indexPayload = indexPayload
+        cachedCompatibilityFields = nil
     }
 
     var title: String {
@@ -103,6 +120,7 @@ final class StoredRecord {
         case "errors":
             keys = [
                 "id", "subject", "module", "knowledgePoints", "knowledgePoint", "errorCause", "status",
+                "cause", "reason", "compareGroups",
                 "question", "title", "type", "category", "isShenlun", "createdAt", "updatedAt", "lastReviewDate",
                 "questionSource", "source", "questionNumber", "sourceYear", "sourceExamType", "sourceRegion",
                 "accuracy", "reviewCount", "sourceExamId", "pitfall", "reminder", "linkedWordIds", "options",

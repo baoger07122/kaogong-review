@@ -9,6 +9,16 @@ enum LibraryDataAnalysisCauseLayoutBehavior {
         let sentence = LibraryDataAnalysisCauseLayout.splitLines("公式不熟悉，看漏了平均。")
         precondition(sentence == ["公式不熟悉，看漏了平均。"], "does not split punctuation in a sentence")
 
+        let legacyCause: [String: Any] = ["cause": ["公式不熟悉", "", "看漏了平均"]]
+        precondition(
+            LibraryDataAnalysisCauseLayout.rawCause(in: legacyCause) == "公式不熟悉\n看漏了平均",
+            "legacy cause arrays become trimmed non-empty lines"
+        )
+        precondition(
+            LibraryDataAnalysisCauseLayout.rawCause(in: ["errorCause": "", "reason": "旧错因"]) == "",
+            "an explicit empty canonical errorCause suppresses legacy aliases"
+        )
+
         let wideLine = LibraryDataAnalysisCauseLayout.estimatedTagLineHeight(
             label: "错因", values: causes, width: 300
         )

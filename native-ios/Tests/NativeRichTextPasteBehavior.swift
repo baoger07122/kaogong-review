@@ -10,6 +10,8 @@ enum NativeRichTextPasteBehavior {
         verifyExplicitMarkdownIsConverted()
         verifyRichTextSpacingKeepsParagraphsAndBoldRuns()
         verifyAttributedInsertionAndUndo()
+        verifyMarkdownTablePasteParsing()
+        verifyHTMLTablePasteParsing()
     }
 
     private static func verifyOrdinaryLineBreaksStayPlain() {
@@ -60,5 +62,39 @@ enum NativeRichTextPasteBehavior {
         undoManager.undo()
         precondition(existing.string == "前后", "undo should restore the original surrounding text")
         precondition(selectionAfterReplace == NSRange(location: 1, length: 0), "undo should restore the insertion point")
+    }
+
+    private static func verifyMarkdownTablePasteParsing() {
+        let text = "前置说明\n| 词语 | 核心侧重 | 一眼判断 |\n| --- | --- | --- |\n| 通常 | 常见情况，含义较宽；这是一段较长的说明文字，需要保留并在表格单元格内换行显示。 | 搭配对象 |\n后置复盘说明"
+        let tables = NativeRichTextTablePasteParser.markdownTables(in: text)
+        precondition(tables.count == 1, "strict three-column Markdown table should be recognized")
+        precondition(tables[0].cells.count == 2 && tables[0].cells[0] == ["词语", "核心侧重", "一眼判断"], "table headers and body rows should be retained")
+        precondition(tables[0].cells[1][1].contains("保留并在表格单元格内换行显示"), "long cell text should remain complete")
+        let source = text as NSString
+        let prefix = source.substring(to: tables[0].range.location)
+        let suffix = source.substring(from: NSMaxRange(tables[0].range))
+        precondition(prefix == "前置说明\n" && suffix == "\n后置复盘说明", "prefix and suffix paragraphs should stay outside the table attachment")
+        precondition(NativeRichTextTablePasteParser.markdownTables(in: "普通竖线 A | B 仍是文字").isEmpty, "ordinary vertical bars should not form a table")
+
+        let fenced = "```text\n| A | B |\n| --- | --- |\n| x | y |\n```"
+        precondition(NativeRichTextTablePasteParser.markdownTables(in: fenced).isEmpty, "tables inside code fences should remain literal text")
+
+        let oversizedRows = ["| A | B |", "| --- | --- |"] + (0..<17).map { "| row \($0) | value |" }
+        precondition(
+            NativeRichTextTablePasteParser.markdownTables(in: oversizedRows.joined(separator: "\n")).isEmpty,
+            "overlong tables should fall back as complete text instead of pasting a truncated table"
+        )
+    }
+
+    private static func verifyHTMLTablePasteParsing() {
+        let html = "<p>开头</p><table><tr><th>词语</th><th>侧重</th><th>判断</th></tr><tr><td>甲<br>乙</td><td>长说明</td><td>搭配</td></tr></table><p>结尾</p>"
+        let tables = NativeRichTextTablePasteParser.htmlTables(in: html)
+        precondition(tables?.count == 1, "HTML table representation should be recognized")
+        precondition(tables?.first?.cells[0] == ["词语", "侧重", "判断"], "HTML headers should be preserved")
+        precondition(tables?.first?.cells[1][0] == "甲\n乙", "HTML line breaks should stay inside their cell")
+
+        let unsafe = "<table><tr><td colspan=\"2\">merged</td><td>x</td></tr><tr><td>a</td><td>b</td><td>c</td></tr></table>"
+        precondition(NativeRichTextTablePasteParser.containsHTMLTable(unsafe), "unsafe HTML should still be detected as a table")
+        precondition(NativeRichTextTablePasteParser.htmlTables(in: unsafe) == nil, "merged cells should use the complete plain-text fallback")
     }
 }

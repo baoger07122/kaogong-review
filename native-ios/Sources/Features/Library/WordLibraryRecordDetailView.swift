@@ -25,30 +25,34 @@ struct WordLibraryRecordDetailView: View {
                         if !text("sentiment").isEmpty { detailTag(text("sentiment"), color: .secondary) }
                     }
 
-                    Text(recordTitle)
+                    Text(displayTitle)
                         .font(.system(size: 22, weight: .semibold))
                         .textSelection(.enabled)
 
-                    detailText("共同语义", value: text("commonMeaning"))
-                    if category.isComparison { comparisonTerms }
-                    detailText("核心区别", value: text("compareNote", "coreDifference"))
+                    if category == .wordComparison {
+                        wordComparisonDetail
+                    } else {
+                        detailText("共同语义", value: text("commonMeaning"))
+                        if category.isComparison { comparisonTerms }
+                        detailText("核心区别", value: text("compareNote", "coreDifference"))
 
-                    let explanation = category.isComparison ? text("judgmentHint") : text("meaning")
-                    if !explanation.isEmpty {
-                        VStack(alignment: .leading, spacing: 7) {
-                            Text(category.isComparison ? "判断提示" : "释义")
-                                .font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
-                            NativeRichTextDisplay(html: explanation, minHeight: 34)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                        let explanation = category.isComparison ? text("judgmentHint") : text("meaning")
+                        if !explanation.isEmpty {
+                            VStack(alignment: .leading, spacing: 7) {
+                                Text(category.isComparison ? "判断提示" : "释义")
+                                    .font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                                NativeRichTextDisplay(html: explanation, minHeight: 34)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
                         }
-                    }
 
-                    detailText("拼音", value: text("pinyin"))
-                    detailText("词性", value: text("pos", "partOfSpeech"))
-                    detailText("例句", value: text("example"))
-                    detailText("我的理解", value: text("myUnderstanding"))
-                    detailText("常见搭配", value: text("collocations"))
-                    detailText("来源", value: text("source"))
+                        detailText("拼音", value: text("pinyin"))
+                        detailText("词性", value: text("pos", "partOfSpeech"))
+                        detailText("例句", value: text("example"))
+                        detailText("我的理解", value: text("myUnderstanding"))
+                        detailText("常见搭配", value: text("collocations"))
+                        detailText("来源", value: text("source"))
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
@@ -114,6 +118,109 @@ struct WordLibraryRecordDetailView: View {
         }
     }
 
+    private var wordComparisonDetail: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            detailText("共同语义", value: text("commonMeaning"))
+            if compareTerms.contains(where: { !$0.coreFocus.isEmpty || !$0.quickDecision.isEmpty }) {
+                wordComparisonTable
+            }
+            let terms = compareTerms.filter { !$0.name.isEmpty || !$0.meaning.isEmpty }
+            if !terms.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("逐词释义").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                    ForEach(Array(terms.enumerated()), id: \.offset) { index, term in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(term.name).font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
+                            if !term.meaning.isEmpty {
+                                NativeRichTextDisplay(html: term.meaning, minHeight: 24)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 6)
+                        if index < terms.count - 1 {
+                            Rectangle().fill(Color.primary.opacity(0.10)).frame(height: 0.7)
+                        }
+                    }
+                }
+            }
+            comparisonTakeaway
+            detailText("拼音", value: text("pinyin"))
+            detailText("词性", value: text("pos", "partOfSpeech"))
+            detailText("例句", value: text("example"))
+            detailText("我的理解", value: text("myUnderstanding"))
+            detailText("常见搭配", value: text("collocations"))
+            detailText("来源", value: text("source"))
+        }
+    }
+
+    private var wordComparisonTable: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("一眼对照")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 6)
+            WordComparisonTableRow {
+                tableCell("词语", header: true)
+                tableCell("核心侧重", header: true)
+                tableCell("一眼判断", header: true)
+            }
+            ForEach(Array(compareTerms.enumerated()), id: \.offset) { _, term in
+                if !term.coreFocus.isEmpty || !term.quickDecision.isEmpty {
+                    WordComparisonTableRow {
+                        tableCell(term.name)
+                        tableCell(term.coreFocus)
+                        tableCell(term.quickDecision)
+                    }
+                }
+            }
+        }
+        .background(Color.white)
+    }
+
+    private func tableCell(_ value: String, header: Bool = false) -> some View {
+        Text(value.isEmpty ? "—" : value)
+            .font(.system(size: header ? 12 : 14, weight: header ? .medium : .regular))
+            .foregroundStyle(header ? Color.secondary : Color.primary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.vertical, header ? 8 : 9)
+            .background(Color.white)
+            .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 0.65) }
+    }
+
+    @ViewBuilder private var comparisonTakeaway: some View {
+        let core = text("compareNote", "coreDifference")
+        let hint = text("judgmentHint")
+        if !core.isEmpty && !hint.isEmpty {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 20) {
+                    detailText("核心区别", value: core)
+                    richTextSection("判断提示", html: hint)
+                }
+                VStack(alignment: .leading, spacing: 12) {
+                    detailText("核心区别", value: core)
+                    richTextSection("判断提示", html: hint)
+                }
+            }
+        } else if !core.isEmpty {
+            detailText("核心区别", value: core)
+        } else {
+            richTextSection("判断提示", html: hint)
+        }
+    }
+
+    @ViewBuilder private func richTextSection(_ label: String, html: String) -> some View {
+        if !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            VStack(alignment: .leading, spacing: 7) {
+                Text(label).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                NativeRichTextDisplay(html: html, minHeight: 30)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
     @ViewBuilder private func detailText(_ label: String, value: String) -> some View {
         if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             VStack(alignment: .leading, spacing: 5) {
@@ -137,10 +244,21 @@ struct WordLibraryRecordDetailView: View {
         return value.isEmpty ? "未命名词语" : value
     }
 
+    private var displayTitle: String {
+        guard category == .wordComparison else { return recordTitle }
+        return recordTitle.replacingOccurrences(
+            of: #"(?i)(?<![A-Za-z])\s*vs\.?\s*(?![A-Za-z])"#,
+            with: "  │  ",
+            options: .regularExpression
+        )
+    }
+
     private struct Term {
         let name: String
         let meaning: String
         let kind: WordEntryKind
+        let coreFocus: String
+        let quickDecision: String
     }
 
     private var compareTerms: [Term] {
@@ -151,7 +269,9 @@ struct WordLibraryRecordDetailView: View {
             return Term(
                 name: name,
                 meaning: value["meaning"] as? String ?? "",
-                kind: WordEntryKind(rawValue: value["entryKind"] as? String ?? "") ?? .word
+                kind: WordEntryKind(rawValue: value["entryKind"] as? String ?? "") ?? .word,
+                coreFocus: value["coreFocus"] as? String ?? value["focus"] as? String ?? "",
+                quickDecision: value["quickDecision"] as? String ?? value["decision"] as? String ?? ""
             )
         }
     }
@@ -161,5 +281,26 @@ struct WordLibraryRecordDetailView: View {
             if let value = object[key] as? String, !value.isEmpty { return value }
         }
         return ""
+    }
+}
+
+private struct WordComparisonTableRow: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width?.isFinite == true ? max(1, proposal.width!) : 360
+        let columnWidths = [width * 0.17, width * 0.28, width * 0.55]
+        let heights = subviews.enumerated().map { index, view in
+            view.sizeThatFits(ProposedViewSize(width: columnWidths[min(index, 2)], height: nil)).height
+        }
+        return CGSize(width: width, height: heights.max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let widths = [bounds.width * 0.17, bounds.width * 0.28, bounds.width * 0.55]
+        var x = bounds.minX
+        for (index, view) in subviews.enumerated() {
+            let width = widths[min(index, 2)]
+            view.place(at: CGPoint(x: x, y: bounds.minY), proposal: ProposedViewSize(width: width, height: bounds.height))
+            x += width
+        }
     }
 }

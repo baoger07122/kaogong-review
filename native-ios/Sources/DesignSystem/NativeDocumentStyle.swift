@@ -34,6 +34,23 @@ extension View {
     }
 }
 
+enum NativeFloatingActionPlacement {
+    static func maySitAtTabBarTopEdge(windowWidth: CGFloat) -> Bool {
+        let tabCount = CGFloat(RootTab.availableTabs.count)
+        let minimumTabWidth: CGFloat = 56
+        let tabSpacing: CGFloat = 5
+        let barPadding: CGFloat = 12
+        let sideInset: CGFloat = 20
+        let centeredBarWidth = tabCount * minimumTabWidth
+            + max(0, tabCount - 1) * tabSpacing
+            + barPadding
+            + sideInset * 2
+        let rightClearance = max(0, (windowWidth - centeredBarWidth) / 2)
+        let requiredClearance: CGFloat = 54 + 18
+        return windowWidth >= centeredBarWidth && rightClearance >= requiredClearance
+    }
+}
+
 private struct RootPageTopLayout: ViewModifier {
     @Environment(\.rootWindowTopInset) private var windowTop
     func body(content: Content) -> some View {
