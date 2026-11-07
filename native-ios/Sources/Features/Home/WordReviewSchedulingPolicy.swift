@@ -92,8 +92,8 @@ enum WordReviewSchedulingPolicy {
                 updated.nextDueDate = adding(days: 1, to: today, calendar: calendar)
             } else if plan.status == .verification, (1...4).contains(plan.verificationRound) {
                 let intervals = [2, 4, 7, 16]
-                updated.verificationRound += 1
-                updated.nextDueDate = adding(days: intervals[plan.verificationRound - 2], to: today, calendar: calendar)
+                updated.verificationRound = plan.verificationRound + 1
+                updated.nextDueDate = adding(days: intervals[plan.verificationRound - 1], to: today, calendar: calendar)
             } else if plan.status == .verification, plan.verificationRound == 5 {
                 updated.status = .verification
                 updated.isContextValidationPending = true
