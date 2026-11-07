@@ -80,6 +80,8 @@ enum LibraryLogicComparisonLayout {
         let end = text.index(range.upperBound, offsetBy: contextLength, limitedBy: text.endIndex) ?? text.endIndex
         let prefix = start == text.startIndex ? "" : "…"
         let suffix = end == text.endIndex ? "" : "…"
-        return prefix + text[start..<end] + suffix
+        let snippetRange = NSRange(start..<end, in: text)
+        let snippet = (text as NSString).substring(with: snippetRange)
+        return prefix + snippet + suffix
     }
 }

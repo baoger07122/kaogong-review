@@ -93,7 +93,6 @@ enum NativeRichTextTablePasteParser {
         var result: [NativeRichTextPastedTable] = []
         for tableMatch in tableMatches {
             guard tableMatch.numberOfRanges > 1 else { return nil }
-            let tableHTML = sourceNSString.substring(with: tableMatch.range)
             let tableBody = sourceNSString.substring(with: tableMatch.range(at: 1))
             guard !containsUnsafeTableContent(tableBody),
                   let rowsExpression = try? NSRegularExpression(pattern: #"(?is)<tr\b[^>]*>(.*?)</tr\s*>"#) else { return nil }
