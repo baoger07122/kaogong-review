@@ -123,6 +123,16 @@ jobs:
             native-ios/Tests/NativeRichTextPasteBehavior.swift \
             -o "$RUNNER_TEMP/native-rich-text-paste-behavior"
           "$RUNNER_TEMP/native-rich-text-paste-behavior"
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Library/LibraryDataAnalysisCauseLayout.swift \
+            native-ios/Tests/LibraryDataAnalysisCauseLayoutBehavior.swift \
+            -o "$RUNNER_TEMP/library-data-analysis-cause-layout-behavior"
+          "$RUNNER_TEMP/library-data-analysis-cause-layout-behavior"
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Speed/SpeedGrowthPresentation.swift \
+            native-ios/Tests/SpeedGrowthPresentationBehavior.swift \
+            -o "$RUNNER_TEMP/speed-growth-presentation-behavior"
+          "$RUNNER_TEMP/speed-growth-presentation-behavior"
 
       - name: Detect simulator test scope
         id: simulator_scope

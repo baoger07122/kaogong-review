@@ -42,6 +42,21 @@ struct SpeedPracticeView: View {
             : (questions.first?.type.name ?? settings.selectedType.name)
     }
 
+    private var isSingleGrowthPractice: Bool {
+        activeTypes.count == 1 && activeTypes.first == .growth
+    }
+
+    private func isGrowthOnly(_ questions: [SpeedQuestion]) -> Bool {
+        !questions.isEmpty && questions.allSatisfy { $0.type == .growth }
+    }
+
+    private func isGrowthOnlyHistory(_ record: SpeedRecord) -> Bool {
+        isGrowthOnly(record.details)
+            && !SpeedTypeKey.allCases
+                .filter { $0 != .growth }
+                .contains { record.name.contains($0.name) }
+    }
+
     private var customPracticeTitle: String {
         let typeNames = activeTypes.map(\.name).joined(separator: "、")
         let numberDescription: String
@@ -62,11 +77,17 @@ struct SpeedPracticeView: View {
 
     private var screenTitle: String {
         switch screen {
-        case .home: "速算练习"
-        case .practice, .result: "速算练习"
-        case .history: selectedHistory?.name ?? "历史记录"
-        case .statistics: "速算统计"
-        case .estimateTable: "估算表"
+        case .home: return "速算练习"
+        case .practice: return isSingleGrowthPractice ? "增量练习" : "速算练习"
+        case .result: return isSingleGrowthPractice && isGrowthOnly(questions) ? "增量练习结果" : "速算练习"
+        case .history:
+            if let selectedHistory, isGrowthOnlyHistory(selectedHistory) {
+                return "增量练习结果"
+            } else {
+                return selectedHistory?.name ?? "历史记录"
+            }
+        case .statistics: return "速算统计"
+        case .estimateTable: return "估算表"
         }
     }
 
@@ -641,7 +662,9 @@ struct SpeedPracticeView: View {
         let sizing = SpeedKeypadMetrics.practiceSizing(
             contentHeight: geometry.size.height,
             viewportHeight: geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom,
-            questionHeight: questions.indices.contains(index) && questions[index].type == .est05 ? 244 : 88
+            questionHeight: questions.indices.contains(index) && questions[index].type == .est05
+                ? 244
+                : (questions.indices.contains(index) && questions[index].type == .growth ? 192 : 88)
         )
         VStack(spacing: 0) {
             if questions.indices.contains(index) {
@@ -665,6 +688,12 @@ struct SpeedPracticeView: View {
                     Spacer(minLength: 12)
                     if let estimate = question.estimate {
                         SpeedEstimateExercise(problem: estimate, input: currentInput, nightMode: settings.nightMode)
+                    } else if question.type == .growth {
+                        SpeedGrowthAnswerRow(
+                            expression: question.expression,
+                            input: currentInput,
+                            nightMode: settings.nightMode
+                        )
                     } else {
                         SpeedAnswerRow(expression: question.expression, input: currentInput,
                                        questionID: question.id, inputRevision: inputRevision, nightMode: settings.nightMode)
@@ -705,7 +734,16 @@ struct SpeedPracticeView: View {
     }
 
     private var result: some View {
-        SpeedResultView(questions: questions, title: practiceTitle, totalTime: totalTime, standard: resultStandardText, onRestart: start, onRetry: retryWrong, onReturn: { screen = .home })
+        SpeedResultView(
+            questions: questions,
+            title: practiceTitle,
+            totalTime: totalTime,
+            standard: resultStandardText,
+            onRestart: start,
+            onRetry: retryWrong,
+            onReturn: { screen = .home },
+            growthOnly: isSingleGrowthPractice && isGrowthOnly(questions)
+        )
         .task { saveResultIfNeeded() }
     }
 
@@ -720,6 +758,7 @@ struct SpeedPracticeView: View {
                     onRestart: {},
                     onRetry: {},
                     onReturn: {},
+                    growthOnly: isGrowthOnlyHistory(record),
                     showsStandard: false,
                     showsFooter: false
                 )

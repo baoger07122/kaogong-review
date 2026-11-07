@@ -442,10 +442,10 @@ private struct LibraryErrorRecordCard: View {
                 }
 
                 let causes = isDataAnalysis ? [] : splitTags(snapshot.errorCause)
-                let dataAnalysisCause = snapshot.dataAnalysisErrorCause.trimmingCharacters(in: .whitespacesAndNewlines)
+                let dataAnalysisCauses = LibraryDataAnalysisCauseLayout.splitLines(snapshot.dataAnalysisErrorCause)
                 if isDataAnalysis {
-                    if !dataAnalysisCause.isEmpty {
-                        sentenceTagLine(label: errorCauseLabel, value: dataAnalysisCause)
+                    if !dataAnalysisCauses.isEmpty {
+                        sentenceTagLine(label: errorCauseLabel, values: dataAnalysisCauses)
                     }
                 } else {
                     if !causes.isEmpty {
@@ -568,20 +568,24 @@ private struct LibraryErrorRecordCard: View {
         }
     }
 
-    private func sentenceTagLine(label: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
+    private func sentenceTagLine(label: String, values: [String]) -> some View {
+        HStack(alignment: .top, spacing: 5) {
             Text("\(label)：")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: true, vertical: false)
-            Text(value)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(AppTheme.accent)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 5)
-                .background(AppTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                .frame(maxWidth: .infinity, alignment: .leading)
+            NativeTagFlow(spacing: 5) {
+                ForEach(Array(values.enumerated()), id: \.offset) { _, value in
+                    Text(value)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(AppTheme.accent)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 5)
+                        .background(AppTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -1199,8 +1203,11 @@ struct LibraryMasonryGrid: View {
             metadataRows.append(estimatedTagLineHeight(label: "辨析", values: record.comparisonWords, width: contentWidth))
         }
         if isDataAnalysis {
-            if !record.dataAnalysisErrorCause.isEmpty {
-                metadataRows.append(estimatedFieldHeight("错因：" + record.dataAnalysisErrorCause, width: contentWidth, fontSize: 11))
+            let causes = LibraryDataAnalysisCauseLayout.splitLines(record.dataAnalysisErrorCause)
+            if !causes.isEmpty {
+                metadataRows.append(LibraryDataAnalysisCauseLayout.estimatedTagLineHeight(
+                    label: "错因", values: causes, width: contentWidth
+                ))
             }
         } else {
             if isAnalogyReasoning, !record.errorCause.isEmpty {
