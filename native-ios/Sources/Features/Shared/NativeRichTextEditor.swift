@@ -2703,7 +2703,7 @@ private struct RichTextTextView: UIViewRepresentable {
     }
 }
 
-private final class NativeTableAttachment: NSTextAttachment {
+private final class NativeTableAttachment: NSTextAttachment, NSCopying {
     let table: RichTextTable
     let instanceID = UUID()
     private let originalMarker: String?
@@ -2722,7 +2722,7 @@ private final class NativeTableAttachment: NSTextAttachment {
 
     required init?(coder: NSCoder) { nil }
 
-    override func copy(with zone: NSZone? = nil) -> Any {
+    func copy(with zone: NSZone? = nil) -> Any {
         NativeTableAttachment(table: table, marker: originalMarker, displayWidth: displayWidth)
     }
 
@@ -2785,9 +2785,9 @@ private final class NativeTableAttachment: NSTextAttachment {
                     attributes: [.font: font],
                     context: nil
                 )
-                return max(20, ceil(rect.height))
-            }.max() ?? 20
-        }.map { max(34, $0 + 14) }
+                return max(CGFloat(20), CGFloat(ceil(rect.height)))
+            }.max() ?? CGFloat(20)
+        }.map { max(CGFloat(34), $0 + 14) }
         return TableLayout(columnWidths: columnWidths, rowHeights: rowHeights)
     }
 
