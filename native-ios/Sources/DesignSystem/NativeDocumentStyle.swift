@@ -72,6 +72,7 @@ private struct NativeTagFlowMeasurement {
 /// Tags wrap at their natural width; the row itself remains a full-width tap target.
 struct NativeTagFlow: Layout {
     var spacing: CGFloat = 6
+    var alignsFirstTextBaseline = false
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         guard !subviews.isEmpty else { return .zero }
@@ -91,6 +92,24 @@ struct NativeTagFlow: Layout {
             view.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
                        proposal: ProposedViewSize(frame.size))
         }
+    }
+
+    func explicitAlignment(
+        of guide: VerticalAlignment,
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGFloat? {
+        guard alignsFirstTextBaseline, guide == .firstTextBaseline, !subviews.isEmpty else { return nil }
+        let measurements = measure(subviews)
+        let proposedWidth = bounds.width.isFinite ? bounds.width : proposal.width
+        let width = resolvedWidth(proposedWidth, measurements: measurements)
+        let result = arrange(width: width, measurements: measurements, subviews: subviews)
+        guard let firstFrame = result.frames.first else { return nil }
+        let firstSubviewProposal = ProposedViewSize(firstFrame.size)
+        let textBaseline = subviews[0].dimensions(in: firstSubviewProposal)[.firstTextBaseline]
+        return bounds.minY + firstFrame.minY + textBaseline
     }
 
     private func measure(_ subviews: Subviews) -> [NativeTagFlowMeasurement] {

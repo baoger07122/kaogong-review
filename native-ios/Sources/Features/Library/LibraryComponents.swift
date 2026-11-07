@@ -469,13 +469,15 @@ private struct LibraryErrorRecordCard: View {
                 if !snapshot.reminder.isEmpty {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Text(isAnalogyReasoning ? "常识：" : "提醒：")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color(red: 48 / 255.0, green: 48 / 255.0, blue: 48 / 255.0))
                             .fixedSize(horizontal: true, vertical: false)
                         Text(snapshot.reminder)
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(Color(red: 80 / 255.0, green: 80 / 255.0, blue: 80 / 255.0))
                             .fixedSize(horizontal: false, vertical: true)
                             .lineSpacing(1.5)
                     }
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(.secondary)
                 }
             }
         }
@@ -569,20 +571,20 @@ private struct LibraryErrorRecordCard: View {
     }
 
     private func sentenceTagLine(label: String, values: [String]) -> some View {
-        HStack(alignment: .top, spacing: 5) {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
             Text("\(label)：")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.primary)
+                .foregroundStyle(Color.black)
                 .fixedSize(horizontal: true, vertical: false)
-            NativeTagFlow(spacing: 5) {
+            NativeTagFlow(spacing: 5, alignsFirstTextBaseline: true) {
                 ForEach(Array(values.enumerated()), id: \.offset) { _, value in
                     Text(value)
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(AppTheme.accent)
+                        .foregroundStyle(Color(red: 143 / 255.0, green: 74 / 255.0, blue: 22 / 255.0))
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 5)
-                        .background(AppTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .background(Color(red: 1, green: 242 / 255.0, blue: 229 / 255.0), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -593,11 +595,15 @@ private struct LibraryErrorRecordCard: View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
             Text("\(label)：")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.primary)
+                .foregroundStyle(isDataAnalysis
+                    ? Color(red: 51 / 255.0, green: 51 / 255.0, blue: 51 / 255.0)
+                    : Color.primary)
                 .fixedSize(horizontal: true, vertical: false)
             Text(value)
                 .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(Color(red: 0.38, green: 0.18, blue: 0.53))
+                .foregroundStyle(isDataAnalysis
+                    ? Color(red: 51 / 255.0, green: 51 / 255.0, blue: 51 / 255.0)
+                    : Color(red: 0.38, green: 0.18, blue: 0.53))
                 .fixedSize(horizontal: false, vertical: true)
                 .lineSpacing(1.5)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -652,29 +658,26 @@ private struct LibraryErrorRecordCard: View {
                     knowledgeHeaderTag(quantityQuestionTypeTitle)
                 }
                 if !points.isEmpty {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Image(systemName: "lightbulb.min")
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundStyle(.secondary)
-                        Text(points)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    knowledgePointsLine(points)
                 }
             }
         } else if !points.isEmpty {
-            HStack(spacing: 6) {
-                Image(systemName: "lightbulb.min")
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(AppTheme.accent)
-                knowledgeHeaderTag(points)
-                Spacer(minLength: 0)
-            }
+            knowledgePointsLine(points)
         }
+    }
+
+    private func knowledgePointsLine(_ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "lightbulb.min")
+                .font(.system(size: 11, weight: .light))
+                .foregroundStyle(Color.black)
+            Text(value)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color(red: 34 / 255.0, green: 34 / 255.0, blue: 34 / 255.0))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func knowledgeHeaderTag(_ value: String) -> some View {
@@ -1165,17 +1168,22 @@ struct LibraryMasonryGrid: View {
         let isAnalogyReasoning = record.record.subject == "判断推理" && record.record.module == "类比推理"
         let contentWidth = max(1, availableWidth - 28)
         let titleLines = estimatedLineCount(record.title, width: contentWidth, fontSize: 14, limit: isDataAnalysisComposite ? 2 : cardSize.questionLineLimit)
+        let knowledgePoints = record.knowledgePoints.joined(separator: " | ")
+        let knowledgePointsWidth = max(1, contentWidth - 17) // lightbulb width plus its 6pt gap
+        let knowledgePointsHeight = knowledgePoints.isEmpty
+            ? 0
+            : CGFloat(estimatedLineCount(knowledgePoints, width: knowledgePointsWidth, fontSize: 11, limit: nil)) * 14
         var sections: [CGFloat] = []
         if record.record.subject == "数量关系" {
             var quantityHeaderHeight: CGFloat = 0
             if !hidesQuantityTypeLabel { quantityHeaderHeight += 21 }
-            if !record.knowledgePoints.isEmpty {
+            if !knowledgePoints.isEmpty {
                 if quantityHeaderHeight > 0 { quantityHeaderHeight += 6 }
-                quantityHeaderHeight += 14
+                quantityHeaderHeight += knowledgePointsHeight
             }
             if quantityHeaderHeight > 0 { sections.append(quantityHeaderHeight) }
-        } else if !record.knowledgePoints.isEmpty {
-            sections.append(21)
+        } else if !knowledgePoints.isEmpty {
+            sections.append(knowledgePointsHeight)
         }
 
         if isDataAnalysisComposite, !record.dataAnalysisMaterialText.isEmpty {
