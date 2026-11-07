@@ -792,9 +792,13 @@ private struct LibraryLogicComparisonPhraseFlow: Layout {
     private func naturalWidth(for subviews: Subviews) -> CGFloat {
         subviews.enumerated().reduce(CGFloat.zero) { partial, entry in
             let (index, subview) = entry
-            let itemWidth = index.isMultiple(of: 2)
-                ? finite(subview.sizeThatFits(.unspecified).width)
-                : Self.separatorWidth
+            let itemWidth: CGFloat
+            if index.isMultiple(of: 2) {
+                let width = subview.sizeThatFits(.unspecified).width
+                itemWidth = width.isFinite ? max(0, width) : 0
+            } else {
+                itemWidth = Self.separatorWidth
+            }
             return partial + itemWidth + (index == 0 ? 0 : finiteSpacing)
         }
     }
