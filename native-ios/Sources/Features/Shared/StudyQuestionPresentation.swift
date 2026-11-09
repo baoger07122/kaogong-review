@@ -12,6 +12,22 @@ enum SubjectModuleTitle {
         }
         return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    static func errorDetailTitle(
+        recordModule: String?,
+        payloadModule: String?,
+        questionBankModule: String?
+    ) -> String {
+        let storedModule = [recordModule, payloadModule]
+            .compactMap { value -> String? in
+                let normalized = normalized(value)
+                return normalized.isEmpty ? nil : normalized
+            }
+            .first
+        let module = storedModule ?? normalized(questionBankModule)
+        guard !module.isEmpty else { return "错题详情" }
+        return module.hasSuffix("题") ? module : "\(module)题"
+    }
 }
 
 enum StudyOptionMarkerState: Equatable {

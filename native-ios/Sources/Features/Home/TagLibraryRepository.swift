@@ -5,6 +5,7 @@ enum ManagedTagKind: String, CaseIterable, Identifiable {
     case knowledgePoint = "考点"
     case errorCause = "错因"
     case thinkingTrap = "思维误区"
+    static let managementCases: [ManagedTagKind] = [.knowledgePoint, .errorCause]
     var id: String { rawValue }
     var recordID: String {
         switch self {
@@ -13,6 +14,21 @@ enum ManagedTagKind: String, CaseIterable, Identifiable {
         case .thinkingTrap: "kp_trap_library"
         }
     }
+}
+
+struct LibraryTagRecordPayloadChange: Equatable {
+    let collection: String
+    let recordID: String
+    let beforePayload: Data
+    let afterPayload: Data
+}
+
+struct LibraryTagMutationResult: Equatable {
+    let kind: ManagedTagKind
+    let module: String
+    let oldName: String
+    let newName: String?
+    let recordChanges: [LibraryTagRecordPayloadChange]
 }
 
 enum TagLibraryRepository {
@@ -53,20 +69,113 @@ enum TagLibraryRepository {
         try save(library, kind: kind, records: records, context: context)
     }
 
-    static func rename(_ oldName: String, to newName: String, kind: ManagedTagKind, module: String, records: [StoredRecord], context: ModelContext) throws {
+    @discardableResult
+    static func rename(_ oldName: String, to newName: String, kind: ManagedTagKind, module: String, records: [StoredRecord], context: ModelContext) throws -> LibraryTagMutationResult {
         var library = loadWithDefaults(kind: kind, records: records)
         let value = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, value != oldName, !(library[module] ?? []).contains(value) else { return }
+        guard !value.isEmpty, value != oldName, !(library[module] ?? []).contains(value) else {
+            return LibraryTagMutationResult(kind: kind, module: module, oldName: oldName, newName: value, recordChanges: [])
+        }
         library[module] = (library[module] ?? []).map { $0 == oldName ? value : $0 }
-        try save(library, kind: kind, records: records, context: context)
-        try updateReferences(oldName: oldName, newName: value, kind: kind, module: module, records: records, context: context)
+        return try mutate(
+            library,
+            oldName: oldName,
+            newName: value,
+            kind: kind,
+            module: module,
+            records: records,
+            context: context
+        )
     }
 
-    static func delete(_ name: String, kind: ManagedTagKind, module: String, records: [StoredRecord], context: ModelContext) throws {
+    @discardableResult
+    static func delete(_ name: String, kind: ManagedTagKind, module: String, records: [StoredRecord], context: ModelContext) throws -> LibraryTagMutationResult {
         var library = loadWithDefaults(kind: kind, records: records)
         library[module] = (library[module] ?? []).filter { $0 != name }
-        try save(library, kind: kind, records: records, context: context)
-        try updateReferences(oldName: name, newName: nil, kind: kind, module: module, records: records, context: context)
+        return try mutate(
+            library,
+            oldName: name,
+            newName: nil,
+            kind: kind,
+            module: module,
+            records: records,
+            context: context
+        )
+    }
+
+    private struct PendingRecordChange {
+        let record: StoredRecord
+        let beforePayload: Data
+        let beforeIndexPayload: Data?
+        let beforeUpdatedAt: Date?
+        let afterPayload: Data
+        let afterIndexPayload: Data?
+        let updatedAt: Date
+    }
+
+    private static func mutate(
+        _ library: [String: [String]],
+        oldName: String,
+        newName: String?,
+        kind: ManagedTagKind,
+        module: String,
+        records: [StoredRecord],
+        context: ModelContext
+    ) throws -> LibraryTagMutationResult {
+        let changes = try prepareReferenceChanges(
+            oldName: oldName,
+            newName: newName,
+            kind: kind,
+            module: module,
+            records: records
+        )
+        let existingLibraryRecord = records.first {
+            $0.collection == "keyvalue" && $0.recordID == kind.recordID
+        }
+        let librarySnapshot = existingLibraryRecord.map {
+            (payload: $0.payload, indexPayload: $0.indexPayload, updatedAt: $0.updatedAt)
+        }
+
+        do {
+            try context.transaction {
+                try save(library, kind: kind, records: records, context: context, persist: false)
+                for change in changes {
+                    change.record.replacePayload(change.afterPayload, indexPayload: change.afterIndexPayload)
+                    change.record.updatedAt = change.updatedAt
+                }
+            }
+        } catch {
+            for change in changes {
+                change.record.replacePayload(change.beforePayload, indexPayload: change.beforeIndexPayload)
+                change.record.updatedAt = change.beforeUpdatedAt
+            }
+            if let existingLibraryRecord, let librarySnapshot {
+                existingLibraryRecord.replacePayload(librarySnapshot.payload, indexPayload: librarySnapshot.indexPayload)
+                existingLibraryRecord.updatedAt = librarySnapshot.updatedAt
+            } else if existingLibraryRecord == nil {
+                let recordID = kind.recordID
+                let descriptor = FetchDescriptor<StoredRecord>(predicate: #Predicate {
+                    $0.collection == "keyvalue" && $0.recordID == recordID
+                })
+                for inserted in (try? context.fetch(descriptor)) ?? [] { context.delete(inserted) }
+            }
+            throw error
+        }
+
+        return LibraryTagMutationResult(
+            kind: kind,
+            module: module,
+            oldName: oldName,
+            newName: newName,
+            recordChanges: changes.map {
+                LibraryTagRecordPayloadChange(
+                    collection: $0.record.collection,
+                    recordID: $0.record.recordID,
+                    beforePayload: $0.beforePayload,
+                    afterPayload: $0.afterPayload
+                )
+            }
+        )
     }
 
     private static func loadWithDefaults(kind: ManagedTagKind, records: [StoredRecord]) -> [String: [String]] {
@@ -98,14 +207,15 @@ enum TagLibraryRepository {
         if persist { try context.save() }
     }
 
-    private static func updateReferences(
+    private static func prepareReferenceChanges(
         oldName: String,
         newName: String?,
         kind: ManagedTagKind,
         module: String,
-        records: [StoredRecord],
-        context: ModelContext
-    ) throws {
+        records: [StoredRecord]
+    ) throws -> [PendingRecordChange] {
+        let mutationDate = Date.now
+        var changes: [PendingRecordChange] = []
         for record in records where (record.collection == "errors" || record.collection == "notes") {
             let matchesModule = record.module == module
                 || (kind == .thinkingTrap && module == "数量关系-弱项" && record.subject == "数量关系")
@@ -114,47 +224,78 @@ enum TagLibraryRepository {
             var changed = false
             if kind == .knowledgePoint {
                 if var values = object["knowledgePoints"] as? [String], values.contains(oldName) {
-                    values = values.compactMap { $0 == oldName ? newName : $0 }
+                    values = replacing(oldName, with: newName, in: values)
                     object["knowledgePoints"] = values
                     changed = true
                 }
-                if object["knowledgePoint"] as? String == oldName {
-                    object["knowledgePoint"] = newName ?? ""
+                if let value = object["knowledgePoint"] as? String,
+                   let updated = replacing(oldName, with: newName, in: value, separator: "、") {
+                    object["knowledgePoint"] = updated
                     changed = true
                 }
             } else if kind == .errorCause {
-                if record.subject == "数量关系" {
+                if LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(
+                    subject: record.subject,
+                    module: record.module
+                ) {
+                    continue
+                } else if record.subject == "数量关系" {
                     let values = LibraryQuantityErrorCauseCompatibility.values(
                         errorCause: object["errorCause"],
                         weaknessTags: nil,
                         authoritative: true
                     )
                     if values.contains(oldName) {
-                        let updatedValues = values.compactMap { $0 == oldName ? newName : $0 }
+                        let updatedValues = replacing(oldName, with: newName, in: values)
                         object["errorCause"] = updatedValues.joined(separator: "、")
                         LibraryQuantityErrorCauseCompatibility.markAuthoritative(in: &object)
                         changed = true
                     }
-                } else if object["errorCause"] as? String == oldName {
-                    object["errorCause"] = newName ?? ""
+                } else if LibraryErrorCauseCompatibility.usesLineEditor(
+                    subject: record.subject,
+                    module: record.module
+                ) {
+                    let lines = LibraryErrorCauseCompatibility.splitLines(object["errorCause"])
+                    if lines.contains(oldName) {
+                        object["errorCause"] = replacing(oldName, with: newName, in: lines).joined(separator: "\n")
+                        changed = true
+                    }
+                } else if let value = object["errorCause"] as? String,
+                          let updated = replacing(oldName, with: newName, in: value, separator: "、") {
+                    object["errorCause"] = updated
                     changed = true
                 }
-            } else if kind == .thinkingTrap {
-                if module == "数量关系-弱项", var values = object["weaknessTags"] as? [String], values.contains(oldName) {
-                    values = values.compactMap { $0 == oldName ? newName : $0 }
+            } else if kind == .thinkingTrap, module == "数量关系-弱项" {
+                if var values = object["weaknessTags"] as? [String], values.contains(oldName) {
+                    values = replacing(oldName, with: newName, in: values)
                     object["weaknessTags"] = values
-                    changed = true
-                } else if object["pitfall"] as? String == oldName {
-                    object["pitfall"] = newName ?? ""
                     changed = true
                 }
             }
             if changed {
-                record.replacePayload(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
-                record.updatedAt = .now
+                let afterPayload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+                changes.append(PendingRecordChange(
+                    record: record,
+                    beforePayload: record.payload,
+                    beforeIndexPayload: record.indexPayload,
+                    beforeUpdatedAt: record.updatedAt,
+                    afterPayload: afterPayload,
+                    afterIndexPayload: StoredRecord.makeIndexPayload(from: afterPayload, collection: record.collection),
+                    updatedAt: mutationDate
+                ))
             }
         }
-        try context.save()
+        return changes
+    }
+
+    private static func replacing(_ oldName: String, with newName: String?, in values: [String]) -> [String] {
+        values.compactMap { value in value == oldName ? newName : value }
+    }
+
+    private static func replacing(_ oldName: String, with newName: String?, in value: String, separator: String) -> String? {
+        let values = value.split(whereSeparator: { "、,，".contains($0) }).map(String.init)
+        guard values.contains(oldName) else { return nil }
+        return replacing(oldName, with: newName, in: values).joined(separator: separator)
     }
 
 }

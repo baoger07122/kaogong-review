@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import UIKit
 
 struct WordReviewView: View {
     private enum OverviewTab: String, CaseIterable, Identifiable, Hashable {
@@ -12,10 +13,18 @@ struct WordReviewView: View {
     private struct SessionEntry: Identifiable {
         let wordRecordID: String
         let attemptType: WordReviewAttemptType
+        let submissionID: String
         var id: String { "\(wordRecordID):\(attemptType.rawValue)" }
+
+        init(wordRecordID: String, attemptType: WordReviewAttemptType) {
+            self.wordRecordID = wordRecordID
+            self.attemptType = attemptType
+            submissionID = UUID().uuidString
+        }
     }
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Query(filter: #Predicate<StoredRecord> { record in
         record.collection == "words"
             || record.collection == "word_review_plans"
@@ -32,6 +41,7 @@ struct WordReviewView: View {
     @State private var isRevealed = false
     @State private var savedHistory: WordReviewHistory?
     @State private var errorMessage: String?
+    @State private var reviewDay = Calendar.current.startOfDay(for: .now)
 
     private var wordRecords: [StoredRecord] { records.filter { $0.collection == "words" } }
     private var planRecords: [StoredRecord] { records.filter { $0.collection == "word_review_plans" } }
@@ -45,11 +55,10 @@ struct WordReviewView: View {
         })
     }
     private var dueQueue: [WordReviewPlan] {
-        let today = Calendar.current.startOfDay(for: .now)
         return plans.filter { plan in
             !plan.isPaused
                 && groupsByID[plan.wordRecordID] != nil
-                && WordReviewSchedulingPolicy.isDue(plan.nextDueDate, on: today)
+                && WordReviewSchedulingPolicy.isDue(plan.nextDueDate, on: reviewDay)
         }.sorted { lhs, rhs in
             let leftDate = lhs.nextDueDate ?? .distantFuture
             let rightDate = rhs.nextDueDate ?? .distantFuture
@@ -106,6 +115,25 @@ struct WordReviewView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            refreshReviewDay()
+            while !Task.isCancelled {
+                let calendar = Calendar.current
+                let nextDay = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: .now))
+                    ?? Date().addingTimeInterval(60)
+                let delay = max(1, nextDay.timeIntervalSinceNow)
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                } catch {
+                    return
+                }
+                refreshReviewDay()
+            }
+        }
+        .onChange(of: scenePhase) { _, value in
+            if value == .active { refreshReviewDay() }
+        }
     }
 
     private var overview: some View {
@@ -143,11 +171,7 @@ struct WordReviewView: View {
             .background(Color(red: 0.95, green: 0.97, blue: 1), in: RoundedRectangle(cornerRadius: 16))
 
             if dueQueue.isEmpty {
-                emptyState(
-                    title: "今天没有到期词语组",
-                    detail: plans.isEmpty ? "从成语辨析或实词辨析词条加入复习计划。" : "新的复习会按计划日期进入队列。",
-                    image: "checkmark.circle"
-                )
+                todayEmptyState
             } else {
                 HStack {
                     Text("到期词语组").font(.system(size: 16, weight: .semibold))
@@ -348,6 +372,7 @@ struct WordReviewView: View {
                 }
             }
         }
+        .secondaryPageTabBarHidden()
     }
 
     private var catalogGroups: [WordReviewWordGroup] {
@@ -419,10 +444,17 @@ struct WordReviewView: View {
             }
             HStack(spacing: 8) {
                 if plan.status == .waitingToLearn {
-                    Button("完成整理") { perform { try WordReviewRepository.finishPreparation(wordRecordID: plan.wordRecordID, in: modelContext) } }
+                    Button("开始学习") { beginSession([plan.wordRecordID], type: .initial) }
+                        .buttonStyle(ReviewSmallButtonStyle(isPrimary: true))
+                } else if plan.status == .training {
+                    Button("开始训练") {
+                        let attemptType: WordReviewAttemptType = WordReviewSchedulingPolicy.isDue(plan.nextDueDate, on: reviewDay)
+                            || plan.nextDueDate == nil ? .due : .early
+                        beginSession([plan.wordRecordID], type: attemptType)
+                    }
                         .buttonStyle(ReviewSmallButtonStyle(isPrimary: true))
                 }
-                    Button(plan.isPaused ? "恢复计划" : "暂停") {
+                Button(plan.isPaused ? "恢复计划" : "暂停") {
                     perform { try WordReviewRepository.setPaused(!plan.isPaused, wordRecordID: plan.wordRecordID, in: modelContext) }
                 }
                 .buttonStyle(ReviewSmallButtonStyle(isPrimary: false))
@@ -446,7 +478,7 @@ struct WordReviewView: View {
                 Text(item.title).font(.system(size: 14, weight: .medium)).fixedSize(horizontal: false, vertical: true)
                 Text("\(item.categoryTitle) · \(shortDateTime(item.reviewedAt)) · \(item.attemptType.title)")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
-                Text("\(item.feedback.title) · 下次：\(item.nextDueDate.map(shortDate) ?? "待语境验证/未安排")")
+                Text("\(item.feedback.title) · 下次：\(historyNextDescription(item))")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
@@ -516,7 +548,8 @@ struct WordReviewView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(feedbackColor(item.feedback))
             Text(item.title).font(.system(size: 20, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
-            Text(item.nextDueDate.map { "下次计划：\(shortDate($0))" } ?? "本轮完成，等待语境验证")
+            Text(item.nextDueDate.map { "下次计划：\(shortDate($0))" }
+                 ?? (item.isContextValidationPending == true ? "等待语境验证" : "本轮未安排下次复习"))
                 .font(.system(size: 14)).foregroundStyle(.secondary)
             Button(sessionIndex + 1 < activeSession.count ? "下一组" : "完成") {
                 advanceSession()
@@ -538,6 +571,63 @@ struct WordReviewView: View {
         .padding(.vertical, 32)
         .padding(.horizontal, 15)
         .background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 15))
+    }
+
+    @ViewBuilder
+    private var todayEmptyState: some View {
+        let unpausedPlans = visiblePlans.filter { !$0.isPaused }
+        let waitingPlans = unpausedPlans.filter { $0.status == .waitingToLearn }
+        let pausedCount = visiblePlans.filter(\.isPaused).count
+        let contextPendingCount = unpausedPlans.filter(\.isContextValidationPending).count
+        let nextDueDate = unpausedPlans.compactMap(\.nextDueDate).min()
+
+        if visiblePlans.isEmpty {
+            emptyState(
+                title: "还没有复习计划",
+                detail: "从成语辨析或实词辨析词条加入后，会在这里安排每日复习。",
+                image: "books.vertical"
+            )
+        } else if !waitingPlans.isEmpty {
+            VStack(spacing: 10) {
+                emptyState(
+                    title: "有 \(waitingPlans.count) 组待开始学习",
+                    detail: "待学习词组尚未安排复习日期，首次学习后才会进入后续计划。",
+                    image: "book.closed"
+                )
+                Button("查看待学习词组") { tab = .plan }
+                    .font(.system(size: 13, weight: .medium))
+            }
+        } else if let nextDueDate {
+            emptyState(
+                title: "下一组复习在 \(shortDate(nextDueDate))",
+                detail: pausedCount == 0
+                    ? "队列会在计划日期当天自动刷新。"
+                    : "另有 \(pausedCount) 组已暂停；恢复后会按原进度继续。",
+                image: "calendar"
+            )
+        } else if contextPendingCount > 0 {
+            emptyState(
+                title: "当前没有到期复习",
+                detail: "\(contextPendingCount) 组已完成间隔复习，等待新的语境验证。",
+                image: "text.quote"
+            )
+        } else if pausedCount > 0 {
+            VStack(spacing: 10) {
+                emptyState(
+                    title: "有 \(pausedCount) 组计划已暂停",
+                    detail: "恢复暂停计划后，会按原来的复习进度继续。",
+                    image: "pause.circle"
+                )
+                Button("查看暂停计划") { tab = .plan }
+                    .font(.system(size: 13, weight: .medium))
+            }
+        } else {
+            emptyState(
+                title: "今天没有到期词语组",
+                detail: "复习计划已完成当前阶段，后续安排可在计划列表查看。",
+                image: "checkmark.circle"
+            )
+        }
     }
 
     private func count(_ status: WordReviewPlanStatus) -> Int {
@@ -595,6 +685,17 @@ struct WordReviewView: View {
         return Calendar.current.startOfDay(for: date) < Calendar.current.startOfDay(for: .now)
     }
 
+    private func historyNextDescription(_ item: WordReviewHistory) -> String {
+        if let nextDueDate = item.nextDueDate { return shortDate(nextDueDate) }
+        return item.isContextValidationPending == true ? "等待语境验证" : "未安排"
+    }
+
+    private func refreshReviewDay() {
+        let today = Calendar.current.startOfDay(for: .now)
+        guard reviewDay != today else { return }
+        reviewDay = today
+    }
+
     private func shortDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
@@ -629,7 +730,7 @@ struct WordReviewView: View {
                 categoryTitle: group.categoryTitle,
                 feedback: feedback,
                 attemptType: entry.attemptType,
-                submissionID: UUID().uuidString,
+                submissionID: entry.submissionID,
                 in: modelContext
             )
         } catch {

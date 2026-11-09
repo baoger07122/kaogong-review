@@ -19,6 +19,27 @@ enum LibraryDataAnalysisCauseLayoutBehavior {
             "an explicit empty canonical errorCause suppresses legacy aliases"
         )
 
+        precondition(
+            LibraryErrorCauseCompatibility.splitLines("公式不熟悉，看漏平均；单位换算") == ["公式不熟悉，看漏平均；单位换算"],
+            "sentence punctuation remains part of a free-text cause"
+        )
+        precondition(
+            LibraryErrorCauseCompatibility.splitLines(["公式不熟悉、看漏平均", "单位换算"]) == ["公式不熟悉", "看漏平均", "单位换算"],
+            "legacy multi-tag values split only on the known old tag delimiter"
+        )
+        precondition(
+            LibraryErrorCauseCompatibility.usesLineEditor(subject: "言语理解", module: "一、中心理解")
+                && LibraryErrorCauseCompatibility.usesLineEditor(subject: "言语理解", module: "逻辑填空")
+                && LibraryErrorCauseCompatibility.usesLineEditor(subject: "资料分析", module: "任意模块"),
+            "the line editor is enabled only for the requested verbal modules and data analysis"
+        )
+        precondition(
+            LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(subject: "言语理解", module: "中心理解")
+                && LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(subject: "言语理解", module: "逻辑填空")
+                && !LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(subject: "资料分析", module: "资料分析"),
+            "only center understanding and logic fill remove free-text causes from tag filters"
+        )
+
         let wideLine = LibraryDataAnalysisCauseLayout.estimatedTagLineHeight(
             label: "错因", values: causes, width: 300
         )

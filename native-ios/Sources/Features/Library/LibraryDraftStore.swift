@@ -19,6 +19,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
     var reminder: String?
     var quantityStructure: String?
     var weaknessTags: String?
+    var centerComprehensionTrap: String?
     var quantityErrorCauseIsAuthoritative: Bool?
     var isDifficult: Bool?
     var needsReview: Bool?
@@ -85,6 +86,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         reminder = draft.reminder
         quantityStructure = draft.quantityStructure
         weaknessTags = draft.weaknessTags
+        centerComprehensionTrap = draft.centerComprehensionTrap
         quantityErrorCauseIsAuthoritative = draft.quantityErrorCauseIsAuthoritative
         isDifficult = draft.isDifficult
         needsReview = draft.needsReview
@@ -171,6 +173,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         draft.reminder = reminder ?? ""
         draft.quantityStructure = quantityStructure ?? ""
         draft.weaknessTags = weaknessTags ?? ""
+        draft.centerComprehensionTrap = centerComprehensionTrap ?? ""
         draft.isDifficult = isDifficult ?? false
         draft.needsReview = needsReview ?? false
         draft.questionSource = questionSource
@@ -230,6 +233,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
             || !pencilKitData.isEmpty
             || !(legacyDrawingPreview ?? "").isEmpty
             || !mindMapData.isEmpty
+            || !(centerComprehensionTrap ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || (materials ?? []).contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             || !(dataAnalysisMaterialText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !(myAnswer ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

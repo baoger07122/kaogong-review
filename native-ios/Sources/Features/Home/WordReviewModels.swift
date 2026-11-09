@@ -19,6 +19,7 @@ struct WordReviewHistory: Codable, Equatable, Identifiable {
     var reviewRound: Int
     var previousDueDate: Date?
     var nextDueDate: Date?
+    var isContextValidationPending: Bool? = nil
 
     static func decode(from record: StoredRecord) -> WordReviewHistory? {
         guard record.collection == "word_review_history" else { return nil }

@@ -1,8 +1,32 @@
 import Foundation
 
-enum LibraryDataAnalysisCauseLayout {
+enum LibraryErrorCauseCompatibility {
+    static func isCenterUnderstanding(subject: String?, module: String?) -> Bool {
+        normalized(subject) == "言语理解" && normalized(module) == "中心理解"
+    }
+
+    static func usesLineEditor(subject: String?, module: String?) -> Bool {
+        let normalizedSubject = normalized(subject)
+        let normalizedModule = normalized(module)
+        if normalizedSubject == "资料分析" { return true }
+        return normalizedSubject == "言语理解"
+            && ["中心理解", "逻辑填空"].contains(normalizedModule)
+    }
+
+    static func excludesFromCauseTagFiltering(subject: String?, module: String?) -> Bool {
+        let normalizedSubject = normalized(subject)
+        let normalizedModule = normalized(module)
+        return normalizedSubject == "言语理解"
+            && ["中心理解", "逻辑填空"].contains(normalizedModule)
+    }
+
     static func splitLines(_ text: String) -> [String] {
         text.components(separatedBy: .newlines)
+            .flatMap { line in
+                // Old tag selection saved multiple causes with `、`. Commas and
+                // sentence punctuation stay inside free-text causes.
+                line.components(separatedBy: "、")
+            }
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
     }
@@ -21,6 +45,32 @@ enum LibraryDataAnalysisCauseLayout {
             if !lines.isEmpty { return lines.joined(separator: "\n") }
         }
         return ""
+    }
+
+    private static func normalized(_ value: String?) -> String {
+        var value = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        for pattern in [
+            "^[一二三四五六七八九十百]+[、.．)）]\\s*",
+            "^[0-9]+[、.．)）]\\s*",
+            "^[（(][一二三四五六七八九十百]+[）)]\\s*"
+        ] {
+            value = value.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+        }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+enum LibraryDataAnalysisCauseLayout {
+    static func splitLines(_ text: String) -> [String] {
+        LibraryErrorCauseCompatibility.splitLines(text)
+    }
+
+    static func splitLines(_ value: Any?) -> [String] {
+        LibraryErrorCauseCompatibility.splitLines(value)
+    }
+
+    static func rawCause(in object: [String: Any]) -> String {
+        LibraryErrorCauseCompatibility.rawCause(in: object)
     }
 
     static func estimatedTagLineHeight(label: String, values: [String], width: CGFloat) -> CGFloat {

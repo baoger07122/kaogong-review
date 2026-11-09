@@ -130,6 +130,16 @@ jobs:
             -o "$RUNNER_TEMP/library-data-analysis-cause-layout-behavior"
           "$RUNNER_TEMP/library-data-analysis-cause-layout-behavior"
           swiftc -parse-as-library \
+            native-ios/Sources/Features/Library/LibraryKnowledgePointFlowLayout.swift \
+            native-ios/Tests/LibraryKnowledgePointFlowLayoutBehavior.swift \
+            -o "$RUNNER_TEMP/library-knowledge-point-flow-layout-behavior"
+          "$RUNNER_TEMP/library-knowledge-point-flow-layout-behavior"
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Library/LibraryWordErrorAssociationPolicy.swift \
+            native-ios/Tests/LibraryWordErrorAssociationBehavior.swift \
+            -o "$RUNNER_TEMP/library-word-error-association-behavior"
+          "$RUNNER_TEMP/library-word-error-association-behavior"
+          swiftc -parse-as-library \
             native-ios/Sources/Features/Speed/SpeedGrowthPresentation.swift \
             native-ios/Tests/SpeedGrowthPresentationBehavior.swift \
             -o "$RUNNER_TEMP/speed-growth-presentation-behavior"

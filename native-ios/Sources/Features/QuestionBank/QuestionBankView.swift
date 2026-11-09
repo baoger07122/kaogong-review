@@ -331,7 +331,6 @@ struct QuestionBankView: View {
         .background(Color.white)
         .navigationTitle("真题库")
         .navigationBarTitleDisplayMode(.inline)
-        .rootTabBarContentInset()
         .toolbar { questionBankToolbar() }
     }
 
@@ -354,7 +353,6 @@ struct QuestionBankView: View {
         .background(Color.white)
         .navigationTitle("真题库")
         .navigationBarTitleDisplayMode(.inline)
-        .rootTabBarContentInset()
         .toolbar { questionBankToolbar() }
     }
 
@@ -418,7 +416,6 @@ struct QuestionBankView: View {
             .navigationBarTitleDisplayMode(.inline)
         )
         content = AnyView(content.toolbar { questionBankToolbar() })
-        content = AnyView(content.rootTabBarContentInset())
         content = AnyView(content.sheet(item: $activeImportSheet, onDismiss: handleImportSheetDismissal) { sheet in
             importSheetContent(sheet)
         })

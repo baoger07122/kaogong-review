@@ -41,6 +41,7 @@ private enum ExamDisplayFormatting {
 }
 
 struct ExamsView: View {
+    @Environment(\.rootTabBarIsVisible) private var rootTabBarIsVisible
     @Query private var records: [StoredRecord]
     @State private var selectedType: ExamTypeFilter = .all
     @State private var selectedSort: ExamSort = .latest
@@ -117,18 +118,22 @@ struct ExamsView: View {
                 .accessibilityIdentifier("exams-add-record")
                 .padding(.trailing, 18)
                 .padding(.bottom, 8)
-                .offset(y: NativeFloatingActionPlacement.maySitAtTabBarTopEdge(windowWidth: geometry.size.width) ? 34 : 0)
+                .offset(y: NativeFloatingActionPlacement.maySitAtTabBarTopEdge(
+                    windowWidth: geometry.size.width,
+                    tabBarVisible: rootTabBarIsVisible
+                ) ? 34 : 0)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             }
         }
         .navigationTitle("套卷统计")
         .navigationBarTitleDisplayMode(.inline)
-        .rootTabBarContentInset()
         .sheet(item: $editorTarget) { target in
             NavigationStack { ExamEditorView(record: records.first { $0.collection == "exams" && $0.recordID == target.recordID }) }
+                .secondaryPageTabBarHidden()
         }
         .sheet(item: $attemptTarget) { target in
             NavigationStack { ExamAttemptDetailView(recordID: target.recordID) }
+                .secondaryPageTabBarHidden()
         }
     }
 
@@ -345,6 +350,7 @@ private struct ExamAttemptDetailView: View {
         }
         .sheet(isPresented: $showEdit) {
             NavigationStack { ExamEditorView(record: record) }
+                .secondaryPageTabBarHidden()
         }
         .sheet(isPresented: $showAddError) {
             NavigationStack {
@@ -355,6 +361,7 @@ private struct ExamAttemptDetailView: View {
                     dismissAfterSave: true
                 )
             }
+            .secondaryPageTabBarHidden()
         }
     }
 

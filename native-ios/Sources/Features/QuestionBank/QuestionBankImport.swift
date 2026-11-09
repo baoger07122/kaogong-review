@@ -1314,7 +1314,6 @@ enum QuestionBankRepository {
         object["knowledgePoints"] = annotations.knowledgePoints
         object["weaknessTags"] = annotations.weaknessTags
         object["errorCause"] = analysis.errorCause
-        object["pitfall"] = analysis.pitfall
         object["quantityStructure"] = analysis.quantityStructure
         object["graphRule"] = analysis.graphRule
         object["recognition"] = analysis.recognition
@@ -1539,7 +1538,7 @@ enum QuestionBankRepository {
             newLinkedErrorIDs = orderedUnique(oldLinkedErrorIDs + [errorRecordID])
             object["linkedErrorRecordIDs"] = newLinkedErrorIDs
         }
-        for key in ["errorCause", "pitfall", "quantityStructure", "graphRule", "recognition", "note"] {
+        for key in ["errorCause", "quantityStructure", "graphRule", "recognition", "note"] {
             if let value = errorPayload[key] as? String { object[key] = value }
         }
         for key in ["knowledgePoints", "weaknessTags", "linkedWordIds"] {
@@ -1613,7 +1612,6 @@ enum QuestionBankRepository {
         object["knowledgePoints"] = question.knowledgePoints ?? []
         object["weaknessTags"] = question.weaknessTags ?? []
         object["errorCause"] = question.errorCause ?? ""
-        object["pitfall"] = question.pitfall ?? ""
         object["quantityStructure"] = question.quantityStructure ?? ""
         object["graphRule"] = question.graphRule ?? ""
         object["recognition"] = question.recognition ?? ""
@@ -1629,7 +1627,6 @@ enum QuestionBankRepository {
         components.append(contentsOf: question.knowledgePoints ?? [])
         components.append(contentsOf: question.weaknessTags ?? [])
         components.append(question.errorCause ?? "")
-        components.append(question.pitfall ?? "")
         components.append(question.quantityStructure ?? "")
         components.append(question.graphRule ?? "")
         components.append(question.recognition ?? "")

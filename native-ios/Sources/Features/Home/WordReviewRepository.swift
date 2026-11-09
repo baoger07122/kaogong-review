@@ -75,18 +75,6 @@ enum WordReviewRepository {
         }
     }
 
-    static func finishPreparation(
-        wordRecordID: String,
-        in context: ModelContext,
-        now: Date = .now,
-        calendar: Calendar = .current
-    ) throws {
-        try updatePlan(wordRecordID: wordRecordID, in: context) { plan in
-            guard plan.status == .waitingToLearn || plan.status == .training else { return }
-            plan = WordReviewSchedulingPolicy.finishPreparation(plan, on: now, calendar: calendar)
-        }
-    }
-
     @discardableResult
     static func submit(
         wordRecordID: String,
@@ -136,7 +124,8 @@ enum WordReviewRepository {
                 reviewedAt: now,
                 reviewRound: reviewRound,
                 previousDueDate: previousDueDate,
-                nextDueDate: plan.nextDueDate
+                nextDueDate: plan.nextDueDate,
+                isContextValidationPending: plan.isContextValidationPending
             )
             context.insert(StoredRecord(
                 collection: "word_review_history",

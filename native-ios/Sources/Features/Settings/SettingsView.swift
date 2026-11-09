@@ -134,16 +134,18 @@ struct SettingsView: View {
         }
         .background(AppTheme.groupedBackground)
         .stableRootNavigationBar()
-        .rootTabBarContentInset()
         .onAppear { NativePerformanceLog.event("settings onAppear") }
         .navigationDestination(for: SettingsRoute.self) { route in
-            switch route {
-            case .cloudSync: CloudSyncView()
-            case .noteTypes: NoteTypeManagerView()
-            case .stickyTags: StickyTagManagerView()
-            case .quantityQuestionTypes: QuantityQuestionTypeManagerView()
-            case .designSystem: NativeDesignSystemView()
+            Group {
+                switch route {
+                case .cloudSync: CloudSyncView()
+                case .noteTypes: NoteTypeManagerView()
+                case .stickyTags: StickyTagManagerView()
+                case .quantityQuestionTypes: QuantityQuestionTypeManagerView()
+                case .designSystem: NativeDesignSystemView()
+                }
             }
+            .secondaryPageTabBarHidden()
         }
         .task { refreshRecordCount() }
         .onChange(of: importer.summary) { _, _ in refreshRecordCount() }

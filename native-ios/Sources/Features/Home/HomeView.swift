@@ -52,11 +52,11 @@ struct HomeView: View {
         }
         .background(Color.white)
         .stableRootNavigationBar()
-        .rootTabBarContentInset()
         .onAppear { NativePerformanceLog.event("home onAppear") }
         .task { await loadErrorStatsIfNeeded() }
         .navigationDestination(for: AppRoute.self) { route in
             HomeShortcutView(route: route)
+                .secondaryPageTabBarHidden()
         }
         .overlay { editorOverlay }
         .overlay(alignment: .top) {

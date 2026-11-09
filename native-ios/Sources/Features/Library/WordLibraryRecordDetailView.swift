@@ -6,10 +6,14 @@ struct WordLibraryRecordDetailView: View {
     var showsReviewAction = false
     var onEdit: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
+    var onOpenLinkedError: ((String) -> Void)? = nil
 
     @Environment(\.modelContext) private var modelContext
     @Query(filter: #Predicate<StoredRecord> { $0.collection == "word_review_plans" }) private var reviewPlans: [StoredRecord]
+    @Query(filter: #Predicate<StoredRecord> { $0.collection == "errors" }) private var errorRecords: [StoredRecord]
     @State private var showDelete = false
+    @State private var showErrorSelection = false
+    @State private var operationErrorTitle = "加入复习失败"
     @State private var reviewErrorMessage: String?
 
     private var object: [String: Any] { record.jsonObject ?? [:] }
@@ -58,6 +62,8 @@ struct WordLibraryRecordDetailView: View {
                         detailText("常见搭配", value: text("collocations"))
                         detailText("来源", value: text("source"))
                     }
+
+                    linkedErrorSection
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
@@ -107,13 +113,21 @@ struct WordLibraryRecordDetailView: View {
             }
             .documentToolbarBackground()
         }
-        .alert("加入复习失败", isPresented: Binding(
+        .alert(operationErrorTitle, isPresented: Binding(
             get: { reviewErrorMessage != nil },
             set: { if !$0 { reviewErrorMessage = nil } }
         )) {
             Button("好", role: .cancel) { reviewErrorMessage = nil }
         } message: {
             Text(reviewErrorMessage ?? "")
+        }
+        .sheet(isPresented: $showErrorSelection) {
+            LibraryRelationSelectionDialog(
+                collection: "errors",
+                candidates: errorRecords,
+                selection: linkedErrorSelection,
+                onClose: { showErrorSelection = false }
+            )
         }
     }
 
@@ -122,11 +136,122 @@ struct WordLibraryRecordDetailView: View {
     }
 
     private func addToReview() {
+        operationErrorTitle = "加入复习失败"
         do {
             _ = try WordReviewRepository.enroll([record], in: modelContext)
         } catch {
             reviewErrorMessage = error.localizedDescription
         }
+    }
+
+    @ViewBuilder
+    private var linkedErrorSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Label("关联错题", systemImage: "link")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("编辑") { showErrorSelection = true }
+                    .font(.system(size: 12, weight: .medium))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(AppTheme.accent)
+            }
+
+            if linkedErrorRecords.isEmpty {
+                Text("还没有关联错题")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(linkedErrorRecords, id: \.compoundID) { error in
+                    linkedErrorRow(error)
+                }
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    private func linkedErrorRow(_ error: StoredRecord) -> some View {
+        let snapshot = LibraryRecordSnapshot(record: error)
+        let row = VStack(alignment: .leading, spacing: 4) {
+            Text(errorReferenceLine(snapshot))
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(snapshot.title)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 7)
+        .contentShape(Rectangle())
+
+        if let onOpenLinkedError {
+            Button { onOpenLinkedError(error.recordID) } label: { row }
+                .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: AppRoute.errorDetail(error.recordID)) { row }
+                .buttonStyle(.plain)
+        }
+    }
+
+    private func errorReferenceLine(_ snapshot: LibraryRecordSnapshot) -> String {
+        let source = snapshot.questionSource.trimmingCharacters(in: .whitespacesAndNewlines)
+        let number = snapshot.questionNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sourceText = source.isEmpty ? "来源未填写" : source
+        let numberText: String
+        if number.isEmpty {
+            numberText = "题号未填写"
+        } else if number.hasPrefix("第") || number.hasSuffix("题") {
+            numberText = number
+        } else {
+            numberText = "第\(number)题"
+        }
+        return "\(sourceText) · \(numberText)"
+    }
+
+    private var linkedErrorIDs: [String] {
+        let object = record.compatibilityIndexObject ?? [:]
+        let reverseIDs = errorRecords.compactMap { error -> String? in
+            let wordIDs = error.compatibilityIndexObject?["linkedWordIds"] as? [String] ?? []
+            return wordIDs.contains(record.recordID) ? error.recordID : nil
+        }
+        return LibraryWordErrorAssociationPolicy.resolvedErrorIDs(
+            linkedErrors: object["linkedErrors"] as? [String],
+            relatedErrorIDs: object["relatedErrorIds"] as? [String],
+            reverseLinkedErrorIDs: reverseIDs,
+            existingErrorIDs: Set(errorRecords.map(\.recordID))
+        )
+    }
+
+    private var linkedErrorRecords: [StoredRecord] {
+        let errorsByID = Dictionary(uniqueKeysWithValues: errorRecords.map { ($0.recordID, $0) })
+        return linkedErrorIDs.compactMap { errorsByID[$0] }
+    }
+
+    private var linkedErrorSelection: Binding<[String]> {
+        Binding(
+            get: { linkedErrorIDs },
+            set: { newIDs in
+                operationErrorTitle = "关联错题失败"
+                do {
+                    try LibraryRecordRepository.updateLinkedErrors(
+                        word: record,
+                        newIDs: newIDs,
+                        errorRecords: errorRecords,
+                        context: modelContext
+                    )
+                } catch {
+                    reviewErrorMessage = error.localizedDescription
+                }
+            }
+        )
     }
 
     private var comparisonTerms: some View {

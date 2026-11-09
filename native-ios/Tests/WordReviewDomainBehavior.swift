@@ -18,6 +18,38 @@ struct WordReviewDomainBehavior {
             updatedAt: day7
         )
 
+        var waitingToLearn = plan
+        waitingToLearn.status = .waitingToLearn
+        waitingToLearn.verificationRound = 0
+        waitingToLearn.isContextValidationPending = false
+        waitingToLearn.firstPassedOn = nil
+        waitingToLearn.nextDueDate = nil
+        let initialMastered = WordReviewSchedulingPolicy.applying(
+            .mastered,
+            to: waitingToLearn,
+            attemptType: .initial,
+            on: day7,
+            calendar: calendar
+        )
+        expect(initialMastered.status == .verification && initialMastered.verificationRound == 1,
+            "an initially mastered group enters verification round 1")
+        expect(day(initialMastered.nextDueDate, calendar) == date(2026, 11, 8, 0, calendar: calendar),
+            "initial mastery schedules verification for the next local day")
+
+        for feedback in [WordReviewFeedback.fuzzy, .unknown] {
+            let initialUncertain = WordReviewSchedulingPolicy.applying(
+                feedback,
+                to: waitingToLearn,
+                attemptType: .initial,
+                on: day7,
+                calendar: calendar
+            )
+            expect(initialUncertain.status == .training && initialUncertain.verificationRound == 0,
+                "initial fuzzy or unknown feedback starts training")
+            expect(day(initialUncertain.nextDueDate, calendar) == date(2026, 11, 8, 0, calendar: calendar),
+                "initial fuzzy or unknown feedback is scheduled tomorrow")
+        }
+
         let firstPass = WordReviewSchedulingPolicy.applying(.mastered, to: plan, attemptType: .due, on: day7, calendar: calendar)
         expect(firstPass.status == .verification && firstPass.verificationRound == 1, "the first pass must enter verification round 1")
         expect(day(firstPass.nextDueDate, calendar) == date(2026, 11, 8, 0, calendar: calendar), "the first verification must be due on the next local day")

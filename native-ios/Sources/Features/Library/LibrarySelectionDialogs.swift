@@ -9,6 +9,7 @@ struct LibraryTagSelectionDialog: View {
     let module: String
     @Binding var selection: String
     let onClose: () -> Void
+    var onTagMutation: ((LibraryTagMutationResult) -> Void)? = nil
     var titleOverride: String? = nil
     var maximumOverride: Int? = nil
     @State private var selected: [String] = []
@@ -108,7 +109,8 @@ struct LibraryTagSelectionDialog: View {
             message = "名称不能为空或与其他标签重复"; return
         }
         do {
-            try TagLibraryRepository.rename(old, to: value, kind: kind, module: module, records: records, context: modelContext)
+            let result = try TagLibraryRepository.rename(old, to: value, kind: kind, module: module, records: records, context: modelContext)
+            onTagMutation?(result)
             selected = selected.map { $0 == old ? value : $0 }
             selection = split(selection).map { $0 == old ? value : $0 }.joined(separator: "、")
             renaming = nil
@@ -117,7 +119,8 @@ struct LibraryTagSelectionDialog: View {
     private func deleteTag() {
         guard let name = deleting else { return }
         do {
-            try TagLibraryRepository.delete(name, kind: kind, module: module, records: records, context: modelContext)
+            let result = try TagLibraryRepository.delete(name, kind: kind, module: module, records: records, context: modelContext)
+            onTagMutation?(result)
             selected.removeAll { $0 == name }
             selection = split(selection).filter { $0 != name }.joined(separator: "、")
             deleting = nil
@@ -188,6 +191,7 @@ struct QuantityKnowledgePointSelectionDialog: View {
     let currentType: String
     @Binding var selection: String
     let onClose: () -> Void
+    var onTagMutation: ((LibraryTagMutationResult) -> Void)? = nil
 
     @State private var selected: [String] = []
     @State private var browsingType = ""
@@ -329,9 +333,9 @@ struct QuantityKnowledgePointSelectionDialog: View {
             return
         }
         do {
-            try TagLibraryRepository.rename(old, to: value, kind: .knowledgePoint, module: activeType, records: records, context: modelContext)
+            let result = try TagLibraryRepository.rename(old, to: value, kind: .knowledgePoint, module: activeType, records: records, context: modelContext)
+            onTagMutation?(result)
             selected = selected.map { $0 == old ? value : $0 }
-            selection = selected.joined(separator: "、")
             renaming = nil
         } catch { message = "重命名失败，请重试" }
     }
@@ -339,9 +343,9 @@ struct QuantityKnowledgePointSelectionDialog: View {
     private func deleteTag() {
         guard let name = deleting else { return }
         do {
-            try TagLibraryRepository.delete(name, kind: .knowledgePoint, module: activeType, records: records, context: modelContext)
+            let result = try TagLibraryRepository.delete(name, kind: .knowledgePoint, module: activeType, records: records, context: modelContext)
+            onTagMutation?(result)
             selected.removeAll { $0 == name }
-            selection = selected.joined(separator: "、")
             deleting = nil
         } catch { message = "删除失败，请重试" }
     }
@@ -359,7 +363,7 @@ struct LibraryRelationSelectionDialog: View {
     @State private var wordEntryKindFilter = ""
 
     var body: some View {
-        NativeEditorDialog(title: collection == "exams" ? "来源套卷" : (collection == "notes" ? "关联笔记" : "关联词语"),
+        NativeEditorDialog(title: dialogTitle,
             canSave: true, actionTitle: "确定", onClose: onClose, onSave: { selection = selected; onClose() }) {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
@@ -413,11 +417,21 @@ struct LibraryRelationSelectionDialog: View {
                                 else if collection == "exams" { selected = [record.recordID] }
                                 else { selected.append(record.recordID) }
                             } label: {
+                                let snapshot = LibraryRecordSnapshot(record: record)
                                 HStack {
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(record.title).font(.system(size: 13)).foregroundStyle(.primary).lineLimit(2)
+                                        if collection == "errors" {
+                                            Text(errorReferenceLine(snapshot))
+                                                .font(.system(size: 10, weight: .medium))
+                                                .foregroundStyle(.secondary)
+                                            Text(snapshot.title)
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(2)
+                                        } else {
+                                            Text(snapshot.title).font(.system(size: 13)).foregroundStyle(.primary).lineLimit(2)
+                                        }
                                         if collection == "words" {
-                                            let snapshot = LibraryRecordSnapshot(record: record)
                                             Text(snapshot.tags.joined(separator: " · "))
                                                 .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
                                         }
@@ -470,6 +484,25 @@ struct LibraryRelationSelectionDialog: View {
             let matchesKind = collection != "words" || wordEntryKindFilter.isEmpty || snapshot.wordEntryKinds.contains(wordEntryKindFilter)
             return matchesSearch && matchesCategory && matchesKind
         }
+    }
+
+    private var dialogTitle: String {
+        switch collection {
+        case "exams": "来源套卷"
+        case "notes": "关联笔记"
+        case "errors": "关联错题"
+        default: "关联词语"
+        }
+    }
+
+    private func errorReferenceLine(_ snapshot: LibraryRecordSnapshot) -> String {
+        let source = snapshot.questionSource.trimmingCharacters(in: .whitespacesAndNewlines)
+        let number = snapshot.questionNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sourceText = source.isEmpty ? "来源未填写" : source
+        let numberText = number.isEmpty
+            ? "题号未填写"
+            : (number.hasPrefix("第") || number.hasSuffix("题") ? number : "第\(number)题")
+        return "\(sourceText) · \(numberText)"
     }
 
     private func relationFilterLabel(_ value: String) -> some View {

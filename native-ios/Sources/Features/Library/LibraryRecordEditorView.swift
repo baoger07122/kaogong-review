@@ -419,6 +419,7 @@ struct LibraryRecordEditorView: View {
                 module: draft.module,
                 selection: selection,
                 onClose: { self.activeTags = nil },
+                onTagMutation: applyTagMutation,
                 titleOverride: activeTags == .knowledgePoint ? knowledgePointLabel : errorCauseLabel,
                 maximumOverride: isQuantityRelations && activeTags == .errorCause
                     ? max(8, splitTags(draft.errorCause).count)
@@ -429,7 +430,8 @@ struct LibraryRecordEditorView: View {
             overlays.append(AnyView(QuantityKnowledgePointSelectionDialog(
                 currentType: draft.module,
                 selection: $draft.knowledgePoint,
-                onClose: { showQuantityKnowledgePoints = false }
+                onClose: { showQuantityKnowledgePoints = false },
+                onTagMutation: applyTagMutation
             )))
         }
         if showQuantityWeaknessTags {
@@ -438,6 +440,7 @@ struct LibraryRecordEditorView: View {
                 module: "数量关系-弱项",
                 selection: $draft.weaknessTags,
                 onClose: { showQuantityWeaknessTags = false },
+                onTagMutation: applyTagMutation,
                 titleOverride: "弱项标签",
                 maximumOverride: 8
             )))
@@ -461,6 +464,88 @@ struct LibraryRecordEditorView: View {
             )))
         }
         return AnyView(ZStack { ForEach(overlays.indices, id: \.self) { overlays[$0] } })
+    }
+
+    private func applyTagMutation(_ result: LibraryTagMutationResult) {
+        guard let recordID,
+              let change = result.recordChanges.first(where: {
+                  $0.collection == kind.collection && $0.recordID == recordID
+              }),
+              draft.originalPayload == change.beforePayload,
+              editBaseline.originalPayload == change.beforePayload,
+              let afterObject = (try? JSONSerialization.jsonObject(with: change.afterPayload)) as? [String: Any]
+        else { return }
+
+        draft.originalPayload = change.afterPayload
+        draft.original = afterObject
+        editBaseline.originalPayload = change.afterPayload
+        editBaseline.original = afterObject
+
+        switch result.kind {
+        case .knowledgePoint:
+            draft.knowledgePoint = replacingTag(
+                result.oldName,
+                with: result.newName,
+                in: draft.knowledgePoint,
+                lineBased: false
+            )
+            editBaseline.knowledgePoint = payloadTagValue(
+                from: afterObject,
+                arrayKey: "knowledgePoints",
+                scalarKey: "knowledgePoint"
+            )
+        case .errorCause:
+            let usesLineEditor = LibraryErrorCauseCompatibility.usesLineEditor(
+                subject: draft.subject,
+                module: draft.module
+            )
+            draft.errorCause = replacingTag(
+                result.oldName,
+                with: result.newName,
+                in: draft.errorCause,
+                lineBased: usesLineEditor
+            )
+            if draft.subject == "数量关系" {
+                draft.quantityErrorCauseIsAuthoritative = LibraryQuantityErrorCauseCompatibility.isAuthoritative(in: afterObject)
+                editBaseline.quantityErrorCauseIsAuthoritative = draft.quantityErrorCauseIsAuthoritative
+                editBaseline.errorCause = LibraryQuantityErrorCauseCompatibility.values(in: afterObject).joined(separator: "、")
+            } else if usesLineEditor {
+                editBaseline.errorCause = LibraryErrorCauseCompatibility.rawCause(in: afterObject)
+            } else {
+                editBaseline.errorCause = LibraryRecordDraft.text(afterObject, keys: ["errorCause", "cause", "reason"])
+            }
+        case .thinkingTrap:
+            draft.weaknessTags = replacingTag(
+                result.oldName,
+                with: result.newName,
+                in: draft.weaknessTags,
+                lineBased: false
+            )
+            editBaseline.weaknessTags = payloadTagValue(
+                from: afterObject,
+                arrayKey: "weaknessTags",
+                scalarKey: nil
+            )
+        }
+    }
+
+    private func replacingTag(_ oldName: String, with newName: String?, in value: String, lineBased: Bool) -> String {
+        let pieces = lineBased
+            ? LibraryErrorCauseCompatibility.splitLines(value)
+            : value.split(whereSeparator: { "、,，".contains($0) }).map(String.init)
+        let mapped = pieces.compactMap { piece -> String? in
+            guard piece == oldName else { return piece }
+            return newName
+        }
+        return mapped.joined(separator: lineBased ? "\n" : "、")
+    }
+
+    private func payloadTagValue(from object: [String: Any], arrayKey: String, scalarKey: String?) -> String {
+        if let values = object[arrayKey] as? [String], !values.isEmpty {
+            return values.joined(separator: "、")
+        }
+        guard let scalarKey else { return "" }
+        return LibraryRecordDraft.text(object, keys: [scalarKey])
     }
     private var contextCard: some View {
         Group {
@@ -642,7 +727,11 @@ struct LibraryRecordEditorView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return !paperID.isEmpty || !questionID.isEmpty
     }
-    private var knowledgePointLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
+    private var knowledgePointLabel: String {
+        if isLogicJudgment { return "题干逻辑结构" }
+        if LibraryErrorCauseCompatibility.isCenterUnderstanding(subject: draft.subject, module: draft.module) { return "结构" }
+        return "考点"
+    }
     private var errorCauseLabel: String {
         if isLogicJudgment { return "选项逻辑作用" }
         if isAnalogyReasoning { return "二级辨析" }
@@ -1199,7 +1288,6 @@ struct LibraryRecordEditorView: View {
                 if recordID == nil {
                     await LibraryDraftStore.flush(saveDraftSnapshot, kind: kind, scope: scope)
                 }
-                // 思维误区是普通文字，不写入标签库。
                 let savedID = try await LibraryRecordRepository.save(
                     kind: kind,
                     draft: saveDraft,

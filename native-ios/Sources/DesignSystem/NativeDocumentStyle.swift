@@ -22,11 +22,6 @@ extension View {
             .toolbarBackground(.hidden, for: .navigationBar)
     }
 
-    /// Root pages explicitly keep the system tab bar visible.
-    func rootTabBarContentInset() -> some View {
-        toolbar(.visible, for: .tabBar)
-    }
-
     /// Push destinations hide the system tab bar through the navigation stack's
     /// own transition state.
     func secondaryPageTabBarHidden() -> some View {
@@ -35,7 +30,8 @@ extension View {
 }
 
 enum NativeFloatingActionPlacement {
-    static func maySitAtTabBarTopEdge(windowWidth: CGFloat) -> Bool {
+    static func maySitAtTabBarTopEdge(windowWidth: CGFloat, tabBarVisible: Bool = true) -> Bool {
+        guard tabBarVisible else { return false }
         let tabCount = CGFloat(RootTab.availableTabs.count)
         let minimumTabWidth: CGFloat = 56
         let tabSpacing: CGFloat = 5

@@ -187,7 +187,7 @@ struct QuestionBankQuestionAnalysisContext {
         object["isDifficult"] = question.isDifficult ?? false
         object["needsReview"] = question.needsReview ?? false
         object["errorCause"] = question.errorCause ?? ""
-        object["pitfall"] = question.pitfall ?? ""
+        if let pitfall = question.pitfall { object["pitfall"] = pitfall }
         object["quantityStructure"] = question.quantityStructure ?? ""
         object["graphRule"] = question.graphRule ?? ""
         object["recognition"] = question.recognition ?? ""

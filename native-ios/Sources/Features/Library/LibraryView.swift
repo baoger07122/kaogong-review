@@ -58,7 +58,6 @@ struct LibraryView: View {
         }
         .background(AppTheme.groupedBackground)
         .stableRootNavigationBar()
-        .rootTabBarContentInset()
         .onAppear { NativePerformanceLog.event("library onAppear") }
         .onReceive(NotificationCenter.default.publisher(for: .legacyBackupRestoreDidComplete)) { _ in
             snapshotCache.invalidate()
@@ -166,7 +165,8 @@ struct LibraryView: View {
                         onDelete: {
                             remove(LibraryDeleteTarget(kind: kind, recordID: recordID))
                             popCurrentRoute()
-                        }
+                        },
+                        onOpenLinkedError: { navigationPath.append(.detail(kind: .errors, recordID: $0)) }
                     )
                 } else if kind == .errors, record.isShenlunRecord {
                     ShenlunRecordDetailView(
@@ -201,7 +201,8 @@ struct LibraryView: View {
                         onNavigateToRecord: { nextRecordID in
                             replaceCurrentRoute(with: .detail(kind: .errors, recordID: nextRecordID))
                         },
-                        onOpenLinkedWord: { navigationPath.append(.detail(kind: .words, recordID: $0)) }
+                        onOpenLinkedWord: { navigationPath.append(.detail(kind: .words, recordID: $0)) },
+                        onOpenLinkedError: { navigationPath.append(.detail(kind: .errors, recordID: $0)) }
                     )
                     .id(recordID)
                 }
@@ -424,7 +425,10 @@ struct LibraryView: View {
                     .accessibilityIdentifier("library-add-record")
                     .padding(.trailing, 18)
                     .padding(.bottom, 8)
-                    .offset(y: NativeFloatingActionPlacement.maySitAtTabBarTopEdge(windowWidth: availableWindowWidth) ? 34 : 0)
+                    .offset(y: NativeFloatingActionPlacement.maySitAtTabBarTopEdge(
+                        windowWidth: availableWindowWidth,
+                        tabBarVisible: navigationPath.isEmpty
+                    ) ? 34 : 0)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 }
             }
@@ -671,7 +675,13 @@ struct LibraryView: View {
         if !selectedTag.isEmpty { return true }
         return sortedScopedRecords.contains { record in
             let object = record.indexObject ?? [:]
-            let textKeys = ["type", "category", "errorCause", "knowledgePoint", "point", "topic"]
+            let excludesCauseFromTagFilter = LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(
+                subject: record.subject ?? object["subject"] as? String,
+                module: record.module ?? object["module"] as? String
+            )
+            let textKeys = excludesCauseFromTagFilter
+                ? ["type", "category", "knowledgePoint", "point", "topic"]
+                : ["type", "category", "errorCause", "knowledgePoint", "point", "topic"]
             if textKeys.contains(where: { key in
                 guard let value = object[key] as? String else { return false }
                 return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -887,7 +897,13 @@ struct LibraryView: View {
         let object = record.indexObject ?? [:]
         var values: [String] = []
         let isDataAnalysis = record.subject == "资料分析" || object["subject"] as? String == "资料分析"
-        let baseKeys = isDataAnalysis ? ["type", "category"] : ["type", "category", "errorCause"]
+        let excludesCauseFromTagFilter = LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(
+            subject: record.subject ?? object["subject"] as? String,
+            module: record.module ?? object["module"] as? String
+        )
+        let baseKeys = isDataAnalysis || excludesCauseFromTagFilter
+            ? ["type", "category"]
+            : ["type", "category", "errorCause"]
         if let baseTag = baseKeys.compactMap({ object[$0] as? String }).first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
             values.append(baseTag)
         }

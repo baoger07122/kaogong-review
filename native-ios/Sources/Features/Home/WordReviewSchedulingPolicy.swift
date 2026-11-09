@@ -31,9 +31,16 @@ enum WordReviewFeedback: String, Codable, CaseIterable, Hashable {
 }
 
 enum WordReviewAttemptType: String, Codable, Hashable {
+    case initial
     case due
     case early
-    var title: String { self == .due ? "到期复习" : "提前复习" }
+    var title: String {
+        switch self {
+        case .initial: "首次学习"
+        case .due: "到期复习"
+        case .early: "提前复习"
+        }
+    }
 }
 
 struct WordReviewPlan: Codable, Equatable, Identifiable {
@@ -51,17 +58,6 @@ struct WordReviewPlan: Codable, Equatable, Identifiable {
 }
 
 enum WordReviewSchedulingPolicy {
-    static func finishPreparation(_ plan: WordReviewPlan, on date: Date, calendar: Calendar = .current) -> WordReviewPlan {
-        var updated = plan
-        updated.status = .training
-        updated.verificationRound = 0
-        updated.isContextValidationPending = false
-        updated.firstPassedOn = nil
-        updated.nextDueDate = calendar.startOfDay(for: date)
-        updated.updatedAt = date
-        return updated
-    }
-
     static func applying(
         _ feedback: WordReviewFeedback,
         to plan: WordReviewPlan,
@@ -71,7 +67,8 @@ enum WordReviewSchedulingPolicy {
     ) -> WordReviewPlan {
         var updated = plan
         updated.updatedAt = date
-        guard attemptType == .due else { return updated }
+        guard attemptType != .early else { return updated }
+        if attemptType == .initial, plan.status != .waitingToLearn { return updated }
 
         let today = calendar.startOfDay(for: date)
         switch feedback {
@@ -82,6 +79,12 @@ enum WordReviewSchedulingPolicy {
             updated.firstPassedOn = nil
             updated.nextDueDate = adding(days: 1, to: today, calendar: calendar)
         case .fuzzy:
+            if attemptType == .initial {
+                updated.status = .training
+                updated.verificationRound = 0
+                updated.isContextValidationPending = false
+                updated.firstPassedOn = nil
+            }
             updated.nextDueDate = adding(days: 1, to: today, calendar: calendar)
         case .mastered:
             if plan.status == .training || plan.verificationRound == 0 {

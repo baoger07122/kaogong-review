@@ -13,7 +13,7 @@ struct SubjectDefinition: Identifiable, Hashable {
 
     static let all: [SubjectDefinition] = [
         .init(name: "言语理解", systemImage: "book", color: .blue,
-              modules: ["逻辑填空", "中心理解", "标题填入", "接语选择", "语句填入", "语句排序", "细节判断题"]),
+              modules: ["逻辑填空", "中心理解", "标题填入", "接语选择", "语句填入", "语句排序", "细节判断题", "词句理解题"]),
         .init(name: "数量关系", systemImage: "number", color: .orange,
               modules: []),
         .init(name: "判断推理", systemImage: "square.grid.2x2", color: .green,

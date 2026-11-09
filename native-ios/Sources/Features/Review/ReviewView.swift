@@ -165,6 +165,7 @@ private enum ReviewOverviewCalculator {
 }
 
 struct ReviewView: View {
+    @Binding private var isSession: Bool
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.rootTabSelection) private var rootTabSelection
@@ -173,12 +174,15 @@ struct ReviewView: View {
     @State private var queueIDs: [String] = []
     @State private var index = 0
     @State private var answer: ReviewAnswer?
-    @State private var isSession = false
     @State private var cachedOverview: ReviewOverview?
     @State private var reviewSourceCache = LibraryReviewSourceClassificationCache()
     private var reviewSource: LibraryReviewSource { LibraryReviewSource(rawValue: sourceRawValue) ?? .real }
     private var sessionKey: String { "native.review.activeSession.\(reviewSource.rawValue)" }
     private var isReviewTabActive: Bool { rootTabSelection.wrappedValue == .review }
+
+    init(isSessionActive: Binding<Bool>) {
+        _isSession = isSessionActive
+    }
 
     private var errors: [StoredRecord] {
         let reviewSources = reviewSourceCache.classifications(for: records)
@@ -201,7 +205,6 @@ struct ReviewView: View {
             .background(AppTheme.groupedBackground)
             .navigationTitle("复习")
             .navigationBarTitleDisplayMode(.inline)
-            .rootTabBarContentInset()
             .navigationDestination(isPresented: $isSession) {
                 sessionView
                     .background(AppTheme.groupedBackground)

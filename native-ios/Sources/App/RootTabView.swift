@@ -8,6 +8,9 @@ private struct RootTabSelectionKey: EnvironmentKey {
 private struct RootWindowTopInsetKey: EnvironmentKey {
     static let defaultValue: CGFloat = 0
 }
+private struct RootTabBarVisibilityKey: EnvironmentKey {
+    static let defaultValue = false
+}
 extension EnvironmentValues {
     var rootTabSelection: Binding<RootTab> {
         get { self[RootTabSelectionKey.self] }
@@ -16,6 +19,10 @@ extension EnvironmentValues {
     var rootWindowTopInset: CGFloat {
         get { self[RootWindowTopInsetKey.self] }
         set { self[RootWindowTopInsetKey.self] = newValue }
+    }
+    var rootTabBarIsVisible: Bool {
+        get { self[RootTabBarVisibilityKey.self] }
+        set { self[RootTabBarVisibilityKey.self] = newValue }
     }
 }
 
@@ -59,6 +66,7 @@ struct RootTabView: View {
     @State private var homePath: [AppRoute] = []
     @State private var libraryPath: [LibraryRoute] = []
     @State private var settingsPath: [SettingsRoute] = []
+    @State private var isReviewSessionActive = false
     @StateObject private var libraryDoodleSession = LibraryDoodleSession()
 
     var body: some View {
@@ -124,18 +132,24 @@ struct RootTabView: View {
         switch tab {
         case .home:
             NavigationStack(path: $homePath) { HomeView() }
+                .environment(\.rootTabBarIsVisible, homePath.isEmpty)
                 .toolbar(homePath.isEmpty ? .visible : .hidden, for: .tabBar)
         case .library:
             NavigationStack(path: $libraryPath) {
                 LibraryView(navigationPath: $libraryPath)
             }
                 .environmentObject(libraryDoodleSession)
+                .environment(\.rootTabBarIsVisible, libraryPath.isEmpty)
+                .toolbar(libraryPath.isEmpty ? .visible : .hidden, for: .tabBar)
         case .review:
-            NavigationStack { ReviewView() }
+            NavigationStack { ReviewView(isSessionActive: $isReviewSessionActive) }
+                .environment(\.rootTabBarIsVisible, !isReviewSessionActive)
+                .toolbar(isReviewSessionActive ? .hidden : .visible, for: .tabBar)
         case .questionBank:
             EmptyView()
         case .settings:
             NavigationStack(path: $settingsPath) { SettingsView() }
+                .environment(\.rootTabBarIsVisible, settingsPath.isEmpty)
                 .toolbar(settingsPath.isEmpty ? .visible : .hidden, for: .tabBar)
         }
     }

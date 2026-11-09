@@ -15,8 +15,25 @@ struct KnowledgePointManagerView: View {
     @State private var editor: TagEditorState?
     @State private var draftName = ""
     @State private var deletingName: String?
+    @State private var errorMessage: String?
 
-    private var tags: [String] { TagLibraryRepository.tags(kind: kind, module: module, records: records) }
+    private var tags: [String] {
+        guard !(kind == .errorCause
+            && LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(subject: subject.name, module: module))
+        else { return [] }
+        return TagLibraryRepository.tags(kind: kind, module: module, records: records)
+    }
+    private var visibleTagKinds: [ManagedTagKind] {
+        LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(subject: subject.name, module: module)
+            ? [.knowledgePoint]
+            : ManagedTagKind.managementCases
+    }
+    private var kindTitle: String {
+        kind == .knowledgePoint
+            && LibraryErrorCauseCompatibility.isCenterUnderstanding(subject: subject.name, module: module)
+            ? "结构"
+            : kind.rawValue
+    }
     private var availableModules: [String] {
         subject.name == "数量关系" ? QuantityQuestionTypeRepository.types(records: records) : subject.modules
     }
@@ -24,9 +41,14 @@ struct KnowledgePointManagerView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("考点、错因和思维误区按当前科目与模块统一管理；录入错题时输入的新内容会自动加入这里，不再自动创建预设标签。")
+                Text("考点和其他模块的错因按当前科目与模块统一管理；数量关系弱项标签仍保留独立管理。")
                     .font(AppTheme.auxiliaryFont)
                     .foregroundStyle(.secondary)
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(AppTheme.danger)
+                }
 
                 HStack(spacing: 10) {
                     Menu {
@@ -46,19 +68,23 @@ struct KnowledgePointManagerView: View {
                 }
 
                 Picker("标签类型", selection: $kind) {
-                    ForEach(ManagedTagKind.allCases) { Text($0.rawValue).tag($0) }
+                    ForEach(visibleTagKinds) { value in
+                        Text(value == .knowledgePoint
+                             && LibraryErrorCauseCompatibility.isCenterUnderstanding(subject: subject.name, module: module)
+                             ? "结构" : value.rawValue).tag(value)
+                    }
                 }
                 .pickerStyle(.segmented)
 
                 HStack {
-                    Text("\(module) · \(kind.rawValue)").font(AppTheme.sectionTitleFont)
+                    Text("\(module) · \(kindTitle)").font(AppTheme.sectionTitleFont)
                     Spacer()
                     Button { beginAdd() } label: { Label("新增", systemImage: "plus") }
                         .font(AppTheme.inputFont.weight(.semibold))
                 }
 
                 if tags.isEmpty {
-                    NativeStatusCard(title: "暂无\(kind.rawValue)", detail: "点击新增建立当前模块的第一项", systemImage: "tag", color: AppTheme.accent)
+                    NativeStatusCard(title: "暂无\(kindTitle)", detail: "点击新增建立当前模块的第一项", systemImage: "tag", color: AppTheme.accent)
                 } else {
                     VStack(spacing: 0) {
                         ForEach(Array(tags.enumerated()), id: \.element) { index, name in
@@ -85,6 +111,14 @@ struct KnowledgePointManagerView: View {
         .background(Color.white)
         .navigationTitle("错题标签管理")
         .navigationBarTitleDisplayMode(.inline)
+        .alert("操作失败", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("好", role: .cancel) { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
+        }
         .overlay {
             if editor != nil { editorDialog }
             if let deletingName {
@@ -94,6 +128,18 @@ struct KnowledgePointManagerView: View {
                     onDelete: { remove(deletingName) },
                     onCancel: { self.deletingName = nil }
                 )
+            }
+        }
+        .onChange(of: module) { _, value in
+            if kind == .errorCause
+                && LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(subject: subject.name, module: value) {
+                kind = .knowledgePoint
+            }
+        }
+        .onChange(of: subject) { _, value in
+            if kind == .errorCause
+                && LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(subject: value.name, module: module) {
+                kind = .knowledgePoint
             }
         }
     }
@@ -126,31 +172,48 @@ struct KnowledgePointManagerView: View {
     }
 
     private func beginAdd() {
+        errorMessage = nil
         draftName = ""
         editor = TagEditorState(original: nil)
     }
 
     private func beginEdit(_ name: String) {
+        errorMessage = nil
         draftName = name
         editor = TagEditorState(original: name)
     }
 
     private func saveEditor() {
         guard let editor else { return }
-        if let original = editor.original {
-            try? TagLibraryRepository.rename(original, to: draftName, kind: kind, module: module, records: records, context: modelContext)
-        } else {
-            try? TagLibraryRepository.add(draftName, kind: kind, module: module, records: records, context: modelContext)
+        do {
+            if let original = editor.original {
+                try TagLibraryRepository.rename(original, to: draftName, kind: kind, module: module, records: records, context: modelContext)
+            } else {
+                try TagLibraryRepository.add(draftName, kind: kind, module: module, records: records, context: modelContext)
+            }
+            errorMessage = nil
+            self.editor = nil
+        } catch {
+            errorMessage = "标签保存失败：\(error.localizedDescription)"
         }
-        self.editor = nil
     }
 
     private func move(_ name: String, _ direction: Int) {
-        try? TagLibraryRepository.move(name, direction: direction, kind: kind, module: module, records: records, context: modelContext)
+        do {
+            try TagLibraryRepository.move(name, direction: direction, kind: kind, module: module, records: records, context: modelContext)
+            errorMessage = nil
+        } catch {
+            errorMessage = "标签排序保存失败：\(error.localizedDescription)"
+        }
     }
 
     private func remove(_ name: String) {
-        try? TagLibraryRepository.delete(name, kind: kind, module: module, records: records, context: modelContext)
-        deletingName = nil
+        do {
+            try TagLibraryRepository.delete(name, kind: kind, module: module, records: records, context: modelContext)
+            errorMessage = nil
+            deletingName = nil
+        } catch {
+            errorMessage = "删除标签失败：\(error.localizedDescription)"
+        }
     }
 }

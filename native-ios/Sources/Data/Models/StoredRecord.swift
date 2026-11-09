@@ -45,8 +45,16 @@ final class StoredRecord {
     }
 
     var compatibilityIndexObject: [String: Any]? {
-        guard collection == "errors", var indexed = indexObject else { return indexObject }
-        let fields = ["errorCause", "cause", "reason", "compareGroups"]
+        guard var indexed = indexObject else { return indexObject }
+        let fields: [String]
+        switch collection {
+        case "errors":
+            fields = ["errorCause", "cause", "reason", "compareGroups", "centerComprehensionTrap"]
+        case "words":
+            fields = ["linkedErrors", "relatedErrorIds"]
+        default:
+            return indexed
+        }
         let missing = fields.filter { indexed[$0] == nil }
         guard !missing.isEmpty else { return indexed }
         if cachedCompatibilityFields == nil {
@@ -123,7 +131,7 @@ final class StoredRecord {
                 "cause", "reason", "compareGroups",
                 "question", "title", "type", "category", "isShenlun", "createdAt", "updatedAt", "lastReviewDate",
                 "questionSource", "source", "questionNumber", "sourceYear", "sourceExamType", "sourceRegion",
-                "accuracy", "reviewCount", "sourceExamId", "pitfall", "reminder", "linkedWordIds", "options",
+                "accuracy", "reviewCount", "sourceExamId", "pitfall", "centerComprehensionTrap", "reminder", "linkedWordIds", "options",
                 "dataAnalysisMaterialText",
                 "imageDisplayMetadata", "imageCount", "optionImageIDs",
                 "questionBankPaperID", "questionBankQuestionID",
@@ -146,7 +154,7 @@ final class StoredRecord {
             keys = [
                 "id", "subject", "module", "title", "name", "words", "type", "category", "meaning", "pinyin",
                 "sentiment", "example", "compareNote", "myUnderstanding", "collocations", "pos", "compareWords",
-                "judgmentHint", "commonMeaning", "entryKind", "createdAt", "updatedAt"
+                "judgmentHint", "commonMeaning", "entryKind", "createdAt", "updatedAt", "linkedErrors", "relatedErrorIds"
             ]
         default:
             keys = Set(object.keys).subtracting([

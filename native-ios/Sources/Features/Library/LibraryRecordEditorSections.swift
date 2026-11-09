@@ -224,20 +224,22 @@ private struct LibraryErrorOptionEditorRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: StudyOptionRowLayout.verticalAlignment(hasText: !text.isEmpty), spacing: 7) {
                 Text(letter)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color.black)
-                    .frame(width: 28, height: 28)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.primary)
+                    .frame(width: 27, height: 27)
+                    .background(Color.primary.opacity(0.045), in: Capsule())
+                    .overlay(Capsule().stroke(Color.primary.opacity(0.12), lineWidth: 0.8))
                     .alignmentGuide(.firstTextBaseline) { dimensions in
                         dimensions[.firstTextBaseline]
                     }
                 TextField("", text: $text, axis: .vertical)
-                    .lineLimit(1...5)
+                    .lineLimit(1...4)
                     .font(.system(size: 13.5, weight: .regular))
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 4)
-                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .topLeading)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .frame(maxWidth: .infinity, minHeight: 30, alignment: .topLeading)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(Color.primary.opacity(0.11), lineWidth: 0.8))
                     .accessibilityLabel("选项 \(letter)")
                     .accessibilityIdentifier("library-error-option-\(index)")
                 if isDataAnalysis {
@@ -266,7 +268,7 @@ private struct LibraryErrorOptionEditorRow: View {
                 }
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 1)
     }
 }
 
@@ -513,11 +515,15 @@ private struct LibraryErrorAnalysisSection: View {
     @Binding var showQuantityWeaknessTags: Bool
 
     private var isQuantity: Bool { draft.subject == "数量关系" }
-    private var isDataAnalysis: Bool { draft.subject == "资料分析" }
     private var isAnalogy: Bool { draft.subject == "判断推理" && draft.module == "类比推理" }
-    private var isLogicFill: Bool { draft.subject == "言语理解" && draft.module == "逻辑填空" }
+    private var isCenterUnderstanding: Bool {
+        LibraryErrorCauseCompatibility.isCenterUnderstanding(subject: draft.subject, module: draft.module)
+    }
+    private var usesLineCauseEditor: Bool {
+        LibraryErrorCauseCompatibility.usesLineEditor(subject: draft.subject, module: draft.module)
+    }
     private var isLogicJudgment: Bool { draft.subject == "判断推理" && draft.module == "逻辑判断" }
-    private var knowledgeLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
+    private var knowledgeLabel: String { isLogicJudgment ? "题干逻辑结构" : (isCenterUnderstanding ? "结构" : "考点") }
     private var causeLabel: String { isLogicJudgment ? "选项逻辑作用" : (isAnalogy ? "二级辨析" : "错因") }
     private var quantityErrorCause: Binding<String> {
         Binding(
@@ -556,15 +562,15 @@ private struct LibraryErrorAnalysisSection: View {
         VStack(alignment: .leading, spacing: 7) {
             Label("\(knowledgeLabel)与\(causeLabel)", systemImage: "tag").font(.system(size: 13, weight: .medium))
             tagInput(title: knowledgeLabel, text: $draft.knowledgePoint, allowsMultiple: true, showsChevron: false)
-            if isDataAnalysis {
-                LibraryDataAnalysisCauseLineFields(text: $draft.errorCause)
+            if usesLineCauseEditor {
+                LibraryErrorCauseLineFields(text: $draft.errorCause)
             } else if isAnalogy {
                 plainTextInput(label: causeLabel, text: $draft.errorCause)
             } else {
                 tagInput(title: causeLabel, text: $draft.errorCause, allowsMultiple: false)
             }
-            if !isLogicFill {
-                plainTextInput(label: isDataAnalysis ? "陷阱" : "思维误区", text: $draft.pitfall)
+            if isCenterUnderstanding {
+                plainTextInput(label: "陷阱", text: $draft.centerComprehensionTrap)
             }
             plainTextInput(label: isAnalogy ? "常识" : "提醒", text: $draft.reminder)
         }
@@ -729,7 +735,7 @@ private struct LibraryErrorRelationsSection: View {
     }
 }
 
-struct LibraryDataAnalysisCauseLineFields: View {
+struct LibraryErrorCauseLineFields: View {
     @Binding var text: String
     @State private var lines: [String] = []
 
@@ -766,10 +772,10 @@ struct LibraryDataAnalysisCauseLineFields: View {
                 Text("可逐行记录错因").font(.system(size: 11)).foregroundStyle(.tertiary)
             }
         }
-        .onAppear { lines = LibraryDataAnalysisCauseLayout.splitLines(text) }
+        .onAppear { lines = LibraryErrorCauseCompatibility.splitLines(text) }
         .onChange(of: text) { _, value in
             let normalized = lines.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-            let incoming = LibraryDataAnalysisCauseLayout.splitLines(value)
+            let incoming = LibraryErrorCauseCompatibility.splitLines(value)
             if incoming != normalized { lines = incoming }
         }
     }

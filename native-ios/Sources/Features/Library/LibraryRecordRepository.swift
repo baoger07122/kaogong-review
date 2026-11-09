@@ -45,6 +45,7 @@ struct LibraryRecordDraft {
     var type = ""
     var knowledgePoint = ""
     var errorCause = ""
+    var centerComprehensionTrap = ""
     var status = "未掌握"
     var isDifficult = false
     var needsReview = false
@@ -147,9 +148,10 @@ struct LibraryRecordDraft {
         quantityErrorCauseIsAuthoritative = LibraryQuantityErrorCauseCompatibility.isAuthoritative(in: original)
         errorCause = kind == .errors && subject == "数量关系"
             ? LibraryQuantityErrorCauseCompatibility.values(in: original).joined(separator: "、")
-            : (kind == .errors && subject == "资料分析"
-                ? LibraryDataAnalysisCauseLayout.rawCause(in: original)
+            : (kind == .errors && LibraryErrorCauseCompatibility.usesLineEditor(subject: subject, module: module)
+                ? LibraryErrorCauseCompatibility.rawCause(in: original)
                 : LibraryRecordDraft.text(original, keys: ["errorCause", "cause", "reason"]))
+        centerComprehensionTrap = original["centerComprehensionTrap"] as? String ?? ""
         status = LibraryRecordDraft.text(original, keys: ["status", "masteryStatus"]).isEmpty ? "未掌握" : LibraryRecordDraft.text(original, keys: ["status", "masteryStatus"])
         isDifficult = (original["isDifficult"] as? Bool) ?? (original["isDifficult"] as? NSNumber)?.boolValue ?? false
         needsReview = (original["needsReview"] as? Bool) ?? (original["needsReview"] as? NSNumber)?.boolValue ?? false
@@ -268,6 +270,7 @@ struct LibraryRecordDraft {
             && type == other.type
             && knowledgePoint == other.knowledgePoint
             && errorCause == other.errorCause
+            && centerComprehensionTrap == other.centerComprehensionTrap
             && status == other.status
             && isDifficult == other.isDifficult
             && needsReview == other.needsReview
@@ -506,6 +509,9 @@ enum LibraryRecordRepository {
             object["knowledgePoints"] = knowledgePoints
             object["knowledgePoint"] = knowledgePoints.first ?? ""
             object["errorCause"] = draft.errorCause
+            if LibraryErrorCauseCompatibility.isCenterUnderstanding(subject: draft.subject, module: draft.module) {
+                object["centerComprehensionTrap"] = draft.centerComprehensionTrap
+            }
             object["status"] = draft.status
             object["isDifficult"] = draft.isDifficult
             object["needsReview"] = draft.needsReview
@@ -524,7 +530,6 @@ enum LibraryRecordRepository {
             }
             object["correctOption"] = draft.correctOption
             object["userOption"] = draft.userOption
-            object["pitfall"] = draft.pitfall
             object["reminder"] = draft.reminder
             object["quantityStructure"] = draft.quantityStructure
             if draft.subject == "数量关系" {
@@ -753,7 +758,7 @@ enum LibraryRecordRepository {
                     persist: false
                 )
                 if kind == .errors,
-                   draft.subject != "资料分析",
+                   !LibraryErrorCauseCompatibility.usesLineEditor(subject: draft.subject, module: draft.module),
                    !(draft.subject == "判断推理" && draft.module == "类比推理") {
                     let causes = draft.subject == "数量关系"
                         ? LibraryQuantityErrorCauseCompatibility.values(
@@ -920,6 +925,7 @@ enum LibraryRecordRepository {
         WordCategory(rawValue: value) ?? .idiomDefinition
     }
 
+    @MainActor
     static func updateLinkedWords(
         error: StoredRecord,
         newIDs: [String],
@@ -927,20 +933,82 @@ enum LibraryRecordRepository {
         context: ModelContext
     ) throws {
         var object = error.jsonObject ?? [:]
-        let oldIDs = object["linkedWordIds"] as? [String] ?? []
-        let uniqueIDs = Array(NSOrderedSet(array: newIDs)).compactMap { $0 as? String }
-        object["linkedWordIds"] = uniqueIDs
-        object["updatedAt"] = iso(.now)
-        error.replacePayload(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
-        error.updatedAt = .now
-        try syncArrayRelations(
-            collection: "words", arrayKey: "linkedErrors",
-            oldIDs: oldIDs, newIDs: uniqueIDs, linkedID: error.recordID, records: wordRecords
+        let linkedWordIDs = object["linkedWordIds"] as? [String] ?? []
+        let reverseWordIDs = wordRecords.compactMap { word -> String? in
+            guard word.collection == "words" else { return nil }
+            let wordObject = word.jsonObject ?? [:]
+            let directIDs = wordObject["linkedErrors"] as? [String] ?? []
+            let legacyIDs = wordObject["relatedErrorIds"] as? [String] ?? []
+            return (directIDs + legacyIDs).contains(error.recordID) ? word.recordID : nil
+        }
+        let existingWordIDs = Set(wordRecords.filter { $0.collection == "words" }.map(\.recordID))
+        let oldIDs = LibraryWordErrorAssociationPolicy.uniqueExistingIDs(
+            linkedWordIDs + reverseWordIDs,
+            existingIDs: existingWordIDs
         )
-        try syncArrayRelations(
-            collection: "words", arrayKey: "relatedErrorIds",
-            oldIDs: oldIDs, newIDs: uniqueIDs, linkedID: error.recordID, records: wordRecords
+        let uniqueIDs = LibraryWordErrorAssociationPolicy.uniqueExistingIDs(
+            newIDs,
+            existingIDs: existingWordIDs
         )
+        let now = Date.now
+        try context.transaction {
+            object["linkedWordIds"] = uniqueIDs
+            object["updatedAt"] = iso(now)
+            error.replacePayload(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
+            error.updatedAt = now
+            try syncArrayRelations(
+                collection: "words", arrayKey: "linkedErrors",
+                oldIDs: oldIDs, newIDs: uniqueIDs, linkedID: error.recordID, records: wordRecords
+            )
+            try syncArrayRelations(
+                collection: "words", arrayKey: "relatedErrorIds",
+                oldIDs: oldIDs, newIDs: uniqueIDs, linkedID: error.recordID, records: wordRecords
+            )
+        }
+        try context.save()
+    }
+
+    @MainActor
+    static func updateLinkedErrors(
+        word: StoredRecord,
+        newIDs: [String],
+        errorRecords: [StoredRecord],
+        context: ModelContext
+    ) throws {
+        var object = word.jsonObject ?? [:]
+        let reverseErrorIDs = errorRecords.compactMap { error -> String? in
+            guard error.collection == "errors" else { return nil }
+            return (error.jsonObject?["linkedWordIds"] as? [String] ?? []).contains(word.recordID)
+                ? error.recordID
+                : nil
+        }
+        let existingErrorIDs = Set(errorRecords.filter { $0.collection == "errors" }.map(\.recordID))
+        let oldIDs = LibraryWordErrorAssociationPolicy.resolvedErrorIDs(
+            linkedErrors: object["linkedErrors"] as? [String],
+            relatedErrorIDs: object["relatedErrorIds"] as? [String],
+            reverseLinkedErrorIDs: reverseErrorIDs,
+            existingErrorIDs: existingErrorIDs
+        )
+        let uniqueIDs = LibraryWordErrorAssociationPolicy.uniqueExistingIDs(
+            newIDs,
+            existingIDs: existingErrorIDs
+        )
+        let now = Date.now
+        try context.transaction {
+            object["linkedErrors"] = uniqueIDs
+            object["relatedErrorIds"] = uniqueIDs
+            object["updatedAt"] = iso(now)
+            word.replacePayload(try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]))
+            word.updatedAt = now
+            try syncArrayRelations(
+                collection: "errors",
+                arrayKey: "linkedWordIds",
+                oldIDs: oldIDs,
+                newIDs: uniqueIDs,
+                linkedID: word.recordID,
+                records: errorRecords
+            )
+        }
         try context.save()
     }
 
@@ -951,6 +1019,17 @@ enum LibraryRecordRepository {
         try context.transaction {
             switch kind {
             case .errors:
+                let reverseWordIDs = records.compactMap { word -> String? in
+                    guard word.collection == "words" else { return nil }
+                    let wordObject = word.compatibilityIndexObject ?? [:]
+                    let directErrorIDs = wordObject["linkedErrors"] as? [String] ?? []
+                    let legacyErrorIDs = wordObject["relatedErrorIds"] as? [String] ?? []
+                    return (directErrorIDs + legacyErrorIDs).contains(id) ? word.recordID : nil
+                }
+                let linkedWordIDs = LibraryWordErrorAssociationPolicy.uniqueExistingIDs(
+                    (object["linkedWordIds"] as? [String] ?? []) + reverseWordIDs,
+                    existingIDs: Set(records.filter { $0.collection == "words" }.map(\.recordID))
+                )
                 try syncSingleRelation(
                     collection: "exams", arrayKey: "linkedErrorIds",
                     oldID: object["sourceExamId"] as? String ?? "", newID: "", linkedID: id, records: records
@@ -961,11 +1040,11 @@ enum LibraryRecordRepository {
                 )
                 try syncArrayRelations(
                     collection: "words", arrayKey: "linkedErrors",
-                    oldIDs: object["linkedWordIds"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
+                    oldIDs: linkedWordIDs, newIDs: [], linkedID: id, records: records
                 )
                 try syncArrayRelations(
                     collection: "words", arrayKey: "relatedErrorIds",
-                    oldIDs: object["linkedWordIds"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
+                    oldIDs: linkedWordIDs, newIDs: [], linkedID: id, records: records
                 )
             case .notes:
                 try syncArrayRelations(
@@ -973,9 +1052,21 @@ enum LibraryRecordRepository {
                     oldIDs: object["linkedErrors"] as? [String] ?? [], newIDs: [], linkedID: id, records: records
                 )
             case .words:
+                let reverseErrorIDs = records.compactMap { error -> String? in
+                    guard error.collection == "errors" else { return nil }
+                    return (error.compatibilityIndexObject?["linkedWordIds"] as? [String] ?? []).contains(id)
+                        ? error.recordID
+                        : nil
+                }
+                let linkedErrorIDs = LibraryWordErrorAssociationPolicy.resolvedErrorIDs(
+                    linkedErrors: object["linkedErrors"] as? [String],
+                    relatedErrorIDs: object["relatedErrorIds"] as? [String],
+                    reverseLinkedErrorIDs: reverseErrorIDs,
+                    existingErrorIDs: Set(records.filter { $0.collection == "errors" }.map(\.recordID))
+                )
                 try syncArrayRelations(
                     collection: "errors", arrayKey: "linkedWordIds",
-                    oldIDs: (object["linkedErrors"] as? [String]) ?? (object["relatedErrorIds"] as? [String]) ?? [], newIDs: [], linkedID: id, records: records
+                    oldIDs: linkedErrorIDs, newIDs: [], linkedID: id, records: records
                 )
             case .stickies:
                 break

@@ -107,7 +107,6 @@ struct GraphReasoningFlashcardView: View {
                 detail("图形规律", text(object, "graphRule", fallback: "patternRule"))
                 detail("识别思路", text(object, "recognition", fallback: "recognitionPath"))
                 detail("错因", text(object, "errorCause"))
-                detail("易错点", text(object, "pitfall"))
                 detail("复盘笔记", text(object, "note"))
                 detail("题目来源", text(object, "questionSource"))
                 HStack {
