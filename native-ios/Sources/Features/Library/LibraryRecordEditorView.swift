@@ -512,7 +512,7 @@ struct LibraryRecordEditorView: View {
             } else if usesLineEditor {
                 editBaseline.errorCause = LibraryErrorCauseCompatibility.rawCause(in: afterObject)
             } else {
-                editBaseline.errorCause = LibraryRecordDraft.text(afterObject, keys: ["errorCause", "cause", "reason"])
+                editBaseline.errorCause = payloadString(from: afterObject, keys: ["errorCause", "cause", "reason"])
             }
         case .thinkingTrap:
             draft.weaknessTags = replacingTag(
@@ -545,7 +545,14 @@ struct LibraryRecordEditorView: View {
             return values.joined(separator: "、")
         }
         guard let scalarKey else { return "" }
-        return LibraryRecordDraft.text(object, keys: [scalarKey])
+        return payloadString(from: object, keys: [scalarKey])
+    }
+
+    private func payloadString(from object: [String: Any], keys: [String]) -> String {
+        for key in keys {
+            if let value = object[key] as? String { return value }
+        }
+        return ""
     }
     private var contextCard: some View {
         Group {
