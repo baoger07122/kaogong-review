@@ -147,7 +147,7 @@ struct LibraryRecordDraft {
         }
         quantityErrorCauseIsAuthoritative = LibraryQuantityErrorCauseCompatibility.isAuthoritative(in: original)
         errorCause = kind == .errors && subject == "数量关系"
-            ? LibraryQuantityErrorCauseCompatibility.values(in: original).joined(separator: "、")
+            ? LibraryQuantityErrorCauseCompatibility.values(in: original).joined(separator: "\n")
             : (kind == .errors && subject == "资料分析"
                 ? LibraryDataAnalysisCauseLayout.rawCause(in: original)
                 : LibraryRecordDraft.text(original, keys: ["errorCause", "cause", "reason"]))
@@ -508,7 +508,9 @@ enum LibraryRecordRepository {
             object["note"] = draft.content
             object["knowledgePoints"] = knowledgePoints
             object["knowledgePoint"] = knowledgePoints.first ?? ""
-            object["errorCause"] = draft.errorCause
+            object["errorCause"] = draft.subject == "数量关系"
+                ? LibraryQuantityErrorCauseCompatibility.lines(from: draft.errorCause)
+                : draft.errorCause
             object["status"] = draft.status
             object["isDifficult"] = draft.isDifficult
             object["needsReview"] = draft.needsReview
@@ -756,17 +758,11 @@ enum LibraryRecordRepository {
                     persist: false
                 )
                 if kind == .errors,
+                   draft.subject != "数量关系",
                    draft.subject != "资料分析",
                    !(draft.subject == "判断推理" && draft.module == "类比推理") {
-                    let causes = draft.subject == "数量关系"
-                        ? LibraryQuantityErrorCauseCompatibility.values(
-                            errorCause: draft.errorCause,
-                            weaknessTags: nil,
-                            authoritative: true
-                        )
-                        : [draft.errorCause]
                     try TagLibraryRepository.add(
-                        causes,
+                        [draft.errorCause],
                         kind: .errorCause,
                         module: draft.module,
                         records: records,

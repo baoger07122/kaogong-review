@@ -495,7 +495,7 @@ struct LibraryRecordEditorView: View {
                 scalarKey: "knowledgePoint"
             )
         case .errorCause:
-            let usesLineEditor = draft.subject == "资料分析"
+            let usesLineEditor = draft.subject == "资料分析" || draft.subject == "数量关系"
             draft.errorCause = replacingTag(
                 result.oldName,
                 with: result.newName,
@@ -505,7 +505,7 @@ struct LibraryRecordEditorView: View {
             if draft.subject == "数量关系" {
                 draft.quantityErrorCauseIsAuthoritative = LibraryQuantityErrorCauseCompatibility.isAuthoritative(in: afterObject)
                 editBaseline.quantityErrorCauseIsAuthoritative = draft.quantityErrorCauseIsAuthoritative
-                editBaseline.errorCause = LibraryQuantityErrorCauseCompatibility.values(in: afterObject).joined(separator: "、")
+                editBaseline.errorCause = LibraryQuantityErrorCauseCompatibility.values(in: afterObject).joined(separator: "\n")
             } else if usesLineEditor {
                 editBaseline.errorCause = LibraryDataAnalysisCauseLayout.rawCause(in: afterObject)
             } else {

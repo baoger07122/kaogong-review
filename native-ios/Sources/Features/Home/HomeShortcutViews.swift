@@ -95,8 +95,8 @@ private struct HomeErrorDetailDestination: View {
                         kind: .errors,
                         scope: scope(for: record),
                         record: record,
-                        onEdit: { isShowingEditor = true },
-                        onDelete: { delete(record) }
+                        onEdit: { _ in isShowingEditor = true },
+                        onDelete: { _ in delete(record) }
                     )
                     .environmentObject(doodleSession)
                 }

@@ -281,6 +281,7 @@ struct LibraryRecordSnapshot: Identifiable {
     let wordEntryKinds: [String]
     let knowledgePoints: [String]
     let errorCause: String
+    let quantityErrorCauses: [String]
     let dataAnalysisErrorCause: String
     let dataAnalysisMaterialText: String
     let pitfall: String
@@ -368,8 +369,9 @@ struct LibraryRecordSnapshot: Identifiable {
         let quantityErrorCauses = record.collection == "errors" && subject == "数量关系"
             ? LibraryQuantityErrorCauseCompatibility.values(in: object)
             : []
+        self.quantityErrorCauses = quantityErrorCauses
         errorCause = record.collection == "errors" && subject == "数量关系"
-            ? quantityErrorCauses.joined(separator: "、")
+            ? quantityErrorCauses.joined(separator: "\n")
             : record.collection == "errors" && subject == "资料分析"
                 ? LibraryDataAnalysisCauseLayout.rawCause(in: object)
                 : Self.firstText(in: object, keys: ["errorCause", "cause", "reason"]).map(Self.plainText) ?? ""

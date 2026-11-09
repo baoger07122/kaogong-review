@@ -440,7 +440,9 @@ private struct LibraryErrorRecordCard: View {
                     )
                 }
 
-                let causes = isDataAnalysis ? [] : splitTags(snapshot.errorCause)
+                let causes = isDataAnalysis
+                    ? []
+                    : (isQuantityRelations ? snapshot.quantityErrorCauses : splitTags(snapshot.errorCause))
                 let dataAnalysisCauses = LibraryDataAnalysisCauseLayout.splitLines(snapshot.dataAnalysisErrorCause)
                 if isDataAnalysis {
                     if !dataAnalysisCauses.isEmpty {
@@ -1378,6 +1380,11 @@ struct LibraryMasonryGrid: View {
                 metadataRows.append(LibraryDataAnalysisCauseLayout.estimatedTagLineHeight(
                     label: "错因", values: causes, width: contentWidth
                 ))
+            }
+        } else if record.record.collection == "errors", record.record.subject == "数量关系" {
+            let causes = record.quantityErrorCauses
+            if !causes.isEmpty {
+                metadataRows.append(estimatedTagLineHeight(label: "错因", values: causes, width: contentWidth))
             }
         } else if isLogicFill {
             let causes = splitTags(record.errorCause)

@@ -241,7 +241,7 @@ enum TagLibraryRepository {
                     )
                     if values.contains(oldName) {
                         let updatedValues = replacing(oldName, with: newName, in: values)
-                        object["errorCause"] = updatedValues.joined(separator: "、")
+                        object["errorCause"] = updatedValues
                         LibraryQuantityErrorCauseCompatibility.markAuthoritative(in: &object)
                         changed = true
                     }

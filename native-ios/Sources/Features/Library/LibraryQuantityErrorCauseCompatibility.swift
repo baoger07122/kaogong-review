@@ -24,7 +24,13 @@ enum LibraryQuantityErrorCauseCompatibility {
 
     static func serialized(errorCause: Any?, weaknessTags: Any?, authoritative: Bool) -> String {
         values(errorCause: errorCause, weaknessTags: weaknessTags, authoritative: authoritative)
-            .joined(separator: "、")
+            .joined(separator: "\n")
+    }
+
+    static func lines(from value: String) -> [String] {
+        value.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     static func markAuthoritative(in object: inout [String: Any]) {
@@ -32,18 +38,21 @@ enum LibraryQuantityErrorCauseCompatibility {
     }
 
     private static func values(errorCause: [Any?], weaknessTags: Any?, authoritative: Bool) -> [String] {
-        let current = errorCause.flatMap { splitValues($0) }
-        let legacy = authoritative ? [] : splitValues(weaknessTags)
+        let current = errorCause.flatMap { splitValues($0, splitLegacySeparators: !authoritative) }
+        let legacy = authoritative ? [] : splitValues(weaknessTags, splitLegacySeparators: true)
         var seen = Set<String>()
         return (current + legacy).filter { seen.insert($0).inserted }
     }
 
-    private static func splitValues(_ value: Any?) -> [String] {
+    private static func splitValues(_ value: Any?, splitLegacySeparators: Bool) -> [String] {
         let candidates: [String]
         if let values = value as? [String] {
-            candidates = values
+            candidates = values.flatMap { $0.components(separatedBy: .newlines) }
         } else if let string = value as? String {
-            candidates = string.split(whereSeparator: { "、,，".contains($0) }).map(String.init)
+            let lines = string.components(separatedBy: .newlines)
+            candidates = splitLegacySeparators
+                ? lines.flatMap { line in line.split(whereSeparator: { "、,，".contains($0) }).map(String.init) }
+                : lines
         } else {
             candidates = []
         }

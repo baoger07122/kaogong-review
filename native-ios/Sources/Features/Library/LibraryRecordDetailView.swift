@@ -37,19 +37,19 @@ private final class LibraryRedoAttemptSession: ObservableObject {
 
 struct LibraryRecordDetailView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var doodleSession: LibraryDoodleSession
     @Query(filter: #Predicate<StoredRecord> { record in record.collection == "words" || record.collection == "errors" || record.collection == "exams" }) private var records: [StoredRecord]
     let kind: LibraryContentKind
     let scope: LibraryScope
-    let record: StoredRecord?
-    let onEdit: () -> Void
-    let onDelete: () -> Void
-    var onCancelEditRequest: () -> Void = {}
+    let onEdit: (String) -> Void
+    let onDelete: (String) -> Void
+    var onCancelEditRequest: (String) -> Void = { _ in }
     var orderedRecordIDs: [String] = []
-    var onNavigateToRecord: ((String) -> Void)? = nil
     var onOpenLinkedWord: ((String) -> Void)? = nil
     var onOpenLinkedError: ((String) -> Void)? = nil
 
+    @State private var activeRecordKey: String
     @State private var object: [String: Any]
     @State private var imageSourceIdentities: [String: LibraryDetailImageSourceIdentity]
     @State private var payloadDecodeFailed = false
@@ -79,24 +79,22 @@ struct LibraryRecordDetailView: View {
         kind: LibraryContentKind,
         scope: LibraryScope,
         record: StoredRecord,
-        onEdit: @escaping () -> Void,
-        onDelete: @escaping () -> Void,
-        onCancelEditRequest: @escaping () -> Void = {},
+        onEdit: @escaping (String) -> Void,
+        onDelete: @escaping (String) -> Void,
+        onCancelEditRequest: @escaping (String) -> Void = { _ in },
         orderedRecordIDs: [String] = [],
-        onNavigateToRecord: ((String) -> Void)? = nil,
         onOpenLinkedWord: ((String) -> Void)? = nil,
         onOpenLinkedError: ((String) -> Void)? = nil
     ) {
         self.kind = kind
         self.scope = scope
-        self.record = record
         self.onEdit = onEdit
         self.onDelete = onDelete
         self.onCancelEditRequest = onCancelEditRequest
         self.orderedRecordIDs = orderedRecordIDs
-        self.onNavigateToRecord = onNavigateToRecord
         self.onOpenLinkedWord = onOpenLinkedWord
         self.onOpenLinkedError = onOpenLinkedError
+        _activeRecordKey = State(initialValue: record.recordID)
         if let decodedObject = record.jsonObject {
             _object = State(initialValue: decodedObject)
             _imageSourceIdentities = State(initialValue: Self.makeImageSourceIdentities(for: decodedObject))
@@ -136,13 +134,21 @@ struct LibraryRecordDetailView: View {
                 }
             }
             .onChange(of: activeRecordID) { _, newRecordID in
+                lastLocallySavedNoteUpdate = nil
+                if let record, let decodedObject = record.jsonObject {
+                    refreshObject(decodedObject)
+                    payloadDecodeFailed = false
+                } else {
+                    refreshObject([:])
+                    payloadDecodeFailed = true
+                }
                 if doodleSession.isPresented, doodleSession.targetRecordID != newRecordID {
                     doodleSession.dismiss(reopenOnSaveFailure: false) { error in
                         if let error { splitDoodleErrorMessage = error }
                     }
                 }
                 if let pendingEditorRequestID {
-                    onCancelEditRequest()
+                    onCancelEditRequest(pendingEditorTransitionRecordID ?? pendingEditorRequestID)
                     LibraryPerformanceLog.editorTransition(
                         "menu-action",
                         recordID: pendingEditorTransitionRecordID ?? pendingEditorRequestID,
@@ -267,7 +273,33 @@ struct LibraryRecordDetailView: View {
         )
     }
 
+    @ViewBuilder
     private var detailContent: some View {
+        let activeRecordKeyBinding = $activeRecordKey
+        if kind == .errors, orderedRecordIDs.count > 1, orderedRecordIDs.contains(activeRecordKey) {
+            LibraryHorizontalRecordPager(
+                recordIDs: orderedRecordIDs,
+                currentRecordID: $activeRecordKey,
+                isPagingEnabled: !doodleSession.isPresented && !noteSession.isEditing && !noteSession.hasPendingChanges
+            ) { recordID in
+                if recordID == activeRecordKeyBinding.wrappedValue {
+                    AnyView(
+                        detailPageContent
+                            .environment(\.modelContext, modelContext)
+                            .environment(\.scenePhase, scenePhase)
+                    )
+                } else if let neighbor = records.first(where: { $0.collection == kind.collection && $0.recordID == recordID }) {
+                    AnyView(LibraryRecordSwipePreview(record: neighbor))
+                } else {
+                    AnyView(Color.white)
+                }
+            }
+        } else {
+            detailPageContent
+        }
+    }
+
+    private var detailPageContent: some View {
         GeometryReader { proxy in
             let availableWidth = proxy.size.width.isFinite ? max(0, proxy.size.width) : 0
             let layoutDirection = splitLayoutDirection(for: proxy.size)
@@ -468,10 +500,6 @@ struct LibraryRecordDetailView: View {
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(Color.white)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 30)
-                .onEnded(navigateFromHorizontalSwipe)
-        )
         .accessibilityIdentifier(displayQuestionBankContext.map {
             "question-bank-detail-scroll-\($0.question.id)"
         } ?? (separatesDataAnalysisMaterial ? "library-record-detail-question-scroll" : "library-record-detail-scroll"))
@@ -563,29 +591,13 @@ struct LibraryRecordDetailView: View {
         return error
     }
 
-    private func navigateFromHorizontalSwipe(_ value: DragGesture.Value) {
-        guard kind == .errors,
-              !doodleSession.isPresented,
-              !noteSession.isEditing,
-              let onNavigateToRecord,
-              let record,
-              let currentIndex = orderedRecordIDs.firstIndex(of: record.recordID),
-              abs(value.translation.width) >= 80,
-              abs(value.translation.height) <= max(36, abs(value.translation.width) * 0.35)
-        else { return }
-
-        let nextIndex = currentIndex + (value.translation.width < 0 ? 1 : -1)
-        guard orderedRecordIDs.indices.contains(nextIndex) else { return }
-        onNavigateToRecord(orderedRecordIDs[nextIndex])
-    }
-
     @ViewBuilder
     private var detailModal: some View {
         if showDelete {
             NativeDeleteDialog(
                 title: "删除错题",
                 message: "删除后无法在 App 内恢复。",
-                onDelete: { showDelete = false; onDelete() },
+                onDelete: { showDelete = false; onDelete(activeRecordKey) },
                 onCancel: { showDelete = false }
             )
         } else if showWordSelection {
@@ -675,7 +687,7 @@ struct LibraryRecordDetailView: View {
 
     private func requestEdit() {
         guard pendingEditorRequestID == nil, !doodleSession.isPresented else { return }
-        let requestID = activeRecordID
+        let requestID = activeRecordKey
         let transitionRecordID = record?.recordID ?? requestID
         pendingEditorRequestID = requestID
         pendingEditorTransitionRecordID = transitionRecordID
@@ -712,7 +724,7 @@ struct LibraryRecordDetailView: View {
                 completes: true,
                 transitionKey: "note-finish"
             )
-            guard self.pendingEditorRequestID == requestID, self.activeRecordID == requestID else { return }
+            guard self.pendingEditorRequestID == requestID, self.activeRecordKey == requestID else { return }
             guard saved else {
                 self.editorTransitionErrorMessage = self.noteSession.finishFailureMessage
                     ?? "笔记尚未成功保存，编辑页面没有打开。"
@@ -736,9 +748,9 @@ struct LibraryRecordDetailView: View {
     }
 
     private func handoffEditRequest(requestID: String, transitionRecordID: String, detail: String) {
-        guard pendingEditorRequestID == requestID, activeRecordID == requestID else { return }
+        guard pendingEditorRequestID == requestID, activeRecordKey == requestID else { return }
         didHandOffEditRequest = true
-        onEdit()
+        onEdit(requestID)
         LibraryPerformanceLog.editorTransition(
             "menu-action",
             recordID: transitionRecordID,
@@ -762,7 +774,7 @@ struct LibraryRecordDetailView: View {
         self.pendingEditorRequestID = nil
         pendingEditorTransitionRecordID = nil
         didHandOffEditRequest = false
-        onCancelEditRequest()
+        onCancelEditRequest(transitionRecordID)
         if !wasHandedOff {
             LibraryPerformanceLog.editorTransition(
                 "menu-action",
@@ -801,10 +813,9 @@ struct LibraryRecordDetailView: View {
                 }
             }
             if isQuantityRelations {
-                metadataTextLine("题型", value: QuantityQuestionTypeCatalog.displayName(for: activeModule))
                 metadataTextLine("题目结构", value: firstText(["quantityStructure"]) ?? "")
                 metadataTagLine("考点", values: knowledgePoints, emphasis: .strong)
-                metadataTagLine(errorCauseLabel, values: quantityErrorCauseValues, emphasis: .subtle)
+                quantityErrorCauseMetadata
             } else {
                 if displayQuestionBankContext != nil, !activeModule.isEmpty {
                     metadataTextLine("题型", value: activeModule)
@@ -1208,6 +1219,7 @@ struct LibraryRecordDetailView: View {
                         lastLocallySavedNoteUpdate = record.updatedAt
                     }
                 )
+                .id(activeRecordID)
             }
         }
         .padding(.top, 6)
@@ -1603,6 +1615,50 @@ struct LibraryRecordDetailView: View {
         }
     }
 
+    private var quantityErrorCauseMetadata: some View {
+        let values = quantityErrorCauseValues.map(clean).filter { !$0.isEmpty }
+        let row = HStack(alignment: .top, spacing: 6) {
+            Text("\(errorCauseLabel)：")
+                .fixedSize(horizontal: true, vertical: false)
+                .font(.system(size: 12.5))
+                .foregroundStyle(.primary)
+                .padding(.top, 2)
+            if values.isEmpty {
+                Text("点击添加错因")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                NativeTagFlow(spacing: 5) {
+                    ForEach(Array(values.enumerated()), id: \.offset) { _, value in
+                        Text(value)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(Color.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 6))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        if canEditReviewAttributes {
+            Button {
+                editingDataAnalysisCauses = LibraryDetailAttribute(
+                    key: "errorCause",
+                    label: errorCauseLabel,
+                    value: values.joined(separator: "\n")
+                )
+            } label: { row }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+        } else {
+            row
+        }
+    }
+
     private var webBorder: Color { Color(red: 240.0 / 255.0, green: 240.0 / 255.0, blue: 242.0 / 255.0) }
 
     private var detailQuestionFont: Font { .system(size: 14.5, weight: .regular) }
@@ -1706,7 +1762,9 @@ struct LibraryRecordDetailView: View {
         guard let record else { return "题目记录不存在，修改未保存。" }
         var updated = object
         let originalValue = updated[attribute.key]
-        if originalValue is Bool || (originalValue as? NSNumber).map({ CFGetTypeID($0) == CFBooleanGetTypeID() }) == true {
+        if isQuantityRelations, attribute.key == "errorCause" {
+            updated["errorCause"] = LibraryQuantityErrorCauseCompatibility.lines(from: value)
+        } else if originalValue is Bool || (originalValue as? NSNumber).map({ CFGetTypeID($0) == CFBooleanGetTypeID() }) == true {
             updated[attribute.key] = value == "是"
         } else if originalValue is [String] {
             updated[attribute.key] = value
@@ -1958,7 +2016,7 @@ struct LibraryRecordDetailView: View {
             self.pendingEditorRequestID = nil
             pendingEditorTransitionRecordID = nil
             didHandOffEditRequest = false
-            onCancelEditRequest()
+            onCancelEditRequest(transitionRecordID)
             LibraryPerformanceLog.editorTransition(
                 "menu-action",
                 recordID: transitionRecordID,
@@ -2021,6 +2079,10 @@ struct LibraryRecordDetailView: View {
 
     private var activeRecordID: String {
         record?.compoundID ?? ""
+    }
+
+    private var record: StoredRecord? {
+        records.first { $0.collection == kind.collection && $0.recordID == activeRecordKey }
     }
 
     private func imageCacheKey(kind: String, index: Int, source: String, metadataID: String) -> String {

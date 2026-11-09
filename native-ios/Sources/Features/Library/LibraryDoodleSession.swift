@@ -612,7 +612,6 @@ struct LibraryDoodleOverlay: View {
             Image(systemName: systemImage)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(active ? AppTheme.accent : Color.primary)
-                .contentTransition(.symbolEffect(.replace))
                 .frame(width: 32, height: 44)
                 .background(active ? AppTheme.accent.opacity(0.12) : .clear, in: Circle())
                 .overlay {

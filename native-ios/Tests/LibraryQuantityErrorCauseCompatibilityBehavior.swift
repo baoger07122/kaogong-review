@@ -27,7 +27,7 @@ struct LibraryQuantityErrorCauseCompatibilityBehavior {
                 errorCause: "错因一、错因二",
                 weaknessTags: ["错因二", "旧错因"],
                 authoritative: false
-            ) == "错因一、错因二、旧错因"
+            ) == "错因一\n错因二\n旧错因"
         )
         precondition(
             LibraryQuantityErrorCauseCompatibility.serialized(

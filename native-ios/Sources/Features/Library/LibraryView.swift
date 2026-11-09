@@ -191,20 +191,16 @@ struct LibraryView: View {
                         kind: kind,
                         scope: scope,
                         record: record,
-                        onEdit: { openEditorAfterMenuDismisses(kind: kind, recordID: recordID) },
-                        onDelete: {
-                            remove(LibraryDeleteTarget(kind: kind, recordID: recordID))
+                        onEdit: { activeRecordID in openEditorAfterMenuDismisses(kind: kind, recordID: activeRecordID) },
+                        onDelete: { activeRecordID in
+                            remove(LibraryDeleteTarget(kind: kind, recordID: activeRecordID))
                             popCurrentRoute()
                         },
-                        onCancelEditRequest: { cancelPendingEditorRoute(kind: kind, recordID: recordID) },
+                        onCancelEditRequest: { requestedRecordID in cancelPendingEditorRoute(kind: kind, recordID: requestedRecordID) },
                         orderedRecordIDs: kind == .errors ? orderedVisibleErrorRecordIDs : [],
-                        onNavigateToRecord: { nextRecordID in
-                            replaceCurrentRoute(with: .detail(kind: .errors, recordID: nextRecordID))
-                        },
                         onOpenLinkedWord: { navigationPath.append(.detail(kind: .words, recordID: $0)) },
                         onOpenLinkedError: { navigationPath.append(.detail(kind: .errors, recordID: $0)) }
                     )
-                    .id(recordID)
                 }
             } else {
                 NativeStatusCard(title: "记录不存在", detail: "这条记录可能已经被删除", systemImage: "exclamationmark.triangle", color: .secondary)

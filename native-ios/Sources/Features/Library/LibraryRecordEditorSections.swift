@@ -546,7 +546,7 @@ private struct LibraryErrorAnalysisSection: View {
             Label("题型分析", systemImage: "tag").font(.system(size: 13, weight: .medium))
             quantityTextInput(title: "题目结构", placeholder: "例如：矩形边界植树", text: $draft.quantityStructure)
             quantityTagInput(title: "考点", value: draft.knowledgePoint) { showQuantityKnowledgePoints = true }
-            tagInput(title: "错因", text: quantityErrorCause, allowsMultiple: true)
+            LibraryDataAnalysisCauseLineFields(text: quantityErrorCause)
             plainTextInput(label: "提醒", text: $draft.reminder)
         }
         .padding(14)
