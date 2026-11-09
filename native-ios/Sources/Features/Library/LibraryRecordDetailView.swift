@@ -1615,6 +1615,7 @@ struct LibraryRecordDetailView: View {
         }
     }
 
+    @ViewBuilder
     private var quantityErrorCauseMetadata: some View {
         let values = quantityErrorCauseValues.map(clean).filter { !$0.isEmpty }
         let row = HStack(alignment: .top, spacing: 6) {

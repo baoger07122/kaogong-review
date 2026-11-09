@@ -188,7 +188,7 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
     }
 }
 
-private struct LibraryRecordSwipePreview: View {
+struct LibraryRecordSwipePreview: View {
     let record: StoredRecord
 
     private var object: [String: Any] { record.jsonObject ?? [:] }
