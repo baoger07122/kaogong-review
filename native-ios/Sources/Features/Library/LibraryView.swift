@@ -675,13 +675,7 @@ struct LibraryView: View {
         if !selectedTag.isEmpty { return true }
         return sortedScopedRecords.contains { record in
             let object = record.indexObject ?? [:]
-            let excludesCauseFromTagFilter = LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(
-                subject: record.subject ?? object["subject"] as? String,
-                module: record.module ?? object["module"] as? String
-            )
-            let textKeys = excludesCauseFromTagFilter
-                ? ["type", "category", "knowledgePoint", "point", "topic"]
-                : ["type", "category", "errorCause", "knowledgePoint", "point", "topic"]
+            let textKeys = ["type", "category", "errorCause", "knowledgePoint", "point", "topic"]
             if textKeys.contains(where: { key in
                 guard let value = object[key] as? String else { return false }
                 return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -897,13 +891,7 @@ struct LibraryView: View {
         let object = record.indexObject ?? [:]
         var values: [String] = []
         let isDataAnalysis = record.subject == "资料分析" || object["subject"] as? String == "资料分析"
-        let excludesCauseFromTagFilter = LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(
-            subject: record.subject ?? object["subject"] as? String,
-            module: record.module ?? object["module"] as? String
-        )
-        let baseKeys = isDataAnalysis || excludesCauseFromTagFilter
-            ? ["type", "category"]
-            : ["type", "category", "errorCause"]
+        let baseKeys = isDataAnalysis ? ["type", "category"] : ["type", "category", "errorCause"]
         if let baseTag = baseKeys.compactMap({ object[$0] as? String }).first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
             values.append(baseTag)
         }

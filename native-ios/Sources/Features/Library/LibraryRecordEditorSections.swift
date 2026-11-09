@@ -515,15 +515,11 @@ private struct LibraryErrorAnalysisSection: View {
     @Binding var showQuantityWeaknessTags: Bool
 
     private var isQuantity: Bool { draft.subject == "数量关系" }
+    private var isDataAnalysis: Bool { draft.subject == "资料分析" }
     private var isAnalogy: Bool { draft.subject == "判断推理" && draft.module == "类比推理" }
-    private var isCenterUnderstanding: Bool {
-        LibraryErrorCauseCompatibility.isCenterUnderstanding(subject: draft.subject, module: draft.module)
-    }
-    private var usesLineCauseEditor: Bool {
-        LibraryErrorCauseCompatibility.usesLineEditor(subject: draft.subject, module: draft.module)
-    }
+    private var isLogicFill: Bool { draft.subject == "言语理解" && draft.module == "逻辑填空" }
     private var isLogicJudgment: Bool { draft.subject == "判断推理" && draft.module == "逻辑判断" }
-    private var knowledgeLabel: String { isLogicJudgment ? "题干逻辑结构" : (isCenterUnderstanding ? "结构" : "考点") }
+    private var knowledgeLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
     private var causeLabel: String { isLogicJudgment ? "选项逻辑作用" : (isAnalogy ? "二级辨析" : "错因") }
     private var quantityErrorCause: Binding<String> {
         Binding(
@@ -562,15 +558,15 @@ private struct LibraryErrorAnalysisSection: View {
         VStack(alignment: .leading, spacing: 7) {
             Label("\(knowledgeLabel)与\(causeLabel)", systemImage: "tag").font(.system(size: 13, weight: .medium))
             tagInput(title: knowledgeLabel, text: $draft.knowledgePoint, allowsMultiple: true, showsChevron: false)
-            if usesLineCauseEditor {
-                LibraryErrorCauseLineFields(text: $draft.errorCause)
+            if isDataAnalysis {
+                LibraryDataAnalysisCauseLineFields(text: $draft.errorCause)
             } else if isAnalogy {
                 plainTextInput(label: causeLabel, text: $draft.errorCause)
             } else {
                 tagInput(title: causeLabel, text: $draft.errorCause, allowsMultiple: false)
             }
-            if isCenterUnderstanding {
-                plainTextInput(label: "陷阱", text: $draft.centerComprehensionTrap)
+            if !isLogicFill {
+                plainTextInput(label: isDataAnalysis ? "陷阱" : "思维误区", text: $draft.pitfall)
             }
             plainTextInput(label: isAnalogy ? "常识" : "提醒", text: $draft.reminder)
         }
@@ -735,7 +731,7 @@ private struct LibraryErrorRelationsSection: View {
     }
 }
 
-struct LibraryErrorCauseLineFields: View {
+struct LibraryDataAnalysisCauseLineFields: View {
     @Binding var text: String
     @State private var lines: [String] = []
 
@@ -772,10 +768,10 @@ struct LibraryErrorCauseLineFields: View {
                 Text("可逐行记录错因").font(.system(size: 11)).foregroundStyle(.tertiary)
             }
         }
-        .onAppear { lines = LibraryErrorCauseCompatibility.splitLines(text) }
+        .onAppear { lines = LibraryDataAnalysisCauseLayout.splitLines(text) }
         .onChange(of: text) { _, value in
             let normalized = lines.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-            let incoming = LibraryErrorCauseCompatibility.splitLines(value)
+            let incoming = LibraryDataAnalysisCauseLayout.splitLines(value)
             if incoming != normalized { lines = incoming }
         }
     }

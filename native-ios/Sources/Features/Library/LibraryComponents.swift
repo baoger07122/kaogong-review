@@ -440,12 +440,13 @@ private struct LibraryErrorRecordCard: View {
                     )
                 }
 
-                let usesLineCauseEditor = LibraryErrorCauseCompatibility.usesLineEditor(
-                    subject: snapshot.subject,
-                    module: snapshot.module
-                )
-                let causes = LibraryErrorCauseCompatibility.splitLines(snapshot.errorCause)
-                if usesLineCauseEditor {
+                let causes = isDataAnalysis ? [] : splitTags(snapshot.errorCause)
+                let dataAnalysisCauses = LibraryDataAnalysisCauseLayout.splitLines(snapshot.dataAnalysisErrorCause)
+                if isDataAnalysis {
+                    if !dataAnalysisCauses.isEmpty {
+                        sentenceTagLine(label: errorCauseLabel, values: dataAnalysisCauses)
+                    }
+                } else if isLogicFill {
                     if !causes.isEmpty {
                         sentenceTagLine(label: errorCauseLabel, values: causes)
                     }
@@ -464,11 +465,8 @@ private struct LibraryErrorRecordCard: View {
                     }
                 }
 
-                if LibraryErrorCauseCompatibility.isCenterUnderstanding(
-                    subject: snapshot.subject,
-                    module: snapshot.module
-                ), !snapshot.centerComprehensionTrap.isEmpty {
-                    plainField(label: "陷阱", value: snapshot.centerComprehensionTrap)
+                if !isLogicFill, !snapshot.pitfall.isEmpty {
+                    pitfallLine(value: snapshot.pitfall, label: isDataAnalysis ? "陷阱" : "误区")
                 }
 
                 if !snapshot.reminder.isEmpty {
@@ -602,6 +600,25 @@ private struct LibraryErrorRecordCard: View {
             .filter { !$0.isEmpty }
     }
 
+    private func pitfallLine(value: String, label: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text("\(label)：")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(isDataAnalysis
+                    ? Color(red: 51 / 255.0, green: 51 / 255.0, blue: 51 / 255.0)
+                    : Color.primary)
+                .fixedSize(horizontal: true, vertical: false)
+            Text(value)
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(isDataAnalysis
+                    ? Color(red: 51 / 255.0, green: 51 / 255.0, blue: 51 / 255.0)
+                    : Color(red: 0.38, green: 0.18, blue: 0.53))
+                .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(1.5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     private func plainField(label: String, value: String) -> some View {
         HStack(alignment: .top, spacing: 5) {
             Text("\(label)：")
@@ -637,7 +654,7 @@ private struct LibraryErrorRecordCard: View {
 
     @ViewBuilder
     private var questionKnowledgeHeader: some View {
-        let points = snapshot.knowledgePoints
+        let points = snapshot.knowledgePoints.joined(separator: " | ")
         if isQuantityRelations {
             VStack(alignment: .leading, spacing: 6) {
                 if showsQuantityTypeInHeader {
@@ -652,14 +669,19 @@ private struct LibraryErrorRecordCard: View {
         }
     }
 
-    private func knowledgePointsLine(_ values: [String]) -> some View {
-        HStack(alignment: .top, spacing: 6) {
+    private func knowledgePointsLine(_ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: "lightbulb.min")
                 .font(.system(size: 11, weight: .light))
                 .foregroundStyle(Color.black)
-                .frame(width: 11, alignment: .leading)
-                .padding(.top, 4)
-            LibraryKnowledgePointFlow(tags: values)
+            Text(value)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color(red: 34 / 255.0, green: 34 / 255.0, blue: 34 / 255.0))
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).stroke(Color.primary.opacity(0.15), lineWidth: 0.75))
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1299,11 +1321,12 @@ struct LibraryMasonryGrid: View {
         let isAnalogyReasoning = record.record.subject == "判断推理" && record.record.module == "类比推理"
         let contentWidth = max(1, availableWidth - 28)
         let titleLines = estimatedLineCount(record.title, width: contentWidth, fontSize: 14, limit: isDataAnalysisComposite ? 2 : cardSize.questionLineLimit)
-        let knowledgePoints = record.knowledgePoints
+        let knowledgePoints = record.knowledgePoints.joined(separator: " | ")
         let knowledgePointsWidth = max(1, contentWidth - 17) // lightbulb width plus its 6pt gap
+        let knowledgePointsTextWidth = max(1, knowledgePointsWidth - 12) // shared outline padding
         let knowledgePointsHeight = knowledgePoints.isEmpty
             ? 0
-            : LibraryKnowledgePointFlowLayout.layout(tags: knowledgePoints, width: knowledgePointsWidth).height
+            : CGFloat(estimatedLineCount(knowledgePoints, width: knowledgePointsTextWidth, fontSize: 11, limit: nil)) * 14 + 6
         var sections: [CGFloat] = []
         if record.record.subject == "数量关系" {
             var quantityHeaderHeight: CGFloat = 0
@@ -1349,12 +1372,15 @@ struct LibraryMasonryGrid: View {
         if !record.comparisonWords.isEmpty {
             metadataRows.append(estimatedTagLineHeight(label: "辨析", values: record.comparisonWords, width: contentWidth))
         }
-        let usesLineCauseEditor = LibraryErrorCauseCompatibility.usesLineEditor(
-            subject: record.subject,
-            module: record.module
-        )
-        if usesLineCauseEditor {
-            let causes = LibraryErrorCauseCompatibility.splitLines(record.errorCause)
+        if isDataAnalysis {
+            let causes = LibraryDataAnalysisCauseLayout.splitLines(record.dataAnalysisErrorCause)
+            if !causes.isEmpty {
+                metadataRows.append(LibraryDataAnalysisCauseLayout.estimatedTagLineHeight(
+                    label: "错因", values: causes, width: contentWidth
+                ))
+            }
+        } else if isLogicFill {
+            let causes = splitTags(record.errorCause)
             if !causes.isEmpty {
                 metadataRows.append(LibraryDataAnalysisCauseLayout.estimatedTagLineHeight(
                     label: "错因", values: causes, width: contentWidth
@@ -1370,9 +1396,8 @@ struct LibraryMasonryGrid: View {
                 }
             }
         }
-        if LibraryErrorCauseCompatibility.isCenterUnderstanding(subject: record.subject, module: record.module),
-           !record.centerComprehensionTrap.isEmpty {
-            metadataRows.append(estimatedFieldHeight("陷阱：" + record.centerComprehensionTrap, width: contentWidth, fontSize: 11))
+        if !isLogicFill, !record.pitfall.isEmpty {
+            metadataRows.append(estimatedFieldHeight((isDataAnalysis ? "陷阱：" : "误区：") + record.pitfall, width: contentWidth, fontSize: 11))
         }
         if !record.reminder.isEmpty {
             metadataRows.append(estimatedFieldHeight("提醒：" + record.reminder, width: contentWidth, fontSize: 11))
@@ -1491,66 +1516,6 @@ struct LibraryMasonryGrid: View {
         value.split(whereSeparator: { "、,，".contains($0) })
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-    }
-}
-
-private struct LibraryKnowledgePointFlowWidthPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
-private struct LibraryKnowledgePointFlow: View {
-    let tags: [String]
-    @State private var availableWidth: CGFloat = 0
-
-    private var flow: LibraryKnowledgePointFlowResult {
-        LibraryKnowledgePointFlowLayout.layout(tags: tags, width: availableWidth)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: flow.rowSpacing) {
-            ForEach(Array(flow.rows.enumerated()), id: \.offset) { _, row in
-                HStack(spacing: 0) {
-                    ForEach(Array(row.enumerated()), id: \.offset) { _, fragment in
-                        if fragment.leadingSpacing > 0 {
-                            Color.clear.frame(width: fragment.leadingSpacing, height: flow.rowHeight)
-                        }
-                        Text(fragment.text)
-                            .font(.system(size: LibraryKnowledgePointFlowLayout.fontSize, weight: .medium))
-                            .foregroundStyle(Color(red: 34 / 255.0, green: 34 / 255.0, blue: 34 / 255.0))
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .frame(
-                                width: fragment.textWidth,
-                                height: flow.rowHeight - LibraryKnowledgePointFlowLayout.verticalPadding * 2,
-                                alignment: .leading
-                            )
-                            .padding(.horizontal, LibraryKnowledgePointFlowLayout.horizontalPadding)
-                            .padding(.vertical, LibraryKnowledgePointFlowLayout.verticalPadding)
-                            .frame(width: fragment.width, height: flow.rowHeight, alignment: .leading)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                    .stroke(Color.primary.opacity(0.15), lineWidth: 0.75)
-                            }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: flow.rowHeight)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: flow.height, alignment: .topLeading)
-        .background {
-            GeometryReader { proxy in
-                Color.clear.preference(key: LibraryKnowledgePointFlowWidthPreferenceKey.self, value: proxy.size.width)
-            }
-        }
-        .onPreferenceChange(LibraryKnowledgePointFlowWidthPreferenceKey.self) { width in
-            guard width.isFinite, width > 0, abs(width - availableWidth) > 0.5 else { return }
-            availableWidth = width
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(tags.joined(separator: "、"))
     }
 }
 

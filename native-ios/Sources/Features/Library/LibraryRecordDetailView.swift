@@ -65,7 +65,7 @@ struct LibraryRecordDetailView: View {
     @State private var linkedQuestionBankContext: QuestionBankQuestionAnalysisContext?
     @State private var linkedQuestionFallbackObject: [String: Any] = [:]
     @State private var editingAttribute: LibraryDetailAttribute?
-    @State private var editingErrorCauses: LibraryDetailAttribute?
+    @State private var editingDataAnalysisCauses: LibraryDetailAttribute?
     @State private var detailAttributeSaveError: String?
     @State private var isMaterialPaneOpen = false
     @State private var splitDoodleLayoutDirection: LibraryDoodleLayoutDirection = .vertical
@@ -203,8 +203,8 @@ struct LibraryRecordDetailView: View {
                 }
                 .presentationDetents([.medium, .large])
             }
-            .sheet(item: $editingErrorCauses) { attribute in
-                LibraryErrorCauseEditor(attribute: attribute) { value in
+            .sheet(item: $editingDataAnalysisCauses) { attribute in
+                LibraryDataAnalysisCauseEditor(attribute: attribute) { value in
                     saveDetailAttribute(attribute, value: value)
                 }
                 .presentationDetents([.medium, .large])
@@ -812,25 +812,23 @@ struct LibraryRecordDetailView: View {
                         .accessibilityIdentifier("question-bank-detail-question-type")
                 }
                 metadataTagLine(knowledgePointLabel, values: knowledgePoints, emphasis: .strong)
-                if LibraryErrorCauseCompatibility.usesLineEditor(subject: activeSubject, module: activeModule) {
-                    lineCauseMetadata
+                if isDataAnalysis {
+                    dataAnalysisCauseMetadata
                 } else if isAnalogyReasoning {
                     metadataTextLine(errorCauseLabel, value: firstText(["errorCause", "cause", "reason"]) ?? "")
                 } else {
                     metadataTagLine(errorCauseLabel, values: splitTags(firstText(["errorCause", "cause", "reason"]) ?? ""), emphasis: .subtle)
-                }
-                if LibraryErrorCauseCompatibility.isCenterUnderstanding(subject: activeSubject, module: activeModule) {
-                    let centerTrap = firstText(["centerComprehensionTrap"]) ?? ""
-                    if !clean(centerTrap).isEmpty {
-                        metadataTextLine("陷阱", value: centerTrap)
-                    }
                 }
                 if isGraphReasoning {
                     metadataTextLine("图形规律", value: firstText(["graphRule", "patternRule"]) ?? "")
                     metadataTextLine("识别思路", value: firstText(["recognition", "recognitionPath"]) ?? "")
                 }
             }
+            let pitfall = firstText(["pitfall", "misconception", "thinkingTrap"]) ?? ""
             let reminder = firstText(["reminder"]) ?? ""
+            if !isLogicFillError && (!isAnalogyReasoning || !pitfall.isEmpty) {
+                metadataTextLine(isDataAnalysis ? "陷阱" : "误区", value: pitfall)
+            }
             if !isAnalogyReasoning || !reminder.isEmpty {
                 metadataTextLine(isAnalogyReasoning ? "常识" : "提醒", value: reminder)
             }
@@ -1567,8 +1565,8 @@ struct LibraryRecordDetailView: View {
     }
 
     @ViewBuilder
-    private var lineCauseMetadata: some View {
-        let values = LibraryErrorCauseCompatibility.splitLines(LibraryErrorCauseCompatibility.rawCause(in: object))
+    private var dataAnalysisCauseMetadata: some View {
+        let values = LibraryDataAnalysisCauseLayout.splitLines(LibraryDataAnalysisCauseLayout.rawCause(in: object))
         if !values.isEmpty {
             let row = HStack(alignment: .top, spacing: 6) {
                 Text("\(errorCauseLabel)：")
@@ -1591,7 +1589,7 @@ struct LibraryRecordDetailView: View {
             }
             if canEditReviewAttributes {
                 Button {
-                    editingErrorCauses = LibraryDetailAttribute(
+                    editingDataAnalysisCauses = LibraryDetailAttribute(
                         key: "errorCause",
                         label: errorCauseLabel,
                         value: values.joined(separator: "\n")
@@ -1662,10 +1660,6 @@ struct LibraryRecordDetailView: View {
         if label.contains("逻辑结构") {
             return existingAttributeKey(["logicStructure", "questionLogicStructure"], fallback: "logicStructure")
         }
-        if label == "结构",
-           LibraryErrorCauseCompatibility.isCenterUnderstanding(subject: activeSubject, module: activeModule) {
-            return existingAttributeKey(["knowledgePoints", "knowledgePoint", "point", "topic"], fallback: "knowledgePoints")
-        }
         if label.contains("考点") || label.contains("知识") {
             return existingAttributeKey(["knowledgePoints", "knowledgePoint", "point", "topic"], fallback: "knowledgePoints")
         }
@@ -1676,10 +1670,7 @@ struct LibraryRecordDetailView: View {
             if isQuantityRelations { return "errorCause" }
             return existingAttributeKey(["errorCause", "cause", "reason"], fallback: "errorCause")
         }
-        if label == "陷阱",
-           LibraryErrorCauseCompatibility.isCenterUnderstanding(subject: activeSubject, module: activeModule) {
-            return "centerComprehensionTrap"
-        }
+        if label == "误区" || label == "陷阱" { return existingAttributeKey(["pitfall", "misconception", "thinkingTrap"], fallback: "pitfall") }
         if label == "提醒" || label == "常识" { return "reminder" }
         if label.contains("结构") { return "quantityStructure" }
         if label.contains("规律") { return existingAttributeKey(["graphRule", "patternRule"], fallback: "graphRule") }
@@ -1878,11 +1869,7 @@ struct LibraryRecordDetailView: View {
         activeSubject == "判断推理" && activeModule == "图形推理"
     }
 
-    private var knowledgePointLabel: String {
-        if isLogicJudgment { return "题干逻辑结构" }
-        if LibraryErrorCauseCompatibility.isCenterUnderstanding(subject: activeSubject, module: activeModule) { return "结构" }
-        return "考点"
-    }
+    private var knowledgePointLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
     private var errorCauseLabel: String {
         if isLogicJudgment { return "选项逻辑作用" }
         if isAnalogyReasoning { return "二级辨析" }
@@ -2288,7 +2275,7 @@ private struct LibraryDetailAttributeEditor: View {
 }
 
 @MainActor
-private struct LibraryErrorCauseEditor: View {
+private struct LibraryDataAnalysisCauseEditor: View {
     @Environment(\.dismiss) private var dismiss
     let attribute: LibraryDetailAttribute
     let onSave: (String) -> String?
@@ -2304,7 +2291,7 @@ private struct LibraryErrorCauseEditor: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
-                LibraryErrorCauseLineFields(text: $value)
+                LibraryDataAnalysisCauseLineFields(text: $value)
                     .padding(12)
                     .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 0.8))

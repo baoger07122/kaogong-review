@@ -148,8 +148,8 @@ struct LibraryRecordDraft {
         quantityErrorCauseIsAuthoritative = LibraryQuantityErrorCauseCompatibility.isAuthoritative(in: original)
         errorCause = kind == .errors && subject == "数量关系"
             ? LibraryQuantityErrorCauseCompatibility.values(in: original).joined(separator: "、")
-            : (kind == .errors && LibraryErrorCauseCompatibility.usesLineEditor(subject: subject, module: module)
-                ? LibraryErrorCauseCompatibility.rawCause(in: original)
+            : (kind == .errors && subject == "资料分析"
+                ? LibraryDataAnalysisCauseLayout.rawCause(in: original)
                 : LibraryRecordDraft.text(original, keys: ["errorCause", "cause", "reason"]))
         centerComprehensionTrap = original["centerComprehensionTrap"] as? String ?? ""
         status = LibraryRecordDraft.text(original, keys: ["status", "masteryStatus"]).isEmpty ? "未掌握" : LibraryRecordDraft.text(original, keys: ["status", "masteryStatus"])
@@ -509,9 +509,6 @@ enum LibraryRecordRepository {
             object["knowledgePoints"] = knowledgePoints
             object["knowledgePoint"] = knowledgePoints.first ?? ""
             object["errorCause"] = draft.errorCause
-            if LibraryErrorCauseCompatibility.isCenterUnderstanding(subject: draft.subject, module: draft.module) {
-                object["centerComprehensionTrap"] = draft.centerComprehensionTrap
-            }
             object["status"] = draft.status
             object["isDifficult"] = draft.isDifficult
             object["needsReview"] = draft.needsReview
@@ -530,6 +527,7 @@ enum LibraryRecordRepository {
             }
             object["correctOption"] = draft.correctOption
             object["userOption"] = draft.userOption
+            object["pitfall"] = draft.pitfall
             object["reminder"] = draft.reminder
             object["quantityStructure"] = draft.quantityStructure
             if draft.subject == "数量关系" {
@@ -758,7 +756,7 @@ enum LibraryRecordRepository {
                     persist: false
                 )
                 if kind == .errors,
-                   !LibraryErrorCauseCompatibility.usesLineEditor(subject: draft.subject, module: draft.module),
+                   draft.subject != "资料分析",
                    !(draft.subject == "判断推理" && draft.module == "类比推理") {
                     let causes = draft.subject == "数量关系"
                         ? LibraryQuantityErrorCauseCompatibility.values(

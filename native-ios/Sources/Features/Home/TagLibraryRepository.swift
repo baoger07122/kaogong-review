@@ -5,7 +5,6 @@ enum ManagedTagKind: String, CaseIterable, Identifiable {
     case knowledgePoint = "考点"
     case errorCause = "错因"
     case thinkingTrap = "思维误区"
-    static let managementCases: [ManagedTagKind] = [.knowledgePoint, .errorCause]
     var id: String { rawValue }
     var recordID: String {
         switch self {
@@ -234,12 +233,7 @@ enum TagLibraryRepository {
                     changed = true
                 }
             } else if kind == .errorCause {
-                if LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(
-                    subject: record.subject,
-                    module: record.module
-                ) {
-                    continue
-                } else if record.subject == "数量关系" {
+                if record.subject == "数量关系" {
                     let values = LibraryQuantityErrorCauseCompatibility.values(
                         errorCause: object["errorCause"],
                         weaknessTags: nil,
@@ -251,11 +245,8 @@ enum TagLibraryRepository {
                         LibraryQuantityErrorCauseCompatibility.markAuthoritative(in: &object)
                         changed = true
                     }
-                } else if LibraryErrorCauseCompatibility.usesLineEditor(
-                    subject: record.subject,
-                    module: record.module
-                ) {
-                    let lines = LibraryErrorCauseCompatibility.splitLines(object["errorCause"])
+                } else if record.subject == "资料分析" {
+                    let lines = LibraryDataAnalysisCauseLayout.splitLines(object["errorCause"])
                     if lines.contains(oldName) {
                         object["errorCause"] = replacing(oldName, with: newName, in: lines).joined(separator: "\n")
                         changed = true
@@ -271,6 +262,9 @@ enum TagLibraryRepository {
                     object["weaknessTags"] = values
                     changed = true
                 }
+            } else if kind == .thinkingTrap, object["pitfall"] as? String == oldName {
+                object["pitfall"] = newName ?? ""
+                changed = true
             }
             if changed {
                 let afterPayload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])

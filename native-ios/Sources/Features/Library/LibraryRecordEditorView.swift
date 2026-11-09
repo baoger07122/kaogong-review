@@ -495,10 +495,7 @@ struct LibraryRecordEditorView: View {
                 scalarKey: "knowledgePoint"
             )
         case .errorCause:
-            let usesLineEditor = LibraryErrorCauseCompatibility.usesLineEditor(
-                subject: draft.subject,
-                module: draft.module
-            )
+            let usesLineEditor = draft.subject == "资料分析"
             draft.errorCause = replacingTag(
                 result.oldName,
                 with: result.newName,
@@ -510,7 +507,7 @@ struct LibraryRecordEditorView: View {
                 editBaseline.quantityErrorCauseIsAuthoritative = draft.quantityErrorCauseIsAuthoritative
                 editBaseline.errorCause = LibraryQuantityErrorCauseCompatibility.values(in: afterObject).joined(separator: "、")
             } else if usesLineEditor {
-                editBaseline.errorCause = LibraryErrorCauseCompatibility.rawCause(in: afterObject)
+                editBaseline.errorCause = LibraryDataAnalysisCauseLayout.rawCause(in: afterObject)
             } else {
                 editBaseline.errorCause = payloadString(from: afterObject, keys: ["errorCause", "cause", "reason"])
             }
@@ -531,7 +528,7 @@ struct LibraryRecordEditorView: View {
 
     private func replacingTag(_ oldName: String, with newName: String?, in value: String, lineBased: Bool) -> String {
         let pieces = lineBased
-            ? LibraryErrorCauseCompatibility.splitLines(value)
+            ? LibraryDataAnalysisCauseLayout.splitLines(value)
             : value.split(whereSeparator: { "、,，".contains($0) }).map(String.init)
         let mapped = pieces.compactMap { piece -> String? in
             guard piece == oldName else { return piece }
@@ -734,11 +731,7 @@ struct LibraryRecordEditorView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return !paperID.isEmpty || !questionID.isEmpty
     }
-    private var knowledgePointLabel: String {
-        if isLogicJudgment { return "题干逻辑结构" }
-        if LibraryErrorCauseCompatibility.isCenterUnderstanding(subject: draft.subject, module: draft.module) { return "结构" }
-        return "考点"
-    }
+    private var knowledgePointLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
     private var errorCauseLabel: String {
         if isLogicJudgment { return "选项逻辑作用" }
         if isAnalogyReasoning { return "二级辨析" }

@@ -49,7 +49,7 @@ final class StoredRecord {
         let fields: [String]
         switch collection {
         case "errors":
-            fields = ["errorCause", "cause", "reason", "compareGroups", "centerComprehensionTrap"]
+            fields = ["errorCause", "cause", "reason", "compareGroups"]
         case "words":
             fields = ["linkedErrors", "relatedErrorIds"]
         default:
@@ -131,7 +131,7 @@ final class StoredRecord {
                 "cause", "reason", "compareGroups",
                 "question", "title", "type", "category", "isShenlun", "createdAt", "updatedAt", "lastReviewDate",
                 "questionSource", "source", "questionNumber", "sourceYear", "sourceExamType", "sourceRegion",
-                "accuracy", "reviewCount", "sourceExamId", "pitfall", "centerComprehensionTrap", "reminder", "linkedWordIds", "options",
+                "accuracy", "reviewCount", "sourceExamId", "pitfall", "reminder", "linkedWordIds", "options",
                 "dataAnalysisMaterialText",
                 "imageDisplayMetadata", "imageCount", "optionImageIDs",
                 "questionBankPaperID", "questionBankQuestionID",

@@ -283,7 +283,6 @@ struct LibraryRecordSnapshot: Identifiable {
     let errorCause: String
     let dataAnalysisErrorCause: String
     let dataAnalysisMaterialText: String
-    let centerComprehensionTrap: String
     let pitfall: String
     let reminder: String
     let options: [String]
@@ -371,16 +370,12 @@ struct LibraryRecordSnapshot: Identifiable {
             : []
         errorCause = record.collection == "errors" && subject == "数量关系"
             ? quantityErrorCauses.joined(separator: "、")
-            : record.collection == "errors"
-                && LibraryErrorCauseCompatibility.usesLineEditor(subject: subject, module: module)
-                ? LibraryErrorCauseCompatibility.rawCause(in: object)
+            : record.collection == "errors" && subject == "资料分析"
+                ? LibraryDataAnalysisCauseLayout.rawCause(in: object)
                 : Self.firstText(in: object, keys: ["errorCause", "cause", "reason"]).map(Self.plainText) ?? ""
-        dataAnalysisErrorCause = LibraryErrorCauseCompatibility.rawCause(in: object)
+        dataAnalysisErrorCause = LibraryDataAnalysisCauseLayout.rawCause(in: object)
         dataAnalysisMaterialText = Self.firstText(in: object, keys: ["dataAnalysisMaterialText"])
             .map(Self.plainText) ?? ""
-        centerComprehensionTrap = LibraryErrorCauseCompatibility.isCenterUnderstanding(subject: subject, module: module)
-            ? (Self.firstText(in: object, keys: ["centerComprehensionTrap"]).map(Self.plainText) ?? "")
-            : ""
         pitfall = Self.firstText(in: object, keys: ["pitfall", "misconception", "thinkingTrap"])
             .map(Self.plainText) ?? ""
         reminder = Self.firstText(in: object, keys: ["reminder"])
@@ -462,15 +457,8 @@ struct LibraryRecordSnapshot: Identifiable {
         if record.collection == "words" {
             if let category = WordCategory(rawValue: category) { values.append(category.shortTitle) }
             values.append(contentsOf: wordEntryKinds.compactMap { WordEntryKind(rawValue: $0)?.title })
-        } else {
-            let causeIsFreeText = LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(
-                subject: subject,
-                module: module
-            )
-            let typeKeys = causeIsFreeText ? ["type", "category"] : ["type", "category", "errorCause"]
-            if let type = Self.firstText(in: object, keys: typeKeys) {
+        } else if let type = Self.firstText(in: object, keys: ["type", "category", "errorCause"]) {
             values.append(type)
-            }
         }
         if record.collection == "errors" {
             if isDifficult { values.append("难题") }
@@ -487,7 +475,7 @@ struct LibraryRecordSnapshot: Identifiable {
         tags = Array(values.filter { !$0.isEmpty && seen.insert($0).inserted })
 
         let searchableSource = reviewSource == .mock ? sourceExamTitle : questionSource
-        var searchValues = [title, summary, quantityStructure, dataAnalysisMaterialText, centerComprehensionTrap, searchableSource, questionNumber, errorCause, reminder]
+        var searchValues = [title, summary, quantityStructure, dataAnalysisMaterialText, searchableSource, questionNumber, pitfall, reminder]
         searchValues.append(contentsOf: tags)
         if record.collection == "errors", subject == "数量关系" {
             searchValues.append(contentsOf: quantityErrorCauses)

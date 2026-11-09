@@ -17,23 +17,7 @@ struct KnowledgePointManagerView: View {
     @State private var deletingName: String?
     @State private var errorMessage: String?
 
-    private var tags: [String] {
-        guard !(kind == .errorCause
-            && LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(subject: subject.name, module: module))
-        else { return [] }
-        return TagLibraryRepository.tags(kind: kind, module: module, records: records)
-    }
-    private var visibleTagKinds: [ManagedTagKind] {
-        LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(subject: subject.name, module: module)
-            ? [.knowledgePoint]
-            : ManagedTagKind.managementCases
-    }
-    private var kindTitle: String {
-        kind == .knowledgePoint
-            && LibraryErrorCauseCompatibility.isCenterUnderstanding(subject: subject.name, module: module)
-            ? "结构"
-            : kind.rawValue
-    }
+    private var tags: [String] { TagLibraryRepository.tags(kind: kind, module: module, records: records) }
     private var availableModules: [String] {
         subject.name == "数量关系" ? QuantityQuestionTypeRepository.types(records: records) : subject.modules
     }
@@ -41,7 +25,7 @@ struct KnowledgePointManagerView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("考点和其他模块的错因按当前科目与模块统一管理；数量关系弱项标签仍保留独立管理。")
+                Text("考点、错因和思维误区按当前科目与模块统一管理；录入错题时输入的新内容会自动加入这里，不再自动创建预设标签。")
                     .font(AppTheme.auxiliaryFont)
                     .foregroundStyle(.secondary)
                 if let errorMessage {
@@ -68,23 +52,19 @@ struct KnowledgePointManagerView: View {
                 }
 
                 Picker("标签类型", selection: $kind) {
-                    ForEach(visibleTagKinds) { value in
-                        Text(value == .knowledgePoint
-                             && LibraryErrorCauseCompatibility.isCenterUnderstanding(subject: subject.name, module: module)
-                             ? "结构" : value.rawValue).tag(value)
-                    }
+                    ForEach(ManagedTagKind.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
 
                 HStack {
-                    Text("\(module) · \(kindTitle)").font(AppTheme.sectionTitleFont)
+                    Text("\(module) · \(kind.rawValue)").font(AppTheme.sectionTitleFont)
                     Spacer()
                     Button { beginAdd() } label: { Label("新增", systemImage: "plus") }
                         .font(AppTheme.inputFont.weight(.semibold))
                 }
 
                 if tags.isEmpty {
-                    NativeStatusCard(title: "暂无\(kindTitle)", detail: "点击新增建立当前模块的第一项", systemImage: "tag", color: AppTheme.accent)
+                    NativeStatusCard(title: "暂无\(kind.rawValue)", detail: "点击新增建立当前模块的第一项", systemImage: "tag", color: AppTheme.accent)
                 } else {
                     VStack(spacing: 0) {
                         ForEach(Array(tags.enumerated()), id: \.element) { index, name in
@@ -128,18 +108,6 @@ struct KnowledgePointManagerView: View {
                     onDelete: { remove(deletingName) },
                     onCancel: { self.deletingName = nil }
                 )
-            }
-        }
-        .onChange(of: module) { _, value in
-            if kind == .errorCause
-                && LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(subject: subject.name, module: value) {
-                kind = .knowledgePoint
-            }
-        }
-        .onChange(of: subject) { _, value in
-            if kind == .errorCause
-                && LibraryErrorCauseCompatibility.excludesFromCauseTagFiltering(subject: value.name, module: module) {
-                kind = .knowledgePoint
             }
         }
     }
