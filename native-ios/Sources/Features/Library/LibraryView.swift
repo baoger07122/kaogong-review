@@ -787,11 +787,16 @@ struct LibraryView: View {
 
     private var orderedVisibleErrorRecordIDs: [String] {
         guard kind == .errors else { return [] }
-        let scoped = filterRecords(matching: selectedTag, from: sortedScopedRecords)
-        let lightSnapshots = scoped.map {
-            LibraryRecordSnapshot(record: $0, reviewSource: scope.reviewSource)
-        }
-        return displayedRecords(from: lightSnapshots).map { $0.record.recordID }
+        return recordListCache.visibleErrorRecordIDs(
+            records: sortedScopedRecords,
+            scope: scope,
+            selectedQuantityType: selectedQuantityType,
+            selectedTag: selectedTag,
+            normalizedSearch: normalizedSearch(searchText),
+            includesMastered: includesMasteredErrors,
+            sourceExamTitleRevision: snapshotCache.examTitleRevision,
+            sourceExamTitlesByID: { snapshotCache.examTitles(in: records) }
+        )
     }
 
     private func displayedRecords(from snapshots: [LibraryRecordSnapshot]) -> [LibraryRecordSnapshot] {
@@ -874,43 +879,26 @@ struct LibraryView: View {
         if kind == .stickies, let context = stickyContext {
             return StickyTagRepository.tags(subject: context.subject, module: context.module, records: records).map(\.name)
         }
-        return Array(Set(records.flatMap { tagValues(for: $0) }).sorted())
+        return recordListCache.availableTags(in: records) { tagValues(for: $0) }
     }
 
     private func filterRecords(matching tag: String, from records: [StoredRecord]) -> [StoredRecord] {
         guard kind == .errors, !tag.isEmpty else { return records }
-        return records.filter { tagValues(for: $0).contains(tag) }
+        return recordListCache.records(matchingTag: tag, in: records) { tagValues(for: $0) }
     }
 
     private func tagValues(for record: StoredRecord) -> [String] {
-        let object = record.indexObject ?? [:]
-        var values: [String] = []
-        let isDataAnalysis = record.subject == "资料分析" || object["subject"] as? String == "资料分析"
-        let baseKeys = isDataAnalysis ? ["type", "category"] : ["type", "category", "errorCause"]
-        if let baseTag = baseKeys.compactMap({ object[$0] as? String }).first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
-            values.append(baseTag)
-        }
-        if record.collection == "errors" {
-            let isDifficult = (object["isDifficult"] as? Bool) ?? (object["isDifficult"] as? NSNumber)?.boolValue ?? false
-            let needsReview = (object["needsReview"] as? Bool) ?? (object["needsReview"] as? NSNumber)?.boolValue ?? false
-            if isDifficult { values.append("难题") }
-            if needsReview { values.append("待复习") }
-        }
-        if let points = object["knowledgePoints"] as? [String] {
-            values.append(contentsOf: points)
-        } else if let point = object["knowledgePoint"] as? String {
-            values.append(contentsOf: point.split(whereSeparator: { "、,，".contains($0) }).map(String.init))
-        }
-        if record.subject == "数量关系" || object["subject"] as? String == "数量关系" {
-            values.append(contentsOf: LibraryQuantityErrorCauseCompatibility.values(in: object))
-        } else if isDataAnalysis {
-            values.append(contentsOf: LibraryDataAnalysisCauseLayout.splitLines(LibraryDataAnalysisCauseLayout.rawCause(in: record.compatibilityIndexObject ?? object)))
-        } else {
-            values.append(contentsOf: object["weaknessTags"] as? [String] ?? [])
-        }
-        var seen = Set<String>()
-        return values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && seen.insert($0).inserted }
+        let indexObject = record.indexObject ?? [:]
+        let isDataAnalysis = record.subject == "资料分析" || indexObject["subject"] as? String == "资料分析"
+        let causeObject = isDataAnalysis
+            ? (record.makeCompatibilityIndexObject(from: indexObject) ?? indexObject)
+            : indexObject
+        return LibraryRecordFilterIndex.makeLibraryTagValues(
+            collection: record.collection,
+            storedSubject: record.subject,
+            indexObject: indexObject,
+            dataAnalysisCauseObject: causeObject
+        )
     }
 
     private func selectTag(_ tag: String) {

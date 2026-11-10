@@ -167,6 +167,13 @@ jobs:
             -o "$RUNNER_TEMP/word-review-enrollment-behavior"
           "$RUNNER_TEMP/word-review-enrollment-behavior"
           swiftc -parse-as-library \
+            native-ios/Sources/Features/Library/LibraryQuantityErrorCauseCompatibility.swift \
+            native-ios/Sources/Features/Library/LibraryDataAnalysisCauseLayout.swift \
+            native-ios/Sources/Features/Library/LibraryRecordPerformanceModels.swift \
+            native-ios/Tests/LibraryRecordPerformanceBehavior.swift \
+            -o "$RUNNER_TEMP/library-record-performance-behavior"
+          "$RUNNER_TEMP/library-record-performance-behavior"
+          swiftc -parse-as-library \
             native-ios/Sources/Features/Speed/SpeedModels.swift \
             native-ios/Sources/Features/Speed/SpeedHistoryModels.swift \
             native-ios/Sources/Features/Speed/SpeedEstimateRules.swift \
