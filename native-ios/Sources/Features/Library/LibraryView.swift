@@ -160,7 +160,6 @@ struct LibraryView: View {
                 if kind == .words {
                     WordLibraryRecordDetailView(
                         record: record,
-                        showsReviewAction: true,
                         onEdit: { openEditorAfterMenuDismisses(kind: .words, recordID: recordID) },
                         onDelete: {
                             remove(LibraryDeleteTarget(kind: kind, recordID: recordID))

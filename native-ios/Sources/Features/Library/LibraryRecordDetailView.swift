@@ -184,7 +184,6 @@ struct LibraryRecordDetailView: View {
                 if let word = records.first(where: { $0.collection == "words" && $0.recordID == target.recordID }) {
                     WordLibraryRecordDetailView(
                         record: word,
-                        showsReviewAction: true,
                         onOpenLinkedError: onOpenLinkedError
                     )
                 }

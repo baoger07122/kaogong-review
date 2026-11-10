@@ -3,18 +3,14 @@ import SwiftData
 
 struct WordLibraryRecordDetailView: View {
     let record: StoredRecord
-    var showsReviewAction = false
     var onEdit: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
     var onOpenLinkedError: ((String) -> Void)? = nil
 
     @Environment(\.modelContext) private var modelContext
-    @Query(filter: #Predicate<StoredRecord> { $0.collection == "word_review_plans" }) private var reviewPlans: [StoredRecord]
     @Query(filter: #Predicate<StoredRecord> { $0.collection == "errors" }) private var errorRecords: [StoredRecord]
     @State private var showDelete = false
     @State private var showErrorSelection = false
-    @State private var operationErrorTitle = "加入复习失败"
-    @State private var reviewErrorMessage: String?
 
     private var object: [String: Any] { record.jsonObject ?? [:] }
     private var category: WordCategory {
@@ -87,14 +83,8 @@ struct WordLibraryRecordDetailView: View {
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                if onEdit != nil || onDelete != nil || (showsReviewAction && category.isComparison) {
+                if onEdit != nil || onDelete != nil {
                     Menu {
-                        if showsReviewAction, category.isComparison {
-                            Button(action: addToReview) {
-                                Label(isInReview ? "已加入复习" : "加入复习", systemImage: isInReview ? "checkmark.circle.fill" : "plus.circle")
-                            }
-                            .disabled(isInReview)
-                        }
                         if let onEdit {
                             Button(action: onEdit) {
                                 Label("编辑词语", systemImage: "pencil")
@@ -113,14 +103,6 @@ struct WordLibraryRecordDetailView: View {
             }
             .documentToolbarBackground()
         }
-        .alert(operationErrorTitle, isPresented: Binding(
-            get: { reviewErrorMessage != nil },
-            set: { if !$0 { reviewErrorMessage = nil } }
-        )) {
-            Button("好", role: .cancel) { reviewErrorMessage = nil }
-        } message: {
-            Text(reviewErrorMessage ?? "")
-        }
         .sheet(isPresented: $showErrorSelection) {
             LibraryRelationSelectionDialog(
                 collection: "errors",
@@ -128,19 +110,6 @@ struct WordLibraryRecordDetailView: View {
                 selection: linkedErrorSelection,
                 onClose: { showErrorSelection = false }
             )
-        }
-    }
-
-    private var isInReview: Bool {
-        reviewPlans.contains { $0.recordID == record.recordID }
-    }
-
-    private func addToReview() {
-        operationErrorTitle = "加入复习失败"
-        do {
-            _ = try WordReviewRepository.enroll([record], in: modelContext)
-        } catch {
-            reviewErrorMessage = error.localizedDescription
         }
     }
 

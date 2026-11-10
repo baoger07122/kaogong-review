@@ -740,6 +740,7 @@ enum LibraryRecordRepository {
         let preparedPayload = try await LibraryRecordPayloadPreparer.prepare(input: payloadInput)
 
         let transactionStart = ProcessInfo.processInfo.systemUptime
+        var savedWordRecord: StoredRecord?
         try context.transaction {
             if let existing {
                 guard existing.payload == expectedExistingPayload,
@@ -779,8 +780,9 @@ enum LibraryRecordRepository {
                 existing.subject = draft.subject
                 existing.module = preservesUnassignedAnalysisModule ? draft.original["module"] as? String : draft.module
                 existing.updatedAt = now
+                if kind == .words { savedWordRecord = existing }
             } else {
-                context.insert(StoredRecord(
+                let inserted = StoredRecord(
                     collection: kind.collection,
                     recordID: id,
                     payload: preparedPayload.payload,
@@ -789,7 +791,9 @@ enum LibraryRecordRepository {
                     createdAt: now,
                     updatedAt: now,
                     precomputedIndexPayload: preparedPayload.indexPayload
-                ))
+                )
+                context.insert(inserted)
+                if kind == .words { savedWordRecord = inserted }
             }
             switch kind {
             case .errors:
@@ -803,6 +807,9 @@ enum LibraryRecordRepository {
             case .notes:
                 try syncArrayRelations(collection: "errors", arrayKey: "linkedNoteIds", oldIDs: previousLinkedErrors, newIDs: draft.linkedErrorIDs, linkedID: id, records: records)
             case .words:
+                if let savedWordRecord {
+                    _ = try WordReviewRepository.enrollWithinTransaction([savedWordRecord], in: context, now: now)
+                }
                 try syncArrayRelations(collection: "errors", arrayKey: "linkedWordIds", oldIDs: previousLinkedErrors, newIDs: draft.linkedErrorIDs, linkedID: id, records: records)
             case .stickies:
                 break
