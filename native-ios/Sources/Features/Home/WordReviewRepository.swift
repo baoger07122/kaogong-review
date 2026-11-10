@@ -8,7 +8,7 @@ enum WordReviewRepositoryError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case let .missingPlan(id): "找不到复习计划：\(id)"
-        case let .invalidWord(id): "词语条目已不存在或不是辨析组：\(id)"
+        case let .invalidWord(id): "词语条目不存在或内容不完整：\(id)"
         }
     }
 }
@@ -29,43 +29,71 @@ enum WordReviewRepository {
 
     @discardableResult
     static func enroll(_ wordRecords: [StoredRecord], in context: ModelContext, now: Date = .now) throws -> Int {
-        let candidates = wordRecords.compactMap { record -> (StoredRecord, WordReviewWordGroup)? in
-            guard let group = WordReviewWordGroup(record: record) else { return nil }
-            return (record, group)
+        var insertedCount = 0
+        try context.transaction {
+            insertedCount = try enrollWithinTransaction(wordRecords, in: context, now: now)
+        }
+        return insertedCount
+    }
+
+    @discardableResult
+    static func enrollWithinTransaction(_ wordRecords: [StoredRecord], in context: ModelContext, now: Date = .now) throws -> Int {
+        let candidates = wordRecords.filter { record in
+            guard record.collection == "words",
+                  let object = record.jsonObject,
+                  WordReviewEnrollmentPolicy.isValidCategory(object["category"] as? String ?? object["type"] as? String ?? "")
+            else { return false }
+            return WordReviewWordGroup(record: record) != nil
         }
         guard !candidates.isEmpty else { return 0 }
 
+        let descriptor = FetchDescriptor<StoredRecord>(
+            predicate: #Predicate { $0.collection == "word_review_plans" }
+        )
+        var plansByID: [String: StoredRecord] = [:]
+        for planRecord in try context.fetch(descriptor) { plansByID[planRecord.recordID] = planRecord }
+
         var insertedCount = 0
-        try context.transaction {
-            let descriptor = FetchDescriptor<StoredRecord>(
-                predicate: #Predicate { $0.collection == "word_review_plans" }
-            )
-            var existingIDs = Set(try context.fetch(descriptor).map(\.recordID))
-            for (record, _) in candidates where existingIDs.insert(record.recordID).inserted {
-                let plan = WordReviewPlan(
-                    wordRecordID: record.recordID,
-                    status: .waitingToLearn,
-                    isPaused: false,
-                    verificationRound: 0,
-                    isContextValidationPending: false,
-                    firstPassedOn: nil,
-                    nextDueDate: nil,
-                    createdAt: now,
-                    updatedAt: now
-                )
-                context.insert(StoredRecord(
-                    collection: "word_review_plans",
-                    recordID: record.recordID,
-                    payload: try JSONEncoder().encode(plan),
-                    subject: record.subject,
-                    module: record.module,
-                    createdAt: now,
-                    updatedAt: now
-                ))
-                insertedCount += 1
+        for wordRecord in candidates {
+            let addedAt = wordRecord.createdAt ?? payloadCreatedAt(wordRecord) ?? now
+            if let existingRecord = plansByID[wordRecord.recordID],
+               let existingPlan = WordReviewPlan.decode(from: existingRecord) {
+                guard let repaired = WordReviewEnrollmentPolicy.backfilledPlan(
+                    existingPlan,
+                    addedAt: addedAt,
+                    now: now
+                ) else { continue }
+                existingRecord.replacePayload(try JSONEncoder().encode(repaired))
+                existingRecord.updatedAt = repaired.updatedAt
+                continue
             }
+
+            let plan = WordReviewEnrollmentPolicy.makePlan(
+                wordRecordID: wordRecord.recordID,
+                addedAt: addedAt,
+                now: now
+            )
+            let planRecord = StoredRecord(
+                collection: "word_review_plans",
+                recordID: wordRecord.recordID,
+                payload: try JSONEncoder().encode(plan),
+                subject: wordRecord.subject,
+                module: wordRecord.module,
+                createdAt: addedAt,
+                updatedAt: now
+            )
+            context.insert(planRecord)
+            plansByID[wordRecord.recordID] = planRecord
+            insertedCount += 1
         }
         return insertedCount
+    }
+
+    private static func payloadCreatedAt(_ record: StoredRecord) -> Date? {
+        guard let value = record.jsonObject?["createdAt"] as? String else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
     }
 
     static func setPaused(_ isPaused: Bool, wordRecordID: String, in context: ModelContext, now: Date = .now) throws {

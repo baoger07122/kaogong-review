@@ -23,7 +23,7 @@ struct LibraryTagSelectionDialog: View {
     private var names: [String] {
         var values = TagLibraryRepository.tags(kind: kind, module: module, records: records)
         for value in selected where !values.contains(value) { values.append(value) }
-        return values
+        return kind == .knowledgePoint ? KnowledgePointNameSorter.sorted(values) : values
     }
     private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -221,7 +221,7 @@ struct QuantityKnowledgePointSelectionDialog: View {
                 if !selected.isEmpty {
                     Text("已选考点").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
                     NativeTagFlow(spacing: 6) {
-                        ForEach(selected, id: \.self) { name in
+                        ForEach(KnowledgePointNameSorter.sorted(selected), id: \.self) { name in
                             Button { selected.removeAll { $0 == name } } label: {
                                 Label(name, systemImage: "xmark")
                                     .font(.system(size: 11, weight: .medium))

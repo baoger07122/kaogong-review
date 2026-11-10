@@ -113,11 +113,13 @@ struct LibraryRecordDraft {
         subject = (original["subject"] as? String)
             ?? ((kind == .errors && (original["isShenlun"] as? Bool) == true) ? "申论" : nil)
             ?? scope.subject
-            ?? "言语理解"
+            ?? (kind == .stickies ? "" : "言语理解")
         let defaultModules = SubjectDefinition.all.first { $0.name == subject }?.modules ?? []
         let storedModule = (original["module"] as? String) ?? scope.module
         let hasOriginalModule = original["module"] as? String
-        if record != nil, subject == "资料分析",
+        if kind == .stickies {
+            module = storedModule ?? ""
+        } else if record != nil, subject == "资料分析",
            hasOriginalModule?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
             module = hasOriginalModule ?? ""
         } else if subject == "数量关系" {
@@ -543,7 +545,7 @@ enum LibraryRecordRepository {
             object["questionSource"] = draft.questionSource
             object["questionNumber"] = draft.questionNumber
             if draft.subject == "资料分析" {
-                if draft.dataAnalysisMaterialText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if draft.dataAnalysisMaterialText.isEmpty {
                     object.removeValue(forKey: "dataAnalysisMaterialText")
                 } else {
                     object["dataAnalysisMaterialText"] = draft.dataAnalysisMaterialText
@@ -740,6 +742,7 @@ enum LibraryRecordRepository {
         let preparedPayload = try await LibraryRecordPayloadPreparer.prepare(input: payloadInput)
 
         let transactionStart = ProcessInfo.processInfo.systemUptime
+        var savedWordRecord: StoredRecord?
         try context.transaction {
             if let existing {
                 guard existing.payload == expectedExistingPayload,
@@ -779,8 +782,9 @@ enum LibraryRecordRepository {
                 existing.subject = draft.subject
                 existing.module = preservesUnassignedAnalysisModule ? draft.original["module"] as? String : draft.module
                 existing.updatedAt = now
+                if kind == .words { savedWordRecord = existing }
             } else {
-                context.insert(StoredRecord(
+                let inserted = StoredRecord(
                     collection: kind.collection,
                     recordID: id,
                     payload: preparedPayload.payload,
@@ -789,7 +793,9 @@ enum LibraryRecordRepository {
                     createdAt: now,
                     updatedAt: now,
                     precomputedIndexPayload: preparedPayload.indexPayload
-                ))
+                )
+                context.insert(inserted)
+                if kind == .words { savedWordRecord = inserted }
             }
             switch kind {
             case .errors:
@@ -806,6 +812,9 @@ enum LibraryRecordRepository {
                 try syncArrayRelations(collection: "errors", arrayKey: "linkedWordIds", oldIDs: previousLinkedErrors, newIDs: draft.linkedErrorIDs, linkedID: id, records: records)
             case .stickies:
                 break
+            }
+            if kind == .words, let savedWordRecord {
+                _ = try WordReviewRepository.enrollWithinTransaction([savedWordRecord], in: context, now: now)
             }
         }
         LibraryPerformanceLog.mark("record.save.transaction", since: transactionStart)

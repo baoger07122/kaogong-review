@@ -68,10 +68,105 @@ final class LibraryInlineNoteSession: ObservableObject {
     @Published private(set) var hasPendingChanges = false
     @Published private(set) var finishFailureMessage: String?
     var finishEditing: ((@escaping (Bool) -> Void) -> Void)?
+    private(set) weak var noteAnchorView: UIView?
+    private var focusRevealSessionID: UUID?
+    private var keyboardShowObserver: NSObjectProtocol?
+
+    func setNoteAnchor(_ view: UIView?) { noteAnchorView = view }
 
     func setEditing(_ value: Bool) {
         isEditing = value
         if value { hasPendingChanges = true }
+        else { resetFocusReveal() }
+    }
+
+    func resetFocusReveal() {
+        focusRevealSessionID = nil
+        if let keyboardShowObserver {
+            NotificationCenter.default.removeObserver(keyboardShowObserver)
+            self.keyboardShowObserver = nil
+        }
+    }
+
+    func revealWritableArea(in textView: UITextView, sessionID: UUID) {
+        guard focusRevealSessionID != sessionID else { return }
+        focusRevealSessionID = sessionID
+        revealWritableAreaNow(in: textView, sessionID: sessionID)
+
+        guard let window = textView.window,
+              window.keyboardLayoutGuide.layoutFrame.height < 80,
+              textView.inputAccessoryView?.window == nil else { return }
+        keyboardShowObserver = NotificationCenter.default.addObserver(
+            forName: UIResponder.keyboardDidShowNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self, weak textView] _ in
+            guard let self, let textView else { return }
+            Task { @MainActor in
+                self.revealWritableAreaNow(in: textView, sessionID: sessionID)
+                self.resetKeyboardObserver()
+            }
+        }
+    }
+
+    private func revealWritableAreaNow(in textView: UITextView, sessionID: UUID) {
+        guard focusRevealSessionID == sessionID,
+              let window = textView.window,
+              let anchor = noteAnchorView,
+              anchor.window === window else { return }
+
+        window.layoutIfNeeded()
+        var ancestor = textView.superview
+        var outerScrollView: UIScrollView?
+        while let view = ancestor {
+            if let scrollView = view as? UIScrollView {
+                outerScrollView = scrollView
+                break
+            }
+            ancestor = view.superview
+        }
+        guard let scrollView = outerScrollView else { return }
+        scrollView.layoutIfNeeded()
+
+        let viewport = scrollView.convert(scrollView.bounds, to: window)
+        var visibleBottom = viewport.maxY - scrollView.adjustedContentInset.bottom
+        let keyboardFrame = window.keyboardLayoutGuide.layoutFrame
+        if keyboardFrame.height > 80, keyboardFrame.minY < visibleBottom {
+            visibleBottom = keyboardFrame.minY
+        }
+        if let accessory = textView.inputAccessoryView, accessory.window === window {
+            let accessoryFrame = accessory.convert(accessory.bounds, to: window)
+            if accessoryFrame.height > 0, accessoryFrame.minY < visibleBottom {
+                visibleBottom = accessoryFrame.minY
+            }
+        }
+
+        let position = textView.selectedTextRange?.end ?? textView.endOfDocument
+        let caret = textView.convert(textView.caretRect(for: position), to: window)
+        let visibleHeight = max(1, visibleBottom - viewport.minY)
+        let writingSpace = min(160, max(48, visibleHeight * 0.42))
+        let neededDelta = max(0, caret.maxY + writingSpace - visibleBottom)
+        guard neededDelta > 1 else { return }
+
+        let noteTop = anchor.convert(anchor.bounds, to: window).minY
+        let titlePreservingDelta = max(0, noteTop - viewport.minY - 20)
+        let maximumOffset = max(
+            -scrollView.adjustedContentInset.top,
+            scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
+        )
+        let scrollCapacity = max(0, maximumOffset - scrollView.contentOffset.y)
+        let delta = min(neededDelta, titlePreservingDelta, scrollCapacity)
+        guard delta > 1 else { return }
+        scrollView.setContentOffset(
+            CGPoint(x: scrollView.contentOffset.x, y: scrollView.contentOffset.y + delta),
+            animated: true
+        )
+    }
+
+    private func resetKeyboardObserver() {
+        guard let keyboardShowObserver else { return }
+        NotificationCenter.default.removeObserver(keyboardShowObserver)
+        self.keyboardShowObserver = nil
     }
 
     func setPendingChanges(_ value: Bool) {
@@ -314,6 +409,10 @@ struct LibraryInlineNoteView: View {
                         .accessibilityIdentifier("library-inline-note-done")
                 }
             }
+            .background(alignment: .topLeading) {
+                LibraryInlineNoteAnchor(session: session)
+                    .frame(width: 1, height: 1)
+            }
             if editing {
                 NativeRichTextEditor(
                     html: $draft,
@@ -326,7 +425,10 @@ struct LibraryInlineNoteView: View {
                     preparedInitialAttributedText: editingInitialAttributedText,
                     editorSession: editorSession,
                     editorDocumentID: renderDocumentID,
-                    editorSessionID: editingSessionID
+                    editorSessionID: editingSessionID,
+                    onFocusReady: { textView in
+                        session.revealWritableArea(in: textView, sessionID: editingSessionID)
+                    }
                 )
                 .accessibilityIdentifier("library-inline-note-editor")
                 .padding(.horizontal, 8)
@@ -1167,5 +1269,21 @@ struct LibraryInlineNoteView: View {
                 onCompletion?(result)
             }
         )
+    }
+}
+
+@MainActor
+private struct LibraryInlineNoteAnchor: UIViewRepresentable {
+    let session: LibraryInlineNoteSession
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        session.setNoteAnchor(view)
+        return view
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {
+        session.setNoteAnchor(view)
     }
 }

@@ -238,7 +238,6 @@ final class LibraryRecordListCache {
                     guard record.module == selectedQuantityType else { return false }
                 }
             }
-            if kind == .stickies && !scope.hasModuleContext { return false }
             if kind == .words && !scope.isLogicFill { return false }
             return true
         }.sorted { left, right in

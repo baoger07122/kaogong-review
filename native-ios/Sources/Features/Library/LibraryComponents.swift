@@ -1543,6 +1543,7 @@ private struct LibraryCardPressStyle: ButtonStyle {
 }
 
 private struct LibrarySwipeDeleteCard<Content: View>: View {
+    private let revealWidth: CGFloat = 58
     let onDelete: () -> Void
     let content: Content
     @State private var offset: CGFloat = 0
@@ -1561,11 +1562,12 @@ private struct LibrarySwipeDeleteCard<Content: View>: View {
                 Image(systemName: "trash.fill")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 58)
+                    .frame(width: visibleRevealWidth)
                     .frame(maxHeight: .infinity)
-                    .background(AppTheme.danger, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous))
+                    .background(visibleRevealWidth > 0 ? AppTheme.danger : .clear, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous))
             }
             .buttonStyle(.plain)
+            .allowsHitTesting(visibleRevealWidth > 0)
 
             content
                 .offset(x: offset)
@@ -1574,14 +1576,16 @@ private struct LibrarySwipeDeleteCard<Content: View>: View {
                     DragGesture(minimumDistance: 12)
                         .onChanged { value in
                             guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                            offset = min(0, max(-66, value.translation.width))
+                            offset = min(0, max(-revealWidth, value.translation.width))
                         }
                         .onEnded { value in
                             let shouldOpen = value.predictedEndTranslation.width < -34 || value.translation.width < -30
-                            withAnimation(.spring(duration: 0.22, bounce: 0.05)) { offset = shouldOpen ? -66 : 0 }
+                            withAnimation(.spring(duration: 0.22, bounce: 0.05)) { offset = shouldOpen ? -revealWidth : 0 }
                         }
                 )
         }
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardRadius, style: .continuous))
     }
+
+    private var visibleRevealWidth: CGFloat { min(revealWidth, max(0, -offset)) }
 }

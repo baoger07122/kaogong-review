@@ -54,40 +54,62 @@ struct SpeedTypeAggregate: Identifiable {
     var correctCount: Int { records.reduce(0) { $0 + $1.correctCount } }
     var totalTime: Double { records.reduce(0) { $0 + $1.totalTime } }
     var accuracy: Double { totalCount == 0 ? 0 : Double(correctCount) / Double(totalCount) }
-    var averageTime: Double { practiceCount == 0 ? 0 : totalTime / Double(practiceCount) }
+    var averageTime: Double { totalCount == 0 ? 0 : totalTime / Double(totalCount) * 10 }
 }
 
-struct SpeedDailyAccuracy: Identifiable {
+struct SpeedDailyStatistics: Identifiable {
     let date: Date
-    let accuracy: Double
+    let questionCount: Int
+    let accuracy: Double?
+    let secondsPerTenQuestions: Double?
     var id: Date { date }
 }
 
 struct SpeedStatisticsSnapshot {
-    let aggregates: [SpeedTypeAggregate]
-    let trend: [SpeedDailyAccuracy]
-
-    var hottest: SpeedTypeAggregate? {
-        aggregates.sorted {
-            if $0.practiceCount == $1.practiceCount { return $0.totalTime > $1.totalTime }
-            return $0.practiceCount > $1.practiceCount
-        }.first
-    }
+    let typeOptions: [String]
+    let selectedAggregate: SpeedTypeAggregate?
+    let crossTypeAggregates: [SpeedTypeAggregate]
+    let trend: [SpeedDailyStatistics]
 
     var longestFour: [SpeedTypeAggregate] {
-        Array(aggregates.sorted { $0.totalTime > $1.totalTime }.prefix(4))
+        Array(crossTypeAggregates.sorted {
+            if $0.averageTime == $1.averageTime { return $0.totalTime > $1.totalTime }
+            return $0.averageTime > $1.averageTime
+        }.prefix(4))
     }
 
-    init(records: [SpeedRecord], now: Date = .now, calendar: Calendar = .current) {
-        aggregates = Dictionary(grouping: records, by: \SpeedRecord.name)
+    init(
+        records: [SpeedRecord],
+        selectedType: String = "全部",
+        dayCount: Int = 7,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) {
+        let names = Set(records.map { Self.displayType(for: $0.name) })
+        typeOptions = ["全部"] + names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        let selectedRecords = records.filter { selectedType == "全部" || Self.displayType(for: $0.name) == selectedType }
+        selectedAggregate = selectedRecords.isEmpty
+            ? nil
+            : SpeedTypeAggregate(name: selectedType == "全部" ? "全部" : selectedType, records: selectedRecords)
+        crossTypeAggregates = Dictionary(grouping: records, by: { Self.displayType(for: $0.name) })
             .map { SpeedTypeAggregate(name: $0.key, records: $0.value) }
         let today = calendar.startOfDay(for: now)
-        trend = (0..<7).reversed().compactMap { offset in
+        trend = (0..<max(1, dayCount)).reversed().compactMap { offset in
             guard let date = calendar.date(byAdding: .day, value: -offset, to: today) else { return nil }
-            let dayRecords = records.filter { calendar.isDate($0.date, inSameDayAs: date) }
+            let dayRecords = selectedRecords.filter { calendar.isDate($0.date, inSameDayAs: date) }
             let total = dayRecords.reduce(0) { $0 + $1.totalCount }
             let correct = dayRecords.reduce(0) { $0 + $1.correctCount }
-            return SpeedDailyAccuracy(date: date, accuracy: total == 0 ? 0 : Double(correct) / Double(total))
+            let totalTime = dayRecords.reduce(0) { $0 + $1.totalTime }
+            return SpeedDailyStatistics(
+                date: date,
+                questionCount: total,
+                accuracy: total == 0 ? nil : Double(correct) / Double(total),
+                secondsPerTenQuestions: total == 0 ? nil : totalTime / Double(total) * 10
+            )
         }
+    }
+
+    static func displayType(for name: String) -> String {
+        name.hasPrefix("自定义练习") ? "自定义练习" : name
     }
 }

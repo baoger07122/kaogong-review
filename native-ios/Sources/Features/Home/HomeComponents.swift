@@ -22,6 +22,7 @@ struct HomeTodoRow: View {
     let onSaveNote: (String) -> Void
     let onLongPress: () -> Void
     let onDelete: () -> Void
+    let onSkipToday: () -> Void
     let onToggleTimer: () -> Void
 
     @State private var noteDraft: String
@@ -34,6 +35,7 @@ struct HomeTodoRow: View {
         onSaveNote: @escaping (String) -> Void,
         onLongPress: @escaping () -> Void,
         onDelete: @escaping () -> Void,
+        onSkipToday: @escaping () -> Void,
         onToggleTimer: @escaping () -> Void
     ) {
         self.todo = todo
@@ -41,19 +43,21 @@ struct HomeTodoRow: View {
         self.onSaveNote = onSaveNote
         self.onLongPress = onLongPress
         self.onDelete = onDelete
+        self.onSkipToday = onSkipToday
         self.onToggleTimer = onToggleTimer
         _noteDraft = State(initialValue: todo.note)
     }
 
     var body: some View {
         ZStack(alignment: .trailing) {
-            Button(role: .destructive, action: onDelete) {
-                Label("删除", systemImage: "trash.fill")
+            Button(role: todo.dailyRuleID == nil ? .destructive : nil, action: trailingAction) {
+                Label(trailingTitle, systemImage: trailingSystemImage)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 76)
+                    .frame(width: 84)
                     .frame(maxHeight: .infinity)
-                    .background(AppTheme.danger)
+                    .background(trailingColor)
+                    .clipped()
             }
             .buttonStyle(.plain)
 
@@ -102,7 +106,11 @@ struct HomeTodoRow: View {
             Spacer(minLength: 8)
 
             VStack(alignment: .trailing, spacing: 2) {
-                Text(scheduleText)
+                Text(todo.isSkipped ? "今日已跳过" : HomeTodoSchedulePresentation.label(
+                    isCompleted: todo.isCompleted,
+                    completedAt: todo.completedAt,
+                    scheduledAt: todo.scheduledAt
+                ))
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.trailing)
@@ -117,7 +125,7 @@ struct HomeTodoRow: View {
                 }
             }
 
-            if !todo.isCompleted {
+            if !todo.isCompleted && !todo.isSkipped {
                 Button(action: onToggleTimer) {
                     Image(systemName: todo.timerStartedAt == nil ? "play.fill" : "pause.fill")
                         .font(.system(size: 10, weight: .bold))
@@ -133,23 +141,81 @@ struct HomeTodoRow: View {
         .onLongPressGesture(minimumDuration: 0.45, perform: onLongPress)
     }
 
-    private var scheduleText: String {
-        let time = todo.scheduledAt.formatted(.dateTime.hour().minute().locale(Locale(identifier: "zh_CN")))
-        if Calendar.current.isDateInToday(todo.scheduledAt) { return time }
-        return "\(HomeRecordRepository.chineseDate(todo.scheduledAt, includeYear: false))\n\(time)"
+    private var trailingAction: () -> Void {
+        if todo.dailyRuleID == nil { return onDelete }
+        return todo.isCompleted ? {} : onSkipToday
+    }
+    private var trailingTitle: String {
+        guard todo.dailyRuleID != nil else { return "删除" }
+        if todo.isCompleted { return "已完成" }
+        return todo.isSkipped ? "恢复" : "跳过今天"
+    }
+    private var trailingSystemImage: String {
+        guard todo.dailyRuleID != nil else { return "trash.fill" }
+        if todo.isCompleted { return "checkmark" }
+        return todo.isSkipped ? "arrow.uturn.backward" : "forward.end.fill"
+    }
+    private var trailingColor: Color {
+        guard todo.dailyRuleID != nil else { return AppTheme.danger }
+        if todo.isCompleted { return AppTheme.success }
+        return todo.isSkipped ? AppTheme.accent : AppTheme.warning
     }
 
     private var swipeGesture: some Gesture {
         DragGesture(minimumDistance: 18)
             .onChanged { value in
                 guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                dragOffset = min(0, max(-76, value.translation.width))
+                dragOffset = min(0, max(-84, value.translation.width))
             }
             .onEnded { value in
                 withAnimation(.spring(duration: 0.24, bounce: 0.05)) {
-                    dragOffset = value.translation.width < -34 ? -76 : 0
+                    dragOffset = value.translation.width < -34 ? -84 : 0
                 }
             }
+    }
+}
+
+struct HomeDailyTodoRuleRow: View {
+    let rule: HomeDailyTodoRule
+    let onEdit: () -> Void
+    let onTogglePause: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onEdit) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(rule.title)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.primary)
+                    Text(detailText)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+
+            Button(rule.isPaused ? "恢复" : "暂停", action: onTogglePause)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(rule.isPaused ? AppTheme.accent : .secondary)
+                .accessibilityLabel(rule.isPaused ? "恢复每日待办" : "暂停每日待办")
+
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash").font(.system(size: 13))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("删除每日待办 \(rule.title)")
+        }
+        .padding(12)
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 13))
+    }
+
+    private var detailText: String {
+        let state = rule.isPaused ? "已暂停 · " : ""
+        let time = rule.scheduledTime.formatted(.dateTime.hour().minute().locale(Locale(identifier: "zh_CN")))
+        return "\(state)\(rule.typeName) · 每天 \(time) · \(HomeRecordRepository.chineseDate(rule.startDate, includeYear: false))开始"
     }
 }
 

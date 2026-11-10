@@ -145,6 +145,33 @@ jobs:
             native-ios/Tests/WordReviewDomainBehavior.swift \
             -o "$RUNNER_TEMP/word-review-domain-behavior"
           "$RUNNER_TEMP/word-review-domain-behavior"
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Library/LibraryDataAnalysisMaterialLayout.swift \
+            native-ios/Tests/LibraryDataAnalysisMaterialLayoutBehavior.swift \
+            -o "$RUNNER_TEMP/library-data-analysis-material-layout-behavior"
+          "$RUNNER_TEMP/library-data-analysis-material-layout-behavior"
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Home/HomeDailyTodoPolicy.swift \
+            native-ios/Tests/HomeDailyTodoBehavior.swift \
+            -o "$RUNNER_TEMP/home-daily-todo-behavior"
+          "$RUNNER_TEMP/home-daily-todo-behavior"
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Home/KnowledgePointNameSorter.swift \
+            native-ios/Tests/KnowledgePointNameSorterBehavior.swift \
+            -o "$RUNNER_TEMP/knowledge-point-name-sorter-behavior"
+          "$RUNNER_TEMP/knowledge-point-name-sorter-behavior"
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Home/WordReviewSchedulingPolicy.swift \
+            native-ios/Sources/Features/Home/WordReviewEnrollmentPolicy.swift \
+            native-ios/Tests/WordReviewEnrollmentBehavior.swift \
+            -o "$RUNNER_TEMP/word-review-enrollment-behavior"
+          "$RUNNER_TEMP/word-review-enrollment-behavior"
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Speed/SpeedModels.swift \
+            native-ios/Sources/Features/Speed/SpeedHistoryModels.swift \
+            native-ios/Tests/SpeedStatisticsBehavior.swift \
+            -o "$RUNNER_TEMP/speed-statistics-behavior"
+          "$RUNNER_TEMP/speed-statistics-behavior"
 
       - name: Detect simulator test scope
         id: simulator_scope

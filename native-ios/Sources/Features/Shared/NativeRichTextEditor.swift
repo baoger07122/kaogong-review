@@ -256,6 +256,7 @@ struct NativeRichTextEditor: View {
     var defersPhotoPickerToParent = true
     var internalLinks: [RichTextInternalLink] = []
     var onOpenInternalLink: ((RichTextInternalLink) -> Void)?
+    var onFocusReady: ((UITextView) -> Void)?
     @StateObject private var localEditorSession = NativeRichTextEditorSession()
     @State private var localEditorSessionID = UUID()
     @State private var command: RichTextCommand?
@@ -321,6 +322,7 @@ struct NativeRichTextEditor: View {
                 selectionState: $selectionState,
                 internalLinks: internalLinks,
                 onOpenInternalLink: onOpenInternalLink,
+                onFocusReady: onFocusReady,
                 keyboardAccessory: AnyView(keyboardToolbar),
                 keyboardAccessoryHeight: keyboardAccessoryHeight,
                 keyboardAccessoryState: RichTextKeyboardAccessoryState(
@@ -1238,6 +1240,7 @@ private struct RichTextTextView: UIViewRepresentable {
     @Binding var selectionState: RichTextSelectionState
     let internalLinks: [RichTextInternalLink]
     let onOpenInternalLink: ((RichTextInternalLink) -> Void)?
+    let onFocusReady: ((UITextView) -> Void)?
     let keyboardAccessory: AnyView
     let keyboardAccessoryHeight: CGFloat
     let keyboardAccessoryState: RichTextKeyboardAccessoryState
@@ -1315,8 +1318,10 @@ private struct RichTextTextView: UIViewRepresentable {
             context.coordinator.rememberSelection(caret)
             let focusEditor = {
                 guard view.window != nil else { return false }
-                view.becomeFirstResponder()
+                guard view.becomeFirstResponder() else { return false }
                 view.scrollRangeToVisible(caret)
+                view.window?.layoutIfNeeded()
+                onFocusReady?(view)
                 return true
             }
             DispatchQueue.main.async {

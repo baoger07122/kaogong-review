@@ -25,6 +25,8 @@ struct SpeedPracticeView: View {
     @State private var showLegacyExitConfirmation = false
     @State private var exitMeasurements = ""
     @State private var expandedHistoryBlocks: Set<String> = []
+    @State private var speedStatisticsTypeFilter = "全部"
+    @State private var speedStatisticsDayCount = 7
     @State private var isSubmitting = false
     @State private var feedback: SpeedFeedbackMessage?
     @State private var finishedDuration: Double?
@@ -861,35 +863,84 @@ struct SpeedPracticeView: View {
     }
 
     private var statistics: some View {
-        let snapshot = SpeedStatisticsSnapshot(records: history)
+        let snapshot = SpeedStatisticsSnapshot(
+            records: history,
+            selectedType: speedStatisticsTypeFilter,
+            dayCount: speedStatisticsDayCount
+        )
+        let hasTrendData = snapshot.trend.contains { $0.accuracy != nil || $0.secondsPerTenQuestions != nil }
         return ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                if let hot = snapshot.hottest {
-                    HStack(spacing: 12) {
-                        Image(systemName: "flame.fill").foregroundStyle(.orange)
-                            .frame(width: 44, height: 44)
-                            .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("最常练习").font(.system(size: 12)).foregroundStyle(.secondary)
-                            Text(hot.name).font(.system(size: 16, weight: .semibold))
+                if let aggregate = snapshot.selectedAggregate {
+                    VStack(alignment: .leading, spacing: 13) {
+                        HStack {
+                            Text("练习类型").font(.system(size: 12)).foregroundStyle(.secondary)
+                            Spacer()
+                            Menu {
+                                ForEach(snapshot.typeOptions, id: \.self) { type in
+                                    Button {
+                                        speedStatisticsTypeFilter = type
+                                    } label: {
+                                        if speedStatisticsTypeFilter == type { Label(type, systemImage: "checkmark") }
+                                        else { Text(type) }
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Text(speedStatisticsTypeFilter).font(.system(size: 13, weight: .medium))
+                                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                                }
+                                .foregroundStyle(AppTheme.accent)
+                            }
                         }
-                        Spacer()
-                        statisticValue("\(hot.practiceCount)", caption: "练习次数")
-                        statisticValue("\(Int((hot.accuracy * 100).rounded()))%", caption: "正确率")
-                        statisticValue(SpeedPracticeFlow.durationText(hot.averageTime), caption: "10题平均")
+                        HStack(spacing: 0) {
+                            statisticValue("\(aggregate.practiceCount)", caption: "练习场次")
+                            statisticValue("\(Int((aggregate.accuracy * 100).rounded()))%", caption: "正确率")
+                            statisticValue(SpeedPracticeFlow.durationText(aggregate.averageTime), caption: "每10题平均")
+                        }
                     }
                     .padding(16).background(Color.white, in: RoundedRectangle(cornerRadius: 18))
                     .shadow(color: .black.opacity(0.04), radius: 5, y: 2)
                 } else {
-                    NativeStatusCard(title: "暂无统计数据", detail: "完成练习后生成统计", systemImage: "chart.bar", color: AppTheme.accent)
-                }
-                if !history.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("近 7 天正确率").font(.system(size: 14, weight: .semibold))
-                        SpeedAccuracyTrendChart(days: snapshot.trend).frame(height: 155)
+                    VStack(alignment: .leading, spacing: 9) {
+                        HStack {
+                            Text("练习类型").font(.system(size: 12)).foregroundStyle(.secondary)
+                            Spacer()
+                            Menu {
+                                ForEach(snapshot.typeOptions, id: \.self) { type in
+                                    Button(type) { speedStatisticsTypeFilter = type }
+                                }
+                            } label: {
+                                Label(speedStatisticsTypeFilter, systemImage: "chevron.down")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(AppTheme.accent)
+                            }
+                        }
+                        NativeStatusCard(title: "暂无该题型统计", detail: "选择其他练习类型，或完成练习后查看统计", systemImage: "chart.bar", color: AppTheme.accent)
                     }
-                    .padding(.horizontal, 16).padding(.vertical, 14)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 20))
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("按日变化").font(.system(size: 14, weight: .semibold))
+                        Spacer()
+                        Picker("趋势范围", selection: $speedStatisticsDayCount) {
+                            Text("近7天").tag(7)
+                            Text("近30天").tag(30)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 148)
+                    }
+                    if hasTrendData {
+                        SpeedAccuracyTrendChart(days: snapshot.trend, rangeDays: speedStatisticsDayCount)
+                    } else {
+                        NativeStatusCard(title: "所选范围暂无练习记录", detail: "切换练习类型或完成练习后显示按日变化", systemImage: "chart.xyaxis.line", color: AppTheme.accent)
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 14)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 20))
+
+                if !snapshot.longestFour.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("练习类型用时").font(.system(size: 14, weight: .semibold))
                         let maxAverage = snapshot.longestFour.map(\.averageTime).max() ?? 1
@@ -898,7 +949,7 @@ struct SpeedPracticeView: View {
                                 HStack {
                                     Text(aggregate.name).font(.system(size: 13))
                                     Spacer()
-                                    Text("平均 \(SpeedPracticeFlow.durationText(aggregate.averageTime))")
+                                    Text("每10题 \(SpeedPracticeFlow.durationText(aggregate.averageTime))")
                                         .font(.system(size: 11)).foregroundStyle(.secondary)
                                 }
                                 GeometryReader { proxy in

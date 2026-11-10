@@ -160,7 +160,6 @@ struct LibraryView: View {
                 if kind == .words {
                     WordLibraryRecordDetailView(
                         record: record,
-                        showsReviewAction: true,
                         onEdit: { openEditorAfterMenuDismisses(kind: .words, recordID: recordID) },
                         onDelete: {
                             remove(LibraryDeleteTarget(kind: kind, recordID: recordID))
@@ -1010,7 +1009,6 @@ struct LibraryView: View {
 
     private var emptyTitle: String {
         if scope.reviewSource == .pending { return "暂无待确认来源的\(kind.rawValue)" }
-        if kind == .stickies && !scope.hasModuleContext { return "先选择一个模块" }
         return kind.emptyTitle
     }
 
@@ -1018,7 +1016,6 @@ struct LibraryView: View {
         if scope.reviewSource == .pending {
             return pendingSourceCount > 0 ? "有 \(pendingSourceCount) 条记录待确认，可点上方按钮批量分类。" : "当前模块没有待确认来源的记录。"
         }
-        if kind == .stickies && !scope.hasModuleContext { return "每个模块的便签相互独立" }
         return kind.emptyDetail
     }
 
@@ -1060,7 +1057,7 @@ struct LibraryView: View {
 
     private var canCreateRecord: Bool {
         scope.reviewSource != .pending
-            && !((kind == .stickies && !scope.hasModuleContext) || (kind == .words && !scope.isLogicFill))
+            && !(kind == .words && !scope.isLogicFill)
     }
 
     private func remove(_ target: LibraryDeleteTarget) {

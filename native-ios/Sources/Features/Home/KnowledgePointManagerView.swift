@@ -69,11 +69,15 @@ struct KnowledgePointManagerView: View {
                     VStack(spacing: 0) {
                         ForEach(Array(tags.enumerated()), id: \.element) { index, name in
                             HStack(spacing: 10) {
-                                Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary)
+                                if kind != .knowledgePoint {
+                                    Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary)
+                                }
                                 Text(name).font(AppTheme.bodyFont)
                                 Spacer()
-                                Button { move(name, -1) } label: { Image(systemName: "chevron.up") }.disabled(index == 0)
-                                Button { move(name, 1) } label: { Image(systemName: "chevron.down") }.disabled(index == tags.count - 1)
+                                if kind != .knowledgePoint {
+                                    Button { move(name, -1) } label: { Image(systemName: "chevron.up") }.disabled(index == 0)
+                                    Button { move(name, 1) } label: { Image(systemName: "chevron.down") }.disabled(index == tags.count - 1)
+                                }
                                 Button { beginEdit(name) } label: { Image(systemName: "pencil") }
                                 Button { deletingName = name } label: { Image(systemName: "trash").foregroundStyle(AppTheme.danger) }
                             }

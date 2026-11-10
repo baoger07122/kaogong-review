@@ -184,7 +184,6 @@ struct LibraryRecordDetailView: View {
                 if let word = records.first(where: { $0.collection == "words" && $0.recordID == target.recordID }) {
                     WordLibraryRecordDetailView(
                         record: word,
-                        showsReviewAction: true,
                         onOpenLinkedError: onOpenLinkedError
                     )
                 }
@@ -454,7 +453,6 @@ struct LibraryRecordDetailView: View {
                 reviewContent(metadata)
                 if kind == .errors && isDataAnalysis {
                     if !separatesDataAnalysisMaterial {
-                        dataAnalysisMaterialAction
                         dataAnalysisMaterialBlock
                         imagesBlock(availableWidth: max(0, readingColumnWidth - 32))
                     }
@@ -507,15 +505,19 @@ struct LibraryRecordDetailView: View {
 
     @ViewBuilder
     private var dataAnalysisMaterialAction: some View {
-        if kind == .errors, isDataAnalysis, hasDataAnalysisMaterial {
+        if kind == .errors, isDataAnalysis, hasDataAnalysisMaterial, !isMaterialPaneOpen {
             Button {
                 isMaterialPaneOpen = true
             } label: {
                 Label("弹出材料", systemImage: "rectangle.split.2x1")
                     .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(Color.clear, in: Capsule())
+                    .overlay(Capsule().stroke(Color.primary, lineWidth: 0.75))
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(LibraryMaterialActionButtonStyle())
             .accessibilityIdentifier("library-data-analysis-material-open")
         }
     }
@@ -875,11 +877,7 @@ struct LibraryRecordDetailView: View {
         let material = firstText(["dataAnalysisMaterialText"]) ?? ""
         if !material.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text(verbatim: cleanMultiline(material))
-                    .font(detailQuestionFont)
-                    .lineSpacing(AppTheme.questionLineSpacing)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+                LibraryDataAnalysisMaterialText(source: material)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(12)
@@ -1523,6 +1521,32 @@ struct LibraryRecordDetailView: View {
     }
 
     private var errorClassificationAndMasteryRow: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 7) {
+                detailStatusBadges
+                Spacer(minLength: 8)
+                dataAnalysisMaterialAction
+            }
+
+            VStack(spacing: 7) {
+                HStack(spacing: 7) {
+                    detailStatusBadges
+                    Spacer(minLength: 0)
+                }
+                HStack { Spacer(minLength: 0); dataAnalysisMaterialAction }
+            }
+        }
+        .alert("掌握状态未保存", isPresented: Binding(
+            get: { detailAttributeSaveError != nil },
+            set: { if !$0 { detailAttributeSaveError = nil } }
+        )) {
+            Button("好", role: .cancel) { detailAttributeSaveError = nil }
+        } message: {
+            Text(detailAttributeSaveError ?? "")
+        }
+    }
+
+    private var detailStatusBadges: some View {
         HStack(spacing: 7) {
             entryClassificationBadge
             Menu {
@@ -1564,15 +1588,6 @@ struct LibraryRecordDetailView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("掌握状态：\(masteryStatus)")
-            Spacer(minLength: 0)
-        }
-        .alert("掌握状态未保存", isPresented: Binding(
-            get: { detailAttributeSaveError != nil },
-            set: { if !$0 { detailAttributeSaveError = nil } }
-        )) {
-            Button("好", role: .cancel) { detailAttributeSaveError = nil }
-        } message: {
-            Text(detailAttributeSaveError ?? "")
         }
     }
 
@@ -1765,6 +1780,9 @@ struct LibraryRecordDetailView: View {
         let originalValue = updated[attribute.key]
         if isQuantityRelations, attribute.key == "errorCause" {
             updated["errorCause"] = LibraryQuantityErrorCauseCompatibility.lines(from: value)
+        } else if isDataAnalysis, attribute.key == "errorCause" {
+            let lines = LibraryDataAnalysisCauseLayout.splitLines(value)
+            updated["errorCause"] = originalValue is [String] ? lines : lines.joined(separator: "\n")
         } else if originalValue is Bool || (originalValue as? NSNumber).map({ CFGetTypeID($0) == CFBooleanGetTypeID() }) == true {
             updated[attribute.key] = value == "是"
         } else if originalValue is [String] {
@@ -2354,7 +2372,7 @@ private struct LibraryDataAnalysisCauseEditor: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
-                LibraryDataAnalysisCauseLineFields(text: $value)
+                LibraryPlainTextInput(label: "错因", text: $value)
                     .padding(12)
                     .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 0.8))
@@ -2377,6 +2395,17 @@ private struct LibraryDataAnalysisCauseEditor: View {
                 }
             }
         }
+    }
+}
+
+private struct LibraryMaterialActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                configuration.isPressed ? Color.primary.opacity(0.07) : Color.clear,
+                in: Capsule()
+            )
+            .contentShape(Capsule())
     }
 }
 
