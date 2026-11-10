@@ -5,6 +5,7 @@ import UIKit
 struct WordReviewView: View {
     private enum OverviewTab: String, CaseIterable, Identifiable, Hashable {
         case today = "今日"
+        case plan = "计划"
         case history = "历史"
         var id: String { rawValue }
     }
@@ -31,7 +32,10 @@ struct WordReviewView: View {
     }) private var records: [StoredRecord]
 
     @State private var tab: OverviewTab = .today
-    @State private var selectedCategoryID = WordCategory.idiomDefinition.rawValue
+    @State private var isShowingCatalog = false
+    @State private var searchText = ""
+    @State private var catalogFilter = "全部"
+    @State private var selectedCatalogIDs = Set<String>()
     @State private var activeSession: [SessionEntry] = []
     @State private var sessionIndex = 0
     @State private var isRevealed = false
@@ -40,25 +44,20 @@ struct WordReviewView: View {
     @State private var reviewDay = Calendar.current.startOfDay(for: .now)
 
     private var wordRecords: [StoredRecord] { records.filter { $0.collection == "words" } }
-    private var wordRecordIDs: [String] { wordRecords.map(\.recordID).sorted() }
     private var planRecords: [StoredRecord] { records.filter { $0.collection == "word_review_plans" } }
     private var historyRecords: [StoredRecord] { records.filter { $0.collection == "word_review_history" } }
     private var plans: [WordReviewPlan] { WordReviewRepository.plans(from: planRecords) }
+    private var visiblePlans: [WordReviewPlan] { plans.filter { groupsByID[$0.wordRecordID] != nil } }
     private var history: [WordReviewHistory] { WordReviewRepository.history(from: historyRecords) }
     private var groupsByID: [String: WordReviewWordGroup] {
         Dictionary(uniqueKeysWithValues: wordRecords.compactMap { record in
             WordReviewWordGroup(record: record).map { ($0.recordID, $0) }
         })
     }
-    private var selectedCategory: WordCategory {
-        WordCategory(rawValue: selectedCategoryID) ?? .idiomDefinition
-    }
-    private var selectedDueQueue: [WordReviewPlan] {
-        dueQueue.filter { groupsByID[$0.wordRecordID]?.category == selectedCategory }
-    }
     private var dueQueue: [WordReviewPlan] {
         return plans.filter { plan in
-            groupsByID[plan.wordRecordID] != nil
+            !plan.isPaused
+                && groupsByID[plan.wordRecordID] != nil
                 && WordReviewSchedulingPolicy.isDue(plan.nextDueDate, on: reviewDay)
         }.sorted { lhs, rhs in
             let leftDate = lhs.nextDueDate ?? .distantFuture
@@ -105,6 +104,9 @@ struct WordReviewView: View {
                 }
             }
         }
+        .sheet(isPresented: $isShowingCatalog, onDismiss: { selectedCatalogIDs.removeAll() }) {
+            catalogSheet
+        }
         .alert("操作失败", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -132,22 +134,6 @@ struct WordReviewView: View {
         .onChange(of: scenePhase) { _, value in
             if value == .active { refreshReviewDay() }
         }
-        .task(id: wordRecordIDs) {
-            do {
-                _ = try WordReviewRepository.enroll(wordRecords, in: modelContext)
-                let hasSelectedCategory = wordRecords.contains {
-                    WordReviewWordGroup(record: $0)?.category.rawValue == selectedCategoryID
-                }
-                if !hasSelectedCategory,
-                   let firstAvailableCategory = WordCategory.allCases.first(where: { category in
-                       wordRecords.contains { WordReviewWordGroup(record: $0)?.category == category }
-                   }) {
-                    selectedCategoryID = firstAvailableCategory.rawValue
-                }
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
     }
 
     private var overview: some View {
@@ -162,6 +148,7 @@ struct WordReviewView: View {
 
                 switch tab {
                 case .today: todayContent
+                case .plan: planContent
                 case .history: historyContent
                 }
             }
@@ -174,32 +161,30 @@ struct WordReviewView: View {
     }
 
     private var todayContent: some View {
-        let queue = selectedDueQueue
-        return VStack(alignment: .leading, spacing: 16) {
-            categorySelector
-
+        VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 0) {
-                dueMetric("待复习", value: queue.count)
-                dueMetric("今日到期", value: queue.filter { isDueToday($0.nextDueDate) }.count)
-                dueMetric("已逾期", value: queue.filter { isOverdue($0.nextDueDate) }.count)
+                dueMetric("待复习", value: dueQueue.count)
+                dueMetric("今日到期", value: dueQueue.filter { isDueToday($0.nextDueDate) }.count)
+                dueMetric("已逾期", value: dueQueue.filter { isOverdue($0.nextDueDate) }.count)
             }
             .padding(.vertical, 15)
             .background(Color(red: 0.95, green: 0.97, blue: 1), in: RoundedRectangle(cornerRadius: 16))
 
-            if queue.isEmpty {
-                selectedCategoryEmptyState
+            if dueQueue.isEmpty {
+                todayEmptyState
             } else {
                 HStack {
-                    Text("\(selectedCategory.title) · \(queue.count) 条待复习")
-                        .font(.system(size: 16, weight: .semibold))
+                    Text("到期词语组").font(.system(size: 16, weight: .semibold))
                     Spacer()
-                    Button("开始全部") { beginSession(queue) }
+                    Button("开始全部") {
+                        beginSession(dueQueue.map(\.wordRecordID), type: .due)
+                    }
                     .font(.system(size: 13, weight: .medium))
                 }
                 VStack(spacing: 8) {
-                    ForEach(queue) { plan in
+                    ForEach(dueQueue) { plan in
                         if let group = groupsByID[plan.wordRecordID] {
-                            Button { beginSession([plan]) } label: {
+                            Button { beginSession([plan.wordRecordID], type: .due) } label: {
                                 reviewGroupRow(group, detail: dueDescription(plan.nextDueDate), trailing: "开始")
                             }
                             .buttonStyle(.plain)
@@ -210,73 +195,39 @@ struct WordReviewView: View {
         }
     }
 
-    private var categorySelector: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-            ForEach(WordCategory.allCases) { category in
-                let isSelected = category == selectedCategory
-                Button {
-                    selectedCategoryID = category.rawValue
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: category.systemImage)
-                            .font(.system(size: 13, weight: .medium))
-                        Text(category.title)
-                            .font(.system(size: 13, weight: .medium))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.85)
-                        Spacer(minLength: 2)
-                        Text("\(dueQueue.filter { groupsByID[$0.wordRecordID]?.category == category }.count)")
-                            .font(.system(size: 12, weight: .semibold)).monospacedDigit()
-                    }
-                    .foregroundStyle(isSelected ? AppTheme.accent : Color.primary)
-                    .padding(.horizontal, 11)
-                    .frame(maxWidth: .infinity, minHeight: 42)
-                    .background(
-                        isSelected ? AppTheme.accent.opacity(0.09) : Color.primary.opacity(0.035),
-                        in: RoundedRectangle(cornerRadius: 12)
-                    )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(isSelected ? AppTheme.accent.opacity(0.28) : Color.primary.opacity(0.08), lineWidth: 0.8)
+    private var planContent: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("复习计划").font(.system(size: 18, weight: .semibold))
+                    Text("\(visiblePlans.count) 个已加入词语组")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button { isShowingCatalog = true } label: {
+                    Label("添加", systemImage: "plus")
+                        .font(.system(size: 13, weight: .medium))
+                }
+            }
+
+            HStack(spacing: 6) {
+                statusMetric("待学习", count: count(.waitingToLearn), color: .secondary)
+                statusMetric("待训练", count: count(.training), color: AppTheme.warning)
+                statusMetric("待验证", count: count(.verification), color: AppTheme.accent)
+                statusMetric("已稳定", count: count(.stable), color: AppTheme.success)
+            }
+
+            if visiblePlans.isEmpty {
+                emptyState(title: "还没有复习计划", detail: "可从词条详情加入，也可批量选择现有辨析组。", image: "books.vertical")
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(visiblePlans.sorted(by: planOrder)) { plan in
+                        if let group = groupsByID[plan.wordRecordID] {
+                            planCard(plan, group: group)
+                        }
                     }
                 }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
-        }
-        .accessibilityLabel("选择词语类别")
-    }
-
-    @ViewBuilder
-    private var selectedCategoryEmptyState: some View {
-        if !dueQueue.isEmpty {
-            emptyState(
-                title: "此类别暂无待复习词语",
-                detail: "其他类别还有 \(dueQueue.count) 条到期内容，可切换上方类别查看。",
-                image: selectedCategory.systemImage
-            )
-        } else if let nextDueDate = plans
-            .filter({ groupsByID[$0.wordRecordID] != nil })
-            .compactMap(\.nextDueDate)
-            .filter({ Calendar.current.startOfDay(for: $0) > reviewDay })
-            .min() {
-            emptyState(
-                title: "下一次复习在 \(shortDate(nextDueDate))",
-                detail: "新词会从加入当天进入复习；后续日期根据每次掌握情况安排。",
-                image: "calendar"
-            )
-        } else if groupsByID.isEmpty {
-            emptyState(
-                title: "词语库还没有可复习词条",
-                detail: "新增词语后会按加入日期自动进入复习。",
-                image: "books.vertical"
-            )
-        } else {
-            emptyState(
-                title: "今天没有待复习词语",
-                detail: "词语会按加入日期和复习结果自动安排。",
-                image: "checkmark.circle"
-            )
         }
     }
 
@@ -313,9 +264,7 @@ struct WordReviewView: View {
                         Text(group.title)
                             .font(.system(size: 24, weight: .semibold))
                             .fixedSize(horizontal: false, vertical: true)
-                        Text(group.category.isComparison
-                             ? "先回忆各词的共同含义、核心侧重和判断线索。"
-                             : "先回忆这个词的含义和典型用法。")
+                        Text("先回忆各词的共同含义、核心侧重和判断线索。")
                             .font(.system(size: 14)).foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -329,7 +278,7 @@ struct WordReviewView: View {
                                 .font(.system(size: 14, weight: .medium))
                         }
                         .padding(.top, 2)
-                        Text(group.category.isComparison ? "这组词你掌握得怎样？" : "这个词你掌握得怎样？")
+                        Text("这组词你掌握得怎样？")
                             .font(.system(size: 15, weight: .semibold))
                         HStack(spacing: 9) {
                             feedbackButton(.unknown, entry: entry)
@@ -340,7 +289,7 @@ struct WordReviewView: View {
                         Button {
                             withAnimation(.easeOut(duration: 0.18)) { isRevealed = true }
                         } label: {
-                            Label(group.category.isComparison ? "查看辨析" : "查看释义", systemImage: "eye")
+                            Label("查看辨析", systemImage: "eye")
                                 .font(.system(size: 15, weight: .semibold))
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 48)
@@ -350,7 +299,7 @@ struct WordReviewView: View {
                         .buttonStyle(.plain)
                     }
                 } else {
-                    emptyState(title: "词条已不可用", detail: "该词语可能已被删除，可结束本次复习。", image: "questionmark.folder")
+                    emptyState(title: "词条已不可用", detail: "该词语组可能已被删除，可结束本次复习。", image: "questionmark.folder")
                     Button("返回词语复习") { endSession() }
                 }
             }
@@ -362,12 +311,96 @@ struct WordReviewView: View {
         }
     }
 
+    private var catalogSheet: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("搜索词语组", text: $searchText)
+                        .textInputAutocapitalization(.never)
+                }
+                .padding(10)
+                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+
+                Picker("词语类型", selection: $catalogFilter) {
+                    Text("全部").tag("全部")
+                    Text("成语组").tag("成语组")
+                    Text("实词组").tag("实词组")
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+
+                List(catalogGroups) { group in
+                    let isAdded = plans.contains { $0.wordRecordID == group.recordID }
+                    Button {
+                        guard !isAdded else { return }
+                        if selectedCatalogIDs.contains(group.recordID) {
+                            selectedCatalogIDs.remove(group.recordID)
+                        } else {
+                            selectedCatalogIDs.insert(group.recordID)
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: isAdded ? "checkmark.circle.fill" : selectedCatalogIDs.contains(group.recordID) ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(isAdded ? AppTheme.success : selectedCatalogIDs.contains(group.recordID) ? AppTheme.accent : Color.secondary)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(group.title).font(.system(size: 15, weight: .medium)).foregroundStyle(.primary)
+                                Text(isAdded ? "已在计划中" : group.categoryTitle).font(.system(size: 12)).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isAdded)
+                }
+                .listStyle(.plain)
+            }
+            .navigationTitle("添加辨析组")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("取消") { isShowingCatalog = false }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("加入 \(selectedCatalogIDs.count)") { addSelectedGroups() }
+                        .disabled(selectedCatalogIDs.isEmpty)
+                        .fontWeight(.semibold)
+                }
+            }
+        }
+        .secondaryPageTabBarHidden()
+    }
+
+    private var catalogGroups: [WordReviewWordGroup] {
+        wordRecords.compactMap(WordReviewWordGroup.init(record:))
+            .filter { catalogFilter == "全部" || $0.categoryTitle == catalogFilter }
+            .filter { searchText.isEmpty || $0.title.localizedCaseInsensitiveContains(searchText) }
+            .sorted {
+                if $0.title != $1.title { return $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+                return $0.recordID < $1.recordID
+            }
+    }
+
     private func dueMetric(_ title: String, value: Int) -> some View {
         VStack(spacing: 5) {
             Text("\(value)").font(.system(size: 22, weight: .semibold)).monospacedDigit()
             Text(title).font(.system(size: 11)).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func statusMetric(_ title: String, count: Int, color: Color) -> some View {
+        VStack(spacing: 4) {
+            Text("\(count)").font(.system(size: 18, weight: .semibold)).foregroundStyle(color).monospacedDigit()
+            Text(title).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 9)
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 11))
     }
 
     private func reviewGroupRow(_ group: WordReviewWordGroup, detail: String, trailing: String) -> some View {
@@ -384,6 +417,54 @@ struct WordReviewView: View {
         .background(Color.white, in: RoundedRectangle(cornerRadius: 13))
         .overlay(RoundedRectangle(cornerRadius: 13).stroke(Color.primary.opacity(0.10), lineWidth: 0.8))
         .contentShape(RoundedRectangle(cornerRadius: 13))
+    }
+
+    private func planCard(_ plan: WordReviewPlan, group: WordReviewWordGroup) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(group.title).font(.system(size: 15, weight: .medium)).fixedSize(horizontal: false, vertical: true)
+                    Text(group.categoryTitle).font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(plan.isPaused ? "已暂停" : plan.status.title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(plan.isPaused ? Color.secondary : statusColor(plan.status))
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    .background(statusColor(plan.status).opacity(plan.isPaused ? 0.07 : 0.11), in: Capsule())
+            }
+            HStack(spacing: 7) {
+                if plan.status == .verification {
+                    Text(plan.isContextValidationPending ? "待语境验证" : "第 \(plan.verificationRound) 轮")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                Text(plan.nextDueDate.map(dueDescription) ?? "尚未安排日期")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Spacer()
+            }
+            HStack(spacing: 8) {
+                if plan.status == .waitingToLearn {
+                    Button("开始学习") { beginSession([plan.wordRecordID], type: .initial) }
+                        .buttonStyle(ReviewSmallButtonStyle(isPrimary: true))
+                } else if plan.status == .training {
+                    Button("开始训练") {
+                        let attemptType: WordReviewAttemptType = WordReviewSchedulingPolicy.isDue(plan.nextDueDate, on: reviewDay)
+                            || plan.nextDueDate == nil ? .due : .early
+                        beginSession([plan.wordRecordID], type: attemptType)
+                    }
+                        .buttonStyle(ReviewSmallButtonStyle(isPrimary: true))
+                }
+                Button(plan.isPaused ? "恢复计划" : "暂停") {
+                    perform { try WordReviewRepository.setPaused(!plan.isPaused, wordRecordID: plan.wordRecordID, in: modelContext) }
+                }
+                .buttonStyle(ReviewSmallButtonStyle(isPrimary: false))
+                Button("提前复习") { beginSession([plan.wordRecordID], type: .early) }
+                    .buttonStyle(ReviewSmallButtonStyle(isPrimary: false))
+            }
+        }
+        .padding(13)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.1), lineWidth: 0.8))
     }
 
     private func historyRow(_ item: WordReviewHistory) -> some View {
@@ -408,29 +489,19 @@ struct WordReviewView: View {
 
     private func revealedContent(_ group: WordReviewWordGroup) -> some View {
         VStack(alignment: .leading, spacing: 13) {
-            if group.category.isComparison {
-                if !group.commonMeaning.isEmpty { revealSection("共同语义", text: group.commonMeaning) }
-                if !group.coreDifference.isEmpty { revealSection("核心区别", text: group.coreDifference) }
-                ForEach(group.terms) { term in
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(term.name).font(.system(size: 15, weight: .semibold))
-                        if !term.meaning.isEmpty { revealSection("释义", text: term.meaning) }
-                        if !term.coreFocus.isEmpty { revealSection("核心侧重", text: term.coreFocus) }
-                        if !term.quickDecision.isEmpty { revealSection("一眼判断", text: term.quickDecision) }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+            if !group.commonMeaning.isEmpty { revealSection("共同语义", text: group.commonMeaning) }
+            if !group.coreDifference.isEmpty { revealSection("核心区别", text: group.coreDifference) }
+            ForEach(group.terms) { term in
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(term.name).font(.system(size: 15, weight: .semibold))
+                    if !term.coreFocus.isEmpty { revealSection("核心侧重", text: term.coreFocus) }
+                    if !term.quickDecision.isEmpty { revealSection("一眼判断", text: term.quickDecision) }
                 }
-                if !group.judgmentHint.isEmpty { revealRichTextSection("判断提示", html: group.judgmentHint) }
-            } else {
-                if !group.pinyin.isEmpty { revealSection("拼音", text: group.pinyin) }
-                if !group.partOfSpeech.isEmpty { revealSection("词性", text: group.partOfSpeech) }
-                if !group.meaning.isEmpty { revealRichTextSection("释义", html: group.meaning) }
-                if !group.example.isEmpty { revealSection("例句", text: group.example) }
-                if !group.myUnderstanding.isEmpty { revealSection("我的理解", text: group.myUnderstanding) }
-                if !group.collocations.isEmpty { revealSection("常见搭配", text: group.collocations) }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
             }
+            if !group.judgmentHint.isEmpty { revealRichTextSection("判断提示", html: group.judgmentHint) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -477,10 +548,10 @@ struct WordReviewView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(feedbackColor(item.feedback))
             Text(item.title).font(.system(size: 20, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
-            Text(item.nextDueDate.map { "下次复习：\(shortDate($0))" }
+            Text(item.nextDueDate.map { "下次计划：\(shortDate($0))" }
                  ?? (item.isContextValidationPending == true ? "等待语境验证" : "本轮未安排下次复习"))
                 .font(.system(size: 14)).foregroundStyle(.secondary)
-            Button(sessionIndex + 1 < activeSession.count ? "下一项" : "完成") {
+            Button(sessionIndex + 1 < activeSession.count ? "下一组" : "完成") {
                 advanceSession()
             }
             .buttonStyle(ReviewPrimaryButtonStyle())
@@ -500,6 +571,85 @@ struct WordReviewView: View {
         .padding(.vertical, 32)
         .padding(.horizontal, 15)
         .background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 15))
+    }
+
+    @ViewBuilder
+    private var todayEmptyState: some View {
+        let unpausedPlans = visiblePlans.filter { !$0.isPaused }
+        let waitingPlans = unpausedPlans.filter { $0.status == .waitingToLearn }
+        let pausedCount = visiblePlans.filter(\.isPaused).count
+        let contextPendingCount = unpausedPlans.filter(\.isContextValidationPending).count
+        let nextDueDate = unpausedPlans.compactMap(\.nextDueDate).min()
+
+        if visiblePlans.isEmpty {
+            emptyState(
+                title: "还没有复习计划",
+                detail: "从成语辨析或实词辨析词条加入后，会在这里安排每日复习。",
+                image: "books.vertical"
+            )
+        } else if !waitingPlans.isEmpty {
+            VStack(spacing: 10) {
+                emptyState(
+                    title: "有 \(waitingPlans.count) 组待开始学习",
+                    detail: "待学习词组尚未安排复习日期，首次学习后才会进入后续计划。",
+                    image: "book.closed"
+                )
+                Button("查看待学习词组") { tab = .plan }
+                    .font(.system(size: 13, weight: .medium))
+            }
+        } else if let nextDueDate {
+            emptyState(
+                title: "下一组复习在 \(shortDate(nextDueDate))",
+                detail: pausedCount == 0
+                    ? "队列会在计划日期当天自动刷新。"
+                    : "另有 \(pausedCount) 组已暂停；恢复后会按原进度继续。",
+                image: "calendar"
+            )
+        } else if contextPendingCount > 0 {
+            emptyState(
+                title: "当前没有到期复习",
+                detail: "\(contextPendingCount) 组已完成间隔复习，等待新的语境验证。",
+                image: "text.quote"
+            )
+        } else if pausedCount > 0 {
+            VStack(spacing: 10) {
+                emptyState(
+                    title: "有 \(pausedCount) 组计划已暂停",
+                    detail: "恢复暂停计划后，会按原来的复习进度继续。",
+                    image: "pause.circle"
+                )
+                Button("查看暂停计划") { tab = .plan }
+                    .font(.system(size: 13, weight: .medium))
+            }
+        } else {
+            emptyState(
+                title: "今天没有到期词语组",
+                detail: "复习计划已完成当前阶段，后续安排可在计划列表查看。",
+                image: "checkmark.circle"
+            )
+        }
+    }
+
+    private func count(_ status: WordReviewPlanStatus) -> Int {
+        visiblePlans.filter { $0.status == status }.count
+    }
+
+    private func planOrder(_ lhs: WordReviewPlan, _ rhs: WordReviewPlan) -> Bool {
+        let order: [WordReviewPlanStatus: Int] = [.waitingToLearn: 0, .training: 1, .verification: 2, .stable: 3]
+        if order[lhs.status] != order[rhs.status] { return order[lhs.status, default: 0] < order[rhs.status, default: 0] }
+        let left = groupsByID[lhs.wordRecordID]?.title ?? ""
+        let right = groupsByID[rhs.wordRecordID]?.title ?? ""
+        if left != right { return left.localizedStandardCompare(right) == .orderedAscending }
+        return lhs.wordRecordID < rhs.wordRecordID
+    }
+
+    private func statusColor(_ status: WordReviewPlanStatus) -> Color {
+        switch status {
+        case .waitingToLearn: .secondary
+        case .training: AppTheme.warning
+        case .verification: AppTheme.accent
+        case .stable: AppTheme.success
+        }
     }
 
     private func feedbackColor(_ feedback: WordReviewFeedback) -> Color {
@@ -522,7 +672,7 @@ struct WordReviewView: View {
         guard let date else { return "尚未安排日期" }
         if isOverdue(date) { return "逾期至 \(shortDate(date))" }
         if isDueToday(date) { return "今天到期" }
-        return "\(shortDate(date))到期"
+        return "计划 \(shortDate(date))"
     }
 
     private func isDueToday(_ date: Date?) -> Bool {
@@ -560,18 +710,12 @@ struct WordReviewView: View {
         return formatter.string(from: date)
     }
 
-    private func beginSession(_ plans: [WordReviewPlan]) {
+    private func beginSession(_ ids: [String], type: WordReviewAttemptType) {
         var seenIDs = Set<String>()
-        let valid = plans.filter { plan in
-            groupsByID[plan.wordRecordID] != nil && seenIDs.insert(plan.wordRecordID).inserted
-        }
+        let uniqueIDs = ids.filter { seenIDs.insert($0).inserted }
+        let valid = uniqueIDs.filter { groupsByID[$0] != nil }
         guard !valid.isEmpty else { return }
-        activeSession = valid.map { plan in
-            SessionEntry(
-                wordRecordID: plan.wordRecordID,
-                attemptType: plan.status == .waitingToLearn ? .initial : .due
-            )
-        }
+        activeSession = valid.map { SessionEntry(wordRecordID: $0, attemptType: type) }
         sessionIndex = 0
         isRevealed = false
         savedHistory = nil
@@ -612,6 +756,34 @@ struct WordReviewView: View {
         tab = .today
     }
 
+    private func addSelectedGroups() {
+        let selected = wordRecords.filter { selectedCatalogIDs.contains($0.recordID) }
+        do {
+            _ = try WordReviewRepository.enroll(selected, in: modelContext)
+            isShowingCatalog = false
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func perform(_ action: () throws -> Void) {
+        do { try action() }
+        catch { errorMessage = error.localizedDescription }
+    }
+}
+
+private struct ReviewSmallButtonStyle: ButtonStyle {
+    let isPrimary: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(isPrimary ? Color.white : AppTheme.accent)
+            .padding(.horizontal, 11)
+            .frame(height: 31)
+            .background(isPrimary ? AppTheme.accent : AppTheme.accent.opacity(0.08), in: Capsule())
+            .opacity(configuration.isPressed ? 0.72 : 1)
+    }
 }
 
 private struct ReviewPrimaryButtonStyle: ButtonStyle {
@@ -635,9 +807,9 @@ struct WordReviewWordDetailDestination: View {
 
     var body: some View {
         if let record = words.first(where: { $0.recordID == recordID }) {
-            WordLibraryRecordDetailView(record: record)
+            WordLibraryRecordDetailView(record: record, showsReviewAction: true)
         } else {
-            ContentUnavailableView("词条已删除", systemImage: "text.book.closed", description: Text("该词语已从词语库移除。"))
+            ContentUnavailableView("词条已删除", systemImage: "text.book.closed", description: Text("该词语组已从词语库移除。"))
         }
     }
 }

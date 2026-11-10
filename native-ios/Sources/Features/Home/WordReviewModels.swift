@@ -30,7 +30,6 @@ struct WordReviewHistory: Codable, Equatable, Identifiable {
 struct WordReviewTerm: Equatable, Identifiable {
     let id: String
     let name: String
-    let meaning: String
     let coreFocus: String
     let quickDecision: String
 }
@@ -38,32 +37,25 @@ struct WordReviewTerm: Equatable, Identifiable {
 struct WordReviewWordGroup: Equatable, Identifiable {
     let recordID: String
     let title: String
-    let category: WordCategory
     let categoryTitle: String
     let commonMeaning: String
     let coreDifference: String
     let judgmentHint: String
-    let meaning: String
-    let pinyin: String
-    let partOfSpeech: String
-    let example: String
-    let myUnderstanding: String
-    let collocations: String
     let terms: [WordReviewTerm]
 
     var id: String { recordID }
 
     init?(record: StoredRecord) {
-        guard record.collection == "words", let object = record.jsonObject else { return nil }
-        let category = WordCategory(rawValue: object["category"] as? String ?? object["type"] as? String ?? "")
-            ?? .idiomDefinition
+        guard record.collection == "words",
+              let object = record.jsonObject,
+              let category = WordCategory(rawValue: object["category"] as? String ?? object["type"] as? String ?? ""),
+              category.isComparison else { return nil }
 
         let terms = (object["compareWords"] as? [[String: Any]] ?? []).enumerated().compactMap { index, entry -> WordReviewTerm? in
             guard let name = entry["name"] as? String, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             return WordReviewTerm(
                 id: "\(record.recordID):\(index)",
                 name: name,
-                meaning: entry["meaning"] as? String ?? "",
                 coreFocus: entry["coreFocus"] as? String ?? entry["focus"] as? String ?? "",
                 quickDecision: entry["quickDecision"] as? String ?? entry["decision"] as? String ?? ""
             )
@@ -71,24 +63,15 @@ struct WordReviewWordGroup: Equatable, Identifiable {
         let sourceName = [object["name"] as? String, object["words"] as? String, object["title"] as? String]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first(where: { !$0.isEmpty }) ?? ""
-        let title = category.isComparison && !terms.isEmpty
-            ? terms.map(\.name).joined(separator: "｜")
-            : sourceName
+        let title = terms.isEmpty ? sourceName : terms.map(\.name).joined(separator: "｜")
         guard !title.isEmpty else { return nil }
 
         self.recordID = record.recordID
         self.title = title
-        self.category = category
-        self.categoryTitle = category.title
+        self.categoryTitle = category == .idiomComparison ? "成语组" : "实词组"
         self.commonMeaning = object["commonMeaning"] as? String ?? ""
         self.coreDifference = object["compareNote"] as? String ?? object["coreDifference"] as? String ?? ""
         self.judgmentHint = object["judgmentHint"] as? String ?? ""
-        self.meaning = object["meaning"] as? String ?? ""
-        self.pinyin = object["pinyin"] as? String ?? ""
-        self.partOfSpeech = object["pos"] as? String ?? object["partOfSpeech"] as? String ?? ""
-        self.example = object["example"] as? String ?? ""
-        self.myUnderstanding = object["myUnderstanding"] as? String ?? ""
-        self.collocations = object["collocations"] as? String ?? ""
         self.terms = terms
     }
 }
