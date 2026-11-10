@@ -169,6 +169,7 @@ jobs:
           swiftc -parse-as-library \
             native-ios/Sources/Features/Speed/SpeedModels.swift \
             native-ios/Sources/Features/Speed/SpeedHistoryModels.swift \
+            native-ios/Sources/Features/Speed/SpeedEstimateRules.swift \
             native-ios/Tests/SpeedStatisticsBehavior.swift \
             -o "$RUNNER_TEMP/speed-statistics-behavior"
           "$RUNNER_TEMP/speed-statistics-behavior"
