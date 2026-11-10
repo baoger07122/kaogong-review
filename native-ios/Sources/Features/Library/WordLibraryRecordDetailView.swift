@@ -11,6 +11,8 @@ struct WordLibraryRecordDetailView: View {
     @Query(filter: #Predicate<StoredRecord> { $0.collection == "errors" }) private var errorRecords: [StoredRecord]
     @State private var showDelete = false
     @State private var showErrorSelection = false
+    @State private var operationErrorTitle = "关联错题失败"
+    @State private var reviewErrorMessage: String?
 
     private var object: [String: Any] { record.jsonObject ?? [:] }
     private var category: WordCategory {
@@ -102,6 +104,14 @@ struct WordLibraryRecordDetailView: View {
                 }
             }
             .documentToolbarBackground()
+        }
+        .alert(operationErrorTitle, isPresented: Binding(
+            get: { reviewErrorMessage != nil },
+            set: { if !$0 { reviewErrorMessage = nil } }
+        )) {
+            Button("好", role: .cancel) { reviewErrorMessage = nil }
+        } message: {
+            Text(reviewErrorMessage ?? "")
         }
         .sheet(isPresented: $showErrorSelection) {
             LibraryRelationSelectionDialog(
