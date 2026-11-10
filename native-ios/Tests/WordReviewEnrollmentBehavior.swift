@@ -29,6 +29,7 @@ struct WordReviewEnrollmentBehavior {
         var legacy = newPlan
         legacy.isPaused = true
         legacy.verificationRound = 3
+        legacy.nextDueDate = nil
         legacy.updatedAt = addedAt
         let repaired = WordReviewEnrollmentPolicy.backfilledPlan(legacy, addedAt: addedAt, now: now, calendar: calendar)
         expect(repaired?.nextDueDate == calendar.startOfDay(for: addedAt), "a waiting plan without a date is repaired from the word date")
