@@ -538,12 +538,14 @@ struct LibraryRecordDetailView: View {
                         targetRecordID: activeRecordID,
                         pane: splitDoodlePane,
                         layoutDirection: splitDoodleLayoutDirection,
-                        drawingData: splitDoodleBinding(for: splitDoodlePane)
+                        drawingData: splitDoodleBinding(for: splitDoodlePane),
+                        hostNamespace: "library-record-detail"
                     )
                 } else if showsDoodle {
                     LibraryDoodleContentLayer(
                         session: doodleSession,
-                        targetRecordID: activeRecordID
+                        targetRecordID: activeRecordID,
+                        canvasHostID: "library-record-detail|\(activeRecordID)"
                     )
                 }
             }
@@ -678,7 +680,6 @@ struct LibraryRecordDetailView: View {
             detailToolbarActions
         }
         .frame(minHeight: 44)
-        .id(doodleSession.isPresented ? "record-toolbar-doodle" : "record-toolbar-detail")
     }
 
     @ViewBuilder
@@ -704,6 +705,7 @@ struct LibraryRecordDetailView: View {
 
     private var doodleToolbarButton: some View {
         Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
+            .buttonStyle(LibraryDoodleToolbarButtonStyle())
             .accessibilityLabel("涂鸦")
             .disabled(!canOpenDoodle)
     }
@@ -2137,6 +2139,10 @@ struct LibraryRecordDetailView: View {
             splitDrawingBaseline: initialSplitBaseline,
             splitDrawingLayoutDirection: splitDoodleLayoutDirection,
             interactionStartedAt: openStart,
+            deferCanvasActivation: true,
+            canvasHostID: opensSplitDoodle
+                ? "library-record-detail|\(targetID)|split|\(splitDoodleLayoutDirection.rawValue)|material"
+                : "library-record-detail|\(targetID)",
             onFirstCanvasFrame: {
                 noteSession.finish { _ in }
             },

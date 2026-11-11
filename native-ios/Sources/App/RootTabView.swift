@@ -67,7 +67,9 @@ struct RootTabView: View {
     @State private var libraryPath: [LibraryRoute] = []
     @State private var settingsPath: [SettingsRoute] = []
     @State private var isReviewSessionActive = false
-    @StateObject private var libraryDoodleSession = LibraryDoodleSession()
+    // Store the shared reference without subscribing this entire tab shell to its
+    // frequent canvas updates; LibraryDoodleRootOverlay owns that observation.
+    @State private var libraryDoodleSession = LibraryDoodleSession()
 
     var body: some View {
         GeometryReader { window in
@@ -78,14 +80,7 @@ struct RootTabView: View {
             .environment(\.rootTabSelection, $selection)
         }
         .tint(AppTheme.accent)
-        .overlay {
-            // Keep the fixed doodle toolbar and navigation guard above the pushed
-            // page. The PencilKit surface itself is mounted by each detail page's
-            // scroll content so strokes use the same coordinate system as text.
-            if libraryDoodleSession.isPresented {
-                LibraryDoodleOverlay(session: libraryDoodleSession)
-            }
-        }
+        .overlay { LibraryDoodleRootOverlay(session: libraryDoodleSession) }
         .onAppear {
             beginTabFrameMeasurement(for: selection)
         }
@@ -154,6 +149,20 @@ struct RootTabView: View {
         }
     }
 
+}
+
+private struct LibraryDoodleRootOverlay: View {
+    @ObservedObject var session: LibraryDoodleSession
+
+    var body: some View {
+        Group {
+            if session.isPresented {
+                // The PencilKit surface stays hosted by the detail page so strokes
+                // share its coordinate space; this child owns the overlay updates.
+                LibraryDoodleOverlay(session: session)
+            }
+        }
+    }
 }
 
 private struct RootTabFirstFrameMarker: ViewModifier {

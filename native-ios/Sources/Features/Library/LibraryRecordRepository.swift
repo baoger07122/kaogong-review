@@ -30,6 +30,7 @@ struct WordComparisonTermDraft: Identifiable, Codable, Equatable, Sendable {
     var entryKind = WordEntryKind.word.rawValue
     var coreFocus: String?
     var quickDecision: String?
+    var contextExample: String?
     var legacyID: String?
 }
 
@@ -101,6 +102,7 @@ struct LibraryRecordDraft {
     var wordSource = ""
     var compareNote = ""
     var commonMeaning = ""
+    var idiomComparisonContext = ""
     var wordEntryKind = WordEntryKind.word.rawValue
     var wordCompareTerms: [WordComparisonTermDraft] = []
 
@@ -236,6 +238,7 @@ struct LibraryRecordDraft {
         wordSource = LibraryRecordDraft.text(original, keys: ["source"])
         compareNote = LibraryRecordDraft.text(original, keys: ["compareNote", "coreDifference"])
         commonMeaning = LibraryRecordDraft.text(original, keys: ["commonMeaning"])
+        idiomComparisonContext = LibraryRecordDraft.text(original, keys: ["idiomComparisonContext"])
         let storedWordEntryKind = LibraryRecordDraft.text(original, keys: ["entryKind"])
         wordEntryKind = storedWordEntryKind.isEmpty ? WordEntryKind.word.rawValue : storedWordEntryKind
         if let terms = original["compareWords"] as? [[String: Any]] {
@@ -247,6 +250,7 @@ struct LibraryRecordDraft {
                     entryKind: ($0["entryKind"] as? String) ?? WordEntryKind.word.rawValue,
                     coreFocus: ($0["coreFocus"] as? String) ?? ($0["focus"] as? String),
                     quickDecision: ($0["quickDecision"] as? String) ?? ($0["decision"] as? String),
+                    contextExample: $0["contextExample"] as? String,
                     legacyID: $0["id"] as? String
                 )
             }
@@ -336,6 +340,7 @@ struct LibraryRecordDraft {
             && wordSource == other.wordSource
             && compareNote == other.compareNote
             && commonMeaning == other.commonMeaning
+            && idiomComparisonContext == other.idiomComparisonContext
             && wordEntryKind == other.wordEntryKind
             && wordCompareTerms == other.wordCompareTerms
     }
@@ -664,6 +669,9 @@ enum LibraryRecordRepository {
             object["type"] = draft.type
             object["entryKind"] = draft.wordEntryKind
             object["commonMeaning"] = draft.commonMeaning
+            if category == .idiomComparison {
+                object["idiomComparisonContext"] = draft.idiomComparisonContext
+            }
             object["linkedErrors"] = draft.linkedErrorIDs
             object["relatedErrorIds"] = draft.linkedErrorIDs
             object["pinyin"] = draft.pinyin
@@ -684,13 +692,17 @@ enum LibraryRecordRepository {
                         "entryKind": draft.wordEntryKind
                     ]
                     if let legacyID = term.legacyID, !legacyID.isEmpty { value["id"] = legacyID }
-                    if category == .wordComparison {
+                    if category.isComparison {
                         if let coreFocus = term.coreFocus, !coreFocus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             value["coreFocus"] = coreFocus
                         }
                         if let quickDecision = term.quickDecision, !quickDecision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             value["quickDecision"] = quickDecision
                         }
+                    }
+                    if category == .idiomComparison, let example = term.contextExample,
+                       !example.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        value["contextExample"] = example
                     }
                     return value
                 }

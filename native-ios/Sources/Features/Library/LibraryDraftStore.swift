@@ -65,6 +65,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
     var wordSource: String?
     var compareNote: String?
     var commonMeaning: String?
+    var idiomComparisonContext: String?
     var wordEntryKind: String?
     var wordCompareTerms: [WordComparisonTermDraft]?
 
@@ -136,6 +137,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         wordSource = draft.wordSource
         compareNote = draft.compareNote
         commonMeaning = draft.commonMeaning
+        idiomComparisonContext = draft.idiomComparisonContext
         wordEntryKind = draft.wordEntryKind
         wordCompareTerms = draft.wordCompareTerms
     }
@@ -224,6 +226,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         draft.wordSource = wordSource ?? ""
         draft.compareNote = compareNote ?? ""
         draft.commonMeaning = commonMeaning ?? ""
+        draft.idiomComparisonContext = idiomComparisonContext ?? ""
         draft.wordEntryKind = wordEntryKind ?? WordEntryKind.word.rawValue
         draft.wordCompareTerms = wordCompareTerms ?? []
     }
@@ -256,10 +259,14 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
             || !(wordSource ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !(compareNote ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !(commonMeaning ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(idiomComparisonContext ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || (wordCompareTerms ?? []).contains {
                 !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || !$0.meaning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || !$0.wordID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !($0.coreFocus ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !($0.quickDecision ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !($0.contextExample ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || $0.entryKind != WordEntryKind.word.rawValue
             }
     }

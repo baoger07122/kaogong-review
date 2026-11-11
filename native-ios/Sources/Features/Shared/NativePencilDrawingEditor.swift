@@ -115,11 +115,11 @@ final class PencilDrawingController: ObservableObject {
         }
     }
 
-    func selectPenTool() {
+    func selectPenTool(persistSelection: Bool = true) {
         color = previousPenColor
         width = previousPenWidth
         eraser = false
-        persist()
+        if persistSelection { persist() }
     }
 
     func selectEraserTool() {
@@ -174,17 +174,19 @@ final class PencilDrawingController: ObservableObject {
         }
     }
 
-    func prepareForPresentation() {
+    func prepareForPresentation(preservingLoadedDrawing: Bool = false, persistToolSelection: Bool = true) {
         cancelPendingActions()
-        drawingLoadRevision += 1
+        if !preservingLoadedDrawing { drawingLoadRevision += 1 }
         showSettings = false
         fingerDrawingEnabled = false
-        selectPenTool()
+        selectPenTool(persistSelection: persistToolSelection)
         legacyPreviewCleared = false
         restoreLegacyOnNextUndo = false
-        hasPendingDrawingPublish = false
-        canvasReady = false
-        canvasLoadError = nil
+        if !preservingLoadedDrawing {
+            hasPendingDrawingPublish = false
+            canvasReady = false
+            canvasLoadError = nil
+        }
     }
 
     func beginDrawingReload() {

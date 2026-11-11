@@ -955,7 +955,11 @@ struct LibraryRecordEditorView: View {
                 NativeFieldLabel(title: "共同语义")
                 compactWordTextField("共同语义（可选）", text: $draft.commonMeaning, multiline: true)
 
-                NativeFieldLabel(title: "辨析词语")
+                if wordCategory == .idiomComparison {
+                    NativeFieldLabel(title: "同一情境")
+                    compactWordTextField("情境标题（例如：地方发展）", text: $draft.idiomComparisonContext)
+                }
+                NativeFieldLabel(title: wordCategory == .idiomComparison ? "辨析成语" : "辨析词语")
                 ForEach($draft.wordCompareTerms) { $term in
                     if wordCategory == .wordComparison {
                         wordComparisonTermEditor($term)
@@ -968,7 +972,7 @@ struct LibraryRecordEditorView: View {
                     draft.wordCompareTerms.append(term)
                     if wordCategory == .wordComparison { expandedComparisonTermIDs.insert(term.id) }
                 } label: {
-                    Label("增加词语", systemImage: "plus.circle")
+                    Label(wordCategory == .idiomComparison ? "增加成语" : "增加词语", systemImage: "plus.circle")
                         .font(AppTheme.inputFont.weight(.semibold))
                 }
                 compactWordTextField("核心区别", text: $draft.compareNote, multiline: true)
@@ -1073,7 +1077,7 @@ struct LibraryRecordEditorView: View {
     private func idiomComparisonTermEditor(_ term: Binding<WordComparisonTermDraft>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                compactWordTextField("词语 / 常见搭配", text: term.name)
+                compactWordTextField("成语", text: term.name)
                 if draft.wordCompareTerms.count > 2 {
                     Button(role: .destructive) {
                         draft.wordCompareTerms.removeAll { $0.id == term.wrappedValue.id }
@@ -1082,6 +1086,7 @@ struct LibraryRecordEditorView: View {
                     .buttonStyle(.plain)
                 }
             }
+            NativeFieldLabel(title: "词义")
             NativeRichTextEditor(html: term.meaning, minHeight: 64, mode: .minimal, documentStyle: true)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
@@ -1089,6 +1094,13 @@ struct LibraryRecordEditorView: View {
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
                         .stroke(Color.primary.opacity(0.10), lineWidth: 0.7)
                 }
+            compactWordTextField("核心侧重", text: optionalTextBinding(term.coreFocus))
+            compactWordTextField(
+                "同一情境下的例句与侧重",
+                text: optionalTextBinding(term.contextExample),
+                multiline: true
+            )
+            compactWordTextField("一眼判断（用一句提问）", text: optionalTextBinding(term.quickDecision), multiline: true)
         }
         .padding(.vertical, 4)
         .onChange(of: term.wrappedValue.name) { _, _ in syncComparisonTitle() }

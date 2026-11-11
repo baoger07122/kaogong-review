@@ -40,7 +40,7 @@ struct WordLibraryRecordDetailView: View {
                         wordComparisonDetail
                     } else {
                         detailText("共同语义", value: text("commonMeaning"))
-                        if category.isComparison { comparisonTerms }
+                        if category == .idiomComparison { idiomComparisonDetail }
                         detailText("核心区别", value: text("compareNote", "coreDifference"))
 
                         let explanation = category.isComparison ? text("judgmentHint") : text("meaning")
@@ -233,26 +233,6 @@ struct WordLibraryRecordDetailView: View {
         )
     }
 
-    private var comparisonTerms: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("辨析词语").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
-            ForEach(Array(compareTerms.enumerated()), id: \.offset) { _, term in
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 7) {
-                        Text(term.name).font(.system(size: 16, weight: .semibold))
-                        detailTag(term.kind.title, color: .secondary)
-                    }
-                    if !term.meaning.isEmpty {
-                        NativeRichTextDisplay(html: term.meaning, minHeight: 24)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 5)
-            }
-        }
-    }
-
     private var wordComparisonDetail: some View {
         VStack(alignment: .leading, spacing: 16) {
             detailText("共同语义", value: text("commonMeaning"))
@@ -289,6 +269,63 @@ struct WordLibraryRecordDetailView: View {
         }
     }
 
+    private var idiomComparisonDetail: some View {
+        let terms = compareTerms
+        let context = text("idiomComparisonContext")
+        let contextTerms = terms.filter { !$0.contextExample.isEmpty }
+        let judgmentTerms = terms.filter { !$0.quickDecision.isEmpty }
+        return VStack(alignment: .leading, spacing: 16) {
+            if !terms.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    WordComparisonTableRow(columnFractions: [0.22, 0.52, 0.26]) {
+                        tableCell("成语", header: true)
+                        tableCell("词义", header: true)
+                        tableCell("核心侧重", header: true)
+                    }
+                    ForEach(Array(terms.enumerated()), id: \.offset) { _, term in
+                        WordComparisonTableRow(columnFractions: [0.22, 0.52, 0.26]) {
+                            tableCell(term.name, emphasized: true)
+                            if term.meaning.isEmpty {
+                                tableCell("")
+                            } else {
+                                NativeRichTextDisplay(html: term.meaning, minHeight: 18)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 9)
+                                    .overlay(alignment: .bottom) {
+                                        Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 0.65)
+                                    }
+                            }
+                            tableCell(term.coreFocus, emphasized: true)
+                        }
+                    }
+                }
+            }
+            if !context.isEmpty || !contextTerms.isEmpty {
+                idiomComparisonExamples(
+                    title: context.isEmpty ? "同一情境" : "同一情境｜\(context)",
+                    terms: contextTerms,
+                    value: \.contextExample
+                )
+            }
+            if !judgmentTerms.isEmpty {
+                idiomComparisonExamples(title: "一眼判断", terms: judgmentTerms, value: \.quickDecision)
+            }
+        }
+    }
+
+    private func idiomComparisonExamples(title: String, terms: [Term], value: KeyPath<Term, String>) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+            ForEach(Array(terms.enumerated()), id: \.offset) { _, term in
+                (Text("\(term.name)　").fontWeight(.semibold) + Text(term[keyPath: value]))
+                    .font(.system(size: 14))
+                    .lineSpacing(4)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
     private var wordComparisonTable: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("一眼对照")
@@ -313,9 +350,9 @@ struct WordLibraryRecordDetailView: View {
         .background(Color.white)
     }
 
-    private func tableCell(_ value: String, header: Bool = false) -> some View {
+    private func tableCell(_ value: String, header: Bool = false, emphasized: Bool = false) -> some View {
         Text(value.isEmpty ? "—" : value)
-            .font(.system(size: header ? 12 : 14, weight: header ? .medium : .regular))
+            .font(.system(size: header ? 12 : 14, weight: emphasized ? .semibold : (header ? .medium : .regular)))
             .foregroundStyle(header ? Color.secondary : Color.primary)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -391,9 +428,9 @@ struct WordLibraryRecordDetailView: View {
     private struct Term {
         let name: String
         let meaning: String
-        let kind: WordEntryKind
         let coreFocus: String
         let quickDecision: String
+        let contextExample: String
     }
 
     private var compareTerms: [Term] {
@@ -404,9 +441,9 @@ struct WordLibraryRecordDetailView: View {
             return Term(
                 name: name,
                 meaning: value["meaning"] as? String ?? "",
-                kind: WordEntryKind(rawValue: value["entryKind"] as? String ?? "") ?? .word,
                 coreFocus: value["coreFocus"] as? String ?? value["focus"] as? String ?? "",
-                quickDecision: value["quickDecision"] as? String ?? value["decision"] as? String ?? ""
+                quickDecision: value["quickDecision"] as? String ?? value["decision"] as? String ?? "",
+                contextExample: value["contextExample"] as? String ?? ""
             )
         }
     }
@@ -420,9 +457,11 @@ struct WordLibraryRecordDetailView: View {
 }
 
 private struct WordComparisonTableRow: Layout {
+    var columnFractions: [CGFloat] = [0.17, 0.28, 0.55]
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width?.isFinite == true ? max(1, proposal.width!) : 360
-        let columnWidths = [width * 0.17, width * 0.28, width * 0.55]
+        let columnWidths = columnFractions.map { width * $0 }
         let heights = subviews.enumerated().map { index, view in
             view.sizeThatFits(ProposedViewSize(width: columnWidths[min(index, 2)], height: nil)).height
         }
@@ -430,7 +469,7 @@ private struct WordComparisonTableRow: Layout {
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let widths = [bounds.width * 0.17, bounds.width * 0.28, bounds.width * 0.55]
+        let widths = columnFractions.map { bounds.width * $0 }
         var x = bounds.minX
         for (index, view) in subviews.enumerated() {
             let width = widths[min(index, 2)]
