@@ -347,8 +347,9 @@ enum HomeRecordRepository {
         guard todo.dailyRuleID != nil,
               let dailyDate = todo.dailyDate,
               calendar.isDate(dailyDate, inSameDayAs: now) else { return }
+        let todoID = todo.id
         let descriptor = FetchDescriptor<StoredRecord>(
-            predicate: #Predicate { $0.collection == "todos" && $0.recordID == todo.id }
+            predicate: #Predicate { $0.collection == "todos" && $0.recordID == todoID }
         )
         guard let record = try context.fetch(descriptor).first,
               var current = todos(from: [record], includingDeleted: true).first,

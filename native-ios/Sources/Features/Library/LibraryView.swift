@@ -277,8 +277,8 @@ struct LibraryView: View {
             kind: kind,
             scope: recordID == nil ? creationScope : scope,
             record: record,
-            preparedDraft: preparedDraft,
             preferredType: recordID == nil ? (kind == .words ? wordCategory.rawValue : selectedTag) : "",
+            preparedDraft: preparedDraft,
             dismissAfterSave: !(recordID == nil && (kind == .errors || kind == .words)),
             onSaved: { savedID in
                 if let recordID {
