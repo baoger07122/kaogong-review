@@ -192,6 +192,7 @@ struct LibraryPartitionState {
     var searchText: String
     var selectedTag: String
     var selectedQuantityType: String
+    var selectedErrorType: LibraryErrorTypeFilter
     var renderLimit: Int
     var wordCategory: WordCategory
     var wordSentiment: String
@@ -482,6 +483,9 @@ struct LibraryRecordSnapshot: Identifiable {
 
         let searchableSource = reviewSource == .mock ? sourceExamTitle : questionSource
         var searchValues = [title, summary, quantityStructure, dataAnalysisMaterialText, searchableSource, questionNumber, pitfall, reminder]
+        if subject == "言语理解", module == "逻辑填空" {
+            searchValues.append(dataAnalysisErrorCause)
+        }
         searchValues.append(contentsOf: tags)
         if record.collection == "errors", subject == "数量关系" {
             searchValues.append(contentsOf: quantityErrorCauses)

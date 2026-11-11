@@ -21,5 +21,6 @@ enum SettingsRoute: Hashable {
     case noteTypes
     case stickyTags
     case quantityQuestionTypes
+    case errorTypes(LibraryErrorTypeSubject)
     case designSystem
 }

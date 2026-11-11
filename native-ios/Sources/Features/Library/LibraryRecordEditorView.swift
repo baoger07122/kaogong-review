@@ -106,6 +106,7 @@ struct LibraryRecordEditorView: View {
         record: StoredRecord? = nil,
         preferredType: String = "",
         preferredSourceExamID: String? = nil,
+        preferredErrorTypeID: String? = nil,
         preparedDraft: LibraryRecordDraft? = nil,
         dismissAfterSave: Bool = true,
         onSaved: ((String) -> Void)? = nil
@@ -116,6 +117,9 @@ struct LibraryRecordEditorView: View {
         self.dismissAfterSave = dismissAfterSave
         recordID = record?.recordID
         var initialDraft = preparedDraft ?? LibraryRecordDraft(kind: kind, scope: scope, record: record)
+        if record == nil, kind == .errors, LibraryErrorTypeSubject(rawValue: initialDraft.subject) != nil {
+            initialDraft.errorTypeID = preferredErrorTypeID
+        }
         if record == nil, !preferredType.isEmpty {
             initialDraft.type = preferredType
         }
@@ -161,8 +165,8 @@ struct LibraryRecordEditorView: View {
                 transitionKey: "editor-appearance"
             )
         }
-        .onChange(of: draftSnapshot) { _, snapshot in
-            guard recordID == nil else { return }
+        .onChange(of: recordID == nil ? draftSnapshot : nil) { _, snapshot in
+            guard let snapshot else { return }
             draftPersistenceCleared = false
             LibraryDraftStore.save(snapshot, kind: kind, scope: scope)
         }
@@ -283,7 +287,7 @@ struct LibraryRecordEditorView: View {
 
     private var editorContent: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            LazyVStack(alignment: .leading, spacing: 14) {
                 if kind != .words {
                     contextCard
                 }
@@ -496,7 +500,8 @@ struct LibraryRecordEditorView: View {
                 scalarKey: "knowledgePoint"
             )
         case .errorCause:
-            let usesLineEditor = draft.subject == "资料分析" || draft.subject == "数量关系"
+            let usesLineEditor = draft.subject == "数量关系"
+                || LibraryDataAnalysisCauseLayout.usesTextCause(subject: draft.subject, module: draft.module)
             draft.errorCause = replacingTag(
                 result.oldName,
                 with: result.newName,
@@ -575,6 +580,7 @@ struct LibraryRecordEditorView: View {
                     HStack(spacing: 8) {
                         subjectPicker
                         modulePicker
+                        errorTypePicker
                         Spacer(minLength: 0)
                         addImagePicker
                     }
@@ -599,6 +605,7 @@ struct LibraryRecordEditorView: View {
         Menu {
             ForEach(SubjectDefinition.all) { subject in
                 Button(subject.name) {
+                    if draft.subject != subject.name { draft.errorTypeID = nil }
                     draft.subject = subject.name
                     draft.module = subject.name == "数量关系"
                         ? ""
@@ -622,6 +629,32 @@ struct LibraryRecordEditorView: View {
             } label: {
                 compactProperty(title: "模块", value: draft.module, image: "square.stack.3d.up")
             }
+        }
+    }
+
+    @ViewBuilder private var errorTypePicker: some View {
+        if let subject = LibraryErrorTypeSubject(rawValue: draft.subject) {
+            let entries = LibraryErrorTypeRepository.types(for: subject, records: records)
+            let selected = entries.first { $0.id == draft.errorTypeID }
+            Menu {
+                Button {
+                    draft.errorTypeID = nil
+                } label: {
+                    if selected == nil { Label("未分类", systemImage: "checkmark") }
+                    else { Text("未分类") }
+                }
+                ForEach(entries) { entry in
+                    Button {
+                        draft.errorTypeID = entry.id
+                    } label: {
+                        if entry.id == selected?.id { Label(entry.name, systemImage: "checkmark") }
+                        else { Text(entry.name) }
+                    }
+                }
+            } label: {
+                compactProperty(title: "错误类型", value: selected?.name ?? "未分类", image: "tag")
+            }
+            .accessibilityIdentifier("library-error-type-picker")
         }
     }
 

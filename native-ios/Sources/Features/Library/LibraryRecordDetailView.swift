@@ -28,6 +28,22 @@ private struct LibraryDetailDecodedPayload: @unchecked Sendable {
     let object: [String: Any]
 }
 
+private struct LibraryDetailPageVersion: Equatable {
+    let recordID: String
+    let revision: Int
+    let isLoading: Bool
+    let didFail: Bool
+    let showsMaterial: Bool
+    let splitDirection: LibraryDoodleLayoutDirection
+    let drawingPane: LibraryDoodlePane?
+    let redoEnabled: Bool
+    let redoAttempt: LibraryRedoAttempt
+    let showsDelete: Bool
+    let showsWordSelection: Bool
+    let isOpeningEditor: Bool
+    let scenePhase: ScenePhase
+}
+
 @MainActor
 private final class LibraryDoodleRecoveryBackgroundTask {
     private var identifier: UIBackgroundTaskIdentifier = .invalid
@@ -81,8 +97,8 @@ struct LibraryRecordDetailView: View {
     @State private var object: [String: Any]
     @State private var imageSourceIdentities: [String: LibraryDetailImageSourceIdentity]
     @State private var payloadDecodeFailed = false
-    @State private var isPayloadLoading = true
     @State private var loadedPayloadKey: LibraryDetailPayloadKey?
+    @State private var pageContentRevision = 0
     @State private var lastLocallySavedNoteUpdate: Date?
 
     @State private var showDelete = false
@@ -132,7 +148,6 @@ struct LibraryRecordDetailView: View {
         _object = State(initialValue: [:])
         _imageSourceIdentities = State(initialValue: [:])
         _payloadDecodeFailed = State(initialValue: false)
-        _isPayloadLoading = State(initialValue: true)
     }
 
     var body: some View {
@@ -150,11 +165,6 @@ struct LibraryRecordDetailView: View {
             .onChange(of: activeRecordID) { _, newRecordID in
                 lastLocallySavedNoteUpdate = nil
                 backgroundDoodleSaveRequestID = nil
-                loadedPayloadKey = nil
-                object = [:]
-                imageSourceIdentities = [:]
-                payloadDecodeFailed = false
-                isPayloadLoading = true
                 if doodleSession.isPresented, doodleSession.targetRecordID != newRecordID {
                     doodleSession.dismiss(reopenOnSaveFailure: false) { error in
                         if let error { splitDoodleErrorMessage = error }
@@ -287,8 +297,26 @@ struct LibraryRecordDetailView: View {
     private var detailNavigationTitle: String {
         SubjectModuleTitle.errorDetailTitle(
             recordModule: record?.module,
-            payloadModule: object["module"] as? String,
-            questionBankModule: displayQuestionBankContext?.typeMapping.module
+            payloadModule: isPayloadLoading ? nil : object["module"] as? String,
+            questionBankModule: isPayloadLoading ? nil : displayQuestionBankContext?.typeMapping.module
+        )
+    }
+
+    private var detailPageVersion: LibraryDetailPageVersion {
+        LibraryDetailPageVersion(
+            recordID: activeRecordID,
+            revision: pageContentRevision,
+            isLoading: isPayloadLoading,
+            didFail: payloadDecodeFailed,
+            showsMaterial: showsDetachedDataAnalysisMaterial,
+            splitDirection: splitDoodleLayoutDirection,
+            drawingPane: doodleSession.activeSplitDrawingPane,
+            redoEnabled: isRedoPractice,
+            redoAttempt: redoAttempt,
+            showsDelete: showDelete,
+            showsWordSelection: showWordSelection,
+            isOpeningEditor: pendingEditorRequestID != nil,
+            scenePhase: scenePhase
         )
     }
 
@@ -299,7 +327,8 @@ struct LibraryRecordDetailView: View {
             LibraryHorizontalRecordPager(
                 recordIDs: orderedRecordIDs,
                 currentRecordID: $activeRecordKey,
-                isPagingEnabled: !doodleSession.isPresented && !noteSession.isEditing && !noteSession.hasPendingChanges
+                isPagingEnabled: !doodleSession.isPresented && !noteSession.isEditing && !noteSession.hasPendingChanges,
+                currentContentVersion: detailPageVersion
             ) { recordID in
                 if recordID == activeRecordKeyBinding.wrappedValue {
                     AnyView(
@@ -323,7 +352,10 @@ struct LibraryRecordDetailView: View {
             let availableWidth = proxy.size.width.isFinite ? max(0, proxy.size.width) : 0
             let layoutDirection = splitLayoutDirection(for: proxy.size)
             ZStack {
-                if payloadDecodeFailed {
+                if isPayloadLoading {
+                    ProgressView("正在加载题目…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if payloadDecodeFailed {
                     NativeStatusCard(
                         title: "错题详情暂时无法读取",
                         detail: "原始记录数据无法解析。笔记和编辑保存已阻止，以保留数据库中的原始内容。",
@@ -337,9 +369,6 @@ struct LibraryRecordDetailView: View {
                         availableSize: proxy.size,
                         layoutDirection: splitDoodleLayoutDirection
                     )
-                } else if isPayloadLoading && object.isEmpty {
-                    ProgressView("正在加载题目…")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     detailScrollView(availableWidth: availableWidth)
                 }
@@ -658,8 +687,7 @@ struct LibraryRecordDetailView: View {
             toolbarPlaceholder
             toolbarPlaceholder
         } else {
-            Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
-                .accessibilityLabel("涂鸦")
+            doodleToolbarButton
             if pendingEditorRequestID != nil {
                 ProgressView()
                     .frame(width: 44, height: 44)
@@ -668,6 +696,16 @@ struct LibraryRecordDetailView: View {
                 questionActionsMenu
             }
         }
+    }
+
+    private var canOpenDoodle: Bool {
+        pendingEditorRequestID == nil && !isPayloadLoading && !payloadDecodeFailed
+    }
+
+    private var doodleToolbarButton: some View {
+        Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
+            .accessibilityLabel("涂鸦")
+            .disabled(!canOpenDoodle)
     }
 
     private var toolbarPlaceholder: some View {
@@ -859,7 +897,7 @@ struct LibraryRecordDetailView: View {
                         .accessibilityIdentifier("question-bank-detail-question-type")
                 }
                 metadataTagLine(knowledgePointLabel, values: knowledgePoints, emphasis: .strong)
-                if isDataAnalysis {
+                if isDataAnalysis || isLogicFillError {
                     dataAnalysisCauseMetadata
                 } else if isAnalogyReasoning {
                     metadataTextLine(errorCauseLabel, value: firstText(["errorCause", "cause", "reason"]) ?? "")
@@ -1247,6 +1285,7 @@ struct LibraryRecordDetailView: View {
                             .first ?? ""
                     },
                     onSaved: { note in
+                        guard activeRecordID == record.compoundID else { return }
                         object["note"] = note
                         lastLocallySavedNoteUpdate = record.updatedAt
                     }
@@ -1848,7 +1887,7 @@ struct LibraryRecordDetailView: View {
         record.updatedAt = .now
         do {
             try modelContext.save()
-            object = updated
+            refreshObject(updated)
             return nil
         } catch {
             record.payload = previousPayload
@@ -1870,7 +1909,7 @@ struct LibraryRecordDetailView: View {
     }
 
     private var linkedQuestionContextKey: String {
-        guard kind == .errors,
+        guard !isPayloadLoading, !payloadDecodeFailed, kind == .errors,
               let paperID = object["questionBankPaperID"] as? String,
               let questionID = object["questionBankQuestionID"] as? String else { return "" }
         let question = (object["question"] as? String ?? object["title"] as? String ?? "")
@@ -1886,7 +1925,7 @@ struct LibraryRecordDetailView: View {
         guard question.isEmpty || options.isEmpty || hasLinkedImageReference || !materialID.isEmpty else {
             return ""
         }
-        return "\(paperID)|\(questionID)"
+        return "\(activeRecordKey)|\(paperID)|\(questionID)"
     }
 
     @MainActor
@@ -1895,6 +1934,7 @@ struct LibraryRecordDetailView: View {
               kind == .errors,
               let paperID = object["questionBankPaperID"] as? String,
               let questionID = object["questionBankQuestionID"] as? String else {
+            if linkedQuestionBankContext != nil { pageContentRevision &+= 1 }
             linkedQuestionBankContext = nil
             linkedQuestionFallbackObject = [:]
             return
@@ -1907,6 +1947,7 @@ struct LibraryRecordDetailView: View {
         )
         linkedQuestionBankContext = context
         linkedQuestionFallbackObject = context?.detailObject ?? [:]
+        pageContentRevision &+= 1
     }
 
     private var imageValues: [String] {
@@ -2064,20 +2105,7 @@ struct LibraryRecordDetailView: View {
     }
 
     private func openDoodle() {
-        if let pendingEditorRequestID {
-            let transitionRecordID = pendingEditorTransitionRecordID ?? record?.recordID ?? pendingEditorRequestID
-            self.pendingEditorRequestID = nil
-            pendingEditorTransitionRecordID = nil
-            didHandOffEditRequest = false
-            onCancelEditRequest(transitionRecordID)
-            LibraryPerformanceLog.editorTransition(
-                "menu-action",
-                recordID: transitionRecordID,
-                details: "cancelled-for-doodle",
-                completes: true,
-                transitionKey: "menu-action"
-            )
-        }
+        guard canOpenDoodle else { return }
         let openStart = ProcessInfo.processInfo.systemUptime
         LibraryPerformanceLog.event("doodle.tap id=\(LibraryPerformanceLog.shortIdentifier(activeRecordID))")
         let opensSplitDoodle = isMaterialPaneOpen && showsDetachedDataAnalysisMaterial
@@ -2183,6 +2211,11 @@ struct LibraryRecordDetailView: View {
         )
     }
 
+    private var isPayloadLoading: Bool {
+        guard let key = activePayloadKey else { return !payloadDecodeFailed }
+        return loadedPayloadKey?.recordID != key.recordID
+    }
+
     private func loadActivePayload() async {
         guard let key = activePayloadKey,
               let record,
@@ -2190,7 +2223,6 @@ struct LibraryRecordDetailView: View {
             object = [:]
             imageSourceIdentities = [:]
             payloadDecodeFailed = true
-            isPayloadLoading = false
             loadedPayloadKey = nil
             return
         }
@@ -2199,7 +2231,6 @@ struct LibraryRecordDetailView: View {
            key.updatedAt == lastLocallySavedNoteUpdate {
             self.lastLocallySavedNoteUpdate = nil
             loadedPayloadKey = key
-            isPayloadLoading = false
             return
         }
 
@@ -2219,7 +2250,6 @@ struct LibraryRecordDetailView: View {
             payloadDecodeFailed = true
         }
         loadedPayloadKey = key
-        isPayloadLoading = false
     }
 
     private var record: StoredRecord? {
@@ -2236,6 +2266,7 @@ struct LibraryRecordDetailView: View {
     private func refreshObject(_ value: [String: Any]) {
         imageSourceIdentities = Self.reconciledImageSourceIdentities(for: value, previous: imageSourceIdentities)
         object = value
+        pageContentRevision &+= 1
     }
 
     private static func makeImageSourceIdentities(for object: [String: Any]) -> [String: LibraryDetailImageSourceIdentity] {

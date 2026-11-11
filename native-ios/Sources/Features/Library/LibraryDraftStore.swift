@@ -9,6 +9,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
     var type: String
     var knowledgePoint: String
     var errorCause: String
+    var errorTypeID: String?
     var status: String
     var options: [String]
     var optionImages: [String]?
@@ -76,6 +77,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         type = draft.type
         knowledgePoint = draft.knowledgePoint
         errorCause = draft.errorCause
+        errorTypeID = draft.errorTypeID
         status = draft.status
         options = draft.options
         optionImages = draft.optionImages
@@ -146,6 +148,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         draft.content = content
         draft.type = type
         draft.knowledgePoint = knowledgePoint
+        draft.errorTypeID = errorTypeID
         let restoredCauseAuthority = quantityErrorCauseIsAuthoritative ?? false
         draft.quantityErrorCauseIsAuthoritative = restoredCauseAuthority
         if subject == "数量关系" {

@@ -40,6 +40,7 @@ final class LibrarySnapshotCache {
     private var cachedWordNames: [String: String] = [:]
     private var cachedExamTitleRevision: [ExamTitleRevision]?
     private var cachedExamTitles: [String: String] = [:]
+    private(set) var examTitleRevision = 0
 
     func wordNames(in records: [StoredRecord]) -> [String: String] {
         let wordRecords = records.filter { $0.collection == "words" }
@@ -107,6 +108,7 @@ final class LibrarySnapshotCache {
         }
         let changedExamIDs = Set(previous.keys).union(result.keys).filter { previous[$0] != result[$0] }
         if !changedExamIDs.isEmpty {
+            examTitleRevision &+= 1
             let changedIDs = Set(changedExamIDs)
             entries = entries.filter { _, entry in
                 entry.reviewSource != .mock || !changedIDs.contains(entry.snapshot.sourceExamID)
@@ -194,11 +196,25 @@ final class LibraryRecordListCache {
         let subject: String?
         let module: String?
         let selectedQuantityType: String
+        let errorTypeFilter: LibraryErrorTypeFilter
+        let validErrorTypeIDs: Set<String>
         let reviewSource: LibraryReviewSource
+    }
+
+    private struct ErrorSequenceQuery: Equatable {
+        let sortedQuery: Query?
+        let tag: String
+        let search: String
+        let includesMastered: Bool
+        let examTitleRevision: Int
     }
 
     private var sortedQuery: Query?
     private var sortedRecords: [StoredRecord] = []
+    private var errorSequenceQuery: ErrorSequenceQuery?
+    private var errorSequence: [String] = []
+    private var tagRevisions: [RecordRevision]?
+    private var tagsByRecord: [String: [String]] = [:]
     private var quantityTypesRevision: [RecordRevision]?
     private var quantityTypesValue: [String] = []
     private let reviewSourceCache = LibraryReviewSourceClassificationCache()
@@ -211,7 +227,9 @@ final class LibraryRecordListCache {
         records: [StoredRecord],
         kind: LibraryContentKind,
         scope: LibraryScope,
-        selectedQuantityType: String
+        selectedQuantityType: String,
+        errorTypeFilter: LibraryErrorTypeFilter,
+        validErrorTypeIDs: Set<String>
     ) -> [StoredRecord] {
         let revisions = records.map(RecordRevision.init)
         let query = Query(
@@ -220,12 +238,14 @@ final class LibraryRecordListCache {
             subject: scope.subject,
             module: scope.module,
             selectedQuantityType: selectedQuantityType,
+            errorTypeFilter: errorTypeFilter,
+            validErrorTypeIDs: validErrorTypeIDs,
             reviewSource: scope.reviewSource
         )
         guard sortedQuery != query else { return sortedRecords }
 
         let isQuantityContext = scope.subject == "数量关系" && scope.module == nil
-        let validQuantityTypes = Set(quantityTypes(records: records))
+        let validQuantityTypes = isQuantityContext ? Set(quantityTypes(records: records)) : []
         let reviewSources = reviewSourceCache.classifications(for: records)
         sortedRecords = records.filter { record in
             guard record.collection == kind.collection, scope.contains(record) else { return false }
@@ -239,6 +259,11 @@ final class LibraryRecordListCache {
                 }
             }
             if kind == .words && !scope.isLogicFill { return false }
+            if kind == .errors, errorTypeFilter != .all {
+                return errorTypeFilter.includes(
+                    record.indexObject?["errorTypeID"] as? String, validIDs: validErrorTypeIDs
+                )
+            }
             return true
         }.sorted { left, right in
             let leftDate = kind == .errors
@@ -262,10 +287,44 @@ final class LibraryRecordListCache {
         return quantityTypesValue
     }
 
+    func visibleErrorIDs(
+        tag: String,
+        search: String,
+        includesMastered: Bool,
+        examTitleRevision: Int,
+        build: () -> [String]
+    ) -> [String] {
+        let query = ErrorSequenceQuery(
+            sortedQuery: sortedQuery, tag: tag, search: search, includesMastered: includesMastered,
+            examTitleRevision: examTitleRevision
+        )
+        if errorSequenceQuery != query {
+            errorSequence = build()
+            errorSequenceQuery = query
+        }
+        return errorSequence
+    }
+
+    func tagIndex(
+        for records: [StoredRecord],
+        buildTags: (StoredRecord) -> [String]
+    ) -> [String: [String]] {
+        let revisions = records.map(RecordRevision.init)
+        if tagRevisions != revisions {
+            tagsByRecord = Dictionary(uniqueKeysWithValues: records.map { ($0.compoundID, buildTags($0)) })
+            tagRevisions = revisions
+        }
+        return tagsByRecord
+    }
+
     func invalidate() {
         sortedQuery = nil
         sortedRecords.removeAll()
         quantityTypesRevision = nil
         quantityTypesValue.removeAll()
+        errorSequenceQuery = nil
+        errorSequence.removeAll()
+        tagRevisions = nil
+        tagsByRecord.removeAll()
     }
 }

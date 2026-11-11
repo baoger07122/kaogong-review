@@ -88,7 +88,7 @@ private struct LibraryStandardErrorEditorForm: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        LazyVStack(alignment: .leading, spacing: 10) {
             if recordID != nil {
                 analysisSection
             }
@@ -558,7 +558,7 @@ private struct LibraryErrorAnalysisSection: View {
         VStack(alignment: .leading, spacing: 7) {
             Label("\(knowledgeLabel)与\(causeLabel)", systemImage: "tag").font(.system(size: 13, weight: .medium))
             tagInput(title: knowledgeLabel, text: $draft.knowledgePoint, allowsMultiple: true, showsChevron: false)
-            if isDataAnalysis {
+            if isDataAnalysis || isLogicFill {
                 plainTextInput(label: "错因", text: $draft.errorCause)
             } else if isAnalogy {
                 plainTextInput(label: causeLabel, text: $draft.errorCause)

@@ -33,6 +33,7 @@ struct LibraryView: View {
     @State private var wordEntryKind = ""
     @State private var renderLimit = 40
     @State private var selectedQuantityType = ""
+    @State private var selectedErrorType = LibraryErrorTypeFilter.all
     @State private var snapshotCache = LibrarySnapshotCache()
     @State private var recordListCache = LibraryRecordListCache()
     @State private var partitionStates: [LibraryReviewSource: LibraryPartitionState] = [:]
@@ -73,14 +74,19 @@ struct LibraryView: View {
                 selectedQuantityType = ""
             }
         }
+        .onChange(of: errorTypes) { _, values in
+            if let id = selectedErrorType.selectedID, !values.contains(where: { $0.id == id }) {
+                selectedErrorType = .all
+            }
+        }
         .onChange(of: navigationPath) { _, path in
             let activeEditorKey: String? = path.last.flatMap { route in
                 guard case let .editor(kind, recordID) = route, let recordID else { return nil }
                 return "\(kind.collection)|\(recordID)"
             }
             if let activeEditorKey, let draft = preparedEditDrafts[activeEditorKey] {
-                preparedEditDrafts = [activeEditorKey: draft]
-            } else {
+                if preparedEditDrafts.count > 1 { preparedEditDrafts = [activeEditorKey: draft] }
+            } else if !preparedEditDrafts.isEmpty {
                 preparedEditDrafts = [:]
             }
         }
@@ -278,6 +284,7 @@ struct LibraryView: View {
             scope: recordID == nil ? creationScope : scope,
             record: record,
             preferredType: recordID == nil ? (kind == .words ? wordCategory.rawValue : selectedTag) : "",
+            preferredErrorTypeID: recordID == nil && kind == .errors ? selectedErrorType.selectedID : nil,
             preparedDraft: preparedDraft,
             dismissAfterSave: !(recordID == nil && (kind == .errors || kind == .words)),
             onSaved: { savedID in
@@ -341,7 +348,7 @@ struct LibraryView: View {
         let tagFilteredRecords = filterRecords(matching: selectedTag, from: scopedRecords)
         let renderedSnapshots = snapshots(from: tagFilteredRecords)
         let visibleRecords = displayedRecords(from: renderedSnapshots)
-        let visibleTags = availableTags(from: scopedRecords)
+        let visibleTags = showsCategoryControl && canShowCategoryControl ? availableTags(from: scopedRecords) : []
         let hasMoreVisibleRecords = renderLimit < tagFilteredRecords.count
         return VStack(spacing: 0) {
             header
@@ -375,6 +382,7 @@ struct LibraryView: View {
                         .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
                     }
                     if isQuantityContext, kind == .errors || kind == .notes { quantityTypeBar }
+                    if kind == .errors, errorTypeSubject != nil { errorTypeBar }
                     filterBar(availableTags: visibleTags)
                     if kind == .words { wordCategoryBar }
                     if kind == .notes, noteContext != nil { noteTypeBar }
@@ -404,7 +412,7 @@ struct LibraryView: View {
                             records: visibleRecords,
                             kind: kind,
                             cardSize: cardSize,
-                            partitionKey: "\(kind.collection)|\(scope.subject ?? "")|\(scope.module ?? "")|\(scope.reviewSource.rawValue)|\(includesMasteredErrors)|\(selectedTag)|\(selectedQuantityType)|\(searchText)",
+                            partitionKey: "\(kind.collection)|\(scope.subject ?? "")|\(scope.module ?? "")|\(scope.reviewSource.rawValue)|\(includesMasteredErrors)|\(selectedTag)|\(selectedQuantityType)|\(selectedErrorType)|\(searchText)",
                             onOpen: { open($0) },
                             onDelete: { deleteTarget = LibraryDeleteTarget(kind: kind, recordID: $0.record.recordID) },
                             hiddenTags: kind == .notes && !selectedTag.isEmpty ? [selectedTag] : [],
@@ -607,6 +615,7 @@ struct LibraryView: View {
             searchText: searchText,
             selectedTag: selectedTag,
             selectedQuantityType: selectedQuantityType,
+            selectedErrorType: selectedErrorType,
             renderLimit: renderLimit,
             wordCategory: wordCategory,
             wordSentiment: wordSentiment,
@@ -619,6 +628,7 @@ struct LibraryView: View {
             searchText = saved.searchText
             selectedTag = saved.selectedTag
             selectedQuantityType = saved.selectedQuantityType
+            selectedErrorType = saved.selectedErrorType
             renderLimit = saved.renderLimit
             wordCategory = saved.wordCategory
             wordSentiment = saved.wordSentiment
@@ -654,7 +664,7 @@ struct LibraryView: View {
                 }
             }
 
-            if canShowCategoryControl && showsCategoryControl && !availableTags.isEmpty {
+            if showsCategoryControl && canShowCategoryControl && !availableTags.isEmpty {
                 Menu {
                     Button(kind == .notes ? "全部标签" : "全部标签/标记") { selectTag("") }
                     ForEach(availableTags, id: \.self) { tag in
@@ -714,20 +724,21 @@ struct LibraryView: View {
     }
 
     private var hasVisibleFilterControls: Bool {
-        (canShowCategoryControl && showsCategoryControl)
+        (showsCategoryControl && canShowCategoryControl)
             || showsCardSizeControl
             || kind == .words
             || isGraphReasoningContext
     }
 
     private var hasActiveFilterConditions: Bool {
-        !selectedTag.isEmpty || !selectedQuantityType.isEmpty
+        !selectedTag.isEmpty || !selectedQuantityType.isEmpty || selectedErrorType != .all
             || (kind == .words && (!wordEntryKind.isEmpty || !wordSentiment.isEmpty))
     }
 
     private func clearActiveFilters() {
         selectedTag = ""
         selectedQuantityType = ""
+        selectedErrorType = .all
         wordEntryKind = ""
         wordSentiment = ""
         renderLimit = 40
@@ -803,22 +814,51 @@ struct LibraryView: View {
     }
     private var quantityQuestionTypes: [String] { recordListCache.quantityTypes(records: records) }
 
+    private var errorTypeSubject: LibraryErrorTypeSubject? {
+        scope.subject.flatMap(LibraryErrorTypeSubject.init(rawValue:))
+    }
+
+    private var errorTypes: [LibraryErrorType] {
+        guard let errorTypeSubject else { return [] }
+        return LibraryErrorTypeRepository.types(for: errorTypeSubject, records: records)
+    }
+
     private var sortedScopedRecords: [StoredRecord] {
         recordListCache.sortedScopedRecords(
             records: records,
             kind: kind,
             scope: scope,
-            selectedQuantityType: selectedQuantityType
+            selectedQuantityType: selectedQuantityType,
+            errorTypeFilter: errorTypeSubject == nil ? .all : selectedErrorType,
+            validErrorTypeIDs: selectedErrorType == .all ? [] : Set(errorTypes.map(\.id))
         )
     }
 
     private var orderedVisibleErrorRecordIDs: [String] {
         guard kind == .errors else { return [] }
-        let scoped = filterRecords(matching: selectedTag, from: sortedScopedRecords)
-        let lightSnapshots = scoped.map {
-            LibraryRecordSnapshot(record: $0, reviewSource: scope.reviewSource)
+        let scoped = sortedScopedRecords
+        let keyword = normalizedSearch(searchText)
+        let examTitles = !keyword.isEmpty && scope.reviewSource == .mock ? snapshotCache.examTitles(in: records) : [:]
+        return recordListCache.visibleErrorIDs(
+            tag: selectedTag, search: keyword, includesMastered: includesMasteredErrors,
+            examTitleRevision: snapshotCache.examTitleRevision
+        ) {
+            let candidates = filterRecords(matching: selectedTag, from: scoped)
+            if keyword.isEmpty && selectedTag.isEmpty {
+                if includesMasteredErrors { return candidates.map(\.recordID) }
+                return candidates.compactMap { record in
+                    let index = record.indexObject ?? [:]
+                    let status = [index["status"], index["masteryStatus"]]
+                        .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .first { !$0.isEmpty }
+                    return status == "已掌握" ? nil : record.recordID
+                }
+            }
+            let snapshots = candidates.map {
+                LibraryRecordSnapshot(record: $0, sourceExamTitlesByID: examTitles, reviewSource: scope.reviewSource)
+            }
+            return displayedRecords(from: snapshots).map { $0.record.recordID }
         }
-        return displayedRecords(from: lightSnapshots).map { $0.record.recordID }
     }
 
     private func displayedRecords(from snapshots: [LibraryRecordSnapshot]) -> [LibraryRecordSnapshot] {
@@ -854,19 +894,45 @@ struct LibraryView: View {
     }
 
     private func quantityTypeChip(_ title: String, value: String) -> some View {
-        Button {
+        typeFilterChip(title, selected: selectedQuantityType == value) {
             selectedQuantityType = selectedQuantityType == value ? "" : value
             selectedTag = ""
             renderLimit = 40
-        } label: {
+        }
+    }
+
+    private var errorTypeBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                ForEach(errorTypes) { type in
+                    errorTypeChip(type.name, filter: .type(type.id))
+                }
+                errorTypeChip("未分类", filter: .unclassified)
+            }
+        }
+        .contentMargins(.horizontal, 1, for: .scrollContent)
+        .accessibilityIdentifier("library-error-type-filter")
+    }
+
+    private func errorTypeChip(_ title: String, filter: LibraryErrorTypeFilter) -> some View {
+        typeFilterChip(title, selected: selectedErrorType == filter) {
+            selectedErrorType = selectedErrorType == filter ? .all : filter
+            selectedTag = ""
+            renderLimit = 40
+        }
+    }
+
+    private func typeFilterChip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             Text(title)
                 .font(AppTheme.auxiliaryFont.weight(.semibold))
-                .foregroundStyle(selectedQuantityType == value ? AppTheme.accent : Color.primary)
+                .foregroundStyle(selected ? AppTheme.accent : Color.primary)
                 .padding(.horizontal, 10)
                 .frame(height: 30)
-                .background(selectedQuantityType == value ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045), in: Capsule())
+                .background(selected ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045), in: Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private var wordCategoryBar: some View {
@@ -901,19 +967,24 @@ struct LibraryView: View {
         if kind == .stickies, let context = stickyContext {
             return StickyTagRepository.tags(subject: context.subject, module: context.module, records: records).map(\.name)
         }
-        return Array(Set(records.flatMap { tagValues(for: $0) }).sorted())
+        return Set(recordListCache.tagIndex(for: records, buildTags: tagValues).values.flatMap { $0 }).sorted()
     }
 
     private func filterRecords(matching tag: String, from records: [StoredRecord]) -> [StoredRecord] {
         guard kind == .errors, !tag.isEmpty else { return records }
-        return records.filter { tagValues(for: $0).contains(tag) }
+        let tags = recordListCache.tagIndex(for: records, buildTags: tagValues)
+        return records.filter { tags[$0.compoundID]?.contains(tag) == true }
     }
 
     private func tagValues(for record: StoredRecord) -> [String] {
         let object = record.indexObject ?? [:]
         var values: [String] = []
         let isDataAnalysis = record.subject == "资料分析" || object["subject"] as? String == "资料分析"
-        let baseKeys = isDataAnalysis ? ["type", "category"] : ["type", "category", "errorCause"]
+        let usesTextCause = LibraryDataAnalysisCauseLayout.usesTextCause(
+            subject: record.subject ?? (object["subject"] as? String ?? ""),
+            module: record.module ?? (object["module"] as? String ?? "")
+        )
+        let baseKeys = usesTextCause ? ["type", "category"] : ["type", "category", "errorCause"]
         if let baseTag = baseKeys.compactMap({ object[$0] as? String }).first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
             values.append(baseTag)
         }
@@ -1070,6 +1141,7 @@ struct LibraryView: View {
         wordSentiment = ""
         wordEntryKind = ""
         selectedQuantityType = ""
+        selectedErrorType = .all
         renderLimit = 40
         if kind == .words && !scope.isLogicFill { kind = .notes }
     }

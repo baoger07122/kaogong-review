@@ -2,10 +2,11 @@ import SwiftUI
 import UIKit
 
 @MainActor
-struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
+struct LibraryHorizontalRecordPager<ContentVersion: Equatable>: UIViewControllerRepresentable {
     let recordIDs: [String]
     @Binding var currentRecordID: String
     let isPagingEnabled: Bool
+    let currentContentVersion: ContentVersion
     let contentForRecord: (String) -> AnyView
 
     func makeCoordinator() -> Coordinator {
@@ -62,7 +63,7 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
         private weak var pageController: UIPageViewController?
         private var cache: [String: UIHostingController<AnyView>] = [:]
         private var lastSynchronizedCurrentRecordID: String?
-        private var lastSynchronizedRecordIDs: [String] = []
+        private var lastSynchronizedContentVersion: ContentVersion?
         private var lastTransitionDirection: UIPageViewController.NavigationDirection = .forward
         private(set) var isTransitioning = false
 
@@ -84,7 +85,7 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
             pageController = nil
             cache.removeAll()
             lastSynchronizedCurrentRecordID = nil
-            lastSynchronizedRecordIDs = []
+            lastSynchronizedContentVersion = nil
         }
 
         func configureVisibleController() {
@@ -94,20 +95,23 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
             updatePagingAvailability()
             pageController.setViewControllers([initial], direction: .forward, animated: false)
             lastSynchronizedCurrentRecordID = parent.currentRecordID
-            lastSynchronizedRecordIDs = parent.recordIDs
+            lastSynchronizedContentVersion = parent.currentContentVersion
             pruneCache(around: parent.currentRecordID)
         }
 
         func synchronizePageContent() {
             let currentID = parent.currentRecordID
             let recordIDs = parent.recordIDs
-            guard lastSynchronizedCurrentRecordID != currentID || lastSynchronizedRecordIDs != recordIDs else { return }
-            for (recordID, controller) in cache where recordIDs.contains(recordID) {
-                controller.rootView = parent.contentForRecord(recordID)
-                controller.view.backgroundColor = .white
+            let previousID = lastSynchronizedCurrentRecordID
+            let changedPage = previousID != currentID
+            if changedPage, let previousID, recordIDs.contains(previousID) {
+                cache[previousID]?.rootView = parent.contentForRecord(previousID)
+            }
+            if changedPage || lastSynchronizedContentVersion != parent.currentContentVersion {
+                cache[currentID]?.rootView = parent.contentForRecord(currentID)
             }
             lastSynchronizedCurrentRecordID = currentID
-            lastSynchronizedRecordIDs = recordIDs
+            lastSynchronizedContentVersion = parent.currentContentVersion
         }
 
         func updatePagingAvailability() {
@@ -178,6 +182,7 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
         ) {
             isTransitioning = false
             guard completed, let newID = visibleRecordID else {
+                synchronizePageContent()
                 updatePagingAvailability()
                 return
             }

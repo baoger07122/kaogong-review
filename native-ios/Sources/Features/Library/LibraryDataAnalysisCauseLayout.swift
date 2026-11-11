@@ -1,6 +1,10 @@
 import Foundation
 
 enum LibraryDataAnalysisCauseLayout {
+    static func usesTextCause(subject: String, module: String) -> Bool {
+        subject == "资料分析" || (subject == "言语理解" && module == "逻辑填空")
+    }
+
     static func splitLines(_ text: String) -> [String] {
         text.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

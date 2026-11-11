@@ -127,7 +127,7 @@ final class StoredRecord {
         switch collection {
         case "errors":
             keys = [
-                "id", "subject", "module", "knowledgePoints", "knowledgePoint", "errorCause", "status",
+                "id", "subject", "module", "knowledgePoints", "knowledgePoint", "errorCause", "errorTypeID", "status",
                 "cause", "reason", "compareGroups",
                 "question", "title", "type", "category", "isShenlun", "createdAt", "updatedAt", "lastReviewDate",
                 "questionSource", "source", "questionNumber", "sourceYear", "sourceExamType", "sourceRegion",

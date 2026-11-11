@@ -45,6 +45,7 @@ struct LibraryRecordDraft {
     var type = ""
     var knowledgePoint = ""
     var errorCause = ""
+    var errorTypeID: String?
     var centerComprehensionTrap = ""
     var status = "未掌握"
     var isDifficult = false
@@ -155,9 +156,11 @@ struct LibraryRecordDraft {
         quantityErrorCauseIsAuthoritative = LibraryQuantityErrorCauseCompatibility.isAuthoritative(in: original)
         errorCause = kind == .errors && subject == "数量关系"
             ? LibraryQuantityErrorCauseCompatibility.values(in: original).joined(separator: "\n")
-            : (kind == .errors && subject == "资料分析"
+            : (kind == .errors && LibraryDataAnalysisCauseLayout.usesTextCause(subject: subject, module: module)
                 ? LibraryDataAnalysisCauseLayout.rawCause(in: original)
                 : LibraryRecordDraft.text(original, keys: ["errorCause", "cause", "reason"]))
+        errorTypeID = kind == .errors && LibraryErrorTypeSubject(rawValue: subject) != nil
+            ? original["errorTypeID"] as? String : nil
         centerComprehensionTrap = original["centerComprehensionTrap"] as? String ?? ""
         status = LibraryRecordDraft.text(original, keys: ["status", "masteryStatus"]).isEmpty ? "未掌握" : LibraryRecordDraft.text(original, keys: ["status", "masteryStatus"])
         isDifficult = (original["isDifficult"] as? Bool) ?? (original["isDifficult"] as? NSNumber)?.boolValue ?? false
@@ -277,6 +280,7 @@ struct LibraryRecordDraft {
             && type == other.type
             && knowledgePoint == other.knowledgePoint
             && errorCause == other.errorCause
+            && errorTypeID == other.errorTypeID
             && centerComprehensionTrap == other.centerComprehensionTrap
             && status == other.status
             && isDifficult == other.isDifficult
@@ -518,6 +522,7 @@ enum LibraryRecordRepository {
             object["errorCause"] = draft.subject == "数量关系"
                 ? LibraryQuantityErrorCauseCompatibility.lines(from: draft.errorCause)
                 : draft.errorCause
+            object["errorTypeID"] = LibraryErrorTypeSubject(rawValue: draft.subject) == nil ? nil : draft.errorTypeID
             object["status"] = draft.status
             object["isDifficult"] = draft.isDifficult
             object["needsReview"] = draft.needsReview
@@ -767,7 +772,7 @@ enum LibraryRecordRepository {
                 )
                 if kind == .errors,
                    draft.subject != "数量关系",
-                   draft.subject != "资料分析",
+                   !LibraryDataAnalysisCauseLayout.usesTextCause(subject: draft.subject, module: draft.module),
                    !(draft.subject == "判断推理" && draft.module == "类比推理") {
                     try TagLibraryRepository.add(
                         [draft.errorCause],

@@ -95,6 +95,12 @@ struct SettingsView: View {
                     NavigationLink(value: SettingsRoute.quantityQuestionTypes) {
                         settingsNavigationRow("数量题型管理", image: "square.stack.3d.up")
                     }.buttonStyle(.plain)
+                    ForEach(LibraryErrorTypeSubject.allCases, id: \.self) { subject in
+                        settingsDivider
+                        NavigationLink(value: SettingsRoute.errorTypes(subject)) {
+                            settingsNavigationRow(subject.managementTitle, image: "tag")
+                        }.buttonStyle(.plain)
+                    }
                 }
 
                 settingsSection("界面与标准") {
@@ -142,6 +148,7 @@ struct SettingsView: View {
                 case .noteTypes: NoteTypeManagerView()
                 case .stickyTags: StickyTagManagerView()
                 case .quantityQuestionTypes: QuantityQuestionTypeManagerView()
+                case let .errorTypes(subject): LibraryErrorTypeManagerView(subject: subject)
                 case .designSystem: NativeDesignSystemView()
                 }
             }
