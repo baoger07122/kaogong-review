@@ -6,9 +6,11 @@ enum LibraryDataAnalysisCauseLayout {
     }
 
     static func values(in object: [String: Any]) -> [String] {
-        for key in ["errorCause", "cause", "reason"] {
-            let values = splitLines(object[key])
-            if !values.isEmpty { return values }
+        // An explicitly present canonical field wins even when empty; legacy
+        // aliases are only consulted when the canonical key is absent.
+        if let canonical = object["errorCause"] { return splitLines(canonical) }
+        for key in ["cause", "reason"] {
+            if let legacy = object[key] { return splitLines(legacy) }
         }
         return []
     }
