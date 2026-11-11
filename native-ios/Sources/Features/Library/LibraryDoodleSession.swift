@@ -665,7 +665,7 @@ struct LibraryDoodleOverlay: View {
 
     private var toolbar: some View {
         NativeDoodleToolbarCapsule {
-            toolbarButton("xmark", label: "退出涂鸦", action: session.dismiss)
+            toolbarButton("xmark", label: "退出涂鸦", action: { session.dismiss() })
                 .accessibilityIdentifier("library-doodle-close")
             if session.isSplitDrawingSession {
                 splitPaneButton(.material, title: "材料")

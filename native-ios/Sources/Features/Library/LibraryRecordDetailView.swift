@@ -95,6 +95,8 @@ struct LibraryRecordDetailView: View {
 
     @State private var activeRecordKey: String
     @State private var object: [String: Any]
+    @State private var redoActionsAvailable = false
+    @State private var redoActionsRecordID: String?
     @State private var imageSourceIdentities: [String: LibraryDetailImageSourceIdentity]
     @State private var payloadDecodeFailed = false
     @State private var loadedPayloadKey: LibraryDetailPayloadKey?
@@ -182,6 +184,8 @@ struct LibraryRecordDetailView: View {
                     didHandOffEditRequest = false
                 }
                 isMaterialPaneOpen = false
+                redoActionsAvailable = false
+                redoActionsRecordID = nil
                 pendingEditorRequestID = nil
                 pendingEditorTransitionRecordID = nil
                 editorTransitionErrorMessage = nil
@@ -677,26 +681,48 @@ struct LibraryRecordDetailView: View {
 
     private var detailToolbar: some View {
         HStack(spacing: 8) {
-            detailToolbarActions
-        }
-        .frame(minHeight: 44)
-    }
-
-    @ViewBuilder
-    private var detailToolbarActions: some View {
-        if doodleSession.isPresented {
-            toolbarPlaceholder
-            toolbarPlaceholder
-        } else {
             doodleToolbarButton
-            if pendingEditorRequestID != nil {
-                ProgressView()
-                    .frame(width: 44, height: 44)
-                    .accessibilityLabel("正在打开编辑")
-            } else {
+                .opacity(doodleSession.isPresented ? 0 : 1)
+                .disabled(doodleSession.isPresented || !canOpenDoodle)
+                .accessibilityHidden(doodleSession.isPresented)
+
+            ZStack {
                 questionActionsMenu
+                    .opacity(isQuestionActionsMenuVisible ? 1 : 0)
+                    .disabled(!isQuestionActionsMenuVisible)
+                    .accessibilityHidden(!isQuestionActionsMenuVisible)
+                if pendingEditorRequestID != nil && !doodleSession.isPresented {
+                    ProgressView()
+                        .frame(width: 44, height: 44)
+                        .accessibilityLabel("正在打开编辑")
+                        .allowsHitTesting(false)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+            .overlay {
+                if !isQuestionActionsMenuVisible {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .accessibilityHidden(true)
+                }
             }
         }
+        .frame(minHeight: 44)
+        .onAppear {
+            LibraryPerformanceLog.event(
+                "detail.toolbar-mounted id=\(LibraryPerformanceLog.shortIdentifier(activeRecordID))"
+            )
+        }
+        .onDisappear {
+            LibraryPerformanceLog.event(
+                "detail.toolbar-unmounted id=\(LibraryPerformanceLog.shortIdentifier(activeRecordID))"
+            )
+        }
+    }
+
+    private var isQuestionActionsMenuVisible: Bool {
+        !doodleSession.isPresented && pendingEditorRequestID == nil
     }
 
     private var canOpenDoodle: Bool {
@@ -708,13 +734,6 @@ struct LibraryRecordDetailView: View {
             .buttonStyle(LibraryDoodleToolbarButtonStyle())
             .accessibilityLabel("涂鸦")
             .disabled(!canOpenDoodle)
-    }
-
-    private var toolbarPlaceholder: some View {
-        Color.clear
-            .frame(width: 44, height: 44)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
     }
 
     private var questionActionsMenu: some View {
@@ -748,6 +767,7 @@ struct LibraryRecordDetailView: View {
         }
         .accessibilityLabel("题目操作")
         .accessibilityIdentifier("library-record-actions")
+        .frame(width: 44, height: 44)
     }
 
     private func requestEdit() {
@@ -1482,9 +1502,9 @@ struct LibraryRecordDetailView: View {
 
     private var supportsRedoMode: Bool {
         kind == .errors
-            && record?.isShenlunRecord != true
-            && object["questionBankPaperID"] == nil
-            && object["questionBankQuestionID"] == nil
+            && redoActionsAvailable
+            && redoActionsRecordID == activeRecordID
+            && !isPayloadLoading
             && displayQuestionBankContext == nil
     }
 
@@ -1932,8 +1952,21 @@ struct LibraryRecordDetailView: View {
 
     @MainActor
     private func loadLinkedQuestionContext() {
-        guard !linkedQuestionContextKey.isEmpty,
-              kind == .errors,
+        let contextKey = linkedQuestionContextKey
+        guard !contextKey.isEmpty else {
+            if linkedQuestionBankContext != nil { pageContentRevision &+= 1 }
+            linkedQuestionBankContext = nil
+            linkedQuestionFallbackObject = [:]
+            return
+        }
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        LibraryPerformanceLog.event(
+            "detail.linked-context.begin id=\(LibraryPerformanceLog.shortIdentifier(activeRecordID))"
+        )
+        defer {
+            LibraryPerformanceLog.mark("detail.linked-context.end", since: startedAt)
+        }
+        guard kind == .errors,
               let paperID = object["questionBankPaperID"] as? String,
               let questionID = object["questionBankQuestionID"] as? String else {
             if linkedQuestionBankContext != nil { pageContentRevision &+= 1 }
@@ -2139,13 +2172,13 @@ struct LibraryRecordDetailView: View {
             splitDrawingBaseline: initialSplitBaseline,
             splitDrawingLayoutDirection: splitDoodleLayoutDirection,
             interactionStartedAt: openStart,
+            onFirstCanvasFrame: {
+                noteSession.finish { _ in }
+            },
             deferCanvasActivation: true,
             canvasHostID: opensSplitDoodle
                 ? "library-record-detail|\(targetID)|split|\(splitDoodleLayoutDirection.rawValue)|material"
                 : "library-record-detail|\(targetID)",
-            onFirstCanvasFrame: {
-                noteSession.finish { _ in }
-            },
             onSave: { updatedDrawing, legacyPreviewCleared, _, _ in
                 guard let targetRecord else { return "涂鸦未保存：题目记录已不存在。" }
                 if targetSession.hasPendingSplitDrawingChanges,
@@ -2219,7 +2252,7 @@ struct LibraryRecordDetailView: View {
 
     private var isPayloadLoading: Bool {
         guard let key = activePayloadKey else { return !payloadDecodeFailed }
-        return loadedPayloadKey?.recordID != key.recordID
+        return loadedPayloadKey != key
     }
 
     private func loadActivePayload() async {
@@ -2230,6 +2263,8 @@ struct LibraryRecordDetailView: View {
             imageSourceIdentities = [:]
             payloadDecodeFailed = true
             loadedPayloadKey = nil
+            redoActionsAvailable = false
+            redoActionsRecordID = nil
             return
         }
         guard loadedPayloadKey != key else { return }
@@ -2251,11 +2286,27 @@ struct LibraryRecordDetailView: View {
         if let decoded {
             refreshObject(decoded.object)
             payloadDecodeFailed = false
+            updateRedoActionAvailability(for: record, payload: decoded.object)
         } else {
             refreshObject([:])
             payloadDecodeFailed = true
+            redoActionsAvailable = false
+            redoActionsRecordID = key.recordID
         }
         loadedPayloadKey = key
+    }
+
+    private func updateRedoActionAvailability(for record: StoredRecord, payload: [String: Any]) {
+        let recordSubject = record.subject?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let payloadSubject = (payload["subject"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let isShenlun = recordSubject == "申论"
+            || payloadSubject == "申论"
+            || (payload["isShenlun"] as? Bool) == true
+        redoActionsAvailable = kind == .errors
+            && !isShenlun
+            && payload["questionBankPaperID"] == nil
+            && payload["questionBankQuestionID"] == nil
+        redoActionsRecordID = record.compoundID
     }
 
     private var record: StoredRecord? {
