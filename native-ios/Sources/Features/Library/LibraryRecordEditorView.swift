@@ -605,7 +605,8 @@ struct LibraryRecordEditorView: View {
         Menu {
             ForEach(SubjectDefinition.all) { subject in
                 Button(subject.name) {
-                    if draft.subject != subject.name { draft.errorTypeID = nil }
+                    guard draft.subject != subject.name else { return }
+                    draft.errorTypeID = nil
                     draft.subject = subject.name
                     draft.module = subject.name == "数量关系"
                         ? ""
@@ -625,24 +626,32 @@ struct LibraryRecordEditorView: View {
             .buttonStyle(.plain)
         } else if let subject = SubjectDefinition.all.first(where: { $0.name == draft.subject }), !subject.modules.isEmpty {
             Menu {
-                ForEach(subject.modules, id: \.self) { module in Button(module) { draft.module = module } }
+                ForEach(subject.modules, id: \.self) { module in
+                    Button(module) {
+                        if let errorType = availableErrorTypes.first(where: { $0.id == draft.errorTypeID }),
+                           !errorType.isAvailable(in: module) {
+                            draft.errorTypeID = nil
+                        }
+                        draft.module = module
+                    }
+                }
             } label: {
                 compactProperty(title: "模块", value: draft.module, image: "square.stack.3d.up")
             }
         }
     }
 
+    private var availableErrorTypes: [LibraryErrorType] {
+        guard let subject = LibraryErrorTypeSubject(rawValue: draft.subject) else { return [] }
+        return LibraryErrorTypeRepository.types(for: subject, records: records)
+            .filter { $0.isAvailable(in: draft.module) }
+    }
+
     @ViewBuilder private var errorTypePicker: some View {
-        if let subject = LibraryErrorTypeSubject(rawValue: draft.subject) {
-            let entries = LibraryErrorTypeRepository.types(for: subject, records: records)
+        if LibraryErrorTypeSubject(rawValue: draft.subject) != nil {
+            let entries = availableErrorTypes
             let selected = entries.first { $0.id == draft.errorTypeID }
             Menu {
-                Button {
-                    draft.errorTypeID = nil
-                } label: {
-                    if selected == nil { Label("未分类", systemImage: "checkmark") }
-                    else { Text("未分类") }
-                }
                 ForEach(entries) { entry in
                     Button {
                         draft.errorTypeID = entry.id
@@ -651,9 +660,16 @@ struct LibraryRecordEditorView: View {
                         else { Text(entry.name) }
                     }
                 }
+                Button {
+                    draft.errorTypeID = nil
+                } label: {
+                    if selected == nil { Label("未分类", systemImage: "checkmark") }
+                    else { Text("未分类") }
+                }
             } label: {
                 compactProperty(title: "错误类型", value: selected?.name ?? "未分类", image: "tag")
             }
+            .menuOrder(.fixed)
             .accessibilityIdentifier("library-error-type-picker")
         }
     }

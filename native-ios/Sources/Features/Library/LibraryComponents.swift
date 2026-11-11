@@ -49,7 +49,7 @@ struct LibrarySidebar: View {
             .padding(.horizontal, 7)
             .padding(.bottom, 24)
         }
-        .background(Color.white)
+        .background(AppTheme.secondaryBackground.opacity(0.72))
     }
 
     @ViewBuilder
@@ -477,6 +477,8 @@ private struct LibraryErrorRecordCard: View {
                     if !causes.isEmpty {
                         if isAnalogyReasoning {
                             plainField(label: errorCauseLabel, value: snapshot.errorCause)
+                        } else if isQuantityRelations {
+                            quantityCauseTagLine(label: errorCauseLabel, values: causes)
                         } else {
                             tagLine(
                                 label: errorCauseLabel,
@@ -597,12 +599,13 @@ private struct LibraryErrorRecordCard: View {
     }
 
     private func sentenceTagLine(label: String, values: [String]) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
+        HStack(alignment: .top, spacing: 5) {
             Text("\(label)：")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Color.black)
                 .fixedSize(horizontal: true, vertical: false)
-            NativeTagFlow(spacing: 5, alignsFirstTextBaseline: true) {
+                .padding(.top, 5)
+            VStack(alignment: .leading, spacing: 5) {
                 ForEach(Array(values.enumerated()), id: \.offset) { _, value in
                     Text(value)
                         .font(.system(size: 11, weight: .medium))
@@ -611,6 +614,27 @@ private struct LibraryErrorRecordCard: View {
                         .padding(.horizontal, 7)
                         .padding(.vertical, 5)
                         .background(Color(red: 1, green: 242 / 255.0, blue: 229 / 255.0), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func quantityCauseTagLine(label: String, values: [String]) -> some View {
+        HStack(alignment: .top, spacing: 5) {
+            Text("\(label)：")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.primary)
+                .padding(.top, 3)
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(Array(values.enumerated()), id: \.offset) { _, value in
+                    Text(value)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1405,7 +1429,9 @@ struct LibraryMasonryGrid: View {
         } else if record.record.collection == "errors", record.record.subject == "数量关系" {
             let causes = record.quantityErrorCauses
             if !causes.isEmpty {
-                metadataRows.append(estimatedTagLineHeight(label: "错因", values: causes, width: contentWidth))
+                metadataRows.append(estimatedStackedTagLineHeight(
+                    label: "错因", values: causes, width: contentWidth, fontSize: 10.5, verticalPadding: 6
+                ))
             }
         } else if isLogicFill {
             let causes = LibraryDataAnalysisCauseLayout.splitLines(record.dataAnalysisErrorCause)
@@ -1532,6 +1558,23 @@ struct LibraryMasonryGrid: View {
             }
         }
         return CGFloat(rows) * 19
+    }
+
+    private func estimatedStackedTagLineHeight(
+        label: String,
+        values: [String],
+        width: CGFloat,
+        fontSize: CGFloat,
+        verticalPadding: CGFloat
+    ) -> CGFloat {
+        guard !values.isEmpty else { return 0 }
+        let labelWidth = CGFloat(label.count + 1) * 12
+        let textWidth = max(1, width - labelWidth - 5 - 14)
+        let rows = values.reduce(CGFloat(0)) { total, value in
+            let lineCount = estimatedLineCount(value, width: textWidth, fontSize: fontSize, limit: nil)
+            return total + CGFloat(lineCount) * fontSize * 1.35 + verticalPadding
+        }
+        return rows + CGFloat(max(0, values.count - 1)) * 5
     }
 
     private func estimatedLineCount(_ text: String, width: CGFloat, fontSize: CGFloat, limit: Int?) -> Int {

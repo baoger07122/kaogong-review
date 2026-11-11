@@ -1,8 +1,29 @@
 import SwiftData
 import SwiftUI
 
+struct LibraryErrorTypeModulesView: View {
+    @Query(filter: #Predicate<StoredRecord> { $0.collection == "keyvalue" }) private var records: [StoredRecord]
+
+    private let subject = LibraryErrorTypeSubject.verbalReasoning
+
+    var body: some View {
+        List {
+            ForEach(subject.modules, id: \.self) { module in
+                NavigationLink(module, value: SettingsRoute.verbalErrorTypes(module: module))
+            }
+            if LibraryErrorTypeRepository.types(for: subject, records: records).contains(where: { $0.module == nil }) {
+                NavigationLink("原有通用类型", value: SettingsRoute.verbalErrorTypes(module: nil))
+            }
+        }
+        .font(AppTheme.bodyFont)
+        .navigationTitle(subject.managementTitle)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 struct LibraryErrorTypeManagerView: View {
     let subject: LibraryErrorTypeSubject
+    var module: String? = nil
     @Environment(\.modelContext) private var modelContext
     @Query(filter: #Predicate<StoredRecord> { $0.collection == "keyvalue" }) private var records: [StoredRecord]
     @State private var isEditing = false
@@ -12,7 +33,11 @@ struct LibraryErrorTypeManagerView: View {
     @State private var errorMessage: String?
 
     private var types: [LibraryErrorType] {
-        LibraryErrorTypeRepository.types(for: subject, records: records)
+        LibraryErrorTypeRepository.types(for: subject, records: records).filter { $0.module == module }
+    }
+
+    private var canAddType: Bool {
+        subject != .verbalReasoning || module != nil
     }
 
     var body: some View {
@@ -21,12 +46,14 @@ struct LibraryErrorTypeManagerView: View {
                 HStack {
                     Text("错误类型").font(AppTheme.sectionTitleFont)
                     Spacer()
-                    Button { beginEdit(nil) } label: { Label("新增", systemImage: "plus") }
-                        .font(AppTheme.inputFont.weight(.semibold))
+                    if canAddType {
+                        Button { beginEdit(nil) } label: { Label("新增", systemImage: "plus") }
+                            .font(AppTheme.inputFont.weight(.semibold))
+                    }
                 }
                 if types.isEmpty {
                     NativeStatusCard(
-                        title: "暂无错误类型", detail: "点击新增建立第一项",
+                        title: "暂无错误类型", detail: canAddType ? "点击新增建立第一项" : "",
                         systemImage: "tag", color: AppTheme.accent
                     )
                 } else {
@@ -36,7 +63,7 @@ struct LibraryErrorTypeManagerView: View {
             .padding(20)
         }
         .background(Color.white)
-        .navigationTitle(subject.managementTitle)
+        .navigationTitle(module ?? (subject == .verbalReasoning ? "原有通用类型" : subject.managementTitle))
         .navigationBarTitleDisplayMode(.inline)
         .overlay {
             if isEditing {
@@ -121,7 +148,7 @@ struct LibraryErrorTypeManagerView: View {
             }
             entries[index].name = name
         } else {
-            entries.append(LibraryErrorType(id: UUID().uuidString, name: name))
+            entries.append(LibraryErrorType(id: UUID().uuidString, name: name, module: module))
         }
         if save(entries) { isEditing = false }
     }
@@ -135,7 +162,7 @@ struct LibraryErrorTypeManagerView: View {
 
     private func save(_ entries: [LibraryErrorType]) -> Bool {
         do {
-            try LibraryErrorTypeRepository.save(entries, for: subject, records: records, context: modelContext)
+            try LibraryErrorTypeRepository.save(entries, for: subject, module: module, records: records, context: modelContext)
             return true
         } catch {
             errorMessage = error.localizedDescription

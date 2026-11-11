@@ -13,11 +13,21 @@ enum LibraryErrorTypeSubject: String, CaseIterable, Hashable {
     }
 
     var managementTitle: String { "\(rawValue)错误类型管理" }
+
+    var modules: [String] {
+        guard self == .verbalReasoning else { return [] }
+        return SubjectDefinition.all.first { $0.name == rawValue }?.modules ?? []
+    }
 }
 
 struct LibraryErrorType: Identifiable, Equatable {
     let id: String
     var name: String
+    var module: String? = nil
+
+    func isAvailable(in module: String) -> Bool {
+        self.module == nil || self.module == module
+    }
 }
 
 enum LibraryErrorTypeFilter: Hashable {
@@ -48,17 +58,23 @@ enum LibraryErrorTypeRepository {
             guard let id = value["id"], !id.isEmpty,
                   let name = value["name"], !name.isEmpty,
                   ids.insert(id).inserted else { return nil }
-            return LibraryErrorType(id: id, name: name)
+            return LibraryErrorType(id: id, name: name, module: value["module"])
         }
     }
 
     static func save(
         _ types: [LibraryErrorType],
         for subject: LibraryErrorTypeSubject,
+        module: String?,
         records: [StoredRecord],
         context: ModelContext
     ) throws {
-        let value = types.map { ["id": $0.id, "name": $0.name] }
+        let otherModules = self.types(for: subject, records: records).filter { $0.module != module }
+        let value = (otherModules + types).map { type in
+            var entry = ["id": type.id, "name": type.name]
+            entry["module"] = type.module
+            return entry
+        }
         let object: [String: Any] = ["key": subject.recordID, "value": value]
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         let existing = catalogRecord(for: subject, records: records)

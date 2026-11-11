@@ -58,7 +58,7 @@ struct LibraryView: View {
                 content(availableWindowWidth: proxy.size.width)
             }
         }
-        .background(Color.white)
+        .background(AppTheme.groupedBackground)
         .stableRootNavigationBar()
         .onAppear { NativePerformanceLog.event("library onAppear") }
         .onReceive(NotificationCenter.default.publisher(for: .legacyBackupRestoreDidComplete)) { _ in
@@ -281,7 +281,7 @@ struct LibraryView: View {
         let preparedDraft = recordID.flatMap { preparedEditDrafts["\(kind.collection)|\($0)"] }
         return LibraryRecordEditorView(
             kind: kind,
-            scope: recordID == nil ? creationScope : scope,
+            scope: recordID == nil ? creationScope(for: kind) : scope,
             record: record,
             preferredType: recordID == nil ? (kind == .words ? wordCategory.rawValue : selectedTag) : "",
             preferredErrorTypeID: recordID == nil && kind == .errors ? selectedErrorType.selectedID : nil,
@@ -302,7 +302,13 @@ struct LibraryView: View {
         )
     }
 
-    private var creationScope: LibraryScope {
+    private func creationScope(for kind: LibraryContentKind) -> LibraryScope {
+        if kind == .errors, scope.subject == LibraryErrorTypeSubject.verbalReasoning.rawValue,
+           scope.module == nil,
+           let id = selectedErrorType.selectedID,
+           let module = errorTypes.first(where: { $0.id == id })?.module {
+            return LibraryScope(subject: scope.subject, module: module, reviewSource: scope.reviewSource)
+        }
         guard scope.subject == "数量关系" else { return scope }
         return LibraryScope(
             subject: "数量关系",
@@ -499,7 +505,7 @@ struct LibraryView: View {
         .padding(.horizontal, 14)
         .padding(.top, 9)
         .padding(.bottom, 8)
-        .background(Color.white)
+        .background(AppTheme.groupedBackground)
     }
 
     private var headerMenu: some View {
@@ -820,7 +826,9 @@ struct LibraryView: View {
 
     private var errorTypes: [LibraryErrorType] {
         guard let errorTypeSubject else { return [] }
-        return LibraryErrorTypeRepository.types(for: errorTypeSubject, records: records)
+        let entries = LibraryErrorTypeRepository.types(for: errorTypeSubject, records: records)
+        guard let module = scope.module, errorTypeSubject == .verbalReasoning else { return entries }
+        return entries.filter { $0.isAvailable(in: module) }
     }
 
     private var sortedScopedRecords: [StoredRecord] {
@@ -905,7 +913,10 @@ struct LibraryView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 7) {
                 ForEach(errorTypes) { type in
-                    errorTypeChip(type.name, filter: .type(type.id))
+                    let title = scope.module == nil
+                        ? type.module.map { "\($0) · \(type.name)" } ?? type.name
+                        : type.name
+                    errorTypeChip(title, filter: .type(type.id))
                 }
                 errorTypeChip("未分类", filter: .unclassified)
             }

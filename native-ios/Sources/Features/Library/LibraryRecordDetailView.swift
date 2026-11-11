@@ -1673,8 +1673,8 @@ struct LibraryRecordDetailView: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .font(.system(size: 12.5))
                     .foregroundStyle(.primary)
-                    .padding(.top, 2)
-                NativeTagFlow(spacing: 5) {
+                    .padding(.top, 4)
+                VStack(alignment: .leading, spacing: 5) {
                     ForEach(Array(values.enumerated()), id: \.offset) { _, value in
                         Text(value)
                             .font(.system(size: 11.5, weight: .medium))
@@ -1711,14 +1711,14 @@ struct LibraryRecordDetailView: View {
                 .fixedSize(horizontal: true, vertical: false)
                 .font(.system(size: 12.5))
                 .foregroundStyle(.primary)
-                .padding(.top, 2)
+                .padding(.top, values.isEmpty ? 2 : 4)
             if values.isEmpty {
                 Text("点击添加错因")
                     .font(.system(size: 11.5))
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                NativeTagFlow(spacing: 5) {
+                VStack(alignment: .leading, spacing: 5) {
                     ForEach(Array(values.enumerated()), id: \.offset) { _, value in
                         Text(value)
                             .font(.system(size: 11.5))
