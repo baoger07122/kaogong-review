@@ -18,6 +18,33 @@ private struct LibraryDetailAttribute: Identifiable {
     var id: String { key }
 }
 
+private struct LibraryDetailPayloadKey: Equatable {
+    let recordID: String
+    let updatedAt: Date?
+    let payloadCount: Int
+}
+
+private struct LibraryDetailDecodedPayload: @unchecked Sendable {
+    let object: [String: Any]
+}
+
+@MainActor
+private final class LibraryDoodleRecoveryBackgroundTask {
+    private var identifier: UIBackgroundTaskIdentifier = .invalid
+
+    init() {
+        identifier = UIApplication.shared.beginBackgroundTask(withName: "LibraryDoodleRecovery") { [weak self] in
+            Task { @MainActor in self?.finish() }
+        }
+    }
+
+    func finish() {
+        guard identifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(identifier)
+        identifier = .invalid
+    }
+}
+
 @MainActor
 private final class LibraryRedoAttemptSession: ObservableObject {
     static let shared = LibraryRedoAttemptSession()
@@ -43,6 +70,7 @@ struct LibraryRecordDetailView: View {
     let kind: LibraryContentKind
     let scope: LibraryScope
     let onEdit: (String) -> Void
+    var onEditPrepared: ((String, LibraryRecordDraft) -> Void)? = nil
     let onDelete: (String) -> Void
     var onCancelEditRequest: (String) -> Void = { _ in }
     var orderedRecordIDs: [String] = []
@@ -53,6 +81,8 @@ struct LibraryRecordDetailView: View {
     @State private var object: [String: Any]
     @State private var imageSourceIdentities: [String: LibraryDetailImageSourceIdentity]
     @State private var payloadDecodeFailed = false
+    @State private var isPayloadLoading = true
+    @State private var loadedPayloadKey: LibraryDetailPayloadKey?
     @State private var lastLocallySavedNoteUpdate: Date?
 
     @State private var showDelete = false
@@ -70,6 +100,8 @@ struct LibraryRecordDetailView: View {
     @State private var isMaterialPaneOpen = false
     @State private var splitDoodleLayoutDirection: LibraryDoodleLayoutDirection = .vertical
     @State private var splitDoodleErrorMessage: String?
+    @State private var backgroundDoodleSaveRequestID: UUID?
+    @State private var lastBackgroundDoodleSaveKey: String?
     @State private var pendingEditorRequestID: String?
     @State private var pendingEditorTransitionRecordID: String?
     @State private var editorTransitionErrorMessage: String?
@@ -80,6 +112,7 @@ struct LibraryRecordDetailView: View {
         scope: LibraryScope,
         record: StoredRecord,
         onEdit: @escaping (String) -> Void,
+        onEditPrepared: ((String, LibraryRecordDraft) -> Void)? = nil,
         onDelete: @escaping (String) -> Void,
         onCancelEditRequest: @escaping (String) -> Void = { _ in },
         orderedRecordIDs: [String] = [],
@@ -89,21 +122,17 @@ struct LibraryRecordDetailView: View {
         self.kind = kind
         self.scope = scope
         self.onEdit = onEdit
+        self.onEditPrepared = onEditPrepared
         self.onDelete = onDelete
         self.onCancelEditRequest = onCancelEditRequest
         self.orderedRecordIDs = orderedRecordIDs
         self.onOpenLinkedWord = onOpenLinkedWord
         self.onOpenLinkedError = onOpenLinkedError
         _activeRecordKey = State(initialValue: record.recordID)
-        if let decodedObject = record.jsonObject {
-            _object = State(initialValue: decodedObject)
-            _imageSourceIdentities = State(initialValue: Self.makeImageSourceIdentities(for: decodedObject))
-            _payloadDecodeFailed = State(initialValue: false)
-        } else {
-            _object = State(initialValue: [:])
-            _imageSourceIdentities = State(initialValue: [:])
-            _payloadDecodeFailed = State(initialValue: true)
-        }
+        _object = State(initialValue: [:])
+        _imageSourceIdentities = State(initialValue: [:])
+        _payloadDecodeFailed = State(initialValue: false)
+        _isPayloadLoading = State(initialValue: true)
     }
 
     var body: some View {
@@ -112,36 +141,20 @@ struct LibraryRecordDetailView: View {
 
     private var detailBehavior: some View {
         detailStateTracking
+            .task(id: activePayloadKey) { await loadActivePayload() }
             .task(id: linkedQuestionContextKey) { loadLinkedQuestionContext() }
     }
 
     private var detailStateTracking: some View {
         detailNavigationDestination
-            .onChange(of: record?.updatedAt) { _, newValue in
-                guard let record else { return }
-                if let newValue,
-                   let lastSavedAt = lastLocallySavedNoteUpdate,
-                   newValue == lastSavedAt {
-                    lastLocallySavedNoteUpdate = nil
-                    return
-                }
-                if let decodedObject = record.jsonObject {
-                    refreshObject(decodedObject)
-                    payloadDecodeFailed = false
-                } else {
-                    refreshObject([:])
-                    payloadDecodeFailed = true
-                }
-            }
             .onChange(of: activeRecordID) { _, newRecordID in
                 lastLocallySavedNoteUpdate = nil
-                if let record, let decodedObject = record.jsonObject {
-                    refreshObject(decodedObject)
-                    payloadDecodeFailed = false
-                } else {
-                    refreshObject([:])
-                    payloadDecodeFailed = true
-                }
+                backgroundDoodleSaveRequestID = nil
+                loadedPayloadKey = nil
+                object = [:]
+                imageSourceIdentities = [:]
+                payloadDecodeFailed = false
+                isPayloadLoading = true
                 if doodleSession.isPresented, doodleSession.targetRecordID != newRecordID {
                     doodleSession.dismiss(reopenOnSaveFailure: false) { error in
                         if let error { splitDoodleErrorMessage = error }
@@ -163,6 +176,13 @@ struct LibraryRecordDetailView: View {
                 pendingEditorTransitionRecordID = nil
                 editorTransitionErrorMessage = nil
                 didHandOffEditRequest = false
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    backgroundDoodleSaveRequestID = nil
+                } else if phase == .background {
+                    persistDoodleForBackground()
+                }
             }
             .onChange(of: doodleSession.activeSplitDrawingPane) { oldPane, newPane in
                 guard doodleSession.isPresented,
@@ -317,6 +337,9 @@ struct LibraryRecordDetailView: View {
                         availableSize: proxy.size,
                         layoutDirection: splitDoodleLayoutDirection
                     )
+                } else if isPayloadLoading && object.isEmpty {
+                    ProgressView("正在加载题目…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     detailScrollView(availableWidth: availableWidth)
                 }
@@ -689,6 +712,10 @@ struct LibraryRecordDetailView: View {
 
     private func requestEdit() {
         guard pendingEditorRequestID == nil, !doodleSession.isPresented else { return }
+        guard !isPayloadLoading, !payloadDecodeFailed else {
+            editorTransitionErrorMessage = "题目仍在载入或内容无法读取，请稍后重试。"
+            return
+        }
         let requestID = activeRecordKey
         let transitionRecordID = record?.recordID ?? requestID
         pendingEditorRequestID = requestID
@@ -752,7 +779,14 @@ struct LibraryRecordDetailView: View {
     private func handoffEditRequest(requestID: String, transitionRecordID: String, detail: String) {
         guard pendingEditorRequestID == requestID, activeRecordKey == requestID else { return }
         didHandOffEditRequest = true
-        onEdit(requestID)
+        if let onEditPrepared, let record {
+            onEditPrepared(
+                requestID,
+                LibraryRecordDraft(kind: kind, scope: scope, record: record, originalObject: object)
+            )
+        } else {
+            onEdit(requestID)
+        }
         LibraryPerformanceLog.editorTransition(
             "menu-action",
             recordID: transitionRecordID,
@@ -2052,7 +2086,7 @@ struct LibraryRecordDetailView: View {
         let targetSession = doodleSession
         let drawingData = firstText(["pencilKitData", "drawingData"]) ?? ""
         let targetID = activeRecordID
-        let targetPayload = targetRecord?.jsonObject ?? object
+        let targetPayload = object
         let storedSplitValues = opensSplitDoodle ? storedSplitDoodleValues(in: targetPayload) : [:]
         let hasPendingValuesForTarget = doodleSession.hasPendingSplitDrawingChanges
             && doodleSession.splitDrawingRecordID == targetID
@@ -2096,8 +2130,96 @@ struct LibraryRecordDetailView: View {
         )
     }
 
+    private func persistDoodleForBackground() {
+        guard doodleSession.isPresented,
+              !doodleSession.isLoadingDrawing,
+              doodleSession.targetRecordID == activeRecordID,
+              let targetRecord = record,
+              doodleSession.hasUnsavedDrawingChanges || doodleSession.canvas.controller.hasPendingDrawingPublish else { return }
+        let targetID = activeRecordID
+        let saveKey = "\(targetID)|\(doodleSession.presentationGeneration)|\(doodleSession.userDrawingRevision)|\(doodleSession.hasPendingSplitDrawingChanges)"
+        guard lastBackgroundDoodleSaveKey != saveKey,
+              backgroundDoodleSaveRequestID == nil else { return }
+
+        let requestID = UUID()
+        backgroundDoodleSaveRequestID = requestID
+        let backgroundTask = LibraryDoodleRecoveryBackgroundTask()
+        let targetSession = doodleSession
+        let targetContext = modelContext
+        targetSession.commitCurrentDrawing { [self] in
+            defer { backgroundTask.finish() }
+            guard backgroundDoodleSaveRequestID == requestID,
+                  targetSession.targetRecordID == targetID else { return }
+            let error: String?
+            if targetSession.hasPendingSplitDrawingChanges {
+                error = saveSplitDoodleChanges(record: targetRecord, context: targetContext)
+            } else {
+                error = LibraryDoodlePersistence.save(
+                    record: targetRecord,
+                    context: targetContext,
+                    drawingData: targetSession.canvas.drawingData,
+                    legacyPreviewCleared: targetSession.canvas.controller.legacyPreviewCleared
+                )
+            }
+            if let error {
+                targetSession.saveError = "后台切换前未能保存涂鸦：\(error)"
+            } else {
+                lastBackgroundDoodleSaveKey = saveKey
+            }
+            backgroundDoodleSaveRequestID = nil
+        }
+    }
+
     private var activeRecordID: String {
         record?.compoundID ?? ""
+    }
+
+    private var activePayloadKey: LibraryDetailPayloadKey? {
+        guard let record else { return nil }
+        return LibraryDetailPayloadKey(
+            recordID: record.compoundID,
+            updatedAt: record.updatedAt,
+            payloadCount: record.payload.count
+        )
+    }
+
+    private func loadActivePayload() async {
+        guard let key = activePayloadKey,
+              let record,
+              record.compoundID == key.recordID else {
+            object = [:]
+            imageSourceIdentities = [:]
+            payloadDecodeFailed = true
+            isPayloadLoading = false
+            loadedPayloadKey = nil
+            return
+        }
+        guard loadedPayloadKey != key else { return }
+        if let lastLocallySavedNoteUpdate,
+           key.updatedAt == lastLocallySavedNoteUpdate {
+            self.lastLocallySavedNoteUpdate = nil
+            loadedPayloadKey = key
+            isPayloadLoading = false
+            return
+        }
+
+        let payload = record.payload
+        let decoded = await Task.detached(priority: .userInitiated) {
+            guard let object = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any] else {
+                return nil as LibraryDetailDecodedPayload?
+            }
+            return LibraryDetailDecodedPayload(object: object)
+        }.value
+        guard !Task.isCancelled, activePayloadKey == key else { return }
+        if let decoded {
+            refreshObject(decoded.object)
+            payloadDecodeFailed = false
+        } else {
+            refreshObject([:])
+            payloadDecodeFailed = true
+        }
+        loadedPayloadKey = key
+        isPayloadLoading = false
     }
 
     private var record: StoredRecord? {

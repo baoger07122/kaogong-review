@@ -125,10 +125,19 @@ final class LibraryInlineNoteSaveService: ObservableObject {
         workers[recordID] != nil || !(queues[recordID]?.isEmpty ?? true)
     }
 
-    func markExistingContentConfirmed(recordID: String, content: String, recordVersion: String, payload: Data?) {
+    func markExistingContentConfirmed(
+        recordID: String,
+        content: String,
+        recordVersion: String,
+        payload: Data?,
+        allowDiscardingUnqueuedDraft: Bool = false
+    ) {
         guard !hasPending(recordID: recordID) else { return }
         var state = self.state(recordID: recordID)
-        guard state.phase == .idle || state.phase == .saved || (state.phase == .failed && state.latestContent == content) else { return }
+        guard allowDiscardingUnqueuedDraft
+                || state.phase == .idle
+                || state.phase == .saved
+                || (state.phase == .failed && state.latestContent == content) else { return }
         state.latestContent = content
         state.latestBaseVersion = recordVersion
         state.latestBasePayload = payload

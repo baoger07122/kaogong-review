@@ -103,8 +103,13 @@ struct LibraryRecordDraft {
     var wordEntryKind = WordEntryKind.word.rawValue
     var wordCompareTerms: [WordComparisonTermDraft] = []
 
-    init(kind: LibraryContentKind, scope: LibraryScope, record: StoredRecord? = nil) {
-        original = record?.jsonObject ?? [:]
+    init(
+        kind: LibraryContentKind,
+        scope: LibraryScope,
+        record: StoredRecord? = nil,
+        originalObject: [String: Any]? = nil
+    ) {
+        original = originalObject ?? record?.jsonObject ?? [:]
         originalPayload = record?.payload
         id = record?.recordID ?? ""
         reviewSource = record == nil

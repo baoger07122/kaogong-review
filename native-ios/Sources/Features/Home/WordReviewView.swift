@@ -22,6 +22,12 @@ struct WordReviewView: View {
         }
     }
 
+    private struct WordDetailKey: Equatable {
+        let recordID: String
+        let updatedAt: Date?
+        let payloadCount: Int
+    }
+
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @Query(filter: #Predicate<StoredRecord> { record in
@@ -38,46 +44,45 @@ struct WordReviewView: View {
     @State private var savedHistory: WordReviewHistory?
     @State private var errorMessage: String?
     @State private var reviewDay = Calendar.current.startOfDay(for: .now)
+    @State private var overviewSnapshot: WordReviewOverviewSnapshot?
+    @State private var restoreGeneration = 0
+    @State private var loadedGroup: WordReviewWordGroup?
+    @State private var loadedGroupKey: WordDetailKey?
 
     private var wordRecords: [StoredRecord] { records.filter { $0.collection == "words" } }
-    private var planRecords: [StoredRecord] { records.filter { $0.collection == "word_review_plans" } }
-    private var historyRecords: [StoredRecord] { records.filter { $0.collection == "word_review_history" } }
-    private var wordRecordIDs: [String] { wordRecords.map(\.recordID).sorted() }
-    private var plans: [WordReviewPlan] { WordReviewRepository.plans(from: planRecords) }
-    private var history: [WordReviewHistory] { WordReviewRepository.history(from: historyRecords) }
-    private var groupsByID: [String: WordReviewWordGroup] {
-        Dictionary(uniqueKeysWithValues: wordRecords.compactMap { record in
-            WordReviewWordGroup(record: record).map { ($0.recordID, $0) }
-        })
-    }
-    private var dueQueue: [WordReviewPlan] {
-        return plans.filter { plan in
-            !plan.isPaused
-                && groupsByID[plan.wordRecordID] != nil
-                && WordReviewSchedulingPolicy.isDue(plan.nextDueDate, on: reviewDay)
-        }.sorted { lhs, rhs in
-            let leftDate = lhs.nextDueDate ?? .distantFuture
-            let rightDate = rhs.nextDueDate ?? .distantFuture
-            if Calendar.current.startOfDay(for: leftDate) != Calendar.current.startOfDay(for: rightDate) {
-                return leftDate < rightDate
-            }
-            let leftTitle = groupsByID[lhs.wordRecordID]?.title ?? ""
-            let rightTitle = groupsByID[rhs.wordRecordID]?.title ?? ""
-            if leftTitle != rightTitle { return leftTitle.localizedStandardCompare(rightTitle) == .orderedAscending }
-            return lhs.wordRecordID < rhs.wordRecordID
+    private var overviewKey: WordReviewOverviewCacheKey {
+        var hasher = Hasher()
+        for record in records {
+            hasher.combine(record.compoundID)
+            hasher.combine(record.createdAt)
+            hasher.combine(record.updatedAt)
+            hasher.combine(record.payload.count)
+            hasher.combine(record.indexPayload?.count ?? 0)
         }
+        return WordReviewOverviewCacheKey(
+            revision: hasher.finalize(),
+            reviewDay: reviewDay,
+            restoreGeneration: restoreGeneration
+        )
     }
-    private var categoryDueQueue: [WordReviewPlan] {
-        dueQueue.filter { groupsByID[$0.wordRecordID]?.category == selectedCategory }
+    private var currentOverview: WordReviewOverviewSnapshot? {
+        guard let overviewSnapshot, overviewSnapshot.key == overviewKey else { return nil }
+        return overviewSnapshot
     }
-    private func dueCount(for category: WordCategory) -> Int {
-        dueQueue.filter { groupsByID[$0.wordRecordID]?.category == category }.count
+    private var categoryDueWordIDs: [String] {
+        currentOverview?.dueWordIDsByCategory[selectedCategory.rawValue] ?? []
     }
     private var currentEntry: SessionEntry? {
         activeSession.indices.contains(sessionIndex) ? activeSession[sessionIndex] : nil
     }
     private var currentGroup: WordReviewWordGroup? {
-        currentEntry.flatMap { groupsByID[$0.wordRecordID] }
+        guard let currentWordDetailKey, loadedGroupKey == currentWordDetailKey else { return nil }
+        return loadedGroup
+    }
+    private var currentWordDetailKey: WordDetailKey? {
+        guard let recordID = currentEntry?.wordRecordID,
+              let record = wordRecords.first(where: { $0.recordID == recordID }) else { return nil }
+        return WordDetailKey(recordID: recordID, updatedAt: record.updatedAt, payloadCount: record.payload.count)
     }
     private var isReviewing: Bool { !activeSession.isEmpty }
 
@@ -117,7 +122,6 @@ struct WordReviewView: View {
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
             refreshReviewDay()
-            synchronizeWordReviewPlans()
             while !Task.isCancelled {
                 let calendar = Calendar.current
                 let nextDay = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: .now))
@@ -131,8 +135,14 @@ struct WordReviewView: View {
                 refreshReviewDay()
             }
         }
-        .onChange(of: wordRecordIDs) { _, _ in
-            synchronizeWordReviewPlans()
+        .task(id: overviewKey) {
+            await prepareOverview(for: overviewKey)
+        }
+        .task(id: currentWordDetailKey) {
+            await loadCurrentWordGroup()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .legacyBackupRestoreDidComplete)) { _ in
+            restoreGeneration &+= 1
         }
     }
 
@@ -160,17 +170,17 @@ struct WordReviewView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if tab == .today {
                 Button {
-                    beginDueSession(categoryDueQueue)
+                    beginDueSession(categoryDueWordIDs)
                 } label: {
                     Text("开始复习")
                         .font(.system(size: 15, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .frame(height: 48)
-                        .foregroundStyle(categoryDueQueue.isEmpty ? Color.secondary : AppTheme.accent)
+                        .foregroundStyle(categoryDueWordIDs.isEmpty ? Color.secondary : AppTheme.accent)
                         .background(Color(red: 0.88, green: 0.94, blue: 1.0), in: RoundedRectangle(cornerRadius: 14))
                 }
                 .buttonStyle(.plain)
-                .disabled(categoryDueQueue.isEmpty)
+                .disabled(categoryDueWordIDs.isEmpty)
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
                 .padding(.bottom, 8)
@@ -187,7 +197,7 @@ struct WordReviewView: View {
                         Button { selectedCategory = category } label: {
                             HStack(spacing: 6) {
                                 Text(category.title)
-                                Text("\(dueCount(for: category))").monospacedDigit()
+                                Text("\(currentOverview?.dueWordIDsByCategory[category.rawValue]?.count ?? 0)").monospacedDigit()
                             }
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(selectedCategory == category ? Color.white : Color.primary)
@@ -200,15 +210,24 @@ struct WordReviewView: View {
                 }
             }
 
-            if categoryDueQueue.isEmpty {
+            if currentOverview == nil {
+                HStack(spacing: 9) {
+                    ProgressView().controlSize(.small)
+                    Text("正在整理复习清单…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 28)
+            } else if categoryDueWordIDs.isEmpty {
                 emptyState(title: "此类暂无待复习词语", detail: "新增或补充词条后，会按加入日期自动安排复习。", image: "checkmark.circle")
             } else {
                 let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
                 LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
-                    ForEach(categoryDueQueue) { plan in
-                        if let group = groupsByID[plan.wordRecordID] {
-                            Button { beginDueSession([plan]) } label: {
-                                Text(group.title)
+                    ForEach(categoryDueWordIDs, id: \.self) { wordRecordID in
+                        if let card = currentOverview?.cardsByID[wordRecordID] {
+                            Button { beginDueSession([wordRecordID]) } label: {
+                                Text(card.title)
                                     .font(.system(size: 14, weight: .regular))
                                     .foregroundStyle(.primary)
                                     .multilineTextAlignment(.leading)
@@ -228,10 +247,12 @@ struct WordReviewView: View {
     private var historyContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("复习历史").font(.system(size: 18, weight: .semibold))
-            if history.isEmpty {
+            if currentOverview == nil {
+                ProgressView().frame(maxWidth: .infinity).padding(.vertical, 24)
+            } else if currentOverview?.histories.isEmpty != false {
                 emptyState(title: "还没有复习记录", detail: "每次提交“不会、模糊、掌握”后都会保存在这里。", image: "clock")
             } else {
-                ForEach(history) { item in
+                ForEach(currentOverview?.histories ?? []) { item in
                     historyRow(item)
                 }
             }
@@ -292,6 +313,10 @@ struct WordReviewView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                } else if currentEntry != nil, currentWordDetailKey != nil {
+                    ProgressView("正在打开词语…")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 48)
                 } else {
                     emptyState(title: "词条已不可用", detail: "该词语组可能已被删除，可结束本次复习。", image: "questionmark.folder")
                     Button("返回词语复习") { endSession() }
@@ -449,9 +474,63 @@ struct WordReviewView: View {
         reviewDay = today
     }
 
-    private func synchronizeWordReviewPlans() {
-        do { _ = try WordReviewRepository.enroll(wordRecords, in: modelContext) }
-        catch { errorMessage = error.localizedDescription }
+    private func prepareOverview(for key: WordReviewOverviewCacheKey) async {
+        let cached = WordReviewOverviewSnapshotCache.shared.snapshot(for: key)
+        let snapshot: WordReviewOverviewSnapshot
+        if let cached {
+            snapshot = cached
+        } else {
+            let inputs = records.map {
+                WordReviewOverviewRecordInput(
+                    collection: $0.collection,
+                    recordID: $0.recordID,
+                    payload: $0.payload,
+                    createdAt: $0.createdAt
+                )
+            }
+            let now = Date.now
+            let calendar = Calendar.current
+            snapshot = await Task.detached(priority: .utility) {
+                WordReviewOverviewSnapshotBuilder.build(
+                    key: key,
+                    records: inputs,
+                    now: now,
+                    calendar: calendar
+                )
+            }.value
+        }
+
+        guard !Task.isCancelled, key == overviewKey else { return }
+        overviewSnapshot = snapshot
+        WordReviewOverviewSnapshotCache.shared.store(snapshot)
+
+        do {
+            _ = try WordReviewRepository.enrollPreparedCandidates(
+                snapshot.enrollmentCandidates,
+                wordRecords: wordRecords,
+                in: modelContext,
+                now: Date.now
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func loadCurrentWordGroup() async {
+        guard let key = currentWordDetailKey,
+              let record = wordRecords.first(where: { $0.recordID == key.recordID }) else {
+            loadedGroup = nil
+            loadedGroupKey = nil
+            return
+        }
+        let recordID = record.recordID
+        let payload = record.payload
+        let group = await Task.detached(priority: .userInitiated) {
+            WordReviewWordGroup(recordID: recordID, payload: payload)
+        }.value
+        guard !Task.isCancelled, currentWordDetailKey == key else { return }
+        loadedGroup = group
+        loadedGroupKey = key
     }
 
     private func shortDate(_ date: Date) -> String {
@@ -468,14 +547,16 @@ struct WordReviewView: View {
         return formatter.string(from: date)
     }
 
-    private func beginDueSession(_ duePlans: [WordReviewPlan]) {
+    private func beginDueSession(_ wordRecordIDs: [String]) {
+        guard let snapshot = currentOverview else { return }
         var seenIDs = Set<String>()
-        let entries = duePlans.compactMap { plan -> SessionEntry? in
-            guard groupsByID[plan.wordRecordID] != nil,
+        let entries = wordRecordIDs.compactMap { wordRecordID -> SessionEntry? in
+            guard let plan = snapshot.plansByID[wordRecordID],
                   !plan.isPaused,
-                  seenIDs.insert(plan.wordRecordID).inserted else { return nil }
+                  snapshot.cardsByID[wordRecordID] != nil,
+                  seenIDs.insert(wordRecordID).inserted else { return nil }
             return SessionEntry(
-                wordRecordID: plan.wordRecordID,
+                wordRecordID: wordRecordID,
                 attemptType: plan.status == .waitingToLearn ? .initial : .due
             )
         }
@@ -484,10 +565,12 @@ struct WordReviewView: View {
         sessionIndex = 0
         isRevealed = false
         savedHistory = nil
+        loadedGroup = nil
+        loadedGroupKey = nil
     }
 
     private func submit(_ feedback: WordReviewFeedback, for entry: SessionEntry) {
-        guard let group = groupsByID[entry.wordRecordID] else { return }
+        guard let group = currentGroup, group.recordID == entry.wordRecordID else { return }
         do {
             savedHistory = try WordReviewRepository.submit(
                 wordRecordID: group.recordID,
@@ -508,6 +591,8 @@ struct WordReviewView: View {
         if sessionIndex + 1 < activeSession.count {
             sessionIndex += 1
             isRevealed = false
+            loadedGroup = nil
+            loadedGroupKey = nil
         } else {
             endSession()
         }
@@ -518,6 +603,8 @@ struct WordReviewView: View {
         sessionIndex = 0
         isRevealed = false
         savedHistory = nil
+        loadedGroup = nil
+        loadedGroupKey = nil
         tab = .today
     }
 

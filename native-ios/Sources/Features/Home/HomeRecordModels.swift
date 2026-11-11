@@ -16,6 +16,7 @@ struct HomeTodo: Identifiable, Hashable {
     var dailyRuleID: String? = nil
     var dailyDate: Date? = nil
     var isSkipped = false
+    var isDeletedForDay = false
 
     var subjectName: String {
         switch type {
@@ -150,7 +151,7 @@ enum HomeRecordRepository {
 
     static let stickyColors = ["#FFFBEB", "#EFF6FF", "#F0FDF4", "#FFF1F2", "#F5F3FF", "#FFFFFF"]
 
-    static func todos(from records: [StoredRecord]) -> [HomeTodo] {
+    static func todos(from records: [StoredRecord], includingDeleted: Bool = false) -> [HomeTodo] {
         records.compactMap { record in
             guard record.collection == "todos", let object = record.jsonObject else { return nil }
             let createdAt = date(object["createdAt"]) ?? record.createdAt ?? .distantPast
@@ -168,9 +169,11 @@ enum HomeRecordRepository {
                 dailyTimes: numberDictionary(object["dailyTimes"]),
                 dailyRuleID: string(object["dailyRuleID"]),
                 dailyDate: date(object["dailyDate"]),
-                isSkipped: bool(object["isSkipped"])
+                isSkipped: bool(object["isSkipped"]),
+                isDeletedForDay: bool(object["isDeletedForDay"])
             )
         }
+        .filter { includingDeleted || !$0.isDeletedForDay }
         .sorted {
             if $0.isCompleted != $1.isCompleted { return !$0.isCompleted }
             return $0.createdAt > $1.createdAt
@@ -231,29 +234,174 @@ enum HomeRecordRepository {
     static func save(todo: HomeTodo, records: [StoredRecord], context: ModelContext) throws {
         let now = Date()
         let record = records.first { $0.collection == "todos" && $0.recordID == todo.id }
-        var object = record?.jsonObject ?? [:]
-        object["id"] = todo.id
-        object["text"] = todo.title
-        object["note"] = todo.note
-        object["type"] = todo.type
-        object["completed"] = todo.isCompleted
-        object["status"] = todo.isCompleted ? "completed" : "pending"
-        object["scheduleDate"] = isoString(todo.scheduledAt)
-        object["elapsedMs"] = todo.elapsedMilliseconds
-        object["timerStartedAt"] = todo.timerStartedAt.map { $0.timeIntervalSince1970 * 1_000 } ?? NSNull()
-        object["createdAt"] = isoString(todo.createdAt)
-        object["updatedAt"] = isoString(now)
-        object["completedAt"] = todo.completedAt.map(isoString) ?? NSNull()
-        object["dailyTimes"] = todo.dailyTimes
-        object["isSkipped"] = todo.isSkipped
-        if let dailyRuleID = todo.dailyRuleID {
-            object["dailyRuleID"] = dailyRuleID
-            object["dailyDate"] = todo.dailyDate.map(isoString) ?? isoString(Calendar.current.startOfDay(for: todo.scheduledAt))
-        } else {
-            object.removeValue(forKey: "dailyRuleID")
-            object.removeValue(forKey: "dailyDate")
-        }
+        let object = todoObject(todo, existing: record, updatedAt: now)
         try upsert(collection: "todos", id: todo.id, object: object, createdAt: todo.createdAt, updatedAt: now, existing: record, context: context)
+    }
+
+    static func saveDailyRuleAndReconcileToday(
+        rule: HomeDailyTodoRule,
+        context: ModelContext,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) throws {
+        let descriptor = FetchDescriptor<StoredRecord>(
+            predicate: #Predicate { $0.collection == "todos" || $0.collection == "daily_todo_rules" }
+        )
+        let stored = try context.fetch(descriptor)
+        let ruleRecord = stored.first { $0.collection == "daily_todo_rules" && $0.recordID == rule.id }
+        let today = calendar.startOfDay(for: now)
+        let instanceID = HomeDailyTodoPolicy.instanceID(ruleID: rule.id, on: today, calendar: calendar)
+        let existingInstance = stored.first { $0.collection == "todos" && $0.recordID == instanceID }
+        let canGenerateToday = HomeDailyTodoPolicy.shouldGenerateInstance(
+            startDate: rule.startDate,
+            isPaused: rule.isPaused,
+            on: today,
+            calendar: calendar
+        )
+        var ruleObject = ruleRecord?.jsonObject ?? [:]
+        ruleObject["id"] = rule.id
+        ruleObject["title"] = rule.title
+        ruleObject["type"] = rule.type
+        ruleObject["startDate"] = isoString(rule.startDate)
+        ruleObject["scheduleTime"] = isoString(rule.scheduledTime)
+        ruleObject["isPaused"] = rule.isPaused
+        ruleObject["createdAt"] = isoString(rule.createdAt)
+        ruleObject["updatedAt"] = isoString(now)
+
+        try context.transaction {
+            try write(
+                collection: "daily_todo_rules",
+                id: rule.id,
+                object: ruleObject,
+                createdAt: rule.createdAt,
+                updatedAt: now,
+                existing: ruleRecord,
+                context: context
+            )
+
+            if let existingInstance,
+               let storedTodo = todos(from: [existingInstance], includingDeleted: true).first,
+               !storedTodo.isCompleted,
+               !storedTodo.isDeletedForDay {
+                var updated = storedTodo
+                updated.title = rule.title
+                updated.type = rule.type
+                updated.scheduledAt = HomeDailyTodoPolicy.scheduledAt(
+                    on: today,
+                    using: rule.scheduledTime,
+                    calendar: calendar
+                ) ?? storedTodo.scheduledAt
+                let object = todoObject(updated, existing: existingInstance, updatedAt: now)
+                try write(
+                    collection: "todos",
+                    id: updated.id,
+                    object: object,
+                    createdAt: updated.createdAt,
+                    updatedAt: now,
+                    existing: existingInstance,
+                    context: context
+                )
+            } else if existingInstance == nil,
+                      canGenerateToday,
+                      let scheduledAt = HomeDailyTodoPolicy.scheduledAt(
+                        on: today,
+                        using: rule.scheduledTime,
+                        calendar: calendar
+                      ) {
+                let todo = HomeTodo(
+                    id: instanceID,
+                    title: rule.title,
+                    note: "",
+                    type: rule.type,
+                    isCompleted: false,
+                    scheduledAt: scheduledAt,
+                    elapsedMilliseconds: 0,
+                    timerStartedAt: nil,
+                    createdAt: now,
+                    completedAt: nil,
+                    dailyTimes: [:],
+                    dailyRuleID: rule.id,
+                    dailyDate: today,
+                    isSkipped: false
+                )
+                let object = todoObject(todo, existing: nil, updatedAt: now)
+                try write(
+                    collection: "todos",
+                    id: instanceID,
+                    object: object,
+                    createdAt: now,
+                    updatedAt: now,
+                    existing: nil,
+                    context: context
+                )
+            }
+        }
+    }
+
+    static func deleteDailyTodoForToday(
+        _ todo: HomeTodo,
+        context: ModelContext,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) throws {
+        guard todo.dailyRuleID != nil,
+              let dailyDate = todo.dailyDate,
+              calendar.isDate(dailyDate, inSameDayAs: now) else { return }
+        let descriptor = FetchDescriptor<StoredRecord>(
+            predicate: #Predicate { $0.collection == "todos" && $0.recordID == todo.id }
+        )
+        guard let record = try context.fetch(descriptor).first,
+              var current = todos(from: [record], includingDeleted: true).first,
+              !current.isDeletedForDay else { return }
+        stopTimer(&current, now: now, calendar: calendar)
+        current.isDeletedForDay = true
+        let object = todoObject(current, existing: record, updatedAt: now)
+        try context.transaction {
+            try write(
+                collection: "todos",
+                id: current.id,
+                object: object,
+                createdAt: current.createdAt,
+                updatedAt: now,
+                existing: record,
+                context: context
+            )
+        }
+    }
+
+    static func deleteDailyRule(
+        id: String,
+        context: ModelContext,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) throws {
+        let descriptor = FetchDescriptor<StoredRecord>(
+            predicate: #Predicate { $0.collection == "todos" || $0.collection == "daily_todo_rules" }
+        )
+        let stored = try context.fetch(descriptor)
+        guard let ruleRecord = stored.first(where: { $0.collection == "daily_todo_rules" && $0.recordID == id }) else { return }
+        let today = calendar.startOfDay(for: now)
+        let todayID = HomeDailyTodoPolicy.instanceID(ruleID: id, on: today, calendar: calendar)
+        let todayRecord = stored.first { $0.collection == "todos" && $0.recordID == todayID }
+        try context.transaction {
+            if let todayRecord,
+               var todo = todos(from: [todayRecord], includingDeleted: true).first,
+               !todo.isCompleted,
+               !todo.isDeletedForDay {
+                stopTimer(&todo, now: now, calendar: calendar)
+                todo.isDeletedForDay = true
+                try write(
+                    collection: "todos",
+                    id: todo.id,
+                    object: todoObject(todo, existing: todayRecord, updatedAt: now),
+                    createdAt: todo.createdAt,
+                    updatedAt: now,
+                    existing: todayRecord,
+                    context: context
+                )
+            }
+            context.delete(ruleRecord)
+        }
     }
 
     static func save(rule: HomeDailyTodoRule, records: [StoredRecord], context: ModelContext) throws {
@@ -284,7 +432,7 @@ enum HomeRecordRepository {
         let ruleRecords = stored.filter { $0.collection == "daily_todo_rules" }
         let today = calendar.startOfDay(for: now)
 
-        for var todo in todos(from: todoRecords) {
+        for var todo in todos(from: todoRecords, includingDeleted: true) {
             guard let dailyDate = todo.dailyDate,
                   calendar.startOfDay(for: dailyDate) < today,
                   let startedAt = todo.timerStartedAt,
@@ -425,6 +573,27 @@ enum HomeRecordRepository {
         existing: StoredRecord?,
         context: ModelContext
     ) throws {
+        try write(
+            collection: collection,
+            id: id,
+            object: object,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            existing: existing,
+            context: context
+        )
+        try context.save()
+    }
+
+    private static func write(
+        collection: String,
+        id: String,
+        object: [String: Any],
+        createdAt: Date?,
+        updatedAt: Date?,
+        existing: StoredRecord?,
+        context: ModelContext
+    ) throws {
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         if let existing {
             existing.replacePayload(payload)
@@ -433,7 +602,44 @@ enum HomeRecordRepository {
         } else {
             context.insert(StoredRecord(collection: collection, recordID: id, payload: payload, createdAt: createdAt, updatedAt: updatedAt))
         }
-        try context.save()
+    }
+
+    private static func todoObject(_ todo: HomeTodo, existing: StoredRecord?, updatedAt: Date) -> [String: Any] {
+        var object = existing?.jsonObject ?? [:]
+        object["id"] = todo.id
+        object["text"] = todo.title
+        object["note"] = todo.note
+        object["type"] = todo.type
+        object["completed"] = todo.isCompleted
+        object["status"] = todo.isCompleted ? "completed" : "pending"
+        object["scheduleDate"] = isoString(todo.scheduledAt)
+        object["elapsedMs"] = todo.elapsedMilliseconds
+        object["timerStartedAt"] = todo.timerStartedAt.map { $0.timeIntervalSince1970 * 1_000 } ?? NSNull()
+        object["createdAt"] = isoString(todo.createdAt)
+        object["updatedAt"] = isoString(updatedAt)
+        object["completedAt"] = todo.completedAt.map(isoString) ?? NSNull()
+        object["dailyTimes"] = todo.dailyTimes
+        object["isSkipped"] = todo.isSkipped
+        object["isDeletedForDay"] = todo.isDeletedForDay
+        if let dailyRuleID = todo.dailyRuleID {
+            object["dailyRuleID"] = dailyRuleID
+            object["dailyDate"] = todo.dailyDate.map(isoString) ?? isoString(Calendar.current.startOfDay(for: todo.scheduledAt))
+        } else {
+            object.removeValue(forKey: "dailyRuleID")
+            object.removeValue(forKey: "dailyDate")
+        }
+        return object
+    }
+
+    private static func stopTimer(_ todo: inout HomeTodo, now: Date, calendar: Calendar) {
+        guard let startedAt = todo.timerStartedAt else { return }
+        let end = min(now, todo.dailyDate.flatMap { calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: $0)) } ?? now)
+        let milliseconds = max(0, end.timeIntervalSince(startedAt) * 1_000)
+        todo.elapsedMilliseconds += milliseconds
+        if let dailyDate = todo.dailyDate {
+            todo.dailyTimes[dayKey(dailyDate), default: 0] += milliseconds
+        }
+        todo.timerStartedAt = nil
     }
 
     private static func string(_ value: Any?) -> String? { value as? String }

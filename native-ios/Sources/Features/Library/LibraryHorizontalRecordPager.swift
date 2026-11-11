@@ -30,9 +30,10 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
         context.coordinator.parent = self
         context.coordinator.attach(to: controller)
         context.coordinator.updatePagingAvailability()
-        context.coordinator.refreshCachedContent()
+        guard !context.coordinator.isTransitioning else { return }
+        context.coordinator.synchronizePageContent()
 
-        guard !context.coordinator.isTransitioning,
+        guard
               let visibleID = context.coordinator.visibleRecordID else { return }
         if visibleID == currentRecordID, recordIDs.contains(currentRecordID) {
             context.coordinator.pruneCache(around: currentRecordID)
@@ -60,6 +61,8 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
         var parent: LibraryHorizontalRecordPager
         private weak var pageController: UIPageViewController?
         private var cache: [String: UIHostingController<AnyView>] = [:]
+        private var lastSynchronizedCurrentRecordID: String?
+        private var lastSynchronizedRecordIDs: [String] = []
         private var lastTransitionDirection: UIPageViewController.NavigationDirection = .forward
         private(set) var isTransitioning = false
 
@@ -80,6 +83,8 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
         func detach() {
             pageController = nil
             cache.removeAll()
+            lastSynchronizedCurrentRecordID = nil
+            lastSynchronizedRecordIDs = []
         }
 
         func configureVisibleController() {
@@ -88,7 +93,21 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
                   let initial = hostingController(for: parent.currentRecordID) else { return }
             updatePagingAvailability()
             pageController.setViewControllers([initial], direction: .forward, animated: false)
+            lastSynchronizedCurrentRecordID = parent.currentRecordID
+            lastSynchronizedRecordIDs = parent.recordIDs
             pruneCache(around: parent.currentRecordID)
+        }
+
+        func synchronizePageContent() {
+            let currentID = parent.currentRecordID
+            let recordIDs = parent.recordIDs
+            guard lastSynchronizedCurrentRecordID != currentID || lastSynchronizedRecordIDs != recordIDs else { return }
+            for (recordID, controller) in cache where recordIDs.contains(recordID) {
+                controller.rootView = parent.contentForRecord(recordID)
+                controller.view.backgroundColor = .white
+            }
+            lastSynchronizedCurrentRecordID = currentID
+            lastSynchronizedRecordIDs = recordIDs
         }
 
         func updatePagingAvailability() {
@@ -99,13 +118,6 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
                     NSNumber(value: UITouch.TouchType.direct.rawValue),
                     NSNumber(value: UITouch.TouchType.pencil.rawValue)
                 ]
-            }
-        }
-
-        func refreshCachedContent() {
-            for (recordID, controller) in cache {
-                controller.rootView = parent.contentForRecord(recordID)
-                controller.view.backgroundColor = .white
             }
         }
 
@@ -121,8 +133,6 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
         func hostingController(for recordID: String) -> UIHostingController<AnyView>? {
             guard parent.recordIDs.contains(recordID) else { return nil }
             if let cached = cache[recordID] {
-                cached.rootView = parent.contentForRecord(recordID)
-                cached.view.backgroundColor = .white
                 return cached
             }
             let controller = UIHostingController(rootView: parent.contentForRecord(recordID))
@@ -189,15 +199,30 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
 }
 
 struct LibraryRecordSwipePreview: View {
-    let record: StoredRecord
-
-    private var object: [String: Any] { record.jsonObject ?? [:] }
-    private var title: String {
-        [object["question"] as? String, object["title"] as? String, object["content"] as? String]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty } ?? "未命名题目"
+    private struct PreviewKey: Equatable {
+        let recordID: String
+        let updatedAt: Date?
+        let payloadCount: Int
     }
-    private var options: [String] { object["options"] as? [String] ?? [] }
+
+    private struct PreviewContent: Sendable {
+        let title: String
+        let options: [String]
+        let subject: String
+        let module: String
+    }
+
+    let record: StoredRecord
+    @State private var preview: PreviewContent?
+    @State private var didFinishLoadingPreview = false
+
+    private var previewKey: PreviewKey {
+        PreviewKey(
+            recordID: record.compoundID,
+            updatedAt: record.updatedAt,
+            payloadCount: record.indexPayload?.count ?? record.payload.count
+        )
+    }
 
     var body: some View {
         ScrollView {
@@ -209,14 +234,15 @@ struct LibraryRecordSwipePreview: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
 
-                Text(title)
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let preview {
+                    Text(preview.title)
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                if !options.isEmpty {
+                    if !preview.options.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        ForEach(Array(options.enumerated()), id: \.offset) { index, option in
+                            ForEach(Array(preview.options.enumerated()), id: \.offset) { index, option in
                             if !option.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 HStack(alignment: .top, spacing: 9) {
                                     Text(optionLabel(at: index))
@@ -232,6 +258,15 @@ struct LibraryRecordSwipePreview: View {
                             }
                         }
                     }
+                    }
+                } else if didFinishLoadingPreview {
+                    Text("题目暂时无法预览")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 24)
+                } else {
+                    ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(.vertical, 24)
                 }
             }
             .frame(maxWidth: 720, alignment: .leading)
@@ -241,6 +276,31 @@ struct LibraryRecordSwipePreview: View {
             .padding(.bottom, 24)
         }
         .background(Color.white)
+        .task(id: previewKey) { await loadPreview() }
+    }
+
+    private func loadPreview() async {
+        let key = previewKey
+        preview = nil
+        didFinishLoadingPreview = false
+        let payload = record.indexPayload ?? record.payload
+        let subject = record.subject ?? ""
+        let module = record.module ?? ""
+        let value = await Task.detached(priority: .utility) {
+            guard let object = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any] else { return nil as PreviewContent? }
+            let title = [object["question"] as? String, object["title"] as? String, object["content"] as? String]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty } ?? "未命名题目"
+            return PreviewContent(
+                title: title,
+                options: object["options"] as? [String] ?? [],
+                subject: subject,
+                module: module
+            )
+        }.value
+        guard !Task.isCancelled, previewKey == key else { return }
+        preview = value
+        didFinishLoadingPreview = true
     }
 
     private func optionLabel(at index: Int) -> String {

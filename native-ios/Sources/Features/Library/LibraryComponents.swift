@@ -49,7 +49,7 @@ struct LibrarySidebar: View {
             .padding(.horizontal, 7)
             .padding(.bottom, 24)
         }
-        .background(AppTheme.secondaryBackground.opacity(0.72))
+        .background(Color.white)
     }
 
     @ViewBuilder
@@ -243,7 +243,32 @@ struct LibraryRecordCard: View {
     let size: LibraryCardSize
     var hiddenTags: Set<String> = []
 
+    @ViewBuilder
     var body: some View {
+        if kind == .stickies {
+            let sticky = HomeSticky(
+                id: snapshot.record.recordID,
+                content: snapshot.stickyContent,
+                tag: snapshot.stickyTag,
+                colorHex: snapshot.colorHex ?? "#FFFFFF",
+                isPinned: snapshot.isPinned,
+                createdAt: snapshot.createdAt ?? .distantPast,
+                updatedAt: snapshot.record.updatedAt ?? snapshot.createdAt ?? .distantPast
+            )
+            StickyCardSurface(sticky: sticky) {
+                Text(StickyTextPresentation.preview(snapshot.stickyContent))
+                    .font(AppTheme.bodyFont)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            } headerAccessory: {
+                EmptyView()
+            }
+        } else {
+            standardCard
+        }
+    }
+
+    private var standardCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             if kind == .errors {
                 HStack(spacing: 5) {

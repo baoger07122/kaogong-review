@@ -2,6 +2,18 @@ import SwiftData
 import SwiftUI
 
 struct HomeView: View {
+    private enum DailyDeleteTarget: Identifiable {
+        case todo(HomeTodo)
+        case rule(HomeDailyTodoRule)
+
+        var id: String {
+            switch self {
+            case let .todo(todo): "todo|\(todo.id)"
+            case let .rule(rule): "rule|\(rule.id)"
+            }
+        }
+    }
+
     private enum Editor: Equatable {
         case countdown(String?)
         case todo(String?)
@@ -37,6 +49,8 @@ struct HomeView: View {
     @State private var stickyFormatSelection = ""
     @State private var errorStats: HomeErrorStats?
     @State private var didRequestErrorStats = false
+    @State private var saveErrorMessage: String?
+    @State private var dailyDeleteTarget: DailyDeleteTarget?
 
     private var todos: [HomeTodo] { HomeRecordRepository.todos(from: records) }
     private var stickies: [HomeSticky] { HomeRecordRepository.stickies(from: records) }
@@ -70,6 +84,43 @@ struct HomeView: View {
                 NativeToast(message: "已保存")
                     .padding(.top, 12)
                     .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .alert("保存失败", isPresented: Binding(
+            get: { saveErrorMessage != nil },
+            set: { if !$0 { saveErrorMessage = nil } }
+        )) {
+            Button("好", role: .cancel) { saveErrorMessage = nil }
+        } message: {
+            Text(saveErrorMessage ?? "操作未完成，输入内容仍保留。")
+        }
+        .confirmationDialog("删除每日待办", isPresented: Binding(
+            get: { dailyDeleteTarget != nil },
+            set: { if !$0 { dailyDeleteTarget = nil } }
+        ), titleVisibility: .visible) {
+            if case let .some(.todo(todo)) = dailyDeleteTarget {
+                Button("仅删除今天", role: .destructive) {
+                    deleteDailyTodoForToday(todo)
+                    dailyDeleteTarget = nil
+                }
+                if let rule = todo.dailyRuleID.flatMap({ id in dailyRules.first { $0.id == id } }) {
+                    Button("删除每日规则并移除今天未完成项", role: .destructive) {
+                        deleteDailyRule(rule.id)
+                        dailyDeleteTarget = nil
+                    }
+                }
+            } else if case let .some(.rule(rule)) = dailyDeleteTarget {
+                Button("删除规则并移除今天未完成项", role: .destructive) {
+                    deleteDailyRule(rule.id)
+                    dailyDeleteTarget = nil
+                }
+            }
+            Button("取消", role: .cancel) { dailyDeleteTarget = nil }
+        } message: {
+            if case .some(.todo(_)) = dailyDeleteTarget {
+                Text("删除今天只会隐藏当天实例；删除规则会停止今后的自动生成，并保留已完成任务和历史记录。")
+            } else {
+                Text("会停止今后的自动生成；已完成任务和历史记录会保留。")
             }
         }
     }
@@ -219,10 +270,12 @@ struct HomeView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.72)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, minHeight: 84)
+                    .padding(.vertical, 2)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(NativePressButtonStyle())
+                .accessibilityIdentifier("home-shortcut-\(feature.id)")
             }
         }
     }
@@ -269,10 +322,17 @@ struct HomeView: View {
                         HomeTodoRow(
                             todo: todo,
                             onToggleCompleted: { toggleCompleted(todo) },
+                            onEdit: { beginTodo(todo) },
                             onSaveNote: { saveTodoNote(todo, note: $0) },
                             onLongPress: { beginTodo(todo) },
                             onDelete: { deleteTodo(todo.id) },
                             onSkipToday: { setDailyTodoSkipped(todo, skipped: !todo.isSkipped) },
+                            onDeleteToday: { dailyDeleteTarget = .todo(todo) },
+                            onDeleteRule: {
+                                if let rule = todo.dailyRuleID.flatMap({ id in dailyRules.first { $0.id == id } }) {
+                                    dailyDeleteTarget = .rule(rule)
+                                }
+                            },
                             onToggleTimer: { toggleTimer(todo) }
                         )
                         if todo.id != todayTodos.last?.id { Divider().padding(.leading, 42) }
@@ -442,7 +502,7 @@ struct HomeView: View {
                                     rule: rule,
                                     onEdit: { beginDailyRule(rule) },
                                     onTogglePause: { setDailyRulePaused(rule, paused: !rule.isPaused) },
-                                    onDelete: { deleteDailyRule(rule.id) }
+                                    onDelete: { dailyDeleteTarget = .rule(rule) }
                                 )
                             }
                         }
@@ -632,7 +692,8 @@ struct HomeView: View {
         } else {
             values.append(HomeRecordRepository.makeCountdown(name: name, date: countdownDateDraft))
         }
-        do { try HomeRecordRepository.save(countdowns: values, records: records, context: modelContext); completeSave() } catch { }
+        do { try HomeRecordRepository.save(countdowns: values, records: records, context: modelContext); completeSave() }
+        catch { saveErrorMessage = error.localizedDescription }
     }
 
     private func saveTodo() {
@@ -642,10 +703,9 @@ struct HomeView: View {
         if todoRepeatsDailyDraft {
             let rule = HomeRecordRepository.makeDailyRule(title: title, type: todoTypeDraft, startAndTime: todoScheduleDraft)
             do {
-                try HomeRecordRepository.save(rule: rule, records: records, context: modelContext)
-                try HomeRecordRepository.ensureDailyTodoInstances(context: modelContext)
+                try HomeRecordRepository.saveDailyRuleAndReconcileToday(rule: rule, context: modelContext)
                 completeSave()
-            } catch { }
+            } catch { saveErrorMessage = error.localizedDescription }
             return
         }
         var value = id.flatMap { key in todos.first(where: { $0.id == key }) }
@@ -654,7 +714,8 @@ struct HomeView: View {
         value.note = todoNoteDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         value.type = todoTypeDraft
         value.scheduledAt = todoScheduleDraft
-        do { try HomeRecordRepository.save(todo: value, records: records, context: modelContext); completeSave() } catch { }
+        do { try HomeRecordRepository.save(todo: value, records: records, context: modelContext); completeSave() }
+        catch { saveErrorMessage = error.localizedDescription }
     }
 
     private func saveDailyRule() {
@@ -668,22 +729,10 @@ struct HomeView: View {
             rule.isPaused = prior.isPaused
         }
         do {
-            try HomeRecordRepository.save(rule: rule, records: records, context: modelContext)
-            let today = Calendar.current.startOfDay(for: .now)
-            if prior != nil,
-               HomeDailyTodoPolicy.shouldGenerateInstance(startDate: rule.startDate, isPaused: rule.isPaused, on: today) {
-                let todayID = HomeDailyTodoPolicy.instanceID(ruleID: rule.id, on: today)
-                if var instance = todos.first(where: { $0.id == todayID && !$0.isCompleted }) {
-                    instance.title = rule.title
-                    instance.type = rule.type
-                    instance.scheduledAt = HomeDailyTodoPolicy.scheduledAt(on: today, using: rule.scheduledTime) ?? instance.scheduledAt
-                    try HomeRecordRepository.save(todo: instance, records: records, context: modelContext)
-                }
-            }
-            try HomeRecordRepository.ensureDailyTodoInstances(context: modelContext)
+            try HomeRecordRepository.saveDailyRuleAndReconcileToday(rule: rule, context: modelContext)
             withAnimation(.spring(duration: 0.25, bounce: 0.08)) { editor = .dailyRules }
             showSaveToast()
-        } catch { }
+        } catch { saveErrorMessage = error.localizedDescription }
     }
 
     private func saveSticky() {
@@ -696,7 +745,8 @@ struct HomeView: View {
         value.tag = stickyTagDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         value.colorHex = stickyColorDraft
         value.isPinned = stickyPinnedDraft
-        do { try HomeRecordRepository.save(sticky: value, records: records, context: modelContext); completeSave() } catch { }
+        do { try HomeRecordRepository.save(sticky: value, records: records, context: modelContext); completeSave() }
+        catch { saveErrorMessage = error.localizedDescription }
     }
 
     private func completeSave() {
@@ -713,11 +763,20 @@ struct HomeView: View {
     }
 
     private func deleteCountdown(_ id: String) {
-        try? HomeRecordRepository.save(countdowns: countdowns.filter { $0.id != id }, records: records, context: modelContext)
+        do { try HomeRecordRepository.save(countdowns: countdowns.filter { $0.id != id }, records: records, context: modelContext) }
+        catch { saveErrorMessage = error.localizedDescription }
     }
 
     private func deleteTodo(_ id: String) {
-        try? HomeRecordRepository.remove(collection: "todos", id: id, records: records, context: modelContext)
+        do { try HomeRecordRepository.remove(collection: "todos", id: id, records: records, context: modelContext) }
+        catch { saveErrorMessage = error.localizedDescription }
+    }
+
+    private func deleteDailyTodoForToday(_ todo: HomeTodo) {
+        do {
+            try HomeRecordRepository.deleteDailyTodoForToday(todo, context: modelContext)
+            showSaveToast()
+        } catch { saveErrorMessage = error.localizedDescription }
     }
 
     private func setDailyTodoSkipped(_ todo: HomeTodo, skipped: Bool) {
@@ -725,7 +784,8 @@ struct HomeView: View {
         var value = todo
         value.isSkipped = skipped
         if skipped { pauseTimer(&value) }
-        try? HomeRecordRepository.save(todo: value, records: records, context: modelContext)
+        do { try HomeRecordRepository.save(todo: value, records: records, context: modelContext) }
+        catch { saveErrorMessage = error.localizedDescription }
     }
 
     private func setDailyRulePaused(_ rule: HomeDailyTodoRule, paused: Bool) {
@@ -734,14 +794,17 @@ struct HomeView: View {
         do {
             try HomeRecordRepository.save(rule: value, records: records, context: modelContext)
             try HomeRecordRepository.ensureDailyTodoInstances(context: modelContext)
-        } catch { }
+        } catch { saveErrorMessage = error.localizedDescription }
     }
 
     private func deleteDailyRule(_ id: String) {
         do {
-            try HomeRecordRepository.remove(collection: "daily_todo_rules", id: id, records: records, context: modelContext)
-            withAnimation(.spring(duration: 0.25, bounce: 0.08)) { editor = .dailyRules }
-        } catch { }
+            try HomeRecordRepository.deleteDailyRule(id: id, context: modelContext)
+            if editor == .dailyRules {
+                withAnimation(.spring(duration: 0.25, bounce: 0.08)) { editor = .dailyRules }
+            }
+            showSaveToast()
+        } catch { saveErrorMessage = error.localizedDescription }
     }
 
     @MainActor
@@ -765,12 +828,14 @@ struct HomeView: View {
     }
 
     private func refreshDailyTodoInstances() {
-        try? HomeRecordRepository.ensureDailyTodoInstances(context: modelContext)
+        do { try HomeRecordRepository.ensureDailyTodoInstances(context: modelContext) }
+        catch { saveErrorMessage = error.localizedDescription }
     }
 
     private func deleteSticky(_ id: String) {
         if inlineStickyID == id { inlineStickyID = nil }
-        try? HomeRecordRepository.remove(collection: "stickies", id: id, records: records, context: modelContext)
+        do { try HomeRecordRepository.remove(collection: "stickies", id: id, records: records, context: modelContext) }
+        catch { saveErrorMessage = error.localizedDescription }
     }
 
     private func toggleCompleted(_ todo: HomeTodo) {
@@ -779,29 +844,33 @@ struct HomeView: View {
         value.isCompleted.toggle()
         value.completedAt = value.isCompleted ? .now : nil
         if value.isCompleted { pauseTimer(&value) }
-        try? HomeRecordRepository.save(todo: value, records: records, context: modelContext)
+        do { try HomeRecordRepository.save(todo: value, records: records, context: modelContext) }
+        catch { saveErrorMessage = error.localizedDescription }
     }
 
     private func saveTodoNote(_ todo: HomeTodo, note: String) {
         var value = todo
         value.note = note
-        try? HomeRecordRepository.save(todo: value, records: records, context: modelContext)
+        do { try HomeRecordRepository.save(todo: value, records: records, context: modelContext) }
+        catch { saveErrorMessage = error.localizedDescription }
     }
 
     private func toggleTimer(_ todo: HomeTodo) {
         guard !todo.isCompleted, !todo.isSkipped else { return }
         var selected = todo
-        if selected.timerStartedAt != nil {
-            pauseTimer(&selected)
-        } else {
-            for running in todos where running.timerStartedAt != nil && running.id != selected.id {
-                var paused = running
-                pauseTimer(&paused)
-                try? HomeRecordRepository.save(todo: paused, records: records, context: modelContext)
+        do {
+            if selected.timerStartedAt != nil {
+                pauseTimer(&selected)
+            } else {
+                for running in todos where running.timerStartedAt != nil && running.id != selected.id {
+                    var paused = running
+                    pauseTimer(&paused)
+                    try HomeRecordRepository.save(todo: paused, records: records, context: modelContext)
+                }
+                selected.timerStartedAt = .now
             }
-            selected.timerStartedAt = .now
-        }
-        try? HomeRecordRepository.save(todo: selected, records: records, context: modelContext)
+            try HomeRecordRepository.save(todo: selected, records: records, context: modelContext)
+        } catch { saveErrorMessage = error.localizedDescription }
     }
 
     private func pauseTimer(_ todo: inout HomeTodo) {
@@ -822,8 +891,10 @@ struct HomeView: View {
         var value = sticky
         value.content = inlineStickyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if value.content.isEmpty { value.content = sticky.content }
-        try? HomeRecordRepository.save(sticky: value, records: records, context: modelContext)
-        inlineStickyID = nil
+        do {
+            try HomeRecordRepository.save(sticky: value, records: records, context: modelContext)
+            inlineStickyID = nil
+        } catch { saveErrorMessage = error.localizedDescription }
     }
 
     private enum StickyFormat { case bold, outdent, indent, bullet, number }

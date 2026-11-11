@@ -19,10 +19,13 @@ struct HomeFeature: Identifiable {
 struct HomeTodoRow: View {
     let todo: HomeTodo
     let onToggleCompleted: () -> Void
+    let onEdit: () -> Void
     let onSaveNote: (String) -> Void
     let onLongPress: () -> Void
     let onDelete: () -> Void
     let onSkipToday: () -> Void
+    let onDeleteToday: () -> Void
+    let onDeleteRule: () -> Void
     let onToggleTimer: () -> Void
 
     @State private var noteDraft: String
@@ -32,34 +35,48 @@ struct HomeTodoRow: View {
     init(
         todo: HomeTodo,
         onToggleCompleted: @escaping () -> Void,
+        onEdit: @escaping () -> Void,
         onSaveNote: @escaping (String) -> Void,
         onLongPress: @escaping () -> Void,
         onDelete: @escaping () -> Void,
         onSkipToday: @escaping () -> Void,
+        onDeleteToday: @escaping () -> Void,
+        onDeleteRule: @escaping () -> Void,
         onToggleTimer: @escaping () -> Void
     ) {
         self.todo = todo
         self.onToggleCompleted = onToggleCompleted
+        self.onEdit = onEdit
         self.onSaveNote = onSaveNote
         self.onLongPress = onLongPress
         self.onDelete = onDelete
         self.onSkipToday = onSkipToday
+        self.onDeleteToday = onDeleteToday
+        self.onDeleteRule = onDeleteRule
         self.onToggleTimer = onToggleTimer
         _noteDraft = State(initialValue: todo.note)
     }
 
     var body: some View {
         ZStack(alignment: .trailing) {
-            Button(role: todo.dailyRuleID == nil ? .destructive : nil, action: trailingAction) {
-                Label(trailingTitle, systemImage: trailingSystemImage)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 84)
-                    .frame(maxHeight: .infinity)
-                    .background(trailingColor)
-                    .clipped()
+            Group {
+                if todo.dailyRuleID != nil {
+                    Menu {
+                        if !todo.isCompleted {
+                            Button(todo.isSkipped ? "恢复今天" : "跳过今天", action: onSkipToday)
+                            Button("仅删除今天", role: .destructive, action: onDeleteToday)
+                        }
+                        Button("删除每日规则", role: .destructive, action: onDeleteRule)
+                    } label: {
+                        trailingLabel(title: "更多", systemImage: "ellipsis", color: AppTheme.accent)
+                    }
+                } else {
+                    Button(role: .destructive, action: onDelete) {
+                        trailingLabel(title: "删除", systemImage: "trash.fill", color: AppTheme.danger)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .buttonStyle(.plain)
 
             rowContent
                 .background(Color.white)
@@ -91,10 +108,16 @@ struct HomeTodoRow: View {
                 .background(AppTheme.accent.opacity(0.10), in: Circle())
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(todo.title)
-                    .font(AppTheme.bodyFont)
-                    .foregroundStyle(todo.isCompleted ? .secondary : .primary)
-                    .lineLimit(2)
+                Button(action: onEdit) {
+                    Text(todo.title)
+                        .font(AppTheme.bodyFont)
+                        .foregroundStyle(todo.isCompleted ? .secondary : .primary)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("编辑此待办")
                 TextField("添加备注", text: $noteDraft, axis: .vertical)
                     .font(AppTheme.inputFont)
                     .foregroundStyle(.secondary)
@@ -141,24 +164,14 @@ struct HomeTodoRow: View {
         .onLongPressGesture(minimumDuration: 0.45, perform: onLongPress)
     }
 
-    private var trailingAction: () -> Void {
-        if todo.dailyRuleID == nil { return onDelete }
-        return todo.isCompleted ? {} : onSkipToday
-    }
-    private var trailingTitle: String {
-        guard todo.dailyRuleID != nil else { return "删除" }
-        if todo.isCompleted { return "已完成" }
-        return todo.isSkipped ? "恢复" : "跳过今天"
-    }
-    private var trailingSystemImage: String {
-        guard todo.dailyRuleID != nil else { return "trash.fill" }
-        if todo.isCompleted { return "checkmark" }
-        return todo.isSkipped ? "arrow.uturn.backward" : "forward.end.fill"
-    }
-    private var trailingColor: Color {
-        guard todo.dailyRuleID != nil else { return AppTheme.danger }
-        if todo.isCompleted { return AppTheme.success }
-        return todo.isSkipped ? AppTheme.accent : AppTheme.warning
+    private func trailingLabel(title: String, systemImage: String, color: Color) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 84)
+            .frame(maxHeight: .infinity)
+            .background(color)
+            .clipped()
     }
 
     private var swipeGesture: some Gesture {
@@ -236,11 +249,12 @@ struct HomeStickyCard: View {
                 Text("删除")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 76)
+                    .frame(width: visibleRevealWidth)
                     .frame(maxHeight: .infinity)
-                    .background(AppTheme.danger)
+                    .background(visibleRevealWidth > 0 ? AppTheme.danger : .clear)
             }
             .buttonStyle(.plain)
+            .allowsHitTesting(visibleRevealWidth > 0)
 
             surface
                 .offset(x: dragOffset)
@@ -250,59 +264,38 @@ struct HomeStickyCard: View {
     }
 
     private var surface: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                if sticky.isPinned {
-                    Image(systemName: "pin.fill").font(.system(size: 9)).foregroundStyle(AppTheme.warning)
-                }
-                Spacer()
-                if isInlineEditing {
-                    Button(action: onFinishInlineEdit) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(AppTheme.accent)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
+        StickyCardSurface(sticky: sticky, isEditing: isInlineEditing) {
             if isInlineEditing {
                 TextEditor(text: $inlineText)
                     .font(AppTheme.inputFont)
                     .scrollContentBackground(.hidden)
                     .frame(minHeight: 66)
             } else {
-                Text(plainText(sticky.content))
+                Text(StickyTextPresentation.preview(sticky.content))
                     .font(AppTheme.bodyFont)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
-            if !sticky.tag.isEmpty {
-                Text(sticky.tag)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(Color.white.opacity(0.60), in: Capsule())
+        } headerAccessory: {
+            if isInlineEditing {
+                Button(action: onFinishInlineEdit) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(AppTheme.accent)
+                }
+                .buttonStyle(.plain)
             }
-            HStack {
-                Spacer()
-                Text(HomeRecordRepository.chineseDate(sticky.createdAt, includeYear: false))
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(14)
-        .background(Color(homeHex: sticky.colorHex), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(isInlineEditing ? AppTheme.accent.opacity(0.48) : Color.primary.opacity(0.06), lineWidth: isInlineEditing ? 1.2 : 0.6)
         }
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .onTapGesture { if !isInlineEditing { onBeginInlineEdit() } }
+        .onTapGesture {
+            guard !isInlineEditing else { return }
+            if StickyTextPresentation.containsRichText(sticky.content) { onOpenEditor() }
+            else { onBeginInlineEdit() }
+        }
         .onLongPressGesture(minimumDuration: 0.45, perform: onOpenEditor)
     }
+
+    private var visibleRevealWidth: CGFloat { min(76, max(0, -dragOffset)) }
 
     private var swipeGesture: some Gesture {
         DragGesture(minimumDistance: 18)
@@ -317,11 +310,6 @@ struct HomeStickyCard: View {
             }
     }
 
-    private func plainText(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "&nbsp;", with: " ")
-    }
 }
 
 extension Color {

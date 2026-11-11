@@ -39,6 +39,7 @@ struct LibraryView: View {
     @State private var showBulkSourcePicker = false
     @State private var sourceAssignmentError: String?
     @State private var pendingEditorRouteKey: String?
+    @State private var preparedEditDrafts: [String: LibraryRecordDraft] = [:]
     @AppStorage("native.library.graphDisplayMode") private var graphDisplayMode = "cards"
     @AppStorage("native.library.legacyIndexMigrationVersion") private var legacyIndexMigrationVersion = 0
 
@@ -56,7 +57,7 @@ struct LibraryView: View {
                 content(availableWindowWidth: proxy.size.width)
             }
         }
-        .background(AppTheme.groupedBackground)
+        .background(Color.white)
         .stableRootNavigationBar()
         .onAppear { NativePerformanceLog.event("library onAppear") }
         .onReceive(NotificationCenter.default.publisher(for: .legacyBackupRestoreDidComplete)) { _ in
@@ -70,6 +71,17 @@ struct LibraryView: View {
                selectedQuantityType != "未分类",
                !values.contains(selectedQuantityType) {
                 selectedQuantityType = ""
+            }
+        }
+        .onChange(of: navigationPath) { _, path in
+            let activeEditorKey: String? = path.last.flatMap { route in
+                guard case let .editor(kind, recordID) = route, let recordID else { return nil }
+                return "\(kind.collection)|\(recordID)"
+            }
+            if let activeEditorKey, let draft = preparedEditDrafts[activeEditorKey] {
+                preparedEditDrafts = [activeEditorKey: draft]
+            } else {
+                preparedEditDrafts = [:]
             }
         }
         .navigationDestination(for: LibraryRoute.self) { route in
@@ -101,9 +113,14 @@ struct LibraryView: View {
         }
     }
 
-    private func openEditorAfterMenuDismisses(kind: LibraryContentKind, recordID: String) {
+    private func openEditorAfterMenuDismisses(
+        kind: LibraryContentKind,
+        recordID: String,
+        preparedDraft: LibraryRecordDraft? = nil
+    ) {
         let routeKey = "\(kind.collection)|\(recordID)"
         guard pendingEditorRouteKey == nil else { return }
+        if let preparedDraft { preparedEditDrafts[routeKey] = preparedDraft }
         pendingEditorRouteKey = routeKey
         LibraryPerformanceLog.editorTransition(
             "push-request",
@@ -139,6 +156,7 @@ struct LibraryView: View {
         let routeKey = "\(kind.collection)|\(recordID)"
         guard pendingEditorRouteKey == routeKey else { return }
         pendingEditorRouteKey = nil
+        preparedEditDrafts[routeKey] = nil
         LibraryPerformanceLog.editorTransition(
             "push-cancel",
             recordID: recordID,
@@ -191,6 +209,9 @@ struct LibraryView: View {
                         scope: scope,
                         record: record,
                         onEdit: { activeRecordID in openEditorAfterMenuDismisses(kind: kind, recordID: activeRecordID) },
+                        onEditPrepared: { activeRecordID, draft in
+                            openEditorAfterMenuDismisses(kind: kind, recordID: activeRecordID, preparedDraft: draft)
+                        },
                         onDelete: { activeRecordID in
                             remove(LibraryDeleteTarget(kind: kind, recordID: activeRecordID))
                             popCurrentRoute()
@@ -251,13 +272,19 @@ struct LibraryView: View {
     }
 
     private func recordEditor(kind: LibraryContentKind, recordID: String?, record: StoredRecord?) -> some View {
-        LibraryRecordEditorView(
+        let preparedDraft = recordID.flatMap { preparedEditDrafts["\(kind.collection)|\($0)"] }
+        return LibraryRecordEditorView(
             kind: kind,
             scope: recordID == nil ? creationScope : scope,
             record: record,
+            preparedDraft: preparedDraft,
             preferredType: recordID == nil ? (kind == .words ? wordCategory.rawValue : selectedTag) : "",
             dismissAfterSave: !(recordID == nil && (kind == .errors || kind == .words)),
             onSaved: { savedID in
+                if let recordID {
+                    preparedEditDrafts["\(kind.collection)|\(recordID)"] = nil
+                    return
+                }
                 guard recordID == nil, kind == .errors || kind == .words else { return }
                 Task { @MainActor in
                     await Task.yield()
@@ -464,7 +491,7 @@ struct LibraryView: View {
         .padding(.horizontal, 14)
         .padding(.top, 9)
         .padding(.bottom, 8)
-        .background(AppTheme.groupedBackground)
+        .background(Color.white)
     }
 
     private var headerMenu: some View {

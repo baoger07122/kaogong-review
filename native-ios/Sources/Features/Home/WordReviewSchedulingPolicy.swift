@@ -1,6 +1,6 @@
 import Foundation
 
-enum WordReviewPlanStatus: String, Codable, CaseIterable, Hashable {
+enum WordReviewPlanStatus: String, Codable, CaseIterable, Hashable, Sendable {
     case waitingToLearn
     case training
     case verification
@@ -16,7 +16,7 @@ enum WordReviewPlanStatus: String, Codable, CaseIterable, Hashable {
     }
 }
 
-enum WordReviewFeedback: String, Codable, CaseIterable, Hashable {
+enum WordReviewFeedback: String, Codable, CaseIterable, Hashable, Sendable {
     case unknown
     case fuzzy
     case mastered
@@ -30,7 +30,7 @@ enum WordReviewFeedback: String, Codable, CaseIterable, Hashable {
     }
 }
 
-enum WordReviewAttemptType: String, Codable, Hashable {
+enum WordReviewAttemptType: String, Codable, Hashable, Sendable {
     case initial
     case due
     case early
@@ -43,7 +43,7 @@ enum WordReviewAttemptType: String, Codable, Hashable {
     }
 }
 
-struct WordReviewPlan: Codable, Equatable, Identifiable {
+struct WordReviewPlan: Codable, Equatable, Identifiable, Sendable {
     var wordRecordID: String
     var status: WordReviewPlanStatus
     var isPaused: Bool

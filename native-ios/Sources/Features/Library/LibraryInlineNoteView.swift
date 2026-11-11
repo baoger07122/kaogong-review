@@ -976,6 +976,25 @@ struct LibraryInlineNoteView: View {
         }
         let latestDraft = snapshot.html
         let currentState = saveService.state(recordID: renderDocumentID)
+        if latestDraft == storedNote, !saveService.hasPending(recordID: renderDocumentID) {
+            saveService.markExistingContentConfirmed(
+                recordID: renderDocumentID,
+                content: storedNote,
+                recordVersion: currentRecordVersion(),
+                payload: currentRecordPayload(),
+                allowDiscardingUnqueuedDraft: true
+            )
+            let confirmed = saveService.state(recordID: renderDocumentID)
+            if confirmed.confirmedContent == latestDraft {
+                editorSession.setInputLocked(true)
+                finishEditorAfterConfirmedSave(
+                    version: confirmed.confirmedDraftVersion,
+                    content: latestDraft,
+                    completion: completion
+                )
+                return
+            }
+        }
         if latestDraft == currentState.confirmedContent,
            !saveService.hasPending(recordID: renderDocumentID),
            currentState.phase != .failed {

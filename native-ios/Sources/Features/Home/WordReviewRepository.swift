@@ -37,6 +37,87 @@ enum WordReviewRepository {
     }
 
     @discardableResult
+    static func enrollPreparedCandidates(
+        _ candidates: [WordReviewEnrollmentCandidate],
+        wordRecords: [StoredRecord],
+        in context: ModelContext,
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) throws -> Int {
+        guard !candidates.isEmpty else { return 0 }
+        let candidatesByID = Dictionary(candidates.map { ($0.wordRecordID, $0) }, uniquingKeysWith: { first, _ in first })
+        let wordsByID = Dictionary(
+            wordRecords.filter { $0.collection == "words" && candidatesByID[$0.recordID] != nil }
+                .map { ($0.recordID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        guard !wordsByID.isEmpty else { return 0 }
+
+        let descriptor = FetchDescriptor<StoredRecord>(
+            predicate: #Predicate { $0.collection == "word_review_plans" }
+        )
+        let plansByID = Dictionary(
+            try context.fetch(descriptor).map { ($0.recordID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        var updates: [(StoredRecord, WordReviewPlan)] = []
+        var inserts: [StoredRecord] = []
+        for (wordRecordID, wordRecord) in wordsByID {
+            guard let candidate = candidatesByID[wordRecordID] else { continue }
+            let addedAt = wordRecord.createdAt ?? candidate.addedAt
+            if let planRecord = plansByID[wordRecordID] {
+                if let existingPlan = WordReviewPlan.decode(from: planRecord),
+                   existingPlan.wordRecordID == wordRecordID {
+                    guard let repaired = WordReviewEnrollmentPolicy.backfilledPlan(
+                        existingPlan,
+                        addedAt: addedAt,
+                        now: now,
+                        calendar: calendar
+                    ) else { continue }
+                    updates.append((planRecord, repaired))
+                } else {
+                    updates.append((planRecord, WordReviewEnrollmentPolicy.makePlan(
+                        wordRecordID: wordRecordID,
+                        addedAt: addedAt,
+                        now: now,
+                        calendar: calendar
+                    )))
+                }
+            } else {
+                let plan = WordReviewEnrollmentPolicy.makePlan(
+                    wordRecordID: wordRecordID,
+                    addedAt: addedAt,
+                    now: now,
+                    calendar: calendar
+                )
+                inserts.append(StoredRecord(
+                    collection: "word_review_plans",
+                    recordID: wordRecordID,
+                    payload: try JSONEncoder().encode(plan),
+                    subject: wordRecord.subject,
+                    module: wordRecord.module,
+                    createdAt: addedAt,
+                    updatedAt: now
+                ))
+            }
+        }
+        guard !updates.isEmpty || !inserts.isEmpty else { return 0 }
+
+        let encodedUpdates = try updates.map { record, plan in
+            (record, plan, try JSONEncoder().encode(plan))
+        }
+        try context.transaction {
+            for (record, plan, payload) in encodedUpdates {
+                record.replacePayload(payload)
+                record.updatedAt = plan.updatedAt
+            }
+            for record in inserts { context.insert(record) }
+        }
+        return inserts.count
+    }
+
+    @discardableResult
     static func enrollWithinTransaction(_ wordRecords: [StoredRecord], in context: ModelContext, now: Date = .now) throws -> Int {
         let candidates = wordRecords.filter { record in
             guard record.collection == "words",

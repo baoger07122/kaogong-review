@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-enum WordCategory: String, CaseIterable, Identifiable {
+enum WordCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
     case idiomDefinition = "idiom-def"
     case idiomComparison = "idiom-compare"
     case wordDefinition = "word-def"
@@ -268,6 +268,8 @@ struct LibraryRecordSnapshot: Identifiable {
     let title: String
     let summary: String
     let wordCardBody: String
+    let stickyContent: String
+    let stickyTag: String
     let tags: [String]
     let status: String?
     let isDifficult: Bool
@@ -331,6 +333,8 @@ struct LibraryRecordSnapshot: Identifiable {
             ? ["question", "title"]
             : ["judgmentHint", "commonMeaning", "compareNote", "content", "note", "errorNote", "meaning", "myUnderstanding", "relation", "coreDifference", "question"]
         summary = Self.firstText(in: object, keys: summaryKeys).map(Self.plainText) ?? ""
+        stickyContent = record.collection == "stickies" ? object["content"] as? String ?? "" : ""
+        stickyTag = record.collection == "stickies" ? object["tag"] as? String ?? "" : ""
         let categoryValue = Self.firstText(in: object, keys: ["category", "type"])
             ?? WordCategory.idiomDefinition.rawValue
         if record.collection == "words" {

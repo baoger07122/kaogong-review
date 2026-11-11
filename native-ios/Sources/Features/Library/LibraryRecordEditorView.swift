@@ -106,6 +106,7 @@ struct LibraryRecordEditorView: View {
         record: StoredRecord? = nil,
         preferredType: String = "",
         preferredSourceExamID: String? = nil,
+        preparedDraft: LibraryRecordDraft? = nil,
         dismissAfterSave: Bool = true,
         onSaved: ((String) -> Void)? = nil
     ) {
@@ -114,7 +115,7 @@ struct LibraryRecordEditorView: View {
         self.onSaved = onSaved
         self.dismissAfterSave = dismissAfterSave
         recordID = record?.recordID
-        var initialDraft = LibraryRecordDraft(kind: kind, scope: scope, record: record)
+        var initialDraft = preparedDraft ?? LibraryRecordDraft(kind: kind, scope: scope, record: record)
         if record == nil, !preferredType.isEmpty {
             initialDraft.type = preferredType
         }

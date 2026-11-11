@@ -8,7 +8,7 @@ extension WordReviewPlan {
     }
 }
 
-struct WordReviewHistory: Codable, Equatable, Identifiable {
+struct WordReviewHistory: Codable, Equatable, Identifiable, Sendable {
     var id: String
     var wordRecordID: String
     var title: String
@@ -27,7 +27,7 @@ struct WordReviewHistory: Codable, Equatable, Identifiable {
     }
 }
 
-struct WordReviewTerm: Equatable, Identifiable {
+struct WordReviewTerm: Equatable, Identifiable, Sendable {
     let id: String
     let name: String
     let coreFocus: String
@@ -40,7 +40,7 @@ struct WordReviewTerm: Equatable, Identifiable {
     let collocations: String
 }
 
-struct WordReviewWordGroup: Equatable, Identifiable {
+struct WordReviewWordGroup: Equatable, Identifiable, Sendable {
     let recordID: String
     let title: String
     let category: WordCategory
@@ -53,14 +53,18 @@ struct WordReviewWordGroup: Equatable, Identifiable {
     var categoryTitle: String { category.title }
 
     init?(record: StoredRecord) {
-        guard record.collection == "words",
-              let object = record.jsonObject,
+        self.init(recordID: record.recordID, payload: record.payload, collection: record.collection)
+    }
+
+    init?(recordID: String, payload: Data, collection: String = "words") {
+        guard collection == "words",
+              let object = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any],
               let category = WordCategory(rawValue: object["category"] as? String ?? object["type"] as? String ?? "") else { return nil }
 
         let terms = (object["compareWords"] as? [[String: Any]] ?? []).enumerated().compactMap { index, entry -> WordReviewTerm? in
             guard let name = entry["name"] as? String, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             return WordReviewTerm(
-                id: "\(record.recordID):\(index)",
+                id: "\(recordID):\(index)",
                 name: name,
                 coreFocus: entry["coreFocus"] as? String ?? entry["focus"] as? String ?? "",
                 quickDecision: entry["quickDecision"] as? String ?? entry["decision"] as? String ?? "",
@@ -79,7 +83,7 @@ struct WordReviewWordGroup: Equatable, Identifiable {
         guard !title.isEmpty else { return nil }
 
         let displayTerms = category.isComparison ? terms : [WordReviewTerm(
-            id: "\(record.recordID):0",
+            id: "\(recordID):0",
             name: sourceName,
             coreFocus: "",
             quickDecision: "",
@@ -91,7 +95,7 @@ struct WordReviewWordGroup: Equatable, Identifiable {
             collocations: object["collocations"] as? String ?? ""
         )]
 
-        self.recordID = record.recordID
+        self.recordID = recordID
         self.title = title
         self.category = category
         self.commonMeaning = object["commonMeaning"] as? String ?? (category.isComparison ? "" : object["meaning"] as? String ?? "")
