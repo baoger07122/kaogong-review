@@ -681,7 +681,7 @@ struct LibraryDoodleOverlay: View {
                 label: "画笔",
                 active: !controller.eraser,
                 disabled: !session.isCanvasActivationReady,
-                action: controller.selectPenTool
+                action: { controller.selectPenTool() }
             )
             toolbarButton(
                 controller.eraser ? "eraser.fill" : "eraser",
