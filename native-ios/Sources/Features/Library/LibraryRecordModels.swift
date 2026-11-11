@@ -377,7 +377,7 @@ struct LibraryRecordSnapshot: Identifiable {
         self.quantityErrorCauses = quantityErrorCauses
         errorCause = record.collection == "errors" && subject == "数量关系"
             ? quantityErrorCauses.joined(separator: "\n")
-            : record.collection == "errors" && subject == "资料分析"
+            : record.collection == "errors"
                 ? LibraryDataAnalysisCauseLayout.rawCause(in: object)
                 : Self.firstText(in: object, keys: ["errorCause", "cause", "reason"]).map(Self.plainText) ?? ""
         dataAnalysisErrorCause = LibraryDataAnalysisCauseLayout.rawCause(in: object)

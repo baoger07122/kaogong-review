@@ -9,10 +9,12 @@ struct WordLibraryRecordDetailView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Query(filter: #Predicate<StoredRecord> { $0.collection == "errors" }) private var errorRecords: [StoredRecord]
+    @Query(filter: #Predicate<StoredRecord> { $0.collection == "words" }) private var wordRecords: [StoredRecord]
     @State private var showDelete = false
     @State private var showErrorSelection = false
     @State private var operationErrorTitle = "关联错题失败"
     @State private var reviewErrorMessage: String?
+    @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
 
     private var object: [String: Any] { record.jsonObject ?? [:] }
     private var category: WordCategory {
@@ -82,6 +84,11 @@ struct WordLibraryRecordDetailView: View {
         }
         .navigationTitle("词语详情")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $linkedWordDetailTarget) { target in
+            if let linked = wordRecords.first(where: { $0.recordID == target.recordID }) {
+                WordLibraryRecordDetailView(record: linked, onOpenLinkedError: onOpenLinkedError)
+            }
+        }
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -272,7 +279,7 @@ struct WordLibraryRecordDetailView: View {
     private var idiomComparisonDetail: some View {
         let terms = compareTerms
         let context = text("idiomComparisonContext")
-        let contextTerms = terms.filter { !$0.contextExample.isEmpty }
+        let contextTerms = terms.filter { !$0.contextExample.isEmpty || !$0.contextFocus.isEmpty }
         let judgmentTerms = terms.filter { !$0.quickDecision.isEmpty }
         return VStack(alignment: .leading, spacing: 16) {
             if !terms.isEmpty {
@@ -284,7 +291,7 @@ struct WordLibraryRecordDetailView: View {
                     }
                     ForEach(Array(terms.enumerated()), id: \.offset) { _, term in
                         WordComparisonTableRow(columnFractions: [0.22, 0.52, 0.26]) {
-                            tableCell(term.name, emphasized: true)
+                            linkedTermButton(term)
                             if term.meaning.isEmpty {
                                 tableCell("")
                             } else {
@@ -302,11 +309,7 @@ struct WordLibraryRecordDetailView: View {
                 }
             }
             if !context.isEmpty || !contextTerms.isEmpty {
-                idiomComparisonExamples(
-                    title: context.isEmpty ? "同一情境" : "同一情境｜\(context)",
-                    terms: contextTerms,
-                    value: \.contextExample
-                )
+                idiomContextExamples(title: context.isEmpty ? "同一情境" : "同一情境｜\(context)", terms: contextTerms)
             }
             if !judgmentTerms.isEmpty {
                 idiomComparisonExamples(title: "一眼判断", terms: judgmentTerms, value: \.quickDecision)
@@ -318,11 +321,45 @@ struct WordLibraryRecordDetailView: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
             ForEach(Array(terms.enumerated()), id: \.offset) { _, term in
-                (Text("\(term.name)　").fontWeight(.semibold) + Text(term[keyPath: value]))
-                    .font(.system(size: 14))
-                    .lineSpacing(4)
-                    .textSelection(.enabled)
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    linkedTermButton(term)
+                    Text(term[keyPath: value]).font(.system(size: 14)).lineSpacing(4).textSelection(.enabled)
+                }
             }
+        }
+    }
+
+    private func idiomContextExamples(title: String, terms: [Term]) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+            ForEach(Array(terms.enumerated()), id: \.offset) { _, term in
+                VStack(alignment: .leading, spacing: 4) {
+                    linkedTermButton(term)
+                    if !term.contextExample.isEmpty { Text(term.contextExample).font(.system(size: 13)).lineSpacing(3) }
+                    if !term.contextFocus.isEmpty {
+                        Text("情境侧重：\(term.contextFocus)").font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func linkedTermButton(_ term: Term) -> some View {
+        if !term.wordID.isEmpty, wordRecords.contains(where: { $0.recordID == term.wordID }) {
+            Button {
+                linkedWordDetailTarget = LinkedWordDetailTarget(recordID: term.wordID)
+            } label: {
+                HStack(spacing: 4) {
+                    Text(term.name).font(.system(size: 14, weight: .semibold))
+                    Image(systemName: "link").font(.system(size: 10, weight: .medium))
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(AppTheme.accent)
+        } else {
+            Text(term.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(.primary)
         }
     }
 
@@ -431,6 +468,8 @@ struct WordLibraryRecordDetailView: View {
         let coreFocus: String
         let quickDecision: String
         let contextExample: String
+        let contextFocus: String
+        let wordID: String
     }
 
     private var compareTerms: [Term] {
@@ -443,7 +482,9 @@ struct WordLibraryRecordDetailView: View {
                 meaning: value["meaning"] as? String ?? "",
                 coreFocus: value["coreFocus"] as? String ?? value["focus"] as? String ?? "",
                 quickDecision: value["quickDecision"] as? String ?? value["decision"] as? String ?? "",
-                contextExample: value["contextExample"] as? String ?? ""
+                contextExample: value["contextExample"] as? String ?? "",
+                contextFocus: value["contextFocus"] as? String ?? "",
+                wordID: value["wordId"] as? String ?? value["id"] as? String ?? ""
             )
         }
     }

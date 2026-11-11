@@ -52,7 +52,7 @@ final class LibraryDoodleSession: ObservableObject {
     @Published private(set) var splitDrawingLayoutDirection: LibraryDoodleLayoutDirection = .vertical
     @Published private(set) var hasPendingSplitDrawingChanges = false
     let canvas = LibraryDoodleCanvasState()
-    private var saveHandler: ((String, Bool, Int, Int) -> String?)?
+    private var saveHandler: ((String, Bool, Int, Int) async -> String?)?
     private var isDismissing = false
     private var splitDrawingBaseline: [String: String] = [:]
     private var drawingLoadFailed = false
@@ -95,7 +95,7 @@ final class LibraryDoodleSession: ObservableObject {
         onFirstCanvasFrame: (() -> Void)? = nil,
         deferCanvasActivation: Bool = false,
         canvasHostID: String? = nil,
-        onSave: @escaping (String, Bool, Int, Int) -> String?
+        onSave: @escaping (String, Bool, Int, Int) async -> String?
     ) {
         guard !isPresented, !isDismissing else { return }
         let preparationStart = ProcessInfo.processInfo.systemUptime
@@ -428,10 +428,12 @@ final class LibraryDoodleSession: ObservableObject {
                 return
             }
 
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.presentationGeneration == dismissalGeneration,
+                      self.targetRecordID == dismissalTargetRecordID else { return }
                 let saveStart = ProcessInfo.processInfo.systemUptime
-                if let error = handler?(drawingData, legacyPreviewCleared, dismissalGeneration, drawingRevision) {
+                if let error = await handler?(drawingData, legacyPreviewCleared, dismissalGeneration, drawingRevision) {
                     self.saveError = error
                     self.isDismissing = false
                     if reopenOnSaveFailure {

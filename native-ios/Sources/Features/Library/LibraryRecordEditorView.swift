@@ -98,6 +98,9 @@ struct LibraryRecordEditorView: View {
     @State private var showDiscardDraftConfirmation = false
     @State private var questionImageWidthPreview: [String: Double] = [:]
     @State private var expandedComparisonTermIDs = Set<UUID>()
+    @State private var showIdiomGroupPaste = false
+    @State private var idiomGroupPasteText = ""
+    @State private var idiomGroupPasteError: String?
     @State private var draftPersistenceCleared = false
 
     init(
@@ -239,6 +242,9 @@ struct LibraryRecordEditorView: View {
                     }
                 )
             }
+        }
+        .sheet(isPresented: $showIdiomGroupPaste) {
+            idiomGroupPasteSheet
         }
         .navigationDestination(item: $linkedWordDetailTarget) { target in
             if let word = records.first(where: { $0.collection == "words" && $0.recordID == target.recordID }) {
@@ -956,15 +962,11 @@ struct LibraryRecordEditorView: View {
                 compactWordTextField("共同语义（可选）", text: $draft.commonMeaning, multiline: true)
 
                 if wordCategory == .idiomComparison {
-                    NativeFieldLabel(title: "同一情境")
-                    compactWordTextField("情境标题（例如：地方发展）", text: $draft.idiomComparisonContext)
-                }
-                NativeFieldLabel(title: wordCategory == .idiomComparison ? "辨析成语" : "辨析词语")
-                ForEach($draft.wordCompareTerms) { $term in
-                    if wordCategory == .wordComparison {
+                    idiomComparisonTables
+                } else {
+                    NativeFieldLabel(title: "辨析词语")
+                    ForEach($draft.wordCompareTerms) { $term in
                         wordComparisonTermEditor($term)
-                    } else {
-                        idiomComparisonTermEditor($term)
                     }
                 }
                 Button {
@@ -975,7 +977,9 @@ struct LibraryRecordEditorView: View {
                     Label(wordCategory == .idiomComparison ? "增加成语" : "增加词语", systemImage: "plus.circle")
                         .font(AppTheme.inputFont.weight(.semibold))
                 }
-                compactWordTextField("核心区别", text: $draft.compareNote, multiline: true)
+                if wordCategory == .wordComparison {
+                    compactWordTextField("核心区别", text: $draft.compareNote, multiline: true)
+                }
             } else {
                 HStack(spacing: 8) {
                     wordEntryKindPicker(selection: $draft.wordEntryKind)
@@ -1104,6 +1108,269 @@ struct LibraryRecordEditorView: View {
         }
         .padding(.vertical, 4)
         .onChange(of: term.wrappedValue.name) { _, _ in syncComparisonTitle() }
+    }
+
+    private var idiomComparisonTables: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                NativeFieldLabel(title: "成语辨析")
+                Spacer()
+                Button("粘贴整组") { showIdiomGroupPaste = true }
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            idiomTableFrame(title: "总览") {
+                GridRow {
+                    idiomCell("成语", header: true)
+                    idiomCell("词义", header: true)
+                    idiomCell("核心侧重", header: true)
+                }
+                ForEach($draft.wordCompareTerms) { $term in
+                    GridRow {
+                        idiomNameCell($term, editable: true)
+                        idiomRichCell($term.meaning)
+                        idiomCell("核心侧重", text: optionalTextBinding($term.coreFocus))
+                    }
+                }
+            }
+            NativeFieldLabel(title: "统一情境")
+            compactWordTextField("例如：地方发展中的人文因素", text: $draft.idiomComparisonContext, multiline: true)
+            idiomTableFrame(title: "统一情境辨析") {
+                GridRow {
+                    idiomCell("成语", header: true)
+                    idiomCell("具体情境", header: true)
+                    idiomCell("核心含义", header: true)
+                }
+                ForEach($draft.wordCompareTerms) { $term in
+                    GridRow {
+                        idiomNameCell($term, editable: false)
+                        idiomCell("例句", text: optionalTextBinding($term.contextExample), multiline: true)
+                        idiomCell("情境侧重", text: optionalTextBinding($term.contextFocus), multiline: true)
+                    }
+                }
+            }
+            idiomTableFrame(title: "一眼判断") {
+                GridRow {
+                    idiomCell("成语", header: true)
+                    idiomCell("判断问题", header: true)
+                }
+                ForEach($draft.wordCompareTerms) { $term in
+                    GridRow {
+                        idiomNameCell($term, editable: false)
+                        idiomCell("用一句提问", text: optionalTextBinding($term.quickDecision), multiline: true)
+                    }
+                }
+            }
+        }
+    }
+
+    private var idiomGroupPasteSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("粘贴总览、统一情境和一眼判断表。系统按成语名称合并三张表。")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                TextEditor(text: $idiomGroupPasteText)
+                    .font(.system(size: 13, design: .monospaced))
+                    .padding(8)
+                    .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+                    .accessibilityIdentifier("idiom-group-paste-input")
+                if let idiomGroupPasteError {
+                    Text(idiomGroupPasteError).font(.system(size: 12)).foregroundStyle(AppTheme.danger)
+                }
+            }
+            .padding(16)
+            .navigationTitle("粘贴整组成语")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { showIdiomGroupPaste = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("导入") { importIdiomGroup() }
+                        .fontWeight(.semibold)
+                }
+            }
+        }
+    }
+
+    private func importIdiomGroup() {
+        guard let imported = parseIdiomGroup(idiomGroupPasteText) else {
+            idiomGroupPasteError = "未找到「成语、词义、核心侧重」总览表，请连同表头一起粘贴。"
+            return
+        }
+        let existing = Dictionary(draft.wordCompareTerms.map { ($0.name.trimmingCharacters(in: .whitespacesAndNewlines), $0) }, uniquingKeysWith: { first, _ in first })
+        draft.wordCompareTerms = imported.rows.map { row in
+            var term = existing[row.name] ?? WordComparisonTermDraft(entryKind: draft.wordEntryKind)
+            term.name = row.name
+            term.meaning = row.meaning
+            term.coreFocus = row.coreFocus.isEmpty ? nil : row.coreFocus
+            term.contextExample = row.contextExample.isEmpty ? nil : row.contextExample
+            term.contextFocus = row.contextFocus.isEmpty ? nil : row.contextFocus
+            term.quickDecision = row.quickDecision.isEmpty ? nil : row.quickDecision
+            return term
+        }
+        draft.idiomComparisonContext = imported.context
+        syncComparisonTitle()
+        idiomGroupPasteError = nil
+        showIdiomGroupPaste = false
+    }
+
+    private struct ParsedIdiomRow {
+        var name: String
+        var meaning = ""
+        var coreFocus = ""
+        var contextExample = ""
+        var contextFocus = ""
+        var quickDecision = ""
+    }
+
+    private func parseIdiomGroup(_ source: String) -> (rows: [ParsedIdiomRow], context: String)? {
+        let lines = source.components(separatedBy: .newlines).map { $0.replacingOccurrences(of: "**", with: "").trimmingCharacters(in: .whitespacesAndNewlines) }
+        func cells(_ line: String) -> [String] {
+            let line = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard line.contains("|") || line.contains("\t") else { return [] }
+            let raw = line.contains("\t") ? line.components(separatedBy: "\t") : line.trimmingCharacters(in: CharacterSet(charactersIn: "|")).components(separatedBy: "|")
+            return raw.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        }
+        let schemas: [String: [String]] = [
+            "成语|词义|核心侧重": ["name", "meaning", "coreFocus"],
+            "成语|例句|情境侧重": ["name", "contextExample", "contextFocus"],
+            "成语|具体情境|核心含义": ["name", "contextExample", "contextFocus"],
+            "成语|判断问题": ["name", "quickDecision"]
+        ]
+        var tables: [String: [[String: String]]] = [:]
+        for index in lines.indices {
+            let header = cells(lines[index])
+            let tableKey = header.joined(separator: "|")
+            guard let fields = schemas[tableKey] else { continue }
+            var rows: [[String: String]] = []
+            var cursor = index + 1
+            while cursor < lines.count {
+                let row = cells(lines[cursor])
+                if row.allSatisfy({ $0.range(of: #"^:?-{2,}:?$"#, options: .regularExpression) != nil }) { cursor += 1; continue }
+                guard row.count == fields.count else { break }
+                if !row[0].isEmpty { rows.append(Dictionary(uniqueKeysWithValues: zip(fields, row))) }
+                cursor += 1
+            }
+            tables[tableKey == "成语|具体情境|核心含义" ? "成语|例句|情境侧重" : tableKey] = rows
+        }
+        guard let overview = tables["成语|词义|核心侧重"], !overview.isEmpty else { return nil }
+        var byName: [String: ParsedIdiomRow] = [:]
+        for row in overview {
+            let name = row["name"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !name.isEmpty else { continue }
+            byName[name] = ParsedIdiomRow(name: name, meaning: row["meaning"] ?? "", coreFocus: row["coreFocus"] ?? "")
+        }
+        for row in tables["成语|例句|情境侧重"] ?? [] {
+            guard let name = row["name"], var target = byName[name] else { continue }
+            target.contextExample = row["contextExample"] ?? ""
+            target.contextFocus = row["contextFocus"] ?? ""
+            byName[name] = target
+        }
+        for row in tables["成语|判断问题"] ?? [] {
+            guard let name = row["name"], var target = byName[name] else { continue }
+            target.quickDecision = row["quickDecision"] ?? ""
+            byName[name] = target
+        }
+        let judgmentStart = lines.firstIndex { $0.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: #"^(#+\s*|三[、.．]\s*)"#, with: "", options: .regularExpression) == "一眼判断" }
+        if let judgmentStart {
+            for line in lines.dropFirst(judgmentStart + 1) {
+                let cleaned = line.replacingOccurrences(of: #"^[-*•]\s*"#, with: "", options: .regularExpression)
+                guard let separator = cleaned.firstIndex(where: { $0 == "：" || $0 == ":" }) else { continue }
+                let name = String(cleaned[..<separator]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let value = String(cleaned[cleaned.index(after: separator)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard var target = byName[name], !value.isEmpty else { continue }
+                target.quickDecision = value
+                byName[name] = target
+            }
+        }
+        let contextLine = lines.first(where: { $0.hasPrefix("统一情境：") || $0.hasPrefix("统一情境:") })
+        let context = contextLine.map {
+            $0.replacingOccurrences(of: #"^(?:#+\s*)?统一情境\s*[：:]\s*"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } ?? ""
+        return (overview.compactMap { row in
+            guard let name = row["name"] else { return nil }
+            return byName[name]
+        }, context)
+    }
+
+    private func idiomTableFrame<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title).font(.system(size: 12, weight: .semibold)).padding(.horizontal, 9).padding(.vertical, 7)
+            Grid(horizontalSpacing: 0, verticalSpacing: 0, content: content)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Color.primary.opacity(0.12), lineWidth: 0.8))
+    }
+
+    private func idiomCell(
+        _ placeholder: String,
+        text: Binding<String> = .constant(""),
+        header: Bool = false,
+        editable: Bool = true,
+        multiline: Bool = false
+    ) -> some View {
+        Group {
+            if header {
+                Text(placeholder).font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+            } else if editable {
+                TextField(placeholder, text: text, axis: .vertical)
+                    .font(.system(size: 11))
+                    .lineLimit(multiline ? 2...5 : 1...3)
+                    .textFieldStyle(.plain)
+            } else {
+                Text(text.wrappedValue.isEmpty ? "待填写" : text.wrappedValue)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(text.wrappedValue.isEmpty ? Color.secondary : Color.primary)
+                    .lineLimit(2)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: header ? 32 : 44, alignment: .leading)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.10)).frame(height: 0.6) }
+        .overlay(alignment: .trailing) { Rectangle().fill(Color.primary.opacity(0.10)).frame(width: 0.6) }
+    }
+
+    private func idiomRichCell(_ text: Binding<String>) -> some View {
+        NativeRichTextEditor(html: text, minHeight: 44, mode: .minimal, documentStyle: true)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.10)).frame(height: 0.6) }
+            .overlay(alignment: .trailing) { Rectangle().fill(Color.primary.opacity(0.10)).frame(width: 0.6) }
+    }
+
+    private func idiomNameCell(_ term: Binding<WordComparisonTermDraft>, editable: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if editable {
+                TextField("成语", text: term.name)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1...2)
+                    .onChange(of: term.wrappedValue.name) { _, _ in syncComparisonTitle() }
+            } else {
+                Text(term.wrappedValue.name.isEmpty ? "待填写" : term.wrappedValue.name)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(term.wrappedValue.name.isEmpty ? Color.secondary : Color.primary)
+                    .lineLimit(2)
+            }
+            Menu {
+                Button("不关联词条") { term.wordID.wrappedValue = "" }
+                ForEach(records.filter { $0.collection == "words" && $0.recordID != recordID }) { word in
+                    Button(word.title) { term.wordID.wrappedValue = word.recordID }
+                }
+            } label: {
+                Label(term.wrappedValue.wordID.isEmpty ? "关联词条" : "已关联", systemImage: "link")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(term.wrappedValue.wordID.isEmpty ? Color.secondary : AppTheme.accent)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.10)).frame(height: 0.6) }
+        .overlay(alignment: .trailing) { Rectangle().fill(Color.primary.opacity(0.10)).frame(width: 0.6) }
     }
 
     private func optionalTextBinding(_ binding: Binding<String?>) -> Binding<String> {

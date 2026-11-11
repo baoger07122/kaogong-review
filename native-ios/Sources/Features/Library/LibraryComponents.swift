@@ -465,29 +465,11 @@ private struct LibraryErrorRecordCard: View {
                     )
                 }
 
-                let causes = isDataAnalysis || isLogicFill
-                    ? []
-                    : (isQuantityRelations ? snapshot.quantityErrorCauses : splitTags(snapshot.errorCause))
-                let dataAnalysisCauses = LibraryDataAnalysisCauseLayout.splitLines(snapshot.dataAnalysisErrorCause)
-                if isDataAnalysis || isLogicFill {
-                    if !dataAnalysisCauses.isEmpty {
-                        sentenceTagLine(label: errorCauseLabel, values: dataAnalysisCauses)
-                    }
-                } else {
-                    if !causes.isEmpty {
-                        if isAnalogyReasoning {
-                            plainField(label: errorCauseLabel, value: snapshot.errorCause)
-                        } else if isQuantityRelations {
-                            quantityCauseTagLine(label: errorCauseLabel, values: causes)
-                        } else {
-                            tagLine(
-                                label: errorCauseLabel,
-                                values: causes,
-                                foreground: .secondary,
-                                background: Color.primary.opacity(0.045)
-                            )
-                        }
-                    }
+                let causes = isQuantityRelations
+                    ? snapshot.quantityErrorCauses
+                    : LibraryDataAnalysisCauseLayout.splitLines(snapshot.errorCause)
+                if !causes.isEmpty {
+                    sentenceTagLine(label: errorCauseLabel, values: causes)
                 }
 
                 if !isLogicFill, !snapshot.pitfall.isEmpty {
@@ -1419,35 +1401,15 @@ struct LibraryMasonryGrid: View {
         if !record.comparisonWords.isEmpty {
             metadataRows.append(estimatedTagLineHeight(label: "辨析", values: record.comparisonWords, width: contentWidth))
         }
-        if isDataAnalysis {
-            let causes = LibraryDataAnalysisCauseLayout.splitLines(record.dataAnalysisErrorCause)
+        if record.record.collection == "errors" {
+            let causes = record.record.subject == "数量关系"
+                ? record.quantityErrorCauses
+                : LibraryDataAnalysisCauseLayout.splitLines(record.errorCause)
             if !causes.isEmpty {
+                let causeLabel = isAnalogyReasoning ? "二级辨析" : "错因"
                 metadataRows.append(LibraryDataAnalysisCauseLayout.estimatedTagLineHeight(
-                    label: "错因", values: causes, width: contentWidth
+                    label: causeLabel, values: causes, width: contentWidth
                 ))
-            }
-        } else if record.record.collection == "errors", record.record.subject == "数量关系" {
-            let causes = record.quantityErrorCauses
-            if !causes.isEmpty {
-                metadataRows.append(estimatedStackedTagLineHeight(
-                    label: "错因", values: causes, width: contentWidth, fontSize: 10.5, verticalPadding: 6
-                ))
-            }
-        } else if isLogicFill {
-            let causes = LibraryDataAnalysisCauseLayout.splitLines(record.dataAnalysisErrorCause)
-            if !causes.isEmpty {
-                metadataRows.append(LibraryDataAnalysisCauseLayout.estimatedTagLineHeight(
-                    label: "错因", values: causes, width: contentWidth
-                ))
-            }
-        } else {
-            if isAnalogyReasoning, !record.errorCause.isEmpty {
-                metadataRows.append(estimatedFieldHeight("二级辨析：" + record.errorCause, width: contentWidth, fontSize: 11))
-            } else {
-                let causes = splitTags(record.errorCause)
-                if !causes.isEmpty {
-                    metadataRows.append(estimatedTagLineHeight(label: "错因", values: causes, width: contentWidth))
-                }
             }
         }
         if !isLogicFill, !record.pitfall.isEmpty {

@@ -5,6 +5,14 @@ enum LibraryDataAnalysisCauseLayout {
         subject == "资料分析" || (subject == "言语理解" && module == "逻辑填空")
     }
 
+    static func values(in object: [String: Any]) -> [String] {
+        for key in ["errorCause", "cause", "reason"] {
+            let values = splitLines(object[key])
+            if !values.isEmpty { return values }
+        }
+        return []
+    }
+
     static func splitLines(_ text: String) -> [String] {
         text.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -17,14 +25,7 @@ enum LibraryDataAnalysisCauseLayout {
     }
 
     static func rawCause(in object: [String: Any]) -> String {
-        if let canonical = object["errorCause"] {
-            return splitLines(canonical).joined(separator: "\n")
-        }
-        for key in ["cause", "reason"] {
-            let lines = splitLines(object[key])
-            if !lines.isEmpty { return lines.joined(separator: "\n") }
-        }
-        return ""
+        values(in: object).joined(separator: "\n")
     }
 
     static func estimatedTagLineHeight(label: String, values: [String], width: CGFloat) -> CGFloat {

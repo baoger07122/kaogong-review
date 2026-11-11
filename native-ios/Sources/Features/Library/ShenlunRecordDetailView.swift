@@ -95,15 +95,15 @@ struct ShenlunRecordDetailView: View {
             legacyPreviewDataURL: legacyPreview,
             source: "shenlun-detail",
             onSave: { drawingData, legacyPreviewCleared, _, _ in
-                saveDrawing(drawingData, legacyPreviewCleared: legacyPreviewCleared)
+                await saveDrawing(drawingData, legacyPreviewCleared: legacyPreviewCleared)
             }
         )
         LibraryPerformanceLog.mark("doodle.tap-to-present", since: openStart)
         noteSession.finish { _ in }
     }
 
-    private func saveDrawing(_ drawingData: String, legacyPreviewCleared: Bool) -> String? {
-        LibraryDoodlePersistence.save(
+    private func saveDrawing(_ drawingData: String, legacyPreviewCleared: Bool) async -> String? {
+        await LibraryDoodlePersistence.save(
             record: record,
             context: modelContext,
             drawingData: drawingData,

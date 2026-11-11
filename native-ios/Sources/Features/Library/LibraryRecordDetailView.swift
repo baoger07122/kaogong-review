@@ -61,23 +61,6 @@ private final class LibraryDoodleRecoveryBackgroundTask {
     }
 }
 
-@MainActor
-private final class LibraryRedoAttemptSession: ObservableObject {
-    static let shared = LibraryRedoAttemptSession()
-    @Published private var attempts: [String: LibraryRedoAttempt] = [:]
-
-    func attempt(for recordID: String) -> LibraryRedoAttempt {
-        attempts[recordID] ?? LibraryRedoAttempt()
-    }
-
-    func update(_ recordID: String, _ change: (inout LibraryRedoAttempt) -> Void) {
-        guard !recordID.isEmpty else { return }
-        var attempt = attempts[recordID] ?? LibraryRedoAttempt()
-        change(&attempt)
-        attempts[recordID] = attempt
-    }
-}
-
 struct LibraryRecordDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
@@ -104,9 +87,9 @@ struct LibraryRecordDetailView: View {
     @State private var lastLocallySavedNoteUpdate: Date?
 
     @State private var showDelete = false
-    @AppStorage("native.library.errors.redoMode") private var redoPracticeEnabled = false
+    @State private var redoPracticeEnabled: Bool
     @StateObject private var noteSession = LibraryInlineNoteSession()
-    @StateObject private var redoSession = LibraryRedoAttemptSession.shared
+    @State private var redoAttempts: [String: LibraryRedoAttempt] = [:]
     @State private var showWordSelection = false
     @State private var linkedWordCreationCategory: WordCategory?
     @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
@@ -122,6 +105,7 @@ struct LibraryRecordDetailView: View {
     @State private var lastBackgroundDoodleSaveKey: String?
     @State private var pendingEditorRequestID: String?
     @State private var pendingEditorTransitionRecordID: String?
+    @State private var isWaitingForNoteSave = false
     @State private var editorTransitionErrorMessage: String?
     @State private var didHandOffEditRequest = false
 
@@ -146,6 +130,7 @@ struct LibraryRecordDetailView: View {
         self.orderedRecordIDs = orderedRecordIDs
         self.onOpenLinkedWord = onOpenLinkedWord
         self.onOpenLinkedError = onOpenLinkedError
+        _redoPracticeEnabled = State(initialValue: UserDefaults.standard.bool(forKey: "native.library.errors.redoMode"))
         _activeRecordKey = State(initialValue: record.recordID)
         _object = State(initialValue: [:])
         _imageSourceIdentities = State(initialValue: [:])
@@ -188,6 +173,7 @@ struct LibraryRecordDetailView: View {
                 redoActionsRecordID = nil
                 pendingEditorRequestID = nil
                 pendingEditorTransitionRecordID = nil
+                isWaitingForNoteSave = false
                 editorTransitionErrorMessage = nil
                 didHandOffEditRequest = false
             }
@@ -267,16 +253,6 @@ struct LibraryRecordDetailView: View {
             .background(NativeNavigationInteraction(blocked: doodleSession.isPresented))
             .toolbar(.visible, for: .navigationBar)
             .onAppear(perform: resetEditorRequestAfterReturn)
-            .onAppear {
-                if isRedoPractice {
-                    redoSession.update(activeRecordID) { $0 = LibraryRedoAttempt() }
-                }
-            }
-            .onChange(of: activeRecordID) { _, newValue in
-                if isRedoPractice {
-                    redoSession.update(newValue) { $0 = LibraryRedoAttempt() }
-                }
-            }
             .onDisappear(perform: invalidateEditorRequestOnExit)
             .alert(
                 Text(splitDoodleErrorMessage == nil ? "无法打开编辑" : "涂鸦未保存"),
@@ -637,15 +613,17 @@ struct LibraryRecordDetailView: View {
         return values
     }
 
-    private func saveSplitDoodleChanges(record: StoredRecord, context: ModelContext) -> String? {
+    private func saveSplitDoodleChanges(record: StoredRecord, context: ModelContext) async -> String? {
         let changedValues = doodleSession.pendingSplitDrawingValues()
         guard !changedValues.isEmpty else { return nil }
-        guard let error = LibraryDoodlePersistence.saveSplitDrawings(
+        guard let error = await LibraryDoodlePersistence.saveSplitDrawings(
             record: record,
             context: context,
             drawingValues: changedValues
         ) else {
-            doodleSession.markSplitDrawingValuesSaved()
+            if doodleSession.splitDrawingRecordID == record.compoundID {
+                doodleSession.markSplitDrawingValuesSaved()
+            }
             return nil
         }
         return error
@@ -686,12 +664,24 @@ struct LibraryRecordDetailView: View {
                 .disabled(doodleSession.isPresented || !canOpenDoodle)
                 .accessibilityHidden(doodleSession.isPresented)
 
+            if supportsRedoMode {
+                Button(action: toggleRedoMode) {
+                    Text(redoPracticeEnabled ? "刷" : "看")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(redoPracticeEnabled ? AppTheme.accent : Color.secondary)
+                        .frame(width: 44, height: 44)
+                        .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(redoPracticeEnabled ? "切换到看题模式" : "切换到刷题模式")
+            }
+
             ZStack {
                 questionActionsMenu
                     .opacity(isQuestionActionsMenuVisible ? 1 : 0)
                     .disabled(!isQuestionActionsMenuVisible)
                     .accessibilityHidden(!isQuestionActionsMenuVisible)
-                if pendingEditorRequestID != nil && !doodleSession.isPresented {
+                if isWaitingForNoteSave && !doodleSession.isPresented {
                     ProgressView()
                         .frame(width: 44, height: 44)
                         .accessibilityLabel("正在打开编辑")
@@ -780,6 +770,7 @@ struct LibraryRecordDetailView: View {
         let transitionRecordID = record?.recordID ?? requestID
         pendingEditorRequestID = requestID
         pendingEditorTransitionRecordID = transitionRecordID
+        isWaitingForNoteSave = false
         editorTransitionErrorMessage = nil
         LibraryPerformanceLog.editorTransition(
             "menu-action",
@@ -805,7 +796,9 @@ struct LibraryRecordDetailView: View {
             begins: true,
             transitionKey: "note-finish"
         )
+        isWaitingForNoteSave = true
         noteSession.finish { saved in
+            self.isWaitingForNoteSave = false
             LibraryPerformanceLog.editorTransition(
                 "menu-note-finish",
                 recordID: transitionRecordID,
@@ -860,6 +853,7 @@ struct LibraryRecordDetailView: View {
         guard pendingEditorRequestID != nil else { return }
         pendingEditorRequestID = nil
         pendingEditorTransitionRecordID = nil
+        isWaitingForNoteSave = false
         didHandOffEditRequest = false
     }
 
@@ -869,6 +863,7 @@ struct LibraryRecordDetailView: View {
         let transitionRecordID = pendingEditorTransitionRecordID ?? pendingEditorRequestID
         self.pendingEditorRequestID = nil
         pendingEditorTransitionRecordID = nil
+        isWaitingForNoteSave = false
         didHandOffEditRequest = false
         onCancelEditRequest(transitionRecordID)
         if !wasHandedOff {
@@ -919,13 +914,7 @@ struct LibraryRecordDetailView: View {
                         .accessibilityIdentifier("question-bank-detail-question-type")
                 }
                 metadataTagLine(knowledgePointLabel, values: knowledgePoints, emphasis: .strong)
-                if isDataAnalysis || isLogicFillError {
-                    dataAnalysisCauseMetadata
-                } else if isAnalogyReasoning {
-                    metadataTextLine(errorCauseLabel, value: firstText(["errorCause", "cause", "reason"]) ?? "")
-                } else {
-                    metadataTagLine(errorCauseLabel, values: splitTags(firstText(["errorCause", "cause", "reason"]) ?? ""), emphasis: .subtle)
-                }
+                dataAnalysisCauseMetadata
                 if isGraphReasoning {
                     metadataTextLine("图形规律", value: firstText(["graphRule", "patternRule"]) ?? "")
                     metadataTextLine("识别思路", value: firstText(["recognition", "recognitionPath"]) ?? "")
@@ -1067,7 +1056,7 @@ struct LibraryRecordDetailView: View {
                     Group {
                         if isRedoPractice && !redoAttempt.submitted {
                             Button {
-                                redoSession.update(activeRecordID) { attempt in
+                                updateRedoAttempt(activeRecordID) { attempt in
                                     if answerLetters.count == 1 {
                                         attempt.selectedLetters = [letter]
                                     } else if attempt.selectedLetters.contains(letter) {
@@ -1494,7 +1483,14 @@ struct LibraryRecordDetailView: View {
     private var answerLetters: Set<String> { letterSet(firstText(["correctOption", "answer", "correctAnswer"])) }
     private var userAnswerLetters: Set<String> { letterSet(firstText(["userOption", "myAnswer"])) }
 
-    private var redoAttempt: LibraryRedoAttempt { redoSession.attempt(for: activeRecordID) }
+    private var redoAttempt: LibraryRedoAttempt { redoAttempts[activeRecordID] ?? LibraryRedoAttempt() }
+
+    private func updateRedoAttempt(_ recordID: String, _ change: (inout LibraryRedoAttempt) -> Void) {
+        guard !recordID.isEmpty else { return }
+        var attempt = redoAttempts[recordID] ?? LibraryRedoAttempt()
+        change(&attempt)
+        redoAttempts[recordID] = attempt
+    }
 
     private var isRedoPractice: Bool {
         supportsRedoMode && redoPracticeEnabled
@@ -1539,7 +1535,7 @@ struct LibraryRecordDetailView: View {
                     .foregroundStyle(.primary)
                     .accessibilityIdentifier("library-redo-correct-answer")
                 Button("重新作答") {
-                    redoSession.update(activeRecordID) { $0 = LibraryRedoAttempt() }
+                    updateRedoAttempt(activeRecordID) { $0 = LibraryRedoAttempt() }
                 }
                 .font(.system(size: 12, weight: .medium))
                 .buttonStyle(.plain)
@@ -1688,7 +1684,7 @@ struct LibraryRecordDetailView: View {
 
     @ViewBuilder
     private var dataAnalysisCauseMetadata: some View {
-        let values = LibraryDataAnalysisCauseLayout.splitLines(LibraryDataAnalysisCauseLayout.rawCause(in: object))
+        let values = LibraryDataAnalysisCauseLayout.values(in: object)
         if !values.isEmpty {
             let row = HStack(alignment: .top, spacing: 6) {
                 Text("\(errorCauseLabel)：")
@@ -1808,7 +1804,7 @@ struct LibraryRecordDetailView: View {
 
     private func toggleRedoMode() {
         if !redoPracticeEnabled {
-            redoSession.update(activeRecordID) { $0 = LibraryRedoAttempt() }
+            updateRedoAttempt(activeRecordID) { $0 = LibraryRedoAttempt() }
         }
         redoPracticeEnabled.toggle()
     }
@@ -1875,9 +1871,12 @@ struct LibraryRecordDetailView: View {
         let originalValue = updated[attribute.key]
         if isQuantityRelations, attribute.key == "errorCause" {
             updated["errorCause"] = LibraryQuantityErrorCauseCompatibility.lines(from: value)
-        } else if isDataAnalysis, attribute.key == "errorCause" {
+        } else if ["errorCause", "cause", "reason"].contains(attribute.key) {
             let lines = LibraryDataAnalysisCauseLayout.splitLines(value)
-            updated["errorCause"] = originalValue is [String] ? lines : lines.joined(separator: "\n")
+            updated[attribute.key] = originalValue is [String] ? lines : lines.joined(separator: "\n")
+            for key in ["errorCause", "cause", "reason"] where key != attribute.key {
+                updated.removeValue(forKey: key)
+            }
         } else if originalValue is Bool || (originalValue as? NSNumber).map({ CFGetTypeID($0) == CFBooleanGetTypeID() }) == true {
             updated[attribute.key] = value == "是"
         } else if originalValue is [String] {
@@ -2183,11 +2182,11 @@ struct LibraryRecordDetailView: View {
                 guard let targetRecord else { return "涂鸦未保存：题目记录已不存在。" }
                 if targetSession.hasPendingSplitDrawingChanges,
                    targetSession.splitDrawingRecordID == targetID,
-                   let error = saveSplitDoodleChanges(record: targetRecord, context: targetContext) {
+                   let error = await saveSplitDoodleChanges(record: targetRecord, context: targetContext) {
                     return error
                 }
                 if opensSplitDoodle { return nil }
-                return LibraryDoodlePersistence.save(
+                return await LibraryDoodlePersistence.save(
                     record: targetRecord,
                     context: targetContext,
                     drawingData: updatedDrawing,
@@ -2214,26 +2213,28 @@ struct LibraryRecordDetailView: View {
         let targetSession = doodleSession
         let targetContext = modelContext
         targetSession.commitCurrentDrawing { [self] in
-            defer { backgroundTask.finish() }
-            guard backgroundDoodleSaveRequestID == requestID,
-                  targetSession.targetRecordID == targetID else { return }
-            let error: String?
-            if targetSession.hasPendingSplitDrawingChanges {
-                error = saveSplitDoodleChanges(record: targetRecord, context: targetContext)
-            } else {
-                error = LibraryDoodlePersistence.save(
-                    record: targetRecord,
-                    context: targetContext,
-                    drawingData: targetSession.canvas.drawingData,
-                    legacyPreviewCleared: targetSession.canvas.controller.legacyPreviewCleared
-                )
+            Task { @MainActor in
+                defer { backgroundTask.finish() }
+                guard backgroundDoodleSaveRequestID == requestID,
+                      targetSession.targetRecordID == targetID else { return }
+                let error: String?
+                if targetSession.hasPendingSplitDrawingChanges {
+                    error = await saveSplitDoodleChanges(record: targetRecord, context: targetContext)
+                } else {
+                    error = await LibraryDoodlePersistence.save(
+                        record: targetRecord,
+                        context: targetContext,
+                        drawingData: targetSession.canvas.drawingData,
+                        legacyPreviewCleared: targetSession.canvas.controller.legacyPreviewCleared
+                    )
+                }
+                if let error {
+                    targetSession.saveError = "后台切换前未能保存涂鸦：\(error)"
+                } else {
+                    lastBackgroundDoodleSaveKey = saveKey
+                }
+                backgroundDoodleSaveRequestID = nil
             }
-            if let error {
-                targetSession.saveError = "后台切换前未能保存涂鸦：\(error)"
-            } else {
-                lastBackgroundDoodleSaveKey = saveKey
-            }
-            backgroundDoodleSaveRequestID = nil
         }
     }
 
@@ -2252,7 +2253,7 @@ struct LibraryRecordDetailView: View {
 
     private var isPayloadLoading: Bool {
         guard let key = activePayloadKey else { return !payloadDecodeFailed }
-        return loadedPayloadKey != key
+        return loadedPayloadKey?.recordID != key.recordID
     }
 
     private func loadActivePayload() async {

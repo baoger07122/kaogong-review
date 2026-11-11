@@ -476,6 +476,20 @@ struct LibraryView: View {
             HStack(spacing: 9) {
                 reviewSourceSelector
                 Spacer(minLength: 0)
+                if kind == .errors {
+                    Button {
+                        redoPracticeEnabled.toggle()
+                    } label: {
+                        Text(redoPracticeEnabled ? "刷" : "看")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(redoPracticeEnabled ? AppTheme.accent : Color.secondary)
+                            .frame(width: 44, height: 44)
+                            .background(Color.white, in: Capsule())
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(redoPracticeEnabled ? "默认刷题模式" : "默认看题模式")
+                }
                 headerMenu
             }
 
@@ -554,7 +568,7 @@ struct LibraryView: View {
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 16, weight: .semibold))
-                .frame(width: 38, height: 44)
+                .frame(width: 44, height: 44)
                 .background(Color.white, in: Circle())
                 .contentShape(Circle())
         }
@@ -990,12 +1004,8 @@ struct LibraryView: View {
     private func tagValues(for record: StoredRecord) -> [String] {
         let object = record.indexObject ?? [:]
         var values: [String] = []
-        let isDataAnalysis = record.subject == "资料分析" || object["subject"] as? String == "资料分析"
-        let usesTextCause = LibraryDataAnalysisCauseLayout.usesTextCause(
-            subject: record.subject ?? (object["subject"] as? String ?? ""),
-            module: record.module ?? (object["module"] as? String ?? "")
-        )
-        let baseKeys = usesTextCause ? ["type", "category"] : ["type", "category", "errorCause"]
+        let subject = record.subject ?? (object["subject"] as? String ?? "")
+        let baseKeys = ["type", "category"]
         if let baseTag = baseKeys.compactMap({ object[$0] as? String }).first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
             values.append(baseTag)
         }
@@ -1004,19 +1014,18 @@ struct LibraryView: View {
             let needsReview = (object["needsReview"] as? Bool) ?? (object["needsReview"] as? NSNumber)?.boolValue ?? false
             if isDifficult { values.append("难题") }
             if needsReview { values.append("待复习") }
+            if subject == "数量关系" {
+                values.append(contentsOf: LibraryQuantityErrorCauseCompatibility.values(in: object))
+            } else {
+                values.append(contentsOf: LibraryDataAnalysisCauseLayout.values(in: object))
+            }
         }
         if let points = object["knowledgePoints"] as? [String] {
             values.append(contentsOf: points)
         } else if let point = object["knowledgePoint"] as? String {
             values.append(contentsOf: point.split(whereSeparator: { "、,，".contains($0) }).map(String.init))
         }
-        if record.subject == "数量关系" || object["subject"] as? String == "数量关系" {
-            values.append(contentsOf: LibraryQuantityErrorCauseCompatibility.values(in: object))
-        } else if isDataAnalysis {
-            values.append(contentsOf: LibraryDataAnalysisCauseLayout.splitLines(LibraryDataAnalysisCauseLayout.rawCause(in: record.compatibilityIndexObject ?? object)))
-        } else {
-            values.append(contentsOf: object["weaknessTags"] as? [String] ?? [])
-        }
+        values.append(contentsOf: object["weaknessTags"] as? [String] ?? [])
         var seen = Set<String>()
         return values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && seen.insert($0).inserted }

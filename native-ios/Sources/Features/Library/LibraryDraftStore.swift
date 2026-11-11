@@ -267,6 +267,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
                     || !($0.coreFocus ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || !($0.quickDecision ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || !($0.contextExample ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !($0.contextFocus ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || $0.entryKind != WordEntryKind.word.rawValue
             }
     }

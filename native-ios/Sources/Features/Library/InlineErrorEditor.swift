@@ -63,7 +63,7 @@ struct InlineErrorEditor: View {
                 .frame(maxWidth: 110)
             }
 
-            TextField("错因", text: $draft.errorCause).textFieldStyle(NativeTextFieldStyle())
+            LibraryPlainTextInput(label: "错因", text: $draft.errorCause)
             NativeRichTextEditor(html: $draft.content, minHeight: 92, mode: .compact)
 
             HStack {

@@ -31,6 +31,7 @@ struct WordComparisonTermDraft: Identifiable, Codable, Equatable, Sendable {
     var coreFocus: String?
     var quickDecision: String?
     var contextExample: String?
+    var contextFocus: String?
     var legacyID: String?
 }
 
@@ -158,7 +159,7 @@ struct LibraryRecordDraft {
         quantityErrorCauseIsAuthoritative = LibraryQuantityErrorCauseCompatibility.isAuthoritative(in: original)
         errorCause = kind == .errors && subject == "数量关系"
             ? LibraryQuantityErrorCauseCompatibility.values(in: original).joined(separator: "\n")
-            : (kind == .errors && LibraryDataAnalysisCauseLayout.usesTextCause(subject: subject, module: module)
+            : (kind == .errors
                 ? LibraryDataAnalysisCauseLayout.rawCause(in: original)
                 : LibraryRecordDraft.text(original, keys: ["errorCause", "cause", "reason"]))
         errorTypeID = kind == .errors && LibraryErrorTypeSubject(rawValue: subject) != nil
@@ -251,6 +252,7 @@ struct LibraryRecordDraft {
                     coreFocus: ($0["coreFocus"] as? String) ?? ($0["focus"] as? String),
                     quickDecision: ($0["quickDecision"] as? String) ?? ($0["decision"] as? String),
                     contextExample: $0["contextExample"] as? String,
+                    contextFocus: $0["contextFocus"] as? String,
                     legacyID: $0["id"] as? String
                 )
             }
@@ -524,9 +526,17 @@ enum LibraryRecordRepository {
             object["note"] = draft.content
             object["knowledgePoints"] = knowledgePoints
             object["knowledgePoint"] = knowledgePoints.first ?? ""
-            object["errorCause"] = draft.subject == "数量关系"
-                ? LibraryQuantityErrorCauseCompatibility.lines(from: draft.errorCause)
-                : draft.errorCause
+            if draft.subject == "数量关系" {
+                object["errorCause"] = LibraryQuantityErrorCauseCompatibility.lines(from: draft.errorCause)
+            } else {
+                let causeKey = ["errorCause", "cause", "reason"].first { object[$0] != nil } ?? "errorCause"
+                object[causeKey] = object[causeKey] is [String]
+                    ? LibraryDataAnalysisCauseLayout.splitLines(draft.errorCause)
+                    : draft.errorCause
+                for key in ["errorCause", "cause", "reason"] where key != causeKey {
+                    object.removeValue(forKey: key)
+                }
+            }
             object["errorTypeID"] = LibraryErrorTypeSubject(rawValue: draft.subject) == nil ? nil : draft.errorTypeID
             object["status"] = draft.status
             object["isDifficult"] = draft.isDifficult
@@ -704,6 +714,10 @@ enum LibraryRecordRepository {
                        !example.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         value["contextExample"] = example
                     }
+                    if category == .idiomComparison, let focus = term.contextFocus,
+                       !focus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        value["contextFocus"] = focus
+                    }
                     return value
                 }
         }
@@ -782,19 +796,6 @@ enum LibraryRecordRepository {
                     context: context,
                     persist: false
                 )
-                if kind == .errors,
-                   draft.subject != "数量关系",
-                   !LibraryDataAnalysisCauseLayout.usesTextCause(subject: draft.subject, module: draft.module),
-                   !(draft.subject == "判断推理" && draft.module == "类比推理") {
-                    try TagLibraryRepository.add(
-                        [draft.errorCause],
-                        kind: .errorCause,
-                        module: draft.module,
-                        records: records,
-                        context: context,
-                        persist: false
-                    )
-                }
             }
             if let existing {
                 existing.replacePayload(

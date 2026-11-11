@@ -563,7 +563,7 @@ private struct LibraryErrorAnalysisSection: View {
             } else if isAnalogy {
                 plainTextInput(label: causeLabel, text: $draft.errorCause)
             } else {
-                tagInput(title: causeLabel, text: $draft.errorCause, allowsMultiple: false)
+                plainTextInput(label: causeLabel, text: $draft.errorCause)
             }
             if !isLogicFill {
                 plainTextInput(label: isDataAnalysis ? "陷阱" : "思维误区", text: $draft.pitfall)
