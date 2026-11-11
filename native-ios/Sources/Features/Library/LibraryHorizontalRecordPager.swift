@@ -6,7 +6,6 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
     let recordIDs: [String]
     @Binding var currentRecordID: String
     let isPagingEnabled: Bool
-    let recordDataVersionForRecord: (String) -> LibraryRecordDataVersion?
     let contentForRecord: (String) -> AnyView
 
     func makeCoordinator() -> Coordinator {
@@ -60,24 +59,13 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
     final class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
         var parent: LibraryHorizontalRecordPager
         private weak var pageController: UIPageViewController?
-        private enum PageRole: Equatable {
-            case detail
-            case preview
-        }
-
-        private struct CachedPage {
-            let controller: UIHostingController<AnyView>
-            var role: PageRole
-            var dataVersion: LibraryRecordDataVersion?
-        }
-
-        private var cache: [String: CachedPage] = [:]
+        private var cache: [String: UIHostingController<AnyView>] = [:]
         private var lastTransitionDirection: UIPageViewController.NavigationDirection = .forward
         private(set) var isTransitioning = false
 
         var visibleRecordID: String? {
             guard let visible = pageController?.viewControllers?.first else { return nil }
-            return cache.first(where: { $0.value.controller === visible })?.key
+            return cache.first(where: { $0.value === visible })?.key
         }
 
         init(parent: LibraryHorizontalRecordPager) {
@@ -115,25 +103,10 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
         }
 
         func refreshCachedContent() {
-            for recordID in Array(cache.keys) {
-                refreshCachedContent(for: recordID)
+            for (recordID, controller) in cache {
+                controller.rootView = parent.contentForRecord(recordID)
+                controller.view.backgroundColor = .white
             }
-        }
-
-        private func refreshCachedContent(for recordID: String) {
-            guard var cached = cache[recordID] else { return }
-            let role: PageRole = recordID == parent.currentRecordID ? .detail : .preview
-            let dataVersion = parent.recordDataVersionForRecord(recordID)
-            let shouldRefresh = role == .detail
-                ? !isTransitioning
-                : cached.role != role || cached.dataVersion != dataVersion
-            guard shouldRefresh else { return }
-
-            cached.controller.rootView = parent.contentForRecord(recordID)
-            cached.controller.view.backgroundColor = .white
-            cached.role = role
-            cached.dataVersion = dataVersion
-            cache[recordID] = cached
         }
 
         func pruneCache(around recordID: String) {
@@ -148,17 +121,14 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
         func hostingController(for recordID: String) -> UIHostingController<AnyView>? {
             guard parent.recordIDs.contains(recordID) else { return nil }
             if let cached = cache[recordID] {
-                refreshCachedContent(for: recordID)
-                return cache[recordID]?.controller ?? cached.controller
+                cached.rootView = parent.contentForRecord(recordID)
+                cached.view.backgroundColor = .white
+                return cached
             }
             let controller = UIHostingController(rootView: parent.contentForRecord(recordID))
             controller.view.backgroundColor = .white
             controller.view.clipsToBounds = true
-            cache[recordID] = CachedPage(
-                controller: controller,
-                role: recordID == parent.currentRecordID ? .detail : .preview,
-                dataVersion: parent.recordDataVersionForRecord(recordID)
-            )
+            cache[recordID] = controller
             return controller
         }
 
@@ -183,7 +153,7 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
             isTransitioning = true
             guard let currentID = visibleRecordID,
                   let pendingID = pendingViewControllers.first.flatMap({ pending in
-                      cache.first(where: { $0.value.controller === pending })?.key
+                      cache.first(where: { $0.value === pending })?.key
                   }),
                   let currentIndex = parent.recordIDs.firstIndex(of: currentID),
                   let pendingIndex = parent.recordIDs.firstIndex(of: pendingID) else { return }
@@ -198,19 +168,17 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
         ) {
             isTransitioning = false
             guard completed, let newID = visibleRecordID else {
-                refreshCachedContent()
                 updatePagingAvailability()
                 return
             }
             _ = lastTransitionDirection
             parent.currentRecordID = newID
             pruneCache(around: newID)
-            refreshCachedContent()
             updatePagingAvailability()
         }
 
         private func adjacentController(from viewController: UIViewController, offset: Int) -> UIViewController? {
-            guard let currentID = cache.first(where: { $0.value.controller === viewController })?.key,
+            guard let currentID = cache.first(where: { $0.value === viewController })?.key,
                   currentID == parent.currentRecordID,
                   let currentIndex = parent.recordIDs.firstIndex(of: currentID) else { return nil }
             let nextIndex = currentIndex + offset
@@ -221,35 +189,34 @@ struct LibraryHorizontalRecordPager: UIViewControllerRepresentable {
 }
 
 struct LibraryRecordSwipePreview: View {
-    let content: LibraryRecordSwipePreviewContent
+    let record: StoredRecord
 
-    init(record: StoredRecord) {
-        content = LibraryRecordSwipePreviewContent(
-            subject: record.subject,
-            module: record.module,
-            indexPayload: record.indexPayload,
-            payload: record.payload
-        )
+    private var object: [String: Any] { record.jsonObject ?? [:] }
+    private var title: String {
+        [object["question"] as? String, object["title"] as? String, object["content"] as? String]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? "未命名题目"
     }
+    private var options: [String] { object["options"] as? [String] ?? [] }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 8) {
                     Image(systemName: "square.grid.2x2")
-                    Text(content.subjectLine)
+                    Text(record.module?.isEmpty == false ? record.module ?? "" : record.subject ?? "")
                 }
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
 
-                Text(content.title)
+                Text(title)
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                if !content.options.isEmpty {
+                if !options.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        ForEach(Array(content.options.enumerated()), id: \.offset) { index, option in
+                        ForEach(Array(options.enumerated()), id: \.offset) { index, option in
                             if !option.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                 HStack(alignment: .top, spacing: 9) {
                                     Text(optionLabel(at: index))

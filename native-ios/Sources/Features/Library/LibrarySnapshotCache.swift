@@ -40,7 +40,6 @@ final class LibrarySnapshotCache {
     private var cachedWordNames: [String: String] = [:]
     private var cachedExamTitleRevision: [ExamTitleRevision]?
     private var cachedExamTitles: [String: String] = [:]
-    private(set) var examTitleRevision = 0
 
     func wordNames(in records: [StoredRecord]) -> [String: String] {
         let wordRecords = records.filter { $0.collection == "words" }
@@ -112,7 +111,6 @@ final class LibrarySnapshotCache {
             entries = entries.filter { _, entry in
                 entry.reviewSource != .mock || !changedIDs.contains(entry.snapshot.sourceExamID)
             }
-            examTitleRevision &+= 1
         }
         cachedExamTitleRevision = revision
         cachedExamTitles = result
@@ -201,13 +199,8 @@ final class LibraryRecordListCache {
 
     private var sortedQuery: Query?
     private var sortedRecords: [StoredRecord] = []
-    private var sortedVisibleErrorRevisions: [LibraryVisibleErrorRecordRevision] = []
     private var quantityTypesRevision: [RecordRevision]?
     private var quantityTypesValue: [String] = []
-    private var visibleErrorQuery: LibraryVisibleErrorRecordQuery?
-    private var visibleErrorRecordIDsValue: [String] = []
-    private var tagIndexRevision: [RecordRevision]?
-    private var tagIndexByCompoundID: [String: [String]] = [:]
     private let reviewSourceCache = LibraryReviewSourceClassificationCache()
 
     func reviewSources(for records: [StoredRecord]) -> [String: LibraryReviewSource] {
@@ -257,9 +250,6 @@ final class LibraryRecordListCache {
             if leftDate != rightDate { return leftDate > rightDate }
             return left.recordID > right.recordID
         }
-        sortedVisibleErrorRevisions = kind == .errors
-            ? sortedRecords.map { Self.visibleErrorRevision(for: $0) }
-            : []
         sortedQuery = query
         return sortedRecords
     }
@@ -272,111 +262,10 @@ final class LibraryRecordListCache {
         return quantityTypesValue
     }
 
-    func visibleErrorRecordIDs(
-        records: [StoredRecord],
-        scope: LibraryScope,
-        selectedQuantityType: String,
-        selectedTag: String,
-        normalizedSearch: String,
-        includesMastered: Bool,
-        sourceExamTitleRevision: Int,
-        sourceExamTitlesByID: () -> [String: String]
-    ) -> [String] {
-        let query = LibraryVisibleErrorRecordQuery(
-            revisions: sortedVisibleErrorRevisions,
-            collection: LibraryContentKind.errors.collection,
-            subject: scope.subject,
-            module: scope.module,
-            quantityType: selectedQuantityType,
-            reviewSource: scope.reviewSource.rawValue,
-            sourceExamTitleRevision: sourceExamTitleRevision,
-            selectedTag: selectedTag,
-            normalizedSearch: normalizedSearch,
-            includesMastered: includesMastered
-        )
-        guard visibleErrorQuery != query else { return visibleErrorRecordIDsValue }
-
-        let examTitles = scope.reviewSource == .mock ? sourceExamTitlesByID() : [:]
-        visibleErrorRecordIDsValue = records.compactMap { record in
-            let indexObject = record.indexObject ?? [:]
-            let object = record.makeCompatibilityIndexObject(from: indexObject) ?? indexObject
-            let sourceExamID = object["sourceExamId"] as? String ?? ""
-            let filterIndex = LibraryRecordFilterIndex(
-                collection: record.collection,
-                storedSubject: record.subject,
-                indexObject: indexObject,
-                compatibleObject: object,
-                isMockReview: scope.reviewSource == .mock,
-                sourceExamTitle: examTitles[sourceExamID] ?? ""
-            )
-            guard filterIndex.matches(
-                selectedTag: selectedTag,
-                normalizedSearch: normalizedSearch,
-                includesMastered: includesMastered
-            ) else { return nil }
-            return record.recordID
-        }
-        visibleErrorQuery = query
-        return visibleErrorRecordIDsValue
-    }
-
-    func availableTags(
-        in records: [StoredRecord],
-        buildTagValues: (StoredRecord) -> [String]
-    ) -> [String] {
-        let valuesByRecord = tagIndex(in: records, buildTagValues: buildTagValues)
-        return Array(Set(valuesByRecord.values.flatMap { $0 })).sorted()
-    }
-
-    func records(
-        matchingTag tag: String,
-        in records: [StoredRecord],
-        buildTagValues: (StoredRecord) -> [String]
-    ) -> [StoredRecord] {
-        guard !tag.isEmpty else { return records }
-        let valuesByRecord = tagIndex(in: records, buildTagValues: buildTagValues)
-        let matchingIDs = Set(valuesByRecord.compactMap { id, values in
-            values.contains(tag) ? id : nil
-        })
-        return records.filter { matchingIDs.contains($0.compoundID) }
-    }
-
-    private func tagIndex(
-        in records: [StoredRecord],
-        buildTagValues: (StoredRecord) -> [String]
-    ) -> [String: [String]] {
-        let revision = records.map(RecordRevision.init)
-        guard tagIndexRevision != revision else { return tagIndexByCompoundID }
-        tagIndexByCompoundID = Dictionary(uniqueKeysWithValues: records.map { ($0.compoundID, buildTagValues($0)) })
-        tagIndexRevision = revision
-        return tagIndexByCompoundID
-    }
-
-    private static func visibleErrorRevision(for record: StoredRecord) -> LibraryVisibleErrorRecordRevision {
-        LibraryVisibleErrorRecordRevision(
-            compoundID: record.compoundID,
-            recordID: record.recordID,
-            collection: record.collection,
-            subject: record.subject,
-            module: record.module,
-            createdAt: record.createdAt,
-            dataVersion: LibraryRecordDataVersion(
-                updatedAt: record.updatedAt,
-                payloadByteCount: record.payload.count,
-                indexPayloadByteCount: record.indexPayload?.count ?? 0
-            )
-        )
-    }
-
     func invalidate() {
         sortedQuery = nil
         sortedRecords.removeAll()
-        sortedVisibleErrorRevisions.removeAll()
         quantityTypesRevision = nil
         quantityTypesValue.removeAll()
-        visibleErrorQuery = nil
-        visibleErrorRecordIDsValue.removeAll()
-        tagIndexRevision = nil
-        tagIndexByCompoundID.removeAll()
     }
 }

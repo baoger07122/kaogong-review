@@ -51,8 +51,6 @@ struct LibraryRecordDetailView: View {
 
     @State private var activeRecordKey: String
     @State private var object: [String: Any]
-    @State private var objectRecordID: String?
-    @State private var objectRecordVersion: LibraryRecordDataVersion?
     @State private var imageSourceIdentities: [String: LibraryDetailImageSourceIdentity]
     @State private var payloadDecodeFailed = false
     @State private var lastLocallySavedNoteUpdate: Date?
@@ -97,12 +95,6 @@ struct LibraryRecordDetailView: View {
         self.onOpenLinkedWord = onOpenLinkedWord
         self.onOpenLinkedError = onOpenLinkedError
         _activeRecordKey = State(initialValue: record.recordID)
-        _objectRecordID = State(initialValue: record.compoundID)
-        _objectRecordVersion = State(initialValue: LibraryRecordDataVersion(
-            updatedAt: record.updatedAt,
-            payloadByteCount: record.payload.count,
-            indexPayloadByteCount: record.indexPayload?.count ?? 0
-        ))
         if let decodedObject = record.jsonObject {
             _object = State(initialValue: decodedObject)
             _imageSourceIdentities = State(initialValue: Self.makeImageSourceIdentities(for: decodedObject))
@@ -130,12 +122,6 @@ struct LibraryRecordDetailView: View {
                 if let newValue,
                    let lastSavedAt = lastLocallySavedNoteUpdate,
                    newValue == lastSavedAt {
-                    objectRecordID = record.compoundID
-                    objectRecordVersion = LibraryRecordDataVersion(
-                        updatedAt: record.updatedAt,
-                        payloadByteCount: record.payload.count,
-                        indexPayloadByteCount: record.indexPayload?.count ?? 0
-                    )
                     lastLocallySavedNoteUpdate = nil
                     return
                 }
@@ -293,17 +279,7 @@ struct LibraryRecordDetailView: View {
             LibraryHorizontalRecordPager(
                 recordIDs: orderedRecordIDs,
                 currentRecordID: $activeRecordKey,
-                isPagingEnabled: !doodleSession.isPresented && !noteSession.isEditing && !noteSession.hasPendingChanges,
-                recordDataVersionForRecord: { recordID in
-                    guard let record = records.first(where: {
-                        $0.collection == kind.collection && $0.recordID == recordID
-                    }) else { return nil }
-                    return LibraryRecordDataVersion(
-                        updatedAt: record.updatedAt,
-                        payloadByteCount: record.payload.count,
-                        indexPayloadByteCount: record.indexPayload?.count ?? 0
-                    )
-                }
+                isPagingEnabled: !doodleSession.isPresented && !noteSession.isEditing && !noteSession.hasPendingChanges
             ) { recordID in
                 if recordID == activeRecordKeyBinding.wrappedValue {
                     AnyView(
@@ -538,7 +514,8 @@ struct LibraryRecordDetailView: View {
                     .foregroundStyle(.primary)
                     .padding(.horizontal, 10)
                     .frame(height: 28)
-                    .contentShape(Rectangle())
+                    .background(Color.clear, in: Capsule())
+                    .overlay(Capsule().stroke(Color.primary, lineWidth: 0.75))
             }
             .buttonStyle(LibraryMaterialActionButtonStyle())
             .accessibilityIdentifier("library-data-analysis-material-open")
@@ -2075,24 +2052,8 @@ struct LibraryRecordDetailView: View {
         let targetSession = doodleSession
         let drawingData = firstText(["pencilKitData", "drawingData"]) ?? ""
         let targetID = activeRecordID
-        let storedSplitValues: [String: String]
-        if opensSplitDoodle {
-            let storedPayload: [String: Any]
-            if let targetRecord,
-               objectRecordID == targetRecord.compoundID,
-               objectRecordVersion == LibraryRecordDataVersion(
-                    updatedAt: targetRecord.updatedAt,
-                    payloadByteCount: targetRecord.payload.count,
-                    indexPayloadByteCount: targetRecord.indexPayload?.count ?? 0
-               ) {
-                storedPayload = object
-            } else {
-                storedPayload = targetRecord?.jsonObject ?? object
-            }
-            storedSplitValues = storedSplitDoodleValues(in: storedPayload)
-        } else {
-            storedSplitValues = [:]
-        }
+        let targetPayload = targetRecord?.jsonObject ?? object
+        let storedSplitValues = opensSplitDoodle ? storedSplitDoodleValues(in: targetPayload) : [:]
         let hasPendingValuesForTarget = doodleSession.hasPendingSplitDrawingChanges
             && doodleSession.splitDrawingRecordID == targetID
         let initialSplitValues = hasPendingValuesForTarget ? doodleSession.splitDrawingValues : storedSplitValues
@@ -2153,14 +2114,6 @@ struct LibraryRecordDetailView: View {
     private func refreshObject(_ value: [String: Any]) {
         imageSourceIdentities = Self.reconciledImageSourceIdentities(for: value, previous: imageSourceIdentities)
         object = value
-        objectRecordID = record?.compoundID
-        objectRecordVersion = record.map {
-            LibraryRecordDataVersion(
-                updatedAt: $0.updatedAt,
-                payloadByteCount: $0.payload.count,
-                indexPayloadByteCount: $0.indexPayload?.count ?? 0
-            )
-        }
     }
 
     private static func makeImageSourceIdentities(for object: [String: Any]) -> [String: LibraryDetailImageSourceIdentity] {

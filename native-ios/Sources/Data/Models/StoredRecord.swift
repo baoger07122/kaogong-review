@@ -45,11 +45,7 @@ final class StoredRecord {
     }
 
     var compatibilityIndexObject: [String: Any]? {
-        makeCompatibilityIndexObject(from: indexObject)
-    }
-
-    func makeCompatibilityIndexObject(from indexObject: [String: Any]?) -> [String: Any]? {
-        guard var indexed = indexObject else { return nil }
+        guard var indexed = indexObject else { return indexObject }
         let fields: [String]
         switch collection {
         case "errors":
