@@ -59,9 +59,34 @@ private struct InternalLinkPickerRequest: Identifiable { let id = UUID() }
 private struct RichTextTable: Codable, Equatable, Identifiable {
     var id = UUID()
     var cells: [[String]] = Array(repeating: Array(repeating: "", count: 2), count: 2)
+    var cellBoldRanges: [NativeRichTextPastedBoldRange]? = nil
 
     var rowCount: Int { cells.count }
     var columnCount: Int { cells.first?.count ?? 0 }
+
+    mutating func normalizeBoldRanges() {
+        let source = cellBoldRanges ?? []
+        cellBoldRanges = source.filter { range in
+            guard cells.indices.contains(range.row), cells[range.row].indices.contains(range.column), range.length > 0 else { return false }
+            let cell = cells[range.row][range.column] as NSString
+            guard range.location >= 0,
+                  range.location <= cell.length,
+                  range.length <= cell.length - range.location else { return false }
+            let end = range.location + range.length
+            if range.location > 0, range.location < cell.length,
+               (0xDC00...0xDFFF).contains(cell.character(at: range.location)),
+               (0xD800...0xDBFF).contains(cell.character(at: range.location - 1)) { return false }
+            if end > 0, end < cell.length,
+               (0xDC00...0xDFFF).contains(cell.character(at: end)),
+               (0xD800...0xDBFF).contains(cell.character(at: end - 1)) { return false }
+            return true
+        }
+    }
+}
+
+enum NativeRichTextTableAppearance: String, Equatable {
+    case system
+    case libraryContent
 }
 
 private struct PendingRichTextTableMarker {
@@ -245,6 +270,7 @@ struct NativeRichTextEditor: View {
     let minHeight: CGFloat
     var mode: RichTextToolbarMode = .full
     var documentStyle = false
+    var tableAppearance: NativeRichTextTableAppearance = .system
     var focusOnAppear = false
     var initialSelectionOffset: Int? = nil
     var initialSelectionWidth: CGFloat? = nil
@@ -337,6 +363,7 @@ struct NativeRichTextEditor: View {
                 ),
                 growsWithContent: documentStyle,
                 minimumContentHeight: documentStyle ? minHeight : 0,
+                tableAppearance: tableAppearance,
                 focusOnAppear: focusOnAppear,
                 initialSelectionOffset: initialSelectionOffset,
                 initialSelectionWidth: initialSelectionWidth,
@@ -347,6 +374,7 @@ struct NativeRichTextEditor: View {
                 editorSessionID: activeEditorSessionID,
                 usesLazyHTMLInitialization: editorSession != nil
             )
+                .modifier(NativeDirectionalTextFieldNavigation())
                 .frame(minHeight: documentStyle ? nil : minHeight, alignment: .topLeading)
                 .padding(.horizontal, documentStyle ? 0 : 5)
         }
@@ -395,6 +423,7 @@ struct NativeRichTextEditor: View {
             switch activeAlert {
             case .linkPrompt:
                 TextField("https://example.com", text: $linkTarget)
+                    .modifier(NativeDirectionalTextFieldNavigation())
                     .textInputAutocapitalization(.never)
                     .keyboardType(.URL)
                 Button("取消", role: .cancel) {}
@@ -899,6 +928,7 @@ final class NativeRichTextEditorSession: ObservableObject {
 struct NativeRichTextDisplay: UIViewRepresentable {
     let html: String
     var minHeight: CGFloat = 0
+    var tableAppearance: NativeRichTextTableAppearance = .system
     var accessibilityIdentifier: String? = nil
     var onFallback: (() -> Void)? = nil
     var onTapTextOffset: ((Int, NSAttributedString, CGFloat) -> Void)? = nil
@@ -908,12 +938,14 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     init(
         html: String,
         minHeight: CGFloat = 0,
+        tableAppearance: NativeRichTextTableAppearance = .system,
         accessibilityIdentifier: String? = nil,
         onFallback: (() -> Void)? = nil,
         onTapTextOffset: ((Int, NSAttributedString, CGFloat) -> Void)? = nil
     ) {
         self.html = html
         self.minHeight = minHeight
+        self.tableAppearance = tableAppearance
         self.accessibilityIdentifier = accessibilityIdentifier
         self.onFallback = onFallback
         self.onTapTextOffset = onTapTextOffset
@@ -926,12 +958,14 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         preparedSnapshot: NativeRichTextDisplayRenderResult,
         renderVersion: String,
         minHeight: CGFloat = 0,
+        tableAppearance: NativeRichTextTableAppearance = .system,
         accessibilityIdentifier: String? = nil,
         onFallback: (() -> Void)? = nil,
         onTapTextOffset: ((Int, NSAttributedString, CGFloat) -> Void)? = nil
     ) {
         self.html = html
         self.minHeight = minHeight
+        self.tableAppearance = tableAppearance
         self.accessibilityIdentifier = accessibilityIdentifier
         self.onFallback = onFallback
         self.onTapTextOffset = onTapTextOffset
@@ -944,6 +978,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         var parent: NativeRichTextDisplay
         var lastHTML = ""
         var lastRenderVersion: String?
+        var lastTableAppearance: NativeRichTextTableAppearance = .system
         var fallbackReportedHTML: String?
 
         init(parent: NativeRichTextDisplay) {
@@ -985,6 +1020,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         applyContent(to: view, coordinator: context.coordinator)
         context.coordinator.lastHTML = html
         context.coordinator.lastRenderVersion = renderVersion
+        context.coordinator.lastTableAppearance = tableAppearance
         return view
     }
 
@@ -994,10 +1030,12 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         view.accessibilityIdentifier = accessibilityIdentifier
         view.isUserInteractionEnabled = onTapTextOffset != nil
         guard context.coordinator.lastHTML != html
-                || context.coordinator.lastRenderVersion != renderVersion else { return }
+                || context.coordinator.lastRenderVersion != renderVersion
+                || context.coordinator.lastTableAppearance != tableAppearance else { return }
         applyContent(to: view, coordinator: context.coordinator)
         context.coordinator.lastHTML = html
         context.coordinator.lastRenderVersion = renderVersion
+        context.coordinator.lastTableAppearance = tableAppearance
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
@@ -1008,9 +1046,10 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     }
 
     private func applyContent(to view: UITextView, coordinator: Coordinator) {
-        let rendered = preparedSnapshot ?? NativeRichTextDisplayRenderer.render(html)
-        view.attributedText = rendered.attributedText
-        view.accessibilityLabel = rendered.attributedText.string
+        let rendered = preparedSnapshot ?? NativeRichTextDisplayRenderer.render(html, tableAppearance: tableAppearance)
+        let styled = NativeRichTextDisplayRenderer.applyingTableAppearance(to: rendered.attributedText, appearance: tableAppearance)
+        view.attributedText = styled
+        view.accessibilityLabel = styled.string
         guard rendered.usedSafeFallback, coordinator.fallbackReportedHTML != html else { return }
         coordinator.fallbackReportedHTML = html
         DispatchQueue.main.async { onFallback?() }
@@ -1027,18 +1066,43 @@ struct NativeRichTextDisplayRenderResult {
 enum NativeRichTextDisplayRenderer {
     private static let maximumImportedHTMLBytes = 512 * 1024
 
-    static func render(_ html: String) -> NativeRichTextDisplayRenderResult {
+    static func render(
+        _ html: String,
+        tableAppearance: NativeRichTextTableAppearance = .system
+    ) -> NativeRichTextDisplayRenderResult {
         guard html.utf8.count <= maximumImportedHTMLBytes else {
-            return fallback(html)
+            return fallback(html, tableAppearance: tableAppearance)
         }
-        let attributed = RichTextTextView.attributed(from: html)
+        let attributed = applyingTableAppearance(
+            to: RichTextTextView.attributed(from: html),
+            appearance: tableAppearance
+        )
         guard html.contains("<"), attributed.string == html else {
             return NativeRichTextDisplayRenderResult(attributedText: attributed, usedSafeFallback: false)
         }
-        return fallback(html)
+        return fallback(html, tableAppearance: tableAppearance)
     }
 
-    private static func fallback(_ html: String) -> NativeRichTextDisplayRenderResult {
+    static func applyingTableAppearance(
+        to source: NSAttributedString,
+        appearance: NativeRichTextTableAppearance
+    ) -> NSAttributedString {
+        let result = NSMutableAttributedString(attributedString: source)
+        var replacements: [(NSRange, NativeTableAttachment)] = []
+        result.enumerateAttribute(.attachment, in: NSRange(location: 0, length: result.length)) { value, range, _ in
+            guard let table = value as? NativeTableAttachment, table.appearance != appearance else { return }
+            replacements.append((range, table.replacingAppearance(appearance)))
+        }
+        for (range, table) in replacements.reversed() {
+            result.replaceCharacters(in: range, with: NSAttributedString(attachment: table))
+        }
+        return result.copy() as? NSAttributedString ?? result
+    }
+
+    private static func fallback(
+        _ html: String,
+        tableAppearance: NativeRichTextTableAppearance
+    ) -> NativeRichTextDisplayRenderResult {
         let attributed = NSMutableAttributedString(string: "")
         let font = UIFont.systemFont(ofSize: RichTextMetrics.bodySize)
         let textAttributes: [NSAttributedString.Key: Any] = [.font: font]
@@ -1060,13 +1124,13 @@ enum NativeRichTextDisplayRenderer {
                 }
             case .table(let encoded):
                 if let table = fallbackTable(from: encoded) {
-                    attributed.append(NSAttributedString(attachment: NativeTableAttachment(table: table)))
+                    attributed.append(NSAttributedString(attachment: NativeTableAttachment(table: table, appearance: tableAppearance)))
                 } else {
                     appendFallbackPlaceholder("[表格无法显示]", to: attributed, attributes: textAttributes)
                 }
             case .tableWithMarker(let encoded, let marker):
                 if let table = fallbackTable(from: encoded) {
-                    attributed.append(NSAttributedString(attachment: NativeTableAttachment(table: table, marker: marker)))
+                    attributed.append(NSAttributedString(attachment: NativeTableAttachment(table: table, marker: marker, appearance: tableAppearance)))
                 } else {
                     attributed.append(NSAttributedString(attachment: NativeOpaqueRichTextAttachment(label: "表格", marker: marker)))
                 }
@@ -1245,6 +1309,7 @@ private struct RichTextTextView: UIViewRepresentable {
     let keyboardAccessoryHeight: CGFloat
     let keyboardAccessoryState: RichTextKeyboardAccessoryState
     var growsWithContent = false
+    var tableAppearance: NativeRichTextTableAppearance = .system
     var minimumContentHeight: CGFloat = 0
     var focusOnAppear = false
     var initialSelectionOffset: Int? = nil
@@ -1292,9 +1357,15 @@ private struct RichTextTextView: UIViewRepresentable {
         tableTap.delegate = context.coordinator
         view.addGestureRecognizer(tableTap)
         if let preparedInitialAttributedText, preparedInitialHTML == html {
-            view.attributedText = preparedInitialAttributedText
+            view.attributedText = NativeRichTextDisplayRenderer.applyingTableAppearance(
+                to: preparedInitialAttributedText,
+                appearance: tableAppearance
+            )
         } else if !usesLazyHTMLInitialization {
-            view.attributedText = Self.attributed(from: html)
+            view.attributedText = NativeRichTextDisplayRenderer.applyingTableAppearance(
+                to: Self.attributed(from: html),
+                appearance: tableAppearance
+            )
         } else {
             view.attributedText = NSAttributedString(
                 string: html,
@@ -1355,10 +1426,16 @@ private struct RichTextTextView: UIViewRepresentable {
         context.coordinator.connect(editorSession, to: view)
         if context.coordinator.lastHTML != html, !view.isFirstResponder {
             if let preparedInitialAttributedText, preparedInitialHTML == html {
-                view.attributedText = preparedInitialAttributedText
+                view.attributedText = NativeRichTextDisplayRenderer.applyingTableAppearance(
+                    to: preparedInitialAttributedText,
+                    appearance: tableAppearance
+                )
                 context.coordinator.setPublishedHTML(html)
             } else if !usesLazyHTMLInitialization {
-                view.attributedText = Self.attributed(from: html)
+                view.attributedText = NativeRichTextDisplayRenderer.applyingTableAppearance(
+                    to: Self.attributed(from: html),
+                    appearance: tableAppearance
+                )
                 context.coordinator.setPublishedHTML(html)
             }
         }
@@ -1722,7 +1799,10 @@ private struct RichTextTextView: UIViewRepresentable {
                 in: richText,
                 semanticHeadingSizes: htmlData.map { RichTextTextView.semanticHeadingSizes(in: $0) } ?? [:]
             )
-            return richText
+            return NativeRichTextDisplayRenderer.applyingTableAppearance(
+                to: richText,
+                appearance: parent.tableAppearance
+            )
         }
 
         private func plainTextPaste(_ text: String) -> NSAttributedString {
@@ -1747,7 +1827,10 @@ private struct RichTextTextView: UIViewRepresentable {
                       NSMaxRange(parsed.range) <= source.length else { return nil }
                 let marker = "NATIVE_TABLE_PASTE_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
                 source.replaceCharacters(in: parsed.range, with: "<p>\(marker)</p>")
-                pending.append(PendingRichTextTableMarker(marker: marker, table: RichTextTable(cells: parsed.cells)))
+                pending.append(PendingRichTextTableMarker(
+                    marker: marker,
+                    table: RichTextTable(cells: parsed.cells, cellBoldRanges: parsed.boldRanges)
+                ))
             }
             let imported = RichTextTextView.attributed(from: source as String)
             let richText = NSMutableAttributedString(attributedString: imported)
@@ -1762,7 +1845,10 @@ private struct RichTextTextView: UIViewRepresentable {
                 NativeRichTextPastePolicy.removeOnlyProvenBoundaryNewlines(from: richText, matching: plainText)
             }
             RichTextTextView.normalizePastedFonts(in: richText, semanticHeadingSizes: RichTextTextView.semanticHeadingSizes(in: Data(html.utf8)))
-            return richText
+            return NativeRichTextDisplayRenderer.applyingTableAppearance(
+                to: richText,
+                appearance: parent.tableAppearance
+            )
         }
 
         private func normalizedAttributedLineEndings(_ source: NSAttributedString) -> NSAttributedString {
@@ -1797,7 +1883,10 @@ private struct RichTextTextView: UIViewRepresentable {
                     let prefix = (text as NSString).substring(with: prefixRange)
                     output.append(formattedTextSegment(prefix))
                 }
-                output.append(NSAttributedString(attachment: NativeTableAttachment(table: RichTextTable(cells: parsed.cells))))
+                output.append(NSAttributedString(attachment: NativeTableAttachment(
+                    table: RichTextTable(cells: parsed.cells, cellBoldRanges: parsed.boldRanges),
+                    appearance: parent.tableAppearance
+                )))
                 cursor = NSMaxRange(parsed.range)
             }
             let fullLength = (text as NSString).length
@@ -1817,7 +1906,10 @@ private struct RichTextTextView: UIViewRepresentable {
             for parsed in tables.reversed() {
                 result.replaceCharacters(
                     in: parsed.range,
-                    with: NSAttributedString(attachment: NativeTableAttachment(table: RichTextTable(cells: parsed.cells)))
+                    with: NSAttributedString(attachment: NativeTableAttachment(
+                        table: RichTextTable(cells: parsed.cells, cellBoldRanges: parsed.boldRanges),
+                        appearance: parent.tableAppearance
+                    ))
                 )
             }
             return result
@@ -2292,7 +2384,7 @@ private struct RichTextTextView: UIViewRepresentable {
             target: RichTextTableEditTarget?
         ) {
             let availableWidth = availableTableWidth(in: view)
-            let attachment = NativeTableAttachment(table: table, displayWidth: availableWidth)
+            let attachment = NativeTableAttachment(table: table, displayWidth: availableWidth, appearance: parent.tableAppearance)
             let replacement = NSMutableAttributedString(attributedString: NSAttributedString(attachment: attachment))
             if let target {
                 guard target.sessionID == parent.editorSessionID,
@@ -2711,16 +2803,25 @@ private struct RichTextTextView: UIViewRepresentable {
 private final class NativeTableAttachment: NSTextAttachment, NSCopying {
     let table: RichTextTable
     let instanceID = UUID()
+    let appearance: NativeRichTextTableAppearance
     private let originalMarker: String?
     private(set) var displayWidth: CGFloat
 
-    init(table: RichTextTable, marker: String? = nil, displayWidth: CGFloat = 440) {
-        self.table = table
-        originalMarker = marker
+    init(
+        table: RichTextTable,
+        marker: String? = nil,
+        displayWidth: CGFloat = 440,
+        appearance: NativeRichTextTableAppearance = .system
+    ) {
+        var normalizedTable = table
+        normalizedTable.normalizeBoldRanges()
+        self.table = normalizedTable
+        self.appearance = appearance
+        originalMarker = normalizedTable == table ? marker : nil
         self.displayWidth = max(80, displayWidth)
         super.init(data: nil, ofType: "com.kaogong.native-table")
-        let layout = Self.layout(table, width: self.displayWidth)
-        image = Self.render(table, layout: layout, width: self.displayWidth)
+        let layout = Self.layout(normalizedTable, width: self.displayWidth, appearance: appearance)
+        image = Self.render(normalizedTable, layout: layout, width: self.displayWidth, appearance: appearance)
         let height = layout.rowHeights.reduce(0, +)
         bounds = CGRect(x: 0, y: -4, width: self.displayWidth, height: height)
     }
@@ -2728,7 +2829,11 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
     required init?(coder: NSCoder) { nil }
 
     func copy(with zone: NSZone? = nil) -> Any {
-        NativeTableAttachment(table: table, marker: originalMarker, displayWidth: displayWidth)
+        NativeTableAttachment(table: table, marker: originalMarker, displayWidth: displayWidth, appearance: appearance)
+    }
+
+    func replacingAppearance(_ appearance: NativeRichTextTableAppearance) -> NativeTableAttachment {
+        NativeTableAttachment(table: table, marker: originalMarker, displayWidth: displayWidth, appearance: appearance)
     }
 
     @discardableResult
@@ -2736,15 +2841,17 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
         let updatedWidth = max(80, floor(width))
         guard updatedWidth.isFinite, abs(updatedWidth - displayWidth) > 0.5 else { return false }
         displayWidth = updatedWidth
-        let layout = Self.layout(table, width: displayWidth)
-        image = Self.render(table, layout: layout, width: displayWidth)
+        let layout = Self.layout(table, width: displayWidth, appearance: appearance)
+        image = Self.render(table, layout: layout, width: displayWidth, appearance: appearance)
         bounds = CGRect(x: 0, y: -4, width: displayWidth, height: layout.rowHeights.reduce(0, +))
         return true
     }
 
     var marker: String? {
         if let originalMarker { return originalMarker }
-        guard let data = try? JSONEncoder().encode(table) else { return nil }
+        var normalizedTable = table
+        normalizedTable.normalizeBoldRanges()
+        guard let data = try? JSONEncoder().encode(normalizedTable) else { return nil }
         return "[[NATIVE_TABLE:\(data.base64EncodedString())]]"
     }
 
@@ -2753,13 +2860,17 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
         let rowHeights: [CGFloat]
     }
 
-    private static func layout(_ table: RichTextTable, width: CGFloat) -> TableLayout {
+    private static func layout(
+        _ table: RichTextTable,
+        width: CGFloat,
+        appearance: NativeRichTextTableAppearance
+    ) -> TableLayout {
         let columns = max(1, table.columnCount)
-        let font = UIFont.systemFont(ofSize: 12)
         let desiredColumnWidths = (0..<columns).map { column in
-            let natural = table.cells.compactMap { row -> CGFloat? in
-                guard column < row.count else { return nil }
-                let measured = (row[column] as NSString).size(withAttributes: [.font: font]).width + 18
+            let natural = table.cells.indices.compactMap { rowIndex -> CGFloat? in
+                guard table.cells[rowIndex].indices.contains(column) else { return nil }
+                let measured = cellAttributedString(table, row: rowIndex, column: column, appearance: appearance).size().width
+                    + (appearance == .libraryContent ? 14 : 18)
                 return min(220, max(72, measured))
             }.max() ?? 96
             return natural
@@ -2781,61 +2892,76 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
                 }
             }
         }
-        let rowHeights = table.cells.map { row in
-            row.enumerated().map { column, value in
+        let rowHeights = table.cells.enumerated().map { rowIndex, row in
+            row.enumerated().map { column, _ in
                 let columnWidth = columnWidths[min(column, columnWidths.count - 1)]
-                let rect = (value as NSString).boundingRect(
+                let attributed = cellAttributedString(table, row: rowIndex, column: column, appearance: appearance)
+                let rect = attributed.boundingRect(
                     with: CGSize(width: max(1, columnWidth - 14), height: .greatestFiniteMagnitude),
                     options: [.usesLineFragmentOrigin, .usesFontLeading],
-                    attributes: [.font: font],
                     context: nil
                 )
-                return max(CGFloat(20), CGFloat(ceil(rect.height)))
+                let contentHeight = CGFloat(ceil(rect.height))
+                return appearance == .libraryContent
+                    ? max(CGFloat(34), contentHeight + 14)
+                    : max(CGFloat(20), contentHeight)
             }.max() ?? CGFloat(20)
-        }.map { max(CGFloat(34), $0 + 14) }
+        }
         return TableLayout(columnWidths: columnWidths, rowHeights: rowHeights)
     }
 
-    private static func render(_ table: RichTextTable, layout: TableLayout, width: CGFloat) -> UIImage {
+    private static func render(
+        _ table: RichTextTable,
+        layout: TableLayout,
+        width: CGFloat,
+        appearance: NativeRichTextTableAppearance
+    ) -> UIImage {
         let height = layout.rowHeights.reduce(0, +)
         return UIGraphicsImageRenderer(size: CGSize(width: width, height: height)).image { context in
-            UIColor.secondarySystemBackground.setFill()
+            let libraryStyle = appearance == .libraryContent
+            let ink = libraryStyle
+                ? UIColor(red: 28.0 / 255.0, green: 28.0 / 255.0, blue: 30.0 / 255.0, alpha: 1)
+                : UIColor.label
+            (libraryStyle ? UIColor.white : UIColor.secondarySystemBackground).setFill()
             context.cgContext.fill(CGRect(x: 0, y: 0, width: width, height: height))
-            UIColor.separator.setStroke()
-            context.cgContext.setLineWidth(1)
             var rowOrigins: [CGFloat] = [0]
             for rowHeight in layout.rowHeights { rowOrigins.append((rowOrigins.last ?? 0) + rowHeight) }
-            for row in table.cells.indices where row == 0 {
+            if !libraryStyle, let headerRow = table.cells.indices.first {
                 UIColor.tertiarySystemGroupedBackground.setFill()
-                context.cgContext.fill(CGRect(x: 0, y: rowOrigins[row], width: width, height: layout.rowHeights[row]))
-            }
-            for y in rowOrigins {
-                context.cgContext.move(to: CGPoint(x: 0, y: y)); context.cgContext.addLine(to: CGPoint(x: width, y: y))
+                context.cgContext.fill(CGRect(x: 0, y: rowOrigins[headerRow], width: width, height: layout.rowHeights[headerRow]))
             }
             var columnOrigins: [CGFloat] = [0]
             for columnWidth in layout.columnWidths { columnOrigins.append((columnOrigins.last ?? 0) + columnWidth) }
-            for x in columnOrigins {
-                context.cgContext.move(to: CGPoint(x: x, y: 0)); context.cgContext.addLine(to: CGPoint(x: x, y: height))
+            if libraryStyle {
+                context.cgContext.setStrokeColor(UIColor(red: 229.0 / 255.0, green: 229.0 / 255.0, blue: 234.0 / 255.0, alpha: 1).cgColor)
+                context.cgContext.setLineWidth(1 / UIScreen.main.scale)
+                for y in rowOrigins.dropFirst().dropLast() {
+                    let alignedY = y + 0.5 / UIScreen.main.scale
+                    context.cgContext.move(to: CGPoint(x: 0, y: alignedY))
+                    context.cgContext.addLine(to: CGPoint(x: width, y: alignedY))
+                }
+            } else {
+                UIColor.separator.setStroke()
+                context.cgContext.setLineWidth(1)
+                for y in rowOrigins {
+                    context.cgContext.move(to: CGPoint(x: 0, y: y)); context.cgContext.addLine(to: CGPoint(x: width, y: y))
+                }
+                for x in columnOrigins {
+                    context.cgContext.move(to: CGPoint(x: x, y: 0)); context.cgContext.addLine(to: CGPoint(x: x, y: height))
+                }
             }
             context.cgContext.strokePath()
-            let font = UIFont.systemFont(ofSize: 12)
             for (rowIndex, row) in table.cells.enumerated() {
-                for (columnIndex, cell) in row.enumerated() {
+                for (columnIndex, _) in row.enumerated() {
                     guard columnIndex < layout.columnWidths.count, rowIndex < layout.rowHeights.count else { continue }
+                    let bottomInset: CGFloat = appearance == .libraryContent ? 7 : 3
                     let rect = CGRect(
                         x: columnOrigins[columnIndex] + 7,
                         y: rowOrigins[rowIndex] + 7,
                         width: max(1, layout.columnWidths[columnIndex] - 14),
-                        height: max(20, layout.rowHeights[rowIndex] - 10)
+                        height: max(20, layout.rowHeights[rowIndex] - 7 - bottomInset)
                     )
-                    let paragraph = NSMutableParagraphStyle()
-                    paragraph.lineBreakMode = .byWordWrapping
-                    let attributes: [NSAttributedString.Key: Any] = [
-                        .font: rowIndex == 0 ? UIFont.systemFont(ofSize: 12, weight: .semibold) : font,
-                        .foregroundColor: UIColor.label,
-                        .paragraphStyle: paragraph
-                    ]
-                    NSAttributedString(string: cell, attributes: attributes).draw(
+                    cellAttributedString(table, row: rowIndex, column: columnIndex, appearance: appearance, foreground: ink).draw(
                         with: rect,
                         options: [.usesLineFragmentOrigin, .usesFontLeading],
                         context: nil
@@ -2843,6 +2969,37 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
                 }
             }
         }
+    }
+
+    private static func cellAttributedString(
+        _ table: RichTextTable,
+        row: Int,
+        column: Int,
+        appearance: NativeRichTextTableAppearance,
+        foreground: UIColor? = nil
+    ) -> NSAttributedString {
+        guard table.cells.indices.contains(row), table.cells[row].indices.contains(column) else {
+            return NSAttributedString(string: "")
+        }
+        let isHeader = row == 0
+        let font = UIFont.systemFont(ofSize: 12, weight: isHeader ? .semibold : .regular)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        let ink = foreground ?? (appearance == .libraryContent
+            ? UIColor(red: 28.0 / 255.0, green: 28.0 / 255.0, blue: 30.0 / 255.0, alpha: 1)
+            : UIColor.label)
+        let value = NSMutableAttributedString(
+            string: table.cells[row][column],
+            attributes: [.font: font, .foregroundColor: ink, .paragraphStyle: paragraph]
+        )
+        for range in table.cellBoldRanges ?? [] where range.row == row && range.column == column {
+            guard range.length > 0,
+                  range.location >= 0,
+                  range.location <= value.length,
+                  range.length <= value.length - range.location else { continue }
+            value.addAttribute(.font, value: UIFont.systemFont(ofSize: 12, weight: .bold), range: NSRange(location: range.location, length: range.length))
+        }
+        return value
     }
 }
 

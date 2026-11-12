@@ -78,6 +78,7 @@ struct LibraryTagSelectionDialog: View {
         .sheet(isPresented: $showsKnowledgePointOrder) { KnowledgePointOrderView(module: module) }
         .alert("重命名标签", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("标签名称", text: $newName)
+                .modifier(NativeDirectionalTextFieldNavigation())
             Button("保存") { renameTag() }
             Button("取消", role: .cancel) { renaming = nil }
         } message: { Text("同模块内已有记录的该标签会同步更新。") }
@@ -319,6 +320,7 @@ struct QuantityKnowledgePointSelectionDialog: View {
         .sheet(isPresented: $showsOrder) { KnowledgePointOrderView(module: activeType) }
         .alert("重命名考点", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("考点名称", text: $newName)
+                .modifier(NativeDirectionalTextFieldNavigation())
             Button("保存") { renameTag() }
             Button("取消", role: .cancel) { renaming = nil }
         } message: { Text("当前题型已有记录中的该考点会同步更新。") }

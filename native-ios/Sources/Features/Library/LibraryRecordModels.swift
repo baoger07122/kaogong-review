@@ -339,10 +339,8 @@ struct LibraryRecordSnapshot: Identifiable {
         let categoryValue = Self.firstText(in: object, keys: ["category", "type"])
             ?? WordCategory.idiomDefinition.rawValue
         if record.collection == "words" {
-            let bodyKeys = WordCategory(rawValue: categoryValue)?.isComparison == true
-                ? ["judgmentHint", "compareNote", "coreDifference", "commonMeaning", "meaning"]
-                : ["commonMeaning", "meaning", "content", "note"]
-            wordCardBody = Self.firstText(in: object, keys: bodyKeys) ?? ""
+            let wordCategory = WordCategory(rawValue: categoryValue) ?? .idiomDefinition
+            wordCardBody = LibraryComparisonDocumentProjection.wordContent(in: object, category: wordCategory)
         } else {
             wordCardBody = ""
         }
@@ -463,7 +461,6 @@ struct LibraryRecordSnapshot: Identifiable {
         var values: [String] = []
         if record.collection == "words" {
             if let category = WordCategory(rawValue: category) { values.append(category.shortTitle) }
-            values.append(contentsOf: wordEntryKinds.compactMap { WordEntryKind(rawValue: $0)?.title })
         } else if let type = Self.firstText(in: object, keys: ["type", "category", "errorCause"]) {
             values.append(type)
         }
@@ -482,7 +479,9 @@ struct LibraryRecordSnapshot: Identifiable {
         tags = Array(values.filter { !$0.isEmpty && seen.insert($0).inserted })
 
         let searchableSource = reviewSource == .mock ? sourceExamTitle : questionSource
-        var searchValues = [title, summary, quantityStructure, dataAnalysisMaterialText, searchableSource, questionNumber, pitfall, reminder]
+        var searchValues = record.collection == "words"
+            ? [title, LibraryWordCardPreviewText.render(wordCardBody)]
+            : [title, summary, quantityStructure, dataAnalysisMaterialText, searchableSource, questionNumber, pitfall, reminder]
         if subject == "言语理解", module == "逻辑填空" {
             searchValues.append(dataAnalysisErrorCause)
         }
@@ -492,12 +491,14 @@ struct LibraryRecordSnapshot: Identifiable {
         } else {
             searchValues.append(contentsOf: weaknessTags)
         }
-        searchValues.append(contentsOf: ["pinyin", "meaning", "judgmentHint", "commonMeaning", "example", "compareNote", "myUnderstanding", "collocations", "pos"]
-            .compactMap { object[$0] as? String })
-        if let terms = object["compareWords"] as? [[String: Any]] {
-            searchValues.append(contentsOf: terms.flatMap {
-                [$0["name"] as? String, $0["meaning"] as? String].compactMap { $0 }
-            })
+        if record.collection != "words" {
+            searchValues.append(contentsOf: ["pinyin", "meaning", "judgmentHint", "commonMeaning", "example", "compareNote", "myUnderstanding", "collocations", "pos"]
+                .compactMap { object[$0] as? String })
+            if let terms = object["compareWords"] as? [[String: Any]] {
+                searchValues.append(contentsOf: terms.flatMap {
+                    [$0["name"] as? String, $0["meaning"] as? String].compactMap { $0 }
+                })
+            }
         }
         searchableText = searchValues.joined(separator: "\n")
     }
@@ -638,11 +639,27 @@ struct LibraryRecordSnapshot: Identifiable {
 
 enum LibraryWordCardPreviewText {
     static func render(_ source: String) -> String {
-        source
+        let tableSeparatedSource = source
+            .replacingOccurrences(of: #"<\s*/t[dh]\s*>"#, with: " · ", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"<\s*/tr\s*>"#, with: "\n", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"<\s*/h[1-6]\s*>"#, with: "\n", options: [.regularExpression, .caseInsensitive])
+        let content = NativeRichTextFallbackParser.parse(tableSeparatedSource).map { run -> String in
+            switch run {
+            case .text(let text): return text
+            case .table(let encoded), .tableWithMarker(let encoded, _): return tableText(encoded)
+            case .image(_), .imageWithMarker(dataURL: _, marker: _): return "图片"
+            case .formula(_), .formulaWithMarker(encoded: _, marker: _): return "公式"
+            case .placeholder(let label), .opaque(let label, _): return label
+            }
+        }.joined()
+        return content
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "<style[\\s\\S]*?</style>|<script[\\s\\S]*?</script>", with: "", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"<\s*(br|/p|/div|/li)\b[^>]*>"#, with: "\n", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"<\s*/?table\b[^>]*>"#, with: "\n", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"<\s*/?t[dh]\b[^>]*>"#, with: " · ", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: #"<\s*/tr\s*>"#, with: "\n", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"<\s*p\b[^>]*>"#, with: "", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"<[^>]*>"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: "&nbsp;", with: " ")
@@ -657,5 +674,14 @@ enum LibraryWordCardPreviewText {
                 .trimmingCharacters(in: .whitespacesAndNewlines) }
             .joined(separator: "\n")
             .trimmingCharacters(in: .newlines)
+    }
+
+    private static func tableText(_ encoded: String) -> String {
+        guard encoded.utf8.count <= 64 * 1024,
+              let data = Data(base64Encoded: encoded),
+              data.count <= 48 * 1024,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let cells = object["cells"] as? [[String]] else { return "表格" }
+        return cells.map { $0.joined(separator: " · ") }.joined(separator: "\n")
     }
 }

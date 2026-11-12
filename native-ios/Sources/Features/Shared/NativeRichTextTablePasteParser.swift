@@ -3,6 +3,14 @@ import Foundation
 struct NativeRichTextPastedTable: Equatable {
     let range: NSRange
     let cells: [[String]]
+    let boldRanges: [NativeRichTextPastedBoldRange]
+}
+
+struct NativeRichTextPastedBoldRange: Codable, Equatable {
+    let row: Int
+    let column: Int
+    let location: Int
+    let length: Int
 }
 
 enum NativeRichTextTablePasteParser {
@@ -37,7 +45,9 @@ enum NativeRichTextTablePasteParser {
                 continue
             }
 
-            var rows = [header]
+            var rows: [[String]] = []
+            var boldRanges: [NativeRichTextPastedBoldRange] = []
+            appendMarkdownRow(header, rowIndex: 0, rows: &rows, boldRanges: &boldRanges)
             var lastLine = index
             var cursor = index + 2
             var exceededMaximumRows = false
@@ -45,7 +55,7 @@ enum NativeRichTextTablePasteParser {
                 let candidate = lines[cursor].text.trimmingCharacters(in: .whitespaces)
                 if candidate.isEmpty || candidate.hasPrefix("```") || candidate.hasPrefix("~~~") { break }
                 guard let cells = markdownCells(lines[cursor].text), cells.count == header.count else { break }
-                rows.append(cells.map(normalizeMarkdownCell))
+                appendMarkdownRow(cells, rowIndex: rows.count, rows: &rows, boldRanges: &boldRanges)
                 lastLine = cursor
                 cursor += 1
             }
@@ -66,12 +76,12 @@ enum NativeRichTextTablePasteParser {
                 index += 1
                 continue
             }
-            rows[0] = rows[0].map(normalizeMarkdownCell)
             let start = lines[index].range.location
             let end = NSMaxRange(lines[lastLine].contentRange)
             result.append(NativeRichTextPastedTable(
                 range: NSRange(location: start, length: max(0, end - start)),
-                cells: rows
+                cells: rows,
+                boldRanges: boldRanges
             ))
             index = lastLine + 1
         }
@@ -100,6 +110,7 @@ enum NativeRichTextTablePasteParser {
             let rowMatches = rowsExpression.matches(in: tableBody, range: NSRange(location: 0, length: tableBodyNSString.length))
             guard rowMatches.count >= 2, rowMatches.count <= maximumRows else { return nil }
             var rows: [[String]] = []
+            var boldRanges: [NativeRichTextPastedBoldRange] = []
             var expectedColumns: Int?
 
             for rowMatch in rowMatches {
@@ -107,9 +118,14 @@ enum NativeRichTextTablePasteParser {
                 guard let cellExpression = try? NSRegularExpression(pattern: #"(?is)<(td|th)\b([^>]*)>(.*?)</\1\s*>"#) else { return nil }
                 let rowHTMLNSString = rowHTML as NSString
                 let cellMatches = cellExpression.matches(in: rowHTML, range: NSRange(location: 0, length: rowHTMLNSString.length))
-                let columns = cellMatches.map { match -> String in
+                var columns: [String] = []
+                for (columnIndex, match) in cellMatches.enumerated() {
                     let raw = rowHTMLNSString.substring(with: match.range(at: 3))
-                    return htmlCellText(raw)
+                    let parsed = htmlCellContent(raw)
+                    columns.append(parsed.text)
+                    boldRanges.append(contentsOf: parsed.ranges.map {
+                        NativeRichTextPastedBoldRange(row: rows.count, column: columnIndex, location: $0.location, length: $0.length)
+                    })
                 }
                 guard !columns.isEmpty,
                       columns.count <= maximumColumns,
@@ -119,7 +135,7 @@ enum NativeRichTextTablePasteParser {
                 rows.append(columns)
             }
             guard let columns = expectedColumns, columns >= 2, rows.count >= 2 else { return nil }
-            result.append(NativeRichTextPastedTable(range: tableMatch.range, cells: rows))
+            result.append(NativeRichTextPastedTable(range: tableMatch.range, cells: rows, boldRanges: boldRanges))
         }
         return result
     }
@@ -192,6 +208,51 @@ enum NativeRichTextTablePasteParser {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private static func appendMarkdownRow(
+        _ rawCells: [String],
+        rowIndex: Int,
+        rows: inout [[String]],
+        boldRanges: inout [NativeRichTextPastedBoldRange]
+    ) {
+        var row: [String] = []
+        for (column, raw) in rawCells.enumerated() {
+            let parsed = markdownCellContent(raw)
+            row.append(parsed.text)
+            boldRanges.append(contentsOf: parsed.ranges.map {
+                NativeRichTextPastedBoldRange(row: rowIndex, column: column, location: $0.location, length: $0.length)
+            })
+        }
+        rows.append(row)
+    }
+
+    private static func markdownCellContent(_ value: String) -> (text: String, ranges: [NSRange]) {
+        let source = normalizeMarkdownCell(value)
+        guard let expression = try? NSRegularExpression(pattern: #"(?s)(?<!\\)(\*\*|__)(?=\S)(.+?)(?<=\S)\1"#) else {
+            return (source, [])
+        }
+        let sourceNSString = source as NSString
+        let matches = expression.matches(in: source, range: NSRange(location: 0, length: sourceNSString.length))
+        guard !matches.isEmpty else { return (source, []) }
+        var output = ""
+        var ranges: [NSRange] = []
+        var cursor = 0
+        for match in matches {
+            guard match.numberOfRanges > 2 else { continue }
+            let contentRange = match.range(at: 2)
+            guard contentRange.location != NSNotFound, contentRange.length > 0 else { continue }
+            if match.range.location > cursor {
+                output += sourceNSString.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
+            }
+            let start = (output as NSString).length
+            let content = sourceNSString.substring(with: contentRange)
+            output += content
+            ranges.append(NSRange(location: start, length: (content as NSString).length))
+            cursor = NSMaxRange(match.range)
+        }
+        if cursor < sourceNSString.length { output += sourceNSString.substring(from: cursor) }
+        return trimmed(output, ranges: ranges)
+    }
+
     private static func isSafeCell(_ value: String) -> Bool {
         value.utf8.count <= maximumCellBytes
     }
@@ -201,14 +262,89 @@ enum NativeRichTextTablePasteParser {
         return value.range(of: unsafe, options: .regularExpression) != nil
     }
 
-    private static func htmlCellText(_ html: String) -> String {
-        var value = html
-        value = value.replacingOccurrences(of: #"(?is)<br\s*/?>"#, with: "\n", options: .regularExpression)
-        value = value.replacingOccurrences(of: #"(?is)</(?:p|div|li|blockquote|h[1-6])\s*>"#, with: "\n", options: .regularExpression)
-        value = value.replacingOccurrences(of: #"(?is)<[^>]+>"#, with: "", options: .regularExpression)
-        value = decodeHTMLEntities(value)
-        return value.replacingOccurrences(of: "\u{00a0}", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func htmlCellContent(_ html: String) -> (text: String, ranges: [NSRange]) {
+        guard let expression = try? NSRegularExpression(pattern: #"(?is)<(/?)([a-z0-9]+)\b([^>]*)>"#) else {
+            return (decodeHTMLEntities(html), [])
+        }
+        let source = html as NSString
+        let matches = expression.matches(in: html, range: NSRange(location: 0, length: source.length))
+        var output = ""
+        var ranges: [NSRange] = []
+        var stack: [(name: String, bold: Bool)] = []
+        var boldDepth = 0
+        var boldStart: Int?
+        var cursor = 0
+
+        func appendText(_ raw: String) {
+            let decoded = decodeHTMLEntities(raw).replacingOccurrences(of: "\u{00a0}", with: " ")
+            output += decoded
+        }
+
+        func closeBoldRun() {
+            guard let start = boldStart else { return }
+            let length = (output as NSString).length - start
+            if length > 0 { ranges.append(NSRange(location: start, length: length)) }
+            boldStart = nil
+        }
+
+        for match in matches {
+            if match.range.location > cursor {
+                appendText(source.substring(with: NSRange(location: cursor, length: match.range.location - cursor)))
+            }
+            let closing = source.substring(with: match.range(at: 1)) == "/"
+            let name = source.substring(with: match.range(at: 2)).lowercased()
+            let attributes = source.substring(with: match.range(at: 3))
+            if closing {
+                if let stackIndex = stack.lastIndex(where: { $0.name == name }) {
+                    let removed = stack[stackIndex...]
+                    for item in removed where item.bold { boldDepth = max(0, boldDepth - 1) }
+                    stack.removeSubrange(stackIndex...)
+                    if boldDepth == 0 { closeBoldRun() }
+                }
+                if ["p", "div", "li", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6"].contains(name),
+                   !output.hasSuffix("\n") { output += "\n" }
+            } else if name == "br" {
+                output += "\n"
+            } else {
+                let isBold = name == "strong" || name == "b" || hasBoldFontWeight(attributes)
+                stack.append((name, isBold))
+                if isBold {
+                    if boldDepth == 0 { boldStart = (output as NSString).length }
+                    boldDepth += 1
+                }
+            }
+            cursor = NSMaxRange(match.range)
+        }
+        if cursor < source.length { appendText(source.substring(from: cursor)) }
+        if boldDepth > 0 { closeBoldRun() }
+        return trimmed(output, ranges: ranges)
+    }
+
+    private static func hasBoldFontWeight(_ attributes: String) -> Bool {
+        guard let expression = try? NSRegularExpression(pattern: #"font-weight\s*:\s*(bold|[0-9]{1,4})"#, options: .caseInsensitive) else {
+            return false
+        }
+        let source = attributes as NSString
+        let matches = expression.matches(in: attributes, range: NSRange(location: 0, length: source.length))
+        return matches.contains { match in
+            guard match.numberOfRanges > 1 else { return false }
+            let weight = source.substring(with: match.range(at: 1)).lowercased()
+            return weight == "bold" || (Int(weight).map { $0 >= 600 } ?? false)
+        }
+    }
+
+    private static func trimmed(_ value: String, ranges: [NSRange]) -> (text: String, ranges: [NSRange]) {
+        let leading = value.prefix(while: { $0.isWhitespace }).reduce(0) { $0 + String($1).utf16.count }
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedLength = (trimmedValue as NSString).length
+        let upperBound = leading + trimmedLength
+        let adjusted = ranges.compactMap { range -> NSRange? in
+            let start = max(range.location, leading)
+            let end = min(NSMaxRange(range), upperBound)
+            guard start < end else { return nil }
+            return NSRange(location: start - leading, length: end - start)
+        }
+        return (trimmedValue, adjusted)
     }
 
     private static func decodeHTMLEntities(_ source: String) -> String {

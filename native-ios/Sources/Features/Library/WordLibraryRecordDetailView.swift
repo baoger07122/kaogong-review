@@ -20,48 +20,28 @@ struct WordLibraryRecordDetailView: View {
     private var category: WordCategory {
         WordCategory(rawValue: text("category", "type")) ?? .idiomDefinition
     }
-    private var entryKind: WordEntryKind {
-        WordEntryKind(rawValue: text("entryKind")) ?? .word
-    }
-
     var body: some View {
         ZStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack(spacing: 7) {
                         detailTag(category.title, color: AppTheme.accent)
-                        if !category.isComparison { detailTag(entryKind.title, color: .secondary) }
-                        if !text("sentiment").isEmpty { detailTag(text("sentiment"), color: .secondary) }
                     }
 
                     Text(displayTitle)
                         .font(.system(size: 22, weight: .semibold))
                         .textSelection(.enabled)
 
-                    if category == .wordComparison {
-                        wordComparisonDetail
-                    } else {
-                        detailText("共同语义", value: text("commonMeaning"))
-                        if category == .idiomComparison { idiomComparisonDetail }
-                        detailText("核心区别", value: text("compareNote", "coreDifference"))
-
-                        let explanation = category.isComparison ? text("judgmentHint") : text("meaning")
-                        if !explanation.isEmpty {
-                            VStack(alignment: .leading, spacing: 7) {
-                                Text(category.isComparison ? "判断提示" : "释义")
-                                    .font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
-                                NativeRichTextDisplay(html: explanation, minHeight: 34)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-
-                        detailText("拼音", value: text("pinyin"))
-                        detailText("词性", value: text("pos", "partOfSpeech"))
-                        detailText("例句", value: text("example"))
-                        detailText("我的理解", value: text("myUnderstanding"))
-                        detailText("常见搭配", value: text("collocations"))
-                        detailText("来源", value: text("source"))
-                    }
+                    Text("内容")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    NativeRichTextDisplay(
+                        html: LibraryComparisonDocumentProjection.wordContent(in: object, category: category),
+                        minHeight: 34,
+                        tableAppearance: .libraryContent
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
 
                     linkedErrorSection
                 }
@@ -454,12 +434,7 @@ struct WordLibraryRecordDetailView: View {
     }
 
     private var displayTitle: String {
-        guard category == .wordComparison else { return recordTitle }
-        return recordTitle.replacingOccurrences(
-            of: #"(?i)(?<![A-Za-z])\s*vs\.?\s*(?![A-Za-z])"#,
-            with: "  │  ",
-            options: .regularExpression
-        )
+        recordTitle
     }
 
     private struct Term {

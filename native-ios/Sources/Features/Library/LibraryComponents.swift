@@ -314,12 +314,14 @@ struct LibraryRecordCard: View {
                 quantityTagLine(label: "考点", values: snapshot.knowledgePoints)
             }
 
-            if kind == .words, !snapshot.wordCardBody.isEmpty, snapshot.wordCardBody != snapshot.title {
-                Text(verbatim: LibraryWordCardPreviewText.render(snapshot.wordCardBody))
-                    .font(AppTheme.auxiliaryFont)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(size.questionLineLimit)
-                    .fixedSize(horizontal: false, vertical: true)
+            if kind == .words {
+                if !snapshot.wordCardBody.isEmpty, LibraryWordCardPreviewText.render(snapshot.wordCardBody) != snapshot.title {
+                    Text(verbatim: LibraryWordCardPreviewText.render(snapshot.wordCardBody))
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(size.questionLineLimit)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             } else if !snapshot.summary.isEmpty && snapshot.summary != snapshot.title {
                 Text(snapshot.summary)
                     .font(AppTheme.auxiliaryFont)
@@ -1327,8 +1329,16 @@ struct LibraryMasonryGrid: View {
         let displayedTitle = isLogicFill ? LibraryLogicComparisonLayout.preview(record.title) : record.title
         let titleLineLimit = isLogicFill ? 4 : (isDataAnalysisComposite ? 2 : cardSize.questionLineLimit)
         let titleLines = estimatedLineCount(displayedTitle, width: contentWidth, fontSize: 14, limit: titleLineLimit)
-        let knowledgePointsWidth = max(1, contentWidth - 17) // bulb width plus its gap
-        let knowledgePointsHeight = LibraryKnowledgePointTagLayout.height(record.knowledgePoints, width: knowledgePointsWidth)
+        let quantityKnowledgeLabel = record.record.subject == "数量关系" ? "考点" : nil
+        let knowledgePointAccessoryWidth = LibraryKnowledgePointTagCloud.leadingAccessoryWidth(
+            label: quantityKnowledgeLabel,
+            showsBulb: quantityKnowledgeLabel == nil
+        )
+        let knowledgePointsWidth = max(1, contentWidth - knowledgePointAccessoryWidth)
+        let knowledgePointsHeight = LibraryKnowledgePointTagLayout.estimatedHeight(
+            for: record.knowledgePoints,
+            width: knowledgePointsWidth
+        )
         var sections: [CGFloat] = []
         if record.record.subject == "数量关系" {
             var quantityHeaderHeight: CGFloat = 0

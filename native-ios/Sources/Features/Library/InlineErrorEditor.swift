@@ -47,6 +47,7 @@ struct InlineErrorEditor: View {
             }
 
             TextEditor(text: $draft.title)
+                .modifier(NativeDirectionalTextFieldNavigation())
                 .font(AppTheme.inputFont)
                 .frame(minHeight: 76)
                 .padding(7)

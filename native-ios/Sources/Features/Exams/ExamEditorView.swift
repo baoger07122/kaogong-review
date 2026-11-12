@@ -804,6 +804,7 @@ private struct ExamReportParserSheet: View {
                 }
 
                 TextEditor(text: $reportTextDraft)
+                    .modifier(NativeDirectionalTextFieldNavigation())
                     .font(AppTheme.inputFont)
                     .scrollContentBackground(.hidden)
                     .frame(minHeight: 190)

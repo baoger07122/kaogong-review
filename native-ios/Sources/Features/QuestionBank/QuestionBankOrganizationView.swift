@@ -92,6 +92,7 @@ struct QuestionBankPaperOrganizationView: View {
                 NavigationStack {
                     Form {
                         TextField("分组名称", text: $groupEditorName)
+                            .modifier(NativeDirectionalTextFieldNavigation())
                             .accessibilityIdentifier("question-bank-group-name")
                         if let groupEditorError {
                             Text(groupEditorError)

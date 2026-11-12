@@ -119,6 +119,7 @@ struct HomeTodoRow: View {
                 .buttonStyle(.plain)
                 .accessibilityHint("编辑此待办")
                 TextField("添加备注", text: $noteDraft, axis: .vertical)
+                    .modifier(NativeDirectionalTextFieldNavigation())
                     .font(AppTheme.inputFont)
                     .foregroundStyle(.secondary)
                     .lineLimit(1...2)
@@ -267,6 +268,7 @@ struct HomeStickyCard: View {
         StickyCardSurface(sticky: sticky, isEditing: isInlineEditing) {
             if isInlineEditing {
                 TextEditor(text: $inlineText)
+                    .modifier(NativeDirectionalTextFieldNavigation())
                     .font(AppTheme.inputFont)
                     .scrollContentBackground(.hidden)
                     .frame(minHeight: 66)

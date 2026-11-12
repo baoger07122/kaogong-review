@@ -66,6 +66,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
     var compareNote: String?
     var commonMeaning: String?
     var idiomComparisonContext: String?
+    var comparisonDocument: String?
     var wordEntryKind: String?
     var wordCompareTerms: [WordComparisonTermDraft]?
 
@@ -138,6 +139,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         compareNote = draft.compareNote
         commonMeaning = draft.commonMeaning
         idiomComparisonContext = draft.idiomComparisonContext
+        comparisonDocument = draft.comparisonDocument
         wordEntryKind = draft.wordEntryKind
         wordCompareTerms = draft.wordCompareTerms
     }
@@ -227,6 +229,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         draft.compareNote = compareNote ?? ""
         draft.commonMeaning = commonMeaning ?? ""
         draft.idiomComparisonContext = idiomComparisonContext ?? ""
+        draft.comparisonDocument = comparisonDocument
         draft.wordEntryKind = wordEntryKind ?? WordEntryKind.word.rawValue
         draft.wordCompareTerms = wordCompareTerms ?? []
     }
@@ -260,6 +263,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
             || !(compareNote ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !(commonMeaning ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !(idiomComparisonContext ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !(comparisonDocument ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || (wordCompareTerms ?? []).contains {
                 !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || !$0.meaning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

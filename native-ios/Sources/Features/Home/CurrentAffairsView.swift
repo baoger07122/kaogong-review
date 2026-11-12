@@ -29,7 +29,9 @@ struct CurrentAffairsView: View {
                 HStack(spacing: 10) {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                        TextField("搜索标题或内容", text: $searchText).font(AppTheme.inputFont)
+                        TextField("搜索标题或内容", text: $searchText)
+                            .modifier(NativeDirectionalTextFieldNavigation())
+                            .font(AppTheme.inputFont)
                     }
                     .padding(.horizontal, 11)
                     .frame(height: 38)

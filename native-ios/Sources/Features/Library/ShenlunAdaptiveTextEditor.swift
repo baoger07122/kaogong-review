@@ -36,6 +36,7 @@ struct ShenlunAdaptiveTextEditor: View {
                 availableWidth: width,
                 accessibilityIdentifier: accessibilityIdentifier
             )
+            .modifier(NativeDirectionalTextFieldNavigation())
             .frame(width: width, alignment: .leading)
         }
         .frame(height: growsWithContent ? measuredHeight : minimumHeight)

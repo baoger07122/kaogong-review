@@ -104,6 +104,7 @@ struct LibraryRecordDraft {
     var compareNote = ""
     var commonMeaning = ""
     var idiomComparisonContext = ""
+    var comparisonDocument: String?
     var wordEntryKind = WordEntryKind.word.rawValue
     var wordCompareTerms: [WordComparisonTermDraft] = []
 
@@ -240,6 +241,9 @@ struct LibraryRecordDraft {
         compareNote = LibraryRecordDraft.text(original, keys: ["compareNote", "coreDifference"])
         commonMeaning = LibraryRecordDraft.text(original, keys: ["commonMeaning"])
         idiomComparisonContext = LibraryRecordDraft.text(original, keys: ["idiomComparisonContext"])
+        if original.keys.contains("comparisonDocument") {
+            comparisonDocument = original["comparisonDocument"] as? String ?? ""
+        }
         let storedWordEntryKind = LibraryRecordDraft.text(original, keys: ["entryKind"])
         wordEntryKind = storedWordEntryKind.isEmpty ? WordEntryKind.word.rawValue : storedWordEntryKind
         if let terms = original["compareWords"] as? [[String: Any]] {
@@ -343,6 +347,7 @@ struct LibraryRecordDraft {
             && compareNote == other.compareNote
             && commonMeaning == other.commonMeaning
             && idiomComparisonContext == other.idiomComparisonContext
+            && comparisonDocument == other.comparisonDocument
             && wordEntryKind == other.wordEntryKind
             && wordCompareTerms == other.wordCompareTerms
     }
@@ -673,53 +678,15 @@ enum LibraryRecordRepository {
             let category = wordCategory(from: draft.type)
             object["name"] = draft.title
             object["words"] = draft.title
-            object["meaning"] = category.isComparison ? "" : draft.content
-            object["judgmentHint"] = category.isComparison ? draft.content : ""
             object["category"] = draft.type
             object["type"] = draft.type
-            object["entryKind"] = draft.wordEntryKind
-            object["commonMeaning"] = draft.commonMeaning
-            if category == .idiomComparison {
-                object["idiomComparisonContext"] = draft.idiomComparisonContext
+            if category.isComparison {
+                object["comparisonDocument"] = draft.comparisonDocument ?? LibraryComparisonDocumentProjection.project(draft: draft)
+            } else {
+                object["meaning"] = draft.content
             }
             object["linkedErrors"] = draft.linkedErrorIDs
             object["relatedErrorIds"] = draft.linkedErrorIDs
-            object["pinyin"] = draft.pinyin
-            object["sentiment"] = draft.sentiment
-            object["pos"] = draft.partOfSpeech
-            object["example"] = draft.example
-            object["myUnderstanding"] = draft.myUnderstanding
-            object["collocations"] = draft.collocations
-            object["source"] = draft.wordSource
-            object["compareNote"] = draft.compareNote
-            object["compareWords"] = draft.wordCompareTerms
-                .filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                .map { term -> [String: Any] in
-                    var value: [String: Any] = [
-                        "name": term.name,
-                        "meaning": term.meaning,
-                        "wordId": term.wordID,
-                        "entryKind": draft.wordEntryKind
-                    ]
-                    if let legacyID = term.legacyID, !legacyID.isEmpty { value["id"] = legacyID }
-                    if category.isComparison {
-                        if let coreFocus = term.coreFocus, !coreFocus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            value["coreFocus"] = coreFocus
-                        }
-                        if let quickDecision = term.quickDecision, !quickDecision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            value["quickDecision"] = quickDecision
-                        }
-                    }
-                    if category == .idiomComparison, let example = term.contextExample,
-                       !example.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        value["contextExample"] = example
-                    }
-                    if category == .idiomComparison, let focus = term.contextFocus,
-                       !focus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        value["contextFocus"] = focus
-                    }
-                    return value
-                }
         }
 
         return object

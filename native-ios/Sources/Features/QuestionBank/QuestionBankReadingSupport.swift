@@ -780,6 +780,7 @@ struct QuestionBankReferenceAccuracyControl: View {
                     .font(AppTheme.inputFont.weight(.semibold))
                 HStack(spacing: 6) {
                     TextField("0–100", text: $editingValue)
+                        .modifier(NativeDirectionalTextFieldNavigation())
                         .keyboardType(.decimalPad)
                         .textFieldStyle(.roundedBorder)
                         .accessibilityLabel("参考正确率百分比")

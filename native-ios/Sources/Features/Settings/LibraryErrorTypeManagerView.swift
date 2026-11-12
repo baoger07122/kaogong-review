@@ -3,21 +3,48 @@ import SwiftUI
 
 struct LibraryErrorTypeModulesView: View {
     @Query(filter: #Predicate<StoredRecord> { $0.collection == "keyvalue" }) private var records: [StoredRecord]
+    var onOpenModule: (String?) -> Void = { _ in }
 
     private let subject = LibraryErrorTypeSubject.verbalReasoning
 
     var body: some View {
         List {
             ForEach(subject.modules, id: \.self) { module in
-                NavigationLink(module, value: SettingsRoute.verbalErrorTypes(module: module))
+                moduleRow(module, accessibilityID: "verbal-error-module-\(module)") {
+                    onOpenModule(module)
+                }
             }
             if LibraryErrorTypeRepository.types(for: subject, records: records).contains(where: { $0.module == nil }) {
-                NavigationLink("原有通用类型", value: SettingsRoute.verbalErrorTypes(module: nil))
+                moduleRow("原有通用类型", accessibilityID: "verbal-error-module-legacy") {
+                    onOpenModule(nil)
+                }
             }
         }
-        .font(AppTheme.bodyFont)
         .navigationTitle(subject.managementTitle)
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func moduleRow(
+        _ title: String,
+        accessibilityID: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 12)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier(accessibilityID)
+        .accessibilityLabel(title)
+        .accessibilityHint("打开\(title)错误类型管理")
     }
 }
 

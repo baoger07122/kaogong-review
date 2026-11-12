@@ -101,6 +101,8 @@ struct LibraryRecordEditorView: View {
     @State private var showIdiomGroupPaste = false
     @State private var idiomGroupPasteText = ""
     @State private var idiomGroupPasteError: String?
+    @StateObject private var wordContentEditorSession = NativeRichTextEditorSession()
+    @State private var wordContentEditorSessionID = UUID()
     @State private var draftPersistenceCleared = false
 
     init(
@@ -141,12 +143,6 @@ struct LibraryRecordEditorView: View {
         }
         if kind == .errors, !QuestionBankErrorBookCategory.allCases.contains(where: { $0.rawValue == initialDraft.type }) {
             initialDraft.type = "错题"
-        }
-        if kind == .words,
-           WordCategory(rawValue: initialDraft.type)?.isComparison == true {
-            while initialDraft.wordCompareTerms.count < 2 {
-                initialDraft.wordCompareTerms.append(.init(entryKind: initialDraft.wordEntryKind))
-            }
         }
         _isCurrentAffairsSupplementExpanded = State(
             initialValue: !initialDraft.currentAffairsSupplement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -914,6 +910,7 @@ struct LibraryRecordEditorView: View {
                 .frame(width: 58, alignment: .leading)
             TextField(placeholder, text: text)
                 .font(.system(size: 12.5, weight: .regular))
+                .modifier(NativeDirectionalTextFieldNavigation())
         }
         .padding(.horizontal, 10)
         .frame(minHeight: 38)
@@ -947,76 +944,46 @@ struct LibraryRecordEditorView: View {
 
     private var wordFields: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                compactWordProperty(title: "当前模块", value: wordCategory.title, image: wordCategory.systemImage)
-                Spacer(minLength: 8)
-                if wordCategory.isComparison {
-                    wordEntryKindPicker(selection: $draft.wordEntryKind)
-                }
-            }
-
-            Divider().opacity(0.55)
-
-            if wordCategory.isComparison {
-                NativeFieldLabel(title: "共同语义")
-                compactWordTextField("共同语义（可选）", text: $draft.commonMeaning, multiline: true)
-
-                if wordCategory == .idiomComparison {
-                    idiomComparisonTables
-                } else {
-                    NativeFieldLabel(title: "辨析词语")
-                    ForEach($draft.wordCompareTerms) { $term in
-                        wordComparisonTermEditor($term)
-                    }
-                }
-                Button {
-                    let term = WordComparisonTermDraft(entryKind: draft.wordEntryKind)
-                    draft.wordCompareTerms.append(term)
-                    if wordCategory == .wordComparison { expandedComparisonTermIDs.insert(term.id) }
-                } label: {
-                    Label(wordCategory == .idiomComparison ? "增加成语" : "增加词语", systemImage: "plus.circle")
-                        .font(AppTheme.inputFont.weight(.semibold))
-                }
-                if wordCategory == .wordComparison {
-                    compactWordTextField("核心区别", text: $draft.compareNote, multiline: true)
-                }
-            } else {
-                HStack(spacing: 8) {
-                    wordEntryKindPicker(selection: $draft.wordEntryKind)
-                    compactWordTextField("词语 / 常见搭配", text: $draft.title)
-                        .accessibilityIdentifier("library-word-title")
-                }
-                compactWordTextField("拼音（可选）", text: $draft.pinyin)
-            }
-
-            Menu {
-                Button("未设置") { draft.sentiment = "" }
-                ForEach(["褒义", "贬义", "中性"], id: \.self) { value in Button(value) { draft.sentiment = value } }
-            } label: {
-                compactWordProperty(
-                    title: "感情色彩",
-                    value: draft.sentiment.isEmpty ? "未设置" : draft.sentiment,
-                    image: "face.smiling"
-                )
-            }
-            .buttonStyle(.plain)
-            if wordCategory == .wordDefinition {
-                compactWordTextField("词性（例如：动词）", text: $draft.partOfSpeech)
-            }
-            NativeFieldLabel(title: wordCategory.isComparison ? "判断提示" : "释义")
-            richEditor(text: $draft.content, height: 145)
-            compactWordTextField("例句（可选）", text: $draft.example, multiline: true)
-            if wordCategory == .wordDefinition {
-                compactWordTextField("我的理解", text: $draft.myUnderstanding, multiline: true)
-                compactWordTextField("常见搭配", text: $draft.collocations, multiline: true)
-                compactWordTextField("来源", text: $draft.wordSource)
-            }
+            compactWordProperty(title: "类别", value: wordCategory.title, image: wordCategory.systemImage)
+            NativeFieldLabel(title: "标题")
+            compactWordTextField("标题", text: $draft.title)
+                .accessibilityIdentifier("library-word-title")
+            NativeFieldLabel(title: "内容")
+            NativeRichTextEditor(
+                html: wordContentBinding,
+                minHeight: 360,
+                documentStyle: true,
+                tableAppearance: .libraryContent,
+                editorSession: wordContentEditorSession,
+                editorDocumentID: wordContentDocumentID,
+                editorSessionID: wordContentEditorSessionID
+            )
+            .padding(.horizontal, 8)
+            .accessibilityIdentifier("library-word-content-editor")
             multiRelationSection(title: "关联错题", candidates: relationCandidates(collection: "errors"), selection: $draft.linkedErrorIDs)
         }
     }
 
     private var wordCategory: WordCategory {
         WordCategory(rawValue: draft.type) ?? .idiomDefinition
+    }
+
+    private var wordContentBinding: Binding<String> {
+        Binding(
+            get: {
+                wordCategory.isComparison
+                    ? (draft.comparisonDocument ?? LibraryComparisonDocumentProjection.project(draft: draft))
+                    : draft.content
+            },
+            set: { value in
+                if wordCategory.isComparison { draft.comparisonDocument = value }
+                else { draft.content = value }
+            }
+        )
+    }
+
+    private var wordContentDocumentID: String {
+        "words:\(recordID ?? "new"):\(draft.type)"
     }
 
     private func wordComparisonTermEditor(_ term: Binding<WordComparisonTermDraft>) -> some View {
@@ -1426,6 +1393,7 @@ struct LibraryRecordEditorView: View {
         TextField(prompt, text: text, axis: multiline ? .vertical : .horizontal)
             .font(AppTheme.inputFont)
             .lineLimit(multiline ? 2...5 : 1...1)
+            .modifier(NativeDirectionalTextFieldNavigation())
             .padding(.horizontal, 11)
             .padding(.vertical, multiline ? 10 : 0)
             .frame(minHeight: 40, alignment: .center)
@@ -1511,6 +1479,7 @@ struct LibraryRecordEditorView: View {
 
     private func editor(text: Binding<String>, height: CGFloat) -> some View {
         TextEditor(text: text)
+            .modifier(NativeDirectionalTextFieldNavigation())
             .font(AppTheme.inputFont)
             .scrollContentBackground(.hidden)
             .frame(minHeight: height)
@@ -1581,6 +1550,23 @@ struct LibraryRecordEditorView: View {
     }
 
     private func save() {
+        guard !isSaving else { return }
+        if kind == .words {
+            isSaving = true
+            wordContentEditorSession.endEditing { latestHTML in
+                if let latestHTML {
+                    if self.wordCategory.isComparison { self.draft.comparisonDocument = latestHTML }
+                    else { self.draft.content = latestHTML }
+                }
+                self.isSaving = false
+                self.persistSave()
+            }
+            return
+        }
+        persistSave()
+    }
+
+    private func persistSave() {
         guard !isSaving else { return }
         let saveRequestStart = ProcessInfo.processInfo.systemUptime
         let saveIdentifier = recordID ?? "new-\(kind.collection)"
@@ -1706,6 +1692,7 @@ struct LibraryRecordEditorView: View {
 struct ErrorFormTextFieldStyle: TextFieldStyle {
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration
+            .modifier(NativeDirectionalTextFieldNavigation())
             .font(.system(size: 12.5, weight: .regular))
             .padding(.horizontal, 11)
             .frame(height: 38)
@@ -1783,6 +1770,7 @@ private struct ErrorSmartSplitDialog: View {
                 }
 
                 TextEditor(text: $text)
+                    .modifier(NativeDirectionalTextFieldNavigation())
                     .font(.system(size: 12.5, weight: .regular))
                     .lineSpacing(3)
                     .scrollContentBackground(.hidden)

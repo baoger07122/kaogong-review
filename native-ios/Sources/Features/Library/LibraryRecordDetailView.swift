@@ -659,12 +659,16 @@ struct LibraryRecordDetailView: View {
 
     private var detailToolbar: some View {
         HStack(spacing: 8) {
+            LibraryReadingModeToggle(
+                isRedoPractice: $redoPracticeEnabled,
+                isEnabled: supportsRedoMode && !isPayloadLoading && !payloadDecodeFailed,
+                placement: .detail
+            )
+
             doodleToolbarButton
                 .opacity(doodleSession.isPresented ? 0 : 1)
                 .disabled(doodleSession.isPresented || !canOpenDoodle)
                 .accessibilityHidden(doodleSession.isPresented)
-
-            LibraryReadingModeToggle(isRedoPractice: $redoPracticeEnabled, isEnabled: supportsRedoMode)
 
             ZStack {
                 questionActionsMenu
@@ -2169,6 +2173,7 @@ struct LibraryRecordDetailView: View {
             canvasHostID: opensSplitDoodle
                 ? "library-record-detail|\(targetID)|split|\(splitDoodleLayoutDirection.rawValue)|material"
                 : "library-record-detail|\(targetID)",
+            splitCanvasHostNamespace: opensSplitDoodle ? "library-record-detail" : nil,
             onSave: { updatedDrawing, legacyPreviewCleared, _, _ in
                 guard let targetRecord else { return "涂鸦未保存：题目记录已不存在。" }
                 if targetSession.hasPendingSplitDrawingChanges,
@@ -2513,6 +2518,7 @@ private struct LibraryDetailAttributeEditor: View {
             VStack(alignment: .leading, spacing: 12) {
                 if choices.isEmpty {
                     TextEditor(text: $value)
+                        .modifier(NativeDirectionalTextFieldNavigation())
                         .font(.system(size: 15))
                         .scrollContentBackground(.hidden)
                         .padding(8)

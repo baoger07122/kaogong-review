@@ -506,6 +506,7 @@ struct SpeedPracticeView: View {
                             Text("选择一个或多个固定数字（除数支持 2–19）").font(.system(size: 13)).foregroundStyle(.secondary)
                             HStack(spacing: 8) {
                                 TextField("输入数字", text: $customFixedNumberText)
+                                    .modifier(NativeDirectionalTextFieldNavigation())
                                     .keyboardType(.numberPad)
                                     .font(.system(size: 14, weight: .medium).monospacedDigit())
                                     .textFieldStyle(NativeTextFieldStyle())
@@ -596,6 +597,7 @@ struct SpeedPracticeView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.system(size: 12)).foregroundStyle(.secondary)
             TextField(title, text: text)
+                .modifier(NativeDirectionalTextFieldNavigation())
                 .font(.system(size: 15, weight: .semibold).monospacedDigit())
                 .keyboardType(.numberPad).multilineTextAlignment(.center)
                 .frame(height: 44)
@@ -715,6 +717,7 @@ struct SpeedPracticeView: View {
                         Color.clear.frame(height: sizing.footer)
                     } else {
                         TextField("答案", text: $currentInput)
+                            .modifier(NativeDirectionalTextFieldNavigation())
                             .keyboardType(.decimalPad)
                             .submitLabel(.done)
                             .onSubmit(submit)

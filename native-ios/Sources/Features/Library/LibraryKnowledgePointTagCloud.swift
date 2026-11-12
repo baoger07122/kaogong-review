@@ -1,91 +1,66 @@
 import SwiftUI
 import UIKit
 
-struct KnowledgePointTagFragment {
-    let text: String
-    let width: CGFloat
-}
-
-enum LibraryKnowledgePointTagLayout {
+struct LibraryKnowledgePointTagLayout: Layout {
     static let font = UIFont.systemFont(ofSize: 11, weight: .medium)
     static let horizontalPadding: CGFloat = 6
     static let verticalPadding: CGFloat = 3
-    static let rowHeight: CGFloat = 19
-    static let itemSpacing: CGFloat = 5
+    static let minimumTagHeight: CGFloat = 19
     static let rowSpacing: CGFloat = 4
 
-    static func rows(_ values: [String], width: CGFloat) -> [[KnowledgePointTagFragment]] {
-        let availableWidth = max(1, width)
-        var result: [[KnowledgePointTagFragment]] = [[]]
-        var usedWidth: CGFloat = 0
-
-        for rawValue in values {
-            let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty else { continue }
-            let characters = Array(value)
-            var index = 0
-
-            while index < characters.count {
-                let hasItems = !result[result.count - 1].isEmpty
-                let remainingWidth = availableWidth - usedWidth - (hasItems ? itemSpacing : 0)
-                let textWidth = max(0, remainingWidth - horizontalPadding * 2)
-                let count = fittingCharacterCount(characters, from: index, width: textWidth)
-
-                if hasItems && count < 2 {
-                    result.append([])
-                    usedWidth = 0
-                    continue
-                }
-
-                let fragmentCount = max(1, count)
-                let text = String(characters[index..<min(characters.count, index + fragmentCount)])
-                let measuredWidth = ceil((text as NSString).size(withAttributes: [.font: font]).width)
-                let fragmentWidth = min(remainingWidth, measuredWidth + horizontalPadding * 2)
-                result[result.count - 1].append(KnowledgePointTagFragment(text: text, width: fragmentWidth))
-                usedWidth += (hasItems ? itemSpacing : 0) + fragmentWidth
-                index += fragmentCount
-
-                if index < characters.count {
-                    result.append([])
-                    usedWidth = 0
-                }
-            }
-        }
-
-        return result.filter { !$0.isEmpty }
-    }
-
-    static func height(_ values: [String], width: CGFloat) -> CGFloat {
-        let count = rows(values, width: width).count
-        guard count > 0 else { return 0 }
-        return CGFloat(count) * rowHeight + CGFloat(count - 1) * rowSpacing
-    }
-
-    private static func fittingCharacterCount(_ characters: [Character], from start: Int, width: CGFloat) -> Int {
-        guard width > 0 else { return 0 }
-        var candidate = ""
-        var fitting = 0
-        for character in characters[start...] {
-            candidate.append(character)
-            let measured = (candidate as NSString).size(withAttributes: [.font: font]).width
-            guard measured <= width else { break }
-            fitting += 1
-        }
-        return fitting
-    }
-}
-
-private struct KnowledgePointTagCloudLayout: Layout {
     let points: [String]
 
+    private var visiblePoints: [String] {
+        points.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = max(1, proposal.width ?? 240)
-        return CGSize(width: width, height: LibraryKnowledgePointTagLayout.height(points, width: width))
+        let widestNaturalTag = visiblePoints.map { metrics(for: $0, availableWidth: .greatestFiniteMagnitude).width }.max() ?? 0
+        let availableWidth = max(1, proposal.width ?? max(240, widestNaturalTag))
+        let sizes = visiblePoints.map { metrics(for: $0, availableWidth: availableWidth) }
+        let contentWidth = sizes.map(\.width).max() ?? 0
+        let contentHeight = sizes.reduce(CGFloat(0)) { $0 + $1.height }
+            + CGFloat(max(0, sizes.count - 1)) * Self.rowSpacing
+        return CGSize(width: min(availableWidth, contentWidth), height: contentHeight)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        guard let canvas = subviews.first else { return }
-        canvas.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+        let values = visiblePoints
+        var y = bounds.minY
+        for (index, subview) in subviews.enumerated() where values.indices.contains(index) {
+            let size = metrics(for: values[index], availableWidth: max(1, bounds.width))
+            subview.place(
+                at: CGPoint(x: bounds.minX, y: y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: size.width, height: size.height)
+            )
+            y += size.height + Self.rowSpacing
+        }
+    }
+
+    static func estimatedHeight(for points: [String], width: CGFloat) -> CGFloat {
+        let visible = points.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !visible.isEmpty else { return 0 }
+        let layout = LibraryKnowledgePointTagLayout(points: visible)
+        let sizes = visible.map { layout.metrics(for: $0, availableWidth: max(1, width)) }
+        return sizes.reduce(CGFloat(0)) { $0 + $1.height }
+            + CGFloat(max(0, sizes.count - 1)) * rowSpacing
+    }
+
+    private func metrics(for text: String, availableWidth: CGFloat) -> CGSize {
+        let fullTextWidth = ceil((text as NSString).size(withAttributes: [.font: Self.font]).width)
+        let width = min(availableWidth, fullTextWidth + Self.horizontalPadding * 2)
+        let textWidth = max(1, width - Self.horizontalPadding * 2)
+        let textBounds = (text as NSString).boundingRect(
+            with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: Self.font],
+            context: nil
+        )
+        let textHeight = max(Self.font.lineHeight, ceil(textBounds.height))
+        return CGSize(width: width, height: max(Self.minimumTagHeight, textHeight + Self.verticalPadding * 2))
     }
 }
 
@@ -93,6 +68,19 @@ struct LibraryKnowledgePointTagCloud: View {
     let points: [String]
     var label: String? = nil
     var showsBulb = false
+
+    static func leadingAccessoryWidth(label: String? = nil, showsBulb: Bool = false) -> CGFloat {
+        if let label {
+            let font = UIFont.systemFont(ofSize: 11, weight: .medium)
+            return ceil(("\(label)：" as NSString).size(withAttributes: [.font: font]).width) + 6
+        }
+        return showsBulb ? 17 : 0
+    }
+
+    private var visiblePoints: [String] {
+        points.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
@@ -110,42 +98,25 @@ struct LibraryKnowledgePointTagCloud: View {
                     .frame(width: 11)
                     .padding(.top, 4)
             }
-            AnyLayout(KnowledgePointTagCloudLayout(points: points)) {
-                Canvas { context, size in
-                    let rows = LibraryKnowledgePointTagLayout.rows(points, width: size.width)
-                    for (rowIndex, row) in rows.enumerated() {
-                        var x: CGFloat = 0
-                        let y = CGFloat(rowIndex) * (LibraryKnowledgePointTagLayout.rowHeight + LibraryKnowledgePointTagLayout.rowSpacing)
-                        for (itemIndex, fragment) in row.enumerated() {
-                            if itemIndex > 0 { x += LibraryKnowledgePointTagLayout.itemSpacing }
-                            let rect = CGRect(
-                                x: x,
-                                y: y,
-                                width: fragment.width,
-                                height: LibraryKnowledgePointTagLayout.rowHeight
-                            )
-                            context.stroke(
-                                RoundedRectangle(cornerRadius: 5, style: .continuous).path(in: rect),
-                                with: .color(Color.primary.opacity(0.15)),
-                                lineWidth: 0.75
-                            )
-                            let resolved = context.resolve(
-                                Text(fragment.text)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(Color(red: 34 / 255.0, green: 34 / 255.0, blue: 34 / 255.0))
-                            )
-                            context.draw(
-                                resolved,
-                                at: CGPoint(x: x + LibraryKnowledgePointTagLayout.horizontalPadding, y: y + LibraryKnowledgePointTagLayout.verticalPadding),
-                                anchor: .topLeading
-                            )
-                            x += fragment.width
+            LibraryKnowledgePointTagLayout(points: visiblePoints) {
+                ForEach(Array(visiblePoints.enumerated()), id: \.offset) { _, point in
+                    Text(point)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color(red: 34 / 255.0, green: 34 / 255.0, blue: 34 / 255.0))
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, LibraryKnowledgePointTagLayout.horizontalPadding)
+                        .padding(.vertical, LibraryKnowledgePointTagLayout.verticalPadding)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .stroke(Color.primary.opacity(0.15), lineWidth: 0.75)
                         }
-                    }
                 }
-                .accessibilityLabel(points.joined(separator: "、"))
             }
+            .accessibilityElement(children: .contain)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityLabel(visiblePoints.joined(separator: "、"))
     }
 }

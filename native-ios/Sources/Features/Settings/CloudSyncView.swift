@@ -40,6 +40,7 @@ struct CloudSyncView: View {
             } else {
                 Section("登录云同步") {
                     TextField("邮箱", text: $email)
+                        .modifier(NativeDirectionalTextFieldNavigation())
                         .font(AppTheme.inputFont)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.emailAddress)

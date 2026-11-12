@@ -62,6 +62,7 @@ struct NativeTextFieldStyle: TextFieldStyle {
 
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration
+            .modifier(NativeDirectionalTextFieldNavigation())
             .font(AppTheme.inputFont)
             .padding(.horizontal, 12)
             .frame(height: 44)

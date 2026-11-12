@@ -696,6 +696,7 @@ struct QuestionBankView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
             TextField("试卷、题干、选项或题号", text: $searchText)
+                .modifier(NativeDirectionalTextFieldNavigation())
                 .focused($isSearchFocused)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()

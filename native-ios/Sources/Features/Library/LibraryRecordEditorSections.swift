@@ -235,6 +235,7 @@ private struct LibraryErrorOptionEditorRow: View {
                 TextField("", text: $text, axis: .vertical)
                     .lineLimit(1...4)
                     .font(.system(size: 13.5, weight: .regular))
+                    .modifier(NativeDirectionalTextFieldNavigation())
                     .padding(.horizontal, 9)
                     .padding(.vertical, 3)
                     .frame(maxWidth: .infinity, minHeight: 30, alignment: .topLeading)
@@ -634,7 +635,9 @@ private struct LibraryErrorAnalysisSection: View {
     private func quantityTextInput(title: String, placeholder: String, text: Binding<String>) -> some View {
         HStack(spacing: 9) {
             Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary).frame(width: 58, alignment: .leading)
-            TextField(placeholder, text: text).font(.system(size: 12.5, weight: .regular))
+            TextField(placeholder, text: text)
+                .font(.system(size: 12.5, weight: .regular))
+                .modifier(NativeDirectionalTextFieldNavigation())
         }
         .padding(.horizontal, 10)
         .frame(minHeight: 38)
@@ -735,6 +738,7 @@ struct LibraryPlainTextInput: View {
                 .font(.system(size: 12.5, weight: .regular))
                 .lineLimit(1...5)
                 .frame(minHeight: 22)
+                .modifier(NativeDirectionalTextFieldNavigation())
         }
         .padding(.horizontal, 10).padding(.vertical, 8).frame(minHeight: 38)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -752,28 +756,74 @@ struct LibraryMultilinePlainTextInput: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .frame(width: 66, alignment: .leading)
-                .padding(.top, 8)
+                .padding(.top, 3)
             ZStack(alignment: .topLeading) {
                 if text.isEmpty {
                     Text("可留空")
                         .font(.system(size: 12.5))
                         .foregroundStyle(.tertiary)
-                        .padding(.top, 8)
-                        .padding(.leading, 5)
                         .allowsHitTesting(false)
                 }
-                TextEditor(text: $text)
-                    .font(.system(size: 12.5, weight: .regular))
-                    .scrollContentBackground(.hidden)
-                    .frame(minHeight: 74, maxHeight: 130)
-                    .accessibilityIdentifier("library-error-cause-multiline-editor")
+                LibraryErrorCauseTextView(text: $text)
+                    .modifier(NativeDirectionalTextFieldNavigation())
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.1), lineWidth: 0.7))
+    }
+}
+
+private struct LibraryErrorCauseTextView: UIViewRepresentable {
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.delegate = context.coordinator
+        view.font = UIFont.systemFont(ofSize: 12.5, weight: .regular)
+        view.textColor = .label
+        view.backgroundColor = .clear
+        view.textContainerInset = .zero
+        view.textContainer.lineFragmentPadding = 0
+        view.textContainer.widthTracksTextView = true
+        view.text = text
+        view.isScrollEnabled = false
+        view.alwaysBounceVertical = false
+        view.accessibilityIdentifier = "library-error-cause-multiline-editor"
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        return view
+    }
+
+    func updateUIView(_ view: UITextView, context: Context) {
+        context.coordinator.parent = self
+        if view.text != text {
+            let previousLocation = view.selectedRange.location
+            view.text = text
+            view.selectedRange = NSRange(location: min(previousLocation, (text as NSString).length), length: 0)
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        guard let width = proposal.width, width.isFinite, width > 0 else { return nil }
+        let measured = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        let scale = uiView.window?.screen.scale ?? UIScreen.main.scale
+        let height = ceil(measured.height * scale) / scale
+        return CGSize(width: width, height: max(22, height))
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: LibraryErrorCauseTextView
+
+        init(parent: LibraryErrorCauseTextView) { self.parent = parent }
+
+        func textViewDidChange(_ textView: UITextView) {
+            parent.text = textView.text
+        }
     }
 }
 
@@ -874,7 +924,10 @@ private struct LibraryShenlunReminderSection: View {
             Label("提醒（可选）", systemImage: "lightbulb").font(.system(size: 13, weight: .medium))
             HStack(spacing: 8) {
                 Text("提醒").font(.system(size: 11)).foregroundStyle(.secondary).frame(width: 66, alignment: .leading)
-                TextField("可留空", text: $text, axis: .vertical).font(.system(size: 12.5)).lineLimit(1...5)
+                TextField("可留空", text: $text, axis: .vertical)
+                    .font(.system(size: 12.5))
+                    .lineLimit(1...5)
+                    .modifier(NativeDirectionalTextFieldNavigation())
             }
             .padding(.horizontal, 10).padding(.vertical, 8).frame(minHeight: 38)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))

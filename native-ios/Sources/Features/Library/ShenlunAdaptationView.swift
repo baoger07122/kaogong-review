@@ -329,6 +329,7 @@ struct ShenlunAdaptationView: View {
 
     private func adaptationTextEditor(text: Binding<String>, height: CGFloat) -> some View {
         TextEditor(text: text)
+            .modifier(NativeDirectionalTextFieldNavigation())
             .font(AppTheme.inputFont)
             .lineSpacing(AppTheme.inputLineSpacing)
             .scrollContentBackground(.hidden)

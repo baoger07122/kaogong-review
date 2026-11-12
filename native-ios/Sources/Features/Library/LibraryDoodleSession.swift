@@ -11,6 +11,20 @@ enum LibraryDoodleLayoutDirection: String, CaseIterable, Hashable {
     case vertical
 }
 
+struct LibraryDoodleCanvasFrameOwner: Hashable {
+    let targetRecordID: String
+    let canvasHostID: String
+    let presentationGeneration: Int
+    let drawingLoadRevision: Int
+    let pane: LibraryDoodlePane?
+    let layoutDirection: LibraryDoodleLayoutDirection?
+}
+
+struct LibraryDoodleCanvasFrameReport: Equatable {
+    let owner: LibraryDoodleCanvasFrameOwner
+    let frame: CGRect
+}
+
 @MainActor
 private final class LibraryOneShotDisplayLink: NSObject {
     private var displayLink: CADisplayLink?
@@ -58,6 +72,8 @@ final class LibraryDoodleSession: ObservableObject {
     private var drawingLoadFailed = false
     private var drawingLoadDataReceived = false
     private(set) var presentationGeneration = 0
+    private(set) var activeCanvasHostID: String?
+    private var splitCanvasHostNamespace: String?
     private var drawingLoadTask: Task<Void, Never>?
     private var drawingRevisionAtPresentation = 0
     private var presentationStartedAt: TimeInterval?
@@ -95,6 +111,7 @@ final class LibraryDoodleSession: ObservableObject {
         onFirstCanvasFrame: (() -> Void)? = nil,
         deferCanvasActivation: Bool = false,
         canvasHostID: String? = nil,
+        splitCanvasHostNamespace: String? = nil,
         onSave: @escaping (String, Bool, Int, Int) async -> String?
     ) {
         guard !isPresented, !isDismissing else { return }
@@ -123,6 +140,8 @@ final class LibraryDoodleSession: ObservableObject {
         self.isLoadingDrawing = isLoadingDrawing
         presentationSource = source
         activeSplitDrawingPane = splitDrawingPane
+        activeCanvasHostID = canvasHostID ?? targetRecordID
+        self.splitCanvasHostNamespace = splitDrawingPane == nil ? nil : splitCanvasHostNamespace
         if splitDrawingPane != nil {
             let keepPendingValues = hasPendingSplitDrawingChanges && splitDrawingRecordID == targetRecordID
             if !keepPendingValues {
@@ -141,8 +160,7 @@ final class LibraryDoodleSession: ObservableObject {
         pendingFirstFrameCallback = nil
         self.onFirstCanvasFrame = onFirstCanvasFrame
         self.targetRecordID = targetRecordID
-        canvas.canvasFrameInGlobal = nil
-        canvas.canvasFrameOwnerID = nil
+        invalidateCanvasFrame()
         if !canReuseLoadedCanvas {
             canvas.controller.canvasReady = false
             canvas.controller.canvasLoadError = nil
@@ -211,6 +229,34 @@ final class LibraryDoodleSession: ObservableObject {
         targetRecordID == recordID && (isCanvasActivationReady || mountedCanvasHostID == hostID)
     }
 
+    func isCurrentCanvasFrameOwner(_ owner: LibraryDoodleCanvasFrameOwner) -> Bool {
+        guard isPresented,
+              targetRecordID == owner.targetRecordID,
+              activeCanvasHostID == owner.canvasHostID,
+              presentationGeneration == owner.presentationGeneration,
+              canvas.controller.drawingLoadRevision == owner.drawingLoadRevision else { return false }
+
+        if let pane = owner.pane {
+            return activeSplitDrawingPane == pane
+                && splitDrawingRecordID == owner.targetRecordID
+                && splitDrawingLayoutDirection == owner.layoutDirection
+        }
+
+        return owner.layoutDirection == nil && activeSplitDrawingPane == nil
+    }
+
+    @discardableResult
+    func updateCanvasFrame(_ frame: CGRect, ownedBy owner: LibraryDoodleCanvasFrameOwner) -> Bool {
+        guard isCurrentCanvasFrameOwner(owner), !frame.isNull, !frame.isEmpty else { return false }
+        canvas.canvasFrameReport = LibraryDoodleCanvasFrameReport(owner: owner, frame: frame)
+        return true
+    }
+
+    func invalidateCanvasFrame(ownedBy owner: LibraryDoodleCanvasFrameOwner? = nil) {
+        guard owner == nil || canvas.canvasFrameReport?.owner == owner else { return }
+        canvas.canvasFrameReport = nil
+    }
+
     private func activateDeferredCanvas(recordID: String, generation: Int) {
         guard let pending = pendingCanvasActivation,
               pending.recordID == recordID,
@@ -245,13 +291,17 @@ final class LibraryDoodleSession: ObservableObject {
         guard isPresented, !isDismissing, activeSplitDrawingPane != nil,
               activeSplitDrawingPane != pane else { return }
         let generation = presentationGeneration
+        invalidateCanvasFrame()
         canvas.controller.commit { [weak self] in
             guard let self, self.isPresented,
                   self.presentationGeneration == generation,
                   self.activeSplitDrawingPane != nil else { return }
-            self.canvas.canvasFrameInGlobal = nil
-            self.canvas.canvasFrameOwnerID = nil
+            self.invalidateCanvasFrame()
             self.activeSplitDrawingPane = pane
+            if let namespace = self.splitCanvasHostNamespace,
+               let recordID = self.targetRecordID {
+                self.activeCanvasHostID = "\(namespace)|\(recordID)|split|\(self.splitDrawingLayoutDirection.rawValue)|\(pane.rawValue)"
+            }
         }
     }
 
@@ -360,6 +410,7 @@ final class LibraryDoodleSession: ObservableObject {
         completion: ((String?) -> Void)?
     ) {
         guard isPresented, !isDismissing else { completion?(nil); return }
+        invalidateCanvasFrame()
         if pendingCanvasActivation != nil {
             pendingCanvasActivation = nil
             pendingToolbarFrameCallback?.cancel()
@@ -438,6 +489,8 @@ final class LibraryDoodleSession: ObservableObject {
                     self.isDismissing = false
                     if reopenOnSaveFailure {
                         self.saveHandler = handler
+                        self.presentationGeneration &+= 1
+                        self.isCanvasActivationReady = true
                         self.isPresented = true
                     } else {
                         self.saveHandler = nil
@@ -505,7 +558,9 @@ final class LibraryDoodleSession: ObservableObject {
 
     func noteCanvasInteractive() {
         guard isPresented, isCanvasActivationReady, !didLogCanvasInteractive, canvas.controller.canvasReady,
-              canvas.canvasFrameInGlobal != nil, let presentationStartedAt else { return }
+              let frameOwner = canvas.canvasFrameReport?.owner,
+              isCurrentCanvasFrameOwner(frameOwner),
+              let presentationStartedAt else { return }
         guard !isLoadingDrawing || drawingLoadDataReceived else { return }
         isLoadingDrawing = false
         didLogCanvasInteractive = true
@@ -521,8 +576,7 @@ final class LibraryDoodleSession: ObservableObject {
         onFirstCanvasFrame = nil
         isCanvasActivationReady = false
         canvas.controller.showSettings = false
-        canvas.canvasFrameInGlobal = nil
-        canvas.canvasFrameOwnerID = nil
+        invalidateCanvasFrame()
         isLoadingDrawing = false
         drawingLoadFailed = false
         drawingLoadDataReceived = false
@@ -538,8 +592,7 @@ final class LibraryDoodleSession: ObservableObject {
 final class LibraryDoodleCanvasState: ObservableObject {
     @Published var drawingData = ""
     @Published var legacyPreviewDataURL = ""
-    @Published var canvasFrameInGlobal: CGRect?
-    @Published var canvasFrameOwnerID: String?
+    @Published var canvasFrameReport: LibraryDoodleCanvasFrameReport?
     let controller = PencilDrawingController()
 }
 
@@ -778,7 +831,10 @@ struct LibraryDoodleOverlay: View {
     private func canvasPassThroughRect(in proxy: GeometryProxy) -> CGRect? {
         guard session.isCanvasActivationReady,
               controller.canvasReady,
-              let canvasFrame = canvas.canvasFrameInGlobal else { return nil }
+              !session.isLoadingDrawing,
+              let report = canvas.canvasFrameReport,
+              session.isCurrentCanvasFrameOwner(report.owner) else { return nil }
+        let canvasFrame = report.frame
         let overlayFrame = proxy.frame(in: .global)
         let localFrame = CGRect(
             x: canvasFrame.minX - overlayFrame.minX,
@@ -819,8 +875,15 @@ struct LibraryDoodleContentLayer: View {
     @ObservedObject private var canvas: LibraryDoodleCanvasState
     @ObservedObject private var controller: PencilDrawingController
 
-    private var canvasFramePreferenceID: String {
-        "\(targetRecordID)|\(controller.drawingLoadRevision)"
+    private var canvasFrameOwner: LibraryDoodleCanvasFrameOwner {
+        LibraryDoodleCanvasFrameOwner(
+            targetRecordID: targetRecordID,
+            canvasHostID: canvasHostID,
+            presentationGeneration: session.presentationGeneration,
+            drawingLoadRevision: controller.drawingLoadRevision,
+            pane: nil,
+            layoutDirection: nil
+        )
     }
 
     init(
@@ -859,7 +922,7 @@ struct LibraryDoodleContentLayer: View {
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .preference(
                         key: LibraryDoodleCanvasFramePreferenceKey.self,
-                        value: [canvasFramePreferenceID: proxy.frame(in: .global)]
+                        value: [canvasFrameOwner: proxy.frame(in: .global)]
                     )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -872,24 +935,17 @@ struct LibraryDoodleContentLayer: View {
             }
         }
         .onPreferenceChange(LibraryDoodleCanvasFramePreferenceKey.self) { frames in
-            guard session.targetRecordID == targetRecordID else { return }
-            guard let frame = frames[canvasFramePreferenceID] else {
-                if session.canvas.canvasFrameOwnerID == canvasFramePreferenceID {
-                    session.canvas.canvasFrameInGlobal = nil
-                    session.canvas.canvasFrameOwnerID = nil
-                }
+            guard let frame = frames[canvasFrameOwner] else {
+                session.invalidateCanvasFrame(ownedBy: canvasFrameOwner)
                 return
             }
-            session.canvas.canvasFrameInGlobal = frame
-            session.canvas.canvasFrameOwnerID = canvasFramePreferenceID
-            session.noteCanvasFramePreference()
+            if session.updateCanvasFrame(frame, ownedBy: canvasFrameOwner) {
+                session.noteCanvasFramePreference()
+            }
         }
         .onDisappear {
             session.noteCanvasHostUnmounted(canvasHostID)
-            guard session.targetRecordID == targetRecordID,
-                  session.canvas.canvasFrameOwnerID == canvasFramePreferenceID else { return }
-            session.canvas.canvasFrameInGlobal = nil
-            session.canvas.canvasFrameOwnerID = nil
+            session.invalidateCanvasFrame(ownedBy: canvasFrameOwner)
         }
     }
 }
@@ -906,12 +962,21 @@ struct LibraryDoodleSplitContentLayer: View {
     var minimumCanvasHeight: CGFloat = 260
     @ObservedObject private var controller: PencilDrawingController
 
-    private var framePreferenceID: String {
-        "\(targetRecordID)|split|\(layoutDirection.rawValue)|\(pane.rawValue)|\(controller.drawingLoadRevision)"
+    private var frameOwner: LibraryDoodleCanvasFrameOwner {
+        LibraryDoodleCanvasFrameOwner(
+            targetRecordID: targetRecordID,
+            canvasHostID: canvasHostID,
+            presentationGeneration: session.presentationGeneration,
+            drawingLoadRevision: controller.drawingLoadRevision,
+            pane: pane,
+            layoutDirection: layoutDirection
+        )
     }
 
     private var isCurrentSplitSession: Bool {
         session.targetRecordID == targetRecordID
+            && session.splitDrawingRecordID == targetRecordID
+            && session.splitDrawingLayoutDirection == layoutDirection
             && ((session.isCanvasActivationReady && session.isSplitDrawingSession)
                 || session.mountedCanvasHostID == canvasHostID)
     }
@@ -969,7 +1034,7 @@ struct LibraryDoodleSplitContentLayer: View {
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .preference(
                         key: LibraryDoodleCanvasFramePreferenceKey.self,
-                        value: isActiveTarget ? [framePreferenceID: proxy.frame(in: .global)] : [:]
+                        value: isActiveTarget ? [frameOwner: proxy.frame(in: .global)] : [:]
                     )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -994,13 +1059,13 @@ struct LibraryDoodleSplitContentLayer: View {
         .onDisappear { session.noteCanvasHostUnmounted(canvasHostID) }
         .onPreferenceChange(LibraryDoodleCanvasFramePreferenceKey.self) { frames in
             guard isActiveTarget else { return }
-            guard let frame = frames[framePreferenceID] else {
+            guard let frame = frames[frameOwner] else {
                 clearCanvasFrameIfOwned()
                 return
             }
-            session.canvas.canvasFrameInGlobal = frame
-            session.canvas.canvasFrameOwnerID = framePreferenceID
-            session.noteCanvasFramePreference()
+            if session.updateCanvasFrame(frame, ownedBy: frameOwner) {
+                session.noteCanvasFramePreference()
+            }
         }
         .onChange(of: isActiveTarget) { _, isActive in
             guard !isActive else { return }
@@ -1010,16 +1075,14 @@ struct LibraryDoodleSplitContentLayer: View {
     }
 
     private func clearCanvasFrameIfOwned() {
-        guard session.canvas.canvasFrameOwnerID == framePreferenceID else { return }
-        session.canvas.canvasFrameInGlobal = nil
-        session.canvas.canvasFrameOwnerID = nil
+        session.invalidateCanvasFrame(ownedBy: frameOwner)
     }
 }
 
 private struct LibraryDoodleCanvasFramePreferenceKey: PreferenceKey {
-    static var defaultValue: [String: CGRect] = [:]
+    static var defaultValue: [LibraryDoodleCanvasFrameOwner: CGRect] = [:]
 
-    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+    static func reduce(value: inout [LibraryDoodleCanvasFrameOwner: CGRect], nextValue: () -> [LibraryDoodleCanvasFrameOwner: CGRect]) {
         value.merge(nextValue(), uniquingKeysWith: { _, newest in newest })
     }
 }

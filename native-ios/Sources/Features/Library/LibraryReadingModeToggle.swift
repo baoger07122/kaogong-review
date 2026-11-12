@@ -1,27 +1,40 @@
 import SwiftUI
 
 struct LibraryReadingModeToggle: View {
+    enum Placement: Equatable {
+        case library
+        case detail
+    }
+
     @Binding var isRedoPractice: Bool
     var isEnabled = true
+    var placement: Placement = .library
 
     var body: some View {
         Button {
             guard isEnabled else { return }
             isRedoPractice.toggle()
         } label: {
-            Text(isRedoPractice ? "刷题" : "看题")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(isRedoPractice ? AppTheme.accent : Color.primary.opacity(0.76))
-                .frame(width: 54, height: 44)
+            Text(isRedoPractice ? "刷" : "看")
+                .font(.system(size: placement == .detail ? 14 : 13, weight: .semibold))
+                .foregroundStyle(foregroundColor)
+                .frame(width: 44, height: 44)
                 .background(
-                    isRedoPractice ? AppTheme.accent.opacity(0.11) : AppTheme.secondaryBackground,
-                    in: Capsule()
+                    placement == .library ? Color.white : AppTheme.secondaryBackground,
+                    in: Circle()
                 )
-                .contentShape(Capsule())
+                .contentShape(Circle())
         }
         .buttonStyle(LibraryReadingModeToggleStyle())
         .disabled(!isEnabled)
         .accessibilityLabel(isRedoPractice ? "切换到看题模式" : "切换到刷题模式")
+    }
+
+    private var foregroundColor: Color {
+        if placement == .detail || isRedoPractice {
+            return AppTheme.accent
+        }
+        return .secondary
     }
 }
 

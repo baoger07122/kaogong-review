@@ -452,6 +452,7 @@ struct HomeView: View {
                 if !todoRepeatsDailyDraft {
                     NativeFieldLabel(title: "备注")
                     TextEditor(text: $todoNoteDraft)
+                        .modifier(NativeDirectionalTextFieldNavigation())
                         .font(AppTheme.inputFont)
                         .scrollContentBackground(.hidden)
                         .padding(8)

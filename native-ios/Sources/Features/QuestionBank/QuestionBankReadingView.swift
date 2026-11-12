@@ -3912,6 +3912,7 @@ private struct QuestionBankQuestionTextEditor: View {
             Form {
                 Section("题干") {
                     TextEditor(text: $stem)
+                        .modifier(NativeDirectionalTextFieldNavigation())
                         .frame(minHeight: 150)
                         .accessibilityIdentifier("question-bank-edit-stem")
                 }
@@ -3926,6 +3927,7 @@ private struct QuestionBankQuestionTextEditor: View {
                             TextField("", text: optionBinding(for: option.id), axis: .vertical)
                                 .lineLimit(1...3)
                                 .font(QuestionBankTypography.contentFont)
+                                .modifier(NativeDirectionalTextFieldNavigation())
                                 .lineSpacing(QuestionBankTypography.contentLineSpacing)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .padding(.vertical, 1)
@@ -3942,8 +3944,10 @@ private struct QuestionBankQuestionTextEditor: View {
                     Toggle("待复习", isOn: $needsReview)
                         .accessibilityIdentifier("question-bank-edit-needs-review")
                     TextField("知识点，用顿号分隔", text: $knowledgePointsText)
+                        .modifier(NativeDirectionalTextFieldNavigation())
                         .accessibilityIdentifier("question-bank-edit-knowledge-points")
                     TextField("弱项标签，用顿号分隔", text: $weaknessTagsText)
+                        .modifier(NativeDirectionalTextFieldNavigation())
                         .accessibilityIdentifier("question-bank-edit-weakness-tags")
                 }
             }

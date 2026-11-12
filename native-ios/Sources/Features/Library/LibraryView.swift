@@ -351,7 +351,7 @@ struct LibraryView: View {
 
     private func content(availableWindowWidth: CGFloat) -> some View {
         let scopedRecords = sortedScopedRecords
-        let tagFilteredRecords = filterRecords(matching: selectedTag, from: scopedRecords)
+        let tagFilteredRecords = kind == .words ? scopedRecords : filterRecords(matching: selectedTag, from: scopedRecords)
         let renderedSnapshots = snapshots(from: tagFilteredRecords)
         let visibleRecords = displayedRecords(from: renderedSnapshots)
         let visibleTags = showsCategoryControl && canShowCategoryControl ? availableTags(from: scopedRecords) : []
@@ -380,7 +380,9 @@ struct LibraryView: View {
                     if showSearch {
                         HStack(spacing: 7) {
                             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                            TextField(searchPrompt, text: $searchText).font(AppTheme.inputFont)
+                            TextField(searchPrompt, text: $searchText)
+                                .modifier(NativeDirectionalTextFieldNavigation())
+                                .font(AppTheme.inputFont)
                             Button { searchText = ""; showSearch = false } label: { Image(systemName: "xmark.circle.fill") }
                                 .buttonStyle(.plain).foregroundStyle(.secondary)
                         }
@@ -536,10 +538,6 @@ struct LibraryView: View {
                     if kind == .words, let category = WordCategory(rawValue: wordCategory.rawValue) {
                         Text("词语类别：\(category.shortTitle)")
                     }
-                    if !wordEntryKind.isEmpty, let entry = WordEntryKind(rawValue: wordEntryKind) {
-                        Text("内容类型：\(entry.title)")
-                    }
-                    if !wordSentiment.isEmpty { Text("感情色彩：\(wordSentiment)") }
                     Button(role: .destructive, action: clearActiveFilters) {
                         Label("清除筛选", systemImage: "line.3.horizontal.decrease.circle")
                     }
@@ -649,32 +647,18 @@ struct LibraryView: View {
             kind = .errors
             resetContextFilters()
         }
+        if kind == .words {
+            selectedTag = ""
+            wordSentiment = ""
+            wordEntryKind = ""
+        }
     }
 
     @ViewBuilder
     private func filterBar(availableTags: [String]) -> some View {
         if hasVisibleFilterControls {
         HStack(spacing: 8) {
-            if kind == .words {
-                Menu {
-                    Button("全部内容类型") { wordEntryKind = "" }
-                    ForEach(WordEntryKind.allCases) { value in
-                        Button(value.title) { wordEntryKind = value.rawValue }
-                    }
-                } label: {
-                    filterLabel(WordEntryKind(rawValue: wordEntryKind)?.title ?? "词语/搭配")
-                }
-                Menu {
-                    Button("全部感情色彩") { wordSentiment = "" }
-                    ForEach(["褒义", "贬义", "中性"], id: \.self) { value in
-                        Button(value) { wordSentiment = value }
-                    }
-                } label: {
-                    filterLabel(wordSentiment.isEmpty ? "感情色彩" : wordSentiment)
-                }
-            }
-
-            if showsCategoryControl && canShowCategoryControl && !availableTags.isEmpty {
+            if kind != .words, showsCategoryControl && canShowCategoryControl && !availableTags.isEmpty {
                 Menu {
                     Button(kind == .notes ? "全部标签" : "全部标签/标记") { selectTag("") }
                     ForEach(availableTags, id: \.self) { tag in
@@ -736,13 +720,11 @@ struct LibraryView: View {
     private var hasVisibleFilterControls: Bool {
         (showsCategoryControl && canShowCategoryControl)
             || showsCardSizeControl
-            || kind == .words
             || isGraphReasoningContext
     }
 
     private var hasActiveFilterConditions: Bool {
         !selectedTag.isEmpty || !selectedQuantityType.isEmpty || selectedErrorType != .all
-            || (kind == .words && (!wordEntryKind.isEmpty || !wordSentiment.isEmpty))
     }
 
     private func clearActiveFilters() {
@@ -878,11 +860,9 @@ struct LibraryView: View {
         return snapshots.filter { snapshot in
             let matchesSearch = keyword.isEmpty || normalizedSearch(snapshot.searchableText).contains(keyword)
             let matchesMasteredVisibility = kind != .errors || includesMasteredErrors || snapshot.status != "已掌握"
-            let matchesTag = selectedTag.isEmpty || snapshot.tags.contains(selectedTag)
+            let matchesTag = kind == .words || selectedTag.isEmpty || snapshot.tags.contains(selectedTag)
             let matchesWordCategory = kind != .words || snapshot.category == wordCategory.rawValue
-            let matchesWordSentiment = kind != .words || wordSentiment.isEmpty || snapshot.sentiment == wordSentiment
-            let matchesWordEntryKind = kind != .words || wordEntryKind.isEmpty || snapshot.wordEntryKinds.contains(wordEntryKind)
-            return matchesSearch && matchesMasteredVisibility && matchesTag && matchesWordCategory && matchesWordSentiment && matchesWordEntryKind
+            return matchesSearch && matchesMasteredVisibility && matchesTag && matchesWordCategory
         }
     }
 
