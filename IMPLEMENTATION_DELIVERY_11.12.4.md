@@ -14,6 +14,10 @@
 
 ## 检查和发布
 
-- `git diff --check`、版本／改动范围检查：待完成。
-- 代码提交、GitHub Actions run ID、归档结果、Release 资产和 `latest.json`：待发布后记录。
-- 不运行模拟器；上述第 4 项 iPad 实机交互待设备复测。
+- `git diff --check`、版本／改动范围检查：通过。
+- 功能代码提交：`ab90fa600d93793e76553f9ac4f2b928af4c8e45`；归档编译修复提交：`e9f2e68362ec7a5a5ef6a9caed4bc62ccfec07f9`。`native-v11.12.4` tag 指向修复提交。
+- 首次 run `43177027270` 在 Archive 阶段因 `RichTextMetrics` 的文件级 `private` 作用域导致两处编译错误而失败，未产生 Release 资产。修复为 16 pt 系统字体后，最终 run `43178004761` 成功。
+- 最终 run 的原生领域检查、真机目标归档、dSYM 校验／上传、App 资源校验、IPA 打包和 Release 上传均通过；模拟器步骤跳过。
+- Release：[`native-v11.12.4`](https://github.com/baoger07122/kaogong-review/releases/tag/native-v11.12.4)。IPA 下载地址返回 HTTP 200，资产大小 5,041,627 字节。
+- `downloads/native/latest.json` 已指向 11.12.4 / build 143，发布清单提交为 `5656ad1f95a4a1b82c9cd41b7cb2179cde432c69`。
+- 尚未进行 iPad 实机交互验收。按规格中的步骤复测“不求甚解／浅尝辄止”两表格与加粗的编辑／保存／重开、四类词条的标题单独保存、空正文、旧版比较投影和损坏附件只读降级。
