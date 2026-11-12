@@ -163,13 +163,13 @@ struct LibraryKnowledgePointReference: Codable, Equatable, Hashable, Identifiabl
 enum LibraryKnowledgePointReferencePolicy {
     static func references(from object: [String: Any], fallbackValue: String = "") -> [LibraryKnowledgePointReference] {
         if let values = object["knowledgePointRefs"] as? [[String: Any]] {
-            let decoded = values.compactMap { value in
+            let decoded = values.compactMap { value -> LibraryKnowledgePointReference? in
                 guard let name = (value["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !name.isEmpty else { return nil }
                 let module = (value["module"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
                 return LibraryKnowledgePointReference(module: module?.isEmpty == false ? module : nil, name: name)
             }
-            let knownNames = Set(decoded.map(\.name))
+            let knownNames = Set(decoded.map { $0.name })
             let legacyValues = object["knowledgePoints"] as? [String] ?? splitNames((object["knowledgePoint"] as? String) ?? fallbackValue)
             let preservedLegacy = legacyValues.compactMap { name -> LibraryKnowledgePointReference? in
                 let value = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -183,7 +183,7 @@ enum LibraryKnowledgePointReferencePolicy {
         let names = values?.isEmpty == false
             ? values ?? []
             : splitNames((object["knowledgePoint"] as? String) ?? fallbackValue)
-        return uniqueReferences(names.compactMap { name in
+        return uniqueReferences(names.compactMap { name -> LibraryKnowledgePointReference? in
             let value = name.trimmingCharacters(in: .whitespacesAndNewlines)
             return value.isEmpty ? nil : LibraryKnowledgePointReference(module: nil, name: value)
         })

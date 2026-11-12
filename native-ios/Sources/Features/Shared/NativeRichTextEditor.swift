@@ -1076,10 +1076,12 @@ struct NativeRichTextDisplay: UIViewRepresentable {
             _ textLayoutManager: NSTextLayoutManager,
             textLayoutFragmentFor location: any NSTextLocation,
             in textElement: NSTextElement
-        ) -> NSTextLayoutFragment? {
+        ) -> NSTextLayoutFragment {
             guard parent.noteFormatting,
                   let paragraph = textElement as? NSTextParagraph,
-                  NativeRichTextNoteFormatting.isQuoted(paragraph.attributedString, at: 0) else { return nil }
+                  NativeRichTextNoteFormatting.isQuoted(paragraph.attributedString, at: 0) else {
+                return NSTextLayoutFragment(textElement: textElement, range: nil)
+            }
             return NoteQuoteLayoutFragment(textElement: textElement, range: nil)
         }
 
@@ -1647,10 +1649,12 @@ private struct RichTextTextView: UIViewRepresentable {
             _ textLayoutManager: NSTextLayoutManager,
             textLayoutFragmentFor location: any NSTextLocation,
             in textElement: NSTextElement
-        ) -> NSTextLayoutFragment? {
+        ) -> NSTextLayoutFragment {
             guard parent.noteFormatting,
                   let paragraph = textElement as? NSTextParagraph,
-                  NativeRichTextNoteFormatting.isQuoted(paragraph.attributedString, at: 0) else { return nil }
+                  NativeRichTextNoteFormatting.isQuoted(paragraph.attributedString, at: 0) else {
+                return NSTextLayoutFragment(textElement: textElement, range: nil)
+            }
             return NoteQuoteLayoutFragment(textElement: textElement, range: nil)
         }
 
@@ -1721,6 +1725,14 @@ private struct RichTextTextView: UIViewRepresentable {
                     self.publish(snapshot.html)
                     return snapshot
                 },
+                selectionReader: { [weak self, weak view] in
+                    guard let self, let view else { return nil }
+                    let selection = self.validSelection(self.lastEditingSelection, in: view)
+                        ? self.lastEditingSelection
+                        : view.selectedRange
+                    self.rememberSelection(selection)
+                    return selection
+                },
                 tableInsertionTargetReader: { [weak self, weak view] in
                     guard let self, let view else { return nil }
                     let selected = self.validSelection(self.lastEditingSelection, in: view)
@@ -1733,14 +1745,6 @@ private struct RichTextTextView: UIViewRepresentable {
                         range: selected,
                         revision: self.documentRevision
                     )
-                },
-                selectionReader: { [weak self, weak view] in
-                    guard let self, let view else { return nil }
-                    let selection = self.validSelection(self.lastEditingSelection, in: view)
-                        ? self.lastEditingSelection
-                        : view.selectedRange
-                    self.rememberSelection(selection)
-                    return selection
                 },
                 compositionCommitHandler: { [weak self, weak view] in
                     guard let self, let view else { return }

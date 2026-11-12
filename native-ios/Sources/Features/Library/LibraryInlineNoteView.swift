@@ -707,8 +707,8 @@ struct LibraryInlineNoteView: View {
                     preparedSnapshot: currentPreparedNote.result,
                     renderVersion: currentPreparedNote.key.rendererVersion,
                     minHeight: noteCanvasMinimumHeight,
-                    noteFormatting: true,
                     accessibilityIdentifier: "library-inline-note-display",
+                    noteFormatting: true,
                     onFallback: {
                         displayWarning = currentPreparedNote.editableAttributedText == nil
                             ? "预览已降级；笔记过长或含有未闭合附件，当前仅保留原内容并以只读方式显示。"
@@ -747,8 +747,8 @@ struct LibraryInlineNoteView: View {
                 NativeRichTextDisplay(
                     html: storedNote,
                     minHeight: min(noteCanvasMinimumHeight, 160),
-                    noteFormatting: true,
-                    accessibilityIdentifier: "library-inline-note-current-version"
+                    accessibilityIdentifier: "library-inline-note-current-version",
+                    noteFormatting: true
                 )
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 Divider()
@@ -759,8 +759,8 @@ struct LibraryInlineNoteView: View {
             NativeRichTextDisplay(
                 html: draft,
                 minHeight: noteCanvasMinimumHeight,
-                noteFormatting: true,
                 accessibilityIdentifier: "library-inline-note-pending-draft",
+                noteFormatting: true,
                 onTapTextOffset: { offset, snapshot, width in
                     beginEditing(
                         html: draft,
