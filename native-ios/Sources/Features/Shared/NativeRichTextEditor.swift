@@ -1201,6 +1201,33 @@ enum NativeRichTextDisplayRenderer {
         return attributed.copy() as? NSAttributedString ?? attributed
     }
 
+    /// Checks that the bounded fallback parser retained every attachment in a form
+    /// that the editor can render and write back without replacing it with a label.
+    static func supportsLosslessEditing(_ runs: [NativeRichTextFallbackRun]) -> Bool {
+        var imagePayloadBytes = 0
+        let maximumImagePayloadBytes = 8 * 1024 * 1024
+
+        for run in runs {
+            switch run {
+            case .text(_):
+                continue
+            case .imageWithMarker(let dataURL, let marker):
+                imagePayloadBytes += dataURL.utf8.count
+                guard imagePayloadBytes <= maximumImagePayloadBytes,
+                      NativeImageAttachment(dataURL: dataURL, marker: marker) != nil else { return false }
+            case .tableWithMarker(let encoded, let marker):
+                guard let table = fallbackTable(from: encoded) else { return false }
+                _ = NativeTableAttachment(table: table, marker: marker)
+            case .formulaWithMarker(let encoded, let marker):
+                guard let formula = fallbackFormula(from: encoded) else { return false }
+                _ = NativeFormulaAttachment(formula: formula, marker: marker)
+            case .image, .table, .formula, .placeholder, .opaque:
+                return false
+            }
+        }
+        return true
+    }
+
     private static func appendFallbackPlaceholder(
         _ value: String,
         to output: NSMutableAttributedString,

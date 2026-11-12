@@ -681,15 +681,34 @@ enum LibraryRecordRepository {
             object["category"] = draft.type
             object["type"] = draft.type
             if category.isComparison {
-                object["comparisonDocument"] = draft.comparisonDocument ?? LibraryComparisonDocumentProjection.project(draft: draft)
+                let originalBody = LibraryComparisonDocumentProjection.wordContent(in: draft.original, category: category)
+                let editedBody = draft.comparisonDocument ?? LibraryComparisonDocumentProjection.project(draft: draft)
+                if editedBody != originalBody {
+                    object["comparisonDocument"] = editedBody
+                }
             } else {
-                object["meaning"] = draft.content
+                let originalBodyKey = wordDefinitionBodyKey(in: draft.original)
+                let originalBody = originalBodyKey.flatMap { draft.original[$0] as? String } ?? ""
+                if draft.content != originalBody {
+                    object["meaning"] = draft.content
+                    if let originalBodyKey, originalBodyKey != "meaning" {
+                        object[originalBodyKey] = draft.content
+                    }
+                }
             }
             object["linkedErrors"] = draft.linkedErrorIDs
             object["relatedErrorIds"] = draft.linkedErrorIDs
         }
 
         return object
+    }
+
+    private static func wordDefinitionBodyKey(in object: [String: Any]) -> String? {
+        for key in ["meaning", "content", "judgmentHint"] {
+            guard let value = object[key] as? String else { continue }
+            if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return key }
+        }
+        return nil
     }
 
     @MainActor

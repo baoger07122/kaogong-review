@@ -9,6 +9,21 @@ private struct LinkedRecordEditorTarget: Identifiable {
     var id: String { "\(collection):\(recordID)" }
 }
 
+private struct LibraryWordContentPreparationKey: Equatable {
+    let recordID: String
+    let category: String
+    let sessionID: UUID
+}
+
+private struct PreparedLibraryWordContent {
+    let key: LibraryWordContentPreparationKey
+    let sourceHTML: String
+    let editableAttributedText: NSAttributedString?
+    let safePreview: String?
+
+    var isEditable: Bool { editableAttributedText != nil }
+}
+
 private struct LibraryEditorFirstFrameProbe: UIViewRepresentable {
     let onDisplay: () -> Void
 
@@ -103,6 +118,7 @@ struct LibraryRecordEditorView: View {
     @State private var idiomGroupPasteError: String?
     @StateObject private var wordContentEditorSession = NativeRichTextEditorSession()
     @State private var wordContentEditorSessionID = UUID()
+    @State private var preparedWordContent: PreparedLibraryWordContent?
     @State private var draftPersistenceCleared = false
 
     init(
@@ -949,18 +965,53 @@ struct LibraryRecordEditorView: View {
             compactWordTextField("标题", text: $draft.title)
                 .accessibilityIdentifier("library-word-title")
             NativeFieldLabel(title: "内容")
-            NativeRichTextEditor(
-                html: wordContentBinding,
-                minHeight: 360,
-                documentStyle: true,
-                tableAppearance: .libraryContent,
-                editorSession: wordContentEditorSession,
-                editorDocumentID: wordContentDocumentID,
-                editorSessionID: wordContentEditorSessionID
-            )
-            .padding(.horizontal, 8)
-            .accessibilityIdentifier("library-word-content-editor")
+            Group {
+                if let prepared = currentPreparedWordContent,
+                   let attributedText = prepared.editableAttributedText {
+                    NativeRichTextEditor(
+                        html: wordContentBinding,
+                        minHeight: 360,
+                        documentStyle: true,
+                        tableAppearance: .libraryContent,
+                        preparedInitialHTML: prepared.sourceHTML,
+                        preparedInitialAttributedText: attributedText,
+                        editorSession: wordContentEditorSession,
+                        editorDocumentID: wordContentDocumentID,
+                        editorSessionID: wordContentEditorSessionID
+                    )
+                    .id("\(wordContentDocumentID):\(wordContentEditorSessionID.uuidString)")
+                    .padding(.horizontal, 8)
+                    .accessibilityIdentifier("library-word-content-editor")
+                } else if let prepared = currentPreparedWordContent {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(verbatim: prepared.safePreview ?? "")
+                            .font(AppTheme.noteBodyFont)
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, minHeight: 360, alignment: .topLeading)
+                            .textSelection(.enabled)
+                        Label("暂时无法安全编辑这段内容，原内容已保留", systemImage: "lock.fill")
+                            .font(AppTheme.auxiliaryFont)
+                            .foregroundStyle(AppTheme.warning)
+                    }
+                    .padding(12)
+                    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .accessibilityIdentifier("library-word-content-readonly")
+                } else {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("正在载入内容…")
+                            .font(AppTheme.noteBodyFont)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 360, alignment: .topLeading)
+                    .accessibilityIdentifier("library-word-content-loading")
+                }
+            }
             multiRelationSection(title: "关联错题", candidates: relationCandidates(collection: "errors"), selection: $draft.linkedErrorIDs)
+        }
+        .task(id: wordContentPreparationKey) {
+            let key = wordContentPreparationKey
+            await prepareWordContent(for: key, sourceHTML: wordContentHTML)
         }
     }
 
@@ -980,6 +1031,119 @@ struct LibraryRecordEditorView: View {
                 else { draft.content = value }
             }
         )
+    }
+
+    private var wordContentHTML: String { wordContentBinding.wrappedValue }
+
+    private var wordContentPreparationKey: LibraryWordContentPreparationKey {
+        LibraryWordContentPreparationKey(
+            recordID: recordID ?? "new",
+            category: draft.type,
+            sessionID: wordContentEditorSessionID
+        )
+    }
+
+    private var currentPreparedWordContent: PreparedLibraryWordContent? {
+        let key = wordContentPreparationKey
+        if let preparedWordContent, preparedWordContent.key == key {
+            return preparedWordContent
+        }
+        guard wordContentHTML.isEmpty else { return nil }
+        return PreparedLibraryWordContent(
+            key: key,
+            sourceHTML: "",
+            editableAttributedText: NSAttributedString(
+                string: "",
+                attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]
+            ),
+            safePreview: nil
+        )
+    }
+
+    @MainActor
+    private func prepareWordContent(
+        for key: LibraryWordContentPreparationKey,
+        sourceHTML: String
+    ) async {
+        guard key == wordContentPreparationKey else { return }
+        if let preparedWordContent,
+           preparedWordContent.key == key,
+           preparedWordContent.sourceHTML == sourceHTML {
+            return
+        }
+
+        if sourceHTML.isEmpty {
+            preparedWordContent = PreparedLibraryWordContent(
+                key: key,
+                sourceHTML: sourceHTML,
+                editableAttributedText: NSAttributedString(
+                    string: "",
+                    attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]
+                ),
+                safePreview: nil
+            )
+            return
+        }
+
+        await Task.yield()
+        guard !Task.isCancelled, key == wordContentPreparationKey else { return }
+        let rendered = NativeRichTextDisplayRenderer.render(sourceHTML, tableAppearance: .libraryContent)
+        let fallbackRuns = await Task.detached(priority: .utility) {
+            NativeRichTextFallbackParser.parseForEditing(sourceHTML)
+        }.value
+        guard !Task.isCancelled, key == wordContentPreparationKey else { return }
+
+        let isLossless = fallbackRuns.map { NativeRichTextDisplayRenderer.supportsLosslessEditing($0) } ?? false
+        let requiresFallbackSnapshot = rendered.usedSafeFallback || rendered.attributedText.string.contains("[[NATIVE_")
+        let editableAttributedText: NSAttributedString?
+        if !isLossless {
+            editableAttributedText = nil
+        } else if requiresFallbackSnapshot {
+            guard fallbackHTMLPreservesEditableStructure(sourceHTML),
+                  let runs = fallbackRuns,
+                  let attributed = NativeRichTextDisplayRenderer.editableAttributedText(from: runs) else {
+                editableAttributedText = nil
+                preparedWordContent = PreparedLibraryWordContent(
+                    key: key,
+                    sourceHTML: sourceHTML,
+                    editableAttributedText: nil,
+                    safePreview: LibraryWordCardPreviewText.render(sourceHTML)
+                )
+                return
+            }
+            editableAttributedText = attributed
+        } else {
+            editableAttributedText = rendered.attributedText.copy() as? NSAttributedString ?? rendered.attributedText
+        }
+
+        guard !Task.isCancelled, key == wordContentPreparationKey else { return }
+        preparedWordContent = PreparedLibraryWordContent(
+            key: key,
+            sourceHTML: sourceHTML,
+            editableAttributedText: editableAttributedText,
+            safePreview: editableAttributedText == nil ? LibraryWordCardPreviewText.render(sourceHTML) : nil
+        )
+    }
+
+    private func fallbackHTMLPreservesEditableStructure(_ sourceHTML: String) -> Bool {
+        guard !sourceHTML.contains("<!--"),
+              let expression = try? NSRegularExpression(
+                pattern: #"</?\s*([a-z][a-z0-9]*)\b[^>]*>"#,
+                options: [.caseInsensitive]
+              ) else { return false }
+        let source = sourceHTML as NSString
+        let allowedTags: Set<String> = ["html", "head", "body", "meta", "p", "div", "br", "hr"]
+        for match in expression.matches(in: sourceHTML, range: NSRange(location: 0, length: source.length)) {
+            guard match.numberOfRanges > 1,
+                  let nameRange = Range(match.range(at: 1), in: sourceHTML),
+                  allowedTags.contains(sourceHTML[nameRange].lowercased()) else { return false }
+            let tag = source.substring(with: match.range)
+            if sourceHTML[nameRange].lowercased() != "meta",
+               tag.range(of: #"^</?\s*[a-z][a-z0-9]*\s*/?>$"#, options: [.regularExpression, .caseInsensitive]) == nil {
+                return false
+            }
+        }
+        return true
     }
 
     private var wordContentDocumentID: String {
@@ -1514,7 +1678,10 @@ struct LibraryRecordEditorView: View {
         case .errors:
             !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && draft.reviewSource != .pending
-        case .notes, .words: !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .notes: !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .words:
+            !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && currentPreparedWordContent?.isEditable == true
         case .stickies: !draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
     }
@@ -1552,11 +1719,17 @@ struct LibraryRecordEditorView: View {
     private func save() {
         guard !isSaving else { return }
         if kind == .words {
+            guard let prepared = currentPreparedWordContent, prepared.isEditable else { return }
             isSaving = true
             wordContentEditorSession.endEditing { latestHTML in
-                if let latestHTML {
-                    if self.wordCategory.isComparison { self.draft.comparisonDocument = latestHTML }
-                    else { self.draft.content = latestHTML }
+                guard self.wordContentPreparationKey == prepared.key else {
+                    self.isSaving = false
+                    return
+                }
+                let currentHTML = latestHTML ?? prepared.sourceHTML
+                if currentHTML != prepared.sourceHTML {
+                    if self.wordCategory.isComparison { self.draft.comparisonDocument = currentHTML }
+                    else { self.draft.content = currentHTML }
                 }
                 self.isSaving = false
                 self.persistSave()

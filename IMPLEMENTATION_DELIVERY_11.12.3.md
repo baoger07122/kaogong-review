@@ -13,6 +13,8 @@
 
 ## 检查和发布
 
-- `git diff --check` 与必要源码检查：待记录。
-- 模拟器未授权，不运行；目录跳转和关联词语全文显示的 iPad 实机验收待设备确认。
-- IPA 工作流、Release 资产和 `latest.json`：待发布后核对。
+- 代码提交：`158d808ff14d11aebd0aba24d1b1da97dca513fb`。
+- GitHub Actions：run `43172992443`，结果成功；原生领域检查、真机目标归档、IPA 打包和上传均通过。
+- 模拟器步骤跳过。模块目录点击和关联词语全文显示尚未进行 iPad 实机验收。
+- Release：[`native-v11.12.3`](https://github.com/baoger07122/kaogong-review/releases/tag/native-v11.12.3)。IPA 资产已上传；下载地址返回 HTTP 200，资产大小 5,027,292 字节。
+- `downloads/native/latest.json` 已指向 11.12.3 / build 142。
