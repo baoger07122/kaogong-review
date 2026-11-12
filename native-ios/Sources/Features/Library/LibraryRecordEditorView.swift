@@ -1054,7 +1054,7 @@ struct LibraryRecordEditorView: View {
             sourceHTML: "",
             editableAttributedText: NSAttributedString(
                 string: "",
-                attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]
+                attributes: [.font: UIFont.systemFont(ofSize: 16)]
             ),
             safePreview: nil
         )
@@ -1078,7 +1078,7 @@ struct LibraryRecordEditorView: View {
                 sourceHTML: sourceHTML,
                 editableAttributedText: NSAttributedString(
                     string: "",
-                    attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]
+                    attributes: [.font: UIFont.systemFont(ofSize: 16)]
                 ),
                 safePreview: nil
             )
