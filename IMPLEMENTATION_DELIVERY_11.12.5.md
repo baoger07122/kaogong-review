@@ -4,8 +4,9 @@
 
 - 版本：11.12.5 / build 144。
 - 源码基线：`64083c65ef3a3131ae09f8355bcc2af5c142e168`（11.12.4 交付同步提交）。
-- 本轮提交：待提交后记录。
-- 发布工作流：待触发后记录 run ID。
+- 本轮实现提交：`b22d417926f096c2fce1f168a22cee8a462a33f0`。
+- 编译修复提交：`691d1ac7303d17084d8bd946be981974078e4ac9`。
+- 最终发布工作流：run `43232295706`，成功；首次 run `43230363526` 在归档编译阶段失败，修复源码后用新提交重新构建。
 
 ## 实现范围
 
@@ -19,7 +20,9 @@
 
 ## 验证状态
 
-- `git diff --check`：提交前复核。
+- `git diff --check`：两次提交前复核通过。
+- 最终发布提交 `691d1ac7303d17084d8bd946be981974078e4ac9` 已完成 Release 真机目标归档及 IPA 打包。
+- 工作流的 `Run native domain behavior checks` 通过；Xcode archive 和 App 资源校验通过。
 - 本机无 Xcode / xcodebuild，不能在本机执行 iOS 编译或真机交互验收。
 - 本轮发布跳过模拟器；设备上的输入延迟、引用显示、表格保存和目录导航仍需实机验收。
 - 当前工作流会无条件运行 `Run native domain behavior checks`，包含多项与本轮无关的考试、速算、主页和词语复习纯逻辑检查；推送触发的模拟器测试范围关闭。此范围来自现有工作流配置，本轮未修改它。
@@ -29,4 +32,6 @@
 - Release 页面：<https://github.com/baoger07122/kaogong-review/releases>
 - 目标 Tag：`native-v11.12.5`。
 - 目标 IPA：`kaogong-review-native-11.12.5-unsigned.ipa`。
-- 构建状态、资产可下载性：待发布后核验。
+- 资产：已上传，5,131,981 字节。
+- 下载可达性：对 Release 下载地址执行 HTTP HEAD，重定向后返回 `200 OK`，`Content-Length: 5131981`；未将 IPA 下载到本机。
+- 工作流发布后自动更新 `downloads/native/latest.json`；自动同步提交：`61398250e9d17a915fe1932a2138b764abb92cdc`。
