@@ -3,7 +3,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
-    var onOpenVerbalErrorModule: (String?) -> Void = { _ in }
     @Environment(\.modelContext) private var modelContext
     @Environment(\.apiClient) private var apiClient
     @StateObject private var importer = LegacyBackupImportCoordinator()
@@ -150,10 +149,8 @@ struct SettingsView: View {
                 case .stickyTags: StickyTagManagerView()
                 case .quantityQuestionTypes: QuantityQuestionTypeManagerView()
                 case .errorTypes(.verbalReasoning):
-                    LibraryErrorTypeModulesView(onOpenModule: onOpenVerbalErrorModule)
+                    LibraryErrorTypeModulesView()
                 case let .errorTypes(subject): LibraryErrorTypeManagerView(subject: subject)
-                case let .verbalErrorTypes(module):
-                    LibraryErrorTypeManagerView(subject: .verbalReasoning, module: module)
                 case .designSystem: NativeDesignSystemView()
                 }
             }

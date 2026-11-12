@@ -122,11 +122,6 @@ struct RootTabView: View {
         selectionGeneration &+= 1
     }
 
-    private func openVerbalErrorModule(_ module: String?) {
-        guard settingsPath.last == .errorTypes(.verbalReasoning) else { return }
-        settingsPath.append(.verbalErrorTypes(module: module))
-    }
-
     @ViewBuilder
     private func tabContent(_ tab: RootTab) -> some View {
         switch tab {
@@ -149,7 +144,7 @@ struct RootTabView: View {
             EmptyView()
         case .settings:
             NavigationStack(path: $settingsPath) {
-                SettingsView(onOpenVerbalErrorModule: openVerbalErrorModule)
+                SettingsView()
             }
                 .environment(\.rootTabBarIsVisible, settingsPath.isEmpty)
                 .toolbar(settingsPath.isEmpty ? .visible : .hidden, for: .tabBar)

@@ -328,22 +328,26 @@ struct LibraryRecordSnapshot: Identifiable {
             : ["title", "question", "name", "words", "text", "content"]
         title = Self.firstText(in: object, keys: titleKeys)
             .map(Self.plainText) ?? "未命名记录"
+        let categoryValue = Self.firstText(in: object, keys: ["category", "type"])
+            ?? WordCategory.idiomDefinition.rawValue
+        let resolvedWordCardBody: String
+        if record.collection == "words" {
+            let wordCategory = WordCategory(rawValue: categoryValue) ?? .idiomDefinition
+            resolvedWordCardBody = LibraryComparisonDocumentProjection.wordContent(in: object, category: wordCategory)
+        } else {
+            resolvedWordCardBody = ""
+        }
+        wordCardBody = resolvedWordCardBody
         let isShenlun = record.collection == "errors"
             && (record.subject == "申论" || object["subject"] as? String == "申论" || (object["isShenlun"] as? Bool) == true)
         let summaryKeys = isShenlun
             ? ["question", "title"]
             : ["judgmentHint", "commonMeaning", "compareNote", "content", "note", "errorNote", "meaning", "myUnderstanding", "relation", "coreDifference", "question"]
-        summary = Self.firstText(in: object, keys: summaryKeys).map(Self.plainText) ?? ""
+        summary = record.collection == "words"
+            ? LibraryWordCardPreviewText.summary(resolvedWordCardBody)
+            : (Self.firstText(in: object, keys: summaryKeys).map(Self.plainText) ?? "")
         stickyContent = record.collection == "stickies" ? object["content"] as? String ?? "" : ""
         stickyTag = record.collection == "stickies" ? object["tag"] as? String ?? "" : ""
-        let categoryValue = Self.firstText(in: object, keys: ["category", "type"])
-            ?? WordCategory.idiomDefinition.rawValue
-        if record.collection == "words" {
-            let wordCategory = WordCategory(rawValue: categoryValue) ?? .idiomDefinition
-            wordCardBody = LibraryComparisonDocumentProjection.wordContent(in: object, category: wordCategory)
-        } else {
-            wordCardBody = ""
-        }
         status = Self.firstText(in: object, keys: ["status", "masteryStatus"])
         isDifficult = (object["isDifficult"] as? Bool) ?? (object["isDifficult"] as? NSNumber)?.boolValue ?? false
         needsReview = (object["needsReview"] as? Bool) ?? (object["needsReview"] as? NSNumber)?.boolValue ?? false
@@ -638,6 +642,16 @@ struct LibraryRecordSnapshot: Identifiable {
 }
 
 enum LibraryWordCardPreviewText {
+    static func summary(_ source: String) -> String {
+        let normalized = render(source)
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        guard !normalized.isEmpty else { return "" }
+        let characters = Array(normalized)
+        guard characters.count > 120 else { return normalized }
+        return String(characters.prefix(120)) + "…"
+    }
+
     static func render(_ source: String) -> String {
         let tableSeparatedSource = source
             .replacingOccurrences(of: #"<\s*/t[dh]\s*>"#, with: " · ", options: [.regularExpression, .caseInsensitive])

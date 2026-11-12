@@ -3,41 +3,36 @@ import SwiftUI
 
 struct LibraryErrorTypeModulesView: View {
     @Query(filter: #Predicate<StoredRecord> { $0.collection == "keyvalue" }) private var records: [StoredRecord]
-    var onOpenModule: (String?) -> Void = { _ in }
 
     private let subject = LibraryErrorTypeSubject.verbalReasoning
 
     var body: some View {
         List {
             ForEach(subject.modules, id: \.self) { module in
-                moduleRow(module, accessibilityID: "verbal-error-module-\(module)") {
-                    onOpenModule(module)
-                }
+                moduleLink(module, module: module, accessibilityID: "verbal-error-module-\(module)")
             }
             if LibraryErrorTypeRepository.types(for: subject, records: records).contains(where: { $0.module == nil }) {
-                moduleRow("原有通用类型", accessibilityID: "verbal-error-module-legacy") {
-                    onOpenModule(nil)
-                }
+                moduleLink("原有通用类型", module: nil, accessibilityID: "verbal-error-module-legacy")
             }
         }
         .navigationTitle(subject.managementTitle)
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func moduleRow(
+    private func moduleLink(
         _ title: String,
-        accessibilityID: String,
-        action: @escaping () -> Void
+        module: String? = nil,
+        accessibilityID: String
     ) -> some View {
-        Button(action: action) {
+        NavigationLink {
+            LibraryErrorTypeManagerView(subject: subject, module: module)
+                .secondaryPageTabBarHidden()
+        } label: {
             HStack {
                 Text(title)
                     .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(.primary)
                 Spacer(minLength: 12)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .contentShape(Rectangle())

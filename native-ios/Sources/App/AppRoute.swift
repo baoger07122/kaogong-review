@@ -22,6 +22,5 @@ enum SettingsRoute: Hashable {
     case stickyTags
     case quantityQuestionTypes
     case errorTypes(LibraryErrorTypeSubject)
-    case verbalErrorTypes(module: String?)
     case designSystem
 }
