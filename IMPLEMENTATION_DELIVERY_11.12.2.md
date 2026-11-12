@@ -18,7 +18,15 @@
 
 ## 检查与待验证项
 
-- `git diff --check`：通过；仅有两个文件的 CRLF 转换提示。
-- 本机没有 Xcode、`xcodebuild` 或 `swiftc`，无法本地编译 iOS 目标。
-- 未运行模拟器，也未宣称完成真机交互验收。
-- 远端 IPA 工作流、Release 资产和清单核对：待本轮发布完成后补录。
+- `git diff --check`：通过；有 CRLF 转换提示，无空白错误。
+- 本机没有 Xcode、`xcodebuild` 或 `swiftc`，本地未编译 iOS 目标。
+- 首次工作流 `43152930376` 在归档编译处失败：`NativeRichTextEditor.swift` 调用参数顺序错误。已在 `cd4e93aa97dd222b9f2126495fe5c03cc30fcb07` 修正并重建；未重跑失败提交。
+- 成功工作流：[43153826644](https://github.com/baoger07122/kaogong-review/actions/runs/43153826644)，提交 `cd4e93aa97dd222b9f2126495fe5c03cc30fcb07`。版本校验、原生领域检查、应用编译、真机目标归档、IPA 打包与上传均通过。
+- 模拟器步骤按推送工作流配置跳过；没有完成真机交互验收，因此键盘、涂鸦、详情导航及排版行为仍待设备逐项确认。
+
+## 发布资产
+
+- Release：[`native-v11.12.2`](https://github.com/baoger07122/kaogong-review/releases/tag/native-v11.12.2)，发布标签指向代码提交 `cd4e93aa97dd222b9f2126495fe5c03cc30fcb07`。
+- IPA：`kaogong-review-native-11.12.2-unsigned.ipa`，GitHub 资产状态 `uploaded`，大小 5,027,857 字节。
+- `downloads/native/latest.json` 已更新为 11.12.2 / build 141；工作流随后产生仅更新清单的提交 `a04d5cdbf50a8bd3daafd7c49ccf27c1f4712762`。
+- 固定下载入口：[GitHub Releases](https://github.com/baoger07122/kaogong-review/releases)。
