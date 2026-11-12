@@ -103,7 +103,7 @@ struct LibraryRecordEditorView: View {
     @State private var activeRelation: String?
     @State private var expandedAnswerField: ErrorAnswerField?
     @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
-    @State private var linkedWordCreationCategory: WordCategory?
+    @State private var showLinkedWordCreation = false
     @State private var showQuantityKnowledgePoints = false
     @State private var showQuantityWeaknessTags = false
     @State private var showQuantityQuestionTypes = false
@@ -119,6 +119,7 @@ struct LibraryRecordEditorView: View {
     @StateObject private var wordContentEditorSession = NativeRichTextEditorSession()
     @State private var wordContentEditorSessionID = UUID()
     @State private var preparedWordContent: PreparedLibraryWordContent?
+    @State private var isSwitchingWordCategory = false
     @State private var draftPersistenceCleared = false
 
     init(
@@ -202,6 +203,19 @@ struct LibraryRecordEditorView: View {
             Task { await LibraryDraftStore.flush(snapshot, kind: kind, scope: scope) }
         }
         .onAppear {
+            if kind == .errors, draft.subject == "言语理解" {
+                let localNames = Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records))
+                let references = LibraryKnowledgePointReferencePolicy.resolvingLocalReferences(
+                    draft.knowledgePointRefs,
+                    currentModule: draft.module,
+                    availableNames: localNames
+                )
+                let displayNames = LibraryKnowledgePointReferencePolicy.displayNames(from: references).joined(separator: "、")
+                draft.knowledgePointRefs = references
+                draft.knowledgePoint = displayNames
+                editBaseline.knowledgePointRefs = references
+                editBaseline.knowledgePoint = displayNames
+            }
             if kind != .words,
                let recordID,
                let currentRecord = records.first(where: { $0.collection == kind.collection && $0.recordID == recordID }) {
@@ -242,15 +256,14 @@ struct LibraryRecordEditorView: View {
                     .padding(24)
             }
         }
-        .sheet(item: $linkedWordCreationCategory) { category in
+        .sheet(isPresented: $showLinkedWordCreation) {
             NavigationStack {
                 LibraryRecordEditorView(
                     kind: .words,
                     scope: LibraryScope(subject: "言语理解", module: "逻辑填空"),
-                    preferredType: category.rawValue,
                     onSaved: { id in
                         if !draft.linkedWordIDs.contains(id) { draft.linkedWordIDs.append(id) }
-                        linkedWordCreationCategory = nil
+                        showLinkedWordCreation = false
                     }
                 )
             }
@@ -423,31 +436,41 @@ struct LibraryRecordEditorView: View {
         var overlays: [AnyView] = []
         if showSmartSplit { overlays.append(AnyView(smartSplitDialog)) }
         if let activeTags {
-            let selection: Binding<String>
-            if activeTags == .knowledgePoint {
-                selection = $draft.knowledgePoint
-            } else if isQuantityRelations {
-                selection = Binding(
-                    get: { draft.errorCause },
-                    set: {
-                        draft.errorCause = $0
-                        draft.quantityErrorCauseIsAuthoritative = true
-                    }
-                )
+            if activeTags == .knowledgePoint, kind == .errors, draft.subject == "言语理解" {
+                overlays.append(AnyView(VerbalReasoningKnowledgePointSelectionDialog(
+                    currentModule: draft.module,
+                    selection: $draft.knowledgePointRefs,
+                    legacyDisplaySelection: $draft.knowledgePoint,
+                    onClose: { self.activeTags = nil },
+                    onTagMutation: applyTagMutation
+                )))
             } else {
-                selection = $draft.errorCause
+                let selection: Binding<String>
+                if activeTags == .knowledgePoint {
+                    selection = $draft.knowledgePoint
+                } else if isQuantityRelations {
+                    selection = Binding(
+                        get: { draft.errorCause },
+                        set: {
+                            draft.errorCause = $0
+                            draft.quantityErrorCauseIsAuthoritative = true
+                        }
+                    )
+                } else {
+                    selection = $draft.errorCause
+                }
+                overlays.append(AnyView(LibraryTagSelectionDialog(
+                    kind: activeTags,
+                    module: draft.module,
+                    selection: selection,
+                    onClose: { self.activeTags = nil },
+                    onTagMutation: applyTagMutation,
+                    titleOverride: activeTags == .knowledgePoint ? knowledgePointLabel : errorCauseLabel,
+                    maximumOverride: isQuantityRelations && activeTags == .errorCause
+                        ? max(8, splitTags(draft.errorCause).count)
+                        : nil
+                )))
             }
-            overlays.append(AnyView(LibraryTagSelectionDialog(
-                kind: activeTags,
-                module: draft.module,
-                selection: selection,
-                onClose: { self.activeTags = nil },
-                onTagMutation: applyTagMutation,
-                titleOverride: activeTags == .knowledgePoint ? knowledgePointLabel : errorCauseLabel,
-                maximumOverride: isQuantityRelations && activeTags == .errorCause
-                    ? max(8, splitTags(draft.errorCause).count)
-                    : nil
-            )))
         }
         if showQuantityKnowledgePoints {
             overlays.append(AnyView(QuantityKnowledgePointSelectionDialog(
@@ -480,9 +503,9 @@ struct LibraryRecordEditorView: View {
                 candidates: relationCandidates(collection: activeRelation),
                 selection: relationBinding(activeRelation),
                 onClose: { self.activeRelation = nil },
-                onCreateWord: activeRelation == "words" ? { category in
+                onCreateWord: activeRelation == "words" ? {
                     self.activeRelation = nil
-                    linkedWordCreationCategory = category
+                    showLinkedWordCreation = true
                 } : nil
             )))
         }
@@ -506,17 +529,39 @@ struct LibraryRecordEditorView: View {
 
         switch result.kind {
         case .knowledgePoint:
-            draft.knowledgePoint = replacingTag(
-                result.oldName,
-                with: result.newName,
-                in: draft.knowledgePoint,
-                lineBased: false
-            )
-            editBaseline.knowledgePoint = payloadTagValue(
-                from: afterObject,
-                arrayKey: "knowledgePoints",
-                scalarKey: "knowledgePoint"
-            )
+            if draft.subject == "言语理解" {
+                let references = draft.knowledgePointRefs.compactMap { reference -> LibraryKnowledgePointReference? in
+                    guard reference.module == result.module, reference.name == result.oldName else { return reference }
+                    guard let newName = result.newName else { return nil }
+                    return LibraryKnowledgePointReference(module: result.module, name: newName)
+                }
+                draft.knowledgePointRefs = LibraryKnowledgePointReferencePolicy.uniqueReferences(references)
+                draft.knowledgePoint = LibraryKnowledgePointReferencePolicy.displayNames(from: draft.knowledgePointRefs).joined(separator: "、")
+                let baselineReferences = LibraryKnowledgePointReferencePolicy.references(from: afterObject)
+                let localNames = Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records))
+                editBaseline.knowledgePointRefs = LibraryKnowledgePointReferencePolicy.resolvingLocalReferences(
+                    baselineReferences,
+                    currentModule: draft.module,
+                    availableNames: localNames
+                )
+                editBaseline.knowledgePoint = payloadTagValue(
+                    from: afterObject,
+                    arrayKey: "knowledgePoints",
+                    scalarKey: "knowledgePoint"
+                )
+            } else {
+                draft.knowledgePoint = replacingTag(
+                    result.oldName,
+                    with: result.newName,
+                    in: draft.knowledgePoint,
+                    lineBased: false
+                )
+                editBaseline.knowledgePoint = payloadTagValue(
+                    from: afterObject,
+                    arrayKey: "knowledgePoints",
+                    scalarKey: "knowledgePoint"
+                )
+            }
         case .errorCause:
             let usesLineEditor = draft.subject == "数量关系"
                 || LibraryDataAnalysisCauseLayout.usesTextCause(subject: draft.subject, module: draft.module)
@@ -960,7 +1005,11 @@ struct LibraryRecordEditorView: View {
 
     private var wordFields: some View {
         VStack(alignment: .leading, spacing: 14) {
-            compactWordProperty(title: "类别", value: wordCategory.title, image: wordCategory.systemImage)
+            if recordID == nil {
+                newWordCategorySelector
+            } else {
+                compactWordProperty(title: "类别", value: wordCategory.title, image: wordCategory.systemImage)
+            }
             NativeFieldLabel(title: "标题")
             compactWordTextField("标题", text: $draft.title)
                 .accessibilityIdentifier("library-word-title")
@@ -1012,6 +1061,69 @@ struct LibraryRecordEditorView: View {
         .task(id: wordContentPreparationKey) {
             let key = wordContentPreparationKey
             await prepareWordContent(for: key, sourceHTML: wordContentHTML)
+        }
+    }
+
+    private var newWordCategorySelector: some View {
+        let categories: [WordCategory] = [.wordDefinition, .idiomDefinition, .wordComparison, .idiomComparison]
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                ForEach(categories) { category in
+                    let isSelected = wordCategory == category
+                    Button {
+                        switchNewWordCategory(to: category)
+                    } label: {
+                        Text(newWordCategoryTitle(category))
+                            .font(.system(size: 11))
+                            .foregroundStyle(isSelected ? AppTheme.accent : Color.primary)
+                            .padding(.horizontal, 9)
+                            .frame(height: 31)
+                            .background(
+                                isSelected ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045),
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isSwitchingWordCategory || !wordContentEditorSession.canFinishEditing)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                }
+            }
+        }
+        .accessibilityIdentifier("library-new-word-category-selector")
+    }
+
+    private func newWordCategoryTitle(_ category: WordCategory) -> String {
+        switch category {
+        case .wordDefinition: "实词"
+        case .idiomDefinition: "成语"
+        case .wordComparison: "实词组辨析"
+        case .idiomComparison: "成语组辨析"
+        }
+    }
+
+    private func switchNewWordCategory(to category: WordCategory) {
+        guard recordID == nil,
+              category != wordCategory,
+              !isSwitchingWordCategory,
+              wordContentEditorSession.canFinishEditing else { return }
+
+        isSwitchingWordCategory = true
+        let sourceHTML = wordContentHTML
+        wordContentEditorSession.endEditing { latestHTML in
+            guard self.recordID == nil else {
+                self.isSwitchingWordCategory = false
+                return
+            }
+            let currentHTML = latestHTML ?? self.wordContentEditorSession.latestHTML() ?? sourceHTML
+            if category.isComparison {
+                self.draft.comparisonDocument = currentHTML
+            } else {
+                self.draft.content = currentHTML
+            }
+            self.draft.type = category.rawValue
+            self.preparedWordContent = nil
+            self.wordContentEditorSessionID = UUID()
+            self.isSwitchingWordCategory = false
         }
     }
 

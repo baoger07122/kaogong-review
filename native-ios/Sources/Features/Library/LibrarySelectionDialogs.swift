@@ -375,16 +375,239 @@ struct QuantityKnowledgePointSelectionDialog: View {
     }
 }
 
+struct VerbalReasoningKnowledgePointSelectionDialog: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query private var records: [StoredRecord]
+    let currentModule: String
+    @Binding var selection: [LibraryKnowledgePointReference]
+    @Binding var legacyDisplaySelection: String
+    let onClose: () -> Void
+    var onTagMutation: ((LibraryTagMutationResult) -> Void)? = nil
+    var onCommit: (([LibraryKnowledgePointReference]) -> String?)? = nil
+
+    @State private var selected: [LibraryKnowledgePointReference] = []
+    @State private var browsingModule = ""
+    @State private var showsCrossModule = false
+    @State private var search = ""
+    @State private var message: String?
+    @State private var renaming: String?
+    @State private var newName = ""
+    @State private var deleting: String?
+    @State private var showsOrder = false
+
+    private var modules: [String] { LibraryErrorTypeSubject.verbalReasoning.modules }
+    private var activeModule: String { showsCrossModule ? browsingModule : currentModule }
+    private var names: [String] {
+        TagLibraryRepository.tags(kind: .knowledgePoint, module: activeModule, records: records)
+    }
+    private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var filteredNames: [String] {
+        var values = names
+        for reference in selected where reference.module == activeModule && !values.contains(reference.name) {
+            values.append(reference.name)
+        }
+        return values.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        NativeEditorDialog(
+            title: "选择考点",
+            canSave: true,
+            actionTitle: "确定",
+            onClose: onClose,
+            onSave: commitSelection
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                if !selected.isEmpty {
+                    Text("已选考点").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+                    NativeTagFlow(spacing: 6) {
+                        ForEach(selected, id: \.id) { reference in
+                            Button { selected.removeAll { $0 == reference } } label: {
+                                Label(selectedTitle(for: reference), systemImage: "xmark")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(AppTheme.accent)
+                                    .padding(.horizontal, 8).frame(height: 27)
+                                    .background(AppTheme.accent.opacity(0.09), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                HStack {
+                    Text(showsCrossModule ? "跨模块 · \(activeModule)" : "当前模块 · \(currentModule)")
+                        .font(.system(size: 12, weight: .semibold))
+                    Spacer()
+                    Button(showsCrossModule ? "返回当前模块" : "＋ 跨模块选择") {
+                        if showsCrossModule {
+                            showsCrossModule = false
+                            browsingModule = currentModule
+                        } else {
+                            showsCrossModule = true
+                            browsingModule = modules.first(where: { $0 != currentModule }) ?? currentModule
+                        }
+                        search = ""
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    .disabled(!showsCrossModule && modules.allSatisfy { $0 == currentModule })
+                }
+
+                if showsCrossModule {
+                    NativeTagFlow(spacing: 6) {
+                        ForEach(modules.filter { $0 != currentModule }, id: \.self) { module in
+                            Button {
+                                browsingModule = module
+                                search = ""
+                            } label: {
+                                Text(module)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(activeModule == module ? AppTheme.accent : Color.primary)
+                                    .padding(.horizontal, 9).frame(height: 28)
+                                    .background(
+                                        activeModule == module ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045),
+                                        in: Capsule()
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    TextField("搜索或新增考点", text: $search)
+                        .textFieldStyle(NativeTextFieldStyle())
+                        .onSubmit(addTag)
+                    Button("新增", action: addTag)
+                        .font(.system(size: 12, weight: .semibold))
+                        .disabled(query.isEmpty || names.contains(query) || activeModule.isEmpty)
+                }
+
+                HStack {
+                    Spacer()
+                    Button("管理顺序") { showsOrder = true }
+                        .font(.system(size: 11, weight: .semibold))
+                }
+
+                ScrollView {
+                    NativeTagFlow(spacing: 6) {
+                        ForEach(filteredNames, id: \.self) { name in
+                            let reference = LibraryKnowledgePointReference(module: activeModule, name: name)
+                            Button { toggle(reference) } label: {
+                                HStack(spacing: 4) {
+                                    Text(name)
+                                    if selected.contains(reference) { Image(systemName: "checkmark") }
+                                }
+                                .font(.system(size: 12))
+                                .foregroundStyle(selected.contains(reference) ? AppTheme.accent : Color.primary)
+                                .padding(.horizontal, 10).padding(.vertical, 8)
+                                .background(selected.contains(reference) ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("重命名") { renaming = name; newName = name }
+                                Button("删除考点", role: .destructive) { deleting = name }
+                            }
+                        }
+                    }
+                }
+                .frame(maxHeight: 220)
+                if let message { Text(message).font(.system(size: 11)).foregroundStyle(AppTheme.danger) }
+            }
+        }
+        .onAppear {
+            let available = Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: currentModule, records: records))
+            selected = LibraryKnowledgePointReferencePolicy.resolvingLocalReferences(
+                selection,
+                currentModule: currentModule,
+                availableNames: available
+            )
+            browsingModule = currentModule
+        }
+        .sheet(isPresented: $showsOrder) { KnowledgePointOrderView(module: activeModule) }
+        .alert("重命名考点", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("考点名称", text: $newName).modifier(NativeDirectionalTextFieldNavigation())
+            Button("保存") { renameTag() }
+            Button("取消", role: .cancel) { renaming = nil }
+        } message: { Text("来源模块中的该考点会同步更新。") }
+        .alert("删除考点？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+            Button("删除", role: .destructive) { deleteTag() }
+            Button("取消", role: .cancel) { deleting = nil }
+        } message: { Text("将从考点库和引用该来源考点的错题中移除。") }
+    }
+
+    private func selectedTitle(for reference: LibraryKnowledgePointReference) -> String {
+        guard selected.filter({ $0.name == reference.name }).count > 1 else { return reference.name }
+        return "\(reference.module ?? currentModule) · \(reference.name)"
+    }
+
+    private func toggle(_ reference: LibraryKnowledgePointReference) {
+        if selected.contains(reference) { selected.removeAll { $0 == reference } }
+        else { selected.append(reference) }
+    }
+
+    private func commitSelection() {
+        let values = LibraryKnowledgePointReferencePolicy.uniqueReferences(selected)
+        if let error = onCommit?(values) {
+            message = error
+            return
+        }
+        selection = values
+        legacyDisplaySelection = LibraryKnowledgePointReferencePolicy.displayNames(from: values).joined(separator: "、")
+        onClose()
+    }
+
+    private func addTag() {
+        guard !query.isEmpty, !activeModule.isEmpty, !names.contains(query) else { return }
+        do {
+            try TagLibraryRepository.add(query, kind: .knowledgePoint, module: activeModule, records: records, context: modelContext)
+            toggle(LibraryKnowledgePointReference(module: activeModule, name: query))
+            search = ""
+        } catch { message = "考点保存失败，请重试" }
+    }
+
+    private func renameTag() {
+        guard let old = renaming else { return }
+        let value = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value != old, !names.contains(value) else {
+            message = "名称不能为空或与当前模块其他考点重复"
+            return
+        }
+        do {
+            let result = try TagLibraryRepository.rename(old, to: value, kind: .knowledgePoint, module: activeModule, records: records, context: modelContext)
+            onTagMutation?(result)
+            selected = selected.map { reference in
+                reference.module == activeModule && reference.name == old
+                    ? LibraryKnowledgePointReference(module: activeModule, name: value)
+                    : reference
+            }
+            renaming = nil
+        } catch { message = "重命名失败，请重试" }
+    }
+
+    private func deleteTag() {
+        guard let name = deleting else { return }
+        do {
+            let result = try TagLibraryRepository.delete(name, kind: .knowledgePoint, module: activeModule, records: records, context: modelContext)
+            onTagMutation?(result)
+            selected.removeAll { $0.module == activeModule && $0.name == name }
+            deleting = nil
+        } catch { message = "删除失败，请重试" }
+    }
+}
+
 struct LibraryRelationSelectionDialog: View {
     let collection: String
     let candidates: [StoredRecord]
     @Binding var selection: [String]
     let onClose: () -> Void
-    var onCreateWord: ((WordCategory) -> Void)? = nil
+    var onCreateWord: (() -> Void)? = nil
     @State private var selected: [String] = []
     @State private var search = ""
-    @State private var wordCategoryFilter = ""
-    @State private var wordEntryKindFilter = ""
+    @State private var wordCategoryFilter: WordCategory?
+
+    private let wordCategoryFilterOrder: [WordCategory] = [
+        .idiomDefinition, .idiomComparison, .wordDefinition, .wordComparison
+    ]
 
     var body: some View {
         NativeEditorDialog(title: dialogTitle,
@@ -393,11 +616,7 @@ struct LibraryRelationSelectionDialog: View {
                 HStack(spacing: 8) {
                     TextField("搜索", text: $search).textFieldStyle(NativeTextFieldStyle())
                     if collection == "words", let onCreateWord {
-                        Menu {
-                            ForEach(WordCategory.allCases) { category in
-                                Button(category.title) { onCreateWord(category) }
-                            }
-                        } label: {
+                        Button(action: onCreateWord) {
                             Label("新建", systemImage: "plus")
                                 .font(.system(size: 12, weight: .semibold))
                                 .padding(.horizontal, 10)
@@ -413,24 +632,26 @@ struct LibraryRelationSelectionDialog: View {
                     Button("清空关联") { selected = [] }
                 }.font(.system(size: 11))
                 if collection == "words" {
-                    HStack(spacing: 7) {
-                        Menu {
-                            Button("全部模块") { wordCategoryFilter = "" }
-                            ForEach(WordCategory.allCases) { category in
-                                Button(category.title) { wordCategoryFilter = category.rawValue }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 7) {
+                            ForEach(wordCategoryFilterOrder) { category in
+                                let isSelected = wordCategoryFilter == category
+                                Button {
+                                    wordCategoryFilter = isSelected ? nil : category
+                                } label: {
+                                    Text(category.shortTitle)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(isSelected ? AppTheme.accent : Color.primary)
+                                        .padding(.horizontal, 9)
+                                        .frame(height: 31)
+                                        .background(
+                                            isSelected ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045),
+                                            in: Capsule()
+                                        )
+                                }
+                                .buttonStyle(.plain)
                             }
-                        } label: {
-                            relationFilterLabel(WordCategory(rawValue: wordCategoryFilter)?.shortTitle ?? "模块")
                         }
-                        Menu {
-                            Button("全部类型") { wordEntryKindFilter = "" }
-                            ForEach(WordEntryKind.allCases) { kind in
-                                Button(kind.title) { wordEntryKindFilter = kind.rawValue }
-                            }
-                        } label: {
-                            relationFilterLabel(WordEntryKind(rawValue: wordEntryKindFilter)?.title ?? "词语/搭配")
-                        }
-                        Spacer()
                     }
                 }
                 ScrollView {
@@ -475,15 +696,10 @@ struct LibraryRelationSelectionDialog: View {
                                     .font(.system(size: 12))
                                     .foregroundStyle(.secondary)
                                 if collection == "words", let onCreateWord {
-                                    Menu {
-                                        ForEach(WordCategory.allCases) { category in
-                                            Button(category.title) { onCreateWord(category) }
-                                        }
-                                    } label: {
+                                    Button(action: onCreateWord) {
                                         Label("直接新建词语", systemImage: "plus.circle")
                                             .font(.system(size: 12, weight: .medium))
                                     }
-                                    .buttonStyle(.plain)
                                 }
                             }
                             .padding(.vertical, 10)
@@ -504,9 +720,8 @@ struct LibraryRelationSelectionDialog: View {
             ) else { return false }
             let snapshot = LibraryRecordSnapshot(record: record)
             let matchesSearch = search.isEmpty || snapshot.searchableText.localizedCaseInsensitiveContains(search)
-            let matchesCategory = collection != "words" || wordCategoryFilter.isEmpty || snapshot.category == wordCategoryFilter
-            let matchesKind = collection != "words" || wordEntryKindFilter.isEmpty || snapshot.wordEntryKinds.contains(wordEntryKindFilter)
-            return matchesSearch && matchesCategory && matchesKind
+            let matchesCategory = collection != "words" || wordCategoryFilter == nil || snapshot.category == wordCategoryFilter?.rawValue
+            return matchesSearch && matchesCategory
         }
     }
 
@@ -529,15 +744,4 @@ struct LibraryRelationSelectionDialog: View {
         return "\(sourceText) · \(numberText)"
     }
 
-    private func relationFilterLabel(_ value: String) -> some View {
-        HStack(spacing: 4) {
-            Text(value)
-            Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
-        }
-        .font(.system(size: 11))
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 9)
-        .frame(height: 31)
-        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
 }

@@ -12,6 +12,20 @@ private enum RichTextMetrics {
     static let heading1Size: CGFloat = 21
 }
 
+private enum NativeRichTextNoteFormatting {
+    static let quoteKey = NSAttributedString.Key("com.kaogong.note.quote")
+
+    static func isQuoted(_ attributes: [NSAttributedString.Key: Any]) -> Bool {
+        attributes[quoteKey] as? Bool == true
+    }
+
+    static func isQuoted(_ attributed: NSAttributedString, at location: Int) -> Bool {
+        guard attributed.length > 0 else { return false }
+        let safeLocation = min(max(0, location), attributed.length - 1)
+        return isQuoted(attributed.attributes(at: safeLocation, effectiveRange: nil))
+    }
+}
+
 private enum RichTextCommandKind: Equatable {
     case bold, italic, underline, strike, indent, outdent, numbers, todos, divider
     case bullets(RichTextBulletStyle)
@@ -184,6 +198,7 @@ private struct RichTextCommand: Equatable {
     let id = UUID()
     let kind: RichTextCommandKind
     var imageCompletion: ((Result<Void, NativeRichTextEditorError>) -> Void)? = nil
+    var tableCompletion: ((Result<Void, NativeRichTextEditorError>) -> Void)? = nil
     var tableEditTarget: RichTextTableEditTarget? = nil
 
     static func == (lhs: RichTextCommand, rhs: RichTextCommand) -> Bool {
@@ -211,8 +226,35 @@ struct NativeRichTextInsertionTarget: Equatable {
 private struct RichTextTableEditTarget: Equatable {
     let documentID: String?
     let sessionID: UUID
-    let attachmentInstanceID: UUID
+    let attachmentInstanceID: UUID?
     let range: NSRange
+    let revision: UInt64
+}
+
+private struct RichTextTableEditorRequest: Identifiable {
+    let id = UUID()
+    let table: RichTextTable
+    let target: RichTextTableEditTarget
+}
+
+private final class NoteQuoteLayoutFragment: NSTextLayoutFragment {
+    override func draw(at point: CGPoint, in context: CGContext) {
+        super.draw(at: point, in: context)
+        guard let paragraph = textElement as? NSTextParagraph,
+              NativeRichTextNoteFormatting.isQuoted(paragraph.attributedString, at: 0),
+              let first = textLineFragments.first,
+              let last = textLineFragments.last else { return }
+        let lineRects = textLineFragments.map(\.typographicBounds).filter { !$0.isNull && !$0.isEmpty }
+        guard let top = lineRects.map(\.minY).min(), let bottom = lineRects.map(\.maxY).max() else { return }
+        let x = point.x + first.glyphOrigin.x - 10
+        let rect = CGRect(x: x, y: point.y + top - 2, width: 2, height: max(4, bottom - top + 4))
+        context.saveGState()
+        context.setFillColor(UIColor.systemGray4.cgColor)
+        context.addPath(CGPath(roundedRect: rect, cornerWidth: 1, cornerHeight: 1, transform: nil))
+        context.fillPath()
+        context.restoreGState()
+        _ = last
+    }
 }
 
 struct NativeRichTextImageImportRequest: Equatable {
@@ -231,12 +273,14 @@ enum NativeRichTextEditorError: LocalizedError {
     case editorSessionChanged
     case invalidSelection
     case imageAttachmentInvalid
+    case tableTargetChanged
 
     var errorDescription: String? {
         switch self {
         case .editorSessionChanged: "笔记页面已切换，图片没有插入到其他题目。请重新打开图片选择器。"
         case .invalidSelection: "图片插入位置已失效，请重新选择插入位置后再试。"
         case .imageAttachmentInvalid: "图片无法生成附件，原笔记没有被修改。"
+        case .tableTargetChanged: "表格位置已变化，当前输入仍保留。"
         }
     }
 }
@@ -270,6 +314,7 @@ struct NativeRichTextEditor: View {
     let minHeight: CGFloat
     var mode: RichTextToolbarMode = .full
     var documentStyle = false
+    var noteFormatting = false
     var tableAppearance: NativeRichTextTableAppearance = .system
     var focusOnAppear = false
     var initialSelectionOffset: Int? = nil
@@ -289,7 +334,7 @@ struct NativeRichTextEditor: View {
     @State private var activeAlert: RichTextEditorAlert?
     @State private var linkTarget = "https://"
     @State private var selectedTable: RichTextTable?
-    @State private var tableEditor: RichTextTable?
+    @State private var tableEditorRequest: RichTextTableEditorRequest?
     @State private var tableEditTarget: RichTextTableEditTarget?
     @State private var pendingPhotoImportRequestID: UUID?
     @State private var selectedFormula: RichTextFormula?
@@ -341,7 +386,7 @@ struct NativeRichTextEditor: View {
                 html: $html,
                 command: $command,
                 selectedTable: $selectedTable,
-                tableEditor: $tableEditor,
+                tableEditorRequest: $tableEditorRequest,
                 tableEditTarget: $tableEditTarget,
                 selectedFormula: $selectedFormula,
                 isEditing: $isEditing,
@@ -363,6 +408,7 @@ struct NativeRichTextEditor: View {
                 ),
                 growsWithContent: documentStyle,
                 tableAppearance: tableAppearance,
+                noteFormatting: noteFormatting,
                 minimumContentHeight: documentStyle ? minHeight : 0,
                 focusOnAppear: focusOnAppear,
                 initialSelectionOffset: initialSelectionOffset,
@@ -380,12 +426,17 @@ struct NativeRichTextEditor: View {
         }
         .background(Color.primary.opacity(documentStyle ? 0 : 0.035), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
         .overlay(RoundedRectangle(cornerRadius: AppTheme.controlRadius).stroke(Color.primary.opacity(documentStyle ? 0 : 0.07), lineWidth: 0.7))
-        .sheet(item: $tableEditor, onDismiss: {
+        .sheet(item: $tableEditorRequest, onDismiss: {
             tableEditTarget = nil
+            selectedTable = nil
             activeEditorSession.setAuxiliaryPanelPresented(false)
-        }) { table in
-            RichTextTableEditor(initial: table) { updated in
-                command = RichTextCommand(kind: .table(updated), tableEditTarget: tableEditTarget)
+        }) { request in
+            RichTextTableEditor(initial: request.table) { updated, completion in
+                command = RichTextCommand(
+                    kind: .table(updated),
+                    tableCompletion: completion,
+                    tableEditTarget: request.target
+                )
             }
             .presentationDetents([.medium, .large])
         }
@@ -609,8 +660,22 @@ struct NativeRichTextEditor: View {
                 else { openPhotoPicker() }
             } label: { Label("图片", systemImage: "photo") }
             Button {
+                activeEditorSession.commitCompositionIfNeeded()
+                let target: RichTextTableEditTarget?
+                if selectedTable != nil {
+                    target = tableEditTarget
+                } else {
+                    target = activeEditorSession.captureTableInsertionTarget(
+                        expectedDocumentID: activeEditorDocumentID,
+                        expectedSessionID: activeEditorSessionID
+                    )
+                }
+                guard let target else { return }
+                tableEditorRequest = RichTextTableEditorRequest(
+                    table: selectedTable ?? RichTextTable(),
+                    target: target
+                )
                 activeEditorSession.setAuxiliaryPanelPresented(true)
-                tableEditor = selectedTable ?? RichTextTable()
             } label: { Label("表格", systemImage: "tablecells") }
             Button { run(.divider) } label: { Label("分割线", systemImage: "minus") }
             Button {
@@ -759,6 +824,7 @@ final class NativeRichTextEditorSession: ObservableObject {
     private var latestAttributedTextReader: (() -> NSAttributedString?)?
     private var snapshotReader: (() -> NativeRichTextEditorSnapshot?)?
     private var selectionReader: (() -> NSRange?)?
+    private var tableInsertionTargetReader: (() -> RichTextTableEditTarget?)?
     private var compositionCommitHandler: (() -> Void)?
     private var imageInsertionHandler: ((String, NativeRichTextInsertionTarget, @escaping (Result<Void, NativeRichTextEditorError>) -> Void) -> Void)?
     private var endEditingHandler: EndEditingHandler?
@@ -805,6 +871,14 @@ final class NativeRichTextEditorSession: ObservableObject {
               sessionID == expectedSessionID,
               let range = selectionReader?() else { return nil }
         return NativeRichTextInsertionTarget(documentID: documentID, sessionID: expectedSessionID, range: range)
+    }
+
+    fileprivate func captureTableInsertionTarget(
+        expectedDocumentID: String?,
+        expectedSessionID: UUID
+    ) -> RichTextTableEditTarget? {
+        guard documentID == expectedDocumentID, sessionID == expectedSessionID else { return nil }
+        return tableInsertionTargetReader?()
     }
 
     func matches(_ target: NativeRichTextInsertionTarget) -> Bool {
@@ -884,7 +958,10 @@ final class NativeRichTextEditorSession: ObservableObject {
 
     func setMediaOperationInProgress(_ value: Bool) { isMediaOperationInProgress = value }
     func setAuxiliaryPanelPresented(_ value: Bool) { isAuxiliaryPanelPresented = value }
-    func setComposingText(_ value: Bool) { isComposingText = value }
+    func setComposingText(_ value: Bool) {
+        guard isComposingText != value else { return }
+        isComposingText = value
+    }
     func setInputLocked(_ value: Bool) { isInputLocked = value }
 
     func endEditing(_ completion: @escaping (String?) -> Void) {
@@ -900,6 +977,7 @@ final class NativeRichTextEditorSession: ObservableObject {
         latestAttributedTextReader: @escaping () -> NSAttributedString?,
         snapshotReader: @escaping () -> NativeRichTextEditorSnapshot?,
         selectionReader: @escaping () -> NSRange?,
+        tableInsertionTargetReader: @escaping () -> RichTextTableEditTarget?,
         compositionCommitHandler: @escaping () -> Void,
         imageInsertionHandler: @escaping (String, NativeRichTextInsertionTarget, @escaping (Result<Void, NativeRichTextEditorError>) -> Void) -> Void,
         endEditingHandler: @escaping EndEditingHandler
@@ -908,6 +986,7 @@ final class NativeRichTextEditorSession: ObservableObject {
         self.latestAttributedTextReader = latestAttributedTextReader
         self.snapshotReader = snapshotReader
         self.selectionReader = selectionReader
+        self.tableInsertionTargetReader = tableInsertionTargetReader
         self.compositionCommitHandler = compositionCommitHandler
         self.imageInsertionHandler = imageInsertionHandler
         self.endEditingHandler = endEditingHandler
@@ -918,6 +997,7 @@ final class NativeRichTextEditorSession: ObservableObject {
         latestAttributedTextReader = nil
         snapshotReader = nil
         selectionReader = nil
+        tableInsertionTargetReader = nil
         compositionCommitHandler = nil
         imageInsertionHandler = nil
         endEditingHandler = nil
@@ -929,6 +1009,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     let html: String
     var minHeight: CGFloat = 0
     var tableAppearance: NativeRichTextTableAppearance = .system
+    var noteFormatting = false
     var accessibilityIdentifier: String? = nil
     var onFallback: (() -> Void)? = nil
     var onTapTextOffset: ((Int, NSAttributedString, CGFloat) -> Void)? = nil
@@ -940,6 +1021,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         minHeight: CGFloat = 0,
         tableAppearance: NativeRichTextTableAppearance = .system,
         accessibilityIdentifier: String? = nil,
+        noteFormatting: Bool = false,
         onFallback: (() -> Void)? = nil,
         onTapTextOffset: ((Int, NSAttributedString, CGFloat) -> Void)? = nil
     ) {
@@ -947,6 +1029,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         self.minHeight = minHeight
         self.tableAppearance = tableAppearance
         self.accessibilityIdentifier = accessibilityIdentifier
+        self.noteFormatting = noteFormatting
         self.onFallback = onFallback
         self.onTapTextOffset = onTapTextOffset
         preparedSnapshot = nil
@@ -960,6 +1043,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         minHeight: CGFloat = 0,
         tableAppearance: NativeRichTextTableAppearance = .system,
         accessibilityIdentifier: String? = nil,
+        noteFormatting: Bool = false,
         onFallback: (() -> Void)? = nil,
         onTapTextOffset: ((Int, NSAttributedString, CGFloat) -> Void)? = nil
     ) {
@@ -967,6 +1051,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         self.minHeight = minHeight
         self.tableAppearance = tableAppearance
         self.accessibilityIdentifier = accessibilityIdentifier
+        self.noteFormatting = noteFormatting
         self.onFallback = onFallback
         self.onTapTextOffset = onTapTextOffset
         self.preparedSnapshot = preparedSnapshot
@@ -974,16 +1059,28 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, NSTextLayoutManagerDelegate {
         var parent: NativeRichTextDisplay
         var lastHTML = ""
         var lastRenderVersion: String?
         var lastTableAppearance: NativeRichTextTableAppearance = .system
+        var lastNoteFormatting = false
         var fallbackReportedHTML: String?
 
         init(parent: NativeRichTextDisplay) {
             self.parent = parent
             super.init()
+        }
+
+        func textLayoutManager(
+            _ textLayoutManager: NSTextLayoutManager,
+            textLayoutFragmentFor location: any NSTextLocation,
+            in textElement: NSTextElement
+        ) -> NSTextLayoutFragment? {
+            guard parent.noteFormatting,
+                  let paragraph = textElement as? NSTextParagraph,
+                  NativeRichTextNoteFormatting.isQuoted(paragraph.attributedString, at: 0) else { return nil }
+            return NoteQuoteLayoutFragment(textElement: textElement, range: nil)
         }
 
         @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
@@ -1001,6 +1098,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView(usingTextLayoutManager: true)
+        view.textLayoutManager?.delegate = noteFormatting ? context.coordinator : nil
         view.backgroundColor = .clear
         view.isAccessibilityElement = true
         view.accessibilityIdentifier = accessibilityIdentifier
@@ -1021,21 +1119,25 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         context.coordinator.lastHTML = html
         context.coordinator.lastRenderVersion = renderVersion
         context.coordinator.lastTableAppearance = tableAppearance
+        context.coordinator.lastNoteFormatting = noteFormatting
         return view
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
         context.coordinator.parent = self
+        view.textLayoutManager?.delegate = noteFormatting ? context.coordinator : nil
         view.isAccessibilityElement = true
         view.accessibilityIdentifier = accessibilityIdentifier
         view.isUserInteractionEnabled = onTapTextOffset != nil
         guard context.coordinator.lastHTML != html
                 || context.coordinator.lastRenderVersion != renderVersion
-                || context.coordinator.lastTableAppearance != tableAppearance else { return }
+                || context.coordinator.lastTableAppearance != tableAppearance
+                || context.coordinator.lastNoteFormatting != noteFormatting else { return }
         applyContent(to: view, coordinator: context.coordinator)
         context.coordinator.lastHTML = html
         context.coordinator.lastRenderVersion = renderVersion
         context.coordinator.lastTableAppearance = tableAppearance
+        context.coordinator.lastNoteFormatting = noteFormatting
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
@@ -1046,7 +1148,11 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     }
 
     private func applyContent(to view: UITextView, coordinator: Coordinator) {
-        let rendered = preparedSnapshot ?? NativeRichTextDisplayRenderer.render(html, tableAppearance: tableAppearance)
+        let rendered = preparedSnapshot ?? NativeRichTextDisplayRenderer.render(
+            html,
+            tableAppearance: tableAppearance,
+            noteFormatting: noteFormatting
+        )
         let styled = NativeRichTextDisplayRenderer.applyingTableAppearance(to: rendered.attributedText, appearance: tableAppearance)
         view.attributedText = styled
         view.accessibilityLabel = styled.string
@@ -1068,19 +1174,35 @@ enum NativeRichTextDisplayRenderer {
 
     static func render(
         _ html: String,
-        tableAppearance: NativeRichTextTableAppearance = .system
+        tableAppearance: NativeRichTextTableAppearance = .system,
+        noteFormatting: Bool = false
     ) -> NativeRichTextDisplayRenderResult {
         guard html.utf8.count <= maximumImportedHTMLBytes else {
-            return fallback(html, tableAppearance: tableAppearance)
+            let result = fallback(html, tableAppearance: tableAppearance)
+            return noteFormatting ? applyingNoteFormatting(to: result, sourceHTML: html) : result
         }
         let attributed = applyingTableAppearance(
-            to: RichTextTextView.attributed(from: html),
+            to: RichTextTextView.attributed(from: html, noteFormatting: noteFormatting),
             appearance: tableAppearance
         )
         guard html.contains("<"), attributed.string == html else {
             return NativeRichTextDisplayRenderResult(attributedText: attributed, usedSafeFallback: false)
         }
-        return fallback(html, tableAppearance: tableAppearance)
+        let result = fallback(html, tableAppearance: tableAppearance)
+        return noteFormatting ? applyingNoteFormatting(to: result, sourceHTML: html) : result
+    }
+
+    static func applyingNoteFormatting(
+        to result: NativeRichTextDisplayRenderResult,
+        sourceHTML: String
+    ) -> NativeRichTextDisplayRenderResult {
+        NativeRichTextDisplayRenderResult(
+            attributedText: RichTextTextView.applyingNoteParagraphFormatting(
+                to: result.attributedText,
+                sourceHTML: sourceHTML
+            ),
+            usedSafeFallback: result.usedSafeFallback
+        )
     }
 
     static func applyingTableAppearance(
@@ -1324,7 +1446,7 @@ private struct RichTextTextView: UIViewRepresentable {
     @Binding var html: String
     @Binding var command: RichTextCommand?
     @Binding var selectedTable: RichTextTable?
-    @Binding var tableEditor: RichTextTable?
+    @Binding var tableEditorRequest: RichTextTableEditorRequest?
     @Binding var tableEditTarget: RichTextTableEditTarget?
     @Binding var selectedFormula: RichTextFormula?
     @Binding var isEditing: Bool
@@ -1337,6 +1459,7 @@ private struct RichTextTextView: UIViewRepresentable {
     let keyboardAccessoryState: RichTextKeyboardAccessoryState
     var growsWithContent = false
     var tableAppearance: NativeRichTextTableAppearance = .system
+    var noteFormatting = false
     var minimumContentHeight: CGFloat = 0
     var focusOnAppear = false
     var initialSelectionOffset: Int? = nil
@@ -1356,6 +1479,7 @@ private struct RichTextTextView: UIViewRepresentable {
             coordinator?.handlePaste(textView) ?? false
         }
         view.delegate = context.coordinator
+        view.textLayoutManager?.delegate = noteFormatting ? context.coordinator : nil
         view.onLayout = { [weak coordinator = context.coordinator] textView in
             coordinator?.updateNativeTableWidths(in: textView)
         }
@@ -1390,7 +1514,7 @@ private struct RichTextTextView: UIViewRepresentable {
             )
         } else if !usesLazyHTMLInitialization {
             view.attributedText = NativeRichTextDisplayRenderer.applyingTableAppearance(
-                to: Self.attributed(from: html),
+                to: Self.attributed(from: html, noteFormatting: noteFormatting),
                 appearance: tableAppearance
             )
         } else {
@@ -1400,6 +1524,7 @@ private struct RichTextTextView: UIViewRepresentable {
             )
         }
         context.coordinator.setPublishedHTML(html)
+        context.coordinator.updateNativeTableWidths(in: view, force: true)
         context.coordinator.connect(editorSession, to: view)
         context.coordinator.rememberSelection(view.selectedRange)
         context.coordinator.installKeyboardAccessory(
@@ -1434,16 +1559,20 @@ private struct RichTextTextView: UIViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
         guard growsWithContent, let width = proposal.width, width > 0 else { return nil }
         let measurementStart = ProcessInfo.processInfo.systemUptime
-        let size = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-        if editorSession != nil {
+        let height = context.coordinator.contentHeight(
+            for: uiView,
+            width: width,
+            minimum: max(42, minimumContentHeight)
+        )
+        if noteFormatting, editorSession != nil, context.coordinator.didMeasureHeightDuringLastRequest {
             LibraryPerformanceLog.markIfSlow("note.editor.height-measure", since: measurementStart)
         }
-        return CGSize(width: width, height: max(42, minimumContentHeight, ceil(size.height)))
+        return CGSize(width: width, height: height)
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
         context.coordinator.parent = self
-        context.coordinator.updateNativeTableWidths(in: view)
+        view.textLayoutManager?.delegate = noteFormatting ? context.coordinator : nil
         context.coordinator.updateKeyboardAccessory(
             keyboardAccessory,
             height: keyboardAccessoryHeight,
@@ -1451,7 +1580,8 @@ private struct RichTextTextView: UIViewRepresentable {
             on: view
         )
         context.coordinator.connect(editorSession, to: view)
-        if context.coordinator.lastHTML != html, !view.isFirstResponder {
+        let replacingDocumentContent = context.coordinator.lastHTML != html && !view.isFirstResponder
+        if replacingDocumentContent {
             if let preparedInitialAttributedText, preparedInitialHTML == html {
                 view.attributedText = NativeRichTextDisplayRenderer.applyingTableAppearance(
                     to: preparedInitialAttributedText,
@@ -1460,26 +1590,31 @@ private struct RichTextTextView: UIViewRepresentable {
                 context.coordinator.setPublishedHTML(html)
             } else if !usesLazyHTMLInitialization {
                 view.attributedText = NativeRichTextDisplayRenderer.applyingTableAppearance(
-                    to: Self.attributed(from: html),
+                    to: Self.attributed(from: html, noteFormatting: noteFormatting),
                     appearance: tableAppearance
                 )
                 context.coordinator.setPublishedHTML(html)
             }
         }
+        context.coordinator.updateNativeTableWidths(in: view, force: replacingDocumentContent)
         if let command, context.coordinator.lastCommandID != command.id {
             context.coordinator.lastCommandID = command.id
             let result = context.coordinator.apply(command.kind, to: view, tableEditTarget: command.tableEditTarget)
             let imageCompletion = command.imageCompletion
+            let tableCompletion = command.tableCompletion
             DispatchQueue.main.async {
                 self.command = nil
                 if let imageCompletion {
                     imageCompletion(result ?? .failure(NativeRichTextEditorError.imageAttachmentInvalid))
                 }
+                if let tableCompletion {
+                    tableCompletion(result ?? .failure(NativeRichTextEditorError.tableTargetChanged))
+                }
             }
         }
     }
 
-    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
+    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate, NSTextLayoutManagerDelegate {
         var parent: RichTextTextView
         var lastHTML = ""
         var lastCommandID: UUID?
@@ -1489,11 +1624,17 @@ private struct RichTextTextView: UIViewRepresentable {
         private var pendingPublish: DispatchWorkItem?
         private var layoutRefreshScheduled = false
         private var layoutRefreshUpdatesToolbar = false
+        private var layoutRefreshUpdatesLayout = false
         private weak var pendingLayoutRefreshView: UITextView?
         private var documentRevision: UInt64 = 0
         private var publishedRevision: UInt64 = 0
         private var publishedHTML = ""
         private var cachedSnapshot: NativeRichTextEditorSnapshot?
+        private var lastTableWidth: CGFloat?
+        private var lastMeasuredWidth: CGFloat?
+        private var lastMeasuredHeight: CGFloat = 0
+        private var measuredHeightNeedsRefresh = true
+        private(set) var didMeasureHeightDuringLastRequest = false
         private var lastSelectionTable: RichTextTable?
         private var lastSelectionFormula: RichTextFormula?
         private var lastQueuedSelectionState: RichTextSelectionState?
@@ -1502,12 +1643,63 @@ private struct RichTextTextView: UIViewRepresentable {
         private var lastKeyboardAccessoryState: RichTextKeyboardAccessoryState?
         init(parent: RichTextTextView) { self.parent = parent }
 
+        func textLayoutManager(
+            _ textLayoutManager: NSTextLayoutManager,
+            textLayoutFragmentFor location: any NSTextLocation,
+            in textElement: NSTextElement
+        ) -> NSTextLayoutFragment? {
+            guard parent.noteFormatting,
+                  let paragraph = textElement as? NSTextParagraph,
+                  NativeRichTextNoteFormatting.isQuoted(paragraph.attributedString, at: 0) else { return nil }
+            return NoteQuoteLayoutFragment(textElement: textElement, range: nil)
+        }
+
         func setPublishedHTML(_ html: String) {
             if lastHTML != html { documentRevision &+= 1 }
             lastHTML = html
             publishedHTML = html
             publishedRevision = documentRevision
             cachedSnapshot = nil
+            measuredHeightNeedsRefresh = true
+        }
+
+        func contentHeight(for view: UITextView, width: CGFloat, minimum: CGFloat) -> CGFloat {
+            didMeasureHeightDuringLastRequest = false
+            let normalizedWidth = floor(width * 2) / 2
+            if parent.noteFormatting,
+               let lastMeasuredWidth,
+               abs(lastMeasuredWidth - normalizedWidth) <= 0.5 {
+                if !measuredHeightNeedsRefresh {
+                    return max(minimum, lastMeasuredHeight)
+                }
+                if let usedHeight = view.textLayoutManager?.usageBoundsForTextContainer.height,
+                   usedHeight.isFinite, usedHeight > 0 {
+                    lastMeasuredHeight = max(minimum, ceil(usedHeight))
+                    measuredHeightNeedsRefresh = false
+                    return lastMeasuredHeight
+                }
+            }
+
+            let size = view.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+            didMeasureHeightDuringLastRequest = true
+            lastMeasuredWidth = normalizedWidth
+            lastMeasuredHeight = max(minimum, size.height.isFinite ? ceil(size.height) : minimum)
+            measuredHeightNeedsRefresh = false
+            return lastMeasuredHeight
+        }
+
+        private func updateCachedNoteHeightFromTextKit(_ view: UITextView) -> Bool {
+            guard parent.noteFormatting,
+                  let lastMeasuredWidth,
+                  view.bounds.width.isFinite,
+                  abs(lastMeasuredWidth - floor(view.bounds.width * 2) / 2) <= 0.5,
+                  let usedHeight = view.textLayoutManager?.usageBoundsForTextContainer.height,
+                  usedHeight.isFinite, usedHeight > 0 else { return false }
+            let updatedHeight = max(parent.minimumContentHeight, ceil(usedHeight))
+            measuredHeightNeedsRefresh = false
+            guard abs(updatedHeight - lastMeasuredHeight) > 0.5 else { return false }
+            lastMeasuredHeight = updatedHeight
+            return true
         }
 
         func connect(_ session: NativeRichTextEditorSession?, to view: UITextView) {
@@ -1529,6 +1721,19 @@ private struct RichTextTextView: UIViewRepresentable {
                     self.publish(snapshot.html)
                     return snapshot
                 },
+                tableInsertionTargetReader: { [weak self, weak view] in
+                    guard let self, let view else { return nil }
+                    let selected = self.validSelection(self.lastEditingSelection, in: view)
+                        ? self.lastEditingSelection
+                        : view.selectedRange
+                    return RichTextTableEditTarget(
+                        documentID: self.parent.editorDocumentID,
+                        sessionID: self.parent.editorSessionID,
+                        attachmentInstanceID: nil,
+                        range: selected,
+                        revision: self.documentRevision
+                    )
+                },
                 selectionReader: { [weak self, weak view] in
                     guard let self, let view else { return nil }
                     let selection = self.validSelection(self.lastEditingSelection, in: view)
@@ -1539,12 +1744,18 @@ private struct RichTextTextView: UIViewRepresentable {
                 },
                 compositionCommitHandler: { [weak self, weak view] in
                     guard let self, let view else { return }
-                    if view.markedTextRange != nil { view.unmarkText() }
+                    guard view.markedTextRange != nil else { return }
+                    let revisionBeforeCommit = self.documentRevision
+                    view.unmarkText()
                     let composing = view.markedTextRange != nil
                     self.connectedSession?.setComposingText(composing)
                     self.rememberSelection(view.selectedRange)
-                    self.scheduleLayoutAndToolbarRefresh(view, updatesToolbar: !composing)
-                    if !composing { self.schedulePublish(view) }
+                    self.scheduleLayoutAndToolbarRefresh(
+                        view,
+                        updatesToolbar: !composing,
+                        updatesLayout: self.parent.noteFormatting || !composing
+                    )
+                    if !composing, self.documentRevision == revisionBeforeCommit { self.schedulePublish(view) }
                 },
                 imageInsertionHandler: { [weak self] dataURL, target, completion in
                     guard let self else {
@@ -1603,7 +1814,15 @@ private struct RichTextTextView: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) {
             let isComposing = textView.markedTextRange != nil
             connectedSession?.setComposingText(isComposing)
-            scheduleLayoutAndToolbarRefresh(textView, updatesToolbar: !isComposing)
+            if parent.noteFormatting {
+                measuredHeightNeedsRefresh = true
+                if !isComposing { refreshNoteParagraphSpacing(near: textView.selectedRange, in: textView) }
+            }
+            scheduleLayoutAndToolbarRefresh(
+                textView,
+                updatesToolbar: !isComposing,
+                updatesLayout: !isComposing || parent.noteFormatting
+            )
             if isComposing {
                 documentRevision &+= 1
                 cachedSnapshot = nil
@@ -1616,7 +1835,7 @@ private struct RichTextTextView: UIViewRepresentable {
 
         func textViewDidBeginEditing(_ textView: UITextView) {
             rememberSelection(textView.selectedRange)
-            scheduleLayoutAndToolbarRefresh(textView, updatesToolbar: true)
+            scheduleLayoutAndToolbarRefresh(textView, updatesToolbar: true, updatesLayout: false)
             DispatchQueue.main.async { self.parent.isEditing = true }
         }
 
@@ -1651,7 +1870,7 @@ private struct RichTextTextView: UIViewRepresentable {
             } else if parent.tableEditTarget != tableTarget {
                 DispatchQueue.main.async { self.parent.tableEditTarget = tableTarget }
             }
-            scheduleLayoutAndToolbarRefresh(textView, updatesToolbar: true)
+            scheduleLayoutAndToolbarRefresh(textView, updatesToolbar: true, updatesLayout: false)
         }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
@@ -1731,7 +1950,22 @@ private struct RichTextTextView: UIViewRepresentable {
             guard let replacement = preparedClipboardText() else { return false }
             let compacted = NativeRichTextPastePolicy.compactParagraphSpacing(in: replacement)
             replaceAttributed(compacted, in: range, view: textView)
+            if containsNativeTableAttachment(compacted) {
+                updateNativeTableWidths(in: textView, force: true)
+            }
             return true
+        }
+
+        private func containsNativeTableAttachment(_ attributed: NSAttributedString) -> Bool {
+            guard attributed.length > 0 else { return false }
+            var found = false
+            attributed.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributed.length)) { value, _, stop in
+                if value is NativeTableAttachment {
+                    found = true
+                    stop.pointee = true
+                }
+            }
+            return found
         }
 
         private func preparedClipboardText() -> NSAttributedString? {
@@ -1762,7 +1996,12 @@ private struct RichTextTextView: UIViewRepresentable {
                     }
                     if let plainText { return plainTextPaste(plainText) }
                     if let imported = Self.attributedRepresentation(htmlValue, documentType: .html) {
-                        return finalizedRichPaste(imported, plainText: nil, htmlData: Self.dataRepresentation(htmlValue))
+                        return finalizedRichPaste(
+                            imported,
+                            plainText: nil,
+                            htmlData: Self.dataRepresentation(htmlValue),
+                            sourceHTML: html
+                        )
                     }
                 }
 
@@ -1783,7 +2022,12 @@ private struct RichTextTextView: UIViewRepresentable {
                             tables,
                             in: normalizedAttributedLineEndings(richRepresentation)
                            ) {
-                            return finalizedRichPaste(enriched, plainText: plainText, htmlData: nil)
+                            return finalizedRichPaste(
+                                enriched,
+                                plainText: plainText,
+                                htmlData: nil,
+                                sourceHTML: item[UTType.html.identifier].flatMap(Self.stringRepresentation)
+                            )
                         }
                         return markdownTablePaste(normalized, tables: tables)
                     }
@@ -1792,19 +2036,22 @@ private struct RichTextTextView: UIViewRepresentable {
                 for (type, documentType) in richCandidates {
                     guard let raw = item[type],
                           let imported = Self.attributedRepresentation(raw, documentType: documentType) else { continue }
+                    let clipboardHTML = item[UTType.html.identifier].flatMap(Self.stringRepresentation)
                     return finalizedRichPaste(
                         imported,
                         plainText: plainText,
-                        htmlData: documentType == .html ? Self.dataRepresentation(raw) : nil
+                        htmlData: documentType == .html ? Self.dataRepresentation(raw) : nil,
+                        sourceHTML: clipboardHTML
                     )
                 }
 
                 guard let plainText else { continue }
                 if let markdownHTML = NativeRichTextMarkdown.htmlIfMarkdown(plainText) {
                     return finalizedRichPaste(
-                        RichTextTextView.attributed(from: markdownHTML),
+                        RichTextTextView.attributed(from: markdownHTML, noteFormatting: parent.noteFormatting),
                         plainText: plainText,
-                        htmlData: nil
+                        htmlData: nil,
+                        sourceHTML: markdownHTML
                     )
                 }
                 return plainTextPaste(plainText)
@@ -1815,7 +2062,8 @@ private struct RichTextTextView: UIViewRepresentable {
         private func finalizedRichPaste(
             _ source: NSAttributedString,
             plainText: String?,
-            htmlData: Data?
+            htmlData: Data?,
+            sourceHTML: String? = nil
         ) -> NSAttributedString {
             let richText = NSMutableAttributedString(attributedString: source)
             RichTextTextView.restoreNativeTables(in: richText)
@@ -1826,6 +2074,13 @@ private struct RichTextTextView: UIViewRepresentable {
                 in: richText,
                 semanticHeadingSizes: htmlData.map { RichTextTextView.semanticHeadingSizes(in: $0) } ?? [:]
             )
+            if parent.noteFormatting {
+                let markup = sourceHTML
+                    ?? htmlData.flatMap { String(data: $0, encoding: .utf8) }
+                    ?? plainText.flatMap(NativeRichTextMarkdown.htmlIfMarkdown)
+                let styled = RichTextTextView.applyingNoteParagraphFormatting(to: richText, sourceHTML: markup)
+                richText.setAttributedString(styled)
+            }
             return NativeRichTextDisplayRenderer.applyingTableAppearance(
                 to: richText,
                 appearance: parent.tableAppearance
@@ -1833,13 +2088,20 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         private func plainTextPaste(_ text: String) -> NSAttributedString {
-            NSAttributedString(
+            if parent.noteFormatting,
+               let markdownHTML = NativeRichTextMarkdown.htmlIfMarkdown(text) {
+                return RichTextTextView.attributed(from: markdownHTML, noteFormatting: true)
+            }
+            let plain = NSAttributedString(
                 string: text,
                 attributes: [
                     .font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize),
                     .foregroundColor: UIColor.label
                 ]
             )
+            return parent.noteFormatting
+                ? RichTextTextView.applyingNoteParagraphFormatting(to: plain, sourceHTML: nil)
+                : plain
         }
 
         private func prepareHTMLTablePaste(
@@ -1859,7 +2121,7 @@ private struct RichTextTextView: UIViewRepresentable {
                     table: RichTextTable(cells: parsed.cells, cellBoldRanges: parsed.boldRanges)
                 ))
             }
-            let imported = RichTextTextView.attributed(from: source as String)
+            let imported = RichTextTextView.attributed(from: source as String, noteFormatting: parent.noteFormatting)
             let richText = NSMutableAttributedString(attributedString: imported)
             RichTextTextView.restoreNativeTables(in: richText)
             for item in pending {
@@ -1872,6 +2134,9 @@ private struct RichTextTextView: UIViewRepresentable {
                 NativeRichTextPastePolicy.removeOnlyProvenBoundaryNewlines(from: richText, matching: plainText)
             }
             RichTextTextView.normalizePastedFonts(in: richText, semanticHeadingSizes: RichTextTextView.semanticHeadingSizes(in: Data(html.utf8)))
+            if parent.noteFormatting {
+                richText.setAttributedString(RichTextTextView.applyingNoteParagraphFormatting(to: richText, sourceHTML: html))
+            }
             return NativeRichTextDisplayRenderer.applyingTableAppearance(
                 to: richText,
                 appearance: parent.tableAppearance
@@ -1944,7 +2209,7 @@ private struct RichTextTextView: UIViewRepresentable {
 
         private func formattedTextSegment(_ text: String) -> NSAttributedString {
             guard let markdownHTML = NativeRichTextMarkdown.htmlIfMarkdown(text) else { return plainTextPaste(text) }
-            return RichTextTextView.attributed(from: markdownHTML)
+            return RichTextTextView.attributed(from: markdownHTML, noteFormatting: parent.noteFormatting)
         }
 
         private static func dataRepresentation(_ value: Any) -> Data? {
@@ -1998,6 +2263,7 @@ private struct RichTextTextView: UIViewRepresentable {
             view.selectedRange = range
             var restoreSelection = true
             var imageResult: Result<Void, NativeRichTextEditorError>?
+            var tableResult: Result<Void, NativeRichTextEditorError>?
             switch command {
             case .bold: toggleFontTrait(.traitBold, view: view, range: range)
             case .italic: toggleFontTrait(.traitItalic, view: view, range: range)
@@ -2016,7 +2282,9 @@ private struct RichTextTextView: UIViewRepresentable {
             case .numbers: numberParagraphs(view: view, range: range); restoreSelection = false
             case .todos: toggleParagraphPrefixes("☐ ", view: view, range: range); restoreSelection = false
             case .divider: insertDivider(view: view, range: range); restoreSelection = false
-            case let .table(table): upsertTable(table, view: view, range: range, target: tableEditTarget); restoreSelection = false
+            case let .table(table):
+                tableResult = upsertTable(table, view: view, target: tableEditTarget)
+                restoreSelection = false
             case let .image(dataURL, target):
                 imageResult = insertImage(dataURL, target: target, view: view)
                 restoreSelection = false
@@ -2035,6 +2303,10 @@ private struct RichTextTextView: UIViewRepresentable {
                     connectedSession?.setMediaOperationInProgress(false)
                 }
                 return imageResult
+            }
+            if let tableResult {
+                if case .success = tableResult { _ = publishNow(view) }
+                return tableResult
             }
             if documentRevision == revisionBeforeCommand { schedulePublish(view) }
             return nil
@@ -2116,9 +2388,10 @@ private struct RichTextTextView: UIViewRepresentable {
 
         private func openTableEditor(_ attachment: NativeTableAttachment, range: NSRange) {
             parent.selectedTable = attachment.table
-            parent.tableEditTarget = makeTableEditTarget(for: attachment, range: range)
+            let target = makeTableEditTarget(for: attachment, range: range)
+            parent.tableEditTarget = target
+            parent.tableEditorRequest = RichTextTableEditorRequest(table: attachment.table, target: target)
             parent.editorSession?.setAuxiliaryPanelPresented(true)
-            parent.tableEditor = attachment.table
         }
 
         private func makeTableEditTarget(for attachment: NativeTableAttachment, range: NSRange) -> RichTextTableEditTarget {
@@ -2126,14 +2399,18 @@ private struct RichTextTextView: UIViewRepresentable {
                 documentID: parent.editorDocumentID,
                 sessionID: parent.editorSessionID,
                 attachmentInstanceID: attachment.instanceID,
-                range: range
+                range: range,
+                revision: documentRevision
             )
         }
 
-        func updateNativeTableWidths(in textView: UITextView) {
+        func updateNativeTableWidths(in textView: UITextView, force: Bool = false) {
             let proposedWidth = availableTableWidth(in: textView)
             guard proposedWidth.isFinite, proposedWidth > 0,
                   textView.textStorage.length > 0 else { return }
+            if !force, let lastTableWidth, abs(proposedWidth - lastTableWidth) <= 0.5 { return }
+            lastTableWidth = proposedWidth
+            let updateStart = ProcessInfo.processInfo.systemUptime
             var updatedRanges: [NSRange] = []
             textView.textStorage.enumerateAttribute(
                 .attachment,
@@ -2143,14 +2420,23 @@ private struct RichTextTextView: UIViewRepresentable {
                       attachment.updateDisplayWidth(proposedWidth) else { return }
                 updatedRanges.append(range)
             }
-            guard !updatedRanges.isEmpty else { return }
+            guard !updatedRanges.isEmpty else {
+                if parent.noteFormatting, parent.editorSession != nil {
+                    LibraryPerformanceLog.markIfSlow("note.editor.table-width-update", since: updateStart)
+                }
+                return
+            }
             textView.textStorage.beginEditing()
             for range in updatedRanges {
                 textView.textStorage.edited(.editedAttributes, range: range, changeInLength: 0)
             }
             textView.textStorage.endEditing()
+            measuredHeightNeedsRefresh = true
             textView.invalidateIntrinsicContentSize()
             textView.setNeedsLayout()
+            if parent.noteFormatting, parent.editorSession != nil {
+                LibraryPerformanceLog.markIfSlow("note.editor.table-width-update", since: updateStart)
+            }
         }
 
         private func availableTableWidth(in textView: UITextView) -> CGFloat {
@@ -2239,6 +2525,10 @@ private struct RichTextTextView: UIViewRepresentable {
 
         private func toggleQuote(view: UITextView, range: NSRange) {
             let paragraphRange = (view.text as NSString).paragraphRange(for: range)
+            if parent.noteFormatting {
+                toggleNoteQuote(view: view, range: range, paragraphRange: paragraphRange)
+                return
+            }
             let current: NSParagraphStyle? = if view.attributedText.length > 0 {
                 view.attributedText.attribute(.paragraphStyle, at: min(paragraphRange.location, view.attributedText.length - 1), effectiveRange: nil) as? NSParagraphStyle
             } else {
@@ -2260,6 +2550,45 @@ private struct RichTextTextView: UIViewRepresentable {
                 view.textStorage.removeAttribute(.foregroundColor, range: paragraphRange)
             } else {
                 view.textStorage.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: paragraphRange)
+            }
+        }
+
+        private func toggleNoteQuote(view: UITextView, range: NSRange, paragraphRange: NSRange) {
+            let location = min(paragraphRange.location, max(0, view.attributedText.length - 1))
+            let attributes = view.attributedText.length > 0
+                ? view.attributedText.attributes(at: location, effectiveRange: nil)
+                : view.typingAttributes
+            let isQuoted = NativeRichTextNoteFormatting.isQuoted(attributes)
+            let style = (attributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            style.headIndent = isQuoted ? 0 : 12
+            style.firstLineHeadIndent = isQuoted ? 0 : 12
+            style.lineSpacing = 2
+            style.paragraphSpacingBefore = 0
+            style.paragraphSpacing = 0
+            if paragraphRange.length == 0 {
+                var typing = view.typingAttributes
+                typing[.paragraphStyle] = style
+                if isQuoted { typing.removeValue(forKey: NativeRichTextNoteFormatting.quoteKey) }
+                else { typing[NativeRichTextNoteFormatting.quoteKey] = true }
+                view.typingAttributes = typing
+            } else {
+                view.textStorage.addAttribute(.paragraphStyle, value: style, range: paragraphRange)
+                if isQuoted {
+                    view.textStorage.removeAttribute(NativeRichTextNoteFormatting.quoteKey, range: paragraphRange)
+                } else {
+                    view.textStorage.addAttribute(NativeRichTextNoteFormatting.quoteKey, value: true, range: paragraphRange)
+                }
+            }
+            if isQuoted {
+                var legacyQuoteColorRanges: [NSRange] = []
+                view.textStorage.enumerateAttribute(.foregroundColor, in: paragraphRange) { value, subrange, _ in
+                    if (value as? UIColor)?.isEqual(UIColor.secondaryLabel) == true {
+                        legacyQuoteColorRanges.append(subrange)
+                    }
+                }
+                for subrange in legacyQuoteColorRanges {
+                    view.textStorage.removeAttribute(.foregroundColor, range: subrange)
+                }
             }
         }
 
@@ -2407,25 +2736,63 @@ private struct RichTextTextView: UIViewRepresentable {
         private func upsertTable(
             _ table: RichTextTable,
             view: UITextView,
-            range: NSRange,
             target: RichTextTableEditTarget?
-        ) {
+        ) -> Result<Void, NativeRichTextEditorError> {
+            guard let target,
+                  target.sessionID == parent.editorSessionID,
+                  target.documentID == parent.editorDocumentID else {
+                return .failure(.editorSessionChanged)
+            }
             let availableWidth = availableTableWidth(in: view)
-            let attachment = NativeTableAttachment(table: table, displayWidth: availableWidth, appearance: parent.tableAppearance)
+            let attachment = NativeTableAttachment(
+                table: table,
+                instanceID: target.attachmentInstanceID ?? UUID(),
+                displayWidth: availableWidth,
+                appearance: parent.tableAppearance
+            )
             let replacement = NSMutableAttributedString(attributedString: NSAttributedString(attachment: attachment))
-            if let target {
-                guard target.sessionID == parent.editorSessionID,
-                      target.documentID == parent.editorDocumentID,
-                      target.range.location >= 0,
-                      NSMaxRange(target.range) <= view.textStorage.length,
-                      let existing = view.textStorage.attribute(.attachment, at: target.range.location, effectiveRange: nil) as? NativeTableAttachment,
-                      existing.instanceID == target.attachmentInstanceID else { return }
-                replaceAttributed(replacement, in: target.range, view: view)
+            if let attachmentID = target.attachmentInstanceID {
+                var matches: [NSRange] = []
+                view.textStorage.enumerateAttribute(
+                    .attachment,
+                    in: NSRange(location: 0, length: view.textStorage.length)
+                ) { value, range, _ in
+                    guard let existing = value as? NativeTableAttachment,
+                          existing.instanceID == attachmentID else { return }
+                    matches.append(range)
+                }
+                guard matches.count == 1, let existingRange = matches.first,
+                      replaceAttributed(replacement, in: existingRange, view: view) else {
+                    return .failure(.tableTargetChanged)
+                }
+                updateNativeTableWidths(in: view, force: true)
+                parent.tableEditTarget = RichTextTableEditTarget(
+                    documentID: target.documentID,
+                    sessionID: target.sessionID,
+                    attachmentInstanceID: attachment.instanceID,
+                    range: existingRange,
+                    revision: documentRevision
+                )
             } else {
+                guard target.revision == documentRevision,
+                      validSelection(target.range, in: view) else {
+                    return .failure(.tableTargetChanged)
+                }
                 replacement.append(NSAttributedString(string: "\n", attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)]))
-                replaceAttributed(replacement, in: range, view: view)
+                guard replaceAttributed(replacement, in: target.range, view: view) else {
+                    return .failure(.tableTargetChanged)
+                }
+                updateNativeTableWidths(in: view, force: true)
+                parent.tableEditTarget = RichTextTableEditTarget(
+                    documentID: target.documentID,
+                    sessionID: target.sessionID,
+                    attachmentInstanceID: attachment.instanceID,
+                    range: NSRange(location: target.range.location, length: 1),
+                    revision: documentRevision
+                )
             }
             parent.selectedTable = table
+            return .success(())
         }
 
         private func insertImage(
@@ -2529,7 +2896,7 @@ private struct RichTextTextView: UIViewRepresentable {
                 documentRevision: documentRevision
             )
             cachedSnapshot = snapshot
-            if parent.editorSession != nil {
+            if parent.noteFormatting, parent.editorSession != nil {
                 LibraryPerformanceLog.markIfSlow("note.editor.rich-text-snapshot", since: snapshotStart)
             }
             return snapshot
@@ -2538,8 +2905,8 @@ private struct RichTextTextView: UIViewRepresentable {
         private func currentHTML(_ view: UITextView) -> String {
             guard publishedRevision != documentRevision else { return publishedHTML }
             let htmlStart = ProcessInfo.processInfo.systemUptime
-            let html = RichTextTextView.html(from: view.attributedText)
-            if parent.editorSession != nil {
+            let html = RichTextTextView.html(from: view.attributedText, noteFormatting: parent.noteFormatting)
+            if parent.noteFormatting, parent.editorSession != nil {
                 LibraryPerformanceLog.markIfSlow("note.editor.html-export", since: htmlStart)
             }
             publishedHTML = html
@@ -2553,25 +2920,75 @@ private struct RichTextTextView: UIViewRepresentable {
             parent.html = html
         }
 
-        private func scheduleLayoutAndToolbarRefresh(_ view: UITextView, updatesToolbar: Bool) {
+        private func scheduleLayoutAndToolbarRefresh(
+            _ view: UITextView,
+            updatesToolbar: Bool,
+            updatesLayout: Bool = true
+        ) {
             pendingLayoutRefreshView = view
             layoutRefreshUpdatesToolbar = layoutRefreshUpdatesToolbar || updatesToolbar
+            layoutRefreshUpdatesLayout = layoutRefreshUpdatesLayout || updatesLayout
             guard !layoutRefreshScheduled else { return }
             layoutRefreshScheduled = true
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.layoutRefreshScheduled = false
                 let shouldUpdateToolbar = self.layoutRefreshUpdatesToolbar
+                let shouldUpdateLayout = self.layoutRefreshUpdatesLayout
                 self.layoutRefreshUpdatesToolbar = false
+                self.layoutRefreshUpdatesLayout = false
                 guard let view = self.pendingLayoutRefreshView else { return }
                 self.pendingLayoutRefreshView = nil
                 let refreshStart = ProcessInfo.processInfo.systemUptime
-                view.invalidateIntrinsicContentSize()
+                if shouldUpdateLayout {
+                    if !self.parent.noteFormatting || self.updateCachedNoteHeightFromTextKit(view) {
+                        view.invalidateIntrinsicContentSize()
+                    }
+                }
                 if shouldUpdateToolbar, view.markedTextRange == nil {
                     self.publishSelectionState(view)
                 }
-                if self.parent.editorSession != nil {
+                if self.parent.noteFormatting, self.parent.editorSession != nil {
                     LibraryPerformanceLog.markIfSlow("note.editor.layout-toolbar-refresh", since: refreshStart)
+                }
+            }
+        }
+
+        private func refreshNoteParagraphSpacing(near selection: NSRange, in view: UITextView) {
+            let text = view.text as NSString
+            guard text.length > 0 else { return }
+            let location = min(max(0, selection.location), text.length - 1)
+            let current = text.paragraphRange(for: NSRange(location: location, length: 0))
+            var ranges = [current]
+            if current.location > 0 {
+                ranges.append(text.paragraphRange(for: NSRange(location: current.location - 1, length: 0)))
+            }
+            for range in ranges where range.length > 0 && range.location < view.textStorage.length {
+                var paragraphStart = 0
+                var paragraphEnd = 0
+                var contentsEnd = 0
+                text.getParagraphStart(&paragraphStart, end: &paragraphEnd, contentsEnd: &contentsEnd, for: range)
+                let contentsRange = NSRange(location: paragraphStart, length: max(0, contentsEnd - paragraphStart))
+                let contents = text.substring(with: contentsRange).trimmingCharacters(in: .whitespacesAndNewlines)
+                let quoted = NativeRichTextNoteFormatting.isQuoted(view.attributedText, at: paragraphStart)
+                let nextRange = paragraphEnd < text.length
+                    ? text.paragraphRange(for: NSRange(location: paragraphEnd, length: 0))
+                    : NSRange(location: text.length, length: 0)
+                let nextText = nextRange.length > 0
+                    ? text.substring(with: nextRange).trimmingCharacters(in: .whitespacesAndNewlines)
+                    : ""
+                let nextQuoted = nextRange.length > 0 && NativeRichTextNoteFormatting.isQuoted(view.attributedText, at: nextRange.location)
+                let oldStyle = view.textStorage.attribute(.paragraphStyle, at: paragraphStart, effectiveRange: nil) as? NSParagraphStyle
+                let style = oldStyle?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+                style.lineSpacing = contents.isEmpty ? 0 : 2
+                style.paragraphSpacingBefore = 0
+                style.paragraphSpacing = !contents.isEmpty && !nextText.isEmpty && !(quoted && nextQuoted) ? 5 : 0
+                if quoted {
+                    style.headIndent = 12
+                    style.firstLineHeadIndent = 12
+                }
+                if oldStyle?.isEqual(style) != true {
+                    view.textStorage.addAttribute(.paragraphStyle, value: style, range: range)
                 }
             }
         }
@@ -2580,7 +2997,7 @@ private struct RichTextTextView: UIViewRepresentable {
             guard view.markedTextRange == nil else { return }
             let toolbarUpdateStart = ProcessInfo.processInfo.systemUptime
             defer {
-                if parent.editorSession != nil {
+                if parent.noteFormatting, parent.editorSession != nil {
                     LibraryPerformanceLog.markIfSlow("note.editor.format-toolbar-update", since: toolbarUpdateStart)
                 }
             }
@@ -2616,7 +3033,9 @@ private struct RichTextTextView: UIViewRepresentable {
                     let paragraphRange = (view.text as NSString).paragraphRange(for: range)
                     return paragraphRange.length > 0 && self.everyAttribute(in: paragraphRange, view: view) { $0[.backgroundColor] != nil }
                 } ?? false,
-                isQuoted: everyAttribute(in: range, view: view) { (($0[.paragraphStyle] as? NSParagraphStyle)?.headIndent ?? 0) >= 22 },
+                isQuoted: everyAttribute(in: range, view: view) {
+                    NativeRichTextNoteFormatting.isQuoted($0) || (($0[.paragraphStyle] as? NSParagraphStyle)?.headIndent ?? 0) >= 22
+                },
                 isBordered: abs((paragraph?.headIndent ?? 0) - 10) < 0.5 && abs((paragraph?.tailIndent ?? 0) + 10) < 0.5,
                 isBulleted: RichTextBulletStyle.allCases.contains { currentLine.hasPrefix($0.prefix) },
                 isNumbered: currentLine.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil,
@@ -2663,19 +3082,166 @@ private struct RichTextTextView: UIViewRepresentable {
         }
     }
 
-    fileprivate static func attributed(from value: String) -> NSAttributedString {
-        let source = !value.contains("<") ? (NativeRichTextMarkdown.htmlIfMarkdown(value) ?? value) : value
+    fileprivate static func attributed(from value: String, noteFormatting: Bool = false) -> NSAttributedString {
+        let noteSource = noteFormatting
+            ? value.replacingOccurrences(of: #"(?i)<br\s*/?>"#, with: "\u{2028}", options: .regularExpression)
+            : value
+        let source = !noteSource.contains("<") ? (NativeRichTextMarkdown.htmlIfMarkdown(noteSource) ?? noteSource) : noteSource
         if source.contains("<"), let data = source.data(using: .utf8), let result = try? NSMutableAttributedString(
             data: data, options: [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue], documentAttributes: nil
         ) {
             restoreNativeTables(in: result)
             normalizeFonts(in: result, semanticHeadingSizes: semanticHeadingSizes(in: data))
-            return result
+            return noteFormatting ? applyingNoteParagraphFormatting(to: result, sourceHTML: source) : result
         }
-        return NSAttributedString(string: value, attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)])
+        let plain = NSAttributedString(string: noteSource, attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)])
+        return noteFormatting ? applyingNoteParagraphFormatting(to: plain, sourceHTML: source) : plain
     }
 
-    private static func html(from value: NSAttributedString) -> String {
+    fileprivate static func applyingNoteParagraphFormatting(
+        to source: NSAttributedString,
+        sourceHTML: String?
+    ) -> NSAttributedString {
+        let result = NSMutableAttributedString(attributedString: source)
+
+        // Older note quotes stored a visible marker. Remove it only when both the
+        // old 24 pt indent and the marker are present, so ordinary text is untouched.
+        var legacyRanges: [NSRange] = []
+        enumerateParagraphRanges(in: result.string) { paragraphRange, contentsRange in
+            guard paragraphRange.location < result.length,
+                  let style = result.attribute(.paragraphStyle, at: paragraphRange.location, effectiveRange: nil) as? NSParagraphStyle,
+                  style.headIndent >= 22,
+                  contentsRange.length >= 2,
+                  (result.string as NSString).substring(with: NSRange(location: contentsRange.location, length: 2)) == "│ " else { return }
+            legacyRanges.append(paragraphRange)
+        }
+        for oldRange in legacyRanges.reversed() {
+            guard oldRange.location < result.length else { continue }
+            var paragraphRange = (result.string as NSString).paragraphRange(for: NSRange(location: oldRange.location, length: 0))
+            result.deleteCharacters(in: NSRange(location: paragraphRange.location, length: 2))
+            paragraphRange = (result.string as NSString).paragraphRange(for: NSRange(location: paragraphRange.location, length: 0))
+            guard result.length > 0, paragraphRange.length > 0 else { continue }
+            let style = (result.attribute(.paragraphStyle, at: min(paragraphRange.location, max(0, result.length - 1)), effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            style.headIndent = 12
+            style.firstLineHeadIndent = 12
+            result.addAttribute(.paragraphStyle, value: style, range: paragraphRange)
+            result.addAttribute(NativeRichTextNoteFormatting.quoteKey, value: true, range: paragraphRange)
+        }
+
+        if let sourceHTML,
+           let expression = try? NSRegularExpression(pattern: #"(?is)<blockquote\b[^>]*>(.*?)</blockquote\s*>"#) {
+            let sourceNSString = sourceHTML as NSString
+            let matches = expression.matches(in: sourceHTML, range: NSRange(location: 0, length: sourceNSString.length))
+            var searchLocation = 0
+            var sourceCursor = 0
+            for match in matches where match.numberOfRanges > 1 {
+                if match.range.location > sourceCursor {
+                    let prefixHTML = sourceNSString.substring(with: NSRange(location: sourceCursor, length: match.range.location - sourceCursor))
+                    if let prefixText = plainTextFromHTMLFragment(prefixHTML) {
+                        searchLocation = min(result.length, searchLocation + prefixText.utf16.count)
+                    }
+                }
+                sourceCursor = NSMaxRange(match.range)
+                let innerHTML = sourceNSString.substring(with: match.range(at: 1))
+                guard let quotedText = plainTextFromHTMLFragment(innerHTML)?.trimmingCharacters(in: .newlines) else { continue }
+                guard !quotedText.isEmpty, searchLocation <= result.length else { continue }
+                let fullText = result.string as NSString
+                let found = fullText.range(of: quotedText, options: [], range: NSRange(location: searchLocation, length: fullText.length - searchLocation))
+                guard found.location != NSNotFound else { continue }
+                markQuotedParagraphs(in: result, intersecting: found)
+                searchLocation = NSMaxRange(found)
+            }
+        }
+
+        let sourceText = result.string as NSString
+        enumerateParagraphRanges(in: result.string) { paragraphRange, contentsRange in
+            guard paragraphRange.length > 0, paragraphRange.location < result.length else { return }
+            let text = sourceText.substring(with: contentsRange).trimmingCharacters(in: .whitespacesAndNewlines)
+            let isEmpty = text.isEmpty
+            let quoted = NativeRichTextNoteFormatting.isQuoted(result, at: paragraphRange.location)
+            let nextRange = NSMaxRange(paragraphRange) < sourceText.length
+                ? sourceText.paragraphRange(for: NSRange(location: NSMaxRange(paragraphRange), length: 0))
+                : NSRange(location: sourceText.length, length: 0)
+            let nextText = nextRange.length > 0
+                ? sourceText.substring(with: nextRange).trimmingCharacters(in: .whitespacesAndNewlines)
+                : ""
+            let nextIsQuoted = nextRange.length > 0 && NativeRichTextNoteFormatting.isQuoted(result, at: nextRange.location)
+            let style = (result.attribute(.paragraphStyle, at: paragraphRange.location, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            style.lineSpacing = isEmpty ? 0 : 2
+            style.paragraphSpacingBefore = 0
+            style.paragraphSpacing = !isEmpty && !nextText.isEmpty && !(quoted && nextIsQuoted) ? 5 : 0
+            if quoted {
+                style.headIndent = 12
+                style.firstLineHeadIndent = 12
+                result.addAttribute(NativeRichTextNoteFormatting.quoteKey, value: true, range: paragraphRange)
+            } else {
+                result.removeAttribute(NativeRichTextNoteFormatting.quoteKey, range: paragraphRange)
+            }
+            result.addAttribute(.paragraphStyle, value: style, range: paragraphRange)
+        }
+        return result.copy() as? NSAttributedString ?? result
+    }
+
+    private static func plainTextFromHTMLFragment(_ html: String) -> String? {
+        let wrapperTags = try? NSRegularExpression(pattern: #"(?is)</?(html|head|body)\b[^>]*>|<meta\b[^>]*>|<!doctype[^>]*>"#)
+        let nonContentTags = try? NSRegularExpression(pattern: #"(?is)<(style|script)\b[^>]*>.*?</\1\s*>"#)
+        let source = html as NSString
+        let withoutStyles = nonContentTags?.stringByReplacingMatches(
+            in: html,
+            range: NSRange(location: 0, length: source.length),
+            withTemplate: ""
+        ) ?? html
+        let withoutStylesSource = withoutStyles as NSString
+        let cleaned = wrapperTags?.stringByReplacingMatches(
+            in: withoutStyles,
+            range: NSRange(location: 0, length: withoutStylesSource.length),
+            withTemplate: ""
+        ) ?? withoutStyles
+        let wrapped = "<html><head><meta charset=\"utf-8\"></head><body>\(cleaned)</body></html>"
+        guard let data = wrapped.data(using: .utf8),
+              let fragment = try? NSAttributedString(
+                data: data,
+                options: [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue],
+                documentAttributes: nil
+              ) else { return nil }
+        return fragment.string
+    }
+
+    private static func markQuotedParagraphs(in value: NSMutableAttributedString, intersecting range: NSRange) {
+        guard range.location >= 0, range.length > 0, range.location < value.length else { return }
+        let nsText = value.string as NSString
+        let limit = min(NSMaxRange(range), nsText.length)
+        var cursor = range.location
+        while cursor < limit {
+            let paragraphRange = nsText.paragraphRange(for: NSRange(location: cursor, length: 0))
+            guard paragraphRange.length > 0, paragraphRange.location < value.length else { break }
+            let style = (value.attribute(.paragraphStyle, at: paragraphRange.location, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            style.headIndent = 12
+            style.firstLineHeadIndent = 12
+            value.addAttribute(.paragraphStyle, value: style, range: paragraphRange)
+            value.addAttribute(NativeRichTextNoteFormatting.quoteKey, value: true, range: paragraphRange)
+            cursor = NSMaxRange(paragraphRange)
+        }
+    }
+
+    private static func enumerateParagraphRanges(
+        in value: String,
+        _ body: (NSRange, NSRange) -> Void
+    ) {
+        let source = value as NSString
+        var cursor = 0
+        while cursor < source.length {
+            var start = 0
+            var end = 0
+            var contentsEnd = 0
+            source.getParagraphStart(&start, end: &end, contentsEnd: &contentsEnd, for: NSRange(location: cursor, length: 0))
+            guard end > cursor else { break }
+            body(NSRange(location: start, length: end - start), NSRange(location: start, length: max(0, contentsEnd - start)))
+            cursor = end
+        }
+    }
+
+    private static func html(from value: NSAttributedString, noteFormatting: Bool = false) -> String {
         let serializable = NSMutableAttributedString(attributedString: value)
         var replacements: [(NSRange, String)] = []
         serializable.enumerateAttribute(.attachment, in: NSRange(location: 0, length: serializable.length)) { attribute, range, _ in
@@ -2686,8 +3252,72 @@ private struct RichTextTextView: UIViewRepresentable {
             else if let formula = attribute as? NativeFormulaAttachment, let marker = formula.marker { replacements.append((range, marker)) }
         }
         for (range, marker) in replacements.reversed() { serializable.replaceCharacters(in: range, with: marker) }
+        if noteFormatting { return noteHTML(from: serializable) }
         guard serializable.length > 0, let data = try? serializable.data(from: NSRange(location: 0, length: serializable.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.html]) else { return "" }
         return String(data: data, encoding: .utf8) ?? value.string
+    }
+
+    private static func noteHTML(from value: NSAttributedString) -> String {
+        guard value.length > 0 else { return "" }
+        let source = value.string as NSString
+        var output = ""
+        var cursor = 0
+        var isInsideQuote = false
+        while cursor < source.length {
+            var paragraphStart = 0
+            var paragraphEnd = 0
+            var contentsEnd = 0
+            source.getParagraphStart(&paragraphStart, end: &paragraphEnd, contentsEnd: &contentsEnd, for: NSRange(location: cursor, length: 0))
+            guard paragraphEnd > cursor else { break }
+            let paragraphRange = NSRange(location: paragraphStart, length: paragraphEnd - paragraphStart)
+            let contentRange = NSRange(location: paragraphStart, length: max(0, contentsEnd - paragraphStart))
+            let quoted = NativeRichTextNoteFormatting.isQuoted(value, at: paragraphStart)
+            let body: String
+            if contentRange.length == 0 {
+                body = "<p><br></p>"
+            } else {
+                let fragment = value.attributedSubstring(from: contentRange)
+                if let data = try? fragment.data(
+                    from: NSRange(location: 0, length: fragment.length),
+                    documentAttributes: [.documentType: NSAttributedString.DocumentType.html]
+                ), let html = String(data: data, encoding: .utf8) {
+                    let inner = htmlBody(from: html).trimmingCharacters(in: .whitespacesAndNewlines)
+                    body = inner.isEmpty ? "<p><br></p>" : wrappingInParagraphIfNeeded(inner)
+                } else {
+                    body = "<p>\(escapeHTML(fragment.string))</p>"
+                }
+            }
+            if quoted && !isInsideQuote { output += "<blockquote>" }
+            if !quoted && isInsideQuote { output += "</blockquote>" }
+            output += body
+            isInsideQuote = quoted
+            cursor = NSMaxRange(paragraphRange)
+        }
+        if isInsideQuote { output += "</blockquote>" }
+        return output
+    }
+
+    private static func htmlBody(from html: String) -> String {
+        guard let expression = try? NSRegularExpression(pattern: #"(?is)<body\b[^>]*>(.*?)</body\s*>"#) else { return html }
+        let full = html as NSString
+        let match = expression.firstMatch(in: html, range: NSRange(location: 0, length: full.length))
+        guard let match, match.numberOfRanges > 1 else { return html }
+        return full.substring(with: match.range(at: 1))
+    }
+
+    private static func wrappingInParagraphIfNeeded(_ html: String) -> String {
+        let trimmed = html.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let expression = try? NSRegularExpression(pattern: #"(?is)^<(p|div|h[1-6]|pre|ul|ol|blockquote|table)\b"#),
+              expression.firstMatch(in: trimmed, range: NSRange(location: 0, length: (trimmed as NSString).length)) == nil else {
+            return trimmed
+        }
+        return "<p>\(trimmed)</p>"
+    }
+
+    private static func escapeHTML(_ value: String) -> String {
+        value.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
     }
 
     private static func restoreNativeTables(in value: NSMutableAttributedString) {
@@ -2829,7 +3459,7 @@ private struct RichTextTextView: UIViewRepresentable {
 
 private final class NativeTableAttachment: NSTextAttachment, NSCopying {
     let table: RichTextTable
-    let instanceID = UUID()
+    let instanceID: UUID
     let appearance: NativeRichTextTableAppearance
     private let originalMarker: String?
     private(set) var displayWidth: CGFloat
@@ -2837,12 +3467,14 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
     init(
         table: RichTextTable,
         marker: String? = nil,
+        instanceID: UUID = UUID(),
         displayWidth: CGFloat = 440,
         appearance: NativeRichTextTableAppearance = .system
     ) {
         var normalizedTable = table
         normalizedTable.normalizeBoldRanges()
         self.table = normalizedTable
+        self.instanceID = instanceID
         self.appearance = appearance
         originalMarker = normalizedTable == table ? marker : nil
         self.displayWidth = max(80, displayWidth)
@@ -2856,11 +3488,11 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
     required init?(coder: NSCoder) { nil }
 
     func copy(with zone: NSZone? = nil) -> Any {
-        NativeTableAttachment(table: table, marker: originalMarker, displayWidth: displayWidth, appearance: appearance)
+        NativeTableAttachment(table: table, marker: originalMarker, instanceID: instanceID, displayWidth: displayWidth, appearance: appearance)
     }
 
     func replacingAppearance(_ appearance: NativeRichTextTableAppearance) -> NativeTableAttachment {
-        NativeTableAttachment(table: table, marker: originalMarker, displayWidth: displayWidth, appearance: appearance)
+        NativeTableAttachment(table: table, marker: originalMarker, instanceID: instanceID, displayWidth: displayWidth, appearance: appearance)
     }
 
     @discardableResult
@@ -3249,9 +3881,15 @@ private struct RichTextInternalLinkPicker: View {
 private struct RichTextTableEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var table: RichTextTable
-    let onSave: (RichTextTable) -> Void
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+    @FocusState private var focusedCell: Int?
+    let onSave: (RichTextTable, @escaping (Result<Void, NativeRichTextEditorError>) -> Void) -> Void
 
-    init(initial: RichTextTable, onSave: @escaping (RichTextTable) -> Void) {
+    init(
+        initial: RichTextTable,
+        onSave: @escaping (RichTextTable, @escaping (Result<Void, NativeRichTextEditorError>) -> Void) -> Void
+    ) {
         _table = State(initialValue: initial)
         self.onSave = onSave
     }
@@ -3267,6 +3905,8 @@ private struct RichTextTableEditor: View {
                                     .font(AppTheme.inputFont)
                                     .textFieldStyle(NativeTextFieldStyle())
                                     .frame(width: 130)
+                                    .focused($focusedCell, equals: row * 8 + column)
+                                    .disabled(isSaving)
                             }
                         }
                     }
@@ -3283,9 +3923,23 @@ private struct RichTextTableEditor: View {
                         tableButton("增加列", "rectangle.split.3x1") { addColumn() }
                         tableButton("删除列", "rectangle.split.2x1") { removeColumn() }
                     }
-                    Button("保存") { onSave(table); dismiss() }
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(AppTheme.auxiliaryFont)
+                            .foregroundStyle(AppTheme.danger)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: 320, alignment: .leading)
+                    }
+                    Button(action: save) {
+                        if isSaving {
+                            Label("正在保存…", systemImage: "hourglass")
+                        } else {
+                            Text("保存")
+                        }
+                    }
                         .buttonStyle(NativePrimaryButtonStyle())
                         .frame(maxWidth: 210)
+                        .disabled(isSaving)
                 }
                 .padding(14)
                 .background(.regularMaterial)
@@ -3293,6 +3947,7 @@ private struct RichTextTableEditor: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .disabled(isSaving)
                 }
             }
         }
@@ -3300,6 +3955,25 @@ private struct RichTextTableEditor: View {
 
     private func cellBinding(row: Int, column: Int) -> Binding<String> {
         Binding(get: { table.cells[row][column] }, set: { table.cells[row][column] = $0 })
+    }
+
+    private func save() {
+        guard !isSaving else { return }
+        isSaving = true
+        errorMessage = nil
+        focusedCell = nil
+        Task { @MainActor in
+            await Task.yield()
+            onSave(table) { result in
+                switch result {
+                case .success:
+                    dismiss()
+                case .failure(let error):
+                    isSaving = false
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
     }
 
     private func addRow() {
@@ -3325,6 +3999,7 @@ private struct RichTextTableEditor: View {
     private func tableButton(_ title: String, _ image: String, action: @escaping () -> Void) -> some View {
         Button(action: action) { Label(title, systemImage: image).font(AppTheme.auxiliaryFont).frame(maxWidth: .infinity) }
             .buttonStyle(NativeSecondaryButtonStyle())
+            .disabled(isSaving)
     }
 }
 

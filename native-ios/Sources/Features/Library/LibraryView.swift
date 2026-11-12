@@ -79,6 +79,14 @@ struct LibraryView: View {
                 selectedErrorType = .all
             }
         }
+        .onChange(of: hasUnclassifiedTypeAvailable) { _, isAvailable in
+            guard !isAvailable else { return }
+            if usesQuantityTypeFilter, selectedQuantityType == LibraryQuantityTypeSelectionPolicy.unclassifiedTitle {
+                selectedQuantityType = ""
+            } else if usesErrorTypeFilter, selectedErrorType == .unclassified {
+                selectedErrorType = .all
+            }
+        }
         .onChange(of: navigationPath) { _, path in
             let activeEditorKey: String? = path.last.flatMap { route in
                 guard case let .editor(kind, recordID) = route, let recordID else { return nil }
@@ -356,6 +364,8 @@ struct LibraryView: View {
         let visibleRecords = displayedRecords(from: renderedSnapshots)
         let visibleTags = showsCategoryControl && canShowCategoryControl ? availableTags(from: scopedRecords) : []
         let hasMoreVisibleRecords = renderLimit < tagFilteredRecords.count
+        let showsTypeFilterOptions = hasVisibleTypeFilterOptions
+        let typeFilterStartsImmediately = showsTypeFilterOptions && pendingSourceCount == 0 && !showSearch
         return VStack(spacing: 0) {
             header
             ScrollView {
@@ -389,9 +399,13 @@ struct LibraryView: View {
                         .padding(.horizontal, 10).frame(height: 36)
                         .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
                     }
-                    if isQuantityContext, kind == .errors || kind == .notes { quantityTypeBar }
-                    if kind == .errors, errorTypeSubject != nil { errorTypeBar }
-                    filterBar(availableTags: visibleTags)
+                    VStack(alignment: .leading, spacing: showsTypeFilterOptions ? 8 : 12) {
+                        if showsTypeFilterOptions {
+                            if usesQuantityTypeFilter { quantityTypeBar }
+                            if usesErrorTypeFilter { errorTypeBar }
+                        }
+                        filterBar(availableTags: visibleTags)
+                    }
                     if kind == .words { wordCategoryBar }
                     if kind == .notes, noteContext != nil { noteTypeBar }
                     if kind == .stickies, stickyContext != nil { stickyTagBar }
@@ -441,7 +455,9 @@ struct LibraryView: View {
                         .buttonStyle(NativeSecondaryButtonStyle())
                     }
                 }
-                .padding(14)
+                .padding(.horizontal, 14)
+                .padding(.top, typeFilterStartsImmediately ? 2 : 14)
+                .padding(.bottom, 14)
             }
             .contentMargins(.bottom, 12, for: .scrollContent)
         }
@@ -797,6 +813,47 @@ struct LibraryView: View {
     }
 
     private var isQuantityContext: Bool { scope.subject == "数量关系" && scope.module == nil }
+    private var usesQuantityTypeFilter: Bool {
+        isQuantityContext && (kind == .errors || kind == .notes)
+    }
+    private var usesErrorTypeFilter: Bool {
+        kind == .errors && errorTypeSubject != nil
+    }
+    private var hasVisibleTypeFilterOptions: Bool {
+        if usesQuantityTypeFilter {
+            return !quantityQuestionTypes.isEmpty || hasUnclassifiedTypeAvailable
+        }
+        if usesErrorTypeFilter {
+            return !errorTypes.isEmpty || hasUnclassifiedTypeAvailable
+        }
+        return false
+    }
+    private var hasUnclassifiedTypeAvailable: Bool {
+        guard usesQuantityTypeFilter || usesErrorTypeFilter else { return false }
+        let keyword = normalizedSearch(searchText)
+        let linkedWordNames = keyword.isEmpty ? [:] : snapshotCache.wordNames(in: records)
+        let examTitles = !keyword.isEmpty && scope.reviewSource == .mock
+            ? snapshotCache.examTitles(in: records)
+            : [:]
+        return recordListCache.hasVisibleUnclassifiedTypeRecord(
+            records: records,
+            kind: kind,
+            scope: scope,
+            selectedTag: selectedTag,
+            search: keyword,
+            includesMasteredErrors: includesMasteredErrors,
+            validErrorTypeIDs: Set(errorTypes.map(\.id)),
+            quantityTypes: Set(quantityQuestionTypes)
+        ) { record in
+            snapshotCache.snapshot(
+                record: record,
+                linkedWordNamesByID: linkedWordNames,
+                includeImages: includesQuestionImages(in: record),
+                reviewSource: scope.reviewSource,
+                sourceExamTitlesByID: examTitles
+            )
+        }
+    }
     private var cardSize: LibraryCardSize {
         get { LibraryCardSize(rawValue: storedCardSize) ?? .medium }
         set { storedCardSize = newValue.rawValue }
@@ -867,9 +924,7 @@ struct LibraryView: View {
     }
 
     private func normalizedSearch(_ value: String) -> String {
-        value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "zh_CN"))
+        LibrarySnapshotSearch.normalize(value)
     }
 
     private var quantityTypeBar: some View {
@@ -878,7 +933,9 @@ struct LibraryView: View {
                 ForEach(quantityQuestionTypes, id: \.self) { type in
                     quantityTypeChip(type, value: type)
                 }
-                quantityTypeChip("未分类", value: "未分类")
+                if hasUnclassifiedTypeAvailable {
+                    quantityTypeChip(LibraryQuantityTypeSelectionPolicy.unclassifiedTitle, value: LibraryQuantityTypeSelectionPolicy.unclassifiedTitle)
+                }
             }
         }
         .contentMargins(.horizontal, 1, for: .scrollContent)
@@ -902,7 +959,9 @@ struct LibraryView: View {
                         : type.name
                     errorTypeChip(title, filter: .type(type.id))
                 }
-                errorTypeChip("未分类", filter: .unclassified)
+                if hasUnclassifiedTypeAvailable {
+                    errorTypeChip("未分类", filter: .unclassified)
+                }
             }
         }
         .contentMargins(.horizontal, 1, for: .scrollContent)

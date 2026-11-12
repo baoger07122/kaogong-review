@@ -91,7 +91,10 @@ struct LibraryRecordDetailView: View {
     @StateObject private var noteSession = LibraryInlineNoteSession()
     @State private var redoAttempts: [String: LibraryRedoAttempt] = [:]
     @State private var showWordSelection = false
-    @State private var linkedWordCreationCategory: WordCategory?
+    @State private var showLinkedWordCreation = false
+    @State private var showVerbalKnowledgePointSelection = false
+    @State private var verbalKnowledgePointReferences: [LibraryKnowledgePointReference] = []
+    @State private var verbalKnowledgePointDisplaySelection = ""
     @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
     @State private var linkedQuestionBankContext: QuestionBankQuestionAnalysisContext?
     @State private var linkedQuestionFallbackObject: [String: Any] = [:]
@@ -212,12 +215,11 @@ struct LibraryRecordDetailView: View {
 
     private var detailSheets: some View {
         detailToolbarContainer
-            .sheet(item: $linkedWordCreationCategory) { category in
+            .sheet(isPresented: $showLinkedWordCreation) {
                 NavigationStack {
                     LibraryRecordEditorView(
                         kind: .words,
                         scope: LibraryScope(subject: "言语理解", module: "逻辑填空"),
-                        preferredType: category.rawValue,
                         onSaved: linkNewWord
                     )
                 }
@@ -638,6 +640,15 @@ struct LibraryRecordDetailView: View {
                 onDelete: { showDelete = false; onDelete(activeRecordKey) },
                 onCancel: { showDelete = false }
             )
+        } else if showVerbalKnowledgePointSelection {
+            VerbalReasoningKnowledgePointSelectionDialog(
+                currentModule: activeModule,
+                selection: $verbalKnowledgePointReferences,
+                legacyDisplaySelection: $verbalKnowledgePointDisplaySelection,
+                onClose: { showVerbalKnowledgePointSelection = false },
+                onTagMutation: applyDetailKnowledgePointMutation,
+                onCommit: saveDetailKnowledgePointReferences
+            )
         } else if showWordSelection {
             LibraryRelationSelectionDialog(
                 collection: "words",
@@ -649,9 +660,9 @@ struct LibraryRecordDetailView: View {
                 },
                 selection: linkedWordSelection,
                 onClose: { showWordSelection = false },
-                onCreateWord: { category in
+                onCreateWord: {
                     showWordSelection = false
-                    linkedWordCreationCategory = category
+                    showLinkedWordCreation = true
                 }
             )
         }
@@ -1378,8 +1389,25 @@ struct LibraryRecordDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             if canEditReviewAttributes {
                 Button {
-                    let key = attributeKey(for: label)
-                    beginAttributeEdit(key: key, label: label, value: cleanedValues.joined(separator: "、"))
+                    if kind == .errors, activeSubject == "言语理解", label == "考点" {
+                        let references = LibraryKnowledgePointReferencePolicy.references(
+                            from: object,
+                            fallbackValue: cleanedValues.joined(separator: "、")
+                        )
+                        let localNames = Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: activeModule, records: records))
+                        verbalKnowledgePointReferences = LibraryKnowledgePointReferencePolicy.resolvingLocalReferences(
+                            references,
+                            currentModule: activeModule,
+                            availableNames: localNames
+                        )
+                        verbalKnowledgePointDisplaySelection = LibraryKnowledgePointReferencePolicy
+                            .displayNames(from: verbalKnowledgePointReferences)
+                            .joined(separator: "、")
+                        showVerbalKnowledgePointSelection = true
+                    } else {
+                        let key = attributeKey(for: label)
+                        beginAttributeEdit(key: key, label: label, value: cleanedValues.joined(separator: "、"))
+                    }
                 } label: { row }
                     .buttonStyle(.plain)
                     .contentShape(Rectangle())
@@ -1858,6 +1886,57 @@ struct LibraryRecordDetailView: View {
         let inferredChoices = (rawValue is Bool || (rawValue as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() } == true)
             ? ["否", "是"] : choices
         editingAttribute = LibraryDetailAttribute(key: key, label: label, value: resolvedValue, choices: inferredChoices)
+    }
+
+    private func applyDetailKnowledgePointMutation(_ result: LibraryTagMutationResult) {
+        guard result.kind == .knowledgePoint,
+              let change = result.recordChanges.first(where: {
+                  $0.collection == "errors" && $0.recordID == activeRecordID
+              }),
+              let updated = (try? JSONSerialization.jsonObject(with: change.afterPayload)) as? [String: Any]
+        else { return }
+        refreshObject(updated)
+    }
+
+    private func saveDetailKnowledgePointReferences(_ references: [LibraryKnowledgePointReference]) -> String? {
+        guard let record, record.collection == "errors", activeSubject == "言语理解" else {
+            return "题目记录不存在，修改未保存。"
+        }
+        let localNames = Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: activeModule, records: records))
+        let resolvedReferences = LibraryKnowledgePointReferencePolicy.resolvingLocalReferences(
+            references,
+            currentModule: activeModule,
+            availableNames: localNames
+        )
+        let names = LibraryKnowledgePointReferencePolicy.displayNames(from: resolvedReferences)
+        var updated = object
+        updated["knowledgePointRefs"] = resolvedReferences.map(\.jsonValue)
+        updated["knowledgePoints"] = names
+        updated["knowledgePoint"] = names.first ?? ""
+        updated["updatedAt"] = ISO8601DateFormatter().string(from: .now)
+        guard JSONSerialization.isValidJSONObject(updated),
+              let payload = try? JSONSerialization.data(withJSONObject: updated, options: [.sortedKeys]) else {
+            return "考点数据格式无效，修改未保存。"
+        }
+
+        let previousPayload = record.payload
+        let previousIndexPayload = record.indexPayload
+        let previousUpdatedAt = record.updatedAt
+        let wasAutosaveEnabled = modelContext.autosaveEnabled
+        modelContext.autosaveEnabled = false
+        defer { modelContext.autosaveEnabled = wasAutosaveEnabled }
+        record.replacePayload(payload)
+        record.updatedAt = .now
+        do {
+            try modelContext.save()
+            refreshObject(updated)
+            return nil
+        } catch {
+            record.payload = previousPayload
+            record.indexPayload = previousIndexPayload
+            record.updatedAt = previousUpdatedAt
+            return "保存失败：\(error.localizedDescription)"
+        }
     }
 
     private func saveDetailAttribute(_ attribute: LibraryDetailAttribute, value: String) -> String? {

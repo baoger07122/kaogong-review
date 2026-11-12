@@ -418,6 +418,7 @@ struct LibraryInlineNoteView: View {
                     html: $draft,
                     minHeight: noteCanvasMinimumHeight,
                     documentStyle: true,
+                    noteFormatting: true,
                     focusOnAppear: true,
                     initialSelectionOffset: initialSelectionOffset,
                     initialSelectionWidth: initialSelectionWidth,
@@ -644,7 +645,7 @@ struct LibraryInlineNoteView: View {
             )
             return
         }
-        let result = NativeRichTextDisplayRenderer.render(key.html)
+        let result = NativeRichTextDisplayRenderer.render(key.html, noteFormatting: true)
         let editableAttributedText: NSAttributedString?
         if result.usedSafeFallback {
             let html = key.html
@@ -653,7 +654,11 @@ struct LibraryInlineNoteView: View {
             }.value
             guard !Task.isCancelled else { return }
             editableAttributedText = runs.flatMap {
-                NativeRichTextDisplayRenderer.editableAttributedText(from: $0)
+                guard let editable = NativeRichTextDisplayRenderer.editableAttributedText(from: $0) else { return nil }
+                return NativeRichTextDisplayRenderer.applyingNoteFormatting(
+                    to: NativeRichTextDisplayRenderResult(attributedText: editable, usedSafeFallback: true),
+                    sourceHTML: html
+                ).attributedText
             }
         } else {
             editableAttributedText = result.attributedText.copy() as? NSAttributedString ?? result.attributedText
@@ -661,10 +666,11 @@ struct LibraryInlineNoteView: View {
         guard !Task.isCancelled, !editing, key == noteRenderKey else { return }
         let displayResult: NativeRichTextDisplayRenderResult
         if result.usedSafeFallback, let editableAttributedText {
-            displayResult = NativeRichTextDisplayRenderResult(
+            let fallbackResult = NativeRichTextDisplayRenderResult(
                 attributedText: editableAttributedText,
                 usedSafeFallback: true
             )
+            displayResult = NativeRichTextDisplayRenderer.applyingNoteFormatting(to: fallbackResult, sourceHTML: key.html)
         } else {
             displayResult = result
         }
@@ -701,6 +707,7 @@ struct LibraryInlineNoteView: View {
                     preparedSnapshot: currentPreparedNote.result,
                     renderVersion: currentPreparedNote.key.rendererVersion,
                     minHeight: noteCanvasMinimumHeight,
+                    noteFormatting: true,
                     accessibilityIdentifier: "library-inline-note-display",
                     onFallback: {
                         displayWarning = currentPreparedNote.editableAttributedText == nil
@@ -740,6 +747,7 @@ struct LibraryInlineNoteView: View {
                 NativeRichTextDisplay(
                     html: storedNote,
                     minHeight: min(noteCanvasMinimumHeight, 160),
+                    noteFormatting: true,
                     accessibilityIdentifier: "library-inline-note-current-version"
                 )
                 .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -751,6 +759,7 @@ struct LibraryInlineNoteView: View {
             NativeRichTextDisplay(
                 html: draft,
                 minHeight: noteCanvasMinimumHeight,
+                noteFormatting: true,
                 accessibilityIdentifier: "library-inline-note-pending-draft",
                 onTapTextOffset: { offset, snapshot, width in
                     beginEditing(
@@ -1264,7 +1273,7 @@ struct LibraryInlineNoteView: View {
                 case .success(let version):
                     self.activeBaseVersion = version
                     self.activeBasePayload = self.currentRecordPayload()
-                    if let editorSnapshot, editorSnapshot.html == content {
+                    if !self.editing, let editorSnapshot, editorSnapshot.html == content {
                         let attributedText = editorSnapshot.attributedText
                         self.preparedNote = PreparedLibraryInlineNote(
                             key: self.noteRenderKey,

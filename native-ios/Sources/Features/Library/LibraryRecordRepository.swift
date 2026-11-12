@@ -46,6 +46,7 @@ struct LibraryRecordDraft {
     var content = ""
     var type = ""
     var knowledgePoint = ""
+    var knowledgePointRefs: [LibraryKnowledgePointReference] = []
     var errorCause = ""
     var errorTypeID: String?
     var centerComprehensionTrap = ""
@@ -156,6 +157,12 @@ struct LibraryRecordDraft {
         knowledgePoint = LibraryRecordDraft.text(original, keys: ["knowledgePoint"])
         if let values = original["knowledgePoints"] as? [String], !values.isEmpty {
             knowledgePoint = values.joined(separator: "、")
+        }
+        if subject == "言语理解", kind == .errors {
+            knowledgePointRefs = LibraryKnowledgePointReferencePolicy.references(
+                from: original,
+                fallbackValue: knowledgePoint
+            )
         }
         quantityErrorCauseIsAuthoritative = LibraryQuantityErrorCauseCompatibility.isAuthoritative(in: original)
         errorCause = kind == .errors && subject == "数量关系"
@@ -289,6 +296,7 @@ struct LibraryRecordDraft {
             && content == other.content
             && type == other.type
             && knowledgePoint == other.knowledgePoint
+            && knowledgePointRefs == other.knowledgePointRefs
             && errorCause == other.errorCause
             && errorTypeID == other.errorTypeID
             && centerComprehensionTrap == other.centerComprehensionTrap
@@ -522,10 +530,17 @@ enum LibraryRecordRepository {
         switch kind {
         case .errors:
             object["reviewSource"] = draft.reviewSource.rawValue
-            let knowledgePoints = draft.knowledgePoint
-                .split(whereSeparator: { "、,，".contains($0) })
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
+            let knowledgePoints: [String]
+            if draft.subject == "言语理解" {
+                let references = LibraryKnowledgePointReferencePolicy.uniqueReferences(draft.knowledgePointRefs)
+                knowledgePoints = LibraryKnowledgePointReferencePolicy.displayNames(from: references)
+                object["knowledgePointRefs"] = references.map(\.jsonValue)
+            } else {
+                knowledgePoints = draft.knowledgePoint
+                    .split(whereSeparator: { "、,，".contains($0) })
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+            }
             object["question"] = draft.title
             object["type"] = draft.type.isEmpty ? "错题" : draft.type
             object["note"] = draft.content

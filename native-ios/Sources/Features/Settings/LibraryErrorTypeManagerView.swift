@@ -1,8 +1,14 @@
 import SwiftData
 import SwiftUI
 
+private struct LibraryErrorTypeModuleSelection: Identifiable {
+    let module: String?
+    var id: String { module ?? "legacy" }
+}
+
 struct LibraryErrorTypeModulesView: View {
     @Query(filter: #Predicate<StoredRecord> { $0.collection == "keyvalue" }) private var records: [StoredRecord]
+    @State private var selectedModule: LibraryErrorTypeModuleSelection?
 
     private let subject = LibraryErrorTypeSubject.verbalReasoning
 
@@ -17,6 +23,18 @@ struct LibraryErrorTypeModulesView: View {
         }
         .navigationTitle(subject.managementTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $selectedModule) { selection in
+            NavigationStack {
+                LibraryErrorTypeManagerView(subject: subject, module: selection.module)
+                    .secondaryPageTabBarHidden()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("返回") { selectedModule = nil }
+                        }
+                    }
+            }
+            .presentationDetents([.large])
+        }
     }
 
     private func moduleLink(
@@ -24,9 +42,9 @@ struct LibraryErrorTypeModulesView: View {
         module: String? = nil,
         accessibilityID: String
     ) -> some View {
-        NavigationLink {
-            LibraryErrorTypeManagerView(subject: subject, module: module)
-                .secondaryPageTabBarHidden()
+        Button {
+            NativePerformanceLog.event("settings.error-types.module.tap module=\(module ?? "legacy")")
+            selectedModule = LibraryErrorTypeModuleSelection(module: module)
         } label: {
             HStack {
                 Text(title)
@@ -37,6 +55,7 @@ struct LibraryErrorTypeModulesView: View {
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .accessibilityIdentifier(accessibilityID)
         .accessibilityLabel(title)
         .accessibilityHint("打开\(title)错误类型管理")
@@ -51,6 +70,7 @@ struct LibraryErrorTypeManagerView: View {
     @State private var isEditing = false
     @State private var editingID: String?
     @State private var draftName = ""
+    @FocusState private var isNameFocused: Bool
     @State private var deletingType: LibraryErrorType?
     @State private var errorMessage: String?
 
@@ -92,10 +112,11 @@ struct LibraryErrorTypeManagerView: View {
                 NativeEditorDialog(
                     title: editingID == nil ? "新增错误类型" : "修改错误类型",
                     canSave: !draftName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                    onClose: { isEditing = false },
+                    onClose: finishEditing,
                     onSave: saveEditor
                 ) {
                     TextField("错误类型名称", text: $draftName).textFieldStyle(NativeTextFieldStyle())
+                        .focused($isNameFocused)
                 }
             } else if let deletingType {
                 NativeDeleteDialog(
@@ -115,6 +136,17 @@ struct LibraryErrorTypeManagerView: View {
             Button("好", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
+        }
+        .onAppear {
+            NativePerformanceLog.event("settings.error-types.manager.present module=\(module ?? "legacy")")
+        }
+        .onDisappear {
+            isNameFocused = false
+            isEditing = false
+            editingID = nil
+            draftName = ""
+            deletingType = nil
+            NativePerformanceLog.event("settings.error-types.manager.close module=\(module ?? "legacy")")
         }
     }
 
@@ -151,6 +183,14 @@ struct LibraryErrorTypeManagerView: View {
         editingID = type?.id
         draftName = type?.name ?? ""
         isEditing = true
+        isNameFocused = true
+    }
+
+    private func finishEditing() {
+        isNameFocused = false
+        isEditing = false
+        editingID = nil
+        draftName = ""
     }
 
     private func saveEditor() {
@@ -172,7 +212,7 @@ struct LibraryErrorTypeManagerView: View {
         } else {
             entries.append(LibraryErrorType(id: UUID().uuidString, name: name, module: module))
         }
-        if save(entries) { isEditing = false }
+        if save(entries) { finishEditing() }
     }
 
     private func move(from source: Int, to destination: Int) {
@@ -185,6 +225,7 @@ struct LibraryErrorTypeManagerView: View {
     private func save(_ entries: [LibraryErrorType]) -> Bool {
         do {
             try LibraryErrorTypeRepository.save(entries, for: subject, module: module, records: records, context: modelContext)
+            NativePerformanceLog.event("settings.error-types.saved module=\(module ?? "legacy")")
             return true
         } catch {
             errorMessage = error.localizedDescription

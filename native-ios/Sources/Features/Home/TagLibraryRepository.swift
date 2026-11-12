@@ -228,21 +228,51 @@ enum TagLibraryRepository {
         let mutationDate = Date.now
         var changes: [PendingRecordChange] = []
         for record in records where (record.collection == "errors" || record.collection == "notes") {
+            let objectSubject = record.subject ?? record.indexObject?["subject"] as? String ?? ""
+            let isVerbalErrorKnowledgePoint = kind == .knowledgePoint
+                && record.collection == "errors"
+                && objectSubject == "言语理解"
             let matchesModule = record.module == module
                 || (kind == .thinkingTrap && module == "数量关系-弱项" && record.subject == "数量关系")
-            guard matchesModule else { continue }
+            let hasSourceReference = isVerbalErrorKnowledgePoint
+                && (record.jsonObject?["knowledgePointRefs"] as? [[String: Any]] ?? []).contains {
+                    ($0["module"] as? String) == module && ($0["name"] as? String) == oldName
+                }
+            guard isVerbalErrorKnowledgePoint ? (matchesModule || hasSourceReference) : matchesModule else { continue }
             guard var object = record.jsonObject else { continue }
             var changed = false
             if kind == .knowledgePoint {
-                if var values = object["knowledgePoints"] as? [String], values.contains(oldName) {
-                    values = replacing(oldName, with: newName, in: values)
-                    object["knowledgePoints"] = values
-                    changed = true
-                }
-                if let value = object["knowledgePoint"] as? String,
-                   let updated = replacing(oldName, with: newName, in: value, separator: "、") {
-                    object["knowledgePoint"] = updated
-                    changed = true
+                if isVerbalErrorKnowledgePoint {
+                    let localNames = Set(tags(kind: .knowledgePoint, module: module, records: records))
+                    let references = LibraryKnowledgePointReferencePolicy.resolvingLocalReferences(
+                        LibraryKnowledgePointReferencePolicy.references(from: object),
+                        currentModule: module,
+                        availableNames: localNames
+                    )
+                    let updatedReferences = references.compactMap { reference -> LibraryKnowledgePointReference? in
+                        guard reference.module == module, reference.name == oldName else { return reference }
+                        guard let newName else { return nil }
+                        return LibraryKnowledgePointReference(module: module, name: newName)
+                    }
+                    if updatedReferences != references {
+                        let uniqueReferences = LibraryKnowledgePointReferencePolicy.uniqueReferences(updatedReferences)
+                        let names = LibraryKnowledgePointReferencePolicy.displayNames(from: uniqueReferences)
+                        object["knowledgePointRefs"] = uniqueReferences.map(\.jsonValue)
+                        object["knowledgePoints"] = names
+                        object["knowledgePoint"] = names.first ?? ""
+                        changed = true
+                    }
+                } else {
+                    if var values = object["knowledgePoints"] as? [String], values.contains(oldName) {
+                        values = replacing(oldName, with: newName, in: values)
+                        object["knowledgePoints"] = values
+                        changed = true
+                    }
+                    if let value = object["knowledgePoint"] as? String,
+                       let updated = replacing(oldName, with: newName, in: value, separator: "、") {
+                        object["knowledgePoint"] = updated
+                        changed = true
+                    }
                 }
             } else if kind == .errorCause {
                 if record.subject == "数量关系" {

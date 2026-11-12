@@ -4,6 +4,14 @@ extension Notification.Name {
     static let legacyBackupRestoreDidComplete = Notification.Name("LegacyBackupRestoreDidComplete")
 }
 
+enum LibrarySnapshotSearch {
+    static func normalize(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "zh_CN"))
+    }
+}
+
 /// Keeps parsed card data stable while a navigation transition redraws the library root.
 /// SwiftData records are read only on the main thread that owns the view's ModelContext.
 final class LibrarySnapshotCache {
@@ -209,10 +217,23 @@ final class LibraryRecordListCache {
         let examTitleRevision: Int
     }
 
+    private struct UnclassifiedAvailabilityQuery: Equatable {
+        let records: [RecordRevision]
+        let kind: LibraryContentKind
+        let scope: LibraryScope
+        let selectedTag: String
+        let search: String
+        let includesMasteredErrors: Bool
+        let validErrorTypeIDs: Set<String>
+        let quantityTypes: Set<String>
+    }
+
     private var sortedQuery: Query?
     private var sortedRecords: [StoredRecord] = []
     private var errorSequenceQuery: ErrorSequenceQuery?
     private var errorSequence: [String] = []
+    private var unclassifiedAvailabilityQuery: UnclassifiedAvailabilityQuery?
+    private var cachedUnclassifiedAvailability = false
     private var tagRevisions: [RecordRevision]?
     private var tagsByRecord: [String: [String]] = [:]
     private var quantityTypesRevision: [RecordRevision]?
@@ -305,6 +326,58 @@ final class LibraryRecordListCache {
         return errorSequence
     }
 
+    func hasVisibleUnclassifiedTypeRecord(
+        records: [StoredRecord],
+        kind: LibraryContentKind,
+        scope: LibraryScope,
+        selectedTag: String,
+        search: String,
+        includesMasteredErrors: Bool,
+        validErrorTypeIDs: Set<String>,
+        quantityTypes: Set<String>,
+        buildSnapshot: (StoredRecord) -> LibraryRecordSnapshot
+    ) -> Bool {
+        let query = UnclassifiedAvailabilityQuery(
+            records: records.map(RecordRevision.init),
+            kind: kind,
+            scope: scope,
+            selectedTag: selectedTag,
+            search: search,
+            includesMasteredErrors: includesMasteredErrors,
+            validErrorTypeIDs: validErrorTypeIDs,
+            quantityTypes: quantityTypes
+        )
+        guard unclassifiedAvailabilityQuery != query else { return cachedUnclassifiedAvailability }
+
+        let isQuantityContext = scope.subject == "数量关系" && scope.module == nil
+            && (kind == .errors || kind == .notes)
+        let reviewSources = reviewSourceCache.classifications(for: records)
+        cachedUnclassifiedAvailability = records.contains { record in
+            guard record.collection == kind.collection,
+                  scope.contains(record),
+                  (kind == .words || reviewSources[record.compoundID] == scope.reviewSource)
+            else { return false }
+
+            if isQuantityContext {
+                guard !quantityTypes.contains(record.module ?? "") else { return false }
+            } else {
+                guard kind == .errors,
+                      LibraryErrorTypeFilter.unclassified.includes(
+                        record.indexObject?["errorTypeID"] as? String,
+                        validIDs: validErrorTypeIDs
+                      ) else { return false }
+            }
+
+            let snapshot = buildSnapshot(record)
+            guard selectedTag.isEmpty || snapshot.tags.contains(selectedTag) else { return false }
+            guard search.isEmpty || LibrarySnapshotSearch.normalize(snapshot.searchableText).contains(search) else { return false }
+            guard kind != .errors || includesMasteredErrors || snapshot.status != "已掌握" else { return false }
+            return true
+        }
+        unclassifiedAvailabilityQuery = query
+        return cachedUnclassifiedAvailability
+    }
+
     func tagIndex(
         for records: [StoredRecord],
         buildTags: (StoredRecord) -> [String]
@@ -324,6 +397,8 @@ final class LibraryRecordListCache {
         quantityTypesValue.removeAll()
         errorSequenceQuery = nil
         errorSequence.removeAll()
+        unclassifiedAvailabilityQuery = nil
+        cachedUnclassifiedAvailability = false
         tagRevisions = nil
         tagsByRecord.removeAll()
     }
