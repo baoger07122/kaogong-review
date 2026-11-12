@@ -362,8 +362,8 @@ struct NativeRichTextEditor: View {
                     height: keyboardAccessoryHeight
                 ),
                 growsWithContent: documentStyle,
-                minimumContentHeight: documentStyle ? minHeight : 0,
                 tableAppearance: tableAppearance,
+                minimumContentHeight: documentStyle ? minHeight : 0,
                 focusOnAppear: focusOnAppear,
                 initialSelectionOffset: initialSelectionOffset,
                 initialSelectionWidth: initialSelectionWidth,
