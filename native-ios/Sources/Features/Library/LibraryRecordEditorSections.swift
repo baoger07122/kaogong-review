@@ -546,7 +546,7 @@ private struct LibraryErrorAnalysisSection: View {
             Label("题型分析", systemImage: "tag").font(.system(size: 13, weight: .medium))
             quantityTextInput(title: "题目结构", placeholder: "例如：矩形边界植树", text: $draft.quantityStructure)
             quantityTagInput(title: "考点", value: draft.knowledgePoint) { showQuantityKnowledgePoints = true }
-            plainTextInput(label: "错因", text: quantityErrorCause)
+            LibraryMultilinePlainTextInput(label: "错因", text: quantityErrorCause)
             plainTextInput(label: "提醒", text: $draft.reminder)
         }
         .padding(14)
@@ -559,11 +559,11 @@ private struct LibraryErrorAnalysisSection: View {
             Label("\(knowledgeLabel)与\(causeLabel)", systemImage: "tag").font(.system(size: 13, weight: .medium))
             tagInput(title: knowledgeLabel, text: $draft.knowledgePoint, allowsMultiple: true, showsChevron: false)
             if isDataAnalysis || isLogicFill {
-                plainTextInput(label: "错因", text: $draft.errorCause)
+                LibraryMultilinePlainTextInput(label: "错因", text: $draft.errorCause)
             } else if isAnalogy {
-                plainTextInput(label: causeLabel, text: $draft.errorCause)
+                LibraryMultilinePlainTextInput(label: causeLabel, text: $draft.errorCause)
             } else {
-                plainTextInput(label: causeLabel, text: $draft.errorCause)
+                LibraryMultilinePlainTextInput(label: causeLabel, text: $draft.errorCause)
             }
             if !isLogicFill {
                 plainTextInput(label: isDataAnalysis ? "陷阱" : "思维误区", text: $draft.pitfall)
@@ -737,6 +737,41 @@ struct LibraryPlainTextInput: View {
                 .frame(minHeight: 22)
         }
         .padding(.horizontal, 10).padding(.vertical, 8).frame(minHeight: 38)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.1), lineWidth: 0.7))
+    }
+}
+
+struct LibraryMultilinePlainTextInput: View {
+    let label: String
+    @Binding var text: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .frame(width: 66, alignment: .leading)
+                .padding(.top, 8)
+            ZStack(alignment: .topLeading) {
+                if text.isEmpty {
+                    Text("可留空")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.tertiary)
+                        .padding(.top, 8)
+                        .padding(.leading, 5)
+                        .allowsHitTesting(false)
+                }
+                TextEditor(text: $text)
+                    .font(.system(size: 12.5, weight: .regular))
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 74, maxHeight: 130)
+                    .accessibilityIdentifier("library-error-cause-multiline-editor")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.primary.opacity(0.1), lineWidth: 0.7))
     }

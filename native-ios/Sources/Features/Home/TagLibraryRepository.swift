@@ -33,8 +33,7 @@ struct LibraryTagMutationResult: Equatable {
 enum TagLibraryRepository {
     static func tags(kind: ManagedTagKind, module: String, records: [StoredRecord]) -> [String] {
         let library = load(kind: kind, records: records)
-        let values = library[module] ?? []
-        return kind == .knowledgePoint ? KnowledgePointNameSorter.sorted(values) : values
+        return library[module] ?? []
     }
 
     static func add(_ name: String, kind: ManagedTagKind, module: String, records: [StoredRecord], context: ModelContext) throws {
@@ -68,6 +67,17 @@ enum TagLibraryRepository {
         values.swapAt(index, destination)
         library[module] = values
         try save(library, kind: kind, records: records, context: context)
+    }
+
+    static func reorderKnowledgePoints(
+        _ names: [String], module: String, records: [StoredRecord], context: ModelContext
+    ) throws {
+        var library = loadWithDefaults(kind: .knowledgePoint, records: records)
+        let existing = library[module] ?? []
+        guard names.count == existing.count, Set(names) == Set(existing) else { return }
+        guard names != existing else { return }
+        library[module] = names
+        try save(library, kind: .knowledgePoint, records: records, context: context)
     }
 
     @discardableResult

@@ -16,6 +16,7 @@ struct KnowledgePointManagerView: View {
     @State private var draftName = ""
     @State private var deletingName: String?
     @State private var errorMessage: String?
+    @State private var showsOrder = false
 
     private var tags: [String] { TagLibraryRepository.tags(kind: kind, module: module, records: records) }
     private var availableModules: [String] {
@@ -59,6 +60,10 @@ struct KnowledgePointManagerView: View {
                 HStack {
                     Text("\(module) · \(kind.rawValue)").font(AppTheme.sectionTitleFont)
                     Spacer()
+                    if kind == .knowledgePoint {
+                        Button("调整顺序") { showsOrder = true }
+                            .font(AppTheme.inputFont.weight(.semibold))
+                    }
                     Button { beginAdd() } label: { Label("新增", systemImage: "plus") }
                         .font(AppTheme.inputFont.weight(.semibold))
                 }
@@ -114,6 +119,7 @@ struct KnowledgePointManagerView: View {
                 )
             }
         }
+        .sheet(isPresented: $showsOrder) { KnowledgePointOrderView(module: module) }
     }
 
     private func selector(title: String, value: String) -> some View {

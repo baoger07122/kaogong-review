@@ -32,5 +32,9 @@ enum LibraryDataAnalysisCauseLayoutBehavior {
             label: "错因", values: [String(repeating: "计算过程需要仔细核对", count: 5)], width: 140
         )
         precondition(longCause > narrowLine, "accounts for a long cause wrapping inside its tag")
+
+        let longQuestion = String(repeating: "甲", count: 80) + "______" + String(repeating: "乙", count: 80)
+        let preview = LibraryLogicComparisonLayout.preview(longQuestion)
+        precondition(preview.count == 88, "keeps forty characters around the blank so the four-line card can fill its available summary")
     }
 }

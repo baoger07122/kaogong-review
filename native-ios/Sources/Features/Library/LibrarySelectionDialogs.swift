@@ -18,19 +18,20 @@ struct LibraryTagSelectionDialog: View {
     @State private var renaming: String?
     @State private var newName = ""
     @State private var deleting: String?
+    @State private var showsKnowledgePointOrder = false
 
     private var maximum: Int { maximumOverride ?? (kind == .knowledgePoint ? 3 : 1) }
     private var names: [String] {
         var values = TagLibraryRepository.tags(kind: kind, module: module, records: records)
         for value in selected where !values.contains(value) { values.append(value) }
-        return kind == .knowledgePoint ? KnowledgePointNameSorter.sorted(values) : values
+        return values
     }
     private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
         NativeEditorDialog(title: "选择\(titleOverride ?? kind.rawValue)", canSave: selected.count <= maximum,
             actionTitle: "确定", onClose: onClose, onSave: {
-                selection = selected.joined(separator: "、")
+                selection = orderedSelected.joined(separator: "、")
                 onClose()
             }) {
             VStack(alignment: .leading, spacing: 10) {
@@ -43,6 +44,9 @@ struct LibraryTagSelectionDialog: View {
                 HStack {
                     Text("已选 \(selected.count)/\(maximum) · 长按标签可重命名或删除")
                     Spacer()
+                    if kind == .knowledgePoint {
+                        Button("管理顺序") { showsKnowledgePointOrder = true }
+                    }
                     Button("清空选择") { selected = [] }
                 }.font(.system(size: 11)).foregroundStyle(.secondary)
                 ScrollView {
@@ -71,6 +75,7 @@ struct LibraryTagSelectionDialog: View {
             }
         }
         .onAppear { selected = split(selection) }
+        .sheet(isPresented: $showsKnowledgePointOrder) { KnowledgePointOrderView(module: module) }
         .alert("重命名标签", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("标签名称", text: $newName)
             Button("保存") { renameTag() }
@@ -85,6 +90,10 @@ struct LibraryTagSelectionDialog: View {
     private func split(_ value: String) -> [String] {
         guard !value.isEmpty else { return [] }
         return maximum > 1 ? value.split(whereSeparator: { "、,，".contains($0) }).map(String.init) : [value]
+    }
+    private var orderedSelected: [String] {
+        guard kind == .knowledgePoint else { return selected }
+        return names.filter { selected.contains($0) }
     }
     private func toggle(_ name: String) {
         message = nil
@@ -201,6 +210,7 @@ struct QuantityKnowledgePointSelectionDialog: View {
     @State private var renaming: String?
     @State private var newName = ""
     @State private var deleting: String?
+    @State private var showsOrder = false
 
     private var activeType: String { browsingType.isEmpty ? currentType : browsingType }
     private var questionTypes: [String] { QuantityQuestionTypeRepository.types(records: records) }
@@ -215,13 +225,13 @@ struct QuantityKnowledgePointSelectionDialog: View {
             canSave: true,
             actionTitle: "确定",
             onClose: onClose,
-            onSave: { selection = selected.joined(separator: "、"); onClose() }
+            onSave: { selection = orderedSelected.joined(separator: "、"); onClose() }
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 if !selected.isEmpty {
                     Text("已选考点").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
                     NativeTagFlow(spacing: 6) {
-                        ForEach(KnowledgePointNameSorter.sorted(selected), id: \.self) { name in
+                        ForEach(orderedSelected, id: \.self) { name in
                             Button { selected.removeAll { $0 == name } } label: {
                                 Label(name, systemImage: "xmark")
                                     .font(.system(size: 11, weight: .medium))
@@ -272,6 +282,12 @@ struct QuantityKnowledgePointSelectionDialog: View {
                         .disabled(query.isEmpty || activeType.isEmpty || names.contains(query))
                 }
 
+                HStack {
+                    Spacer()
+                    Button("管理顺序") { showsOrder = true }
+                        .font(.system(size: 11, weight: .semibold))
+                }
+
                 ScrollView {
                     NativeTagFlow(spacing: 6) {
                         ForEach(names.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }, id: \.self) { name in
@@ -300,6 +316,7 @@ struct QuantityKnowledgePointSelectionDialog: View {
             selected = selection.split(whereSeparator: { "、,，".contains($0) }).map(String.init)
             browsingType = currentType
         }
+        .sheet(isPresented: $showsOrder) { KnowledgePointOrderView(module: activeType) }
         .alert("重命名考点", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("考点名称", text: $newName)
             Button("保存") { renameTag() }
@@ -314,6 +331,11 @@ struct QuantityKnowledgePointSelectionDialog: View {
     private func toggle(_ name: String) {
         if selected.contains(name) { selected.removeAll { $0 == name } }
         else { selected.append(name) }
+    }
+
+    private var orderedSelected: [String] {
+        let orderedNames = TagLibraryRepository.tags(kind: .knowledgePoint, module: activeType, records: records)
+        return orderedNames.filter { selected.contains($0) } + selected.filter { !orderedNames.contains($0) }
     }
 
     private func addTag() {

@@ -477,17 +477,7 @@ struct LibraryView: View {
                 reviewSourceSelector
                 Spacer(minLength: 0)
                 if kind == .errors {
-                    Button {
-                        redoPracticeEnabled.toggle()
-                    } label: {
-                        Text(redoPracticeEnabled ? "刷" : "看")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(redoPracticeEnabled ? AppTheme.accent : Color.secondary)
-                            .frame(width: 44, height: 44)
-                            .background(Color.white, in: Capsule())
-                            .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
+                    LibraryReadingModeToggle(isRedoPractice: $redoPracticeEnabled)
                     .accessibilityLabel(redoPracticeEnabled ? "默认刷题模式" : "默认看题模式")
                 }
                 headerMenu

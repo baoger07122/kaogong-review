@@ -62,7 +62,7 @@ enum LibraryLogicComparisonLayout {
             : values
     }
 
-    static func preview(_ text: String, contextLength: Int = 24) -> String {
+    static func preview(_ text: String, contextLength: Int = 40) -> String {
         let pattern = #"_{2,}|＿{2,}|（\s*）|\(\s*\)|\[\s*\]"#
         guard let range = text.range(of: pattern, options: .regularExpression) else { return text }
         let start = text.index(range.lowerBound, offsetBy: -contextLength, limitedBy: text.startIndex) ?? text.startIndex

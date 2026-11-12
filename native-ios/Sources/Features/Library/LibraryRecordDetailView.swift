@@ -664,17 +664,7 @@ struct LibraryRecordDetailView: View {
                 .disabled(doodleSession.isPresented || !canOpenDoodle)
                 .accessibilityHidden(doodleSession.isPresented)
 
-            if supportsRedoMode {
-                Button(action: toggleRedoMode) {
-                    Text(redoPracticeEnabled ? "刷" : "看")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(redoPracticeEnabled ? AppTheme.accent : Color.secondary)
-                        .frame(width: 44, height: 44)
-                        .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(redoPracticeEnabled ? "切换到看题模式" : "切换到刷题模式")
-            }
+            LibraryReadingModeToggle(isRedoPractice: $redoPracticeEnabled, isEnabled: supportsRedoMode)
 
             ZStack {
                 questionActionsMenu
@@ -721,6 +711,7 @@ struct LibraryRecordDetailView: View {
 
     private var doodleToolbarButton: some View {
         Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
+            .foregroundStyle(AppTheme.accent)
             .buttonStyle(LibraryDoodleToolbarButtonStyle())
             .accessibilityLabel("涂鸦")
             .disabled(!canOpenDoodle)
@@ -2583,7 +2574,7 @@ private struct LibraryDataAnalysisCauseEditor: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
-                LibraryPlainTextInput(label: "错因", text: $value)
+                LibraryMultilinePlainTextInput(label: "错因", text: $value)
                     .padding(12)
                     .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 0.8))

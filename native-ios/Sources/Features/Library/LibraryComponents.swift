@@ -363,18 +363,7 @@ struct LibraryRecordCard: View {
     }
 
     private func quantityTagLine(label: String, values: [String]) -> some View {
-        HStack(alignment: .top, spacing: 5) {
-            Text("\(label)：").font(.system(size: 11, weight: .medium)).padding(.top, 3)
-            NativeTagFlow(spacing: 5) {
-                ForEach(values, id: \.self) { value in
-                    Text(value)
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(AppTheme.accent)
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(AppTheme.accent.opacity(0.09), in: Capsule())
-                }
-            }
-        }
+        LibraryKnowledgePointTagCloud(points: values, label: label)
     }
 
     private static let cardDateFormatter: DateFormatter = {
@@ -436,7 +425,7 @@ private struct LibraryErrorRecordCard: View {
                 .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(Color.primary)
                 .lineSpacing(2.5)
-                .lineLimit(isDataAnalysisComposite ? 2 : size.questionLineLimit)
+                .lineLimit(isLogicFill ? 4 : (isDataAnalysisComposite ? 2 : size.questionLineLimit))
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if !isDataAnalysisComposite, isAnalogyReasoning, !snapshot.options.isEmpty {
@@ -683,36 +672,22 @@ private struct LibraryErrorRecordCard: View {
 
     @ViewBuilder
     private var questionKnowledgeHeader: some View {
-        let points = snapshot.knowledgePoints.joined(separator: " | ")
         if isQuantityRelations {
             VStack(alignment: .leading, spacing: 6) {
                 if showsQuantityTypeInHeader {
                     knowledgeHeaderTag(quantityQuestionTypeTitle)
                 }
-                if !points.isEmpty {
-                    knowledgePointsLine(points)
+                if !snapshot.knowledgePoints.isEmpty {
+                    knowledgePointsLine(snapshot.knowledgePoints)
                 }
             }
-        } else if !points.isEmpty {
-            knowledgePointsLine(points)
+        } else if !snapshot.knowledgePoints.isEmpty {
+            knowledgePointsLine(snapshot.knowledgePoints)
         }
     }
 
-    private func knowledgePointsLine(_ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: "lightbulb.min")
-                .font(.system(size: 11, weight: .light))
-                .foregroundStyle(Color.black)
-            Text(value)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color(red: 34 / 255.0, green: 34 / 255.0, blue: 34 / 255.0))
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).stroke(Color.primary.opacity(0.15), lineWidth: 0.75))
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    private func knowledgePointsLine(_ values: [String]) -> some View {
+        LibraryKnowledgePointTagCloud(points: values, showsBulb: true)
     }
 
     private func knowledgeHeaderTag(_ value: String) -> some View {
@@ -1349,23 +1324,21 @@ struct LibraryMasonryGrid: View {
             && SubjectModuleTitle.normalized(record.module) == "逻辑填空"
         let isAnalogyReasoning = record.record.subject == "判断推理" && record.record.module == "类比推理"
         let contentWidth = max(1, availableWidth - 28)
-        let titleLines = estimatedLineCount(record.title, width: contentWidth, fontSize: 14, limit: isDataAnalysisComposite ? 2 : cardSize.questionLineLimit)
-        let knowledgePoints = record.knowledgePoints.joined(separator: " | ")
-        let knowledgePointsWidth = max(1, contentWidth - 17) // lightbulb width plus its 6pt gap
-        let knowledgePointsTextWidth = max(1, knowledgePointsWidth - 12) // shared outline padding
-        let knowledgePointsHeight = knowledgePoints.isEmpty
-            ? 0
-            : CGFloat(estimatedLineCount(knowledgePoints, width: knowledgePointsTextWidth, fontSize: 11, limit: nil)) * 14 + 6
+        let displayedTitle = isLogicFill ? LibraryLogicComparisonLayout.preview(record.title) : record.title
+        let titleLineLimit = isLogicFill ? 4 : (isDataAnalysisComposite ? 2 : cardSize.questionLineLimit)
+        let titleLines = estimatedLineCount(displayedTitle, width: contentWidth, fontSize: 14, limit: titleLineLimit)
+        let knowledgePointsWidth = max(1, contentWidth - 17) // bulb width plus its gap
+        let knowledgePointsHeight = LibraryKnowledgePointTagLayout.height(record.knowledgePoints, width: knowledgePointsWidth)
         var sections: [CGFloat] = []
         if record.record.subject == "数量关系" {
             var quantityHeaderHeight: CGFloat = 0
             if !hidesQuantityTypeLabel { quantityHeaderHeight += 21 }
-            if !knowledgePoints.isEmpty {
+            if !record.knowledgePoints.isEmpty {
                 if quantityHeaderHeight > 0 { quantityHeaderHeight += 6 }
                 quantityHeaderHeight += knowledgePointsHeight
             }
             if quantityHeaderHeight > 0 { sections.append(quantityHeaderHeight) }
-        } else if !knowledgePoints.isEmpty {
+        } else if !record.knowledgePoints.isEmpty {
             sections.append(knowledgePointsHeight)
         }
 

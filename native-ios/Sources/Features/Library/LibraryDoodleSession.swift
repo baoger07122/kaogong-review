@@ -800,7 +800,7 @@ struct LibraryDoodleToolbarButtonStyle: ButtonStyle {
         configuration.label
             .background {
                 Circle()
-                    .fill(Color.primary.opacity(configuration.isPressed ? 0.10 : 0))
+                    .fill(AppTheme.accent.opacity(configuration.isPressed ? 0.13 : 0))
                     .frame(width: 30, height: 30)
                     .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
             }
