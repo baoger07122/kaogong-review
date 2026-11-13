@@ -356,7 +356,7 @@ struct KnowledgePointManagerView: View {
             onSave: saveGroup
         ) {
             TextField("分组名称", text: $groupNameDraft).textFieldStyle(NativeTextFieldStyle())
-            Text("保存范围：\(subject.name) → \(module)\(selectedTypeID.map { " → \(selectedVerbalTypeName)" } ?? "")")
+            Text("保存范围：\(subject.name) → \(module)\(selectedTypeID.map { _ in " → \(selectedVerbalTypeName)" } ?? "")")
                 .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
             if !LibraryKnowledgePointGroupPolicy.canUseGroupName(
                 groupNameDraft, groups: groups, excluding: editingGroupID

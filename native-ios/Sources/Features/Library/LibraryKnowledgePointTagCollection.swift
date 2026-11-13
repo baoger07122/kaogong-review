@@ -204,7 +204,7 @@ struct LibraryKnowledgePointTagCollection: UIViewRepresentable {
     }
 }
 
-private final class KnowledgePointCollectionView: UICollectionView {
+final class KnowledgePointCollectionView: UICollectionView {
     override var intrinsicContentSize: CGSize {
         CGSize(width: UIView.noIntrinsicMetric, height: collectionViewLayout.collectionViewContentSize.height)
     }
