@@ -14,19 +14,143 @@ enum VerbalReasoningKnowledgePointRepository {
         )
     }
 
+    static func migrateLegacy(
+        _ rawName: String,
+        module: String,
+        toTypeID typeID: String,
+        records: [StoredRecord],
+        context: ModelContext
+    ) throws {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty,
+              LibraryErrorTypeRepository.types(for: .verbalReasoning, records: records)
+                .contains(where: { $0.module == module && $0.id == typeID }) else { return }
+
+        let legacyRecordID = ManagedTagKind.knowledgePoint.recordID
+        let legacyRecord = records.first { $0.collection == "keyvalue" && $0.recordID == legacyRecordID }
+        var legacyValue = legacyRecord?.jsonObject?["value"] as? [String: Any] ?? [:]
+        let legacyNames = legacyValue[module] as? [String] ?? []
+        guard legacyNames.contains(name) else { return }
+
+        var typedGroups = loadGroups(records: records)
+        let destinationNames = typedGroups[module]?[typeID] ?? []
+        if !destinationNames.contains(name) { typedGroups[module, default: [:]][typeID, default: []].append(name) }
+
+        var changes: [RecordChange] = []
+        var hasAmbiguousLegacyReference = false
+        for record in records where record.collection == "errors"
+            && (record.subject ?? record.indexObject?["subject"] as? String) == "言语理解" {
+            let moduleValues = [record.module, record.indexObject?["module"] as? String]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            guard moduleValues.first == module, var object = record.jsonObject else { continue }
+            let references = LibraryKnowledgePointReferencePolicy.references(from: object)
+            let plan = VerbalLegacyKnowledgePointMigrationPolicy.plan(
+                references: references,
+                recordModule: moduleValues.first,
+                recordTypeID: object["errorTypeID"] as? String,
+                sourceModule: module,
+                name: name,
+                destinationTypeID: typeID
+            )
+            hasAmbiguousLegacyReference = hasAmbiguousLegacyReference || plan.hasAmbiguousLegacyReference
+            guard plan.didChange else { continue }
+
+            let unique = plan.references
+            let displayNames = LibraryKnowledgePointReferencePolicy.displayNames(from: unique)
+            object["knowledgePointRefs"] = unique.map(\.jsonValue)
+            object["knowledgePoints"] = displayNames
+            object["knowledgePoint"] = displayNames.joined(separator: "、")
+            let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            changes.append(RecordChange(
+                record: record,
+                beforePayload: record.payload,
+                beforeIndexPayload: record.indexPayload,
+                beforeUpdatedAt: record.updatedAt,
+                afterPayload: payload,
+                afterIndexPayload: StoredRecord.makeIndexPayload(from: payload, collection: record.collection),
+                updatedAt: .now
+            ))
+        }
+
+        if !hasAmbiguousLegacyReference {
+            let remaining = legacyNames.filter { $0 != name }
+            if remaining.isEmpty { legacyValue.removeValue(forKey: module) }
+            else { legacyValue[module] = remaining }
+        }
+
+        let legacySnapshot = legacyRecord.map { ($0.payload, $0.indexPayload, $0.updatedAt) }
+        let typedRecord = records.first { $0.collection == "keyvalue" && $0.recordID == recordID }
+        let typedSnapshot = typedRecord.map { ($0.payload, $0.indexPayload, $0.updatedAt) }
+        let groupRecord = records.first {
+            $0.collection == "keyvalue" && $0.recordID == LibraryKnowledgePointGroupRepository.recordID
+        }
+        let groupSnapshot = groupRecord.map { ($0.payload, $0.indexPayload, $0.updatedAt) }
+
+        do {
+            try context.transaction {
+                if !hasAmbiguousLegacyReference {
+                    try persistLegacy(legacyValue, record: legacyRecord, context: context, save: false)
+                    try LibraryKnowledgePointGroupRepository.renameTagMember(
+                        name, to: nil, subject: "言语理解", module: module, records: records, context: context, save: false
+                    )
+                }
+                try persist(typedGroups, records: records, context: context, save: false)
+                for change in changes {
+                    change.record.replacePayload(change.afterPayload, indexPayload: change.afterIndexPayload)
+                    change.record.updatedAt = change.updatedAt
+                }
+            }
+        } catch {
+            restoreKeyValueRecord(legacyRecord, snapshot: legacySnapshot, recordID: legacyRecordID, context: context)
+            restoreKeyValueRecord(typedRecord, snapshot: typedSnapshot, recordID: recordID, context: context)
+            restoreKeyValueRecord(groupRecord, snapshot: groupSnapshot,
+                                  recordID: LibraryKnowledgePointGroupRepository.recordID, context: context)
+            for change in changes {
+                change.record.replacePayload(change.beforePayload, indexPayload: change.beforeIndexPayload)
+                change.record.updatedAt = change.beforeUpdatedAt
+            }
+            throw error
+        }
+    }
+
     static func add(
         _ rawName: String,
         module: String,
         typeID: String,
         records: [StoredRecord],
-        context: ModelContext
+        context: ModelContext,
+        groupID: String? = nil
     ) throws {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         var groups = loadGroups(records: records)
         guard !(groups[module]?[typeID] ?? []).contains(name) else { return }
         groups[module, default: [:]][typeID, default: []].append(name)
-        try persist(groups, records: records, context: context)
+        guard let groupID else {
+            try persist(groups, records: records, context: context)
+            return
+        }
+        let libraryRecord = records.first { $0.collection == "keyvalue" && $0.recordID == recordID }
+        let librarySnapshot = libraryRecord.map { ($0.payload, $0.indexPayload, $0.updatedAt) }
+        let groupRecord = records.first {
+            $0.collection == "keyvalue" && $0.recordID == LibraryKnowledgePointGroupRepository.recordID
+        }
+        let groupSnapshot = groupRecord.map { ($0.payload, $0.indexPayload, $0.updatedAt) }
+        do {
+            try context.transaction {
+                try persist(groups, records: records, context: context, save: false)
+                try LibraryKnowledgePointGroupRepository.addTagToGroup(
+                    name, groupID: groupID, subject: "言语理解", module: module, typeID: typeID,
+                    records: records, context: context, save: false
+                )
+            }
+        } catch {
+            restoreKeyValueRecord(libraryRecord, snapshot: librarySnapshot, recordID: recordID, context: context)
+            restoreKeyValueRecord(groupRecord, snapshot: groupSnapshot,
+                                  recordID: LibraryKnowledgePointGroupRepository.recordID, context: context)
+            throw error
+        }
     }
 
     static func reorder(
@@ -34,12 +158,17 @@ enum VerbalReasoningKnowledgePointRepository {
         module: String,
         typeID: String,
         records: [StoredRecord],
-        context: ModelContext
+        context: ModelContext,
+        groupID: String? = nil
     ) throws {
         var groups = loadGroups(records: records)
         let existing = groups[module]?[typeID] ?? []
-        guard names.count == existing.count, Set(names) == Set(existing), names != existing else { return }
-        groups[module, default: [:]][typeID] = names
+        let order = LibraryKnowledgePointGroupRepository.mergedOrder(
+            displayedOrder: names, groupID: groupID, fullOrder: existing,
+            subject: "言语理解", module: module, typeID: typeID, records: records
+        )
+        guard order.count == existing.count, Set(order) == Set(existing), order != existing else { return }
+        groups[module, default: [:]][typeID] = order
         try persist(groups, records: records, context: context)
     }
 
@@ -123,10 +252,18 @@ enum VerbalReasoningKnowledgePointRepository {
         )
         let libraryRecord = records.first { $0.collection == "keyvalue" && $0.recordID == recordID }
         let librarySnapshot = libraryRecord.map { ($0.payload, $0.indexPayload, $0.updatedAt) }
+        let groupRecord = records.first {
+            $0.collection == "keyvalue" && $0.recordID == LibraryKnowledgePointGroupRepository.recordID
+        }
+        let groupSnapshot = groupRecord.map { ($0.payload, $0.indexPayload, $0.updatedAt) }
 
         do {
             try context.transaction {
                 try persist(groups, records: records, context: context, save: false)
+                try LibraryKnowledgePointGroupRepository.renameTagMember(
+                    oldName, to: newName, subject: "言语理解", module: module, typeID: typeID,
+                    records: records, context: context, save: false
+                )
                 for change in changes {
                     change.record.replacePayload(change.afterPayload, indexPayload: change.afterIndexPayload)
                     change.record.updatedAt = change.updatedAt
@@ -147,6 +284,8 @@ enum VerbalReasoningKnowledgePointRepository {
                 })
                 for inserted in (try? context.fetch(descriptor)) ?? [] { context.delete(inserted) }
             }
+            restoreKeyValueRecord(groupRecord, snapshot: groupSnapshot,
+                                  recordID: LibraryKnowledgePointGroupRepository.recordID, context: context)
             throw error
         }
 
@@ -258,5 +397,45 @@ enum VerbalReasoningKnowledgePointRepository {
             context.insert(StoredRecord(collection: "keyvalue", recordID: recordID, payload: payload, updatedAt: .now))
         }
         if shouldSave { try context.save() }
+    }
+
+    private static func persistLegacy(
+        _ value: [String: Any],
+        record: StoredRecord?,
+        context: ModelContext,
+        save shouldSave: Bool
+    ) throws {
+        let payload = try JSONSerialization.data(
+            withJSONObject: ["key": ManagedTagKind.knowledgePoint.recordID, "value": value],
+            options: [.sortedKeys]
+        )
+        if let record {
+            record.replacePayload(payload)
+            record.updatedAt = .now
+        } else {
+            context.insert(StoredRecord(
+                collection: "keyvalue", recordID: ManagedTagKind.knowledgePoint.recordID,
+                payload: payload, updatedAt: .now
+            ))
+        }
+        if shouldSave { try context.save() }
+    }
+
+    private static func restoreKeyValueRecord(
+        _ record: StoredRecord?,
+        snapshot: (Data, Data?, Date?)?,
+        recordID: String,
+        context: ModelContext
+    ) {
+        if let record, let snapshot {
+            record.replacePayload(snapshot.0, indexPayload: snapshot.1)
+            record.updatedAt = snapshot.2
+        } else if record == nil {
+            let key = recordID
+            let descriptor = FetchDescriptor<StoredRecord>(predicate: #Predicate {
+                $0.collection == "keyvalue" && $0.recordID == key
+            })
+            for inserted in (try? context.fetch(descriptor)) ?? [] { context.delete(inserted) }
+        }
     }
 }

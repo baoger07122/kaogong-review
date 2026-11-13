@@ -463,6 +463,7 @@ struct LibraryRecordEditorView: View {
                 overlays.append(AnyView(LibraryTagSelectionDialog(
                     kind: activeTags,
                     module: draft.module,
+                    subject: draft.subject,
                     selection: selection,
                     onClose: { self.activeTags = nil },
                     onTagMutation: applyTagMutation,
@@ -485,6 +486,7 @@ struct LibraryRecordEditorView: View {
             overlays.append(AnyView(LibraryTagSelectionDialog(
                 kind: .thinkingTrap,
                 module: "数量关系-弱项",
+                subject: draft.subject,
                 selection: $draft.weaknessTags,
                 onClose: { showQuantityWeaknessTags = false },
                 onTagMutation: applyTagMutation,

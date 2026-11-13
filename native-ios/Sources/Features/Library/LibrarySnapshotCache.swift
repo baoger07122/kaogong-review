@@ -222,6 +222,7 @@ final class LibraryRecordListCache {
         let kind: LibraryContentKind
         let scope: LibraryScope
         let selectedTag: String
+        let selectedKnowledgePoints: [LibraryKnowledgePointReference]
         let search: String
         let includesMasteredErrors: Bool
         let validErrorTypeIDs: Set<String>
@@ -331,17 +332,20 @@ final class LibraryRecordListCache {
         kind: LibraryContentKind,
         scope: LibraryScope,
         selectedTag: String,
+        selectedKnowledgePoints: [LibraryKnowledgePointReference],
         search: String,
         includesMasteredErrors: Bool,
         validErrorTypeIDs: Set<String>,
         quantityTypes: Set<String>,
-        buildSnapshot: (StoredRecord) -> LibraryRecordSnapshot
+        buildSnapshot: (StoredRecord) -> LibraryRecordSnapshot,
+        knowledgePointMatches: (StoredRecord) -> Bool
     ) -> Bool {
         let query = UnclassifiedAvailabilityQuery(
             records: records.map(RecordRevision.init),
             kind: kind,
             scope: scope,
             selectedTag: selectedTag,
+            selectedKnowledgePoints: selectedKnowledgePoints,
             search: search,
             includesMasteredErrors: includesMasteredErrors,
             validErrorTypeIDs: validErrorTypeIDs,
@@ -370,6 +374,7 @@ final class LibraryRecordListCache {
 
             let snapshot = buildSnapshot(record)
             guard selectedTag.isEmpty || snapshot.tags.contains(selectedTag) else { return false }
+            guard knowledgePointMatches(record) else { return false }
             guard search.isEmpty || LibrarySnapshotSearch.normalize(snapshot.searchableText).contains(search) else { return false }
             guard kind != .errors || includesMasteredErrors || snapshot.status != "已掌握" else { return false }
             return true

@@ -6,8 +6,10 @@ struct KnowledgePointOrderView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Query private var records: [StoredRecord]
+    var subject: String = ""
     let module: String
     var typeID: String? = nil
+    var groupID: String? = nil
 
     @State private var names: [String] = []
     @State private var errorMessage: String?
@@ -47,9 +49,17 @@ struct KnowledgePointOrderView: View {
 
     private func reload() {
         if let typeID {
-            names = VerbalReasoningKnowledgePointRepository.tags(module: module, typeID: typeID, records: records)
+            let allNames = VerbalReasoningKnowledgePointRepository.tags(module: module, typeID: typeID, records: records)
+            names = LibraryKnowledgePointGroupRepository.names(
+                in: groupID, allNames: allNames, subject: "言语理解", module: module,
+                typeID: typeID, records: records
+            )
         } else {
-            names = TagLibraryRepository.tags(kind: .knowledgePoint, module: module, records: records)
+            let allNames = TagLibraryRepository.tags(kind: .knowledgePoint, module: module, records: records)
+            names = LibraryKnowledgePointGroupRepository.names(
+                in: groupID, allNames: allNames, subject: subject, module: module,
+                records: records
+            )
         }
     }
 
@@ -58,10 +68,12 @@ struct KnowledgePointOrderView: View {
         do {
             if let typeID {
                 try VerbalReasoningKnowledgePointRepository.reorder(
-                    names, module: module, typeID: typeID, records: records, context: modelContext
+                    names, module: module, typeID: typeID, records: records, context: modelContext, groupID: groupID
                 )
             } else {
-                try TagLibraryRepository.reorderKnowledgePoints(names, module: module, records: records, context: modelContext)
+                try TagLibraryRepository.reorderKnowledgePoints(
+                    names, module: module, groupID: groupID, subject: subject, records: records, context: modelContext
+                )
             }
         } catch {
             reload()

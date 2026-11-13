@@ -2,24 +2,43 @@ import SwiftUI
 
 struct NativeModalContainer<Content: View>: View {
     let content: Content
+    var preferredSize: CGSize? = nil
 
-    init(@ViewBuilder content: () -> Content) {
+    init(preferredSize: CGSize? = nil, @ViewBuilder content: () -> Content) {
         self.content = content()
+        self.preferredSize = preferredSize
     }
 
     var body: some View {
         ZStack {
             Color.black.opacity(0.20)
                 .ignoresSafeArea()
-            content
-                .padding(20)
-                .frame(maxWidth: 420)
-                .background(
-                    .regularMaterial,
-                    in: RoundedRectangle(cornerRadius: AppTheme.modalRadius, style: .continuous)
-                )
-                .shadow(color: .black.opacity(0.16), radius: 28, y: 12)
-                .padding(24)
+            if let preferredSize {
+                GeometryReader { proxy in
+                    content
+                        .padding(20)
+                        .frame(
+                            width: min(preferredSize.width, max(0, proxy.size.width - 48)),
+                            height: min(preferredSize.height, max(0, proxy.size.height - 48))
+                        )
+                        .background(
+                            .regularMaterial,
+                            in: RoundedRectangle(cornerRadius: AppTheme.modalRadius, style: .continuous)
+                        )
+                        .shadow(color: .black.opacity(0.16), radius: 28, y: 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else {
+                content
+                    .padding(20)
+                    .frame(maxWidth: 420)
+                    .background(
+                        .regularMaterial,
+                        in: RoundedRectangle(cornerRadius: AppTheme.modalRadius, style: .continuous)
+                    )
+                    .shadow(color: .black.opacity(0.16), radius: 28, y: 12)
+                    .padding(24)
+            }
         }
         .transition(.opacity.combined(with: .scale(scale: 0.94)))
     }
@@ -32,6 +51,8 @@ struct NativeEditorDialog<Content: View>: View {
     let onClose: () -> Void
     let onSave: () -> Void
     let content: Content
+    private let preferredSize: CGSize?
+    private let spacing: CGFloat
 
     init(
         title: String,
@@ -39,6 +60,8 @@ struct NativeEditorDialog<Content: View>: View {
         actionTitle: String = "保存",
         onClose: @escaping () -> Void,
         onSave: @escaping () -> Void,
+        preferredSize: CGSize? = nil,
+        spacing: CGFloat = 16,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
@@ -46,12 +69,14 @@ struct NativeEditorDialog<Content: View>: View {
         self.actionTitle = actionTitle
         self.onClose = onClose
         self.onSave = onSave
+        self.preferredSize = preferredSize
+        self.spacing = spacing
         self.content = content()
     }
 
     var body: some View {
-        NativeModalContainer {
-            VStack(alignment: .leading, spacing: 16) {
+        NativeModalContainer(preferredSize: preferredSize) {
+            VStack(alignment: .leading, spacing: spacing) {
                 HStack {
                     Text(title)
                         .font(.system(size: 17, weight: .semibold))
@@ -66,6 +91,7 @@ struct NativeEditorDialog<Content: View>: View {
                 }
 
                 content
+                    .frame(maxHeight: preferredSize == nil ? nil : .infinity)
 
                 Button(actionTitle, action: onSave)
                     .buttonStyle(NativePrimaryButtonStyle())

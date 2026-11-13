@@ -6,6 +6,13 @@ private struct TagEditorState: Identifiable {
     let original: String?
 }
 
+private struct LegacyKnowledgePointMove: Identifiable {
+    let id = UUID()
+    let name: String
+    let typeID: String
+    let typeName: String
+}
+
 struct KnowledgePointManagerView: View {
     private static let legacyVerbalType = "__legacy_verbal_knowledge_points__"
     @Environment(\.modelContext) private var modelContext
@@ -19,6 +26,24 @@ struct KnowledgePointManagerView: View {
     @State private var errorMessage: String?
     @State private var showsOrder = false
     @State private var verbalTypeSelection = Self.legacyVerbalType
+    @State private var selectedGroupID: String?
+    @State private var isAddingGroup = false
+    @State private var editingGroupID: String?
+    @State private var groupNameDraft = ""
+    @State private var deletingGroup: LibraryKnowledgePointGroup?
+    @State private var legacyMove: LegacyKnowledgePointMove?
+
+    private var selectedTypeID: String? { isVerbalKnowledgePoint ? selectedVerbalTypeID : nil }
+    private var groups: [LibraryKnowledgePointGroup] {
+        guard kind == .knowledgePoint else { return [] }
+        return LibraryKnowledgePointGroupRepository.groups(subject: subject.name, module: module, typeID: selectedTypeID, records: records)
+    }
+    private var visibleTags: [String] {
+        guard kind == .knowledgePoint, !groups.isEmpty else { return tags }
+        return LibraryKnowledgePointGroupRepository.names(
+            in: selectedGroupID, allNames: tags, subject: subject.name, module: module, typeID: selectedTypeID, records: records
+        )
+    }
 
     private var isVerbalKnowledgePoint: Bool { subject.name == "言语理解" && kind == .knowledgePoint }
     private var verbalTypes: [LibraryErrorType] {
@@ -89,22 +114,74 @@ struct KnowledgePointManagerView: View {
                     if kind == .knowledgePoint {
                         Button("调整顺序") { showsOrder = true }
                             .font(AppTheme.inputFont.weight(.semibold))
+                        Button("新增分组") {
+                            isAddingGroup = true
+                            editingGroupID = nil
+                            groupNameDraft = ""
+                        }
+                        .font(AppTheme.inputFont.weight(.semibold))
                     }
                     Button { beginAdd() } label: { Label("新增", systemImage: "plus") }
                         .font(AppTheme.inputFont.weight(.semibold))
                 }
 
-                if tags.isEmpty {
-                    NativeStatusCard(title: "暂无\(kind.rawValue)", detail: "点击新增建立当前范围的第一项", systemImage: "tag", color: AppTheme.accent)
+                if kind == .knowledgePoint, !groups.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(groups) { group in
+                                Button { selectedGroupID = group.id } label: {
+                                    Text(group.name)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(selectedGroupID == group.id ? AppTheme.accent : Color.primary)
+                                        .padding(.horizontal, 10).frame(height: 28)
+                                        .background(selectedGroupID == group.id ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045), in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .contextMenu {
+                                    Button("重命名") {
+                                        editingGroupID = group.id
+                                        groupNameDraft = group.name
+                                        isAddingGroup = true
+                                    }
+                                    Button("删除分组", role: .destructive) { deletingGroup = group }
+                                }
+                            }
+                            Button("未分组") { selectedGroupID = nil }
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(selectedGroupID == nil ? AppTheme.accent : Color.primary)
+                                .padding(.horizontal, 10).frame(height: 28)
+                                .background(selectedGroupID == nil ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045), in: Capsule())
+                        }
+                    }
+                }
+
+                if visibleTags.isEmpty {
+                    NativeStatusCard(
+                        title: "暂无考点",
+                        detail: groups.isEmpty ? "点击新增建立当前范围的第一项" : "此分组还没有考点",
+                        systemImage: "tag",
+                        color: AppTheme.accent
+                    )
                 } else {
                     VStack(spacing: 0) {
-                        ForEach(Array(tags.enumerated()), id: \.element) { index, name in
+                        ForEach(Array(visibleTags.enumerated()), id: \.element) { index, name in
                             HStack(spacing: 10) {
                                 if kind != .knowledgePoint {
                                     Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary)
                                 }
                                 Text(name).font(AppTheme.bodyFont)
                                 Spacer()
+                                if kind == .knowledgePoint {
+                                    Menu {
+                                        Button("未分组") { moveTag(name, to: nil) }
+                                        ForEach(groups) { group in
+                                            Button(group.name) { moveTag(name, to: group.id) }
+                                        }
+                                    } label: {
+                                        Image(systemName: "folder")
+                                    }
+                                    .disabled(groups.isEmpty)
+                                }
                                 if kind != .knowledgePoint {
                                     Button { move(name, -1) } label: { Image(systemName: "chevron.up") }.disabled(index == 0)
                                     Button { move(name, 1) } label: { Image(systemName: "chevron.down") }.disabled(index == tags.count - 1)
@@ -114,7 +191,18 @@ struct KnowledgePointManagerView: View {
                             }
                             .font(.system(size: 12, weight: .medium))
                             .frame(minHeight: 44)
-                            if index < tags.count - 1 { Divider() }
+                            .contextMenu {
+                                if isVerbalKnowledgePoint, selectedVerbalTypeID == nil, !verbalTypes.isEmpty {
+                                    Menu("归入题型") {
+                                        ForEach(verbalTypes) { type in
+                                            Button(type.name) {
+                                                legacyMove = LegacyKnowledgePointMove(name: name, typeID: type.id, typeName: type.name)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if index < visibleTags.count - 1 { Divider() }
                         }
                     }
                     .padding(.horizontal, 14)
@@ -136,6 +224,27 @@ struct KnowledgePointManagerView: View {
         }
         .overlay {
             if editor != nil { editorDialog }
+            if isAddingGroup { groupEditorDialog }
+            if let deletingGroup {
+                NativeDeleteDialog(
+                    title: "删除分组",
+                    message: "删除“\(deletingGroup.name)”后，分组中的考点会保留并变为未分组。",
+                    onDelete: { removeGroup(deletingGroup) },
+                    onCancel: { self.deletingGroup = nil }
+                )
+            }
+            if let legacyMove {
+                NativeConfirmationDialog(
+                    title: "归入题型",
+                    message: "将旧考点“\(legacyMove.name)”归入“\(legacyMove.typeName)”？已有歧义记录会保留旧归属。",
+                    confirmTitle: "归入",
+                    cancelTitle: "取消",
+                    confirmIdentifier: "confirm-move-legacy-knowledge-point",
+                    cancelIdentifier: "cancel-move-legacy-knowledge-point",
+                    onConfirm: { migrateLegacyKnowledgePoint(legacyMove) },
+                    onCancel: { self.legacyMove = nil }
+                )
+            }
             if let deletingName {
                 NativeDeleteDialog(
                     title: "删除\(kind.rawValue)",
@@ -146,9 +255,16 @@ struct KnowledgePointManagerView: View {
             }
         }
         .sheet(isPresented: $showsOrder) {
-            KnowledgePointOrderView(module: module, typeID: isVerbalKnowledgePoint ? selectedVerbalTypeID : nil)
+            KnowledgePointOrderView(subject: subject.name, module: module, typeID: isVerbalKnowledgePoint ? selectedVerbalTypeID : nil, groupID: selectedGroupID)
         }
-        .onAppear { resetVerbalTypeSelection() }
+        .onAppear {
+            resetVerbalTypeSelection()
+            selectDefaultGroupIfNeeded()
+        }
+        .onChange(of: subject.name) { _, _ in selectDefaultGroupIfNeeded() }
+        .onChange(of: module) { _, _ in selectDefaultGroupIfNeeded() }
+        .onChange(of: selectedVerbalTypeID) { _, _ in selectDefaultGroupIfNeeded() }
+        .onChange(of: kind) { _, _ in selectDefaultGroupIfNeeded() }
         .onChange(of: verbalTypes.map(\.id)) { _, _ in
             if isVerbalKnowledgePoint,
                !verbalTypes.contains(where: { $0.id == verbalTypeSelection }),
@@ -230,6 +346,30 @@ struct KnowledgePointManagerView: View {
         }
     }
 
+    private var groupEditorDialog: some View {
+        NativeEditorDialog(
+            title: editingGroupID == nil ? "新增分组" : "重命名分组",
+            canSave: LibraryKnowledgePointGroupPolicy.canUseGroupName(
+                groupNameDraft, groups: groups, excluding: editingGroupID
+            ),
+            onClose: { isAddingGroup = false },
+            onSave: saveGroup
+        ) {
+            TextField("分组名称", text: $groupNameDraft).textFieldStyle(NativeTextFieldStyle())
+            Text("保存范围：\(subject.name) → \(module)\(selectedTypeID.map { " → \(selectedVerbalTypeName)" } ?? "")")
+                .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+            if !LibraryKnowledgePointGroupPolicy.canUseGroupName(
+                groupNameDraft, groups: groups, excluding: editingGroupID
+            ) {
+                Text(LibraryKnowledgePointGroupPolicy.normalizedName(groupNameDraft).isEmpty
+                     ? "分组名称不能为空"
+                     : "当前范围已有同名分组")
+                    .font(AppTheme.auxiliaryFont)
+                    .foregroundStyle(AppTheme.danger)
+            }
+        }
+    }
+
     private func beginAdd() {
         errorMessage = nil
         draftName = ""
@@ -252,14 +392,19 @@ struct KnowledgePointManagerView: View {
                     )
                 } else {
                     try VerbalReasoningKnowledgePointRepository.add(
-                        draftName, module: module, typeID: typeID, records: records, context: modelContext
+                        draftName, module: module, typeID: typeID, records: records, context: modelContext,
+                        groupID: activeGroupForNewTag
                     )
                 }
             } else {
                 if let original = editor.original {
-                    try TagLibraryRepository.rename(original, to: draftName, kind: kind, module: module, records: records, context: modelContext)
+                    try TagLibraryRepository.rename(original, to: draftName, kind: kind, module: module, subject: subject.name, typeID: selectedTypeID, records: records, context: modelContext)
                 } else {
-                    try TagLibraryRepository.add(draftName, kind: kind, module: module, records: records, context: modelContext)
+                    try TagLibraryRepository.add(
+                        draftName, kind: kind, module: module, records: records, context: modelContext,
+                        knowledgePointGroupID: kind == .knowledgePoint ? activeGroupForNewTag : nil,
+                        subject: subject.name
+                    )
                 }
             }
             errorMessage = nil
@@ -285,12 +430,87 @@ struct KnowledgePointManagerView: View {
                     name, module: module, typeID: typeID, records: records, context: modelContext
                 )
             } else {
-                try TagLibraryRepository.delete(name, kind: kind, module: module, records: records, context: modelContext)
+                try TagLibraryRepository.delete(name, kind: kind, module: module, subject: subject.name, typeID: selectedTypeID, records: records, context: modelContext)
             }
             errorMessage = nil
             deletingName = nil
         } catch {
             errorMessage = "删除标签失败：\(error.localizedDescription)"
+        }
+    }
+
+    private var activeGroupForNewTag: String? {
+        groups.isEmpty ? nil : selectedGroupID
+    }
+
+    private func selectDefaultGroupIfNeeded() {
+        selectedGroupID = LibraryKnowledgePointGroupRepository.groups(
+            subject: subject.name, module: module, typeID: selectedTypeID, records: records
+        ).first?.id
+    }
+
+    private func saveGroup() {
+        do {
+            if let editingGroupID {
+                guard try LibraryKnowledgePointGroupRepository.renameGroup(
+                    editingGroupID, to: groupNameDraft, subject: subject.name, module: module, typeID: selectedTypeID,
+                    records: records, context: modelContext
+                ) else {
+                    errorMessage = "分组名称不能为空或重复"
+                    return
+                }
+            } else {
+                guard let group = try LibraryKnowledgePointGroupRepository.addGroup(
+                    groupNameDraft, subject: subject.name, module: module, typeID: selectedTypeID,
+                    records: records, context: modelContext
+                ) else {
+                    errorMessage = "分组名称不能为空或重复"
+                    return
+                }
+                selectedGroupID = group.id
+            }
+            isAddingGroup = false
+            errorMessage = nil
+        } catch {
+            errorMessage = "分组保存失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func removeGroup(_ group: LibraryKnowledgePointGroup) {
+        do {
+            try LibraryKnowledgePointGroupRepository.deleteGroup(
+                group.id, subject: subject.name, module: module, typeID: selectedTypeID, records: records, context: modelContext
+            )
+            deletingGroup = nil
+            selectDefaultGroupIfNeeded()
+        } catch {
+            errorMessage = "删除分组失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func moveTag(_ name: String, to groupID: String?) {
+        do {
+            try LibraryKnowledgePointGroupRepository.assign(
+                name, to: groupID, subject: subject.name, module: module, typeID: selectedTypeID,
+                records: records, context: modelContext
+            )
+            errorMessage = nil
+        } catch {
+            errorMessage = "移动考点失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func migrateLegacyKnowledgePoint(_ move: LegacyKnowledgePointMove) {
+        do {
+            try VerbalReasoningKnowledgePointRepository.migrateLegacy(
+                move.name, module: module, toTypeID: move.typeID, records: records, context: modelContext
+            )
+            legacyMove = nil
+            errorMessage = nil
+            selectDefaultGroupIfNeeded()
+        } catch {
+            errorMessage = "归入失败，请重试：\(error.localizedDescription)"
+            legacyMove = nil
         }
     }
 }

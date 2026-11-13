@@ -193,6 +193,13 @@ jobs:
             native-ios/Tests/LibraryKnowledgePointReferenceBehavior.swift \
             -o "$RUNNER_TEMP/library-knowledge-point-reference-behavior"
           "$RUNNER_TEMP/library-knowledge-point-reference-behavior"
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Library/LibraryKnowledgePointReference.swift \
+            native-ios/Sources/Features/Library/LibraryKnowledgePointPolicy.swift \
+            native-ios/Sources/Features/Home/VerbalLegacyKnowledgePointMigrationPolicy.swift \
+            native-ios/Tests/LibraryKnowledgePointPolicyBehavior.swift \
+            -o "$RUNNER_TEMP/library-knowledge-point-policy-behavior"
+          "$RUNNER_TEMP/library-knowledge-point-policy-behavior"
 
       - name: Detect simulator test scope
         id: simulator_scope

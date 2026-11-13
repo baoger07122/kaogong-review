@@ -37,13 +37,23 @@ enum TagLibraryRepository {
         return library[module] ?? []
     }
 
-    static func add(_ name: String, kind: ManagedTagKind, module: String, records: [StoredRecord], context: ModelContext) throws {
-        try add([name], kind: kind, module: module, records: records, context: context)
+    static func add(
+        _ name: String,
+        kind: ManagedTagKind,
+        module: String,
+        records: [StoredRecord],
+        context: ModelContext,
+        knowledgePointGroupID: String? = nil,
+        subject: String = ""
+    ) throws {
+        try add([name], kind: kind, module: module, records: records, context: context,
+                knowledgePointGroupID: knowledgePointGroupID, subject: subject)
     }
 
     static func add(
         _ names: [String], kind: ManagedTagKind, module: String,
-        records: [StoredRecord], context: ModelContext, persist: Bool = true
+        records: [StoredRecord], context: ModelContext, persist shouldPersist: Bool = true,
+        knowledgePointGroupID: String? = nil, subject: String = ""
     ) throws {
         var library = loadWithDefaults(kind: kind, records: records)
         let values = names
@@ -51,12 +61,42 @@ enum TagLibraryRepository {
             .filter { !$0.isEmpty }
         guard !values.isEmpty else { return }
         var changed = false
+        var addedValues: [String] = []
         for value in values where !(library[module] ?? []).contains(value) {
             library[module, default: []].append(value)
+            addedValues.append(value)
             changed = true
         }
         guard changed else { return }
-        try save(library, kind: kind, records: records, context: context, persist: persist)
+        guard kind == .knowledgePoint, let knowledgePointGroupID else {
+            try save(library, kind: kind, records: records, context: context, persist: shouldPersist)
+            return
+        }
+        let libraryRecord = records.first { $0.collection == "keyvalue" && $0.recordID == kind.recordID }
+        let librarySnapshot = libraryRecord.map { ($0.payload, $0.indexPayload, $0.updatedAt) }
+        let groupRecord = records.first { $0.collection == "keyvalue" && $0.recordID == LibraryKnowledgePointGroupRepository.recordID }
+        let groupSnapshot = groupRecord.map { ($0.payload, $0.indexPayload, $0.updatedAt) }
+        do {
+            let applyChanges = {
+                try save(library, kind: kind, records: records, context: context, persist: false)
+                for value in addedValues {
+                    try LibraryKnowledgePointGroupRepository.addTagToGroup(
+                        value, groupID: knowledgePointGroupID, subject: subject, module: module,
+                        records: records, context: context, save: false
+                    )
+                }
+            }
+            if shouldPersist {
+                try context.transaction { try applyChanges() }
+            } else {
+                try applyChanges()
+            }
+        } catch {
+            restoreKeyValueRecord(libraryRecord, snapshot: librarySnapshot, recordID: kind.recordID, context: context)
+            restoreKeyValueRecord(groupRecord, snapshot: groupSnapshot,
+                                  recordID: LibraryKnowledgePointGroupRepository.recordID, context: context)
+            throw error
+        }
     }
 
     static func move(_ name: String, direction: Int, kind: ManagedTagKind, module: String, records: [StoredRecord], context: ModelContext) throws {
@@ -71,22 +111,26 @@ enum TagLibraryRepository {
     }
 
     static func reorderKnowledgePoints(
-        _ names: [String], module: String, records: [StoredRecord], context: ModelContext
+        _ names: [String], module: String, groupID: String? = nil,
+        subject: String = "", records: [StoredRecord], context: ModelContext
     ) throws {
         var library = loadWithDefaults(kind: .knowledgePoint, records: records)
         let existing = library[module] ?? []
-        guard names.count == existing.count, Set(names) == Set(existing) else { return }
-        guard names != existing else { return }
-        library[module] = names
+        let order = LibraryKnowledgePointGroupRepository.mergedOrder(
+            displayedOrder: names, groupID: groupID, fullOrder: existing,
+            subject: subject, module: module, records: records
+        )
+        guard order.count == existing.count, Set(order) == Set(existing), order != existing else { return }
+        library[module] = order
         try save(library, kind: .knowledgePoint, records: records, context: context)
     }
 
     @discardableResult
-    static func rename(_ oldName: String, to newName: String, kind: ManagedTagKind, module: String, records: [StoredRecord], context: ModelContext) throws -> LibraryTagMutationResult {
+    static func rename(_ oldName: String, to newName: String, kind: ManagedTagKind, module: String, subject: String? = nil, typeID: String? = nil, records: [StoredRecord], context: ModelContext) throws -> LibraryTagMutationResult {
         var library = loadWithDefaults(kind: kind, records: records)
         let value = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, value != oldName, !(library[module] ?? []).contains(value) else {
-            return LibraryTagMutationResult(kind: kind, module: module, oldName: oldName, newName: value, recordChanges: [])
+            return LibraryTagMutationResult(kind: kind, module: module, oldName: oldName, newName: value, recordChanges: [], typeID: typeID)
         }
         library[module] = (library[module] ?? []).map { $0 == oldName ? value : $0 }
         return try mutate(
@@ -95,13 +139,15 @@ enum TagLibraryRepository {
             newName: value,
             kind: kind,
             module: module,
+            subject: subject,
+            typeID: typeID,
             records: records,
             context: context
         )
     }
 
     @discardableResult
-    static func delete(_ name: String, kind: ManagedTagKind, module: String, records: [StoredRecord], context: ModelContext) throws -> LibraryTagMutationResult {
+    static func delete(_ name: String, kind: ManagedTagKind, module: String, subject: String? = nil, typeID: String? = nil, records: [StoredRecord], context: ModelContext) throws -> LibraryTagMutationResult {
         var library = loadWithDefaults(kind: kind, records: records)
         library[module] = (library[module] ?? []).filter { $0 != name }
         return try mutate(
@@ -110,6 +156,8 @@ enum TagLibraryRepository {
             newName: nil,
             kind: kind,
             module: module,
+            subject: subject,
+            typeID: typeID,
             records: records,
             context: context
         )
@@ -131,6 +179,8 @@ enum TagLibraryRepository {
         newName: String?,
         kind: ManagedTagKind,
         module: String,
+        subject: String?,
+        typeID: String?,
         records: [StoredRecord],
         context: ModelContext
     ) throws -> LibraryTagMutationResult {
@@ -139,6 +189,8 @@ enum TagLibraryRepository {
             newName: newName,
             kind: kind,
             module: module,
+            subject: kind == .knowledgePoint ? subject : nil,
+            typeID: kind == .knowledgePoint ? typeID : nil,
             records: records
         )
         let existingLibraryRecord = records.first {
@@ -147,10 +199,20 @@ enum TagLibraryRepository {
         let librarySnapshot = existingLibraryRecord.map {
             (payload: $0.payload, indexPayload: $0.indexPayload, updatedAt: $0.updatedAt)
         }
+        let groupRecord = kind == .knowledgePoint
+            ? records.first { $0.collection == "keyvalue" && $0.recordID == LibraryKnowledgePointGroupRepository.recordID }
+            : nil
+        let groupSnapshot = groupRecord.map { ($0.payload, $0.indexPayload, $0.updatedAt) }
 
         do {
             try context.transaction {
                 try save(library, kind: kind, records: records, context: context, persist: false)
+                if kind == .knowledgePoint {
+                    try LibraryKnowledgePointGroupRepository.renameTagMember(
+                        oldName, to: newName, subject: subject, module: module, typeID: typeID, records: records,
+                        context: context, save: false
+                    )
+                }
                 for change in changes {
                     change.record.replacePayload(change.afterPayload, indexPayload: change.afterIndexPayload)
                     change.record.updatedAt = change.updatedAt
@@ -171,6 +233,10 @@ enum TagLibraryRepository {
                 })
                 for inserted in (try? context.fetch(descriptor)) ?? [] { context.delete(inserted) }
             }
+            if kind == .knowledgePoint {
+                restoreKeyValueRecord(groupRecord, snapshot: groupSnapshot,
+                                      recordID: LibraryKnowledgePointGroupRepository.recordID, context: context)
+            }
             throw error
         }
 
@@ -186,7 +252,8 @@ enum TagLibraryRepository {
                     beforePayload: $0.beforePayload,
                     afterPayload: $0.afterPayload
                 )
-            }
+            },
+            typeID: typeID
         )
     }
 
@@ -219,29 +286,52 @@ enum TagLibraryRepository {
         if persist { try context.save() }
     }
 
+    private static func restoreKeyValueRecord(
+        _ record: StoredRecord?,
+        snapshot: (Data, Data?, Date?)?,
+        recordID: String,
+        context: ModelContext
+    ) {
+        if let record, let snapshot {
+            record.replacePayload(snapshot.0, indexPayload: snapshot.1)
+            record.updatedAt = snapshot.2
+        } else if record == nil {
+            let key = recordID
+            let descriptor = FetchDescriptor<StoredRecord>(predicate: #Predicate {
+                $0.collection == "keyvalue" && $0.recordID == key
+            })
+            for inserted in (try? context.fetch(descriptor)) ?? [] { context.delete(inserted) }
+        }
+    }
+
     private static func prepareReferenceChanges(
         oldName: String,
         newName: String?,
         kind: ManagedTagKind,
         module: String,
+        subject: String?,
+        typeID: String?,
         records: [StoredRecord]
     ) throws -> [PendingRecordChange] {
         let mutationDate = Date.now
         var changes: [PendingRecordChange] = []
         for record in records where (record.collection == "errors" || record.collection == "notes") {
             let objectSubject = record.subject ?? record.indexObject?["subject"] as? String ?? ""
+            let matchesSubject = subject == nil || objectSubject == subject
             let isVerbalErrorKnowledgePoint = kind == .knowledgePoint
                 && record.collection == "errors"
                 && objectSubject == "言语理解"
+                && subject == "言语理解"
             let matchesModule = record.module == module
                 || (kind == .thinkingTrap && module == "数量关系-弱项" && record.subject == "数量关系")
             let hasSourceReference = isVerbalErrorKnowledgePoint
                 && (record.jsonObject?["knowledgePointRefs"] as? [[String: Any]] ?? []).contains {
                     ($0["module"] as? String) == module
-                        && ($0["typeID"] as? String) == nil
+                        && ($0["typeID"] as? String) == typeID
                         && ($0["name"] as? String) == oldName
                 }
-            guard isVerbalErrorKnowledgePoint ? (matchesModule || hasSourceReference) : matchesModule else { continue }
+            guard matchesSubject,
+                  isVerbalErrorKnowledgePoint ? (matchesModule || hasSourceReference) : matchesModule else { continue }
             guard var object = record.jsonObject else { continue }
             var changed = false
             if kind == .knowledgePoint {
@@ -253,7 +343,7 @@ enum TagLibraryRepository {
                         availableNames: localNames
                     )
                     let updatedReferences = references.compactMap { reference -> LibraryKnowledgePointReference? in
-                        guard reference.module == module, reference.typeID == nil, reference.name == oldName else { return reference }
+                        guard reference.module == module, reference.typeID == typeID, reference.name == oldName else { return reference }
                         guard let newName else { return nil }
                         return LibraryKnowledgePointReference(module: module, name: newName)
                     }
@@ -262,18 +352,37 @@ enum TagLibraryRepository {
                         let names = LibraryKnowledgePointReferencePolicy.displayNames(from: uniqueReferences)
                         object["knowledgePointRefs"] = uniqueReferences.map(\.jsonValue)
                         object["knowledgePoints"] = names
-                        object["knowledgePoint"] = names.first ?? ""
+                        object["knowledgePoint"] = names.joined(separator: "、")
                         changed = true
                     }
                 } else {
-                    if var values = object["knowledgePoints"] as? [String], values.contains(oldName) {
-                        values = replacing(oldName, with: newName, in: values)
-                        object["knowledgePoints"] = values
+                    let references = LibraryKnowledgePointReferencePolicy.references(from: object)
+                    let legacyDisplayValue = object["knowledgePoint"] as? String
+                    let updatedLegacyDisplayValue = legacyDisplayValue.flatMap {
+                        replacing(oldName, with: newName, in: $0, separator: "、")
+                    }
+                    let scopedReferences = references.map { reference in
+                        reference.module == nil && reference.typeID == nil
+                            ? LibraryKnowledgePointReference(module: module, name: reference.name)
+                            : reference
+                    }
+                    let updatedReferences = scopedReferences.compactMap { reference -> LibraryKnowledgePointReference? in
+                        guard reference.module == module, reference.typeID == typeID, reference.name == oldName else { return reference }
+                        guard let newName else { return nil }
+                        return LibraryKnowledgePointReference(module: module, name: newName)
+                    }
+                    if updatedReferences != scopedReferences {
+                        let unique = LibraryKnowledgePointReferencePolicy.uniqueReferences(updatedReferences)
+                        let names = LibraryKnowledgePointReferencePolicy.displayNames(from: unique)
+                        object["knowledgePointRefs"] = unique.map(\.jsonValue)
+                        object["knowledgePoints"] = names
+                        object["knowledgePoint"] = updatedLegacyDisplayValue
+                            ?? legacyDisplayValue
+                            ?? names.joined(separator: "、")
                         changed = true
                     }
-                    if let value = object["knowledgePoint"] as? String,
-                       let updated = replacing(oldName, with: newName, in: value, separator: "、") {
-                        object["knowledgePoint"] = updated
+                    if let updatedLegacyDisplayValue {
+                        object["knowledgePoint"] = updatedLegacyDisplayValue
                         changed = true
                     }
                 }
