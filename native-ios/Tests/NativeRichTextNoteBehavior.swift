@@ -5,7 +5,7 @@ enum NativeRichTextNoteBehavior {
     static func main() throws {
         verifyInlineHTMLRoundTripKeepsMixedStyles()
         verifyCSSDerivedBoldAndMissingCSSSafety()
-        verifyTableCellBoldRangesRoundTrip()
+        try verifyTableCellBoldRangesRoundTrip()
         verifyDefaultAndExplicitParagraphSpacing()
         verifyLegacyAutomaticSpacingCleanup()
     }
