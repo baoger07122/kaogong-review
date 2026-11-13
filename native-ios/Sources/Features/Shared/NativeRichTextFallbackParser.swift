@@ -575,9 +575,12 @@ enum NativeRichTextFallbackParser {
                 for selector in selectors {
                     guard let classExpression else { continue }
                     let selectorSource = selector as NSString
-                    let classes = Set(classExpression.matches(in: selector, range: NSRange(location: 0, length: selectorSource.length)).compactMap {
-                        guard $0.numberOfRanges > 1 else { return nil }
-                        return selectorSource.substring(with: $0.range(at: 1))
+                    let classes = Set<String>(classExpression.matches(
+                        in: selector,
+                        range: NSRange(location: 0, length: selectorSource.length)
+                    ).compactMap { match -> String? in
+                        guard match.numberOfRanges > 1 else { return nil }
+                        return selectorSource.substring(with: match.range(at: 1))
                     })
                     if !classes.isEmpty { result.append(CSSRule(classes: classes, declarations: declarations)) }
                 }
