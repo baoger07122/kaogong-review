@@ -12,7 +12,9 @@ enum LibraryErrorTypeSubject: String, CaseIterable, Hashable {
         }
     }
 
-    var managementTitle: String { "\(rawValue)错误类型管理" }
+    var managementTitle: String {
+        self == .verbalReasoning ? "言语理解题型管理" : "\(rawValue)错误类型管理"
+    }
 
     var modules: [String] {
         guard self == .verbalReasoning else { return [] }

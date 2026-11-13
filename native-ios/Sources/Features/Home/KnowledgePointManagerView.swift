@@ -7,6 +7,7 @@ private struct TagEditorState: Identifiable {
 }
 
 struct KnowledgePointManagerView: View {
+    private static let legacyVerbalType = "__legacy_verbal_knowledge_points__"
     @Environment(\.modelContext) private var modelContext
     @Query private var records: [StoredRecord]
     @State private var subject = SubjectDefinition.all[0]
@@ -17,8 +18,36 @@ struct KnowledgePointManagerView: View {
     @State private var deletingName: String?
     @State private var errorMessage: String?
     @State private var showsOrder = false
+    @State private var verbalTypeSelection = Self.legacyVerbalType
 
-    private var tags: [String] { TagLibraryRepository.tags(kind: kind, module: module, records: records) }
+    private var isVerbalKnowledgePoint: Bool { subject.name == "言语理解" && kind == .knowledgePoint }
+    private var verbalTypes: [LibraryErrorType] {
+        LibraryErrorTypeRepository.types(for: .verbalReasoning, records: records)
+            .filter { $0.module == module }
+    }
+    private var selectedVerbalTypeID: String? {
+        verbalTypeSelection == Self.legacyVerbalType ? nil : verbalTypeSelection
+    }
+    private var selectedVerbalTypeName: String {
+        if verbalTypeSelection == Self.legacyVerbalType { return "旧考点" }
+        return verbalTypes.first(where: { $0.id == verbalTypeSelection })?.name ?? "旧考点"
+    }
+    private var scopeTitle: String {
+        isVerbalKnowledgePoint ? "\(module) · \(selectedVerbalTypeName)" : "\(module) · \(kind.rawValue)"
+    }
+    private var tags: [String] {
+        guard isVerbalKnowledgePoint else {
+            return TagLibraryRepository.tags(kind: kind, module: module, records: records)
+        }
+        guard let selectedVerbalTypeID else {
+            return TagLibraryRepository.tags(kind: .knowledgePoint, module: module, records: records)
+        }
+        return VerbalReasoningKnowledgePointRepository.tags(
+            module: module,
+            typeID: selectedVerbalTypeID,
+            records: records
+        )
+    }
     private var availableModules: [String] {
         subject.name == "数量关系" ? QuantityQuestionTypeRepository.types(records: records) : subject.modules
     }
@@ -35,21 +64,17 @@ struct KnowledgePointManagerView: View {
                         .foregroundStyle(AppTheme.danger)
                 }
 
-                HStack(spacing: 10) {
-                    Menu {
-                        ForEach(SubjectDefinition.all) { value in
-                            Button(value.name) {
-                                subject = value
-                                module = value.name == "数量关系"
-                                    ? (QuantityQuestionTypeRepository.types(records: records).first ?? "")
-                                    : (value.modules.first ?? "")
-                            }
-                        }
-                    } label: { selector(title: "科目", value: subject.name) }
-
-                    Menu {
-                        ForEach(availableModules, id: \.self) { value in Button(value) { module = value } }
-                    } label: { selector(title: subject.name == "数量关系" ? "题型" : "模块", value: module) }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        subjectSelector
+                        moduleSelector
+                        if isVerbalKnowledgePoint { verbalTypeSelector }
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        subjectSelector
+                        moduleSelector
+                        if isVerbalKnowledgePoint { verbalTypeSelector }
+                    }
                 }
 
                 Picker("标签类型", selection: $kind) {
@@ -58,7 +83,8 @@ struct KnowledgePointManagerView: View {
                 .pickerStyle(.segmented)
 
                 HStack {
-                    Text("\(module) · \(kind.rawValue)").font(AppTheme.sectionTitleFont)
+                    Text(scopeTitle)
+                        .font(AppTheme.sectionTitleFont)
                     Spacer()
                     if kind == .knowledgePoint {
                         Button("调整顺序") { showsOrder = true }
@@ -69,7 +95,7 @@ struct KnowledgePointManagerView: View {
                 }
 
                 if tags.isEmpty {
-                    NativeStatusCard(title: "暂无\(kind.rawValue)", detail: "点击新增建立当前模块的第一项", systemImage: "tag", color: AppTheme.accent)
+                    NativeStatusCard(title: "暂无\(kind.rawValue)", detail: "点击新增建立当前范围的第一项", systemImage: "tag", color: AppTheme.accent)
                 } else {
                     VStack(spacing: 0) {
                         ForEach(Array(tags.enumerated()), id: \.element) { index, name in
@@ -119,7 +145,62 @@ struct KnowledgePointManagerView: View {
                 )
             }
         }
-        .sheet(isPresented: $showsOrder) { KnowledgePointOrderView(module: module) }
+        .sheet(isPresented: $showsOrder) {
+            KnowledgePointOrderView(module: module, typeID: isVerbalKnowledgePoint ? selectedVerbalTypeID : nil)
+        }
+        .onAppear { resetVerbalTypeSelection() }
+        .onChange(of: verbalTypes.map(\.id)) { _, _ in
+            if isVerbalKnowledgePoint,
+               !verbalTypes.contains(where: { $0.id == verbalTypeSelection }),
+               verbalTypeSelection != Self.legacyVerbalType {
+                resetVerbalTypeSelection()
+            }
+        }
+    }
+
+    private var subjectSelector: some View {
+        Menu {
+            ForEach(SubjectDefinition.all) { value in
+                Button(value.name) {
+                    subject = value
+                    module = value.name == "数量关系"
+                        ? (QuantityQuestionTypeRepository.types(records: records).first ?? "")
+                        : (value.modules.first ?? "")
+                    resetVerbalTypeSelection()
+                }
+            }
+        } label: { selector(title: "科目", value: subject.name) }
+    }
+
+    private var moduleSelector: some View {
+        Menu {
+            ForEach(availableModules, id: \.self) { value in
+                Button(value) {
+                    module = value
+                    resetVerbalTypeSelection()
+                }
+            }
+        } label: {
+            selector(title: subject.name == "数量关系" ? "题型" : "模块", value: module)
+        }
+    }
+
+    private var verbalTypeSelector: some View {
+        Menu {
+            ForEach(verbalTypes) { type in
+                Button(type.name) { verbalTypeSelection = type.id }
+            }
+            if !verbalTypes.isEmpty { Divider() }
+            Button("旧考点") { verbalTypeSelection = Self.legacyVerbalType }
+        } label: {
+            selector(title: "题型", value: selectedVerbalTypeName)
+        }
+        .accessibilityIdentifier("verbal-knowledge-point-type-selector")
+    }
+
+    private func resetVerbalTypeSelection() {
+        verbalTypeSelection = LibraryErrorTypeRepository.types(for: .verbalReasoning, records: records)
+            .first(where: { $0.module == module })?.id ?? Self.legacyVerbalType
     }
 
     private func selector(title: String, value: String) -> some View {
@@ -144,7 +225,7 @@ struct KnowledgePointManagerView: View {
             onSave: saveEditor
         ) {
             TextField("名称", text: $draftName).textFieldStyle(NativeTextFieldStyle())
-            Text("保存范围：\(subject.name) → \(module)")
+            Text("保存范围：\(subject.name) → \(module)\(isVerbalKnowledgePoint ? " → \(selectedVerbalTypeName)" : "")")
                 .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
         }
     }
@@ -164,10 +245,22 @@ struct KnowledgePointManagerView: View {
     private func saveEditor() {
         guard let editor else { return }
         do {
-            if let original = editor.original {
-                try TagLibraryRepository.rename(original, to: draftName, kind: kind, module: module, records: records, context: modelContext)
+            if isVerbalKnowledgePoint, let typeID = selectedVerbalTypeID {
+                if let original = editor.original {
+                    try VerbalReasoningKnowledgePointRepository.rename(
+                        original, to: draftName, module: module, typeID: typeID, records: records, context: modelContext
+                    )
+                } else {
+                    try VerbalReasoningKnowledgePointRepository.add(
+                        draftName, module: module, typeID: typeID, records: records, context: modelContext
+                    )
+                }
             } else {
-                try TagLibraryRepository.add(draftName, kind: kind, module: module, records: records, context: modelContext)
+                if let original = editor.original {
+                    try TagLibraryRepository.rename(original, to: draftName, kind: kind, module: module, records: records, context: modelContext)
+                } else {
+                    try TagLibraryRepository.add(draftName, kind: kind, module: module, records: records, context: modelContext)
+                }
             }
             errorMessage = nil
             self.editor = nil
@@ -187,7 +280,13 @@ struct KnowledgePointManagerView: View {
 
     private func remove(_ name: String) {
         do {
-            try TagLibraryRepository.delete(name, kind: kind, module: module, records: records, context: modelContext)
+            if isVerbalKnowledgePoint, let typeID = selectedVerbalTypeID {
+                try VerbalReasoningKnowledgePointRepository.delete(
+                    name, module: module, typeID: typeID, records: records, context: modelContext
+                )
+            } else {
+                try TagLibraryRepository.delete(name, kind: kind, module: module, records: records, context: modelContext)
+            }
             errorMessage = nil
             deletingName = nil
         } catch {

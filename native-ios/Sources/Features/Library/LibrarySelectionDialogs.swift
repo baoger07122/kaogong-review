@@ -376,9 +376,11 @@ struct QuantityKnowledgePointSelectionDialog: View {
 }
 
 struct VerbalReasoningKnowledgePointSelectionDialog: View {
+    private static let legacyTypeSelection = "__legacy_verbal_knowledge_points__"
     @Environment(\.modelContext) private var modelContext
     @Query private var records: [StoredRecord]
     let currentModule: String
+    let currentTypeID: String?
     @Binding var selection: [LibraryKnowledgePointReference]
     @Binding var legacyDisplaySelection: String
     let onClose: () -> Void
@@ -386,8 +388,8 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
     var onCommit: (([LibraryKnowledgePointReference]) -> String?)? = nil
 
     @State private var selected: [LibraryKnowledgePointReference] = []
-    @State private var browsingModule = ""
-    @State private var showsCrossModule = false
+    @State private var browsingTypeSelection = ""
+    @State private var showsCrossType = false
     @State private var search = ""
     @State private var message: String?
     @State private var renaming: String?
@@ -395,18 +397,52 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
     @State private var deleting: String?
     @State private var showsOrder = false
 
-    private var modules: [String] { LibraryErrorTypeSubject.verbalReasoning.modules }
-    private var activeModule: String { showsCrossModule ? browsingModule : currentModule }
+    private var types: [LibraryErrorType] {
+        LibraryErrorTypeRepository.types(for: .verbalReasoning, records: records)
+            .filter { $0.module == currentModule }
+    }
+    private var activeTypeID: String? {
+        guard !browsingTypeSelection.isEmpty, browsingTypeSelection != Self.legacyTypeSelection else { return nil }
+        return browsingTypeSelection
+    }
+    private var activeTypeName: String {
+        guard let activeTypeID else { return "旧考点" }
+        return types.first(where: { $0.id == activeTypeID })?.name ?? "题型已删除"
+    }
     private var names: [String] {
-        TagLibraryRepository.tags(kind: .knowledgePoint, module: activeModule, records: records)
+        guard let activeTypeID else {
+            return TagLibraryRepository.tags(kind: .knowledgePoint, module: currentModule, records: records)
+        }
+        return VerbalReasoningKnowledgePointRepository.tags(
+            module: currentModule,
+            typeID: activeTypeID,
+            records: records
+        )
     }
     private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var filteredNames: [String] {
+        guard activeTypeID != nil else { return [] }
         var values = names
-        for reference in selected where reference.module == activeModule && !values.contains(reference.name) {
+        for reference in selected where reference.module == currentModule
+            && reference.typeID == activeTypeID && !values.contains(reference.name) {
             values.append(reference.name)
         }
         return values.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }
+    }
+    private var legacyNames: [String] {
+        let names = TagLibraryRepository.tags(kind: .knowledgePoint, module: currentModule, records: records)
+        let selectedNames = selected.compactMap { reference -> String? in
+            guard reference.module == currentModule, reference.typeID == nil else { return nil }
+            return reference.name
+        }
+        return (names + selectedNames).reduce(into: []) { values, name in
+            if !values.contains(name), query.isEmpty || name.localizedCaseInsensitiveContains(query) {
+                values.append(name)
+            }
+        }
+    }
+    private var browsableTypes: [LibraryErrorType] {
+        types.filter { showsCrossType ? $0.id != currentTypeID : $0.id == currentTypeID }
     }
 
     var body: some View {
@@ -435,41 +471,52 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                 }
 
                 HStack {
-                    Text(showsCrossModule ? "跨模块 · \(activeModule)" : "当前模块 · \(currentModule)")
+                    Text(showsCrossType
+                         ? "跨题型 · \(activeTypeName)"
+                         : (currentTypeID.map { id in "当前题型 · \(types.first(where: { $0.id == id })?.name ?? "题型已删除")" } ?? "题型未设置"))
                         .font(.system(size: 12, weight: .semibold))
                     Spacer()
-                    Button(showsCrossModule ? "返回当前模块" : "＋ 跨模块选择") {
-                        if showsCrossModule {
-                            showsCrossModule = false
-                            browsingModule = currentModule
+                    if showsCrossType || currentTypeID == nil || types.contains(where: { $0.id != currentTypeID }) {
+                        Button(showsCrossType
+                               ? (currentTypeID == nil ? "返回旧考点" : "返回当前题型")
+                               : (currentTypeID == nil ? "选择题型" : "＋ 跨题型选择")) {
+                        if showsCrossType {
+                            showsCrossType = false
+                            browsingTypeSelection = currentTypeID ?? Self.legacyTypeSelection
                         } else {
-                            showsCrossModule = true
-                            browsingModule = modules.first(where: { $0 != currentModule }) ?? currentModule
+                            showsCrossType = true
+                            browsingTypeSelection = types.first(where: { $0.id != currentTypeID })?.id
+                                ?? types.first?.id
+                                ?? Self.legacyTypeSelection
                         }
                         search = ""
                     }
                     .font(.system(size: 11, weight: .semibold))
-                    .disabled(!showsCrossModule && modules.allSatisfy { $0 == currentModule })
+                    }
                 }
 
-                if showsCrossModule {
+                if showsCrossType {
                     NativeTagFlow(spacing: 6) {
-                        ForEach(modules.filter { $0 != currentModule }, id: \.self) { module in
+                        ForEach(browsableTypes) { type in
                             Button {
-                                browsingModule = module
+                                browsingTypeSelection = type.id
                                 search = ""
                             } label: {
-                                Text(module)
+                                Text(type.name)
                                     .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(activeModule == module ? AppTheme.accent : Color.primary)
+                                    .foregroundStyle(activeTypeID == type.id ? AppTheme.accent : Color.primary)
                                     .padding(.horizontal, 9).frame(height: 28)
                                     .background(
-                                        activeModule == module ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045),
+                                        activeTypeID == type.id ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045),
                                         in: Capsule()
                                     )
                             }
                             .buttonStyle(.plain)
                         }
+                    }
+                    if types.isEmpty {
+                        Text("暂无题型，请先前往设置 → 言语理解题型管理中创建。")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                 }
 
@@ -479,7 +526,7 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                         .onSubmit(addTag)
                     Button("新增", action: addTag)
                         .font(.system(size: 12, weight: .semibold))
-                        .disabled(query.isEmpty || names.contains(query) || activeModule.isEmpty)
+                        .disabled(query.isEmpty || names.contains(query) || currentModule.isEmpty)
                 }
 
                 HStack {
@@ -489,23 +536,56 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                 }
 
                 ScrollView {
-                    NativeTagFlow(spacing: 6) {
-                        ForEach(filteredNames, id: \.self) { name in
-                            let reference = LibraryKnowledgePointReference(module: activeModule, name: name)
-                            Button { toggle(reference) } label: {
-                                HStack(spacing: 4) {
-                                    Text(name)
-                                    if selected.contains(reference) { Image(systemName: "checkmark") }
+                    VStack(alignment: .leading, spacing: 10) {
+                        if !filteredNames.isEmpty {
+                            NativeTagFlow(spacing: 6) {
+                                ForEach(filteredNames, id: \.self) { name in
+                                    let reference = LibraryKnowledgePointReference(
+                                        module: currentModule,
+                                        typeID: activeTypeID,
+                                        name: name
+                                    )
+                                    Button { toggle(reference) } label: {
+                                        HStack(spacing: 4) {
+                                            Text(name)
+                                            if selected.contains(reference) { Image(systemName: "checkmark") }
+                                        }
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(selected.contains(reference) ? AppTheme.accent : Color.primary)
+                                        .padding(.horizontal, 10).padding(.vertical, 8)
+                                        .background(selected.contains(reference) ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .contextMenu {
+                                        Button("重命名") { renaming = name; newName = name }
+                                        Button("删除考点", role: .destructive) { deleting = name }
+                                    }
                                 }
-                                .font(.system(size: 12))
-                                .foregroundStyle(selected.contains(reference) ? AppTheme.accent : Color.primary)
-                                .padding(.horizontal, 10).padding(.vertical, 8)
-                                .background(selected.contains(reference) ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
                             }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                Button("重命名") { renaming = name; newName = name }
-                                Button("删除考点", role: .destructive) { deleting = name }
+                        }
+                        if !legacyNames.isEmpty {
+                            Text("旧考点")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            NativeTagFlow(spacing: 6) {
+                                ForEach(legacyNames, id: \.self) { name in
+                                    let reference = LibraryKnowledgePointReference(module: currentModule, name: name)
+                                    Button { toggle(reference) } label: {
+                                        HStack(spacing: 4) {
+                                            Text(name)
+                                            if selected.contains(reference) { Image(systemName: "checkmark") }
+                                        }
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(selected.contains(reference) ? AppTheme.accent : Color.primary)
+                                        .padding(.horizontal, 10).padding(.vertical, 8)
+                                        .background(selected.contains(reference) ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .contextMenu {
+                                        Button("重命名") { renaming = name; newName = name }
+                                        Button("删除考点", role: .destructive) { deleting = name }
+                                    }
+                                }
                             }
                         }
                     }
@@ -521,14 +601,16 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                 currentModule: currentModule,
                 availableNames: available
             )
-            browsingModule = currentModule
+            browsingTypeSelection = currentTypeID ?? Self.legacyTypeSelection
         }
-        .sheet(isPresented: $showsOrder) { KnowledgePointOrderView(module: activeModule) }
+        .sheet(isPresented: $showsOrder) {
+            KnowledgePointOrderView(module: currentModule, typeID: activeTypeID)
+        }
         .alert("重命名考点", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("考点名称", text: $newName).modifier(NativeDirectionalTextFieldNavigation())
             Button("保存") { renameTag() }
             Button("取消", role: .cancel) { renaming = nil }
-        } message: { Text("来源模块中的该考点会同步更新。") }
+        } message: { Text("当前题型中的该考点会同步更新。") }
         .alert("删除考点？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button("删除", role: .destructive) { deleteTag() }
             Button("取消", role: .cancel) { deleting = nil }
@@ -536,8 +618,20 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
     }
 
     private func selectedTitle(for reference: LibraryKnowledgePointReference) -> String {
-        guard selected.filter({ $0.name == reference.name }).count > 1 else { return reference.name }
-        return "\(reference.module ?? currentModule) · \(reference.name)"
+        if let sourceModule = reference.module, sourceModule != currentModule {
+            let origin: String
+            if let typeID = reference.typeID {
+                origin = LibraryErrorTypeRepository.types(for: .verbalReasoning, records: records)
+                    .first(where: { $0.module == sourceModule && $0.id == typeID })?.name ?? "题型已删除"
+            } else {
+                origin = "旧考点"
+            }
+            return "\(sourceModule) · \(origin) · \(reference.name)"
+        }
+        if reference.typeID == nil { return "旧考点 · \(reference.name)" }
+        let typeName = types.first(where: { $0.id == reference.typeID })?.name ?? "题型已删除"
+        guard selected.filter({ $0.name == reference.name }).count > 1 else { return "\(typeName) · \(reference.name)" }
+        return "\(reference.module ?? currentModule) · \(typeName) · \(reference.name)"
     }
 
     private func toggle(_ reference: LibraryKnowledgePointReference) {
@@ -557,10 +651,16 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
     }
 
     private func addTag() {
-        guard !query.isEmpty, !activeModule.isEmpty, !names.contains(query) else { return }
+        guard !query.isEmpty, !currentModule.isEmpty, !names.contains(query) else { return }
         do {
-            try TagLibraryRepository.add(query, kind: .knowledgePoint, module: activeModule, records: records, context: modelContext)
-            toggle(LibraryKnowledgePointReference(module: activeModule, name: query))
+            if let activeTypeID {
+                try VerbalReasoningKnowledgePointRepository.add(
+                    query, module: currentModule, typeID: activeTypeID, records: records, context: modelContext
+                )
+            } else {
+                try TagLibraryRepository.add(query, kind: .knowledgePoint, module: currentModule, records: records, context: modelContext)
+            }
+            toggle(LibraryKnowledgePointReference(module: currentModule, typeID: activeTypeID, name: query))
             search = ""
         } catch { message = "考点保存失败，请重试" }
     }
@@ -569,15 +669,24 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
         guard let old = renaming else { return }
         let value = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, value != old, !names.contains(value) else {
-            message = "名称不能为空或与当前模块其他考点重复"
+            message = "名称不能为空或与当前题型其他考点重复"
             return
         }
         do {
-            let result = try TagLibraryRepository.rename(old, to: value, kind: .knowledgePoint, module: activeModule, records: records, context: modelContext)
+            let result: LibraryTagMutationResult
+            if let activeTypeID {
+                result = try VerbalReasoningKnowledgePointRepository.rename(
+                    old, to: value, module: currentModule, typeID: activeTypeID, records: records, context: modelContext
+                )
+            } else {
+                result = try TagLibraryRepository.rename(
+                    old, to: value, kind: .knowledgePoint, module: currentModule, records: records, context: modelContext
+                )
+            }
             onTagMutation?(result)
             selected = selected.map { reference in
-                reference.module == activeModule && reference.name == old
-                    ? LibraryKnowledgePointReference(module: activeModule, name: value)
+                reference.module == currentModule && reference.typeID == activeTypeID && reference.name == old
+                    ? LibraryKnowledgePointReference(module: currentModule, typeID: activeTypeID, name: value)
                     : reference
             }
             renaming = nil
@@ -587,9 +696,18 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
     private func deleteTag() {
         guard let name = deleting else { return }
         do {
-            let result = try TagLibraryRepository.delete(name, kind: .knowledgePoint, module: activeModule, records: records, context: modelContext)
+            let result: LibraryTagMutationResult
+            if let activeTypeID {
+                result = try VerbalReasoningKnowledgePointRepository.delete(
+                    name, module: currentModule, typeID: activeTypeID, records: records, context: modelContext
+                )
+            } else {
+                result = try TagLibraryRepository.delete(
+                    name, kind: .knowledgePoint, module: currentModule, records: records, context: modelContext
+                )
+            }
             onTagMutation?(result)
-            selected.removeAll { $0.module == activeModule && $0.name == name }
+            selected.removeAll { $0.module == currentModule && $0.typeID == activeTypeID && $0.name == name }
             deleting = nil
         } catch { message = "删除失败，请重试" }
     }

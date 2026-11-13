@@ -173,6 +173,26 @@ jobs:
             native-ios/Tests/SpeedStatisticsBehavior.swift \
             -o "$RUNNER_TEMP/speed-statistics-behavior"
           "$RUNNER_TEMP/speed-statistics-behavior"
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Library/LibraryInlineNoteFinishPolicy.swift \
+            native-ios/Tests/LibraryInlineNoteFinishPolicyBehavior.swift \
+            -o "$RUNNER_TEMP/inline-note-finish-policy-behavior"
+          "$RUNNER_TEMP/inline-note-finish-policy-behavior"
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Shared/NativeRichTextFallbackParser.swift \
+            native-ios/Sources/Features/Shared/NativeRichTextNoteInlineHTMLPolicy.swift \
+            native-ios/Sources/Features/Shared/NativeRichTextNoteParagraphHTMLPolicy.swift \
+            native-ios/Sources/Features/Shared/NativeRichTextTablePasteParser.swift \
+            native-ios/Sources/Features/Shared/NativeRichTextTableModel.swift \
+            native-ios/Tests/NativeRichTextNoteBehavior.swift \
+            -o "$RUNNER_TEMP/native-rich-text-note-behavior"
+          "$RUNNER_TEMP/native-rich-text-note-behavior"
+          swiftc -parse-as-library \
+            native-ios/Sources/Features/Library/LibraryKnowledgePointReference.swift \
+            native-ios/Sources/Features/Home/VerbalReasoningKnowledgePointLibraryPolicy.swift \
+            native-ios/Tests/LibraryKnowledgePointReferenceBehavior.swift \
+            -o "$RUNNER_TEMP/library-knowledge-point-reference-behavior"
+          "$RUNNER_TEMP/library-knowledge-point-reference-behavior"
 
       - name: Detect simulator test scope
         id: simulator_scope

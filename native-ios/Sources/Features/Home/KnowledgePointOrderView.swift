@@ -7,6 +7,7 @@ struct KnowledgePointOrderView: View {
     @Environment(\.dismiss) private var dismiss
     @Query private var records: [StoredRecord]
     let module: String
+    var typeID: String? = nil
 
     @State private var names: [String] = []
     @State private var errorMessage: String?
@@ -45,13 +46,23 @@ struct KnowledgePointOrderView: View {
     }
 
     private func reload() {
-        names = TagLibraryRepository.tags(kind: .knowledgePoint, module: module, records: records)
+        if let typeID {
+            names = VerbalReasoningKnowledgePointRepository.tags(module: module, typeID: typeID, records: records)
+        } else {
+            names = TagLibraryRepository.tags(kind: .knowledgePoint, module: module, records: records)
+        }
     }
 
     private func move(from source: IndexSet, to destination: Int) {
         names.move(fromOffsets: source, toOffset: destination)
         do {
-            try TagLibraryRepository.reorderKnowledgePoints(names, module: module, records: records, context: modelContext)
+            if let typeID {
+                try VerbalReasoningKnowledgePointRepository.reorder(
+                    names, module: module, typeID: typeID, records: records, context: modelContext
+                )
+            } else {
+                try TagLibraryRepository.reorderKnowledgePoints(names, module: module, records: records, context: modelContext)
+            }
         } catch {
             reload()
             errorMessage = error.localizedDescription

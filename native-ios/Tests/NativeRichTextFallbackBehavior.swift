@@ -17,6 +17,7 @@ enum NativeRichTextFallbackBehavior {
         let runs = NativeRichTextFallbackParser.parse(html)
         let text = runs.compactMap { run -> String? in
             if case .text(let value) = run { return value }
+            if case .styledText(let value, _) = run { return value }
             if case .placeholder(let value) = run { return value }
             return nil
         }.joined()
@@ -38,6 +39,7 @@ enum NativeRichTextFallbackBehavior {
         let order = runs.map { run -> String in
             switch run {
             case .text(let value): return value
+            case .styledText(let value, _): return value
             case .image: return "<image>"
             case .table: return "<table>"
             case .formula: return "<formula>"
@@ -61,6 +63,7 @@ enum NativeRichTextFallbackBehavior {
         precondition(runs.contains(.placeholder("图片")), "malformed image data should get an explicit placeholder")
         let visibleText = runs.compactMap { run -> String? in
             if case .text(let value) = run { return value }
+            if case .styledText(let value, _) = run { return value }
             if case .placeholder(let value) = run { return value }
             return nil
         }.joined()
@@ -76,6 +79,7 @@ enum NativeRichTextFallbackBehavior {
         let order = runs.map { run -> String in
             switch run {
             case .text(let value): return value
+            case .styledText(let value, _): return value
             case .image: return "<image>"
             case .table: return "<table>"
             case .formula: return "<formula>"
@@ -99,6 +103,7 @@ enum NativeRichTextFallbackBehavior {
         let order = runs.map { run -> String in
             switch run {
             case .text(let value): return value
+            case .styledText(let value, _): return value
             case .image: return "<image>"
             case .table: return "<table>"
             case .formula: return "<formula>"
@@ -140,6 +145,7 @@ enum NativeRichTextFallbackBehavior {
         }
         let recoveredText = longRuns.compactMap { run -> String? in
             if case .text(let value) = run { return value }
+            if case .styledText(let value, _) = run { return value }
             return nil
         }.joined()
         precondition(recoveredText == "\(longText)\n", "editable fallback must preserve the whole body without preview truncation")
@@ -162,6 +168,7 @@ enum NativeRichTextFallbackBehavior {
     private static func visibleText(in runs: [NativeRichTextFallbackRun]) -> String {
         runs.compactMap { run -> String? in
             if case .text(let value) = run { return value }
+            if case .styledText(let value, _) = run { return value }
             if case .placeholder(let value) = run { return value }
             return nil
         }.joined()

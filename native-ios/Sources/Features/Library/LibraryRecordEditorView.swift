@@ -439,6 +439,7 @@ struct LibraryRecordEditorView: View {
             if activeTags == .knowledgePoint, kind == .errors, draft.subject == "言语理解" {
                 overlays.append(AnyView(VerbalReasoningKnowledgePointSelectionDialog(
                     currentModule: draft.module,
+                    currentTypeID: draft.errorTypeID,
                     selection: $draft.knowledgePointRefs,
                     legacyDisplaySelection: $draft.knowledgePoint,
                     onClose: { self.activeTags = nil },
@@ -531,9 +532,15 @@ struct LibraryRecordEditorView: View {
         case .knowledgePoint:
             if draft.subject == "言语理解" {
                 let references = draft.knowledgePointRefs.compactMap { reference -> LibraryKnowledgePointReference? in
-                    guard reference.module == result.module, reference.name == result.oldName else { return reference }
+                    guard reference.module == result.module,
+                          reference.typeID == result.typeID,
+                          reference.name == result.oldName else { return reference }
                     guard let newName = result.newName else { return nil }
-                    return LibraryKnowledgePointReference(module: result.module, name: newName)
+                    return LibraryKnowledgePointReference(
+                        module: result.module,
+                        typeID: result.typeID,
+                        name: newName
+                    )
                 }
                 draft.knowledgePointRefs = LibraryKnowledgePointReferencePolicy.uniqueReferences(references)
                 draft.knowledgePoint = LibraryKnowledgePointReferencePolicy.displayNames(from: draft.knowledgePointRefs).joined(separator: "、")
@@ -691,8 +698,10 @@ struct LibraryRecordEditorView: View {
             Menu {
                 ForEach(subject.modules, id: \.self) { module in
                     Button(module) {
-                        if let errorType = availableErrorTypes.first(where: { $0.id == draft.errorTypeID }),
-                           !errorType.isAvailable(in: module) {
+                        if let subject = LibraryErrorTypeSubject(rawValue: draft.subject),
+                           let errorType = LibraryErrorTypeRepository.types(for: subject, records: records)
+                            .first(where: { $0.id == draft.errorTypeID }),
+                           !isErrorTypeAvailable(errorType, subject: subject, module: module) {
                             draft.errorTypeID = nil
                         }
                         draft.module = module
@@ -706,8 +715,19 @@ struct LibraryRecordEditorView: View {
 
     private var availableErrorTypes: [LibraryErrorType] {
         guard let subject = LibraryErrorTypeSubject(rawValue: draft.subject) else { return [] }
-        return LibraryErrorTypeRepository.types(for: subject, records: records)
-            .filter { $0.isAvailable(in: draft.module) }
+        let types = LibraryErrorTypeRepository.types(for: subject, records: records)
+        if subject == .verbalReasoning {
+            return types.filter { $0.module == draft.module }
+        }
+        return types.filter { $0.isAvailable(in: draft.module) }
+    }
+
+    private func isErrorTypeAvailable(
+        _ type: LibraryErrorType,
+        subject: LibraryErrorTypeSubject,
+        module: String
+    ) -> Bool {
+        subject == .verbalReasoning ? type.module == module : type.isAvailable(in: module)
     }
 
     @ViewBuilder private var errorTypePicker: some View {
@@ -730,7 +750,11 @@ struct LibraryRecordEditorView: View {
                     else { Text("未分类") }
                 }
             } label: {
-                compactProperty(title: "错误类型", value: selected?.name ?? "未分类", image: "tag")
+                compactProperty(
+                    title: draft.subject == "言语理解" ? "题型" : "错误类型",
+                    value: selected?.name ?? "未分类",
+                    image: "tag"
+                )
             }
             .menuOrder(.fixed)
             .accessibilityIdentifier("library-error-type-picker")

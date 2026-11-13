@@ -2,6 +2,8 @@ import SwiftData
 import SwiftUI
 import UIKit
 import PhotosUI
+import ImageIO
+import UniformTypeIdentifiers
 
 private enum LibraryInlineNoteSaveError: LocalizedError {
     case invalidRecordPayload
@@ -17,7 +19,7 @@ private enum LibraryInlineNoteSaveError: LocalizedError {
     }
 }
 
-private enum LibraryInlineNotePhotoError: LocalizedError {
+enum LibraryInlineNotePhotoError: LocalizedError {
     case noData
     case loadFailed(String)
     case tooLarge
@@ -28,7 +30,7 @@ private enum LibraryInlineNotePhotoError: LocalizedError {
         switch self {
         case .noData: "相册没有返回图片数据。"
         case .loadFailed(let message): "读取图片失败：\(message)"
-        case .tooLarge: "图片超过笔记允许的大小，请选择较小的图片。"
+        case .tooLarge: "图片无法压缩到笔记可安全保存的范围（约 2.9 MB），请选较小的图片。"
         case .decodeFailed: "无法识别所选图片。"
         case .encodeFailed: "图片压缩失败，请换一张图片重试。"
         }
@@ -221,11 +223,13 @@ struct LibraryInlineNoteView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var saveService = LibraryInlineNoteSaveService.shared
     private let readNote: () -> String
+    private let persistedNoteReader: () -> String?
     private let writeNote: (String, LibraryInlineNotePreparedSave?, String, ModelContext) throws -> String
     private let currentRecordVersion: () -> String
     private let currentRecordPayload: () -> Data?
     private let recordCollection: String
     private let onSaved: ((String) -> Void)?
+    private let onFinishConfirmed: ((String) -> Void)?
     private let renderDocumentID: String
     private let renderVersion: () -> String
     let session: LibraryInlineNoteSession
@@ -246,14 +250,15 @@ struct LibraryInlineNoteView: View {
     @State private var finishCompletionsWaitingForCommit: [(Bool) -> Void] = []
     @State private var isFinishing = false
     @State private var preparedNote: PreparedLibraryInlineNote?
+    @State private var preparationFailureKey: LibraryInlineNoteRenderKey?
     @State private var transientErrorMessage: String?
     @State private var displayWarning: String?
     @State private var editingInitialHTML: String?
     @State private var editingInitialAttributedText: NSAttributedString?
     @State private var initialSelectionOffset: Int?
     @State private var initialSelectionWidth: CGFloat?
-    @State private var selectedPhoto: PhotosPickerItem?
     @State private var isPhotoPickerPresented = false
+    @State private var isInsertingPhoto = false
     @State private var photoImportTarget: NativeRichTextInsertionTarget?
     @State private var photoImportRequestID: UUID?
     @State private var photoLoadTask: Task<Void, Never>?
@@ -265,11 +270,13 @@ struct LibraryInlineNoteView: View {
         session: LibraryInlineNoteSession,
         title: String = "错题笔记",
         readNote: (() -> String)? = nil,
-        onSaved: ((String) -> Void)? = nil
+        onSaved: ((String) -> Void)? = nil,
+        onFinishConfirmed: ((String) -> Void)? = nil
     ) {
         self.session = session
         self.title = title
         self.onSaved = onSaved
+        self.onFinishConfirmed = onFinishConfirmed
         renderDocumentID = record.compoundID
         renderVersion = { record.updatedAt.map { String($0.timeIntervalSince1970) } ?? "" }
         currentRecordVersion = {
@@ -282,6 +289,7 @@ struct LibraryInlineNoteView: View {
             if let note = object["note"] as? String { return note }
             return ["content", "errorNote", "analysis"].compactMap { object[$0] as? String }.first ?? ""
         }
+        persistedNoteReader = { record.jsonObject?["note"] as? String }
         writeNote = { content, prepared, expectedVersion, modelContext in
             let currentVersion = LibraryInlineNoteSaveService.versionKey(
                 updatedAt: record.updatedAt,
@@ -329,14 +337,17 @@ struct LibraryInlineNoteView: View {
         writeNote: @escaping (String, ModelContext) throws -> Void,
         renderDocumentID: String = "inline-note",
         renderVersion: @escaping () -> String = { "" },
-        onSaved: ((String) -> Void)? = nil
+        onSaved: ((String) -> Void)? = nil,
+        onFinishConfirmed: ((String) -> Void)? = nil
     ) {
         self.session = session
         self.title = title
         self.onSaved = onSaved
+        self.onFinishConfirmed = onFinishConfirmed
         self.renderDocumentID = renderDocumentID
         self.renderVersion = renderVersion
         self.readNote = readNote
+        persistedNoteReader = { readNote() }
         currentRecordVersion = renderVersion
         currentRecordPayload = { nil }
         recordCollection = ""
@@ -397,7 +408,7 @@ struct LibraryInlineNoteView: View {
                 Label(title, systemImage: "note.text")
                     .font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
                 Spacer()
-                Text(saveStatus.title)
+                Text(isInsertingPhoto ? "正在插入图片…" : saveStatus.title)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(saveStatus.color)
                     .accessibilityIdentifier("library-inline-note-save-status")
@@ -405,7 +416,7 @@ struct LibraryInlineNoteView: View {
                     Button("完成") { finishEditing() }
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Color.blue)
-                        .disabled(isFinishing || !editorSession.canFinishEditing)
+                        .disabled(isFinishing || editorSession.isMediaOperationInProgress || editorSession.isAuxiliaryPanelPresented)
                         .accessibilityIdentifier("library-inline-note-done")
                 }
             }
@@ -454,24 +465,29 @@ struct LibraryInlineNoteView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .photosPicker(isPresented: $isPhotoPickerPresented, selection: $selectedPhoto, matching: .images)
+        .sheet(isPresented: $isPhotoPickerPresented) {
+            if let requestID = photoImportRequestID {
+                LibraryInlineNotePhotoPicker(requestID: requestID) { finishedRequestID, provider in
+                    guard photoImportRequestID == finishedRequestID else { return }
+                    isPhotoPickerPresented = false
+                    guard let provider else {
+                        finishImageImport(requestID: finishedRequestID)
+                        return
+                    }
+                    isInsertingPhoto = true
+                    photoLoadTask?.cancel()
+                    photoLoadTask = Task { @MainActor in
+                        await loadAndInsertPhoto(provider, requestID: finishedRequestID)
+                    }
+                }
+                .ignoresSafeArea()
+            } else {
+                Color.clear
+            }
+        }
         .onChange(of: editorSession.imageImportRequest) { _, _ in advanceImageImportRequest() }
         .onChange(of: editorSession.isComposingText) { _, isComposing in
             if !isComposing { advanceImageImportRequest() }
-        }
-        .onChange(of: selectedPhoto) { _, item in
-            guard let item else { return }
-            photoLoadTask?.cancel()
-            photoLoadTask = Task { @MainActor in await loadAndInsertPhoto(item) }
-        }
-        .onChange(of: isPhotoPickerPresented) { _, presented in
-            guard !presented else { return }
-            Task { @MainActor in
-                await Task.yield()
-                guard !isPhotoPickerPresented, selectedPhoto == nil,
-                      let requestID = photoImportRequestID else { return }
-                finishImageImport(requestID: requestID)
-            }
         }
         .onAppear {
             session.finishEditing = { completion in finishEditing(completion: completion) }
@@ -634,6 +650,17 @@ struct LibraryInlineNoteView: View {
     @MainActor
     private func prepareNote(for key: LibraryInlineNoteRenderKey) async {
         guard !editing, !key.html.isEmpty else { return }
+        preparationFailureKey = nil
+        var installedPreparedNote = false
+        defer {
+            if !Task.isCancelled, !editing, key == noteRenderKey {
+                if installedPreparedNote {
+                    preparationFailureKey = nil
+                } else {
+                    preparationFailureKey = key
+                }
+            }
+        }
         if let preparedNote,
            preparedNote.key.documentID == key.documentID,
            preparedNote.key.html == key.html {
@@ -643,9 +670,14 @@ struct LibraryInlineNoteView: View {
                 editableAttributedText: preparedNote.editableAttributedText,
                 editorDocumentRevision: preparedNote.editorDocumentRevision
             )
+            installedPreparedNote = true
             return
         }
-        let result = NativeRichTextDisplayRenderer.render(key.html, noteFormatting: true)
+        let result = NativeRichTextDisplayRenderer.render(
+            key.html,
+            noteFormatting: true,
+            cleanLegacyInjectedSpacing: true
+        )
         let editableAttributedText: NSAttributedString?
         if result.usedSafeFallback {
             let html = key.html
@@ -680,6 +712,7 @@ struct LibraryInlineNoteView: View {
             editableAttributedText: editableAttributedText,
             editorDocumentRevision: nil
         )
+        installedPreparedNote = true
         if result.usedSafeFallback, editableAttributedText == nil {
             displayWarning = "预览已降级；笔记过长或含有未闭合附件，当前仅保留原内容并以只读方式显示。"
         }
@@ -727,6 +760,26 @@ struct LibraryInlineNoteView: View {
                         )
                     }
                 )
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            } else if preparationFailureKey == noteRenderKey {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("笔记暂时无法显示")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(AppTheme.warning)
+                    NativeRichTextDisplay(
+                        html: storedNote,
+                        minHeight: noteCanvasMinimumHeight,
+                        accessibilityIdentifier: "library-inline-note-safe-fallback",
+                        noteFormatting: true
+                    )
+                    Button("重试") {
+                        let retryKey = noteRenderKey
+                        Task { await prepareNote(for: retryKey) }
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.blue)
+                    .accessibilityIdentifier("library-inline-note-display-retry")
+                }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             } else {
                 Text("笔记正在准备显示…")
@@ -969,78 +1022,198 @@ struct LibraryInlineNoteView: View {
             finishCompletionsWaitingForCommit.append(completion)
             return
         }
-        guard editorSession.canFinishEditing else {
-            transientErrorMessage = "笔记编辑器仍在处理输入，请稍后重试。"
+        guard !editorSession.isMediaOperationInProgress,
+              !editorSession.isAuxiliaryPanelPresented else {
+            transientErrorMessage = "请先完成当前笔记附件或工具操作，再点完成。"
             updateFinishResult(false)
             completion(false)
             return
         }
         isFinishing = true
         saveTask?.cancel()
-        guard let snapshot = editorSession.captureSnapshot() else {
-            isFinishing = false
-            transientErrorMessage = "无法读取当前笔记内容，编辑页面没有打开。"
-            resolveFinishCompletions(primary: completion, result: false)
-            return
-        }
-        let latestDraft = snapshot.html
-        let currentState = saveService.state(recordID: renderDocumentID)
-        if latestDraft == storedNote, !saveService.hasPending(recordID: renderDocumentID) {
-            saveService.markExistingContentConfirmed(
-                recordID: renderDocumentID,
-                content: storedNote,
-                recordVersion: currentRecordVersion(),
-                payload: currentRecordPayload(),
-                allowDiscardingUnqueuedDraft: true
-            )
-            let confirmed = saveService.state(recordID: renderDocumentID)
-            if confirmed.confirmedContent == latestDraft {
-                editorSession.setInputLocked(true)
-                finishEditorAfterConfirmedSave(
-                    version: confirmed.confirmedDraftVersion,
-                    content: latestDraft,
+        editorSession.commitCompositionIfNeeded()
+        let documentID = renderDocumentID
+        let sessionID = editingSessionID
+        Task { @MainActor in
+            await Task.yield()
+            guard self.editing,
+                  self.renderDocumentID == documentID,
+                  self.editingSessionID == sessionID,
+                  self.editorSession.documentID == documentID,
+                  self.editorSession.sessionID == sessionID else {
+                self.failFinishBeforeSave(
+                    message: "笔记编辑会话已切换，原会话没有提交或覆盖新内容。",
                     completion: completion
                 )
                 return
             }
+            self.editorSession.commitCompositionIfNeeded()
+            guard !self.editorSession.isComposingText,
+                  let snapshot = self.editorSession.captureSnapshot() else {
+                self.failFinishBeforeSave(
+                    message: "无法读取输入法提交后的笔记内容，草稿仍保留在编辑器中。",
+                    completion: completion
+                )
+                return
+            }
+            let beforeEnding = LibraryInlineNoteFinishRevision(
+                documentID: documentID,
+                sessionID: sessionID,
+                revision: snapshot.documentRevision,
+                html: snapshot.html
+            )
+            LibraryPerformanceLog.event(
+                "note.finish.snapshot id=\(LibraryPerformanceLog.shortIdentifier(documentID)) session=\(sessionID.uuidString.prefix(8)) revision=\(snapshot.documentRevision) bytes=\(snapshot.html.utf8.count)"
+            )
+            self.editorSession.setInputLocked(true)
+            self.editorSession.endEditing { endedHTML in
+                Task { @MainActor in
+                    guard self.editing,
+                          self.renderDocumentID == documentID,
+                          self.editingSessionID == sessionID,
+                          self.editorSession.documentID == documentID,
+                          self.editorSession.sessionID == sessionID else {
+                        self.failFinishBeforeSave(
+                            message: "结束输入时编辑会话已切换，当前草稿仍保留。",
+                            completion: completion
+                        )
+                        return
+                    }
+                    let finalEditorSnapshot = self.editorSession.captureSnapshot()
+                    let afterEnding = finalEditorSnapshot.map {
+                        LibraryInlineNoteFinishRevision(
+                            documentID: documentID,
+                            sessionID: sessionID,
+                            revision: $0.documentRevision,
+                            html: $0.html
+                        )
+                    }
+                    guard let finalRevision = LibraryInlineNoteFinishPolicy.finalRevision(
+                        beforeEnding: beforeEnding,
+                        endedHTML: endedHTML,
+                        afterEnding: afterEnding
+                    ) else {
+                        self.editorSession.setInputLocked(false)
+                        self.isFinishing = false
+                        self.transientErrorMessage = "结束输入时笔记内容发生变化，但无法读取匹配的富文本快照；原草稿仍保留，请重试。"
+                        self.resolveFinishCompletions(primary: completion, result: false)
+                        return
+                    }
+                    let matchingEditorSnapshot: NativeRichTextEditorSnapshot?
+                    if let finalEditorSnapshot,
+                       finalEditorSnapshot.html == finalRevision.html,
+                       finalEditorSnapshot.documentRevision == finalRevision.revision {
+                        matchingEditorSnapshot = finalEditorSnapshot
+                    } else if snapshot.html == finalRevision.html,
+                              snapshot.documentRevision == finalRevision.revision {
+                        matchingEditorSnapshot = snapshot
+                    } else {
+                        matchingEditorSnapshot = nil
+                    }
+                    LibraryPerformanceLog.event(
+                        "note.finish.final id=\(LibraryPerformanceLog.shortIdentifier(documentID)) session=\(sessionID.uuidString.prefix(8)) revision=\(finalRevision.revision) bytes=\(finalRevision.html.utf8.count) changed=\(finalRevision.html != beforeEnding.html)"
+                    )
+                    self.commitFinishRevision(
+                        finalRevision,
+                        editorSnapshot: matchingEditorSnapshot,
+                        completion: completion
+                    )
+                }
+            }
         }
-        if latestDraft == currentState.confirmedContent,
+    }
+
+    private func failFinishBeforeSave(message: String, completion: @escaping (Bool) -> Void) {
+        editorSession.setInputLocked(false)
+        isFinishing = false
+        transientErrorMessage = message
+        resolveFinishCompletions(primary: completion, result: false)
+    }
+
+    private func commitFinishRevision(
+        _ finalRevision: LibraryInlineNoteFinishRevision,
+        editorSnapshot: NativeRichTextEditorSnapshot?,
+        completion: @escaping (Bool) -> Void
+    ) {
+        let content = finalRevision.html
+        setDraftWithoutScheduling(content)
+        let stateBeforeRegister = saveService.state(recordID: renderDocumentID)
+        if stateBeforeRegister.latestBaseVersion == nil {
+            activeBaseVersion = currentRecordVersion()
+            activeBasePayload = currentRecordPayload()
+        } else {
+            activeBaseVersion = stateBeforeRegister.latestBaseVersion ?? activeBaseVersion
+            activeBasePayload = stateBeforeRegister.latestBasePayload ?? activeBasePayload
+        }
+
+        if stateBeforeRegister.confirmedContent == content,
            !saveService.hasPending(recordID: renderDocumentID),
-           currentState.phase != .failed {
-            editorSession.setInputLocked(true)
+           stateBeforeRegister.phase != .failed,
+           persistedNoteReader() == content {
             finishEditorAfterConfirmedSave(
-                version: currentState.confirmedDraftVersion,
-                content: latestDraft,
+                version: stateBeforeRegister.confirmedDraftVersion,
+                finalRevision: finalRevision,
+                content: content,
+                editorSnapshot: editorSnapshot,
                 completion: completion
             )
             return
         }
-        setDraftWithoutScheduling(latestDraft)
-        editorSession.setInputLocked(true)
+
         let version = saveService.registerDraft(
             recordID: renderDocumentID,
-            content: latestDraft,
+            content: content,
             baseVersion: activeBaseVersion,
             basePayload: activeBasePayload
         )
         currentDraftVersion = version
-        let state = saveService.state(recordID: renderDocumentID)
-        if state.confirmedDraftVersion == version,
-           state.confirmedContent == latestDraft,
-           !saveService.hasPending(recordID: renderDocumentID) {
-            finishEditorAfterConfirmedSave(version: version, content: latestDraft, completion: completion)
+        let registered = saveService.state(recordID: renderDocumentID)
+        if registered.confirmedDraftVersion == version,
+           registered.confirmedContent == content,
+           !saveService.hasPending(recordID: renderDocumentID),
+           persistedNoteReader() == content {
+            finishEditorAfterConfirmedSave(
+                version: version,
+                finalRevision: finalRevision,
+                content: content,
+                editorSnapshot: editorSnapshot,
+                completion: completion
+            )
             return
         }
+
         enqueueSave(
-            latestDraft,
+            content,
             draftVersion: version,
-            editorSnapshot: snapshot,
+            editorSnapshot: editorSnapshot,
             onCompletion: { result in
                 switch result {
                 case .success:
-                    self.finishEditorAfterConfirmedSave(version: version, content: latestDraft, completion: completion)
+                    let confirmed = self.saveService.state(recordID: self.renderDocumentID)
+                    guard LibraryInlineNoteFinishPolicy.saveIsConfirmed(
+                        finalRevision: finalRevision,
+                        confirmedVersion: confirmed.confirmedDraftVersion,
+                        expectedVersion: version,
+                        confirmedHTML: confirmed.confirmedContent,
+                        persistedHTML: self.persistedNoteReader()
+                    ) else {
+                        self.failFinishBeforeSave(
+                            message: "保存回执与题目实际笔记字段不一致，编辑器和草稿仍保留。请重试。",
+                            completion: completion
+                        )
+                        return
+                    }
+                    self.finishEditorAfterConfirmedSave(
+                        version: version,
+                        finalRevision: finalRevision,
+                        content: content,
+                        editorSnapshot: editorSnapshot,
+                        completion: completion
+                    )
                 case .failure(let error):
-                    self.editorSession.setInputLocked(false)
+                    let recovery = LibraryInlineNoteFinishPolicy.recoveryAfterSaveFailure(finalHTML: content)
+                    self.setDraftWithoutScheduling(recovery.draft)
+                    if recovery.unlocksInput { self.editorSession.setInputLocked(false) }
                     self.isFinishing = false
                     self.transientErrorMessage = "笔记未保存，原记录未覆盖：\(error.localizedDescription)"
                     self.resolveFinishCompletions(primary: completion, result: false)
@@ -1049,38 +1222,83 @@ struct LibraryInlineNoteView: View {
         )
     }
 
+    private func installConfirmedPreview(
+        content: String,
+        editorSnapshot: NativeRichTextEditorSnapshot?
+    ) {
+        onSaved?(content)
+        let result: NativeRichTextDisplayRenderResult
+        let editableAttributedText: NSAttributedString?
+        if let editorSnapshot, editorSnapshot.html == content {
+            let formatted = NativeRichTextDisplayRenderer.applyingNoteFormatting(
+                to: NativeRichTextDisplayRenderResult(
+                    attributedText: editorSnapshot.attributedText,
+                    usedSafeFallback: false
+                ),
+                sourceHTML: content
+            )
+            result = formatted
+            editableAttributedText = formatted.attributedText.copy() as? NSAttributedString ?? formatted.attributedText
+        } else {
+            let rendered = NativeRichTextDisplayRenderer.render(content, noteFormatting: true)
+            result = rendered
+            editableAttributedText = rendered.usedSafeFallback ? nil : rendered.attributedText
+        }
+        let key = LibraryInlineNoteRenderKey(
+            documentID: renderDocumentID,
+            version: questionBankContextVersion,
+            html: content
+        )
+        preparedNote = PreparedLibraryInlineNote(
+            key: key,
+            result: result,
+            editableAttributedText: editableAttributedText,
+            editorDocumentRevision: editorSnapshot?.documentRevision
+        )
+        preparationFailureKey = nil
+        displayWarning = result.usedSafeFallback && editableAttributedText == nil
+            ? "预览已降级；笔记过长或含有未闭合附件，当前仅保留原内容并以只读方式显示。"
+            : nil
+    }
+
     private func finishEditorAfterConfirmedSave(
         version: UInt64,
+        finalRevision: LibraryInlineNoteFinishRevision,
         content: String,
+        editorSnapshot: NativeRichTextEditorSnapshot?,
         completion: @escaping (Bool) -> Void
     ) {
         let state = saveService.state(recordID: renderDocumentID)
-        guard state.confirmedDraftVersion == version, state.confirmedContent == content else {
+        guard finalRevision.documentID == renderDocumentID,
+              finalRevision.sessionID == editingSessionID,
+              LibraryInlineNoteFinishPolicy.saveIsConfirmed(
+                finalRevision: finalRevision,
+                confirmedVersion: state.confirmedDraftVersion,
+                expectedVersion: version,
+                confirmedHTML: state.confirmedContent,
+                persistedHTML: persistedNoteReader()
+              ) else {
             editorSession.setInputLocked(false)
             isFinishing = false
-            transientErrorMessage = "最新笔记版本尚未确认写入，编辑器仍保持打开。"
+            transientErrorMessage = "最新笔记版本尚未与题目实际保存内容对齐，编辑器仍保持打开。"
             resolveFinishCompletions(primary: completion, result: false)
             return
         }
-        editorSession.endEditing { _ in
-            guard self.saveService.state(recordID: self.renderDocumentID).confirmedDraftVersion == version else {
-                self.editorSession.setInputLocked(false)
-                self.isFinishing = false
-                self.transientErrorMessage = "保存期间笔记又有更新，请核对后再完成。"
-                self.resolveFinishCompletions(primary: completion, result: false)
-                return
-            }
-            self.editing = false
-            self.session.setEditing(false)
-            self.editingInitialHTML = nil
-            self.editingInitialAttributedText = nil
-            self.initialSelectionOffset = nil
-            self.initialSelectionWidth = nil
-            self.isFinishing = false
-            self.transientErrorMessage = nil
-            self.updateSessionPendingState()
-            self.resolveFinishCompletions(primary: completion, result: true)
-        }
+        installConfirmedPreview(content: content, editorSnapshot: editorSnapshot)
+        onFinishConfirmed?(content)
+        editing = false
+        session.setEditing(false)
+        editingInitialHTML = nil
+        editingInitialAttributedText = nil
+        initialSelectionOffset = nil
+        initialSelectionWidth = nil
+        isFinishing = false
+        transientErrorMessage = nil
+        updateSessionPendingState()
+        LibraryPerformanceLog.event(
+            "note.finish.preview-confirmed id=\(LibraryPerformanceLog.shortIdentifier(renderDocumentID)) session=\(finalRevision.sessionID.uuidString.prefix(8)) revision=\(finalRevision.revision) version=\(version) bytes=\(content.utf8.count)"
+        )
+        resolveFinishCompletions(primary: completion, result: true)
     }
 
     private func resolveFinishCompletions(primary: @escaping (Bool) -> Void, result: Bool) {
@@ -1142,48 +1360,54 @@ struct LibraryInlineNoteView: View {
         }
         photoImportTarget = target
         photoImportRequestID = request.id
+        isInsertingPhoto = false
         transientErrorMessage = nil
+        LibraryPerformanceLog.event(
+            "note.photo.picker-open request=\(request.id.uuidString.prefix(8)) revision=\(target.revision)"
+        )
         isPhotoPickerPresented = true
     }
 
     @MainActor
-    private func loadAndInsertPhoto(_ item: PhotosPickerItem) async {
-        guard let requestID = photoImportRequestID,
-              let target = photoImportTarget,
-              editorSession.imageImportRequest?.id == requestID else { return }
-        defer {
-            selectedPhoto = nil
-            photoLoadTask = nil
+    private func loadAndInsertPhoto(_ provider: NSItemProvider, requestID: UUID) async {
+        guard photoImportRequestID == requestID else { return }
+        guard let target = photoImportTarget,
+              editorSession.imageImportRequest?.id == requestID,
+              editorSession.matches(target) else {
+            finishImageImport(
+                requestID: requestID,
+                errorMessage: "插入位置已失效，图片没有加入笔记。请重新点选正文位置后重试。"
+            )
+            return
         }
 
         do {
-            let sourceData: Data
-            do {
-                guard let loaded = try await item.loadTransferable(type: Data.self) else {
-                    throw LibraryInlineNotePhotoError.noData
-                }
-                sourceData = loaded
-            } catch let error as LibraryInlineNotePhotoError {
-                throw error
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                throw LibraryInlineNotePhotoError.loadFailed(error.localizedDescription)
-            }
+            LibraryPerformanceLog.event("note.photo.selected request=\(requestID.uuidString.prefix(8))")
+            let sourceData = try await loadImageData(from: provider)
             try Task.checkCancellation()
-            guard editorSession.imageImportRequest?.id == requestID,
+            guard photoImportRequestID == requestID,
+                  editorSession.imageImportRequest?.id == requestID,
                   editorSession.matches(target) else {
                 throw NativeRichTextEditorError.editorSessionChanged
             }
-            guard sourceData.count <= 8 * 1024 * 1024 else { throw LibraryInlineNotePhotoError.tooLarge }
-            guard let image = UIImage(data: sourceData) else { throw LibraryInlineNotePhotoError.decodeFailed }
-            guard let compressed = image.jpegData(compressionQuality: 0.82) else { throw LibraryInlineNotePhotoError.encodeFailed }
-            guard compressed.count <= 8 * 1024 * 1024 else { throw LibraryInlineNotePhotoError.tooLarge }
+            guard !sourceData.isEmpty else { throw LibraryInlineNotePhotoError.noData }
+            let compressed = try await Task.detached(priority: .userInitiated) {
+                try LibraryInlineNotePhotoCodec.jpegData(from: sourceData)
+            }.value
             let dataURL = "data:image/jpeg;base64,\(compressed.base64EncodedString())"
-            guard dataURL.utf8.count <= NativeRichTextImageLimits.maximumEncodedBytes else {
+            let marker = Data(dataURL.utf8).base64EncodedString()
+            guard compressed.count <= LibraryInlineNotePhotoCodec.maximumRoundTripBytes,
+                  dataURL.utf8.count <= NativeRichTextFallbackImageLimits.maximumDataURLBytes,
+                  marker.utf8.count <= NativeRichTextFallbackImageLimits.maximumMarkerPayloadBytes,
+                  dataURL.utf8.count <= NativeRichTextImageLimits.maximumEncodedBytes else {
                 throw LibraryInlineNotePhotoError.tooLarge
             }
 
+            guard photoImportRequestID == requestID,
+                  editorSession.imageImportRequest?.id == requestID,
+                  editorSession.matches(target) else {
+                throw NativeRichTextEditorError.editorSessionChanged
+            }
             editorSession.insertImage(dataURL, target: target) { result in
                 switch result {
                 case .success:
@@ -1208,13 +1432,33 @@ struct LibraryInlineNoteView: View {
     private func finishImageImport(requestID: UUID, errorMessage: String? = nil) {
         guard photoImportRequestID == requestID || editorSession.imageImportRequest?.id == requestID else { return }
         if let errorMessage { transientErrorMessage = errorMessage }
+        LibraryPerformanceLog.event(
+            "note.photo.finished request=\(requestID.uuidString.prefix(8)) success=\(errorMessage == nil)"
+        )
         photoImportTarget = nil
         photoImportRequestID = nil
         photoLoadTask?.cancel()
         photoLoadTask = nil
-        selectedPhoto = nil
+        isInsertingPhoto = false
         isPhotoPickerPresented = false
         editorSession.finishImageImport(requestID: requestID)
+    }
+
+    private func loadImageData(from provider: NSItemProvider) async throws -> Data {
+        let typeIdentifier = provider.registeredTypeIdentifiers.first(where: {
+            UTType($0)?.conforms(to: .image) == true
+        }) ?? UTType.image.identifier
+        return try await withCheckedThrowingContinuation { continuation in
+            provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, error in
+                if let error {
+                    continuation.resume(throwing: LibraryInlineNotePhotoError.loadFailed(error.localizedDescription))
+                } else if let data {
+                    continuation.resume(returning: data)
+                } else {
+                    continuation.resume(throwing: LibraryInlineNotePhotoError.noData)
+                }
+            }
+        }
     }
 
     private func retryPendingDraft() {
@@ -1287,7 +1531,7 @@ struct LibraryInlineNoteView: View {
                     }
                     if self.saveService.state(recordID: self.renderDocumentID).latestDraftVersion == draftVersion {
                         self.transientErrorMessage = nil
-                        self.onSaved?(content)
+                        if !self.isFinishing { self.onSaved?(content) }
                     }
                 case .failure(let error):
                     if self.saveService.state(recordID: self.renderDocumentID).latestDraftVersion == draftVersion {

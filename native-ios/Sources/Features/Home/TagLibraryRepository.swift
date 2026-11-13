@@ -28,6 +28,7 @@ struct LibraryTagMutationResult: Equatable {
     let oldName: String
     let newName: String?
     let recordChanges: [LibraryTagRecordPayloadChange]
+    var typeID: String? = nil
 }
 
 enum TagLibraryRepository {
@@ -236,7 +237,9 @@ enum TagLibraryRepository {
                 || (kind == .thinkingTrap && module == "数量关系-弱项" && record.subject == "数量关系")
             let hasSourceReference = isVerbalErrorKnowledgePoint
                 && (record.jsonObject?["knowledgePointRefs"] as? [[String: Any]] ?? []).contains {
-                    ($0["module"] as? String) == module && ($0["name"] as? String) == oldName
+                    ($0["module"] as? String) == module
+                        && ($0["typeID"] as? String) == nil
+                        && ($0["name"] as? String) == oldName
                 }
             guard isVerbalErrorKnowledgePoint ? (matchesModule || hasSourceReference) : matchesModule else { continue }
             guard var object = record.jsonObject else { continue }
@@ -250,7 +253,7 @@ enum TagLibraryRepository {
                         availableNames: localNames
                     )
                     let updatedReferences = references.compactMap { reference -> LibraryKnowledgePointReference? in
-                        guard reference.module == module, reference.name == oldName else { return reference }
+                        guard reference.module == module, reference.typeID == nil, reference.name == oldName else { return reference }
                         guard let newName else { return nil }
                         return LibraryKnowledgePointReference(module: module, name: newName)
                     }

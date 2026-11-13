@@ -129,13 +129,11 @@ final class LibraryInlineNoteSaveService: ObservableObject {
         recordID: String,
         content: String,
         recordVersion: String,
-        payload: Data?,
-        allowDiscardingUnqueuedDraft: Bool = false
+        payload: Data?
     ) {
         guard !hasPending(recordID: recordID) else { return }
         var state = self.state(recordID: recordID)
-        guard allowDiscardingUnqueuedDraft
-                || state.phase == .idle
+        guard state.phase == .idle
                 || state.phase == .saved
                 || (state.phase == .failed && state.latestContent == content) else { return }
         state.latestContent = content

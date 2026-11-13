@@ -871,7 +871,7 @@ struct LibraryView: View {
         guard let errorTypeSubject else { return [] }
         let entries = LibraryErrorTypeRepository.types(for: errorTypeSubject, records: records)
         guard let module = scope.module, errorTypeSubject == .verbalReasoning else { return entries }
-        return entries.filter { $0.isAvailable(in: module) }
+        return entries.filter { $0.module == module }
     }
 
     private var sortedScopedRecords: [StoredRecord] {

@@ -58,7 +58,7 @@ struct LibraryErrorTypeModulesView: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier(accessibilityID)
         .accessibilityLabel(title)
-        .accessibilityHint("打开\(title)错误类型管理")
+        .accessibilityHint("打开\(title)\(subject == .verbalReasoning ? "题型" : "错误类型")管理")
     }
 }
 
@@ -78,6 +78,8 @@ struct LibraryErrorTypeManagerView: View {
         LibraryErrorTypeRepository.types(for: subject, records: records).filter { $0.module == module }
     }
 
+    private var typeLabel: String { subject == .verbalReasoning ? "题型" : "错误类型" }
+
     private var canAddType: Bool {
         subject != .verbalReasoning || module != nil
     }
@@ -86,16 +88,16 @@ struct LibraryErrorTypeManagerView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
-                    Text("错误类型").font(AppTheme.sectionTitleFont)
+                    Text(typeLabel).font(AppTheme.sectionTitleFont)
                     Spacer()
                     if canAddType {
-                        Button { beginEdit(nil) } label: { Label("新增", systemImage: "plus") }
+                        Button { beginEdit(nil) } label: { Label("新增\(typeLabel)", systemImage: "plus") }
                             .font(AppTheme.inputFont.weight(.semibold))
                     }
                 }
                 if types.isEmpty {
                     NativeStatusCard(
-                        title: "暂无错误类型", detail: canAddType ? "点击新增建立第一项" : "",
+                        title: "暂无\(typeLabel)", detail: canAddType ? "点击新增建立第一项" : "",
                         systemImage: "tag", color: AppTheme.accent
                     )
                 } else {
@@ -110,17 +112,17 @@ struct LibraryErrorTypeManagerView: View {
         .overlay {
             if isEditing {
                 NativeEditorDialog(
-                    title: editingID == nil ? "新增错误类型" : "修改错误类型",
+                    title: editingID == nil ? "新增\(typeLabel)" : "修改\(typeLabel)",
                     canSave: !draftName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                     onClose: finishEditing,
                     onSave: saveEditor
                 ) {
-                    TextField("错误类型名称", text: $draftName).textFieldStyle(NativeTextFieldStyle())
+                    TextField("\(typeLabel)名称", text: $draftName).textFieldStyle(NativeTextFieldStyle())
                         .focused($isNameFocused)
                 }
             } else if let deletingType {
                 NativeDeleteDialog(
-                    title: "删除错误类型",
+                    title: "删除\(typeLabel)",
                     message: "删除“\(deletingType.name)”后，相关错题会归入未分类。",
                     onDelete: {
                         if save(types.filter { $0.id != deletingType.id }) { self.deletingType = nil }
@@ -129,7 +131,7 @@ struct LibraryErrorTypeManagerView: View {
                 )
             }
         }
-        .alert("未能保存错误类型", isPresented: Binding(
+        .alert("未能保存\(typeLabel)", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
@@ -200,12 +202,12 @@ struct LibraryErrorTypeManagerView: View {
         guard name != "未分类", !entries.contains(where: {
             $0.id != editingID && $0.name.compare(name, options: [.caseInsensitive, .widthInsensitive]) == .orderedSame
         }) else {
-            errorMessage = "请使用与现有类型不同的名称。“未分类”用于尚未设置错误类型的题目。"
+            errorMessage = "请使用与现有类型不同的名称。“未分类”用于尚未设置\(typeLabel)的题目。"
             return
         }
         if let editingID {
             guard let index = entries.firstIndex(where: { $0.id == editingID }) else {
-                errorMessage = "这项错误类型已不存在。"
+                errorMessage = "这项\(typeLabel)已不存在。"
                 return
             }
             entries[index].name = name

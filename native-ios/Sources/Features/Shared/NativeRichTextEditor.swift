@@ -70,34 +70,6 @@ struct RichTextInternalLink: Equatable, Identifiable {
 
 private struct InternalLinkPickerRequest: Identifiable { let id = UUID() }
 
-private struct RichTextTable: Codable, Equatable, Identifiable {
-    var id = UUID()
-    var cells: [[String]] = Array(repeating: Array(repeating: "", count: 2), count: 2)
-    var cellBoldRanges: [NativeRichTextPastedBoldRange]? = nil
-
-    var rowCount: Int { cells.count }
-    var columnCount: Int { cells.first?.count ?? 0 }
-
-    mutating func normalizeBoldRanges() {
-        let source = cellBoldRanges ?? []
-        cellBoldRanges = source.filter { range in
-            guard cells.indices.contains(range.row), cells[range.row].indices.contains(range.column), range.length > 0 else { return false }
-            let cell = cells[range.row][range.column] as NSString
-            guard range.location >= 0,
-                  range.location <= cell.length,
-                  range.length <= cell.length - range.location else { return false }
-            let end = range.location + range.length
-            if range.location > 0, range.location < cell.length,
-               (0xDC00...0xDFFF).contains(cell.character(at: range.location)),
-               (0xD800...0xDBFF).contains(cell.character(at: range.location - 1)) { return false }
-            if end > 0, end < cell.length,
-               (0xDC00...0xDFFF).contains(cell.character(at: end)),
-               (0xD800...0xDBFF).contains(cell.character(at: end - 1)) { return false }
-            return true
-        }
-    }
-}
-
 enum NativeRichTextTableAppearance: String, Equatable {
     case system
     case libraryContent
@@ -221,6 +193,7 @@ struct NativeRichTextInsertionTarget: Equatable {
     let documentID: String?
     let sessionID: UUID
     let range: NSRange
+    let revision: UInt64
 }
 
 private struct RichTextTableEditTarget: Equatable {
@@ -869,8 +842,14 @@ final class NativeRichTextEditorSession: ObservableObject {
     ) -> NativeRichTextInsertionTarget? {
         guard documentID == expectedDocumentID,
               sessionID == expectedSessionID,
-              let range = selectionReader?() else { return nil }
-        return NativeRichTextInsertionTarget(documentID: documentID, sessionID: expectedSessionID, range: range)
+              let range = selectionReader?(),
+              let revision = snapshotReader?()?.documentRevision else { return nil }
+        return NativeRichTextInsertionTarget(
+            documentID: documentID,
+            sessionID: expectedSessionID,
+            range: range,
+            revision: revision
+        )
     }
 
     fileprivate func captureTableInsertionTarget(
@@ -1153,7 +1132,8 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         let rendered = preparedSnapshot ?? NativeRichTextDisplayRenderer.render(
             html,
             tableAppearance: tableAppearance,
-            noteFormatting: noteFormatting
+            noteFormatting: noteFormatting,
+            cleanLegacyInjectedSpacing: noteFormatting
         )
         let styled = NativeRichTextDisplayRenderer.applyingTableAppearance(to: rendered.attributedText, appearance: tableAppearance)
         view.attributedText = styled
@@ -1177,31 +1157,42 @@ enum NativeRichTextDisplayRenderer {
     static func render(
         _ html: String,
         tableAppearance: NativeRichTextTableAppearance = .system,
-        noteFormatting: Bool = false
+        noteFormatting: Bool = false,
+        cleanLegacyInjectedSpacing: Bool = false
     ) -> NativeRichTextDisplayRenderResult {
         guard html.utf8.count <= maximumImportedHTMLBytes else {
             let result = fallback(html, tableAppearance: tableAppearance)
-            return noteFormatting ? applyingNoteFormatting(to: result, sourceHTML: html) : result
+            return noteFormatting
+                ? applyingNoteFormatting(to: result, sourceHTML: html, cleanLegacyInjectedSpacing: cleanLegacyInjectedSpacing)
+                : result
         }
         let attributed = applyingTableAppearance(
-            to: RichTextTextView.attributed(from: html, noteFormatting: noteFormatting),
+            to: RichTextTextView.attributed(
+                from: html,
+                noteFormatting: noteFormatting,
+                cleanLegacyInjectedSpacing: cleanLegacyInjectedSpacing
+            ),
             appearance: tableAppearance
         )
         guard html.contains("<"), attributed.string == html else {
             return NativeRichTextDisplayRenderResult(attributedText: attributed, usedSafeFallback: false)
         }
         let result = fallback(html, tableAppearance: tableAppearance)
-        return noteFormatting ? applyingNoteFormatting(to: result, sourceHTML: html) : result
+        return noteFormatting
+            ? applyingNoteFormatting(to: result, sourceHTML: html, cleanLegacyInjectedSpacing: cleanLegacyInjectedSpacing)
+            : result
     }
 
     static func applyingNoteFormatting(
         to result: NativeRichTextDisplayRenderResult,
-        sourceHTML: String
+        sourceHTML: String,
+        cleanLegacyInjectedSpacing: Bool = false
     ) -> NativeRichTextDisplayRenderResult {
         NativeRichTextDisplayRenderResult(
             attributedText: RichTextTextView.applyingNoteParagraphFormatting(
                 to: result.attributedText,
-                sourceHTML: sourceHTML
+                sourceHTML: sourceHTML,
+                cleanLegacyInjectedSpacing: cleanLegacyInjectedSpacing
             ),
             usedSafeFallback: result.usedSafeFallback
         )
@@ -1234,6 +1225,8 @@ enum NativeRichTextDisplayRenderer {
             switch run {
             case .text(let text):
                 attributed.append(NSAttributedString(string: text, attributes: textAttributes))
+            case .styledText(let text, let style):
+                attributed.append(NSAttributedString(string: text, attributes: fallbackTextAttributes(style, baseFont: font)))
             case .image(let dataURL):
                 if let attachment = NativeImageAttachment(dataURL: dataURL) {
                     attributed.append(NSAttributedString(attachment: attachment))
@@ -1289,6 +1282,7 @@ enum NativeRichTextDisplayRenderer {
             .font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize),
             .foregroundColor: UIColor.label
         ]
+        let baseFont = UIFont.systemFont(ofSize: RichTextMetrics.bodySize)
         var imagePayloadBytes = 0
         let maximumImagePayloadBytes = 8 * 1024 * 1024
 
@@ -1296,6 +1290,8 @@ enum NativeRichTextDisplayRenderer {
             switch run {
             case .text(let text):
                 attributed.append(NSAttributedString(string: text, attributes: attributes))
+            case .styledText(let text, let style):
+                attributed.append(NSAttributedString(string: text, attributes: fallbackTextAttributes(style, baseFont: baseFont)))
             case .imageWithMarker(let dataURL, let marker):
                 imagePayloadBytes += dataURL.utf8.count
                 if imagePayloadBytes <= maximumImagePayloadBytes,
@@ -1333,7 +1329,7 @@ enum NativeRichTextDisplayRenderer {
 
         for run in runs {
             switch run {
-            case .text(_):
+            case .text(_), .styledText(_, _):
                 continue
             case .imageWithMarker(let dataURL, let marker):
                 imagePayloadBytes += dataURL.utf8.count
@@ -1350,6 +1346,26 @@ enum NativeRichTextDisplayRenderer {
             }
         }
         return true
+    }
+
+    private static func fallbackTextAttributes(
+        _ style: NativeRichTextFallbackTextStyle,
+        baseFont: UIFont
+    ) -> [NSAttributedString.Key: Any] {
+        let size: CGFloat = style.contains(.heading1)
+            ? RichTextMetrics.heading1Size
+            : (style.contains(.heading2) ? RichTextMetrics.heading2Size : baseFont.pointSize)
+        let sizedFont = UIFont.systemFont(ofSize: size)
+        var traits = sizedFont.fontDescriptor.symbolicTraits
+        if style.contains(.bold) { traits.insert(.traitBold) }
+        if style.contains(.italic) { traits.insert(.traitItalic) }
+        let descriptor = sizedFont.fontDescriptor.withSymbolicTraits(traits) ?? sizedFont.fontDescriptor
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont(descriptor: descriptor, size: size),
+            .foregroundColor: UIColor.label
+        ]
+        if style.contains(.underline) { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+        return attributes
     }
 
     private static func appendFallbackPlaceholder(
@@ -1820,7 +1836,6 @@ private struct RichTextTextView: UIViewRepresentable {
             connectedSession?.setComposingText(isComposing)
             if parent.noteFormatting {
                 measuredHeightNeedsRefresh = true
-                if !isComposing { refreshNoteParagraphSpacing(near: textView.selectedRange, in: textView) }
             }
             scheduleLayoutAndToolbarRefresh(
                 textView,
@@ -2566,9 +2581,8 @@ private struct RichTextTextView: UIViewRepresentable {
             let style = (attributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
             style.headIndent = isQuoted ? 0 : 12
             style.firstLineHeadIndent = isQuoted ? 0 : 12
-            style.lineSpacing = 2
             style.paragraphSpacingBefore = 0
-            style.paragraphSpacing = 0
+            style.paragraphSpacing = isQuoted ? 0 : 5
             if paragraphRange.length == 0 {
                 var typing = view.typingAttributes
                 typing[.paragraphStyle] = style
@@ -2807,7 +2821,8 @@ private struct RichTextTextView: UIViewRepresentable {
             guard connectedSession?.matches(target) == true else {
                 return .failure(NativeRichTextEditorError.editorSessionChanged)
             }
-            guard validSelection(target.range, in: view) else {
+            guard target.revision == documentRevision,
+                  validSelection(target.range, in: view) else {
                 return .failure(NativeRichTextEditorError.invalidSelection)
             }
             guard let attachment = NativeImageAttachment(dataURL: dataURL) else {
@@ -2958,45 +2973,6 @@ private struct RichTextTextView: UIViewRepresentable {
             }
         }
 
-        private func refreshNoteParagraphSpacing(near selection: NSRange, in view: UITextView) {
-            let text = view.text as NSString
-            guard text.length > 0 else { return }
-            let location = min(max(0, selection.location), text.length - 1)
-            let current = text.paragraphRange(for: NSRange(location: location, length: 0))
-            var ranges = [current]
-            if current.location > 0 {
-                ranges.append(text.paragraphRange(for: NSRange(location: current.location - 1, length: 0)))
-            }
-            for range in ranges where range.length > 0 && range.location < view.textStorage.length {
-                var paragraphStart = 0
-                var paragraphEnd = 0
-                var contentsEnd = 0
-                text.getParagraphStart(&paragraphStart, end: &paragraphEnd, contentsEnd: &contentsEnd, for: range)
-                let contentsRange = NSRange(location: paragraphStart, length: max(0, contentsEnd - paragraphStart))
-                let contents = text.substring(with: contentsRange).trimmingCharacters(in: .whitespacesAndNewlines)
-                let quoted = NativeRichTextNoteFormatting.isQuoted(view.attributedText, at: paragraphStart)
-                let nextRange = paragraphEnd < text.length
-                    ? text.paragraphRange(for: NSRange(location: paragraphEnd, length: 0))
-                    : NSRange(location: text.length, length: 0)
-                let nextText = nextRange.length > 0
-                    ? text.substring(with: nextRange).trimmingCharacters(in: .whitespacesAndNewlines)
-                    : ""
-                let nextQuoted = nextRange.length > 0 && NativeRichTextNoteFormatting.isQuoted(view.attributedText, at: nextRange.location)
-                let oldStyle = view.textStorage.attribute(.paragraphStyle, at: paragraphStart, effectiveRange: nil) as? NSParagraphStyle
-                let style = oldStyle?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
-                style.lineSpacing = contents.isEmpty ? 0 : 2
-                style.paragraphSpacingBefore = 0
-                style.paragraphSpacing = !contents.isEmpty && !nextText.isEmpty && !(quoted && nextQuoted) ? 5 : 0
-                if quoted {
-                    style.headIndent = 12
-                    style.firstLineHeadIndent = 12
-                }
-                if oldStyle?.isEqual(style) != true {
-                    view.textStorage.addAttribute(.paragraphStyle, value: style, range: range)
-                }
-            }
-        }
-
         private func publishSelectionState(_ view: UITextView) {
             guard view.markedTextRange == nil else { return }
             let toolbarUpdateStart = ProcessInfo.processInfo.systemUptime
@@ -3086,7 +3062,11 @@ private struct RichTextTextView: UIViewRepresentable {
         }
     }
 
-    fileprivate static func attributed(from value: String, noteFormatting: Bool = false) -> NSAttributedString {
+    fileprivate static func attributed(
+        from value: String,
+        noteFormatting: Bool = false,
+        cleanLegacyInjectedSpacing: Bool = false
+    ) -> NSAttributedString {
         let noteSource = noteFormatting
             ? value.replacingOccurrences(of: #"(?i)<br\s*/?>"#, with: "\u{2028}", options: .regularExpression)
             : value
@@ -3096,15 +3076,20 @@ private struct RichTextTextView: UIViewRepresentable {
         ) {
             restoreNativeTables(in: result)
             normalizeFonts(in: result, semanticHeadingSizes: semanticHeadingSizes(in: data))
-            return noteFormatting ? applyingNoteParagraphFormatting(to: result, sourceHTML: source) : result
+            return noteFormatting
+                ? applyingNoteParagraphFormatting(to: result, sourceHTML: source, cleanLegacyInjectedSpacing: cleanLegacyInjectedSpacing)
+                : result
         }
         let plain = NSAttributedString(string: noteSource, attributes: [.font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize)])
-        return noteFormatting ? applyingNoteParagraphFormatting(to: plain, sourceHTML: source) : plain
+        return noteFormatting
+            ? applyingNoteParagraphFormatting(to: plain, sourceHTML: source, cleanLegacyInjectedSpacing: cleanLegacyInjectedSpacing)
+            : plain
     }
 
     fileprivate static func applyingNoteParagraphFormatting(
         to source: NSAttributedString,
-        sourceHTML: String?
+        sourceHTML: String?,
+        cleanLegacyInjectedSpacing: Bool = false
     ) -> NSAttributedString {
         let result = NSMutableAttributedString(attributedString: source)
 
@@ -3158,25 +3143,47 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         let sourceText = result.string as NSString
+        var paragraphRanges: [NSRange] = []
+        var paragraphStyles: [NativeRichTextNoteParagraphHTMLStyle] = []
+        var paragraphQuotes: [Bool] = []
+        var paragraphContent: [Bool] = []
         enumerateParagraphRanges(in: result.string) { paragraphRange, contentsRange in
             guard paragraphRange.length > 0, paragraphRange.location < result.length else { return }
-            let text = sourceText.substring(with: contentsRange).trimmingCharacters(in: .whitespacesAndNewlines)
-            let isEmpty = text.isEmpty
             let quoted = NativeRichTextNoteFormatting.isQuoted(result, at: paragraphRange.location)
-            let nextRange = NSMaxRange(paragraphRange) < sourceText.length
-                ? sourceText.paragraphRange(for: NSRange(location: NSMaxRange(paragraphRange), length: 0))
-                : NSRange(location: sourceText.length, length: 0)
-            let nextText = nextRange.length > 0
-                ? sourceText.substring(with: nextRange).trimmingCharacters(in: .whitespacesAndNewlines)
-                : ""
-            let nextIsQuoted = nextRange.length > 0 && NativeRichTextNoteFormatting.isQuoted(result, at: nextRange.location)
+            let attributes = result.attributes(at: paragraphRange.location, effectiveRange: nil)
+            let paragraphStyle = attributes[.paragraphStyle] as? NSParagraphStyle ?? NSParagraphStyle.default
+            let fontSize = (attributes[.font] as? UIFont)?.pointSize ?? RichTextMetrics.bodySize
+            let content = sourceText.substring(with: contentsRange).trimmingCharacters(in: .whitespacesAndNewlines)
+            paragraphRanges.append(paragraphRange)
+            paragraphStyles.append(NativeRichTextNoteParagraphHTMLStyle(
+                spacingBefore: Double(paragraphStyle.paragraphSpacingBefore),
+                spacingAfter: Double(paragraphStyle.paragraphSpacing),
+                lineSpacing: Double(paragraphStyle.lineSpacing),
+                fontSize: Double(fontSize)
+            ))
+            paragraphQuotes.append(quoted)
+            paragraphContent.append(!content.isEmpty)
+        }
+        let normalizedStyles = cleanLegacyInjectedSpacing
+            ? NativeRichTextNoteParagraphHTMLPolicy.removingLegacyInjectedSpacing(
+                from: paragraphStyles,
+                isQuoted: paragraphQuotes,
+                hasContent: paragraphContent
+            )
+            : paragraphStyles
+        for index in paragraphRanges.indices {
+            let paragraphRange = paragraphRanges[index]
+            guard paragraphRange.location < result.length else { continue }
+            let quoted = paragraphQuotes[index]
+            let cleaned = normalizedStyles[index]
             let style = (result.attribute(.paragraphStyle, at: paragraphRange.location, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
-            style.lineSpacing = isEmpty ? 0 : 2
-            style.paragraphSpacingBefore = 0
-            style.paragraphSpacing = !isEmpty && !nextText.isEmpty && !(quoted && nextIsQuoted) ? 5 : 0
+            style.paragraphSpacingBefore = CGFloat(cleaned.spacingBefore)
+            style.paragraphSpacing = CGFloat(cleaned.spacingAfter)
+            style.lineSpacing = CGFloat(cleaned.lineSpacing)
             if quoted {
                 style.headIndent = 12
                 style.firstLineHeadIndent = 12
+                style.paragraphSpacing = max(style.paragraphSpacing, 5)
                 result.addAttribute(NativeRichTextNoteFormatting.quoteKey, value: true, range: paragraphRange)
             } else {
                 result.removeAttribute(NativeRichTextNoteFormatting.quoteKey, range: paragraphRange)
@@ -3276,21 +3283,33 @@ private struct RichTextTextView: UIViewRepresentable {
             let paragraphRange = NSRange(location: paragraphStart, length: paragraphEnd - paragraphStart)
             let contentRange = NSRange(location: paragraphStart, length: max(0, contentsEnd - paragraphStart))
             let quoted = NativeRichTextNoteFormatting.isQuoted(value, at: paragraphStart)
-            let body: String
+            let paragraphAttributes = value.attributes(at: paragraphStart, effectiveRange: nil)
+            let paragraphStyle = paragraphAttributes[.paragraphStyle] as? NSParagraphStyle ?? NSParagraphStyle.default
+            let paragraphFontSize = (paragraphAttributes[.font] as? UIFont)?.pointSize ?? RichTextMetrics.bodySize
+            let headingLevel = noteHeadingLevel(in: value, range: contentRange)
+            var body: String
             if contentRange.length == 0 {
                 body = "<p><br></p>"
             } else {
                 let fragment = value.attributedSubstring(from: contentRange)
-                if let data = try? fragment.data(
-                    from: NSRange(location: 0, length: fragment.length),
-                    documentAttributes: [.documentType: NSAttributedString.DocumentType.html]
-                ), let html = String(data: data, encoding: .utf8) {
-                    let inner = htmlBody(from: html).trimmingCharacters(in: .whitespacesAndNewlines)
-                    body = inner.isEmpty ? "<p><br></p>" : wrappingInParagraphIfNeeded(inner)
+                let inner = noteInlineHTML(from: fragment).trimmingCharacters(in: .whitespacesAndNewlines)
+                if inner.isEmpty {
+                    body = "<p><br></p>"
+                } else if let headingLevel {
+                    body = "<h\(headingLevel)>\(inner)</h\(headingLevel)>"
                 } else {
-                    body = "<p>\(escapeHTML(fragment.string))</p>"
+                    body = wrappingInParagraphIfNeeded(inner)
                 }
             }
+            body = NativeRichTextNoteParagraphHTMLPolicy.applying(
+                NativeRichTextNoteParagraphHTMLStyle(
+                    spacingBefore: Double(paragraphStyle.paragraphSpacingBefore),
+                    spacingAfter: Double(paragraphStyle.paragraphSpacing),
+                    lineSpacing: Double(paragraphStyle.lineSpacing),
+                    fontSize: Double(paragraphFontSize)
+                ),
+                to: body
+            )
             if quoted && !isInsideQuote { output += "<blockquote>" }
             if !quoted && isInsideQuote { output += "</blockquote>" }
             output += body
@@ -3298,6 +3317,66 @@ private struct RichTextTextView: UIViewRepresentable {
             cursor = NSMaxRange(paragraphRange)
         }
         if isInsideQuote { output += "</blockquote>" }
+        return output
+    }
+
+    private static func noteHeadingLevel(in value: NSAttributedString, range: NSRange) -> Int? {
+        guard range.length > 0 else { return nil }
+        var level: Int?
+        var isUniformHeading = true
+        value.enumerateAttribute(.font, in: range) { attribute, _, stop in
+            let size = (attribute as? UIFont)?.pointSize ?? RichTextMetrics.bodySize
+            let currentLevel: Int?
+            if size >= 20 { currentLevel = 1 }
+            else if size >= 17 { currentLevel = 2 }
+            else { currentLevel = nil }
+            guard let currentLevel else {
+                isUniformHeading = false
+                stop.pointee = true
+                return
+            }
+            if let level, level != currentLevel {
+                isUniformHeading = false
+                stop.pointee = true
+            } else {
+                level = currentLevel
+            }
+        }
+        return isUniformHeading ? level : nil
+    }
+
+    private static func noteInlineHTML(from fragment: NSAttributedString) -> String {
+        guard fragment.length > 0 else { return "" }
+        var output = ""
+        fragment.enumerateAttributes(in: NSRange(location: 0, length: fragment.length)) { attributes, range, _ in
+            let run = fragment.attributedSubstring(from: range)
+            let exported: String
+            if let data = try? run.data(
+                from: NSRange(location: 0, length: run.length),
+                documentAttributes: [.documentType: NSAttributedString.DocumentType.html]
+            ), let html = String(data: data, encoding: .utf8) {
+                exported = htmlBody(from: html).trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                exported = escapeHTML(run.string)
+            }
+
+            let font = attributes[.font] as? UIFont
+            let traits = font?.fontDescriptor.symbolicTraits ?? []
+            let link: String? = {
+                guard let value = attributes[.link] else { return nil }
+                if let url = value as? URL { return url.absoluteString }
+                if let url = value as? NSURL { return url.absoluteString }
+                return value as? String
+            }()
+            let style = NativeRichTextNoteInlineHTMLStyle(
+                bold: traits.contains(.traitBold),
+                italic: traits.contains(.traitItalic),
+                underlined: (attributes[.underlineStyle] as? Int ?? 0) != 0,
+                fontSize: font.flatMap { abs(Double($0.pointSize) - 16) > 0.5 ? Double($0.pointSize) : nil },
+                link: link
+            )
+            output += NativeRichTextNoteInlineHTMLPolicy.applying(style, to: exported)
+        }
         return output
     }
 

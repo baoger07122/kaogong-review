@@ -84,6 +84,7 @@ struct LibraryRecordDetailView: View {
     @State private var payloadDecodeFailed = false
     @State private var loadedPayloadKey: LibraryDetailPayloadKey?
     @State private var pageContentRevision = 0
+    @State private var hasActiveQuestionTextSelection = false
     @State private var lastLocallySavedNoteUpdate: Date?
 
     @State private var showDelete = false
@@ -153,6 +154,7 @@ struct LibraryRecordDetailView: View {
     private var detailStateTracking: some View {
         detailNavigationDestination
             .onChange(of: activeRecordID) { _, newRecordID in
+                hasActiveQuestionTextSelection = false
                 lastLocallySavedNoteUpdate = nil
                 backgroundDoodleSaveRequestID = nil
                 if doodleSession.isPresented, doodleSession.targetRecordID != newRecordID {
@@ -186,6 +188,9 @@ struct LibraryRecordDetailView: View {
                 } else if phase == .background {
                     persistDoodleForBackground()
                 }
+            }
+            .onChange(of: doodleSession.isPresented) { _, isPresented in
+                if isPresented { hasActiveQuestionTextSelection = false }
             }
             .onChange(of: doodleSession.activeSplitDrawingPane) { oldPane, newPane in
                 guard doodleSession.isPresented,
@@ -309,7 +314,10 @@ struct LibraryRecordDetailView: View {
             LibraryHorizontalRecordPager(
                 recordIDs: orderedRecordIDs,
                 currentRecordID: $activeRecordKey,
-                isPagingEnabled: !doodleSession.isPresented && !noteSession.isEditing && !noteSession.hasPendingChanges,
+                isPagingEnabled: !doodleSession.isPresented
+                    && !noteSession.isEditing
+                    && !noteSession.hasPendingChanges
+                    && !hasActiveQuestionTextSelection,
                 currentContentVersion: detailPageVersion
             ) { recordID in
                 if recordID == activeRecordKeyBinding.wrappedValue {
@@ -643,6 +651,7 @@ struct LibraryRecordDetailView: View {
         } else if showVerbalKnowledgePointSelection {
             VerbalReasoningKnowledgePointSelectionDialog(
                 currentModule: activeModule,
+                currentTypeID: object["errorTypeID"] as? String,
                 selection: $verbalKnowledgePointReferences,
                 legacyDisplaySelection: $verbalKnowledgePointDisplaySelection,
                 onClose: { showVerbalKnowledgePointSelection = false },
@@ -1011,10 +1020,13 @@ struct LibraryRecordDetailView: View {
     @ViewBuilder private var questionBlock: some View {
         if let rawQuestion = firstText(["question", "title", "name", "text", "content"]),
            !clean(rawQuestion).isEmpty {
-            Text(cleanMultiline(rawQuestion))
-                .font(detailQuestionFont)
-                .lineSpacing(AppTheme.questionLineSpacing)
-                .textSelection(.enabled)
+            LibrarySelectableQuestionText(
+                text: cleanMultiline(rawQuestion),
+                identity: "\(questionSelectionIdentity)|stem",
+                font: .systemFont(ofSize: 14.5, weight: .regular),
+                lineSpacing: 5,
+                onInteractionStateChange: { hasActiveQuestionTextSelection = $0 }
+            )
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .overlay {
@@ -1046,6 +1058,18 @@ struct LibraryRecordDetailView: View {
                         ? redoAttempt.selectedLetters.contains(letter)
                         : userAnswerLetters.contains(letter)
                     let hasText = !clean(option).isEmpty
+                    let answerAction: (() -> Void)? = isRedoPractice && !redoAttempt.submitted ? {
+                        updateRedoAttempt(activeRecordID) { attempt in
+                            if answerLetters.count == 1 {
+                                attempt.selectedLetters = [letter]
+                            } else if attempt.selectedLetters.contains(letter) {
+                                attempt.selectedLetters.remove(letter)
+                            } else {
+                                attempt.selectedLetters.insert(letter)
+                            }
+                            attempt.submitted = !answerLetters.isEmpty
+                        }
+                    } : nil
                     let row = optionRow(
                         option,
                         image: optionImage,
@@ -1053,32 +1077,30 @@ struct LibraryRecordDetailView: View {
                         index: index,
                         hasText: hasText,
                         correct: correct,
-                        chosen: chosen
+                        chosen: chosen,
+                        answerAction: answerAction,
+                        onTextSelectionStateChange: { hasActiveQuestionTextSelection = $0 }
                     )
                     let paddedRow = row
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                     Group {
-                        if isRedoPractice && !redoAttempt.submitted {
-                            Button {
-                                updateRedoAttempt(activeRecordID) { attempt in
-                                    if answerLetters.count == 1 {
-                                        attempt.selectedLetters = [letter]
-                                    } else if attempt.selectedLetters.contains(letter) {
-                                        attempt.selectedLetters.remove(letter)
-                                    } else {
-                                        attempt.selectedLetters.insert(letter)
+                        if let answerAction {
+                            paddedRow
+                                .background {
+                                    Button(action: answerAction) {
+                                        Color.clear.contentShape(RoundedRectangle(cornerRadius: 8))
                                     }
-                                    attempt.submitted = !answerLetters.isEmpty
+                                    .buttonStyle(.plain)
+                                    .accessibilityHidden(true)
                                 }
-                            } label: {
-                                paddedRow
-                                    .contentShape(RoundedRectangle(cornerRadius: 8))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("选项\(letter)：\(clean(option))")
-                            .accessibilityAddTraits(chosen ? .isSelected : [])
+                                .accessibilityElement(children: .contain)
+                                .accessibilityLabel("选项\(letter)：\(clean(option))")
+                                .accessibilityAddTraits(chosen ? .isSelected : [])
+                                .accessibilityAction(named: Text("选择选项\(letter)")) {
+                                    answerAction()
+                                }
                         } else {
                             paddedRow
                         }
@@ -1104,35 +1126,45 @@ struct LibraryRecordDetailView: View {
         index: Int,
         hasText: Bool,
         correct: Bool,
-        chosen: Bool
+        chosen: Bool,
+        answerAction: (() -> Void)?,
+        onTextSelectionStateChange: @escaping (Bool) -> Void
     ) -> some View {
-        HStack(
+        let marker = StudyOptionMarker(
+            letter: letter,
+            state: optionMarkerState(correct: correct, chosen: chosen),
+            diameter: 26,
+            font: .system(size: 14)
+        )
+        return HStack(
             alignment: StudyOptionRowLayout.verticalAlignment(hasText: hasText),
             spacing: 8
         ) {
-            StudyOptionMarker(
-                letter: letter,
-                state: optionMarkerState(correct: correct, chosen: chosen),
-                diameter: 26,
-                font: .system(size: 14)
-            )
+            if let answerAction {
+                Button(action: answerAction) { marker }
+                    .buttonStyle(.plain)
+                    .accessibilityHidden(true)
+            } else {
+                marker
+            }
             VStack(alignment: .leading, spacing: 8) {
                 if hasText {
-                    optionText(option)
-                        .lineSpacing(5.5)
+                    LibrarySelectableQuestionText(
+                        text: cleanMultiline(option),
+                        identity: "\(questionSelectionIdentity)|option|\(letter)",
+                        font: .systemFont(ofSize: 15, weight: .regular),
+                        lineSpacing: 5.5,
+                        onTap: answerAction,
+                        onInteractionStateChange: onTextSelectionStateChange
+                    )
                 }
                 if !image.isEmpty {
-                    if let asset = displayQuestionBankContext?.assetsByID[image] {
-                        LegacyQuestionBankAssetImage(asset: asset, sizing: .option)
+                    if let answerAction {
+                        Button(action: answerAction) { optionImageView(image, index: index) }
+                            .buttonStyle(.plain)
+                            .accessibilityHidden(true)
                     } else {
-                        let optionImageIDs = object["optionImageIDs"] as? [String] ?? []
-                        let optionImageID = optionImageIDs.indices.contains(index) ? optionImageIDs[index] : ""
-                        LibraryDetailImage(
-                            source: image,
-                            cacheKey: imageCacheKey(kind: "option", index: index, source: image, metadataID: optionImageID),
-                            availableWidth: nil,
-                            widthFraction: LibraryImageDisplaySetting.maximumWidthFraction
-                        )
+                        optionImageView(image, index: index)
                     }
                 }
             }
@@ -1140,6 +1172,23 @@ struct LibraryRecordDetailView: View {
             .alignmentGuide(.firstTextBaseline) { dimensions in
                 dimensions[.firstTextBaseline]
             }
+        }
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func optionImageView(_ image: String, index: Int) -> some View {
+        if let asset = displayQuestionBankContext?.assetsByID[image] {
+            LegacyQuestionBankAssetImage(asset: asset, sizing: .option)
+        } else {
+            let optionImageIDs = object["optionImageIDs"] as? [String] ?? []
+            let optionImageID = optionImageIDs.indices.contains(index) ? optionImageIDs[index] : ""
+            LibraryDetailImage(
+                source: image,
+                cacheKey: imageCacheKey(kind: "option", index: index, source: image, metadataID: optionImageID),
+                availableWidth: nil,
+                widthFraction: LibraryImageDisplaySetting.maximumWidthFraction
+            )
         }
     }
 
@@ -1305,6 +1354,14 @@ struct LibraryRecordDetailView: View {
                         guard activeRecordID == record.compoundID else { return }
                         object["note"] = note
                         lastLocallySavedNoteUpdate = record.updatedAt
+                    },
+                    onFinishConfirmed: { note in
+                        guard activeRecordID == record.compoundID else { return }
+                        var updated = record.jsonObject ?? object
+                        updated["note"] = note
+                        lastLocallySavedNoteUpdate = record.updatedAt
+                        refreshObject(updated)
+                        updateRedoActionAvailability(for: record, payload: updated)
                     }
                 )
                 .id(activeRecordID)
@@ -1496,11 +1553,6 @@ struct LibraryRecordDetailView: View {
                 .foregroundStyle(.secondary)
         }
         .font(.system(size: 12, weight: .regular))
-    }
-
-    private func optionText(_ option: String) -> Text {
-        Text(cleanMultiline(option))
-            .font(.system(size: 15, weight: .regular))
     }
 
     private var answerLetters: Set<String> { letterSet(firstText(["correctOption", "answer", "correctAnswer"])) }
@@ -1791,7 +1843,12 @@ struct LibraryRecordDetailView: View {
 
     private var webBorder: Color { Color(red: 240.0 / 255.0, green: 240.0 / 255.0, blue: 242.0 / 255.0) }
 
-    private var detailQuestionFont: Font { .system(size: 14.5, weight: .regular) }
+    private var questionSelectionIdentity: String {
+        if let displayQuestionBankContext {
+            return "question-bank|\(displayQuestionBankContext.question.id)"
+        }
+        return activeRecordID
+    }
 
     private var detailBackground: Color { Color(red: 245.0 / 255.0, green: 245.0 / 255.0, blue: 247.0 / 255.0) }
 
