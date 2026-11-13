@@ -63,3 +63,12 @@
 ## 发布与验收记录
 
 按项目 `AGENTS.md` 交付。集中完成本轮检查后触发一次发布。优先复用仓库已有测试和非模拟器检查，针对旧考点归入与同名匹配、筛选交集和原位排序保存补充必要回归覆盖。完成真机目标编译、归档、打包、上传及 IPA 可下载核验。版本、提交、运行编号以实际发布结果为准。交付消息列出版本、Release 链接、编号修改清单、通过的构建检查及待实机确认的手势和尺寸。将本轮规格与交付记录一起留档。[固定 Release 页面](https://github.com/baoger07122/kaogong-review/releases)
+
+### 2026-11-13 本轮交付结果
+
+- **版本 / Build：** 11.13.2 / 146。
+- **实现提交：** `2fef8e07ce8b71f4f02b57edda91c63c64e2b393`；**归档修复提交：** `f7e0f6fa1d1bac21fd7da947ed3bd09855f0abdc`。修复项为 Swift 闭包显式忽略未使用参数，以及将 UIKit 集合视图子类从文件私有调整为模块可见，以符合 `UIViewRepresentable` 方法签名。
+- **首次运行：** run 376，ID `43405106516`，真机目标归档编译失败；日志定位到上述两处 Swift 编译错误。修复后没有忽略失败或复用失败产物，而是推送修正并完成一次新归档。
+- **成功运行：** run 377，ID `43406485404`，提交 SHA 为 `f7e0f6fa1d1bac21fd7da947ed3bd09855f0abdc`。版本校验、Xcode 选择、工程生成、知识点域行为检查、iPad 真机目标归档、资源校验、IPA 打包和 Release 上传均通过。
+- **Release：** [native-v11.13.2](https://github.com/baoger07122/kaogong-review/releases/tag/native-v11.13.2)。资产 `kaogong-review-native-11.13.2-unsigned.ipa`，5,332,316 字节；下载 URL 的 HTTP HEAD 返回 200。工作流随后将 `downloads/native/latest.json` 更新到发布清单提交 `8bc9b635421600b922cf69e56eb8dc3c2a31bfb6`。
+- **未执行项目：** 模拟器测试按本轮工作流条件跳过；没有完成 iPad 实机交互验收。跨行拖拽、两个弹窗的实际尺寸与键盘/横屏表现仍需在设备上确认。
