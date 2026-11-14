@@ -69,3 +69,12 @@
 ## 发布和交付
 
 按项目 `AGENTS.md` 执行。核对远端开发分支和版本，保留其他工作树变更。完成获确认的改动和必要的非模拟器检查后统一触发发布。迁移验证覆盖来源唯一但题目已有题型、11.13.2 部分迁移补齐、真实同名冲突取消。待办验证覆盖规则排序持久化及循环实例备注和规则的数据边界。真机目标归档、打包上传并确认 IPA 可下载后，在本文件留档版本、提交和运行编号。交付消息按实机入口编号列出实际发布改动、已完成的检查和待实机验证项。未纳入该版本的事项另列。[固定 Release 页面](https://github.com/baoger07122/kaogong-review/releases)
+
+### 11.14.1 交付记录
+
+- 版本/build：`11.14.1` / `147`；基线：`native-v11.13.2`（build 146，提交 `f17e74335ae3ead5f0e57eb6be6d7eba60a3e4ec`）。
+- 应用提交：`b63a67c6026dd737855f98749ece5a83d9865337`。此前提交 `2f901e03ffdff9e652ed5717795a16fc457bdd92` 的 run `43574114378` 在归档时因每日规则解析集合的 Swift 类型推断失败；修复提交 `b63a67c` 后，run `43574778757`（run number 379，attempt 1）成功完成。失败运行没有可复用的 IPA。
+- 成功运行完成原生行为检查、iOS Release 真机目标归档、dSYM UUID 校验、iPad 资源校验、IPA 打包及 Release 上传。模拟器测试按本轮约定跳过。workflow 在每次 push 时仍默认执行完整原生行为检查区，其中包含与本轮无关的领域检查；这是当前 workflow 配置与项目“按改动选择必要检查”约定不一致之处。
+- Release：[`native-v11.14.1`](https://github.com/baoger07122/kaogong-review/releases/tag/native-v11.14.1)，IPA 为未签名 iPad 包 `kaogong-review-native-11.14.1-unsigned.ipa`，大小 `5,436,488` 字节，SHA-256 `817f6b4cb463e72c290262f104abcca37af65e16155fb61d9521aa84ddf5dad5`。上传状态为 `uploaded`；下载链接 HEAD 返回 HTTP 200，Content-Length 与资产大小一致。
+- 发布清单 `downloads/native/latest.json` 已更新为版本 `11.14.1`、build `147`、日期 `2026-11-14`。workflow 自动生成的清单提交和本轮发布分支当前头为 `5866b10acfc340fbe8eee25122e531353806e808`。
+- 尚未完成 iPad 实机交互验收，因此滑动待办、规则拖放、迁移冲突逐题确认、考点选择与文件夹 popover、详情编辑返回时序仍需在设备上按本规格逐项确认。源码检查和归档成功不代表这些交互已实机验证。
