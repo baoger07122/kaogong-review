@@ -182,7 +182,7 @@ enum HomeRecordRepository {
     }
 
     static func dailyRules(from records: [StoredRecord]) -> [HomeDailyTodoRule] {
-        let parsed = records.compactMap { record in
+        let parsed: [HomeDailyTodoRule] = records.compactMap { record -> HomeDailyTodoRule? in
             guard record.collection == "daily_todo_rules", let object = record.jsonObject,
                   let startDate = date(object["startDate"]) else { return nil }
             let createdAt = date(object["createdAt"]) ?? record.createdAt ?? .distantPast
@@ -201,7 +201,9 @@ enum HomeRecordRepository {
         let order = HomeDailyTodoPolicy.orderedRuleIDs(parsed.map {
             HomeDailyTodoRuleOrderEntry(id: $0.id, sortOrder: $0.sortOrder, createdAt: $0.createdAt)
         })
-        let rulesByID = Dictionary(uniqueKeysWithValues: parsed.map { ($0.id, $0) })
+        let rulesByID: [String: HomeDailyTodoRule] = Dictionary(uniqueKeysWithValues: parsed.map { rule in
+            (rule.id, rule)
+        })
         return order.compactMap { rulesByID[$0] }
     }
 
