@@ -4,9 +4,12 @@ import Foundation
 enum NativeRichTextNoteBehavior {
     static func main() throws {
         verifyInlineHTMLRoundTripKeepsMixedStyles()
+        verifyInlineHTMLTextEscapingAndColor()
         verifyCSSDerivedBoldAndMissingCSSSafety()
         try verifyTableCellBoldRangesRoundTrip()
         verifyDefaultAndExplicitParagraphSpacing()
+        verifyParagraphIndentRoundTripMetadata()
+        verifyListHTMLRecovery()
         verifyLegacyAutomaticSpacingCleanup()
     }
 
@@ -72,6 +75,20 @@ enum NativeRichTextNoteBehavior {
         precondition(NativeRichTextFallbackParser.parseForEditing(unsupportedClass) == nil, "unsupported CSS decoration must keep the original document read-only")
     }
 
+    private static func verifyInlineHTMLTextEscapingAndColor() {
+        let escaped = NativeRichTextNoteInlineHTMLPolicy.escapingText(" 设计 <方式>  ", preservingSpaces: true)
+        precondition(escaped == "&nbsp;设计 &lt;方式&gt;&nbsp;&nbsp;", "inline serialization must preserve edge spaces while escaping text")
+        let softBreak = NativeRichTextNoteInlineHTMLPolicy.escapingText("前\u{2028}后")
+        precondition(softBreak == "前<br>后", "a soft line break must remain inside its paragraph")
+
+        let colored = NativeRichTextNoteInlineHTMLPolicy.applying(
+            NativeRichTextNoteInlineHTMLStyle(bold: true, colorHex: "#2A7BCD"),
+            to: "设计方式"
+        )
+        precondition(colored == "<strong><span style=\"color: #2A7BCD;\">设计方式</span></strong>", "foreground color and bold must remain inline")
+        precondition(!colored.contains("<p"), "inline styling must not introduce a nested paragraph block")
+    }
+
     private static func verifyTableCellBoldRangesRoundTrip() throws {
         let range = NativeRichTextPastedBoldRange(row: 0, column: 1, location: 1, length: 2)
         var table = RichTextTable(
@@ -100,6 +117,38 @@ enum NativeRichTextNoteBehavior {
             pasted == "<p style=\"margin-bottom: 4.0pt; line-height: 18.0pt\">普通段落</p>",
             "explicit pasted spacing, already clamped to 4 pt, must remain encoded while default paragraphs stay compact"
         )
+    }
+
+    private static func verifyParagraphIndentRoundTripMetadata() {
+        let source = "<p>首行和续行缩进</p>"
+        let style = NativeRichTextNoteParagraphHTMLStyle(
+            spacingBefore: 0,
+            spacingAfter: 0,
+            lineSpacing: 0,
+            fontSize: 16,
+            firstLineHeadIndent: 36,
+            headIndent: 18,
+            tailIndent: -12
+        )
+        let html = NativeRichTextNoteParagraphHTMLPolicy.applying(style, to: source)
+        let indents = NativeRichTextNoteParagraphHTMLPolicy.indents(in: html)
+        precondition(indents == [NativeRichTextNoteParagraphHTMLIndent(firstLineHeadIndent: 36, headIndent: 18, tailIndent: -12)], "saved paragraph indentation metadata must restore all three UIKit values")
+        precondition(html.contains("margin-left: 18.0pt"), "hanging continuation indentation must have a readable HTML representation")
+        precondition(html.contains("text-indent: 18.0pt"), "first-line indentation must have a readable HTML representation")
+        precondition(html.contains("margin-right: 12.0pt"), "tail indentation must have a readable HTML representation")
+        precondition(NativeRichTextNoteParagraphHTMLPolicy.indents(in: "<p>legacy</p>") == [nil], "old paragraphs without explicit metadata must remain unchanged")
+    }
+
+    private static func verifyListHTMLRecovery() {
+        let unordered = NativeRichTextNoteListHTMLPolicy.items(in: "<ul><li><strong>比比皆是</strong>：到处都是</li><li>巍然挺立：高大直立</li></ul>")
+        precondition(unordered.map(\.marker) == ["• ", "• "], "unordered list items must recover one visible marker each")
+        precondition(unordered.map(\.contentHTML) == ["<strong>比比皆是</strong>：到处都是", "巍然挺立：高大直立"], "inline formatting must stay inside each list item")
+        precondition(unordered.map(\.headIndent) == [18.0, 18.0], "wrapped list lines must share the text continuation indent")
+
+        let nestedOrdered = NativeRichTextNoteListHTMLPolicy.items(in: "<ol type=\"A\" start=\"3\"><li>父项<ul><li>子项</li></ul></li><li>下一项</li></ol>")
+        precondition(nestedOrdered.map(\.marker) == ["C. ", "• ", "D. "], "ordered and nested markers must preserve numbering and order")
+        precondition(nestedOrdered.map(\.level) == [0, 1, 0], "nested list depth must be retained")
+        precondition(nestedOrdered.map(\.contentHTML) == ["父项", "子项", "下一项"], "nested content must not be folded into its parent item")
     }
 
     private static func verifyLegacyAutomaticSpacingCleanup() {

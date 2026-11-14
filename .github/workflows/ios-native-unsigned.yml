@@ -181,6 +181,7 @@ jobs:
           swiftc -parse-as-library \
             native-ios/Sources/Features/Shared/NativeRichTextFallbackParser.swift \
             native-ios/Sources/Features/Shared/NativeRichTextNoteInlineHTMLPolicy.swift \
+            native-ios/Sources/Features/Shared/NativeRichTextNoteListHTMLPolicy.swift \
             native-ios/Sources/Features/Shared/NativeRichTextNoteParagraphHTMLPolicy.swift \
             native-ios/Sources/Features/Shared/NativeRichTextTablePasteParser.swift \
             native-ios/Sources/Features/Shared/NativeRichTextTableModel.swift \

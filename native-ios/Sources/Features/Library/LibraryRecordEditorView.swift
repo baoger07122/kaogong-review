@@ -24,6 +24,21 @@ private struct PreparedLibraryWordContent {
     var isEditable: Bool { editableAttributedText != nil }
 }
 
+private struct LibraryWordEditorNavigationBackground: ViewModifier {
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .toolbarBackground(Color.white, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+        } else {
+            content
+        }
+    }
+}
+
 private struct LibraryEditorFirstFrameProbe: UIViewRepresentable {
     let onDisplay: () -> Void
 
@@ -421,6 +436,7 @@ struct LibraryRecordEditorView: View {
                 }
             }
         }
+        .modifier(LibraryWordEditorNavigationBackground(enabled: kind == .words))
         .confirmationDialog("删除\(kind.rawValue)", isPresented: $showDelete, titleVisibility: .visible) {
             Button("删除", role: .destructive, action: remove)
             Button("取消", role: .cancel) {}
