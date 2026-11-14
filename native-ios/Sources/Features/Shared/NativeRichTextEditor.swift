@@ -1193,7 +1193,7 @@ enum NativeRichTextDisplayRenderer {
             in: sourceHTML,
             matching: result.attributedText
         )
-        NativeRichTextDisplayRenderResult(
+        return NativeRichTextDisplayRenderResult(
             attributedText: RichTextTextView.applyingNoteParagraphFormatting(
                 to: result.attributedText,
                 sourceHTML: sourceHTML,
