@@ -59,44 +59,49 @@ enum LibraryKnowledgePointPolicyBehavior {
             selectedReferences: [typeA]
         ), "same-named knowledge points in different modules must not match")
 
-        let oldTag = LibraryKnowledgePointReference(module: "逻辑填空", name: "语境分析")
-        let anotherTypeSameName = LibraryKnowledgePointReference(module: "逻辑填空", typeID: "type-b", name: "语境分析")
-        let migration = VerbalLegacyKnowledgePointMigrationPolicy.plan(
-            references: [oldTag, anotherTypeSameName, LibraryKnowledgePointReference(module: "逻辑填空", name: "中心理解")],
-            recordModule: "逻辑填空",
-            recordTypeID: nil,
-            sourceModule: "逻辑填空",
-            name: "语境分析",
-            destinationTypeID: "type-a"
+        let legacySource = LibraryKnowledgePointReference(module: "逻辑填空", name: "语境分析")
+        let typedSource = LibraryKnowledgePointReference(module: "逻辑填空", typeID: "type-a", name: "语境分析")
+        let target = LibraryKnowledgePointReference(module: "逻辑填空", typeID: "type-b", name: "语境分析")
+        let otherSameName = LibraryKnowledgePointReference(module: "逻辑填空", typeID: "type-c", name: "语境分析")
+        let otherModule = LibraryKnowledgePointReference(module: "中心理解", typeID: "type-d", name: "语境分析")
+        let legacyTarget = VerbalLegacyKnowledgePointMigrationPolicy.plan(
+            references: [legacySource, target, otherModule], source: legacySource, destination: target,
+            nameOnlyCandidates: [legacySource]
         )
-        precondition(migration.didChange)
-        precondition(migration.references == [
-            LibraryKnowledgePointReference(module: "逻辑填空", typeID: "type-a", name: "语境分析"),
-            anotherTypeSameName,
-            LibraryKnowledgePointReference(module: "逻辑填空", name: "中心理解")
-        ])
-        precondition(!migration.hasAmbiguousLegacyReference)
+        precondition(legacyTarget.didChange)
+        precondition(legacyTarget.references == [target, otherModule])
 
-        let unsafeNameOnly = VerbalLegacyKnowledgePointMigrationPolicy.plan(
-            references: [LibraryKnowledgePointReference(module: nil, name: "语境分析")],
-            recordModule: "逻辑填空",
-            recordTypeID: "type-b",
-            sourceModule: "逻辑填空",
-            name: "语境分析",
-            destinationTypeID: "type-a"
+        let typedTarget = LibraryKnowledgePointReference(module: "逻辑填空", typeID: "type-c", name: "语境分析")
+        let exactTypedMove = VerbalLegacyKnowledgePointMigrationPolicy.plan(
+            references: [typedSource, target], source: typedSource, destination: typedTarget,
+            nameOnlyCandidates: [typedSource, target]
         )
-        precondition(!unsafeNameOnly.didChange)
-        precondition(unsafeNameOnly.hasAmbiguousLegacyReference)
+        precondition(exactTypedMove.didChange)
+        precondition(exactTypedMove.references == [typedTarget, target])
 
-        let wrongSource = VerbalLegacyKnowledgePointMigrationPolicy.plan(
-            references: [oldTag],
-            recordModule: "中心理解",
-            recordTypeID: nil,
-            sourceModule: "逻辑填空",
-            name: "语境分析",
-            destinationTypeID: "type-a"
+        let nameOnly = LibraryKnowledgePointReference(module: nil, name: "语境分析")
+        let uniqueNameOnly = VerbalLegacyKnowledgePointMigrationPolicy.plan(
+            references: [nameOnly], source: legacySource, destination: target,
+            nameOnlyCandidates: [legacySource]
         )
-        precondition(!wrongSource.didChange)
+        precondition(uniqueNameOnly.didChange && uniqueNameOnly.references == [target])
+
+        let ambiguousNameOnly = VerbalLegacyKnowledgePointMigrationPolicy.plan(
+            references: [nameOnly], source: legacySource, destination: target,
+            nameOnlyCandidates: [legacySource, otherSameName, otherModule]
+        )
+        precondition(!ambiguousNameOnly.didChange)
+        precondition(ambiguousNameOnly.hasUnresolvedNameOnlyReference)
+        let reviewedIntoTarget = VerbalLegacyKnowledgePointMigrationPolicy.plan(
+            references: [nameOnly], source: legacySource, destination: target,
+            nameOnlyCandidates: [legacySource, otherSameName], nameOnlyResolution: target
+        )
+        precondition(reviewedIntoTarget.didChange && reviewedIntoTarget.references == [target])
+        let reviewedAsOther = VerbalLegacyKnowledgePointMigrationPolicy.plan(
+            references: [nameOnly], source: legacySource, destination: target,
+            nameOnlyCandidates: [legacySource, otherSameName, otherModule], nameOnlyResolution: otherModule
+        )
+        precondition(reviewedAsOther.didChange && reviewedAsOther.references == [otherModule])
         precondition(LibraryKnowledgePointFilterPolicy.preservingAvailableSelection(
             [typeA, typeB], among: [typeB]
         ) == [typeB])

@@ -3,56 +3,52 @@ import Foundation
 struct VerbalLegacyKnowledgePointMigrationPlan: Equatable {
     let references: [LibraryKnowledgePointReference]
     let didChange: Bool
-    let hasAmbiguousLegacyReference: Bool
+    let hasUnresolvedNameOnlyReference: Bool
 }
 
 enum VerbalLegacyKnowledgePointMigrationPolicy {
     static func plan(
         references: [LibraryKnowledgePointReference],
-        recordModule: String?,
-        recordTypeID: String?,
-        sourceModule: String,
-        name: String,
-        destinationTypeID: String
+        source: LibraryKnowledgePointReference,
+        destination: LibraryKnowledgePointReference,
+        nameOnlyCandidates: [LibraryKnowledgePointReference],
+        nameOnlyResolution: LibraryKnowledgePointReference? = nil
     ) -> VerbalLegacyKnowledgePointMigrationPlan {
-        let normalizedRecordModule = recordModule?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedTypeID = recordTypeID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let typeIsUnset = normalizedTypeID?.isEmpty ?? true
-        let moduleMatches = normalizedRecordModule == sourceModule
-
-        let hasAmbiguousLegacyReference = moduleMatches && !typeIsUnset && references.contains {
-            $0.typeID == nil && $0.module == nil && $0.name == name
-        }
-        guard moduleMatches else {
-            return VerbalLegacyKnowledgePointMigrationPlan(
-                references: references,
-                didChange: false,
-                hasAmbiguousLegacyReference: false
-            )
-        }
-
+        let candidates = LibraryKnowledgePointReferencePolicy.uniqueReferences(nameOnlyCandidates)
+        let isValidResolution = nameOnlyResolution.map { candidate in
+            candidate == destination || (candidates.contains(candidate) && candidate != source)
+        } ?? false
         var didChange = false
+        var hasUnresolvedNameOnlyReference = false
+
         let migrated = references.map { reference -> LibraryKnowledgePointReference in
-            let explicitlyReferencesSourceLegacyTag = reference.module == sourceModule
-                && reference.typeID == nil
-                && reference.name == name
-            let safelyInferableNameOnlyReference = typeIsUnset
-                && reference.module == nil
-                && reference.typeID == nil
-                && reference.name == name
-            guard explicitlyReferencesSourceLegacyTag || safelyInferableNameOnlyReference else { return reference }
-            didChange = true
-            return LibraryKnowledgePointReference(
-                module: sourceModule,
-                typeID: destinationTypeID,
-                name: name
-            )
+            if reference.module == source.module,
+               reference.typeID == source.typeID,
+               reference.name == source.name {
+                didChange = true
+                return destination
+            }
+
+            guard reference.module == nil,
+                  reference.typeID == nil,
+                  reference.name == source.name else { return reference }
+
+            if candidates.count == 1, candidates[0] == source {
+                didChange = true
+                return destination
+            }
+            guard isValidResolution, let nameOnlyResolution else {
+                hasUnresolvedNameOnlyReference = true
+                return reference
+            }
+            didChange = didChange || nameOnlyResolution != reference
+            return nameOnlyResolution
         }
 
         return VerbalLegacyKnowledgePointMigrationPlan(
             references: LibraryKnowledgePointReferencePolicy.uniqueReferences(migrated),
             didChange: didChange,
-            hasAmbiguousLegacyReference: hasAmbiguousLegacyReference
+            hasUnresolvedNameOnlyReference: hasUnresolvedNameOnlyReference
         )
     }
 }

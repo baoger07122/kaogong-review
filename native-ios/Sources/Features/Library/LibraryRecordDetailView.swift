@@ -40,7 +40,6 @@ private struct LibraryDetailPageVersion: Equatable {
     let redoAttempt: LibraryRedoAttempt
     let showsDelete: Bool
     let showsWordSelection: Bool
-    let isOpeningEditor: Bool
     let scenePhase: ScenePhase
 }
 
@@ -69,7 +68,8 @@ struct LibraryRecordDetailView: View {
     let kind: LibraryContentKind
     let scope: LibraryScope
     let onEdit: (String) -> Void
-    var onEditPrepared: ((String, LibraryRecordDraft) -> Void)? = nil
+    var onEditPrepared: ((String, LibraryRecordDraft?) -> Void)? = nil
+    var onPrepareEditDraft: ((String, LibraryRecordDraft) -> Void)? = nil
     let onDelete: (String) -> Void
     var onCancelEditRequest: (String) -> Void = { _ in }
     var orderedRecordIDs: [String] = []
@@ -110,6 +110,8 @@ struct LibraryRecordDetailView: View {
     @State private var pendingEditorRequestID: String?
     @State private var pendingEditorTransitionRecordID: String?
     @State private var isWaitingForNoteSave = false
+    @State private var showsNoteSaveProgress = false
+    @State private var noteSaveProgressToken: UUID?
     @State private var editorTransitionErrorMessage: String?
     @State private var didHandOffEditRequest = false
 
@@ -118,7 +120,8 @@ struct LibraryRecordDetailView: View {
         scope: LibraryScope,
         record: StoredRecord,
         onEdit: @escaping (String) -> Void,
-        onEditPrepared: ((String, LibraryRecordDraft) -> Void)? = nil,
+        onEditPrepared: ((String, LibraryRecordDraft?) -> Void)? = nil,
+        onPrepareEditDraft: ((String, LibraryRecordDraft) -> Void)? = nil,
         onDelete: @escaping (String) -> Void,
         onCancelEditRequest: @escaping (String) -> Void = { _ in },
         orderedRecordIDs: [String] = [],
@@ -129,6 +132,7 @@ struct LibraryRecordDetailView: View {
         self.scope = scope
         self.onEdit = onEdit
         self.onEditPrepared = onEditPrepared
+        self.onPrepareEditDraft = onPrepareEditDraft
         self.onDelete = onDelete
         self.onCancelEditRequest = onCancelEditRequest
         self.orderedRecordIDs = orderedRecordIDs
@@ -147,7 +151,11 @@ struct LibraryRecordDetailView: View {
 
     private var detailBehavior: some View {
         detailStateTracking
-            .task(id: activePayloadKey) { await loadActivePayload() }
+            .task(id: activePayloadKey) {
+                await loadActivePayload()
+                guard !Task.isCancelled else { return }
+                prepareEditorDraftIfNeeded()
+            }
             .task(id: linkedQuestionContextKey) { loadLinkedQuestionContext() }
     }
 
@@ -179,6 +187,8 @@ struct LibraryRecordDetailView: View {
                 pendingEditorRequestID = nil
                 pendingEditorTransitionRecordID = nil
                 isWaitingForNoteSave = false
+                showsNoteSaveProgress = false
+                noteSaveProgressToken = nil
                 editorTransitionErrorMessage = nil
                 didHandOffEditRequest = false
             }
@@ -259,7 +269,13 @@ struct LibraryRecordDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .background(NativeNavigationInteraction(blocked: doodleSession.isPresented))
             .toolbar(.visible, for: .navigationBar)
-            .onAppear(perform: resetEditorRequestAfterReturn)
+            .onAppear {
+                resetEditorRequestAfterReturn()
+                Task { @MainActor in
+                    await Task.yield()
+                    prepareEditorDraftIfNeeded()
+                }
+            }
             .onDisappear(perform: invalidateEditorRequestOnExit)
             .alert(
                 Text(splitDoodleErrorMessage == nil ? "无法打开编辑" : "涂鸦未保存"),
@@ -302,7 +318,6 @@ struct LibraryRecordDetailView: View {
             redoAttempt: redoAttempt,
             showsDelete: showDelete,
             showsWordSelection: showWordSelection,
-            isOpeningEditor: pendingEditorRequestID != nil,
             scenePhase: scenePhase
         )
     }
@@ -363,21 +378,6 @@ struct LibraryRecordDetailView: View {
                     detailScrollView(availableWidth: availableWidth)
                 }
                 detailModal
-            }
-            .overlay(alignment: .top) {
-                if pendingEditorRequestID != nil {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("正在打开…")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(.regularMaterial, in: Capsule())
-                    .padding(.top, 8)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("正在打开编辑")
-                }
             }
             .onAppear {
                 if !doodleSession.isPresented || !doodleSession.isSplitDrawingSession {
@@ -691,18 +691,26 @@ struct LibraryRecordDetailView: View {
                 .accessibilityHidden(doodleSession.isPresented)
 
             ZStack {
-                questionActionsMenu
-                    .opacity(isQuestionActionsMenuVisible ? 1 : 0)
-                    .disabled(!isQuestionActionsMenuVisible)
-                    .accessibilityHidden(!isQuestionActionsMenuVisible)
-                if isWaitingForNoteSave && !doodleSession.isPresented {
-                    ProgressView()
-                        .frame(width: 44, height: 44)
-                        .accessibilityLabel("正在打开编辑")
-                        .allowsHitTesting(false)
+                if showsNoteSaveProgress && !doodleSession.isPresented {
+                    Label {
+                        Text("正在保存笔记…")
+                            .font(.system(size: 11, weight: .medium))
+                    } icon: {
+                        ProgressView().controlSize(.small)
+                    }
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+                    .padding(.horizontal, 8)
+                    .frame(minHeight: 44)
+                    .accessibilityElement(children: .combine)
+                } else {
+                    questionActionsMenu
+                        .opacity(isQuestionActionsMenuVisible ? 1 : 0)
+                        .disabled(!isQuestionActionsMenuVisible || pendingEditorRequestID != nil)
+                        .accessibilityHidden(!isQuestionActionsMenuVisible)
                 }
             }
-            .frame(width: 44, height: 44)
+            .frame(minHeight: 44)
             .contentShape(Rectangle())
             .overlay {
                 if !isQuestionActionsMenuVisible {
@@ -726,11 +734,11 @@ struct LibraryRecordDetailView: View {
     }
 
     private var isQuestionActionsMenuVisible: Bool {
-        !doodleSession.isPresented && pendingEditorRequestID == nil
+        !doodleSession.isPresented
     }
 
     private var canOpenDoodle: Bool {
-        pendingEditorRequestID == nil && !isPayloadLoading && !payloadDecodeFailed
+        !isPayloadLoading && !payloadDecodeFailed
     }
 
     private var doodleToolbarButton: some View {
@@ -777,7 +785,7 @@ struct LibraryRecordDetailView: View {
 
     private func requestEdit() {
         guard pendingEditorRequestID == nil, !doodleSession.isPresented else { return }
-        guard !isPayloadLoading, !payloadDecodeFailed else {
+        guard !isPayloadLoading, loadedPayloadKey == activePayloadKey, !payloadDecodeFailed else {
             editorTransitionErrorMessage = "题目仍在载入或内容无法读取，请稍后重试。"
             return
         }
@@ -786,6 +794,8 @@ struct LibraryRecordDetailView: View {
         pendingEditorRequestID = requestID
         pendingEditorTransitionRecordID = transitionRecordID
         isWaitingForNoteSave = false
+        showsNoteSaveProgress = false
+        noteSaveProgressToken = nil
         editorTransitionErrorMessage = nil
         LibraryPerformanceLog.editorTransition(
             "menu-action",
@@ -812,8 +822,19 @@ struct LibraryRecordDetailView: View {
             transitionKey: "note-finish"
         )
         isWaitingForNoteSave = true
+        let progressToken = UUID()
+        noteSaveProgressToken = progressToken
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard noteSaveProgressToken == progressToken,
+                  pendingEditorRequestID == requestID,
+                  isWaitingForNoteSave else { return }
+            showsNoteSaveProgress = true
+        }
         noteSession.finish { saved in
             self.isWaitingForNoteSave = false
+            self.showsNoteSaveProgress = false
+            self.noteSaveProgressToken = nil
             LibraryPerformanceLog.editorTransition(
                 "menu-note-finish",
                 recordID: transitionRecordID,
@@ -839,19 +860,24 @@ struct LibraryRecordDetailView: View {
             self.handoffEditRequest(
                 requestID: requestID,
                 transitionRecordID: transitionRecordID,
-                detail: "note-saved"
+                detail: "note-saved",
+                preparedDraft: self.record.map {
+                    LibraryRecordDraft(kind: self.kind, scope: self.scope, record: $0, originalObject: self.object)
+                }
             )
         }
     }
 
-    private func handoffEditRequest(requestID: String, transitionRecordID: String, detail: String) {
+    private func handoffEditRequest(
+        requestID: String,
+        transitionRecordID: String,
+        detail: String,
+        preparedDraft: LibraryRecordDraft? = nil
+    ) {
         guard pendingEditorRequestID == requestID, activeRecordKey == requestID else { return }
         didHandOffEditRequest = true
-        if let onEditPrepared, let record {
-            onEditPrepared(
-                requestID,
-                LibraryRecordDraft(kind: kind, scope: scope, record: record, originalObject: object)
-            )
+        if let onEditPrepared {
+            onEditPrepared(requestID, preparedDraft)
         } else {
             onEdit(requestID)
         }
@@ -864,11 +890,47 @@ struct LibraryRecordDetailView: View {
         )
     }
 
+    private func prepareEditorDraftIfNeeded() {
+        guard let onPrepareEditDraft, let record,
+              !isPayloadLoading, loadedPayloadKey == activePayloadKey, !payloadDecodeFailed else { return }
+        let recordID = activeRecordKey
+        let recordCompoundID = record.compoundID
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let draft = LibraryRecordDraft(kind: kind, scope: scope, record: record, originalObject: object)
+        guard activeRecordKey == recordID, self.record?.compoundID == recordCompoundID else { return }
+        onPrepareEditDraft(recordID, draft)
+        LibraryPerformanceLog.markIfSlow("library.editor.draft.prepare", since: startedAt)
+    }
+
+    private func cancelPendingEditorRequest() {
+        guard let requestID = pendingEditorRequestID else { return }
+        let wasHandedOff = didHandOffEditRequest
+        let transitionRecordID = pendingEditorTransitionRecordID ?? requestID
+        pendingEditorRequestID = nil
+        pendingEditorTransitionRecordID = nil
+        isWaitingForNoteSave = false
+        showsNoteSaveProgress = false
+        noteSaveProgressToken = nil
+        didHandOffEditRequest = false
+        onCancelEditRequest(transitionRecordID)
+        if !wasHandedOff {
+            LibraryPerformanceLog.editorTransition(
+                "menu-action",
+                recordID: transitionRecordID,
+                details: "cancelled-before-navigation",
+                completes: true,
+                transitionKey: "menu-action"
+            )
+        }
+    }
+
     private func resetEditorRequestAfterReturn() {
         guard pendingEditorRequestID != nil else { return }
         pendingEditorRequestID = nil
         pendingEditorTransitionRecordID = nil
         isWaitingForNoteSave = false
+        showsNoteSaveProgress = false
+        noteSaveProgressToken = nil
         didHandOffEditRequest = false
     }
 
@@ -879,6 +941,8 @@ struct LibraryRecordDetailView: View {
         self.pendingEditorRequestID = nil
         pendingEditorTransitionRecordID = nil
         isWaitingForNoteSave = false
+        showsNoteSaveProgress = false
+        noteSaveProgressToken = nil
         didHandOffEditRequest = false
         onCancelEditRequest(transitionRecordID)
         if !wasHandedOff {
@@ -2271,6 +2335,7 @@ struct LibraryRecordDetailView: View {
 
     private func openDoodle() {
         guard canOpenDoodle else { return }
+        cancelPendingEditorRequest()
         let openStart = ProcessInfo.processInfo.systemUptime
         LibraryPerformanceLog.event("doodle.tap id=\(LibraryPerformanceLog.shortIdentifier(activeRecordID))")
         let opensSplitDoodle = isMaterialPaneOpen && showsDetachedDataAnalysisMaterial

@@ -229,6 +229,16 @@ final class LibraryRecordListCache {
         let quantityTypes: Set<String>
     }
 
+    private struct KnowledgePointEntriesQuery: Equatable {
+        let records: [RecordRevision]
+        let key: String
+    }
+
+    private struct KnowledgePointReferenceIndexQuery: Equatable {
+        let records: [RecordRevision]
+        let subject: String?
+    }
+
     private var sortedQuery: Query?
     private var sortedRecords: [StoredRecord] = []
     private var errorSequenceQuery: ErrorSequenceQuery?
@@ -237,6 +247,10 @@ final class LibraryRecordListCache {
     private var cachedUnclassifiedAvailability = false
     private var tagRevisions: [RecordRevision]?
     private var tagsByRecord: [String: [String]] = [:]
+    private var knowledgePointEntriesQuery: KnowledgePointEntriesQuery?
+    private var cachedKnowledgePointEntries: [LibraryKnowledgePointPickerEntry] = []
+    private var knowledgePointReferenceIndexQuery: KnowledgePointReferenceIndexQuery?
+    private var cachedKnowledgePointReferences: [String: [LibraryKnowledgePointReference]] = [:]
     private var quantityTypesRevision: [RecordRevision]?
     private var quantityTypesValue: [String] = []
     private let reviewSourceCache = LibraryReviewSourceClassificationCache()
@@ -395,6 +409,30 @@ final class LibraryRecordListCache {
         return tagsByRecord
     }
 
+    func knowledgePointEntries(
+        records: [StoredRecord],
+        key: String,
+        build: () -> [LibraryKnowledgePointPickerEntry]
+    ) -> [LibraryKnowledgePointPickerEntry] {
+        let query = KnowledgePointEntriesQuery(records: records.map(RecordRevision.init), key: key)
+        guard query != knowledgePointEntriesQuery else { return cachedKnowledgePointEntries }
+        cachedKnowledgePointEntries = build()
+        knowledgePointEntriesQuery = query
+        return cachedKnowledgePointEntries
+    }
+
+    func knowledgePointReferenceIndex(
+        records: [StoredRecord],
+        subject: String?,
+        build: () -> [String: [LibraryKnowledgePointReference]]
+    ) -> [String: [LibraryKnowledgePointReference]] {
+        let query = KnowledgePointReferenceIndexQuery(records: records.map(RecordRevision.init), subject: subject)
+        guard query != knowledgePointReferenceIndexQuery else { return cachedKnowledgePointReferences }
+        cachedKnowledgePointReferences = build()
+        knowledgePointReferenceIndexQuery = query
+        return cachedKnowledgePointReferences
+    }
+
     func invalidate() {
         sortedQuery = nil
         sortedRecords.removeAll()
@@ -406,5 +444,9 @@ final class LibraryRecordListCache {
         cachedUnclassifiedAvailability = false
         tagRevisions = nil
         tagsByRecord.removeAll()
+        knowledgePointEntriesQuery = nil
+        cachedKnowledgePointEntries.removeAll()
+        knowledgePointReferenceIndexQuery = nil
+        cachedKnowledgePointReferences.removeAll()
     }
 }

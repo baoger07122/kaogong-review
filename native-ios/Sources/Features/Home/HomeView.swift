@@ -14,6 +14,12 @@ struct HomeView: View {
         }
     }
 
+    private struct DailyTodoNoteTarget: Equatable {
+        let instanceID: String
+        let ruleID: String
+        let dailyDate: Date
+    }
+
     private enum Editor: Equatable {
         case countdown(String?)
         case todo(String?)
@@ -51,6 +57,8 @@ struct HomeView: View {
     @State private var didRequestErrorStats = false
     @State private var saveErrorMessage: String?
     @State private var dailyDeleteTarget: DailyDeleteTarget?
+    @State private var dailyTodoNoteTarget: DailyTodoNoteTarget?
+    @State private var isReorderingDailyRules = false
 
     private var todos: [HomeTodo] { HomeRecordRepository.todos(from: records) }
     private var stickies: [HomeSticky] { HomeRecordRepository.stickies(from: records) }
@@ -317,27 +325,20 @@ struct HomeView: View {
                     minimumHeight: 176
                 )
             } else {
-                VStack(spacing: 0) {
-                    ForEach(todayTodos) { todo in
-                        HomeTodoRow(
-                            todo: todo,
-                            onToggleCompleted: { toggleCompleted(todo) },
-                            onEdit: { beginTodo(todo) },
-                            onSaveNote: { saveTodoNote(todo, note: $0) },
-                            onLongPress: { beginTodo(todo) },
-                            onDelete: { deleteTodo(todo.id) },
-                            onSkipToday: { setDailyTodoSkipped(todo, skipped: !todo.isSkipped) },
-                            onDeleteToday: { dailyDeleteTarget = .todo(todo) },
-                            onDeleteRule: {
-                                if let rule = todo.dailyRuleID.flatMap({ id in dailyRules.first { $0.id == id } }) {
-                                    dailyDeleteTarget = .rule(rule)
-                                }
-                            },
-                            onToggleTimer: { toggleTimer(todo) }
-                        )
-                        if todo.id != todayTodos.last?.id { Divider().padding(.leading, 42) }
-                    }
-                }
+                HomeTodoCollection(
+                    items: todayTodos,
+                    onToggleCompleted: toggleCompleted,
+                    onEdit: beginTodo,
+                    onDelete: { deleteTodo($0.id) },
+                    onSkipToday: { setDailyTodoSkipped($0, skipped: !$0.isSkipped) },
+                    onDeleteToday: { dailyDeleteTarget = .todo($0) },
+                    onDeleteRule: { todo in
+                        if let rule = todo.dailyRuleID.flatMap({ id in dailyRules.first { $0.id == id } }) {
+                            dailyDeleteTarget = .rule(rule)
+                        }
+                    },
+                    onToggleTimer: toggleTimer
+                )
                 .padding(.horizontal, 14)
                 .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .overlay { RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.06), lineWidth: 0.6) }
@@ -471,50 +472,71 @@ struct HomeView: View {
     }
 
     private var dailyRulesManager: some View {
-        ZStack {
-            Color.black.opacity(0.28).ignoresSafeArea().onTapGesture(perform: closeEditor)
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Text("每日待办").font(AppTheme.sectionTitleFont)
-                    Spacer()
-                    Button("完成", action: closeEditor).font(.system(size: 14, weight: .medium))
-                }
+        GeometryReader { geometry in
+            let dialogWidth = min(440, max(0, geometry.size.width - 48))
+            let dialogHeight = min(620, max(320, geometry.size.height - 48))
+            let listHeight = max(160, dialogHeight - 154)
 
-                Button { beginDailyRule(nil) } label: {
-                    Label("新增每日待办", systemImage: "plus.circle.fill")
-                        .font(.system(size: 14, weight: .semibold))
+            ZStack {
+                Color.black.opacity(0.28).ignoresSafeArea().onTapGesture(perform: closeEditor)
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text("每日待办").font(AppTheme.sectionTitleFont)
+                        Spacer()
+                        Button("完成", action: closeEditor).font(.system(size: 14, weight: .medium))
+                    }
+
+                    HStack(spacing: 8) {
+                        Button { beginDailyRule(nil) } label: {
+                            Label("新增每日待办", systemImage: "plus.circle.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(AppTheme.accent)
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        Button(isReorderingDailyRules ? "完成排序" : "管理次序") {
+                            isReorderingDailyRules.toggle()
+                        }
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(AppTheme.accent)
-                        .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
-                }
+                        .frame(minWidth: 44, minHeight: 44)
+                        .disabled(dailyRules.count < 2 && !isReorderingDailyRules)
+                    }
 
-                if dailyRules.isEmpty {
-                    NativeStatusCard(
-                        title: "还没有每日待办",
-                        detail: "创建后会从开始日期起每天自动加入今日待办",
-                        systemImage: "repeat",
-                        color: AppTheme.accent,
-                        minimumHeight: 150
-                    )
-                } else {
-                    ScrollView {
-                        VStack(spacing: 8) {
-                            ForEach(dailyRules) { rule in
-                                HomeDailyTodoRuleRow(
-                                    rule: rule,
-                                    onEdit: { beginDailyRule(rule) },
-                                    onTogglePause: { setDailyRulePaused(rule, paused: !rule.isPaused) },
-                                    onDelete: { dailyDeleteTarget = .rule(rule) }
-                                )
+                    if dailyRules.isEmpty {
+                        NativeStatusCard(
+                            title: "还没有每日待办",
+                            detail: "创建后会从开始日期起每天自动加入今日待办",
+                            systemImage: "repeat",
+                            color: AppTheme.accent,
+                            minimumHeight: 150
+                        )
+                    } else if isReorderingDailyRules {
+                        HomeDailyTodoRuleReorderList(items: dailyRules, onReorder: saveDailyRuleOrder)
+                            .frame(height: listHeight)
+                    } else {
+                        ScrollView {
+                            VStack(spacing: 8) {
+                                ForEach(dailyRules) { rule in
+                                    HomeDailyTodoRuleRow(
+                                        rule: rule,
+                                        onEdit: { beginDailyRule(rule) },
+                                        onTogglePause: { setDailyRulePaused(rule, paused: !rule.isPaused) },
+                                        onDelete: { dailyDeleteTarget = .rule(rule) }
+                                    )
+                                }
                             }
                         }
+                        .frame(height: listHeight)
                     }
                 }
+                .padding(20)
+                .frame(width: dialogWidth, height: dialogHeight)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .padding(20)
-            .frame(maxWidth: 440)
-            .frame(maxHeight: 620)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .padding(24)
         }
         .transition(.opacity)
     }
@@ -529,6 +551,17 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 12) {
                 NativeFieldLabel(title: "待办内容")
                 TextField("准备每天完成什么？", text: $todoTitleDraft).textFieldStyle(NativeTextFieldStyle())
+                if dailyTodoNoteTarget != nil {
+                    NativeFieldLabel(title: "今日备注（选填）")
+                    TextEditor(text: $todoNoteDraft)
+                        .modifier(NativeDirectionalTextFieldNavigation())
+                        .font(AppTheme.inputFont)
+                        .scrollContentBackground(.hidden)
+                        .padding(8)
+                        .frame(minHeight: 64, maxHeight: 88)
+                        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+                        .overlay { RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.08), lineWidth: 0.6) }
+                }
                 DatePicker("开始日期", selection: $todoScheduleDraft, displayedComponents: .date)
                 DatePicker("计划时间", selection: $todoScheduleDraft, displayedComponents: .hourAndMinute)
                 NativeFieldLabel(title: "科目")
@@ -590,7 +623,7 @@ struct HomeView: View {
     }
 
     private var todayTodos: [HomeTodo] {
-        todos.filter { todo in
+        let currentDayTodos = todos.filter { todo in
             if todo.dailyRuleID != nil {
                 guard let dailyDate = todo.dailyDate, Calendar.current.isDateInToday(dailyDate) else { return false }
                 return true
@@ -599,6 +632,12 @@ struct HomeView: View {
             guard let completedAt = todo.completedAt else { return false }
             return Calendar.current.isDateInToday(completedAt)
         }
+        return HomeDailyTodoPolicy.reorderingRecurringTodoSlots(
+            currentDayTodos,
+            ruleOrder: dailyRules.map(\.id),
+            isCompleted: { $0.isCompleted },
+            ruleID: { $0.dailyRuleID }
+        )
     }
 
     private var dailyRules: [HomeDailyTodoRule] { HomeRecordRepository.dailyRules(from: records) }
@@ -651,9 +690,10 @@ struct HomeView: View {
     private func beginTodo(_ todo: HomeTodo?) {
         if let todo, let dailyRuleID = todo.dailyRuleID,
            let rule = dailyRules.first(where: { $0.id == dailyRuleID }) {
-            beginDailyRule(rule)
+            beginDailyRule(rule, instance: todo)
             return
         }
+        dailyTodoNoteTarget = nil
         todoTitleDraft = todo?.title ?? ""
         todoNoteDraft = todo?.note ?? ""
         todoTypeDraft = todo?.type ?? "yanyu"
@@ -662,9 +702,13 @@ struct HomeView: View {
         withAnimation(.spring(duration: 0.25, bounce: 0.08)) { editor = .todo(todo?.id) }
     }
 
-    private func beginDailyRule(_ rule: HomeDailyTodoRule?) {
+    private func beginDailyRule(_ rule: HomeDailyTodoRule?, instance: HomeTodo? = nil) {
         todoTitleDraft = rule?.title ?? ""
-        todoNoteDraft = ""
+        todoNoteDraft = instance?.note ?? ""
+        dailyTodoNoteTarget = instance.flatMap { todo in
+            guard let date = todo.dailyDate, let dailyRuleID = todo.dailyRuleID else { return nil }
+            return DailyTodoNoteTarget(instanceID: todo.id, ruleID: dailyRuleID, dailyDate: date)
+        }
         todoTypeDraft = rule?.type ?? "yanyu"
         todoScheduleDraft = rule.map { HomeDailyTodoPolicy.scheduledAt(on: $0.startDate, using: $0.scheduledTime) ?? $0.scheduledTime } ?? .now
         withAnimation(.spring(duration: 0.25, bounce: 0.08)) { editor = .dailyRule(rule?.id) }
@@ -680,7 +724,11 @@ struct HomeView: View {
         withAnimation(.spring(duration: 0.25, bounce: 0.08)) { editor = .sticky(sticky?.id) }
     }
 
-    private func closeEditor() { withAnimation(.easeOut(duration: 0.16)) { editor = nil } }
+    private func closeEditor() {
+        dailyTodoNoteTarget = nil
+        isReorderingDailyRules = false
+        withAnimation(.easeOut(duration: 0.16)) { editor = nil }
+    }
 
     private func saveCountdown() {
         guard case .countdown(let id) = editor else { return }
@@ -728,11 +776,26 @@ struct HomeView: View {
         if let prior {
             rule.createdAt = prior.createdAt
             rule.isPaused = prior.isPaused
+            rule.sortOrder = prior.sortOrder
         }
         do {
-            try HomeRecordRepository.saveDailyRuleAndReconcileToday(rule: rule, context: modelContext)
-            withAnimation(.spring(duration: 0.25, bounce: 0.08)) { editor = .dailyRules }
-            showSaveToast()
+            let noteEdit = dailyTodoNoteTarget.map {
+                HomeDailyTodoInstanceNoteEdit(
+                    instanceID: $0.instanceID,
+                    ruleID: $0.ruleID,
+                    dailyDate: $0.dailyDate,
+                    note: todoNoteDraft
+                )
+            }
+            try HomeRecordRepository.saveDailyRuleAndReconcileToday(
+                rule: rule, instanceNoteEdit: noteEdit, context: modelContext
+            )
+            if dailyTodoNoteTarget != nil {
+                completeSave()
+            } else {
+                withAnimation(.spring(duration: 0.25, bounce: 0.08)) { editor = .dailyRules }
+                showSaveToast()
+            }
         } catch { saveErrorMessage = error.localizedDescription }
     }
 
@@ -849,11 +912,14 @@ struct HomeView: View {
         catch { saveErrorMessage = error.localizedDescription }
     }
 
-    private func saveTodoNote(_ todo: HomeTodo, note: String) {
-        var value = todo
-        value.note = note
-        do { try HomeRecordRepository.save(todo: value, records: records, context: modelContext) }
-        catch { saveErrorMessage = error.localizedDescription }
+    private func saveDailyRuleOrder(_ ids: [String]) -> Bool {
+        do {
+            try HomeRecordRepository.reorderDailyRules(ids, context: modelContext)
+            return true
+        } catch {
+            saveErrorMessage = error.localizedDescription
+            return false
+        }
     }
 
     private func toggleTimer(_ todo: HomeTodo) {

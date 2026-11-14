@@ -78,12 +78,14 @@ struct LibraryKnowledgePointTagCollection: UIViewRepresentable {
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: KnowledgePointCollectionView, context: Context) -> CGSize? {
-        let width = max(1, proposal.width ?? uiView.bounds.width)
+        guard let width = proposal.width ?? (uiView.bounds.width > 0 ? uiView.bounds.width : nil), width > 0 else {
+            return nil
+        }
         return CGSize(width: width, height: Self.height(for: items, width: width))
     }
 
     static func height(for items: [LibraryKnowledgePointTagItem], width: CGFloat) -> CGFloat {
-        guard !items.isEmpty else { return 0 }
+        guard !items.isEmpty, width > 0 else { return 0 }
         var x: CGFloat = 0
         var y: CGFloat = 0
         var rowHeight: CGFloat = 0
@@ -150,6 +152,9 @@ struct LibraryKnowledgePointTagCollection: UIViewRepresentable {
 
         func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
             guard items.indices.contains(indexPath.item) else { return }
+            // The collection view's transient selected state must not become the
+            // source of truth; the owning SwiftUI selection set drives the tag.
+            collectionView.deselectItem(at: indexPath, animated: false)
             parent.onToggle(items[indexPath.item].reference)
         }
 
@@ -166,9 +171,11 @@ struct LibraryKnowledgePointTagCollection: UIViewRepresentable {
         func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout,
                             sizeForItemAt indexPath: IndexPath) -> CGSize {
             guard items.indices.contains(indexPath.item) else { return .zero }
+            let width = collectionView.bounds.width
+            guard width > 0 else { return .zero }
             return LibraryKnowledgePointTagCollection.itemSize(
                 title: LibraryKnowledgePointTagCollection.displayedTitle(items[indexPath.item]),
-                width: max(1, collectionView.bounds.width)
+                width: width
             )
         }
 
@@ -205,6 +212,17 @@ struct LibraryKnowledgePointTagCollection: UIViewRepresentable {
 }
 
 final class KnowledgePointCollectionView: UICollectionView {
+    private var lastMeasuredWidth: CGFloat = 0
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let width = bounds.width
+        guard width > 0, abs(width - lastMeasuredWidth) > 0.5 else { return }
+        lastMeasuredWidth = width
+        collectionViewLayout.invalidateLayout()
+        invalidateIntrinsicContentSize()
+    }
+
     override var intrinsicContentSize: CGSize {
         CGSize(width: UIView.noIntrinsicMetric, height: collectionViewLayout.collectionViewContentSize.height)
     }
@@ -228,6 +246,9 @@ private final class KnowledgePointTagCell: UICollectionViewCell {
         ])
         contentView.layer.cornerRadius = 6
         contentView.clipsToBounds = true
+        let clearSelection = UIView(frame: .zero)
+        clearSelection.backgroundColor = .clear
+        selectedBackgroundView = clearSelection
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }

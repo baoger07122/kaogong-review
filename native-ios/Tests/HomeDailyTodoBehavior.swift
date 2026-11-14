@@ -51,6 +51,62 @@ struct HomeDailyTodoBehavior {
             now: dayTwo,
             calendar: calendar
         ) == "已完成", "legacy completed items without a timestamp remain understandable")
+
+        let orderEntries = [
+            HomeDailyTodoRuleOrderEntry(id: "old-a", sortOrder: nil, createdAt: dayOne),
+            HomeDailyTodoRuleOrderEntry(id: "new", sortOrder: -1, createdAt: dayTwo),
+            HomeDailyTodoRuleOrderEntry(id: "old-b", sortOrder: nil, createdAt: start)
+        ]
+        expect(HomeDailyTodoPolicy.orderedRuleIDs(orderEntries) == ["new", "old-b", "old-a"],
+            "legacy rules retain creation order while newly created rules can be placed first")
+        expect(HomeDailyTodoPolicy.sortOrderForNewRule(existingOrders: [0, 2, 4]) == -1,
+            "new rules are placed before an existing manual order")
+        expect(HomeDailyTodoPolicy.isValidRuleOrder(existingIDs: ["a", "b"], proposedIDs: ["b", "a"]),
+            "a reorder must contain every existing rule exactly once")
+        expect(!HomeDailyTodoPolicy.isValidRuleOrder(existingIDs: ["a", "b"], proposedIDs: ["a", "a"]),
+            "duplicate IDs cannot be persisted as an order")
+
+        struct OrderedTodo: Equatable {
+            let id: String
+            let ruleID: String?
+            let isCompleted: Bool
+        }
+        let todos = [
+            OrderedTodo(id: "ordinary", ruleID: nil, isCompleted: false),
+            OrderedTodo(id: "rule-b", ruleID: "b", isCompleted: false),
+            OrderedTodo(id: "done-a", ruleID: "a", isCompleted: true),
+            OrderedTodo(id: "rule-a", ruleID: "a", isCompleted: false),
+            OrderedTodo(id: "orphan", ruleID: "missing", isCompleted: false),
+            OrderedTodo(id: "ordinary-done", ruleID: nil, isCompleted: true)
+        ]
+        let orderedTodos = HomeDailyTodoPolicy.reorderingRecurringTodoSlots(
+            todos,
+            ruleOrder: ["a", "b"],
+            isCompleted: { $0.isCompleted },
+            ruleID: { $0.ruleID }
+        )
+        expect(orderedTodos.map(\.id) == ["ordinary", "rule-a", "done-a", "rule-b", "orphan", "ordinary-done"],
+            "only active recurring slots reorder; ordinary, completed and orphan items stay in place")
+
+        let target = HomeDailyTodoInstanceNoteEdit(
+            instanceID: HomeDailyTodoPolicy.instanceID(ruleID: "rule-1", on: dayTwo, calendar: calendar),
+            ruleID: "rule-1", dailyDate: dayTwo, note: "note"
+        )
+        expect(HomeDailyTodoPolicy.validatesInstanceNoteEdit(
+            target, currentRuleID: "rule-1", storedInstanceID: target.instanceID,
+            storedRuleID: "rule-1", storedDailyDate: dayTwo, isDeletedForDay: false,
+            now: date(2026, 11, 11, 12, 0, calendar: calendar), calendar: calendar
+        ), "today's instance note can be saved for its matching recurring rule")
+        expect(!HomeDailyTodoPolicy.validatesInstanceNoteEdit(
+            target, currentRuleID: "rule-1", storedInstanceID: target.instanceID,
+            storedRuleID: "rule-1", storedDailyDate: dayTwo, isDeletedForDay: false,
+            now: date(2026, 11, 12, 0, 0, calendar: calendar), calendar: calendar
+        ), "an edit crossing midnight cannot write to a different day's instance")
+        expect(!HomeDailyTodoPolicy.validatesInstanceNoteEdit(
+            target, currentRuleID: "rule-1", storedInstanceID: target.instanceID,
+            storedRuleID: "rule-1", storedDailyDate: dayTwo, isDeletedForDay: true,
+            now: date(2026, 11, 11, 12, 0, calendar: calendar), calendar: calendar
+        ), "deleted daily instances reject note writes")
     }
 
     private static func date(_ year: Int, _ month: Int, _ day: Int, _ hour: Int, _ minute: Int, calendar: Calendar) -> Date {

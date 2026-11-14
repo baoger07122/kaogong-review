@@ -139,6 +139,7 @@ struct LibraryKnowledgePointFilterDialog: View {
             onToggle: toggle,
             onReorder: { _ in false }
         )
+        .id("filter-knowledge-points|" + items.map(\.id).joined(separator: "\u{1f}"))
     }
 
     private func toggle(_ reference: LibraryKnowledgePointReference) {

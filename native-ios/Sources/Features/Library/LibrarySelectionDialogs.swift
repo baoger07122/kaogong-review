@@ -195,6 +195,7 @@ struct LibraryTagSelectionDialog: View {
                 }
             }
         )
+        .id("tag-picker|\(module)|\(groupID ?? "ungrouped")|\(query.isEmpty ? "browse" : "search")")
     }
     private func toggle(_ name: String) {
         message = nil
@@ -472,6 +473,7 @@ struct QuantityKnowledgePointSelectionDialog: View {
                 }
             }
         )
+        .id("quantity-picker|\(activeType)|\(groupID ?? "ungrouped")|\(query.isEmpty ? "browse" : "search")")
     }
 
     private var orderedSelected: [String] {
@@ -801,6 +803,7 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                 }
             }
         )
+        .id("verbal-picker|\(currentModule)|\(typeID ?? "legacy")|\(groupID ?? "ungrouped")|\(query.isEmpty ? "browse" : "search")")
     }
 
     @ViewBuilder
@@ -839,6 +842,7 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                 onToggle: toggle,
                 onReorder: { _ in false }
             )
+            .id("verbal-legacy-picker|\(currentModule)")
         }
     }
 

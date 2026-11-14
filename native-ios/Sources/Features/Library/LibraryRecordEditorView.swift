@@ -138,7 +138,13 @@ struct LibraryRecordEditorView: View {
         self.onSaved = onSaved
         self.dismissAfterSave = dismissAfterSave
         recordID = record?.recordID
-        var initialDraft = preparedDraft ?? LibraryRecordDraft(kind: kind, scope: scope, record: record)
+        let currentPreparedDraft = preparedDraft.flatMap { candidate -> LibraryRecordDraft? in
+            guard let record,
+                  candidate.id == record.recordID,
+                  candidate.originalPayload == record.payload else { return nil }
+            return candidate
+        }
+        var initialDraft = currentPreparedDraft ?? LibraryRecordDraft(kind: kind, scope: scope, record: record)
         if record == nil, kind == .errors, LibraryErrorTypeSubject(rawValue: initialDraft.subject) != nil {
             initialDraft.errorTypeID = preferredErrorTypeID
         }

@@ -20,86 +20,55 @@ struct HomeTodoRow: View {
     let todo: HomeTodo
     let onToggleCompleted: () -> Void
     let onEdit: () -> Void
-    let onSaveNote: (String) -> Void
-    let onLongPress: () -> Void
     let onDelete: () -> Void
     let onSkipToday: () -> Void
     let onDeleteToday: () -> Void
     let onDeleteRule: () -> Void
     let onToggleTimer: () -> Void
-
-    @State private var noteDraft: String
-    @State private var dragOffset: CGFloat = 0
-    @FocusState private var noteFocused: Bool
+    let showsDivider: Bool
 
     init(
         todo: HomeTodo,
         onToggleCompleted: @escaping () -> Void,
         onEdit: @escaping () -> Void,
-        onSaveNote: @escaping (String) -> Void,
-        onLongPress: @escaping () -> Void,
         onDelete: @escaping () -> Void,
         onSkipToday: @escaping () -> Void,
         onDeleteToday: @escaping () -> Void,
         onDeleteRule: @escaping () -> Void,
-        onToggleTimer: @escaping () -> Void
+        onToggleTimer: @escaping () -> Void,
+        showsDivider: Bool
     ) {
         self.todo = todo
         self.onToggleCompleted = onToggleCompleted
         self.onEdit = onEdit
-        self.onSaveNote = onSaveNote
-        self.onLongPress = onLongPress
         self.onDelete = onDelete
         self.onSkipToday = onSkipToday
         self.onDeleteToday = onDeleteToday
         self.onDeleteRule = onDeleteRule
         self.onToggleTimer = onToggleTimer
-        _noteDraft = State(initialValue: todo.note)
+        self.showsDivider = showsDivider
     }
 
     var body: some View {
-        ZStack(alignment: .trailing) {
-            Group {
-                if todo.dailyRuleID != nil {
-                    Menu {
-                        if !todo.isCompleted {
-                            Button(todo.isSkipped ? "恢复今天" : "跳过今天", action: onSkipToday)
-                            Button("仅删除今天", role: .destructive, action: onDeleteToday)
-                        }
-                        Button("删除每日规则", role: .destructive, action: onDeleteRule)
-                    } label: {
-                        trailingLabel(title: "更多", systemImage: "ellipsis", color: AppTheme.accent)
-                    }
-                } else {
-                    Button(role: .destructive, action: onDelete) {
-                        trailingLabel(title: "删除", systemImage: "trash.fill", color: AppTheme.danger)
-                    }
-                    .buttonStyle(.plain)
+        rowContent
+            .background(Color.white)
+            .overlay(alignment: .bottom) {
+                if showsDivider {
+                    Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 0.6).padding(.leading, 42)
                 }
             }
-
-            rowContent
-                .background(Color.white)
-                .offset(x: dragOffset)
-                .simultaneousGesture(swipeGesture)
-        }
-        .clipped()
-        .onChange(of: todo.note) { _, value in
-            if !noteFocused { noteDraft = value }
-        }
-        .onChange(of: noteFocused) { _, focused in
-            if !focused && noteDraft != todo.note { onSaveNote(noteDraft) }
-        }
     }
 
+    @ViewBuilder
     private var rowContent: some View {
-        HStack(spacing: 10) {
+        let row = HStack(spacing: 10) {
             Button(action: onToggleCompleted) {
                 Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 18))
                     .foregroundStyle(todo.isCompleted ? AppTheme.success : Color.secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(todo.isCompleted ? "标记为未完成" : "标记为已完成")
 
             Text(todo.subjectMark)
                 .font(.system(size: 10, weight: .semibold))
@@ -107,25 +76,26 @@ struct HomeTodoRow: View {
                 .frame(width: 26, height: 26)
                 .background(AppTheme.accent.opacity(0.10), in: Circle())
 
-            VStack(alignment: .leading, spacing: 3) {
-                Button(action: onEdit) {
+            Button(action: onEdit) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(todo.title)
                         .font(AppTheme.bodyFont)
                         .foregroundStyle(todo.isCompleted ? .secondary : .primary)
                         .lineLimit(2)
-                        .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
-                        .contentShape(Rectangle())
+                    if !displayedNote.isEmpty {
+                        Text(displayedNote)
+                            .font(AppTheme.inputFont)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityHint("编辑此待办")
-                TextField("添加备注", text: $noteDraft, axis: .vertical)
-                    .modifier(NativeDirectionalTextFieldNavigation())
-                    .font(AppTheme.inputFont)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1...2)
-                    .textFieldStyle(.plain)
-                    .focused($noteFocused)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .center)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .layoutPriority(1)
+            .accessibilityLabel(displayedNote.isEmpty ? "(todo.title)" : "(todo.title)，备注：(displayedNote)")
+            .accessibilityHint("编辑此待办")
 
             Spacer(minLength: 8)
 
@@ -138,6 +108,7 @@ struct HomeTodoRow: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: false, vertical: true)
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text(HomeRecordRepository.durationText(
                         milliseconds: todo.elapsedMilliseconds,
@@ -147,7 +118,9 @@ struct HomeTodoRow: View {
                     .font(.system(size: 9, weight: .regular, design: .monospaced))
                     .foregroundStyle(.tertiary)
                 }
+                .accessibilityLabel("用时 \(HomeRecordRepository.durationText(milliseconds: todo.elapsedMilliseconds, startedAt: todo.timerStartedAt))")
             }
+            .frame(minWidth: 44)
 
             if !todo.isCompleted && !todo.isSkipped {
                 Button(action: onToggleTimer) {
@@ -158,35 +131,27 @@ struct HomeTodoRow: View {
                         .background(AppTheme.accent.opacity(0.11), in: Circle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(todo.timerStartedAt == nil ? "开始计时" : "暂停计时")
             }
         }
         .padding(.vertical, 10)
         .contentShape(Rectangle())
-        .onLongPressGesture(minimumDuration: 0.45, perform: onLongPress)
-    }
+        .accessibilityElement(children: .contain)
 
-    private func trailingLabel(title: String, systemImage: String, color: Color) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: 84)
-            .frame(maxHeight: .infinity)
-            .background(color)
-            .clipped()
-    }
-
-    private var swipeGesture: some Gesture {
-        DragGesture(minimumDistance: 18)
-            .onChanged { value in
-                guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                dragOffset = min(0, max(-84, value.translation.width))
-            }
-            .onEnded { value in
-                withAnimation(.spring(duration: 0.24, bounce: 0.05)) {
-                    dragOffset = value.translation.width < -34 ? -84 : 0
+        if todo.dailyRuleID == nil {
+            row.accessibilityAction(named: Text("删除待办")) { onDelete() }
+        } else {
+            row
+                .accessibilityAction(named: Text(todo.isSkipped ? "恢复今天" : "跳过今天")) {
+                    guard !todo.isCompleted else { return }
+                    onSkipToday()
                 }
-            }
+                .accessibilityAction(named: Text("仅删除今天")) { onDeleteToday() }
+                .accessibilityAction(named: Text("删除每日规则")) { onDeleteRule() }
+        }
     }
+
+    private var displayedNote: String { todo.note.trimmingCharacters(in: .whitespacesAndNewlines) }
 }
 
 struct HomeDailyTodoRuleRow: View {
@@ -194,10 +159,11 @@ struct HomeDailyTodoRuleRow: View {
     let onEdit: () -> Void
     let onTogglePause: () -> Void
     let onDelete: () -> Void
+    var isReordering = false
 
     var body: some View {
         HStack(spacing: 10) {
-            Button(action: onEdit) {
+            if isReordering {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(rule.title)
                         .font(.system(size: 14, weight: .medium))
@@ -208,22 +174,42 @@ struct HomeDailyTodoRuleRow: View {
                         .lineLimit(2)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 28, height: 36)
+                    .accessibilityHidden(true)
+            } else {
+                Button(action: onEdit) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(rule.title)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.primary)
+                        Text(detailText)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
 
-            Button(rule.isPaused ? "恢复" : "暂停", action: onTogglePause)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(rule.isPaused ? AppTheme.accent : .secondary)
-                .accessibilityLabel(rule.isPaused ? "恢复每日待办" : "暂停每日待办")
+                Button(rule.isPaused ? "恢复" : "暂停", action: onTogglePause)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(rule.isPaused ? AppTheme.accent : .secondary)
+                    .accessibilityLabel(rule.isPaused ? "恢复每日待办" : "暂停每日待办")
 
-            Button(role: .destructive, action: onDelete) {
-                Image(systemName: "trash").font(.system(size: 13))
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash").font(.system(size: 13))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("删除每日待办 \(rule.title)")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("删除每日待办 \(rule.title)")
         }
         .padding(12)
         .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 13))
+        .accessibilityElement(children: isReordering ? .combine : .contain)
+        .accessibilityHint(isReordering ? "长按并拖动调整每日待办顺序" : "")
     }
 
     private var detailText: String {
