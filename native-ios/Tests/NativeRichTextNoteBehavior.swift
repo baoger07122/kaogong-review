@@ -9,6 +9,9 @@ enum NativeRichTextNoteBehavior {
         try verifyTableCellBoldRangesRoundTrip()
         verifyDefaultAndExplicitParagraphSpacing()
         verifyParagraphIndentRoundTripMetadata()
+        verifyVersionedParagraphLayoutMetadata()
+        verifyPastedParagraphSpacingPolicy()
+        verifyExactParagraphPairing()
         verifyListHTMLRecovery()
         verifyLegacyAutomaticSpacingCleanup()
     }
@@ -107,15 +110,149 @@ enum NativeRichTextNoteBehavior {
             NativeRichTextNoteParagraphHTMLStyle(spacingBefore: 0, spacingAfter: 0, lineSpacing: 0, fontSize: 16),
             to: ordinary
         )
-        precondition(defaultHTML == ordinary, "ordinary paragraphs must export without injected spacing")
+        precondition(
+            defaultHTML == "<p data-note-layout-version=\"1\" data-note-spacing-before=\"0.0\" data-note-spacing-after=\"0.0\" data-note-line-spacing=\"0.0\">普通段落</p>",
+            "ordinary paragraphs must export explicit zero-valued layout metadata without injecting visual spacing"
+        )
 
         let pasted = NativeRichTextNoteParagraphHTMLPolicy.applying(
             NativeRichTextNoteParagraphHTMLStyle(spacingBefore: 0, spacingAfter: 4, lineSpacing: 2, fontSize: 16),
             to: ordinary
         )
         precondition(
-            pasted == "<p style=\"margin-bottom: 4.0pt; line-height: 18.0pt\">普通段落</p>",
-            "explicit pasted spacing, already clamped to 4 pt, must remain encoded while default paragraphs stay compact"
+            pasted == "<p style=\"margin-bottom: 4.0pt\" data-note-layout-version=\"1\" data-note-spacing-before=\"0.0\" data-note-spacing-after=\"4.0\" data-note-line-spacing=\"2.0\">普通段落</p>",
+            "pasted paragraph spacing and line spacing must use app metadata instead of fixed CSS line height"
+        )
+    }
+
+    private static func verifyVersionedParagraphLayoutMetadata() {
+        let style = NativeRichTextNoteParagraphHTMLStyle(
+            spacingBefore: 0,
+            spacingAfter: 4,
+            lineSpacing: 2,
+            fontSize: 16,
+            firstLineHeadIndent: 24,
+            headIndent: 12,
+            tailIndent: -8
+        )
+        let html = NativeRichTextNoteParagraphHTMLPolicy.applying(style, to: "<p>冷读段落</p>")
+        let metadata = NativeRichTextNoteParagraphHTMLPolicy.metadata(in: html)
+        precondition(metadata.count == 1, "each saved paragraph must have one metadata row")
+        guard let restored = metadata[0].versionedLayout else {
+            preconditionFailure("new paragraph metadata must decode")
+        }
+        precondition(restored == style, "cold reads must recover zero and nonzero paragraph spacing exactly")
+        precondition(metadata[0].hasExplicitSpacing, "versioned zero values count as explicit spacing")
+        precondition(!html.contains("line-height:"), "saved line spacing must not depend on a fixed CSS height")
+
+        let external = NativeRichTextNoteParagraphHTMLPolicy.metadata(in: "<p style=\"margin-top: 2pt; margin-bottom: 5px\">来源段落</p>")
+        precondition(external.count == 1 && external[0].hasExplicitSpacing, "inline HTML margins must be recognized as explicit spacing")
+        precondition(external[0].cssSpacing == .some(NativeRichTextNoteParagraphHTMLSpacing(before: 2, after: 3.75)), "CSS pt and px margins must map to point spacing")
+    }
+
+    private static func verifyPastedParagraphSpacingPolicy() {
+        let defaults = [
+            NativeRichTextNoteParagraphHTMLStyle(spacingBefore: 0, spacingAfter: 0, lineSpacing: 0, fontSize: 16),
+            NativeRichTextNoteParagraphHTMLStyle(spacingBefore: 0, spacingAfter: 0, lineSpacing: 0, fontSize: 16)
+        ]
+        let emptyMetadata: [NativeRichTextNoteParagraphHTMLMetadata?] = [nil, nil]
+        let ordinary = NativeRichTextNoteParagraphHTMLPolicy.normalizingPastedStyles(
+            defaults,
+            hasContent: [true, true],
+            isQuoted: [false, false],
+            isList: [false, false],
+            preservesParagraphLayout: [false, false],
+            metadata: emptyMetadata,
+            hasStructuredParagraphs: true
+        )
+        precondition(ordinary.map(\.spacingAfter) == [4, 0], "adjacent ordinary paragraphs must receive one 4 pt gap")
+        precondition(ordinary.map(\.spacingBefore) == [0, 0], "the inter-paragraph gap must be applied only once")
+        precondition(ordinary.map(\.lineSpacing) == [2, 2], "structured rich paragraphs must use 2 pt extra line spacing by default")
+
+        let explicit = [
+            NativeRichTextNoteParagraphHTMLStyle(spacingBefore: 0, spacingAfter: 2, lineSpacing: 3, fontSize: 16),
+            NativeRichTextNoteParagraphHTMLStyle(spacingBefore: 3, spacingAfter: 0, lineSpacing: 0, fontSize: 16)
+        ]
+        let explicitMetadata = [
+            NativeRichTextNoteParagraphHTMLMetadata(tagName: "p", headingLevel: nil, versionedLayout: nil, hasExplicitSpacing: true),
+            NativeRichTextNoteParagraphHTMLMetadata(tagName: "p", headingLevel: nil, versionedLayout: nil, hasExplicitSpacing: true)
+        ]
+        let merged = NativeRichTextNoteParagraphHTMLPolicy.normalizingPastedStyles(
+            explicit,
+            hasContent: [true, true],
+            isQuoted: [false, false],
+            isList: [false, false],
+            preservesParagraphLayout: [false, false],
+            metadata: explicitMetadata,
+            hasStructuredParagraphs: true
+        )
+        precondition(merged.map(\.spacingAfter) == [4, 0], "source spacing on both sides must merge and cap at 4 pt")
+        precondition(merged.map(\.lineSpacing) == [2, 2], "source extra line spacing must be clamped to 0–2 pt")
+
+        let withBlank = [defaults[0], defaults[0], defaults[0]]
+        let blank = NativeRichTextNoteParagraphHTMLPolicy.normalizingPastedStyles(
+            withBlank,
+            hasContent: [true, false, true],
+            isQuoted: [false, false, false],
+            isList: [false, false, false],
+            preservesParagraphLayout: [false, false, false],
+            metadata: [nil, nil, nil],
+            hasStructuredParagraphs: true
+        )
+        precondition(blank[0].spacingAfter == 0 && blank[2].spacingBefore == 0, "a user-inserted blank paragraph must suppress automatic spacing on its sides")
+        precondition(blank[1] == withBlank[1], "the explicit blank paragraph's own layout must remain untouched")
+
+        let special = [
+            defaults[0],
+            NativeRichTextNoteParagraphHTMLStyle(spacingBefore: 0, spacingAfter: 0, lineSpacing: 1, fontSize: 12),
+            NativeRichTextNoteParagraphHTMLStyle(spacingBefore: 0, spacingAfter: 0, lineSpacing: 0, fontSize: 16),
+            NativeRichTextNoteParagraphHTMLStyle(spacingBefore: 2, spacingAfter: 3, lineSpacing: 3, fontSize: 16)
+        ]
+        let protected = NativeRichTextNoteParagraphHTMLPolicy.normalizingPastedStyles(
+            special,
+            hasContent: [true, true, true, true],
+            isQuoted: [false, true, false, false],
+            isList: [false, false, true, false],
+            preservesParagraphLayout: [false, false, false, true],
+            metadata: [nil, nil, nil, nil],
+            hasStructuredParagraphs: true
+        )
+        precondition(protected[1].spacingAfter == 5, "quotes must retain the app's 5 pt spacing")
+        precondition(protected[2].lineSpacing == 0 && protected[2].spacingAfter == 0, "list items must keep their compact spacing")
+        precondition(protected[3] == special[3], "table and attachment paragraph layout must remain unchanged")
+
+        let savedStyle = defaults[0]
+        let savedMetadata = NativeRichTextNoteParagraphHTMLMetadata(
+            tagName: "p",
+            headingLevel: nil,
+            versionedLayout: savedStyle,
+            hasExplicitSpacing: true
+        )
+        let saved = NativeRichTextNoteParagraphHTMLPolicy.normalizingPastedStyles(
+            [savedStyle, savedStyle],
+            hasContent: [true, true],
+            isQuoted: [false, false],
+            isList: [false, false],
+            preservesParagraphLayout: [false, false],
+            metadata: [savedMetadata, savedMetadata],
+            hasStructuredParagraphs: true
+        )
+        precondition(saved.map(\.spacingAfter) == [0, 0], "versioned explicit zero spacing must not be mistaken for missing source spacing")
+        precondition(saved.map(\.lineSpacing) == [0, 0], "saved metadata must bypass paste defaults and legacy cleanup")
+    }
+
+    private static func verifyExactParagraphPairing() {
+        precondition(
+            NativeRichTextNoteParagraphHTMLPolicy.paragraphsMatch(["第一段", "重复", "重复"], ["第一段", "重复", "重复"]),
+            "same-format companion text must pair paragraph by paragraph in order"
+        )
+        precondition(
+            !NativeRichTextNoteParagraphHTMLPolicy.paragraphsMatch(["第一段", "重复", "重复"], ["第一段", "重复"]),
+            "missing paragraphs must not be filled by length or duplicate-name matching"
+        )
+        precondition(
+            !NativeRichTextNoteParagraphHTMLPolicy.paragraphsMatch(["第一段", "第二段"], ["第二段", "第一段"]),
+            "reordered source paragraphs must not transfer formatting onto different content"
         )
     }
 
