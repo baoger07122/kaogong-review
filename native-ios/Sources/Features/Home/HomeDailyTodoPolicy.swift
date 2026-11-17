@@ -149,8 +149,13 @@ enum HomeTodoSchedulePresentation {
         calendar: Calendar = .current
     ) -> String {
         if isCompleted {
-            return HomeRecordRepository.chineseDate(completedAt ?? scheduledAt)
+            return dateLabel(completedAt ?? scheduledAt, calendar: calendar)
         }
-        return HomeRecordRepository.chineseDate(scheduledAt)
+        return dateLabel(scheduledAt, calendar: calendar)
+    }
+
+    private static func dateLabel(_ date: Date, calendar: Calendar) -> String {
+        let values = calendar.dateComponents([.year, .month, .day], from: date)
+        return "\(values.year ?? 0)年\(values.month ?? 0)月\(values.day ?? 0)日"
     }
 }
