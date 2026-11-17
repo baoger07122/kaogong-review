@@ -291,20 +291,31 @@ struct LibraryRecordSwipePreview: View {
         let payload = record.indexPayload ?? record.payload
         let subject = record.subject ?? ""
         let module = record.module ?? ""
-        let value = await Task.detached(priority: .utility) {
-            guard let object = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any] else { return nil as PreviewContent? }
+        guard !Task.isCancelled else { return }
+        let decoded = await LibraryPayloadDecodeCoordinator.shared.decode(
+            key: LibraryPayloadDecodeKey(
+                recordID: record.compoundID,
+                updatedAt: record.updatedAt,
+                payloadByteCount: payload.count,
+                source: record.indexPayload == nil ? "payload" : "index"
+            ),
+            payload: payload,
+            priority: .utility
+        )
+        guard !Task.isCancelled, previewKey == key else { return }
+        if let object = decoded?.object {
             let title = [object["question"] as? String, object["title"] as? String, object["content"] as? String]
                 .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .first { !$0.isEmpty } ?? "未命名题目"
-            return PreviewContent(
+            preview = PreviewContent(
                 title: title,
                 options: object["options"] as? [String] ?? [],
                 subject: subject,
                 module: module
             )
-        }.value
-        guard !Task.isCancelled, previewKey == key else { return }
-        preview = value
+        } else {
+            preview = nil
+        }
         didFinishLoadingPreview = true
     }
 

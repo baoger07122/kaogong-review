@@ -5,11 +5,9 @@ struct HomeTodoCollection: UIViewRepresentable {
     let items: [HomeTodo]
     let onToggleCompleted: (HomeTodo) -> Void
     let onEdit: (HomeTodo) -> Void
-    let onDelete: (HomeTodo) -> Void
-    let onSkipToday: (HomeTodo) -> Void
-    let onDeleteToday: (HomeTodo) -> Void
-    let onDeleteRule: (HomeTodo) -> Void
-    let onToggleTimer: (HomeTodo) -> Void
+    let onDelete: (HomeTodo) -> Bool
+    let onSkipToday: (HomeTodo) -> Bool
+    let onDeleteToday: (HomeTodo) -> Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -71,11 +69,9 @@ struct HomeTodoCollection: UIViewRepresentable {
                     todo: todo,
                     onToggleCompleted: { self.parent.onToggleCompleted(todo) },
                     onEdit: { self.parent.onEdit(todo) },
-                    onDelete: { self.parent.onDelete(todo) },
-                    onSkipToday: { self.parent.onSkipToday(todo) },
-                    onDeleteToday: { self.parent.onDeleteToday(todo) },
-                    onDeleteRule: { self.parent.onDeleteRule(todo) },
-                    onToggleTimer: { self.parent.onToggleTimer(todo) },
+                    onDelete: { _ = self.parent.onDelete(todo) },
+                    onSkipToday: { _ = self.parent.onSkipToday(todo) },
+                    onDeleteToday: { _ = self.parent.onDeleteToday(todo) },
                     showsDivider: indexPath.item < self.items.count - 1
                 )
             }
@@ -97,17 +93,12 @@ struct HomeTodoCollection: UIViewRepresentable {
                         image: todo.isSkipped ? "arrow.uturn.backward" : "forward.fill",
                         style: .normal
                     ) { self.parent.onSkipToday(todo) })
-                    recurringActions.append(makeAction(
-                        title: "仅删除今天",
-                        image: "trash",
-                        style: .destructive
-                    ) { self.parent.onDeleteToday(todo) })
                 }
                 recurringActions.append(makeAction(
-                    title: "删除规则",
-                    image: "trash.slash",
+                    title: "删除今天",
+                    image: "trash",
                     style: .destructive
-                ) { self.parent.onDeleteRule(todo) })
+                ) { self.parent.onDeleteToday(todo) })
                 actions = recurringActions
             }
             let configuration = UISwipeActionsConfiguration(actions: actions)
@@ -119,11 +110,10 @@ struct HomeTodoCollection: UIViewRepresentable {
             title: String,
             image: String,
             style: UIContextualAction.Style,
-            perform: @escaping () -> Void
+            perform: @escaping () -> Bool
         ) -> UIContextualAction {
             let action = UIContextualAction(style: style, title: title) { _, _, completion in
-                perform()
-                completion(true)
+                completion(perform())
             }
             action.image = UIImage(systemName: image)
             if style == .normal { action.backgroundColor = UIColor.systemBlue }
@@ -133,7 +123,7 @@ struct HomeTodoCollection: UIViewRepresentable {
 }
 
 final class HomeTodoCollectionView: UICollectionView {
-    private static let fallbackRowHeight: CGFloat = 52
+    private static let fallbackRowHeight: CGFloat = 44
     private var rowCount = 0
     private var measurement: (width: CGFloat, height: CGFloat)?
     private var intrinsicHeightUpdateScheduled = false

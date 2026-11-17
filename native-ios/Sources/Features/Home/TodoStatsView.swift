@@ -47,10 +47,8 @@ struct TodoStatsView: View {
 
                 calendar
 
-                HStack(spacing: 10) {
-                    summary(value: completedInVisibleRange.count, title: "本期完成", color: AppTheme.success)
-                    summary(value: totalMinutes, title: "学习分钟", color: AppTheme.accent)
-                }
+                summary(value: completedInVisibleRange.count, title: "本期完成", color: AppTheme.success)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(20)
         }
@@ -248,10 +246,6 @@ struct TodoStatsView: View {
 
     private var completedInVisibleRange: [HomeTodo] {
         completed.filter { todo in todo.completedAt.map(visibleInterval.contains) ?? false }
-    }
-
-    private var totalMinutes: Int {
-        Int(completedInVisibleRange.reduce(0) { $0 + $1.elapsedMilliseconds } / 60_000)
     }
 
     private func todos(on date: Date) -> [HomeTodo] {

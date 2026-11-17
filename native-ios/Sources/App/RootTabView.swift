@@ -232,6 +232,7 @@ private struct RootTabFrameCommitProbe: UIViewRepresentable {
                 }
                 return
             }
+            guard window != nil, !isHidden, alpha > 0.01 else { return }
             guard lastGeneration != generation else { return }
             lastGeneration = generation
             pendingTab = tab
@@ -243,7 +244,14 @@ private struct RootTabFrameCommitProbe: UIViewRepresentable {
         }
 
         @objc private func displayLinkDidFire(_ link: CADisplayLink) {
-            guard window != nil, let tab = pendingTab, pendingGeneration == lastGeneration else { return }
+            guard window != nil, !isHidden, alpha > 0.01,
+                  let tab = pendingTab, pendingGeneration == lastGeneration else {
+                displayLink?.invalidate()
+                displayLink = nil
+                pendingTab = nil
+                pendingGeneration = nil
+                return
+            }
             pendingTab = nil
             pendingGeneration = nil
             displayLink?.invalidate()

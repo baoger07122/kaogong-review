@@ -250,9 +250,6 @@ struct LibraryView: View {
                         onEditPrepared: { activeRecordID, draft in
                             openEditorAfterMenuDismisses(kind: kind, recordID: activeRecordID, preparedDraft: draft)
                         },
-                        onPrepareEditDraft: { activeRecordID, draft in
-                            preparedEditDrafts["\(kind.collection)|\(activeRecordID)"] = draft
-                        },
                         onDelete: { activeRecordID in
                             remove(LibraryDeleteTarget(kind: kind, recordID: activeRecordID))
                             popCurrentRoute()
@@ -845,16 +842,7 @@ struct LibraryView: View {
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty } ?? ""
         guard !module.isEmpty else { return [] }
-        var names = Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: module, records: records))
-        if let typeSubject = LibraryErrorTypeSubject(rawValue: subject) {
-            for type in LibraryErrorTypeRepository.types(for: typeSubject, records: records)
-                where type.isAvailable(in: module) {
-                names.formUnion(VerbalReasoningKnowledgePointRepository.tags(
-                    module: module, typeID: type.id, records: records, subject: subject
-                ))
-            }
-        }
-        return names
+        return snapshotCache.knowledgePointCatalog(records: records).names(subject: subject, module: module)
     }
 
     private func includesQuestionImages(in record: StoredRecord) -> Bool {
@@ -937,7 +925,7 @@ struct LibraryView: View {
 
     private var errorTypes: [LibraryErrorType] {
         guard let errorTypeSubject else { return [] }
-        let entries = LibraryErrorTypeRepository.types(for: errorTypeSubject, records: records)
+        let entries = snapshotCache.knowledgePointCatalog(records: records).types(for: errorTypeSubject)
         guard let module = scope.module else { return entries }
         return entries.filter { $0.isAvailable(in: module) }
     }
@@ -1095,20 +1083,23 @@ struct LibraryView: View {
         recordListCache.knowledgePointReferenceIndex(records: records, subject: scope.subject) {
             let errorRecords = records.filter { $0.collection == "errors" }
             let typeSubject = scope.subject.flatMap(LibraryErrorTypeSubject.init(rawValue:))
-            let typedTypes = typeSubject.map { LibraryErrorTypeRepository.types(for: $0, records: records) } ?? []
+            let catalog = snapshotCache.knowledgePointCatalog(records: records)
+            let typedTypes = typeSubject.map { catalog.types(for: $0) } ?? []
             let modules = Set(errorRecords.compactMap { record in
                 nonEmpty(record.module) ?? nonEmpty(record.indexObject?["module"] as? String)
             })
             let legacyNamesByModule = Dictionary(uniqueKeysWithValues: modules.map { module in
-                (module, Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: module, records: records)))
+                (module, catalog.legacyNamesByModule[module] ?? [])
             })
             var typedNamesByScope: [String: Set<String>] = [:]
             for type in typedTypes {
                 let typeModules = type.module.map { [$0] } ?? Array(modules)
                 for module in typeModules {
-                    typedNamesByScope["\(module)\u{1f}\(type.id)"] = Set(VerbalReasoningKnowledgePointRepository.tags(
-                        module: module, typeID: type.id, records: records, subject: typeSubject?.rawValue ?? "言语理解"
-                    ))
+                    typedNamesByScope["\(module)\u{1f}\(type.id)"] = catalog.typedNames(
+                        module: module,
+                        typeID: type.id,
+                        subject: typeSubject?.rawValue ?? "言语理解"
+                    )
                 }
             }
             return Dictionary(uniqueKeysWithValues: errorRecords.map { record in

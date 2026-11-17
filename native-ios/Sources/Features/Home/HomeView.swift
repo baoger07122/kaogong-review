@@ -3,12 +3,10 @@ import SwiftUI
 
 struct HomeView: View {
     private enum DailyDeleteTarget: Identifiable {
-        case todo(HomeTodo)
         case rule(HomeDailyTodoRule)
 
         var id: String {
             switch self {
-            case let .todo(todo): "todo|\(todo.id)"
             case let .rule(rule): "rule|\(rule.id)"
             }
         }
@@ -59,6 +57,8 @@ struct HomeView: View {
     @State private var dailyDeleteTarget: DailyDeleteTarget?
     @State private var dailyTodoNoteTarget: DailyTodoNoteTarget?
     @State private var isReorderingDailyRules = false
+    @State private var showsCompletedTodos = false
+    @AppStorage("native.home.todoTimersRemoved.11.17.3") private var didStopLegacyTodoTimers = false
 
     private var todos: [HomeTodo] { HomeRecordRepository.todos(from: records) }
     private var stickies: [HomeSticky] { HomeRecordRepository.stickies(from: records) }
@@ -80,7 +80,10 @@ struct HomeView: View {
         .background(Color.white)
         .stableRootNavigationBar()
         .onAppear { NativePerformanceLog.event("home onAppear") }
-        .task { await loadErrorStatsIfNeeded() }
+        .task {
+            await loadErrorStatsIfNeeded()
+            stopLegacyTodoTimersIfNeeded()
+        }
         .task(id: scenePhase) { await maintainDailyTodoInstancesWhileActive() }
         .navigationDestination(for: AppRoute.self) { route in
             HomeShortcutView(route: route)
@@ -102,34 +105,19 @@ struct HomeView: View {
         } message: {
             Text(saveErrorMessage ?? "操作未完成，输入内容仍保留。")
         }
-        .confirmationDialog("删除每日待办", isPresented: Binding(
+        .confirmationDialog("删除整组待办", isPresented: Binding(
             get: { dailyDeleteTarget != nil },
             set: { if !$0 { dailyDeleteTarget = nil } }
         ), titleVisibility: .visible) {
-            if case let .some(.todo(todo)) = dailyDeleteTarget {
-                Button("仅删除今天", role: .destructive) {
-                    deleteDailyTodoForToday(todo)
-                    dailyDeleteTarget = nil
-                }
-                if let rule = todo.dailyRuleID.flatMap({ id in dailyRules.first { $0.id == id } }) {
-                    Button("删除每日规则并移除今天未完成项", role: .destructive) {
-                        deleteDailyRule(rule.id)
-                        dailyDeleteTarget = nil
-                    }
-                }
-            } else if case let .some(.rule(rule)) = dailyDeleteTarget {
-                Button("删除规则并移除今天未完成项", role: .destructive) {
-                    deleteDailyRule(rule.id)
+            if case let .some(.rule(rule)) = dailyDeleteTarget {
+                Button("删除整组待办", role: .destructive) {
+                    _ = deleteDailyRule(rule.id)
                     dailyDeleteTarget = nil
                 }
             }
             Button("取消", role: .cancel) { dailyDeleteTarget = nil }
         } message: {
-            if case .some(.todo(_)) = dailyDeleteTarget {
-                Text("删除今天只会隐藏当天实例；删除规则会停止今后的自动生成，并保留已完成任务和历史记录。")
-            } else {
-                Text("会停止今后的自动生成；已完成任务和历史记录会保留。")
-            }
+            Text("将停止今后生成，并删除此规则下可明确关联的所有记录，包括历史和已完成项。同名但未关联的待办会保留。")
         }
     }
 
@@ -184,9 +172,6 @@ struct HomeView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
-            if let running = todos.first(where: { $0.timerStartedAt != nil }) {
-                timerCapsule(running)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.trailing, 20)
@@ -239,29 +224,6 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func timerCapsule(_ todo: HomeTodo) -> some View {
-        Button { toggleTimer(todo) } label: {
-            HStack(spacing: 7) {
-                Text(todo.title).lineLimit(1)
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(HomeRecordRepository.durationText(
-                        milliseconds: todo.elapsedMilliseconds,
-                        startedAt: todo.timerStartedAt,
-                        now: context.date
-                    ))
-                    .monospacedDigit()
-                }
-                Image(systemName: "pause.fill")
-            }
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(AppTheme.accent)
-            .padding(.horizontal, 10)
-            .frame(height: 28)
-            .background(AppTheme.accent.opacity(0.10), in: Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-
     private var featureGrid: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5), spacing: 10) {
             ForEach(HomeFeature.all) { feature in
@@ -289,7 +251,10 @@ struct HomeView: View {
     }
 
     private var todoSection: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        let visibleTodos = todayTodos
+        let unfinishedTodos = visibleTodos.filter { !$0.isCompleted }
+        let completedTodos = visibleTodos.filter(\.isCompleted)
+        return VStack(alignment: .leading, spacing: 9) {
             HStack {
                 Label("今日待办", systemImage: "checkmark.square")
                     .font(AppTheme.sectionTitleFont)
@@ -316,7 +281,7 @@ struct HomeView: View {
                 .tint(AppTheme.accent)
                 .scaleEffect(x: 1, y: 1.18)
 
-            if todayTodos.isEmpty {
+            if visibleTodos.isEmpty {
                 NativeStatusCard(
                     title: "还没有待办事项",
                     detail: "点击右上角新增，开启今日计划",
@@ -325,25 +290,49 @@ struct HomeView: View {
                     minimumHeight: 176
                 )
             } else {
-                HomeTodoCollection(
-                    items: todayTodos,
-                    onToggleCompleted: toggleCompleted,
-                    onEdit: beginTodo,
-                    onDelete: { deleteTodo($0.id) },
-                    onSkipToday: { setDailyTodoSkipped($0, skipped: !$0.isSkipped) },
-                    onDeleteToday: { dailyDeleteTarget = .todo($0) },
-                    onDeleteRule: { todo in
-                        if let rule = todo.dailyRuleID.flatMap({ id in dailyRules.first { $0.id == id } }) {
-                            dailyDeleteTarget = .rule(rule)
+                VStack(spacing: 0) {
+                    if !unfinishedTodos.isEmpty {
+                        todoCollection(items: unfinishedTodos)
+                    }
+                    if !completedTodos.isEmpty {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.18)) { showsCompletedTodos.toggle() }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text("已完成（\(completedTodos.count)）")
+                                Spacer()
+                                Image(systemName: showsCompletedTodos ? "chevron.up" : "chevron.down")
+                                    .font(.system(size: 11, weight: .semibold))
+                            }
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
                         }
-                    },
-                    onToggleTimer: toggleTimer
-                )
-                .padding(.horizontal, 14)
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 14)
+                        if showsCompletedTodos {
+                            todoCollection(items: completedTodos)
+                        }
+                    }
+                }
+                .padding(.vertical, 2)
                 .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .overlay { RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.06), lineWidth: 0.6) }
             }
         }
+    }
+
+    private func todoCollection(items: [HomeTodo]) -> some View {
+        HomeTodoCollection(
+            items: items,
+            onToggleCompleted: toggleCompleted,
+            onEdit: beginTodo,
+            onDelete: deleteTodo,
+            onSkipToday: { setDailyTodoSkipped($0, skipped: !$0.isSkipped) },
+            onDeleteToday: deleteDailyTodoForToday
+        )
+        .padding(.horizontal, 14)
     }
 
     private var stickySection: some View {
@@ -462,7 +451,6 @@ struct HomeView: View {
                         .overlay { RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.08), lineWidth: 0.6) }
                 }
                 DatePicker(todoRepeatsDailyDraft ? "开始日期" : "计划日期", selection: $todoScheduleDraft, displayedComponents: .date)
-                DatePicker("计划时间", selection: $todoScheduleDraft, displayedComponents: .hourAndMinute)
                 NativeFieldLabel(title: "科目")
                 todoTypePicker
             }
@@ -563,7 +551,6 @@ struct HomeView: View {
                         .overlay { RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.08), lineWidth: 0.6) }
                 }
                 DatePicker("开始日期", selection: $todoScheduleDraft, displayedComponents: .date)
-                DatePicker("计划时间", selection: $todoScheduleDraft, displayedComponents: .hourAndMinute)
                 NativeFieldLabel(title: "科目")
                 todoTypePicker
             }
@@ -629,7 +616,9 @@ struct HomeView: View {
                 return true
             }
             if !todo.isCompleted { return true }
-            guard let completedAt = todo.completedAt else { return false }
+            guard let completedAt = todo.completedAt else {
+                return Calendar.current.isDateInToday(todo.scheduledAt)
+            }
             return Calendar.current.isDateInToday(completedAt)
         }
         return HomeDailyTodoPolicy.reorderingRecurringTodoSlots(
@@ -710,7 +699,7 @@ struct HomeView: View {
             return DailyTodoNoteTarget(instanceID: todo.id, ruleID: dailyRuleID, dailyDate: date)
         }
         todoTypeDraft = rule?.type ?? "yanyu"
-        todoScheduleDraft = rule.map { HomeDailyTodoPolicy.scheduledAt(on: $0.startDate, using: $0.scheduledTime) ?? $0.scheduledTime } ?? .now
+        todoScheduleDraft = rule?.startDate ?? .now
         withAnimation(.spring(duration: 0.25, bounce: 0.08)) { editor = .dailyRule(rule?.id) }
     }
 
@@ -750,19 +739,21 @@ struct HomeView: View {
         let title = todoTitleDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return }
         if todoRepeatsDailyDraft {
-            let rule = HomeRecordRepository.makeDailyRule(title: title, type: todoTypeDraft, startAndTime: todoScheduleDraft)
+            var rule = HomeRecordRepository.makeDailyRule(title: title, type: todoTypeDraft, startAndTime: todoScheduleDraft)
+            rule.scheduledTime = Calendar.current.startOfDay(for: todoScheduleDraft)
             do {
                 try HomeRecordRepository.saveDailyRuleAndReconcileToday(rule: rule, context: modelContext)
                 completeSave()
             } catch { saveErrorMessage = error.localizedDescription }
             return
         }
-        var value = id.flatMap { key in todos.first(where: { $0.id == key }) }
+        let existing = id.flatMap { key in todos.first(where: { $0.id == key }) }
+        var value = existing
             ?? HomeRecordRepository.makeTodo(title: title, note: "", type: todoTypeDraft, scheduledAt: todoScheduleDraft)
         value.title = title
         value.note = todoNoteDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         value.type = todoTypeDraft
-        value.scheduledAt = todoScheduleDraft
+        value.scheduledAt = HomeRecordRepository.dateOnly(todoScheduleDraft, preservingTimeFrom: existing?.scheduledAt)
         do { try HomeRecordRepository.save(todo: value, records: records, context: modelContext); completeSave() }
         catch { saveErrorMessage = error.localizedDescription }
     }
@@ -774,9 +765,12 @@ struct HomeView: View {
         let prior = id.flatMap { key in dailyRules.first(where: { $0.id == key }) }
         var rule = HomeRecordRepository.makeDailyRule(title: title, type: todoTypeDraft, startAndTime: todoScheduleDraft, id: id)
         if let prior {
+            rule.scheduledTime = prior.scheduledTime
             rule.createdAt = prior.createdAt
             rule.isPaused = prior.isPaused
             rule.sortOrder = prior.sortOrder
+        } else {
+            rule.scheduledTime = Calendar.current.startOfDay(for: todoScheduleDraft)
         }
         do {
             let noteEdit = dailyTodoNoteTarget.map {
@@ -831,25 +825,38 @@ struct HomeView: View {
         catch { saveErrorMessage = error.localizedDescription }
     }
 
-    private func deleteTodo(_ id: String) {
-        do { try HomeRecordRepository.remove(collection: "todos", id: id, records: records, context: modelContext) }
-        catch { saveErrorMessage = error.localizedDescription }
+    private func deleteTodo(_ todo: HomeTodo) -> Bool {
+        do {
+            try HomeRecordRepository.deleteTodo(todo, context: modelContext)
+            return true
+        } catch {
+            saveErrorMessage = error.localizedDescription
+            return false
+        }
     }
 
-    private func deleteDailyTodoForToday(_ todo: HomeTodo) {
+    private func deleteDailyTodoForToday(_ todo: HomeTodo) -> Bool {
         do {
             try HomeRecordRepository.deleteDailyTodoForToday(todo, context: modelContext)
-            showSaveToast()
-        } catch { saveErrorMessage = error.localizedDescription }
+            return true
+        } catch {
+            saveErrorMessage = error.localizedDescription
+            return false
+        }
     }
 
-    private func setDailyTodoSkipped(_ todo: HomeTodo, skipped: Bool) {
-        guard todo.dailyRuleID != nil else { return }
+    private func setDailyTodoSkipped(_ todo: HomeTodo, skipped: Bool) -> Bool {
+        guard todo.dailyRuleID != nil else { return false }
         var value = todo
         value.isSkipped = skipped
         if skipped { pauseTimer(&value) }
-        do { try HomeRecordRepository.save(todo: value, records: records, context: modelContext) }
-        catch { saveErrorMessage = error.localizedDescription }
+        do {
+            try HomeRecordRepository.save(todo: value, records: records, context: modelContext)
+            return true
+        } catch {
+            saveErrorMessage = error.localizedDescription
+            return false
+        }
     }
 
     private func setDailyRulePaused(_ rule: HomeDailyTodoRule, paused: Bool) {
@@ -861,14 +868,27 @@ struct HomeView: View {
         } catch { saveErrorMessage = error.localizedDescription }
     }
 
-    private func deleteDailyRule(_ id: String) {
+    private func deleteDailyRule(_ id: String) -> Bool {
         do {
             try HomeRecordRepository.deleteDailyRule(id: id, context: modelContext)
             if editor == .dailyRules {
                 withAnimation(.spring(duration: 0.25, bounce: 0.08)) { editor = .dailyRules }
             }
-            showSaveToast()
-        } catch { saveErrorMessage = error.localizedDescription }
+            return true
+        } catch {
+            saveErrorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    private func stopLegacyTodoTimersIfNeeded() {
+        guard !didStopLegacyTodoTimers else { return }
+        do {
+            _ = try HomeRecordRepository.stopRunningTodoTimers(context: modelContext)
+            didStopLegacyTodoTimers = true
+        } catch {
+            saveErrorMessage = error.localizedDescription
+        }
     }
 
     @MainActor
@@ -920,24 +940,6 @@ struct HomeView: View {
             saveErrorMessage = error.localizedDescription
             return false
         }
-    }
-
-    private func toggleTimer(_ todo: HomeTodo) {
-        guard !todo.isCompleted, !todo.isSkipped else { return }
-        var selected = todo
-        do {
-            if selected.timerStartedAt != nil {
-                pauseTimer(&selected)
-            } else {
-                for running in todos where running.timerStartedAt != nil && running.id != selected.id {
-                    var paused = running
-                    pauseTimer(&paused)
-                    try HomeRecordRepository.save(todo: paused, records: records, context: modelContext)
-                }
-                selected.timerStartedAt = .now
-            }
-            try HomeRecordRepository.save(todo: selected, records: records, context: modelContext)
-        } catch { saveErrorMessage = error.localizedDescription }
     }
 
     private func pauseTimer(_ todo: inout HomeTodo) {

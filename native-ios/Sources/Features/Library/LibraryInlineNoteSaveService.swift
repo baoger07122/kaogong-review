@@ -147,6 +147,14 @@ final class LibraryInlineNoteSaveService: ObservableObject {
         recordStates[recordID] = state
     }
 
+    func discardConfirmedStateIfIdle(recordID: String) {
+        guard !hasPending(recordID: recordID),
+              let state = recordStates[recordID],
+              state.phase == .saved,
+              state.latestContent == state.confirmedContent else { return }
+        recordStates[recordID] = nil
+    }
+
     /// Registers each distinct editor revision before its debounce begins.
     /// A completed callback for an older revision therefore cannot mark newer
     /// text as saved or failed.

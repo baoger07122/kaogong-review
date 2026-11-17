@@ -57,6 +57,10 @@ enum VerbalReasoningKnowledgePointRepository {
         )
     }
 
+    static func catalog(records: [StoredRecord], subject: String) -> [String: [String: [String]]] {
+        loadGroups(records: records, subject: subject)
+    }
+
     private static func knownNames(records: [StoredRecord], subject: String) -> Set<String> {
         var names = Set<String>()
         let legacyValue = records.first {

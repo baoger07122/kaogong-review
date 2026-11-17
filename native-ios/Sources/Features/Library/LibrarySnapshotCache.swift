@@ -12,9 +12,38 @@ enum LibrarySnapshotSearch {
     }
 }
 
+struct LibraryKnowledgePointCatalogSnapshot {
+    let legacyNamesByModule: [String: Set<String>]
+    let typesBySubject: [String: [LibraryErrorType]]
+    let typedNamesBySubjectScope: [String: Set<String>]
+
+    func types(for subject: LibraryErrorTypeSubject) -> [LibraryErrorType] {
+        typesBySubject[subject.rawValue] ?? []
+    }
+
+    func typedNames(module: String, typeID: String, subject: String) -> Set<String> {
+        typedNamesBySubjectScope["\(subject)\u{1f}\(module)\u{1f}\(typeID)"] ?? []
+    }
+
+    func names(subject: String, module: String) -> Set<String> {
+        var result = legacyNamesByModule[module] ?? []
+        for type in typesBySubject[subject] ?? [] where type.isAvailable(in: module) {
+            result.formUnion(typedNames(module: module, typeID: type.id, subject: subject))
+        }
+        return result
+    }
+}
+
 /// Keeps parsed card data stable while a navigation transition redraws the library root.
 /// SwiftData records are read only on the main thread that owns the view's ModelContext.
 final class LibrarySnapshotCache {
+    private struct CatalogRecordRevision: Equatable {
+        let recordID: String
+        let updatedAt: Date?
+        let payload: Data
+        let indexPayload: Data?
+    }
+
     private struct WordNameRevision: Equatable {
         let compoundID: String
         let updatedAt: Date?
@@ -49,7 +78,57 @@ final class LibrarySnapshotCache {
     private var cachedWordNames: [String: String] = [:]
     private var cachedExamTitleRevision: [ExamTitleRevision]?
     private var cachedExamTitles: [String: String] = [:]
+    private var cachedKnowledgePointCatalogRevision: [CatalogRecordRevision]?
+    private var cachedKnowledgePointCatalog: LibraryKnowledgePointCatalogSnapshot?
     private(set) var examTitleRevision = 0
+
+    func knowledgePointCatalog(records: [StoredRecord]) -> LibraryKnowledgePointCatalogSnapshot {
+        let catalogIDs: Set<String> = [
+            ManagedTagKind.knowledgePoint.recordID,
+            LibraryKnowledgePointGroupRepository.recordID,
+            LibraryErrorTypeSubject.dataAnalysis.recordID,
+            LibraryErrorTypeSubject.verbalReasoning.recordID,
+            VerbalReasoningKnowledgePointRepository.recordID(for: LibraryErrorTypeSubject.dataAnalysis.rawValue),
+            VerbalReasoningKnowledgePointRepository.recordID(for: LibraryErrorTypeSubject.verbalReasoning.rawValue)
+        ]
+        let catalogRecords = records
+            .filter { $0.collection == "keyvalue" && catalogIDs.contains($0.recordID) }
+            .sorted { $0.recordID < $1.recordID }
+        let revision = catalogRecords.map {
+            CatalogRecordRevision(
+                recordID: $0.recordID,
+                updatedAt: $0.updatedAt,
+                payload: $0.payload,
+                indexPayload: $0.indexPayload
+            )
+        }
+        if cachedKnowledgePointCatalogRevision == revision,
+           let cachedKnowledgePointCatalog {
+            return cachedKnowledgePointCatalog
+        }
+
+        let legacyCatalog = TagLibraryRepository.allTags(kind: .knowledgePoint, records: records)
+        let errorTypes = Dictionary(uniqueKeysWithValues: LibraryErrorTypeSubject.allCases.map { subject in
+            (subject.rawValue, LibraryErrorTypeRepository.types(for: subject, records: records))
+        })
+        var typedNames: [String: Set<String>] = [:]
+        for subject in LibraryErrorTypeSubject.allCases {
+            let groups = VerbalReasoningKnowledgePointRepository.catalog(records: records, subject: subject.rawValue)
+            for (module, typeGroups) in groups {
+                for (typeID, names) in typeGroups {
+                    typedNames["\(subject.rawValue)\u{1f}\(module)\u{1f}\(typeID)"] = Set(names)
+                }
+            }
+        }
+        let value = LibraryKnowledgePointCatalogSnapshot(
+            legacyNamesByModule: legacyCatalog.mapValues { Set($0) },
+            typesBySubject: errorTypes,
+            typedNamesBySubjectScope: typedNames
+        )
+        cachedKnowledgePointCatalogRevision = revision
+        cachedKnowledgePointCatalog = value
+        return value
+    }
 
     func wordNames(in records: [StoredRecord]) -> [String: String] {
         let wordRecords = records.filter { $0.collection == "words" }
@@ -176,6 +255,8 @@ final class LibrarySnapshotCache {
         cachedWordNames.removeAll()
         cachedExamTitleRevision = nil
         cachedExamTitles.removeAll()
+        cachedKnowledgePointCatalogRevision = nil
+        cachedKnowledgePointCatalog = nil
     }
 }
 

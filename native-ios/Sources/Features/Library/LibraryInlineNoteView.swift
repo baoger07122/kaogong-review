@@ -238,6 +238,7 @@ struct LibraryInlineNoteView: View {
     private let persistedNoteReader: () -> String?
     private let writeNote: (String, LibraryInlineNotePreparedSave?, String, ModelContext) throws -> String
     private let currentRecordVersion: () -> String
+    private let currentRecordEditVersion: () -> String
     private let currentRecordPayload: () -> Data?
     private let recordCollection: String
     private let onSaved: ((String) -> Void)?
@@ -292,6 +293,9 @@ struct LibraryInlineNoteView: View {
         renderDocumentID = record.compoundID
         renderVersion = { record.updatedAt.map { String($0.timeIntervalSince1970) } ?? "" }
         currentRecordVersion = {
+            "\(record.updatedAt.map { String($0.timeIntervalSince1970.bitPattern, radix: 16) } ?? "none"):\(record.payload.count)"
+        }
+        currentRecordEditVersion = {
             LibraryInlineNoteSaveService.versionKey(updatedAt: record.updatedAt, payload: record.payload)
         }
         currentRecordPayload = { record.payload }
@@ -361,6 +365,7 @@ struct LibraryInlineNoteView: View {
         self.readNote = readNote
         persistedNoteReader = { readNote() }
         currentRecordVersion = renderVersion
+        currentRecordEditVersion = renderVersion
         currentRecordPayload = { nil }
         recordCollection = ""
         self.writeNote = { content, _, expectedVersion, modelContext in
@@ -511,11 +516,11 @@ struct LibraryInlineNoteView: View {
                 recordID: renderDocumentID,
                 content: storedNote,
                 recordVersion: currentRecordVersion(),
-                payload: currentRecordPayload()
+                payload: nil
             )
             let state = saveService.state(recordID: renderDocumentID)
             activeBaseVersion = state.latestBaseVersion ?? currentRecordVersion()
-            activeBasePayload = state.latestBasePayload ?? currentRecordPayload()
+            activeBasePayload = state.latestBasePayload
             if state.latestContent != state.confirmedContent || state.phase == .failed {
                 setDraftWithoutScheduling(state.latestContent)
                 currentDraftVersion = state.latestDraftVersion
@@ -655,6 +660,7 @@ struct LibraryInlineNoteView: View {
                 updateSessionPendingState()
                 resolveFinishCompletionsWaitingForRestore(allowSuccess: false)
             }
+            saveService.discardConfirmedStateIfIdle(recordID: renderDocumentID)
         }
         .task(id: LibraryInlineNotePreparationKey(note: noteRenderKey, isEditing: editing)) {
             let key = noteRenderKey
@@ -709,7 +715,7 @@ struct LibraryInlineNoteView: View {
                 ).attributedText
             }
         } else {
-            editableAttributedText = result.attributedText.copy() as? NSAttributedString ?? result.attributedText
+            editableAttributedText = nil
         }
         guard !Task.isCancelled, !editing, key == noteRenderKey else { return }
         let displayResult: NativeRichTextDisplayRenderResult
@@ -764,7 +770,8 @@ struct LibraryInlineNoteView: View {
                             : "预览已切换为安全模式；编辑时会保留正文和已有附件。"
                     },
                     onTapTextOffset: { offset, snapshot, width in
-                        guard currentPreparedNote.editableAttributedText != nil else {
+                        guard !currentPreparedNote.result.usedSafeFallback
+                                || currentPreparedNote.editableAttributedText != nil else {
                             displayWarning = "笔记超出安全编辑范围，原内容已保留为只读。"
                             return
                         }
@@ -860,7 +867,7 @@ struct LibraryInlineNoteView: View {
         let state = saveService.state(recordID: renderDocumentID)
         let isResumingPendingDraft = html != storedNote && state.latestContent == html
         if !isResumingPendingDraft {
-            activeBaseVersion = currentRecordVersion()
+            activeBaseVersion = currentRecordEditVersion()
             activeBasePayload = currentRecordPayload()
         } else {
             activeBaseVersion = state.latestBaseVersion ?? activeBaseVersion
@@ -1158,7 +1165,7 @@ struct LibraryInlineNoteView: View {
         setDraftWithoutScheduling(content)
         let stateBeforeRegister = saveService.state(recordID: renderDocumentID)
         if stateBeforeRegister.latestBaseVersion == nil {
-            activeBaseVersion = currentRecordVersion()
+            activeBaseVersion = currentRecordEditVersion()
             activeBasePayload = currentRecordPayload()
         } else {
             activeBaseVersion = stateBeforeRegister.latestBaseVersion ?? activeBaseVersion

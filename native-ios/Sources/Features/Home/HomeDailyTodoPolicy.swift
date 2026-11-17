@@ -149,21 +149,8 @@ enum HomeTodoSchedulePresentation {
         calendar: Calendar = .current
     ) -> String {
         if isCompleted {
-            guard let completedAt else { return "已完成" }
-            let time = completedAt.formatted(.dateTime.hour().minute().locale(Locale(identifier: "zh_CN")))
-            if calendar.isDate(completedAt, inSameDayAs: now) { return "完成 \(time)" }
-            return "完成 \(shortDate(completedAt))\n\(time)"
+            return HomeRecordRepository.chineseDate(completedAt ?? scheduledAt)
         }
-
-        let time = scheduledAt.formatted(.dateTime.hour().minute().locale(Locale(identifier: "zh_CN")))
-        if calendar.isDate(scheduledAt, inSameDayAs: now) { return time }
-        return "\(shortDate(scheduledAt))\n\(time)"
-    }
-
-    private static func shortDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "M月d日"
-        return formatter.string(from: date)
+        return HomeRecordRepository.chineseDate(scheduledAt)
     }
 }

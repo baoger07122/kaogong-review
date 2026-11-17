@@ -9,6 +9,35 @@ private struct ReviewSessionSnapshot: Codable {
     let index: Int
 }
 
+@MainActor
+private final class ReviewQueueIndexCache {
+    private struct Revision: Equatable {
+        let id: String
+        let updatedAt: Date?
+        let payloadCount: Int
+        let indexPayloadCount: Int
+    }
+
+    private var revision: [Revision]?
+    private var recordsByID: [String: StoredRecord] = [:]
+
+    func records(ids: [String], errors: [StoredRecord]) -> [StoredRecord] {
+        let currentRevision = errors.map {
+            Revision(
+                id: $0.recordID,
+                updatedAt: $0.updatedAt,
+                payloadCount: $0.payload.count,
+                indexPayloadCount: $0.indexPayload?.count ?? 0
+            )
+        }
+        if revision != currentRevision {
+            recordsByID = Dictionary(errors.map { ($0.recordID, $0) }, uniquingKeysWith: { first, _ in first })
+            revision = currentRevision
+        }
+        return ids.compactMap { recordsByID[$0] }
+    }
+}
+
 private struct ReviewModuleStat: Identifiable, Sendable {
     let subject: String
     let module: String
@@ -176,6 +205,7 @@ struct ReviewView: View {
     @State private var answer: ReviewAnswer?
     @State private var cachedOverview: ReviewOverview?
     @State private var reviewSourceCache = LibraryReviewSourceClassificationCache()
+    @State private var queueIndexCache = ReviewQueueIndexCache()
     private var reviewSource: LibraryReviewSource { LibraryReviewSource(rawValue: sourceRawValue) ?? .real }
     private var sessionKey: String { "native.review.activeSession.\(reviewSource.rawValue)" }
     private var isReviewTabActive: Bool { rootTabSelection.wrappedValue == .review }
@@ -196,8 +226,7 @@ struct ReviewView: View {
         cachedOverview?.pool ?? []
     }
     private var queue: [StoredRecord] {
-        let byID = Dictionary(errors.map { ($0.recordID, $0) }, uniquingKeysWith: { first, _ in first })
-        return queueIDs.compactMap { byID[$0] }
+        queueIndexCache.records(ids: queueIDs, errors: errors)
     }
 
     var body: some View {

@@ -24,10 +24,6 @@ private struct LibraryDetailPayloadKey: Equatable {
     let payloadCount: Int
 }
 
-private struct LibraryDetailDecodedPayload: @unchecked Sendable {
-    let object: [String: Any]
-}
-
 private struct LibraryDetailPageVersion: Equatable {
     let recordID: String
     let revision: Int
@@ -69,7 +65,6 @@ struct LibraryRecordDetailView: View {
     let scope: LibraryScope
     let onEdit: (String) -> Void
     var onEditPrepared: ((String, LibraryRecordDraft?) -> Void)? = nil
-    var onPrepareEditDraft: ((String, LibraryRecordDraft) -> Void)? = nil
     let onDelete: (String) -> Void
     var onCancelEditRequest: (String) -> Void = { _ in }
     var orderedRecordIDs: [String] = []
@@ -121,7 +116,6 @@ struct LibraryRecordDetailView: View {
         record: StoredRecord,
         onEdit: @escaping (String) -> Void,
         onEditPrepared: ((String, LibraryRecordDraft?) -> Void)? = nil,
-        onPrepareEditDraft: ((String, LibraryRecordDraft) -> Void)? = nil,
         onDelete: @escaping (String) -> Void,
         onCancelEditRequest: @escaping (String) -> Void = { _ in },
         orderedRecordIDs: [String] = [],
@@ -132,7 +126,6 @@ struct LibraryRecordDetailView: View {
         self.scope = scope
         self.onEdit = onEdit
         self.onEditPrepared = onEditPrepared
-        self.onPrepareEditDraft = onPrepareEditDraft
         self.onDelete = onDelete
         self.onCancelEditRequest = onCancelEditRequest
         self.orderedRecordIDs = orderedRecordIDs
@@ -153,8 +146,6 @@ struct LibraryRecordDetailView: View {
         detailStateTracking
             .task(id: activePayloadKey) {
                 await loadActivePayload()
-                guard !Task.isCancelled else { return }
-                prepareEditorDraftIfNeeded()
             }
             .task(id: linkedQuestionContextKey) { loadLinkedQuestionContext() }
     }
@@ -271,10 +262,6 @@ struct LibraryRecordDetailView: View {
             .toolbar(.visible, for: .navigationBar)
             .onAppear {
                 resetEditorRequestAfterReturn()
-                Task { @MainActor in
-                    await Task.yield()
-                    prepareEditorDraftIfNeeded()
-                }
             }
             .onDisappear(perform: invalidateEditorRequestOnExit)
             .alert(
@@ -889,18 +876,6 @@ struct LibraryRecordDetailView: View {
             completes: true,
             transitionKey: "menu-action"
         )
-    }
-
-    private func prepareEditorDraftIfNeeded() {
-        guard let onPrepareEditDraft, let record,
-              !isPayloadLoading, loadedPayloadKey == activePayloadKey, !payloadDecodeFailed else { return }
-        let recordID = activeRecordKey
-        let recordCompoundID = record.compoundID
-        let startedAt = ProcessInfo.processInfo.systemUptime
-        let draft = LibraryRecordDraft(kind: kind, scope: scope, record: record, originalObject: object)
-        guard activeRecordKey == recordID, self.record?.compoundID == recordCompoundID else { return }
-        onPrepareEditDraft(recordID, draft)
-        LibraryPerformanceLog.markIfSlow("library.editor.draft.prepare", since: startedAt)
     }
 
     private func cancelPendingEditorRequest() {
@@ -2475,13 +2450,18 @@ struct LibraryRecordDetailView: View {
             return
         }
 
+        guard !Task.isCancelled else { return }
         let payload = record.payload
-        let decoded = await Task.detached(priority: .userInitiated) {
-            guard let object = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any] else {
-                return nil as LibraryDetailDecodedPayload?
-            }
-            return LibraryDetailDecodedPayload(object: object)
-        }.value
+        let decoded = await LibraryPayloadDecodeCoordinator.shared.decode(
+            key: LibraryPayloadDecodeKey(
+                recordID: key.recordID,
+                updatedAt: key.updatedAt,
+                payloadByteCount: payload.count,
+                source: "payload"
+            ),
+            payload: payload,
+            priority: .userInitiated
+        )
         guard !Task.isCancelled, activePayloadKey == key else { return }
         if let decoded {
             refreshObject(decoded.object)
@@ -2635,7 +2615,6 @@ private struct LibraryDetailImage: View {
     var showsFrame = true
     @State private var image: UIImage?
     @State private var didFail = false
-    @State private var appearanceRevision: UInt64 = 0
 
     var body: some View {
         Group {
@@ -2650,7 +2629,7 @@ private struct LibraryDetailImage: View {
                 imageContent
             }
         }
-        .task(id: "\(cacheKey)|\(appearanceRevision)") {
+        .task(id: cacheKey) {
             didFail = false
             if let cached = LibraryImageLoader.cachedImage(cacheKey: cacheKey, maximumPixelSize: 2_400) {
                 image = cached
@@ -2676,7 +2655,6 @@ private struct LibraryDetailImage: View {
             didFail = false
         }
         .onAppear {
-            appearanceRevision &+= 1
             image = LibraryImageLoader.cachedImage(cacheKey: cacheKey, maximumPixelSize: 2_400)
             didFail = false
         }

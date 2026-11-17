@@ -873,7 +873,6 @@ private struct LibraryCardThumbnail: View {
     let widthFraction: Double
     @State private var image: UIImage?
     @State private var didFail = false
-    @State private var appearanceRevision: UInt64 = 0
 
     var body: some View {
         Group {
@@ -906,7 +905,7 @@ private struct LibraryCardThumbnail: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 0.7)
         }
-        .task(id: "\(cacheKey)|\(appearanceRevision)") {
+        .task(id: cacheKey) {
             didFail = false
             if let cached = LibraryImageLoader.cachedImage(cacheKey: cacheKey, maximumPixelSize: 900) {
                 image = cached
@@ -933,7 +932,6 @@ private struct LibraryCardThumbnail: View {
             didFail = false
         }
         .onAppear {
-            appearanceRevision &+= 1
             image = LibraryImageLoader.cachedImage(cacheKey: cacheKey, maximumPixelSize: 900)
             didFail = false
             LibraryPerformanceLog.event("image.view-appear id=\(LibraryPerformanceLog.shortIdentifier(cacheKey))")
@@ -1129,7 +1127,6 @@ struct LibraryEditorImagePreview: View {
     var contentMode: ContentMode = .fill
     var maximumPixelSize = 600
     @State private var image: UIImage?
-    @State private var appearanceRevision: UInt64 = 0
 
     var body: some View {
         Group {
@@ -1146,7 +1143,7 @@ struct LibraryEditorImagePreview: View {
         .frame(maxWidth: width == nil ? .infinity : nil, maxHeight: height, alignment: .leading)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 9))
-        .task(id: "\(imageID)|\(appearanceRevision)") {
+        .task(id: imageID) {
             if let cached = LibraryImageLoader.cachedImage(cacheKey: imageID, maximumPixelSize: maximumPixelSize) {
                 image = cached
                 return
@@ -1163,7 +1160,6 @@ struct LibraryEditorImagePreview: View {
             image = LibraryImageLoader.cachedImage(cacheKey: newID, maximumPixelSize: maximumPixelSize)
         }
         .onAppear {
-            appearanceRevision &+= 1
             image = LibraryImageLoader.cachedImage(cacheKey: imageID, maximumPixelSize: maximumPixelSize)
         }
         .onDisappear { image = nil }

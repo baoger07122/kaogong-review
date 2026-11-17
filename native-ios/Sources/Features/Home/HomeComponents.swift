@@ -23,9 +23,10 @@ struct HomeTodoRow: View {
     let onDelete: () -> Void
     let onSkipToday: () -> Void
     let onDeleteToday: () -> Void
-    let onDeleteRule: () -> Void
-    let onToggleTimer: () -> Void
     let showsDivider: Bool
+    @ScaledMetric(relativeTo: .body) private var titleFontSize: CGFloat = 14
+    @ScaledMetric(relativeTo: .caption) private var dateFontSize: CGFloat = 10
+    @ScaledMetric(relativeTo: .body) private var noteFontSize: CGFloat = 12
 
     init(
         todo: HomeTodo,
@@ -34,8 +35,6 @@ struct HomeTodoRow: View {
         onDelete: @escaping () -> Void,
         onSkipToday: @escaping () -> Void,
         onDeleteToday: @escaping () -> Void,
-        onDeleteRule: @escaping () -> Void,
-        onToggleTimer: @escaping () -> Void,
         showsDivider: Bool
     ) {
         self.todo = todo
@@ -44,8 +43,6 @@ struct HomeTodoRow: View {
         self.onDelete = onDelete
         self.onSkipToday = onSkipToday
         self.onDeleteToday = onDeleteToday
-        self.onDeleteRule = onDeleteRule
-        self.onToggleTimer = onToggleTimer
         self.showsDivider = showsDivider
     }
 
@@ -78,63 +75,40 @@ struct HomeTodoRow: View {
 
             Button(action: onEdit) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(todo.title)
-                        .font(AppTheme.bodyFont)
-                        .foregroundStyle(todo.isCompleted ? .secondary : .primary)
-                        .lineLimit(2)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(todo.title)
+                            .font(.system(size: titleFontSize, weight: .regular))
+                            .foregroundStyle(todo.isCompleted ? .secondary : .primary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .layoutPriority(1)
+                        Text(todo.isSkipped ? "今日已跳过" : HomeTodoSchedulePresentation.label(
+                            isCompleted: todo.isCompleted,
+                            completedAt: todo.completedAt,
+                            scheduledAt: todo.scheduledAt
+                        ))
+                            .font(.system(size: dateFontSize, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
                     if !displayedNote.isEmpty {
                         Text(displayedNote)
-                            .font(AppTheme.inputFont)
+                            .font(.system(size: noteFontSize, weight: .regular))
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                     }
                 }
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .center)
+                .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .layoutPriority(1)
-            .accessibilityLabel(displayedNote.isEmpty ? "(todo.title)" : "(todo.title)，备注：(displayedNote)")
+            .accessibilityLabel(displayedNote.isEmpty ? todo.title : "\(todo.title)，备注：\(displayedNote)")
             .accessibilityHint("编辑此待办")
-
-            Spacer(minLength: 8)
-
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(todo.isSkipped ? "今日已跳过" : HomeTodoSchedulePresentation.label(
-                    isCompleted: todo.isCompleted,
-                    completedAt: todo.completedAt,
-                    scheduledAt: todo.scheduledAt
-                ))
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.trailing)
-                    .fixedSize(horizontal: false, vertical: true)
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(HomeRecordRepository.durationText(
-                        milliseconds: todo.elapsedMilliseconds,
-                        startedAt: todo.timerStartedAt,
-                        now: context.date
-                    ))
-                    .font(.system(size: 9, weight: .regular, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                }
-                .accessibilityLabel("用时 \(HomeRecordRepository.durationText(milliseconds: todo.elapsedMilliseconds, startedAt: todo.timerStartedAt))")
-            }
-            .frame(minWidth: 44)
-
-            if !todo.isCompleted && !todo.isSkipped {
-                Button(action: onToggleTimer) {
-                    Image(systemName: todo.timerStartedAt == nil ? "play.fill" : "pause.fill")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(AppTheme.accent)
-                        .frame(width: 30, height: 30)
-                        .background(AppTheme.accent.opacity(0.11), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(todo.timerStartedAt == nil ? "开始计时" : "暂停计时")
-            }
         }
-        .padding(.vertical, 10)
+        .frame(minHeight: 32)
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
 
@@ -146,8 +120,7 @@ struct HomeTodoRow: View {
                     guard !todo.isCompleted else { return }
                     onSkipToday()
                 }
-                .accessibilityAction(named: Text("仅删除今天")) { onDeleteToday() }
-                .accessibilityAction(named: Text("删除每日规则")) { onDeleteRule() }
+                .accessibilityAction(named: Text("删除今天")) { onDeleteToday() }
         }
     }
 
@@ -214,8 +187,7 @@ struct HomeDailyTodoRuleRow: View {
 
     private var detailText: String {
         let state = rule.isPaused ? "已暂停 · " : ""
-        let time = rule.scheduledTime.formatted(.dateTime.hour().minute().locale(Locale(identifier: "zh_CN")))
-        return "\(state)\(rule.typeName) · 每天 \(time) · \(HomeRecordRepository.chineseDate(rule.startDate, includeYear: false))开始"
+        return "\(state)\(rule.typeName) · \(HomeRecordRepository.chineseDate(rule.startDate))开始"
     }
 }
 

@@ -37,6 +37,10 @@ enum TagLibraryRepository {
         return library[module] ?? []
     }
 
+    static func allTags(kind: ManagedTagKind, records: [StoredRecord]) -> [String: [String]] {
+        load(kind: kind, records: records)
+    }
+
     static func add(
         _ name: String,
         kind: ManagedTagKind,
