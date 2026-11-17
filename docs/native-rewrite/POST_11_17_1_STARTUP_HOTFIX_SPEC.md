@@ -7,6 +7,9 @@
 
 ## 交付记录
 
-- 热修执行中。构建运行 ID、IPA 下载核验和 iPad 待测事项在发布确认后补记。
+- 与日志 UUID 一致的 11.17.1（150）发布 dSYM 将偏移 `801560` 对应到 `HomeTodoCollection.sizeThatFits`（入口后 188 字节），将 `804380` 对应到该方法的 `UIViewRepresentable` 协议入口。确认尺寸测量中的同步 UIKit 布局重入 SwiftUI，触发了主线程中止。
+- 11.17.2（151）将待办尺寸查询改为只读缓存或预留高度，在 UIKit 的正常布局完成后异步通知 SwiftUI。修复提交为 `28eba05410b7ac251a4f9d64ecf8cb6f1199745f`。
+- [发布运行 #384（43999281952）](https://github.com/baoger07122/kaogong-review/actions/runs/43999281952) 成功。行为检查、iOS 真机目标编译归档、资源和 dSYM 校验、IPA 打包上传均通过。模拟器按约定跳过，iPad 冷启动和待办交互仍待实机确认。
+- [11.17.2 Release](https://github.com/baoger07122/kaogong-review/releases/tag/native-v11.17.2) 资产 `kaogong-review-native-11.17.2-unsigned.ipa` 已上传，下载链接返回 HTTP 200，资产大小为 5,489,638 字节。自动更新清单提交为 `e73151c`。
 
 [Apple UICollectionViewLayout.prepare()](https://developer.apple.com/documentation/uikit/uicollectionviewlayout/prepare())
