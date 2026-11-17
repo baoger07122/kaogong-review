@@ -27,41 +27,28 @@ struct HomeTodoCollection: UIViewRepresentable {
         view.contentInset = .zero
         view.dataSource = context.coordinator
         view.register(UICollectionViewListCell.self, forCellWithReuseIdentifier: Coordinator.reuseID)
-        context.coordinator.collectionView = view
+        view.rowsDidChange(count: items.count)
         return view
     }
 
     func updateUIView(_ view: HomeTodoCollectionView, context: Context) {
         context.coordinator.parent = self
-        view.fallbackRowCount = items.count
         guard context.coordinator.items != items else { return }
         context.coordinator.items = items
         view.reloadData()
-        view.collectionViewLayout.invalidateLayout()
-        view.layoutIfNeeded()
-        view.invalidateIntrinsicContentSize()
+        view.rowsDidChange(count: items.count)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: HomeTodoCollectionView, context: Context) -> CGSize? {
         let width = proposal.width ?? uiView.bounds.width
-        guard width > 0 else { return nil }
-        uiView.fallbackRowCount = items.count
-        uiView.bounds.size.width = width
-        uiView.setNeedsLayout()
-        uiView.collectionViewLayout.prepare()
-        uiView.layoutIfNeeded()
-        let measuredHeight = uiView.collectionViewLayout.collectionViewContentSize.height
-        let height = measuredHeight > 0 || items.isEmpty
-            ? measuredHeight
-            : CGFloat(items.count) * HomeTodoCollectionView.fallbackRowHeight
-        return CGSize(width: width, height: height)
+        guard width.isFinite, width > 0 else { return nil }
+        return CGSize(width: width, height: uiView.height(for: width, rowCount: items.count))
     }
 
     final class Coordinator: NSObject, UICollectionViewDataSource {
         static let reuseID = "home-todo-list-cell"
         var parent: HomeTodoCollection
         var items: [HomeTodo]
-        weak var collectionView: UICollectionView?
 
         init(_ parent: HomeTodoCollection) {
             self.parent = parent
@@ -146,23 +133,51 @@ struct HomeTodoCollection: UIViewRepresentable {
 }
 
 final class HomeTodoCollectionView: UICollectionView {
-    static let fallbackRowHeight: CGFloat = 52
-    var fallbackRowCount = 0
-    private var lastMeasuredHeight: CGFloat = -1
+    private static let fallbackRowHeight: CGFloat = 52
+    private var rowCount = 0
+    private var measurement: (width: CGFloat, height: CGFloat)?
+    private var intrinsicHeightUpdateScheduled = false
+
+    func rowsDidChange(count: Int) {
+        rowCount = count
+        measurement = nil
+        setNeedsLayout()
+        scheduleIntrinsicHeightUpdate()
+    }
+
+    func height(for width: CGFloat, rowCount: Int) -> CGFloat {
+        if rowCount == self.rowCount,
+           let measurement, abs(measurement.width - width) < 0.5 {
+            return measurement.height
+        }
+        return CGFloat(rowCount) * Self.fallbackRowHeight
+    }
 
     override var intrinsicContentSize: CGSize {
-        let measuredHeight = collectionViewLayout.collectionViewContentSize.height
-        let height = measuredHeight > 0 || fallbackRowCount == 0
-            ? measuredHeight
-            : CGFloat(fallbackRowCount) * Self.fallbackRowHeight
-        return CGSize(width: UIView.noIntrinsicMetric, height: height)
+        CGSize(width: UIView.noIntrinsicMetric, height: height(for: bounds.width, rowCount: rowCount))
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let measuredHeight = collectionViewLayout.collectionViewContentSize.height
-        guard measuredHeight > 0, abs(measuredHeight - lastMeasuredHeight) > 0.5 else { return }
-        lastMeasuredHeight = measuredHeight
-        invalidateIntrinsicContentSize()
+        let width = bounds.width
+        let measuredHeight = contentSize.height
+        guard rowCount > 0, width.isFinite, width > 0,
+              measuredHeight.isFinite, measuredHeight > 0 else { return }
+        let previousHeight = height(for: width, rowCount: rowCount)
+        measurement = (width, measuredHeight)
+        if abs(previousHeight - measuredHeight) > 0.5 {
+            scheduleIntrinsicHeightUpdate()
+        }
+    }
+
+    private func scheduleIntrinsicHeightUpdate() {
+        guard !intrinsicHeightUpdateScheduled else { return }
+        intrinsicHeightUpdateScheduled = true
+        // Let UIKit finish the current layout before SwiftUI asks for a new size.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.intrinsicHeightUpdateScheduled = false
+            self.invalidateIntrinsicContentSize()
+        }
     }
 }
