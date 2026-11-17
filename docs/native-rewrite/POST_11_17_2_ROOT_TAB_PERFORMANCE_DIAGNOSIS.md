@@ -27,7 +27,8 @@
 - 学习库现在从同一版目录快照取得旧考点名称、类型化考点和错因类型，并在卡片、筛选及题目引用索引中复用；目录数据或索引改变时重新解析。旧逗号标签、类型化同名考点和原有筛选规则继续走现有解析策略。
 - 复习题队列按错题记录版本复用 ID 映射；首页/设置其他开销在本轮没有设备轨迹或主线程样本，因此只保留为待测项，没有用源码猜测它们导致了导航卡顿。
 - 主导航探针在未挂载或不可见时不创建刷新链接，并在回调检测到失效状态时清理。
-- 源码差异核对及 `git diff --check` 已通过。代码编译与工作流强制的领域行为检查待 IPA 工作流执行；该推送工作流不运行模拟器交互测试。本轮没有真机帧率对比，不能报告导航卡顿已由实测消除。
-- IPA 构建及 Release 可下载检查：待本轮唯一工作流完成后补录。
+- 本地源码差异核对及 `git diff --check` 通过。最终 CI run **#388 / 44011060283** 在提交 `2014a0aa35d71c6fb5327eecc8f8726a831728ea` 上成功；领域行为检查、Xcode 真机目标归档、dSYM UUID、App 资源/version 检查、IPA 打包和上传均通过。推送工作流不运行模拟器测试。
+- Release `native-v11.17.3` 已上传 `kaogong-review-native-11.17.3-unsigned.ipa`（5,498,729 字节）；下载 URL HEAD 返回 HTTP 200 / `application/octet-stream`，`downloads/native/latest.json` 指向 11.17.3 / build 152。
+- 本轮没有真机帧率对比或 iPad 上的主导航交互测量，不能报告导航卡顿已由实测消除。首页和设置其他耗时仍应按后续设备轨迹判断。
 
 [Apple SwiftUI 渲染性能诊断](https://developer.apple.com/documentation/xcode/improving-your-app-s-rendering-efficiency)
