@@ -50,7 +50,7 @@ struct HomeDailyTodoBehavior {
             scheduledAt: plannedTime,
             now: dayTwo,
             calendar: calendar
-        ) == "2026年11月11日", "legacy completed items without a timestamp fall back to their planned date")
+        ) == "2026年11月10日", "legacy completed items without a timestamp fall back to their planned date")
 
         let orderEntries = [
             HomeDailyTodoRuleOrderEntry(id: "old-a", sortOrder: nil, createdAt: dayOne),
