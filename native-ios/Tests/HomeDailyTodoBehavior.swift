@@ -32,7 +32,7 @@ struct HomeDailyTodoBehavior {
             "a timer that started later is not counted before it began")
 
         let completionTime = date(2026, 11, 11, 20, 15, calendar: calendar)
-        let plannedTime = date(2026, 11, 11, 8, 0, calendar: calendar)
+        let plannedTime = date(2026, 11, 10, 8, 0, calendar: calendar)
         let completionLabel = HomeTodoSchedulePresentation.label(
             isCompleted: true,
             completedAt: completionTime,
@@ -40,17 +40,17 @@ struct HomeDailyTodoBehavior {
             now: dayTwo,
             calendar: calendar
         )
-        expect(completionLabel.contains(completionTime.formatted(.dateTime.hour().minute().locale(Locale(identifier: "zh_CN")))),
-            "completed items show the actual completion time")
-        expect(!completionLabel.contains(plannedTime.formatted(.dateTime.hour().minute().locale(Locale(identifier: "zh_CN")))),
-            "completed items do not show the planned time as their completion time")
+        expect(completionLabel == "2026年11月11日",
+            "completed items show the actual completion day without a time")
+        expect(completionLabel != "2026年11月10日",
+            "completed items do not show the planned day instead of the completion day")
         expect(HomeTodoSchedulePresentation.label(
             isCompleted: true,
             completedAt: nil,
             scheduledAt: plannedTime,
             now: dayTwo,
             calendar: calendar
-        ) == "已完成", "legacy completed items without a timestamp remain understandable")
+        ) == "2026年11月11日", "legacy completed items without a timestamp fall back to their planned date")
 
         let orderEntries = [
             HomeDailyTodoRuleOrderEntry(id: "old-a", sortOrder: nil, createdAt: dayOne),
