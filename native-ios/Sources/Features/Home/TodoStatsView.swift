@@ -19,6 +19,7 @@ struct TodoStatsView: View {
     @State private var month = Calendar.current.date(from: Calendar.current.dateComponents([.year, .month], from: .now)) ?? .now
     @State private var weekStart = TodoStatsView.startOfWeek(.now)
     @State private var selectedDate: Date?
+    @State private var showsAddDialog = false
     @State private var draftTitle = ""
     @State private var draftType = "yanyu"
 
@@ -57,7 +58,10 @@ struct TodoStatsView: View {
         .navigationTitle("待办统计")
         .navigationBarTitleDisplayMode(.inline)
         .overlay {
-            if selectedDate != nil { addDialog }
+            if let selectedDate {
+                if showsAddDialog { addDialog }
+                else { dayDialog(for: selectedDate) }
+            }
         }
     }
 
@@ -88,9 +92,10 @@ struct TodoStatsView: View {
     @ViewBuilder
     private func dayCell(_ date: Date?) -> some View {
         if let date {
-            let items = completed(on: date)
+            let items = todos(on: date)
             Button {
                 selectedDate = date
+                showsAddDialog = false
                 draftTitle = ""
                 draftType = "yanyu"
             } label: {
@@ -99,10 +104,10 @@ struct TodoStatsView: View {
                         .font(.system(size: 12, weight: Calendar.current.isDateInToday(date) ? .bold : .medium))
                         .foregroundStyle(Calendar.current.isDateInToday(date) ? AppTheme.accent : Color.primary)
                     ForEach(items.prefix(mode == .week ? 5 : 3)) { todo in
-                        Text(todo.title)
+                        Text(todo.isSkipped ? "已跳过 · \(todo.title)" : todo.title)
                             .font(.system(size: 9))
                             .lineLimit(1)
-                            .foregroundStyle(subjectColor(todo.type))
+                            .foregroundStyle(todo.isSkipped ? Color.secondary : subjectColor(todo.type))
                             .padding(.horizontal, 4)
                             .padding(.vertical, 2)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -129,7 +134,7 @@ struct TodoStatsView: View {
         NativeEditorDialog(
             title: selectedDate.map { "\(HomeRecordRepository.chineseDate($0, includeYear: false))新建待办" } ?? "新建待办",
             canSave: !draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            onClose: { selectedDate = nil },
+            onClose: { showsAddDialog = false },
             onSave: saveTodo
         ) {
             TextField("待办内容", text: $draftTitle, axis: .vertical)
@@ -148,6 +153,63 @@ struct TodoStatsView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func dayDialog(for date: Date) -> some View {
+        ZStack {
+            Color.black.opacity(0.32).ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text(HomeRecordRepository.chineseDate(date, includeYear: true))
+                        .font(.system(size: 17, weight: .semibold))
+                    Spacer()
+                    Button("关闭") { selectedDate = nil }
+                        .font(.system(size: 14, weight: .medium))
+                }
+                let items = todos(on: date)
+                if items.isEmpty {
+                    Text("这一天没有待办")
+                        .font(AppTheme.bodyFont)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 54)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(items) { todo in
+                                HStack(alignment: .top, spacing: 9) {
+                                    Circle().fill(subjectColor(todo.type)).frame(width: 7, height: 7).padding(.top, 5)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(todo.title).font(.system(size: 14, weight: .medium))
+                                        Text(todo.isSkipped ? "已跳过" : (todo.isCompleted ? "已完成" : "待完成"))
+                                            .font(.system(size: 11)).foregroundStyle(todo.isSkipped ? Color.secondary : (todo.isCompleted ? AppTheme.success : Color.secondary))
+                                    }
+                                    Spacer(minLength: 0)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 10)
+                                if todo.id != items.last?.id { Divider() }
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 280)
+                }
+                Button {
+                    draftTitle = ""
+                    draftType = "yanyu"
+                    showsAddDialog = true
+                } label: {
+                    Label("为这一天添加待办", systemImage: "plus")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(maxWidth: .infinity, minHeight: 42)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AppTheme.accent)
+            }
+            .padding(18)
+            .frame(maxWidth: 440)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .padding(.horizontal, 24)
         }
     }
 
@@ -192,8 +254,20 @@ struct TodoStatsView: View {
         Int(completedInVisibleRange.reduce(0) { $0 + $1.elapsedMilliseconds } / 60_000)
     }
 
-    private func completed(on date: Date) -> [HomeTodo] {
-        completed.filter { todo in todo.completedAt.map { Calendar.current.isDate($0, inSameDayAs: date) } ?? false }
+    private func todos(on date: Date) -> [HomeTodo] {
+        todos.filter { todo in
+            if todo.isCompleted {
+                return todo.completedAt.map { Calendar.current.isDate($0, inSameDayAs: date) } ?? false
+            }
+            if todo.dailyRuleID != nil {
+                return todo.dailyDate.map { Calendar.current.isDate($0, inSameDayAs: date) } ?? false
+            }
+            return Calendar.current.isDate(todo.scheduledAt, inSameDayAs: date)
+        }
+        .sorted {
+            if $0.isCompleted != $1.isCompleted { return !$0.isCompleted }
+            return $0.scheduledAt < $1.scheduledAt
+        }
     }
 
     private func move(_ direction: Int) {
@@ -209,6 +283,7 @@ struct TodoStatsView: View {
         let todo = HomeRecordRepository.makeTodo(title: draftTitle.trimmingCharacters(in: .whitespacesAndNewlines), note: "", type: draftType, scheduledAt: date)
         try? HomeRecordRepository.save(todo: todo, records: records, context: modelContext)
         selectedDate = nil
+        showsAddDialog = false
     }
 
     private func summary(value: Int, title: String, color: Color) -> some View {

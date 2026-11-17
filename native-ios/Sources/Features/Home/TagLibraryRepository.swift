@@ -335,12 +335,21 @@ enum TagLibraryRepository {
             guard var object = record.jsonObject else { continue }
             var changed = false
             if kind == .knowledgePoint {
+                var knownNames = Set(tags(kind: .knowledgePoint, module: module, records: records))
+                if isVerbalErrorKnowledgePoint,
+                   let errorTypeSubject = LibraryErrorTypeSubject(rawValue: objectSubject) {
+                    for type in LibraryErrorTypeRepository.types(for: errorTypeSubject, records: records)
+                    where type.module == module {
+                        knownNames.formUnion(VerbalReasoningKnowledgePointRepository.tags(
+                            module: module, typeID: type.id, records: records, subject: objectSubject
+                        ))
+                    }
+                }
                 if isVerbalErrorKnowledgePoint {
-                    let localNames = Set(tags(kind: .knowledgePoint, module: module, records: records))
                     let references = LibraryKnowledgePointReferencePolicy.resolvingLocalReferences(
-                        LibraryKnowledgePointReferencePolicy.references(from: object),
+                        LibraryKnowledgePointReferencePolicy.references(from: object, knownNames: knownNames),
                         currentModule: module,
-                        availableNames: localNames
+                        availableNames: knownNames
                     )
                     let updatedReferences = references.compactMap { reference -> LibraryKnowledgePointReference? in
                         guard reference.module == module, reference.typeID == typeID, reference.name == oldName else { return reference }
@@ -356,13 +365,13 @@ enum TagLibraryRepository {
                         changed = true
                     }
                 } else {
-                    let references = LibraryKnowledgePointReferencePolicy.references(from: object)
+                    let references = LibraryKnowledgePointReferencePolicy.references(from: object, knownNames: knownNames)
                     let legacyDisplayValue = object["knowledgePoint"] as? String
                     let updatedLegacyDisplayValue = legacyDisplayValue.flatMap {
                         replacing(oldName, with: newName, in: $0, separator: "、")
                     }
                     let scopedReferences = references.map { reference in
-                        reference.module == nil && reference.typeID == nil
+                        reference.module == nil && reference.typeID == nil && reference.name == oldName
                             ? LibraryKnowledgePointReference(module: module, name: reference.name)
                             : reference
                     }

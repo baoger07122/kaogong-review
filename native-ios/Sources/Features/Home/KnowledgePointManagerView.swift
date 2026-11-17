@@ -10,6 +10,7 @@ private struct TagEditorState: Identifiable {
 private struct KnowledgePointTypeMove: Identifiable {
     let id = UUID()
     let name: String
+    let subject: String
     let module: String
     let sourceTypeID: String?
     let typeID: String
@@ -62,6 +63,7 @@ struct KnowledgePointManagerView: View {
     @State private var groupMoveRequest: KnowledgePointGroupMoveRequest?
 
     private var selectedTypeID: String? { isVerbalKnowledgePoint ? selectedVerbalTypeID : nil }
+    private var errorTypeLabel: String { subject.name == "资料分析" ? "错误类型" : "题型" }
     private var groups: [LibraryKnowledgePointGroup] {
         guard kind == .knowledgePoint else { return [] }
         return LibraryKnowledgePointGroupRepository.groups(subject: subject.name, module: module, typeID: selectedTypeID, records: records)
@@ -73,9 +75,10 @@ struct KnowledgePointManagerView: View {
         )
     }
 
-    private var isVerbalKnowledgePoint: Bool { subject.name == "言语理解" && kind == .knowledgePoint }
+    private var isVerbalKnowledgePoint: Bool { LibraryErrorTypeSubject(rawValue: subject.name) != nil && kind == .knowledgePoint }
     private var verbalTypes: [LibraryErrorType] {
-        LibraryErrorTypeRepository.types(for: .verbalReasoning, records: records)
+        guard let typeSubject = LibraryErrorTypeSubject(rawValue: subject.name) else { return [] }
+        return LibraryErrorTypeRepository.types(for: typeSubject, records: records)
             .filter { $0.module == module }
     }
     private var selectedVerbalTypeID: String? {
@@ -98,7 +101,8 @@ struct KnowledgePointManagerView: View {
         return VerbalReasoningKnowledgePointRepository.tags(
             module: module,
             typeID: selectedVerbalTypeID,
-            records: records
+            records: records,
+            subject: subject.name
         )
     }
     private var availableModules: [String] {
@@ -228,10 +232,10 @@ struct KnowledgePointManagerView: View {
                                     Menu {
                                         let targets = verbalTypes.filter { $0.id != selectedVerbalTypeID }
                                         if targets.isEmpty {
-                                            Button(selectedVerbalTypeID == nil ? "请先为本模块新建题型" : "当前没有其他题型") {
+                                            Button(selectedVerbalTypeID == nil ? "请先为本模块新建\(errorTypeLabel)" : "当前没有其他\(errorTypeLabel)") {
                                                 typeMoveInformation = selectedVerbalTypeID == nil
-                                                    ? "请先为本模块新建题型，再将旧考点归入题型。"
-                                                    : "当前模块没有其他可移动到的题型。"
+                                                    ? "请先为本模块新建\(errorTypeLabel)，再将旧考点归入\(errorTypeLabel)。"
+                                                    : "当前模块没有其他可移动到的\(errorTypeLabel)。"
                                             }
                                         } else {
                                             ForEach(targets) { type in
@@ -239,13 +243,13 @@ struct KnowledgePointManagerView: View {
                                             }
                                         }
                                     } label: {
-                                        Text("改题型")
+                                        Text("改\(errorTypeLabel)")
                                             .font(.system(size: 12, weight: .medium))
                                             .foregroundStyle(AppTheme.accent)
                                             .frame(minWidth: 44, minHeight: 44)
                                             .contentShape(Rectangle())
                                     }
-                                    .accessibilityLabel("更改题型：\(name)")
+                                    .accessibilityLabel("更改\(subject.name == "资料分析" ? "错误类型" : "题型")：\(name)")
                                 }
                                 if kind != .knowledgePoint {
                                     Button { move(name, -1) } label: { Image(systemName: "chevron.up") }.disabled(index == 0)
@@ -280,7 +284,7 @@ struct KnowledgePointManagerView: View {
         .background(Color.white)
         .navigationTitle("错题标签管理")
         .navigationBarTitleDisplayMode(.inline)
-        .alert(Text(typeMoveInformation == nil ? "操作失败" : "改题型"), isPresented: Binding(
+        .alert(Text(typeMoveInformation == nil ? "操作失败" : "改\(errorTypeLabel)"), isPresented: Binding(
             get: { errorMessage != nil || typeMoveInformation != nil },
             set: { if !$0 { errorMessage = nil; typeMoveInformation = nil } }
         )) {
@@ -308,7 +312,7 @@ struct KnowledgePointManagerView: View {
                 )
             } else if let typeMove {
                 NativeConfirmationDialog(
-                    title: "更改所属题型",
+                    title: "更改所属\(errorTypeLabel)",
                     message: typeMoveConfirmationMessage(typeMove),
                     confirmTitle: typeMove.preview.reviewItems.isEmpty ? "移动" : "核对关联",
                     cancelTitle: "取消",
@@ -389,14 +393,18 @@ struct KnowledgePointManagerView: View {
             if !verbalTypes.isEmpty { Divider() }
             Button("旧考点") { verbalTypeSelection = Self.legacyVerbalType }
         } label: {
-            selector(title: "题型", value: selectedVerbalTypeName)
+            selector(title: subject.name == "资料分析" ? "错误类型" : "题型", value: selectedVerbalTypeName)
         }
-        .accessibilityIdentifier("verbal-knowledge-point-type-selector")
+        .accessibilityIdentifier("typed-knowledge-point-type-selector")
     }
 
     private func resetVerbalTypeSelection() {
-        verbalTypeSelection = LibraryErrorTypeRepository.types(for: .verbalReasoning, records: records)
-            .first(where: { $0.module == module })?.id ?? Self.legacyVerbalType
+        guard let typeSubject = LibraryErrorTypeSubject(rawValue: subject.name) else {
+            verbalTypeSelection = Self.legacyVerbalType
+            return
+        }
+        verbalTypeSelection = LibraryErrorTypeRepository.types(for: typeSubject, records: records)
+            .first(where: { $0.isAvailable(in: module) })?.id ?? Self.legacyVerbalType
     }
 
     private func selector(title: String, value: String) -> some View {
@@ -468,12 +476,13 @@ struct KnowledgePointManagerView: View {
             if isVerbalKnowledgePoint, let typeID = selectedVerbalTypeID {
                 if let original = editor.original {
                     try VerbalReasoningKnowledgePointRepository.rename(
-                        original, to: draftName, module: module, typeID: typeID, records: records, context: modelContext
+                        original, to: draftName, module: module, typeID: typeID, records: records, context: modelContext,
+                        subject: subject.name
                     )
                 } else {
                     try VerbalReasoningKnowledgePointRepository.add(
                         draftName, module: module, typeID: typeID, records: records, context: modelContext,
-                        groupID: activeGroupForNewTag
+                        groupID: activeGroupForNewTag, subject: subject.name
                     )
                 }
             } else {
@@ -507,7 +516,8 @@ struct KnowledgePointManagerView: View {
         do {
             if isVerbalKnowledgePoint, let typeID = selectedVerbalTypeID {
                 try VerbalReasoningKnowledgePointRepository.delete(
-                    name, module: module, typeID: typeID, records: records, context: modelContext
+                    name, module: module, typeID: typeID, records: records, context: modelContext,
+                    subject: subject.name
                 )
             } else {
                 try TagLibraryRepository.delete(name, kind: kind, module: module, subject: subject.name, typeID: selectedTypeID, records: records, context: modelContext)
@@ -592,9 +602,9 @@ struct KnowledgePointManagerView: View {
         groupMoveRequest = nil
         guard request.currentGroupID != groupID else { return }
         let currentNames: [String]
-        if request.subject == "言语理解", let typeID = request.typeID {
+        if LibraryErrorTypeSubject(rawValue: request.subject) != nil, let typeID = request.typeID {
             currentNames = VerbalReasoningKnowledgePointRepository.tags(
-                module: request.module, typeID: typeID, records: records
+                module: request.module, typeID: typeID, records: records, subject: request.subject
             )
         } else {
             currentNames = TagLibraryRepository.tags(
@@ -628,10 +638,12 @@ struct KnowledgePointManagerView: View {
         let sourceTypeID = selectedVerbalTypeID
         do {
             let preview = try VerbalReasoningKnowledgePointRepository.migrationPreview(
-                name, module: module, fromTypeID: sourceTypeID, toTypeID: typeID, records: records
+                name, module: module, fromTypeID: sourceTypeID, toTypeID: typeID, records: records,
+                subject: subject.name
             )
             typeMove = KnowledgePointTypeMove(
                 name: name,
+                subject: subject.name,
                 module: module,
                 sourceTypeID: sourceTypeID,
                 typeID: typeID,
@@ -642,7 +654,7 @@ struct KnowledgePointManagerView: View {
             errorMessage = nil
             statusMessage = nil
         } catch {
-            errorMessage = "无法准备题型迁移：\(error.localizedDescription)"
+            errorMessage = "无法准备\(errorTypeLabel)迁移：\(error.localizedDescription)"
         }
     }
 
@@ -656,7 +668,7 @@ struct KnowledgePointManagerView: View {
         if !move.preview.reviewItems.isEmpty {
             message += "另有 \(move.preview.reviewItems.count) 道题只保存了同名文字，下一步逐题核对关联。"
         } else {
-            message += "题目本身的模块和题型、其他考点、笔记及作答保持原样。"
+            message += "题目本身的模块和\(errorTypeLabel)、其他考点、笔记及作答保持原样。"
         }
         return message
     }
@@ -670,7 +682,8 @@ struct KnowledgePointManagerView: View {
                 toTypeID: move.typeID,
                 resolving: migrationResolutions,
                 records: records,
-                context: modelContext
+                context: modelContext,
+                subject: move.subject
             )
             statusMessage = "已移动至\(move.preview.destinationTitle)，保留 \(result.retainedAssociationCount) 道题的关联。"
             typeMove = nil

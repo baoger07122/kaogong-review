@@ -26,7 +26,23 @@ struct InlineErrorEditor: View {
         self.records = records
         self.onClose = onClose
         self.onFullEdit = onFullEdit
-        let initialDraft = LibraryRecordDraft(kind: .errors, scope: scope, record: record)
+        let subject = record.subject ?? record.indexObject?["subject"] as? String ?? scope.subject ?? "言语理解"
+        let module = record.module ?? record.indexObject?["module"] as? String ?? scope.module ?? ""
+        var knownNames = Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: module, records: records))
+        if let typeSubject = LibraryErrorTypeSubject(rawValue: subject) {
+            for type in LibraryErrorTypeRepository.types(for: typeSubject, records: records)
+                .filter({ $0.isAvailable(in: module) }) {
+                knownNames.formUnion(VerbalReasoningKnowledgePointRepository.tags(
+                    module: module, typeID: type.id, records: records, subject: subject
+                ))
+            }
+        }
+        let initialDraft = LibraryRecordDraft(
+            kind: .errors,
+            scope: scope,
+            record: record,
+            knownKnowledgePointNames: knownNames
+        )
         _draft = State(initialValue: initialDraft)
         _editBaseline = State(initialValue: initialDraft)
     }

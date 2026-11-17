@@ -288,7 +288,7 @@ struct LibraryRecordCard: View {
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
                         .background(tint.opacity(0.10), in: Capsule())
-                } else if let status = snapshot.status, !status.isEmpty {
+                } else if kind != .notes, let status = snapshot.status, !status.isEmpty {
                     Text(status)
                         .font(AppTheme.auxiliaryFont.weight(.semibold))
                         .foregroundStyle(tint)
@@ -346,7 +346,8 @@ struct LibraryRecordCard: View {
     }
 
     private var visibleTags: [String] {
-        snapshot.tags.filter {
+        guard kind != .notes else { return [] }
+        return snapshot.tags.filter {
             !hiddenTags.contains($0) && (!isQuantityRelations || !snapshot.knowledgePoints.contains($0))
         }
     }

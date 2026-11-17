@@ -136,6 +136,7 @@ struct LibraryKnowledgePointFilterDialog: View {
         LibraryKnowledgePointTagCollection(
             items: items,
             allowsReordering: false,
+            allowsManagementActions: false,
             onToggle: toggle,
             onReorder: { _ in false }
         )

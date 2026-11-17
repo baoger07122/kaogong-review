@@ -4,11 +4,18 @@ import XCTest
 
 @MainActor
 final class LibraryDraftStoreTests: XCTestCase {
-    func testWordComparisonTermsPersistByCategoryAndScopeWithoutTitle() throws {
+    func testWordDraftsAreNotRestoredOrWrittenAndLegacyDataIsKept() async throws {
         let scope = LibraryScope(subject: "言语理解", module: "逻辑填空")
         let category = WordCategory.idiomComparison.rawValue
-        LibraryDraftStore.clear(kind: .words, scope: scope, category: category)
-        defer { LibraryDraftStore.clear(kind: .words, scope: scope, category: category) }
+        let key = "native.library.draft.words.real.言语理解.逻辑填空.category.\(category)"
+        let defaults = UserDefaults.standard
+        let previousValue = defaults.object(forKey: key)
+        let legacyData = Data("legacy-word-draft".utf8)
+        defaults.set(legacyData, forKey: key)
+        defer {
+            if let previousValue { defaults.set(previousValue, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
 
         var draft = LibraryRecordDraft(kind: .words, scope: scope)
         draft.type = category
@@ -24,13 +31,11 @@ final class LibraryDraftStoreTests: XCTestCase {
         let snapshot = LibraryDraftSnapshot(draft)
         XCTAssertTrue(snapshot.hasUserContent)
         LibraryDraftStore.save(snapshot, kind: .words, scope: scope)
-
-        let restored = try XCTUnwrap(
-            LibraryDraftStore.load(kind: .words, scope: scope, category: category)
-        )
-        XCTAssertEqual(restored.title, "")
-        XCTAssertEqual(restored.wordCompareTerms?.map(\.name), ["水到渠成", "顺理成章"])
-        XCTAssertEqual(restored.wordCompareTerms?.map(\.meaning), ["条件成熟后自然成功", "事情发展合乎情理"])
+        await LibraryDraftStore.flush(snapshot, kind: .words, scope: scope)
+        XCTAssertNil(LibraryDraftStore.load(kind: .words, scope: scope, category: category))
+        XCTAssertEqual(defaults.data(forKey: key), legacyData)
+        await LibraryDraftStore.clearAndWait(kind: .words, scope: scope, category: category)
+        XCTAssertEqual(defaults.data(forKey: key), legacyData)
         XCTAssertNil(LibraryDraftStore.load(
             kind: .words,
             scope: scope,

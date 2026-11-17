@@ -546,7 +546,7 @@ private struct LibraryErrorAnalysisSection: View {
         VStack(alignment: .leading, spacing: 7) {
             Label("题型分析", systemImage: "tag").font(.system(size: 13, weight: .medium))
             quantityTextInput(title: "题目结构", placeholder: "例如：矩形边界植树", text: $draft.quantityStructure)
-            quantityTagInput(title: "考点", value: draft.knowledgePoint) { showQuantityKnowledgePoints = true }
+            quantityTagInput(title: "考点", value: draft.knowledgePointNames.joined(separator: "、")) { showQuantityKnowledgePoints = true }
             LibraryMultilinePlainTextInput(label: "错因", text: quantityErrorCause)
             plainTextInput(label: "提醒", text: $draft.reminder)
         }
@@ -618,7 +618,7 @@ private struct LibraryErrorAnalysisSection: View {
         Button(action: action) {
             HStack(spacing: 9) {
                 Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary).frame(width: 58, alignment: .leading)
-                Text(value.isEmpty ? "选择或新增" : value.replacingOccurrences(of: ",", with: "、").replacingOccurrences(of: "，", with: "、"))
+                Text(value.isEmpty ? "选择或新增" : value)
                     .font(.system(size: 12.5)).foregroundStyle(value.isEmpty ? Color.secondary : Color.primary).lineLimit(1)
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.right").font(.system(size: 8)).foregroundStyle(.tertiary)

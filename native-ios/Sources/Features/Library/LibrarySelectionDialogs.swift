@@ -1,6 +1,14 @@
 import SwiftData
 import SwiftUI
 
+private struct LibraryKnowledgePointOrderTarget: Identifiable {
+    let subject: String
+    let module: String
+    let typeID: String?
+    let groupID: String?
+    var id: String { "\(subject)|\(module)|\(typeID ?? "legacy")|\(groupID ?? "ungrouped")" }
+}
+
 /// Reuses the app's centered editor dialog, rather than embedding choices in the form.
 struct LibraryTagSelectionDialog: View {
     @Environment(\.modelContext) private var modelContext
@@ -10,6 +18,8 @@ struct LibraryTagSelectionDialog: View {
     var subject: String = ""
     @Binding var selection: String
     let onClose: () -> Void
+    var selectionValues: Binding<[String]>? = nil
+    var selectionReferences: Binding<[LibraryKnowledgePointReference]>? = nil
     var onTagMutation: ((LibraryTagMutationResult) -> Void)? = nil
     var titleOverride: String? = nil
     var maximumOverride: Int? = nil
@@ -20,6 +30,7 @@ struct LibraryTagSelectionDialog: View {
     @State private var newName = ""
     @State private var deleting: String?
     @State private var selectedGroupID: String?
+    @State private var showsOrder = false
 
     private var maximum: Int { maximumOverride ?? (kind == .knowledgePoint ? 3 : 1) }
     private var names: [String] {
@@ -38,6 +49,8 @@ struct LibraryTagSelectionDialog: View {
         NativeEditorDialog(title: "选择\(titleOverride ?? kind.rawValue)", canSave: selected.count <= maximum,
             actionTitle: "确定", onClose: onClose, onSave: {
                 selection = orderedSelected.joined(separator: "、")
+                selectionValues?.wrappedValue = orderedSelected
+                updateSelectionReferences(orderedSelected)
                 onClose()
             }, preferredSize: kind == .knowledgePoint ? CGSize(width: 420, height: 468) : nil,
             spacing: kind == .knowledgePoint ? 8 : 16) {
@@ -54,6 +67,7 @@ struct LibraryTagSelectionDialog: View {
                     ScrollView(.vertical, showsIndicators: false) { knowledgePointTagContents }
                         .frame(maxHeight: .infinity)
                         .scrollDismissesKeyboard(.interactively)
+                    selectedTagChips
                     HStack {
                         Text("已选 \(selected.count) 项").font(.system(size: 12)).foregroundStyle(.secondary)
                         Spacer()
@@ -99,7 +113,13 @@ struct LibraryTagSelectionDialog: View {
             }
         }
         .onAppear {
-            selected = split(selection)
+            if let selectionReferences {
+                selected = LibraryKnowledgePointReferencePolicy.displayNames(from: selectionReferences.wrappedValue.filter {
+                    $0.module == module || $0.module == nil
+                })
+            } else {
+                selected = selectionValues?.wrappedValue ?? split(selection)
+            }
             selectedGroupID = knowledgePointGroups.first?.id
         }
         .alert("重命名标签", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
@@ -112,15 +132,67 @@ struct LibraryTagSelectionDialog: View {
             Button("删除", role: .destructive) { deleteTag() }
             Button("取消", role: .cancel) { deleting = nil }
         } message: { Text("将从标签库及同模块已有记录中移除此标签，不删除题目。") }
+        .sheet(isPresented: $showsOrder) {
+            KnowledgePointOrderView(subject: subject, module: module, groupID: selectedGroupID)
+        }
     }
 
     private func split(_ value: String) -> [String] {
         guard !value.isEmpty else { return [] }
-        return maximum > 1 ? value.split(whereSeparator: { "、,，".contains($0) }).map(String.init) : [value]
+        guard maximum > 1 else { return [value] }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if names.contains(trimmed) { return [trimmed] }
+        let pieces = value.split(whereSeparator: { "、,，".contains($0) }).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return pieces.count > 1 && pieces.allSatisfy(names.contains) ? pieces : [trimmed]
+    }
+
+    @ViewBuilder private var selectedTagChips: some View {
+        if kind == .knowledgePoint, !selected.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(selected, id: \.self) { name in
+                        Button {
+                            selected.removeAll { $0 == name }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Text(name).lineLimit(1)
+                                Image(systemName: "xmark.circle.fill").font(.system(size: 10, weight: .medium))
+                            }
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(AppTheme.accent)
+                            .padding(.horizontal, 8)
+                            .frame(height: 28)
+                            .background(AppTheme.accent.opacity(0.08), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("移除已选考点：\(name)")
+                    }
+                }
+            }
+            .frame(height: 28)
+        }
     }
     private var orderedSelected: [String] {
         guard kind == .knowledgePoint else { return selected }
         return names.filter { selected.contains($0) }
+    }
+
+    private func updateSelectionReferences(_ values: [String]) {
+        guard kind == .knowledgePoint, let selectionReferences else { return }
+        let existing = selectionReferences.wrappedValue
+        let retained = existing.filter { reference in
+            if reference.module == module { return false }
+            if reference.module == nil { return !values.contains(reference.name) }
+            return true
+        }
+        let selectedReferences = values.map { name in
+            existing.first(where: {
+                $0.name == name && ($0.module == module || $0.module == nil)
+            }) ?? LibraryKnowledgePointReference(module: module, name: name)
+        }
+        selectionReferences.wrappedValue = LibraryKnowledgePointReferencePolicy.uniqueReferences(
+            retained + selectedReferences
+        )
     }
 
     private var searchAndAdd: some View {
@@ -193,7 +265,10 @@ struct LibraryTagSelectionDialog: View {
                     message = "排序未保存"
                     return false
                 }
-            }
+            },
+            onRename: { renaming = $0.name; newName = $0.name },
+            onDelete: { deleting = $0.name },
+            onAdjustOrder: { _ in showsOrder = true }
         )
         .id("tag-picker|\(module)|\(groupID ?? "ungrouped")|\(query.isEmpty ? "browse" : "search")")
     }
@@ -227,7 +302,8 @@ struct LibraryTagSelectionDialog: View {
             let result = try TagLibraryRepository.rename(old, to: value, kind: kind, module: module, subject: subject, records: records, context: modelContext)
             onTagMutation?(result)
             selected = selected.map { $0 == old ? value : $0 }
-            selection = split(selection).map { $0 == old ? value : $0 }.joined(separator: "、")
+            selectionValues?.wrappedValue = selected
+            selection = selected.joined(separator: "、")
             renaming = nil
         } catch { message = "重命名失败，请重试" }
     }
@@ -237,7 +313,8 @@ struct LibraryTagSelectionDialog: View {
             let result = try TagLibraryRepository.delete(name, kind: kind, module: module, subject: subject, records: records, context: modelContext)
             onTagMutation?(result)
             selected.removeAll { $0 == name }
-            selection = split(selection).filter { $0 != name }.joined(separator: "、")
+            selectionValues?.wrappedValue = selected
+            selection = selected.joined(separator: "、")
             deleting = nil
         } catch { message = "删除失败，请重试" }
     }
@@ -306,9 +383,11 @@ struct QuantityKnowledgePointSelectionDialog: View {
     let currentType: String
     @Binding var selection: String
     let onClose: () -> Void
+    var selectionValues: Binding<[String]>? = nil
+    var selectionReferences: Binding<[LibraryKnowledgePointReference]>? = nil
     var onTagMutation: ((LibraryTagMutationResult) -> Void)? = nil
 
-    @State private var selected: [String] = []
+    @State private var selected: [LibraryKnowledgePointReference] = []
     @State private var browsingType = ""
     @State private var showsCrossType = false
     @State private var search = ""
@@ -317,11 +396,18 @@ struct QuantityKnowledgePointSelectionDialog: View {
     @State private var newName = ""
     @State private var deleting: String?
     @State private var selectedGroupID: String?
+    @State private var managingType: String?
+    @State private var orderTarget: LibraryKnowledgePointOrderTarget?
 
     private var activeType: String { browsingType.isEmpty ? currentType : browsingType }
     private var questionTypes: [String] { QuantityQuestionTypeRepository.types(records: records) }
     private var names: [String] {
         TagLibraryRepository.tags(kind: .knowledgePoint, module: activeType, records: records)
+    }
+    private var allKnownNames: Set<String> {
+        Set((questionTypes + [currentType]).flatMap {
+            TagLibraryRepository.tags(kind: .knowledgePoint, module: $0, records: records)
+        })
     }
     private var groups: [LibraryKnowledgePointGroup] {
         LibraryKnowledgePointGroupRepository.groups(subject: "数量关系", module: activeType, records: records)
@@ -334,7 +420,12 @@ struct QuantityKnowledgePointSelectionDialog: View {
             canSave: true,
             actionTitle: "确定",
             onClose: onClose,
-            onSave: { selection = orderedSelected.joined(separator: "、"); onClose() },
+            onSave: {
+                selectionReferences?.wrappedValue = orderedSelected
+                selectionValues?.wrappedValue = LibraryKnowledgePointReferencePolicy.displayNames(from: orderedSelected)
+                selection = LibraryKnowledgePointReferencePolicy.displayNames(from: orderedSelected).joined(separator: "、")
+                onClose()
+            },
             preferredSize: CGSize(width: 420, height: 468),
             spacing: 8
         ) {
@@ -389,6 +480,7 @@ struct QuantityKnowledgePointSelectionDialog: View {
                 ScrollView(.vertical, showsIndicators: false) { groupedTagContents }
                     .frame(maxHeight: .infinity)
                     .scrollDismissesKeyboard(.interactively)
+                selectedTagChips
                 HStack {
                     Text("已选 \(selected.count) 项").font(.system(size: 12)).foregroundStyle(.secondary)
                     Spacer()
@@ -401,7 +493,10 @@ struct QuantityKnowledgePointSelectionDialog: View {
             .frame(maxHeight: .infinity)
         }
         .onAppear {
-            selected = selection.split(whereSeparator: { "、,，".contains($0) }).map(String.init)
+            selected = selectionReferences?.wrappedValue
+                ?? (selectionValues?.wrappedValue ?? parseSelection(selection)).map {
+                    LibraryKnowledgePointReference(module: currentType, name: $0)
+                }
             browsingType = currentType
             selectedGroupID = groups.first?.id
         }
@@ -416,11 +511,52 @@ struct QuantityKnowledgePointSelectionDialog: View {
             Button("删除", role: .destructive) { deleteTag() }
             Button("取消", role: .cancel) { deleting = nil }
         } message: { Text("将从考点库及当前题型已有记录中移除此考点，不删除题目。") }
+        .sheet(item: $orderTarget) { target in
+            KnowledgePointOrderView(subject: target.subject, module: target.module, groupID: target.groupID)
+        }
     }
 
-    private func toggle(_ name: String) {
-        if selected.contains(name) { selected.removeAll { $0 == name } }
-        else { selected.append(name) }
+    private func parseSelection(_ value: String) -> [String] {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        if allKnownNames.contains(trimmed) { return [trimmed] }
+        let pieces = value.split(whereSeparator: { "、,，".contains($0) })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard pieces.count > 1,
+              pieces.allSatisfy({ !$0.isEmpty && allKnownNames.contains($0) }),
+              Set(pieces).count == pieces.count else { return [trimmed] }
+        return pieces
+    }
+
+    @ViewBuilder
+    private var selectedTagChips: some View {
+        if !selected.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(selected) { reference in
+                        Button { selected.removeAll { $0 == reference } } label: {
+                            HStack(spacing: 5) {
+                                Text(reference.module == currentType ? reference.name : "\(reference.module ?? "旧题型") · \(reference.name)").lineLimit(1)
+                                Image(systemName: "xmark.circle.fill").font(.system(size: 10, weight: .medium))
+                            }
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(AppTheme.accent)
+                            .padding(.horizontal, 8)
+                            .frame(height: 28)
+                            .background(AppTheme.accent.opacity(0.08), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("移除已选考点：\(reference.module ?? "旧题型") · \(reference.name)")
+                    }
+                }
+            }
+            .frame(height: 28)
+        }
+    }
+
+    private func toggle(_ reference: LibraryKnowledgePointReference) {
+        if selected.contains(reference) { selected.removeAll { $0 == reference } }
+        else { selected.append(reference) }
     }
 
     @ViewBuilder
@@ -449,17 +585,18 @@ struct QuantityKnowledgePointSelectionDialog: View {
     }
 
     private func tagCollection(_ values: [String], groupID: String?) -> some View {
-        let items = values.map {
-            LibraryKnowledgePointTagItem(
-                reference: LibraryKnowledgePointReference(module: activeType, name: $0),
-                title: $0,
-                isSelected: selected.contains($0)
+        let items = values.map { name in
+            let reference = LibraryKnowledgePointReference(module: activeType, name: name)
+            return LibraryKnowledgePointTagItem(
+                reference: reference,
+                title: name,
+                isSelected: selected.contains(reference)
             )
         }
         return LibraryKnowledgePointTagCollection(
             items: items,
             allowsReordering: query.isEmpty,
-            onToggle: { toggle($0.name) },
+            onToggle: toggle,
             onReorder: { references in
                 do {
                     try TagLibraryRepository.reorderKnowledgePoints(
@@ -471,14 +608,31 @@ struct QuantityKnowledgePointSelectionDialog: View {
                     message = "排序未保存"
                     return false
                 }
+            },
+            onRename: { reference in
+                managingType = reference.module ?? activeType
+                renaming = reference.name
+                newName = reference.name
+            },
+            onDelete: { reference in
+                managingType = reference.module ?? activeType
+                deleting = reference.name
+            },
+            onAdjustOrder: { _ in
+                orderTarget = LibraryKnowledgePointOrderTarget(
+                    subject: "数量关系", module: activeType, typeID: nil, groupID: groupID
+                )
             }
         )
         .id("quantity-picker|\(activeType)|\(groupID ?? "ungrouped")|\(query.isEmpty ? "browse" : "search")")
     }
 
-    private var orderedSelected: [String] {
-        let orderedNames = TagLibraryRepository.tags(kind: .knowledgePoint, module: activeType, records: records)
-        return orderedNames.filter { selected.contains($0) } + selected.filter { !orderedNames.contains($0) }
+    private var orderedSelected: [LibraryKnowledgePointReference] {
+        let currentNames = TagLibraryRepository.tags(kind: .knowledgePoint, module: activeType, records: records)
+        let current = currentNames.compactMap { name in
+            selected.first(where: { $0.module == activeType && $0.name == name })
+        }
+        return current + selected.filter { $0.module != activeType || !currentNames.contains($0.name) }
     }
 
     private func addTag() {
@@ -488,33 +642,49 @@ struct QuantityKnowledgePointSelectionDialog: View {
                 query, kind: .knowledgePoint, module: activeType, records: records,
                 context: modelContext, knowledgePointGroupID: selectedGroupID, subject: "数量关系"
             )
-            if !selected.contains(query) { selected.append(query) }
+            let reference = LibraryKnowledgePointReference(module: activeType, name: query)
+            if !selected.contains(reference) { selected.append(reference) }
             search = ""
         } catch { message = "考点保存失败，请重试" }
     }
 
     private func renameTag() {
         guard let old = renaming else { return }
+        let targetType = managingType ?? activeType
+        let targetNames = TagLibraryRepository.tags(kind: .knowledgePoint, module: targetType, records: records)
         let value = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, value != old, !names.contains(value) else {
+        guard !value.isEmpty, value != old, !targetNames.contains(value) else {
             message = "名称不能为空或与其他考点重复"
             return
         }
         do {
-            let result = try TagLibraryRepository.rename(old, to: value, kind: .knowledgePoint, module: activeType, subject: "数量关系", records: records, context: modelContext)
+            let result = try TagLibraryRepository.rename(old, to: value, kind: .knowledgePoint, module: targetType, subject: "数量关系", records: records, context: modelContext)
             onTagMutation?(result)
-            selected = selected.map { $0 == old ? value : $0 }
+            selected = selected.map {
+                $0.module == targetType && $0.name == old
+                    ? LibraryKnowledgePointReference(module: targetType, name: value)
+                    : $0
+            }
+            selectionReferences?.wrappedValue = orderedSelected
+            selectionValues?.wrappedValue = LibraryKnowledgePointReferencePolicy.displayNames(from: orderedSelected)
+            selection = LibraryKnowledgePointReferencePolicy.displayNames(from: orderedSelected).joined(separator: "、")
             renaming = nil
+            managingType = nil
         } catch { message = "重命名失败，请重试" }
     }
 
     private func deleteTag() {
         guard let name = deleting else { return }
+        let targetType = managingType ?? activeType
         do {
-            let result = try TagLibraryRepository.delete(name, kind: .knowledgePoint, module: activeType, subject: "数量关系", records: records, context: modelContext)
+            let result = try TagLibraryRepository.delete(name, kind: .knowledgePoint, module: targetType, subject: "数量关系", records: records, context: modelContext)
             onTagMutation?(result)
-            selected.removeAll { $0 == name }
+            selected.removeAll { $0.module == targetType && $0.name == name }
+            selectionReferences?.wrappedValue = orderedSelected
+            selectionValues?.wrappedValue = LibraryKnowledgePointReferencePolicy.displayNames(from: orderedSelected)
+            selection = LibraryKnowledgePointReferencePolicy.displayNames(from: orderedSelected).joined(separator: "、")
             deleting = nil
+            managingType = nil
         } catch { message = "删除失败，请重试" }
     }
 }
@@ -523,6 +693,7 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
     private static let legacyTypeSelection = "__legacy_verbal_knowledge_points__"
     @Environment(\.modelContext) private var modelContext
     @Query private var records: [StoredRecord]
+    var subject: String = "言语理解"
     let currentModule: String
     let currentTypeID: String?
     @Binding var selection: [LibraryKnowledgePointReference]
@@ -540,10 +711,15 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
     @State private var newName = ""
     @State private var deleting: String?
     @State private var selectedGroupID: String?
+    @State private var managingReference: LibraryKnowledgePointReference?
+    @State private var orderTarget: LibraryKnowledgePointOrderTarget?
 
+    private var typeLabel: String { subject == "资料分析" ? "错误类型" : "题型" }
+    private var deletedTypeLabel: String { "\(typeLabel)已删除" }
     private var types: [LibraryErrorType] {
-        LibraryErrorTypeRepository.types(for: .verbalReasoning, records: records)
-            .filter { $0.module == currentModule }
+        guard let typeSubject = LibraryErrorTypeSubject(rawValue: subject) else { return [] }
+        return LibraryErrorTypeRepository.types(for: typeSubject, records: records)
+            .filter { $0.isAvailable(in: currentModule) }
     }
     private var activeTypeID: String? {
         guard !browsingTypeSelection.isEmpty, browsingTypeSelection != Self.legacyTypeSelection else { return nil }
@@ -551,7 +727,12 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
     }
     private var activeTypeName: String {
         guard let activeTypeID else { return "旧考点" }
-        return types.first(where: { $0.id == activeTypeID })?.name ?? "题型已删除"
+        return types.first(where: { $0.id == activeTypeID })?.name ?? deletedTypeLabel
+    }
+    private var currentTypeTitle: String {
+        guard let currentTypeID else { return "\(typeLabel)未设置" }
+        let name = types.first(where: { $0.id == currentTypeID })?.name ?? deletedTypeLabel
+        return "当前\(typeLabel) · \(name)"
     }
     private var names: [String] {
         guard let activeTypeID else {
@@ -560,7 +741,8 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
         return VerbalReasoningKnowledgePointRepository.tags(
             module: currentModule,
             typeID: activeTypeID,
-            records: records
+            records: records,
+            subject: subject
         )
     }
     private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -588,7 +770,7 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
         }
     }
     private var groups: [LibraryKnowledgePointGroup] {
-        LibraryKnowledgePointGroupRepository.groups(subject: "言语理解", module: currentModule, typeID: activeTypeID, records: records)
+        LibraryKnowledgePointGroupRepository.groups(subject: subject, module: currentModule, typeID: activeTypeID, records: records)
     }
     private var browsableTypes: [LibraryErrorType] {
         types.filter { showsCrossType ? $0.id != currentTypeID : $0.id == currentTypeID }
@@ -607,14 +789,14 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text(showsCrossType
-                         ? "跨题型 · \(activeTypeName)"
-                         : (currentTypeID.map { id in "当前题型 · \(types.first(where: { $0.id == id })?.name ?? "题型已删除")" } ?? "题型未设置"))
+                         ? "跨\(typeLabel) · \(activeTypeName)"
+                         : currentTypeTitle)
                         .font(.system(size: 12, weight: .semibold))
                     Spacer()
                     if showsCrossType || currentTypeID == nil || types.contains(where: { $0.id != currentTypeID }) {
                         Button(showsCrossType
-                               ? (currentTypeID == nil ? "返回旧考点" : "返回当前题型")
-                               : (currentTypeID == nil ? "选择题型" : "＋ 跨题型选择")) {
+                               ? (currentTypeID == nil ? "返回旧考点" : "返回当前\(typeLabel)")
+                               : (currentTypeID == nil ? "选择\(typeLabel)" : "＋ 跨\(typeLabel)选择")) {
                         if showsCrossType {
                             showsCrossType = false
                             browsingTypeSelection = currentTypeID ?? Self.legacyTypeSelection
@@ -650,7 +832,7 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                         }
                     }
                     if types.isEmpty {
-                        Text("暂无题型，请先前往设置 → 言语理解题型管理中创建。")
+                        Text("暂无\(typeLabel)，请先前往设置 → \(LibraryErrorTypeSubject(rawValue: subject)?.managementTitle ?? subject + typeLabel + "管理")中创建。")
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                 }
@@ -681,7 +863,7 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                                 tagCollection(filteredNames, groupID: selectedGroupID, typeID: activeTypeID)
                             } else {
                                 let groupNames = LibraryKnowledgePointGroupRepository.names(
-                                    in: selectedGroupID, allNames: names, subject: "言语理解", module: currentModule,
+                                    in: selectedGroupID, allNames: names, subject: subject, module: currentModule,
                                     typeID: activeTypeID, records: records
                                 )
                                 if groupNames.isEmpty {
@@ -690,7 +872,7 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                                     tagCollection(groupNames, groupID: selectedGroupID, typeID: activeTypeID)
                                 }
                                 let ungrouped = LibraryKnowledgePointGroupRepository.names(
-                                    in: nil, allNames: names, subject: "言语理解", module: currentModule,
+                                    in: nil, allNames: names, subject: subject, module: currentModule,
                                     typeID: activeTypeID, records: records
                                 )
                                 let selectedOnly = filteredNames.filter { !names.contains($0) }
@@ -715,6 +897,7 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                 }
                 .frame(maxHeight: .infinity)
                 .scrollDismissesKeyboard(.interactively)
+                selectedReferenceChips
                 HStack {
                     Text("已选 \(selected.count) 项").font(.system(size: 12)).foregroundStyle(.secondary)
                     Spacer()
@@ -737,11 +920,14 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
             selectedGroupID = groups.first?.id
         }
         .onChange(of: browsingTypeSelection) { _, _ in selectedGroupID = groups.first?.id }
+        .sheet(item: $orderTarget) { target in
+            KnowledgePointOrderView(subject: target.subject, module: target.module, typeID: target.typeID, groupID: target.groupID)
+        }
         .alert("重命名考点", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("考点名称", text: $newName).modifier(NativeDirectionalTextFieldNavigation())
             Button("保存") { renameTag() }
             Button("取消", role: .cancel) { renaming = nil }
-        } message: { Text("当前题型中的该考点会同步更新。") }
+        } message: { Text("当前\(typeLabel)中的该考点会同步更新。") }
         .alert("删除考点？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button("删除", role: .destructive) { deleteTag() }
             Button("取消", role: .cancel) { deleting = nil }
@@ -752,22 +938,48 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
         if let sourceModule = reference.module, sourceModule != currentModule {
             let origin: String
             if let typeID = reference.typeID {
-                origin = LibraryErrorTypeRepository.types(for: .verbalReasoning, records: records)
-                    .first(where: { $0.module == sourceModule && $0.id == typeID })?.name ?? "题型已删除"
+                let typeSubject = LibraryErrorTypeSubject(rawValue: subject) ?? .verbalReasoning
+                origin = LibraryErrorTypeRepository.types(for: typeSubject, records: records)
+                    .first(where: { $0.module == sourceModule && $0.id == typeID })?.name ?? deletedTypeLabel
             } else {
                 origin = "旧考点"
             }
             return "\(sourceModule) · \(origin) · \(reference.name)"
         }
         if reference.typeID == nil { return "旧考点 · \(reference.name)" }
-        let typeName = types.first(where: { $0.id == reference.typeID })?.name ?? "题型已删除"
+        let typeName = types.first(where: { $0.id == reference.typeID })?.name ?? deletedTypeLabel
         guard selected.filter({ $0.name == reference.name }).count > 1 else { return "\(typeName) · \(reference.name)" }
         return "\(reference.module ?? currentModule) · \(typeName) · \(reference.name)"
     }
 
+    @ViewBuilder private var selectedReferenceChips: some View {
+        if !selected.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(selected) { reference in
+                        Button { selected.removeAll { $0 == reference } } label: {
+                            HStack(spacing: 5) {
+                                Text(selectedTitle(for: reference)).lineLimit(1)
+                                Image(systemName: "xmark.circle.fill").font(.system(size: 10, weight: .medium))
+                            }
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(AppTheme.accent)
+                            .padding(.horizontal, 8)
+                            .frame(height: 28)
+                            .background(AppTheme.accent.opacity(0.08), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("移除已选考点：\(selectedTitle(for: reference))")
+                    }
+                }
+            }
+            .frame(height: 28)
+        }
+    }
+
     private func tagCollection(_ values: [String], groupID: String?, typeID: String?) -> some View {
         let libraryNames = typeID.map {
-            VerbalReasoningKnowledgePointRepository.tags(module: currentModule, typeID: $0, records: records)
+            VerbalReasoningKnowledgePointRepository.tags(module: currentModule, typeID: $0, records: records, subject: subject)
         } ?? TagLibraryRepository.tags(kind: .knowledgePoint, module: currentModule, records: records)
         let items = values.map { name in
             let reference = selected.first(where: {
@@ -788,11 +1000,11 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                     if let typeID {
                         try VerbalReasoningKnowledgePointRepository.reorder(
                             references.map(\.name), module: currentModule, typeID: typeID,
-                            records: records, context: modelContext, groupID: groupID
+                            records: records, context: modelContext, groupID: groupID, subject: subject
                         )
                     } else {
                         try TagLibraryRepository.reorderKnowledgePoints(
-                            references.map(\.name), module: currentModule, groupID: groupID, subject: "言语理解",
+                            references.map(\.name), module: currentModule, groupID: groupID, subject: subject,
                             records: records, context: modelContext
                         )
                     }
@@ -801,16 +1013,33 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                     message = "排序未保存"
                     return false
                 }
+            },
+            onRename: { reference in
+                managingReference = reference
+                renaming = reference.name
+                newName = reference.name
+            },
+            onDelete: { reference in
+                managingReference = reference
+                deleting = reference.name
+            },
+            onAdjustOrder: { reference in
+                orderTarget = LibraryKnowledgePointOrderTarget(
+                    subject: subject,
+                    module: reference.module ?? currentModule,
+                    typeID: reference.typeID,
+                    groupID: groupID
+                )
             }
         )
-        .id("verbal-picker|\(currentModule)|\(typeID ?? "legacy")|\(groupID ?? "ungrouped")|\(query.isEmpty ? "browse" : "search")")
+        .id("typed-picker|\(subject)|\(currentModule)|\(typeID ?? "legacy")|\(groupID ?? "ungrouped")|\(query.isEmpty ? "browse" : "search")")
     }
 
     @ViewBuilder
     private var legacyTagContents: some View {
         if activeTypeID == nil, !groups.isEmpty {
             let groupedNames = LibraryKnowledgePointGroupRepository.names(
-                in: selectedGroupID, allNames: legacyNames, subject: "言语理解", module: currentModule,
+                in: selectedGroupID, allNames: legacyNames, subject: subject, module: currentModule,
                 records: records
             )
             if groupedNames.isEmpty {
@@ -819,7 +1048,7 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                 tagCollection(groupedNames, groupID: selectedGroupID, typeID: nil)
             }
             let ungrouped = LibraryKnowledgePointGroupRepository.names(
-                in: nil, allNames: legacyNames, subject: "言语理解", module: currentModule, records: records
+                in: nil, allNames: legacyNames, subject: subject, module: currentModule, records: records
             )
             if !ungrouped.isEmpty {
                 Text("未分组").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
@@ -838,9 +1067,31 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
             }
             LibraryKnowledgePointTagCollection(
                 items: items,
-                allowsReordering: false,
+                allowsReordering: query.isEmpty,
                 onToggle: toggle,
-                onReorder: { _ in false }
+                onReorder: { references in
+                    do {
+                        try TagLibraryRepository.reorderKnowledgePoints(
+                            references.map(\.name), module: currentModule, subject: subject,
+                            records: records, context: modelContext
+                        )
+                        return true
+                    } catch { message = "排序未保存"; return false }
+                },
+                onRename: { reference in
+                    managingReference = reference
+                    renaming = reference.name
+                    newName = reference.name
+                },
+                onDelete: { reference in
+                    managingReference = reference
+                    deleting = reference.name
+                },
+                onAdjustOrder: { reference in
+                    orderTarget = LibraryKnowledgePointOrderTarget(
+                        subject: subject, module: reference.module ?? currentModule, typeID: nil, groupID: nil
+                    )
+                }
             )
             .id("verbal-legacy-picker|\(currentModule)")
         }
@@ -868,12 +1119,12 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
             if let activeTypeID {
                 try VerbalReasoningKnowledgePointRepository.add(
                     query, module: currentModule, typeID: activeTypeID, records: records,
-                    context: modelContext, groupID: selectedGroupID
+                    context: modelContext, groupID: selectedGroupID, subject: subject
                 )
             } else {
                 try TagLibraryRepository.add(
                     query, kind: .knowledgePoint, module: currentModule, records: records,
-                    context: modelContext, knowledgePointGroupID: selectedGroupID, subject: "言语理解"
+                    context: modelContext, knowledgePointGroupID: selectedGroupID, subject: subject
                 )
             }
             toggle(LibraryKnowledgePointReference(module: currentModule, typeID: activeTypeID, name: query))
@@ -883,48 +1134,58 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
 
     private func renameTag() {
         guard let old = renaming else { return }
+        let target = managingReference ?? LibraryKnowledgePointReference(module: currentModule, typeID: activeTypeID, name: old)
         let value = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, value != old, !names.contains(value) else {
-            message = "名称不能为空或与当前题型其他考点重复"
+        let targetNames = target.typeID.map {
+            VerbalReasoningKnowledgePointRepository.tags(module: target.module ?? currentModule, typeID: $0, records: records, subject: subject)
+        } ?? TagLibraryRepository.tags(kind: .knowledgePoint, module: target.module ?? currentModule, records: records)
+        guard !value.isEmpty, value != old, !targetNames.contains(value) else {
+            message = "名称不能为空或与当前\(typeLabel)其他考点重复"
             return
         }
         do {
             let result: LibraryTagMutationResult
-            if let activeTypeID {
+            if let typeID = target.typeID {
                 result = try VerbalReasoningKnowledgePointRepository.rename(
-                    old, to: value, module: currentModule, typeID: activeTypeID, records: records, context: modelContext
+                    old, to: value, module: target.module ?? currentModule, typeID: typeID, records: records, context: modelContext,
+                    subject: subject
                 )
             } else {
                 result = try TagLibraryRepository.rename(
-                    old, to: value, kind: .knowledgePoint, module: currentModule, subject: "言语理解", records: records, context: modelContext
+                    old, to: value, kind: .knowledgePoint, module: target.module ?? currentModule, subject: subject, records: records, context: modelContext
                 )
             }
             onTagMutation?(result)
             selected = selected.map { reference in
-                reference.module == currentModule && reference.typeID == activeTypeID && reference.name == old
-                    ? LibraryKnowledgePointReference(module: currentModule, typeID: activeTypeID, name: value)
+                (reference.module == target.module || (reference.module == nil && target.module == currentModule))
+                    && reference.typeID == target.typeID && reference.name == old
+                    ? LibraryKnowledgePointReference(module: target.module ?? currentModule, typeID: target.typeID, name: value)
                     : reference
             }
             renaming = nil
+            managingReference = nil
         } catch { message = "重命名失败，请重试" }
     }
 
     private func deleteTag() {
         guard let name = deleting else { return }
+        let target = managingReference ?? LibraryKnowledgePointReference(module: currentModule, typeID: activeTypeID, name: name)
         do {
             let result: LibraryTagMutationResult
-            if let activeTypeID {
+            if let typeID = target.typeID {
                 result = try VerbalReasoningKnowledgePointRepository.delete(
-                    name, module: currentModule, typeID: activeTypeID, records: records, context: modelContext
+                    name, module: target.module ?? currentModule, typeID: typeID, records: records, context: modelContext,
+                    subject: subject
                 )
             } else {
                 result = try TagLibraryRepository.delete(
-                    name, kind: .knowledgePoint, module: currentModule, subject: "言语理解", records: records, context: modelContext
+                    name, kind: .knowledgePoint, module: target.module ?? currentModule, subject: subject, records: records, context: modelContext
                 )
             }
             onTagMutation?(result)
-            selected.removeAll { $0.module == currentModule && $0.typeID == activeTypeID && $0.name == name }
+            selected.removeAll { $0.module == target.module && $0.typeID == target.typeID && $0.name == name }
             deleting = nil
+            managingReference = nil
         } catch { message = "删除失败，请重试" }
     }
 }

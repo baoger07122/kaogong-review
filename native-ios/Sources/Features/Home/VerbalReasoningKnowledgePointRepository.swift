@@ -45,12 +45,34 @@ enum VerbalKnowledgePointMigrationError: LocalizedError {
 enum VerbalReasoningKnowledgePointRepository {
     static let recordID = "verbal_reasoning_knowledge_points_by_type"
 
-    static func tags(module: String, typeID: String, records: [StoredRecord]) -> [String] {
+    static func recordID(for subject: String) -> String {
+        subject == "资料分析" ? "data_analysis_knowledge_points_by_type" : recordID
+    }
+
+    static func tags(module: String, typeID: String, records: [StoredRecord], subject: String = "言语理解") -> [String] {
         VerbalReasoningKnowledgePointLibraryPolicy.tags(
-            from: libraryValue(records: records),
+            from: libraryValue(records: records, subject: subject),
             module: module,
             typeID: typeID
         )
+    }
+
+    private static func knownNames(records: [StoredRecord], subject: String) -> Set<String> {
+        var names = Set<String>()
+        let legacyValue = records.first {
+            $0.collection == "keyvalue" && $0.recordID == ManagedTagKind.knowledgePoint.recordID
+        }?.jsonObject?["value"] as? [String: Any] ?? [:]
+        for module in legacyValue.keys {
+            names.formUnion(TagLibraryRepository.tags(
+                kind: .knowledgePoint, module: module, records: records
+            ))
+        }
+        guard let typeSubject = LibraryErrorTypeSubject(rawValue: subject) else { return names }
+        for type in LibraryErrorTypeRepository.types(for: typeSubject, records: records) {
+            guard let module = type.module else { continue }
+            names.formUnion(tags(module: module, typeID: type.id, records: records, subject: subject))
+        }
+        return names
     }
 
     static func migrationPreview(
@@ -58,7 +80,8 @@ enum VerbalReasoningKnowledgePointRepository {
         module: String,
         fromTypeID sourceTypeID: String?,
         toTypeID destinationTypeID: String,
-        records: [StoredRecord]
+        records: [StoredRecord],
+        subject: String = "言语理解"
     ) throws -> VerbalKnowledgePointMigrationPreview {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw VerbalKnowledgePointMigrationError.stale }
@@ -66,22 +89,26 @@ enum VerbalReasoningKnowledgePointRepository {
         let destination = LibraryKnowledgePointReference(module: module, typeID: destinationTypeID, name: name)
         guard source != destination else { throw VerbalKnowledgePointMigrationError.sameType }
 
-        let types = LibraryErrorTypeRepository.types(for: .verbalReasoning, records: records)
+        guard let errorTypeSubject = LibraryErrorTypeSubject(rawValue: subject) else {
+            throw VerbalKnowledgePointMigrationError.stale
+        }
+        let types = LibraryErrorTypeRepository.types(for: errorTypeSubject, records: records)
+        let catalogNames = knownNames(records: records, subject: subject)
         guard types.contains(where: { $0.module == module && $0.id == destinationTypeID }) else {
             throw VerbalKnowledgePointMigrationError.stale
         }
         let sourceNames = sourceTypeID.map {
-            tags(module: module, typeID: $0, records: records)
+            tags(module: module, typeID: $0, records: records, subject: subject)
         } ?? TagLibraryRepository.tags(kind: .knowledgePoint, module: module, records: records)
         guard sourceNames.contains(name) else { throw VerbalKnowledgePointMigrationError.stale }
 
-        let destinationAlreadyExists = tags(module: module, typeID: destinationTypeID, records: records).contains(name)
-        let candidates = nameOnlyCandidates(name: name, source: source, records: records)
+        let destinationAlreadyExists = tags(module: module, typeID: destinationTypeID, records: records, subject: subject).contains(name)
+        let candidates = nameOnlyCandidates(name: name, source: source, records: records, subject: subject)
         let reviewItems = records.compactMap { record -> VerbalKnowledgePointMigrationReviewItem? in
             guard record.collection == "errors",
-                  (record.subject ?? record.indexObject?["subject"] as? String) == "言语理解",
+                  (record.subject ?? record.indexObject?["subject"] as? String) == subject,
                   let object = record.jsonObject else { return nil }
-            let references = LibraryKnowledgePointReferencePolicy.references(from: object)
+            let references = LibraryKnowledgePointReferencePolicy.references(from: object, knownNames: catalogNames)
             let plan = VerbalLegacyKnowledgePointMigrationPolicy.plan(
                 references: references, source: source, destination: destination,
                 nameOnlyCandidates: candidates
@@ -102,15 +129,15 @@ enum VerbalReasoningKnowledgePointRepository {
             candidates.filter { $0 != source } + [destination]
         )
         let resolutionChoiceTitles = Dictionary(uniqueKeysWithValues: resolutionChoices.map { reference in
-            let title = "\(migrationReferenceTitle(reference, types: types)) · \(reference.name)"
+            let title = "\(migrationReferenceTitle(reference, types: types, subject: subject)) · \(reference.name)"
             return (reference.id, title)
         })
 
         return VerbalKnowledgePointMigrationPreview(
             source: source,
             destination: destination,
-            sourceTitle: migrationReferenceTitle(source, types: types),
-            destinationTitle: migrationReferenceTitle(destination, types: types),
+            sourceTitle: migrationReferenceTitle(source, types: types, subject: subject),
+            destinationTitle: migrationReferenceTitle(destination, types: types, subject: subject),
             destinationAlreadyExists: destinationAlreadyExists,
             nameOnlyCandidates: candidates,
             reviewItems: reviewItems,
@@ -126,11 +153,12 @@ enum VerbalReasoningKnowledgePointRepository {
         toTypeID destinationTypeID: String,
         resolving ambiguousNameOnlyReferences: [String: LibraryKnowledgePointReference],
         records: [StoredRecord],
-        context: ModelContext
+        context: ModelContext,
+        subject: String = "言语理解"
     ) throws -> VerbalKnowledgePointMigrationResult {
         let preview = try migrationPreview(
             rawName, module: module, fromTypeID: sourceTypeID,
-            toTypeID: destinationTypeID, records: records
+            toTypeID: destinationTypeID, records: records, subject: subject
         )
         guard preview.reviewItems.allSatisfy({ ambiguousNameOnlyReferences[$0.recordID] != nil }) else {
             throw VerbalKnowledgePointMigrationError.unresolved
@@ -147,7 +175,8 @@ enum VerbalReasoningKnowledgePointRepository {
         let legacyRecord = records.first { $0.collection == "keyvalue" && $0.recordID == legacyRecordID }
         var legacyValue = legacyRecord?.jsonObject?["value"] as? [String: Any] ?? [:]
         var legacyNames = legacyValue[module] as? [String] ?? []
-        var typedGroups = loadGroups(records: records)
+        let typedRecordID = recordID(for: subject)
+        var typedGroups = loadGroups(records: records, subject: subject)
         var sourceTypedNames = sourceTypeID.map { typedGroups[module]?[$0] ?? [] } ?? []
         var destinationNames = typedGroups[module]?[destinationTypeID] ?? []
         if let sourceTypeID {
@@ -168,12 +197,16 @@ enum VerbalReasoningKnowledgePointRepository {
         let changes = try prepareMigrationReferenceChanges(
             preview: preview,
             resolutions: ambiguousNameOnlyReferences,
-            records: records
+            records: records,
+            subject: subject
         )
+        let catalogNames = knownNames(records: records, subject: subject)
         let retainedCount = changes.reduce(into: 0) { count, change in
             guard let before = (try? JSONSerialization.jsonObject(with: change.beforePayload)) as? [String: Any],
                   let after = (try? JSONSerialization.jsonObject(with: change.afterPayload)) as? [String: Any] else { return }
-            let beforeReferences = LibraryKnowledgePointReferencePolicy.references(from: before)
+            let beforeReferences = LibraryKnowledgePointReferencePolicy.references(
+                from: before, knownNames: catalogNames
+            )
             let hadSourceAssociation = beforeReferences.contains {
                 $0.module == preview.source.module
                     && $0.typeID == preview.source.typeID
@@ -186,7 +219,7 @@ enum VerbalReasoningKnowledgePointRepository {
             count += 1
         }
 
-        let typedRecord = records.first { $0.collection == "keyvalue" && $0.recordID == recordID }
+        let typedRecord = records.first { $0.collection == "keyvalue" && $0.recordID == typedRecordID }
         let groupRecord = records.first {
             $0.collection == "keyvalue" && $0.recordID == LibraryKnowledgePointGroupRepository.recordID
         }
@@ -199,9 +232,9 @@ enum VerbalReasoningKnowledgePointRepository {
                 if sourceTypeID == nil {
                     try persistLegacy(legacyValue, record: legacyRecord, context: context, save: false)
                 }
-                try persist(typedGroups, records: records, context: context, save: false)
+                try persist(typedGroups, records: records, context: context, save: false, subject: subject)
                 try LibraryKnowledgePointGroupRepository.renameTagMember(
-                    name, to: nil, subject: "言语理解", module: module, typeID: sourceTypeID,
+                    name, to: nil, subject: subject, module: module, typeID: sourceTypeID,
                     records: records, context: context, save: false
                 )
                 for change in changes {
@@ -211,7 +244,7 @@ enum VerbalReasoningKnowledgePointRepository {
             }
         } catch {
             restoreKeyValueRecord(legacyRecord, snapshot: legacySnapshot, recordID: legacyRecordID, context: context)
-            restoreKeyValueRecord(typedRecord, snapshot: typedSnapshot, recordID: recordID, context: context)
+            restoreKeyValueRecord(typedRecord, snapshot: typedSnapshot, recordID: typedRecordID, context: context)
             restoreKeyValueRecord(groupRecord, snapshot: groupSnapshot,
                                   recordID: LibraryKnowledgePointGroupRepository.recordID, context: context)
             for change in changes {
@@ -233,18 +266,20 @@ enum VerbalReasoningKnowledgePointRepository {
         typeID: String,
         records: [StoredRecord],
         context: ModelContext,
-        groupID: String? = nil
+        groupID: String? = nil,
+        subject: String = "言语理解"
     ) throws {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
-        var groups = loadGroups(records: records)
+        let typedRecordID = recordID(for: subject)
+        var groups = loadGroups(records: records, subject: subject)
         guard !(groups[module]?[typeID] ?? []).contains(name) else { return }
         groups[module, default: [:]][typeID, default: []].append(name)
         guard let groupID else {
-            try persist(groups, records: records, context: context)
+            try persist(groups, records: records, context: context, subject: subject)
             return
         }
-        let libraryRecord = records.first { $0.collection == "keyvalue" && $0.recordID == recordID }
+        let libraryRecord = records.first { $0.collection == "keyvalue" && $0.recordID == typedRecordID }
         let librarySnapshot = libraryRecord.map { ($0.payload, $0.indexPayload, $0.updatedAt) }
         let groupRecord = records.first {
             $0.collection == "keyvalue" && $0.recordID == LibraryKnowledgePointGroupRepository.recordID
@@ -252,14 +287,14 @@ enum VerbalReasoningKnowledgePointRepository {
         let groupSnapshot = groupRecord.map { ($0.payload, $0.indexPayload, $0.updatedAt) }
         do {
             try context.transaction {
-                try persist(groups, records: records, context: context, save: false)
+                try persist(groups, records: records, context: context, save: false, subject: subject)
                 try LibraryKnowledgePointGroupRepository.addTagToGroup(
-                    name, groupID: groupID, subject: "言语理解", module: module, typeID: typeID,
+                    name, groupID: groupID, subject: subject, module: module, typeID: typeID,
                     records: records, context: context, save: false
                 )
             }
         } catch {
-            restoreKeyValueRecord(libraryRecord, snapshot: librarySnapshot, recordID: recordID, context: context)
+            restoreKeyValueRecord(libraryRecord, snapshot: librarySnapshot, recordID: typedRecordID, context: context)
             restoreKeyValueRecord(groupRecord, snapshot: groupSnapshot,
                                   recordID: LibraryKnowledgePointGroupRepository.recordID, context: context)
             throw error
@@ -272,17 +307,18 @@ enum VerbalReasoningKnowledgePointRepository {
         typeID: String,
         records: [StoredRecord],
         context: ModelContext,
-        groupID: String? = nil
+        groupID: String? = nil,
+        subject: String = "言语理解"
     ) throws {
-        var groups = loadGroups(records: records)
+        var groups = loadGroups(records: records, subject: subject)
         let existing = groups[module]?[typeID] ?? []
         let order = LibraryKnowledgePointGroupRepository.mergedOrder(
             displayedOrder: names, groupID: groupID, fullOrder: existing,
-            subject: "言语理解", module: module, typeID: typeID, records: records
+            subject: subject, module: module, typeID: typeID, records: records
         )
         guard order.count == existing.count, Set(order) == Set(existing), order != existing else { return }
         groups[module, default: [:]][typeID] = order
-        try persist(groups, records: records, context: context)
+        try persist(groups, records: records, context: context, subject: subject)
     }
 
     @discardableResult
@@ -292,10 +328,11 @@ enum VerbalReasoningKnowledgePointRepository {
         module: String,
         typeID: String,
         records: [StoredRecord],
-        context: ModelContext
+        context: ModelContext,
+        subject: String = "言语理解"
     ) throws -> LibraryTagMutationResult {
         let newName = rawNewName.trimmingCharacters(in: .whitespacesAndNewlines)
-        var groups = loadGroups(records: records)
+        var groups = loadGroups(records: records, subject: subject)
         let current = groups[module]?[typeID] ?? []
         guard !newName.isEmpty, newName != oldName, !current.contains(newName), current.contains(oldName) else {
             return result(module: module, typeID: typeID, oldName: oldName, newName: newName, changes: [])
@@ -308,7 +345,8 @@ enum VerbalReasoningKnowledgePointRepository {
             module: module,
             typeID: typeID,
             records: records,
-            context: context
+            context: context,
+            subject: subject
         )
     }
 
@@ -318,9 +356,10 @@ enum VerbalReasoningKnowledgePointRepository {
         module: String,
         typeID: String,
         records: [StoredRecord],
-        context: ModelContext
+        context: ModelContext,
+        subject: String = "言语理解"
     ) throws -> LibraryTagMutationResult {
-        var groups = loadGroups(records: records)
+        var groups = loadGroups(records: records, subject: subject)
         let current = groups[module]?[typeID] ?? []
         guard current.contains(name) else {
             return result(module: module, typeID: typeID, oldName: name, newName: nil, changes: [])
@@ -333,7 +372,8 @@ enum VerbalReasoningKnowledgePointRepository {
             module: module,
             typeID: typeID,
             records: records,
-            context: context
+            context: context,
+            subject: subject
         )
     }
 
@@ -350,7 +390,8 @@ enum VerbalReasoningKnowledgePointRepository {
     private static func nameOnlyCandidates(
         name: String,
         source: LibraryKnowledgePointReference,
-        records: [StoredRecord]
+        records: [StoredRecord],
+        subject: String
     ) -> [LibraryKnowledgePointReference] {
         var candidates: [LibraryKnowledgePointReference] = []
         let legacyValues = records.first {
@@ -359,9 +400,12 @@ enum VerbalReasoningKnowledgePointRepository {
         for (module, names) in legacyValues where names.contains(name) {
             candidates.append(LibraryKnowledgePointReference(module: module, name: name))
         }
-        for type in LibraryErrorTypeRepository.types(for: .verbalReasoning, records: records) {
+        guard let errorTypeSubject = LibraryErrorTypeSubject(rawValue: subject) else {
+            return LibraryKnowledgePointReferencePolicy.uniqueReferences(candidates + [source])
+        }
+        for type in LibraryErrorTypeRepository.types(for: errorTypeSubject, records: records) {
             guard let module = type.module else { continue }
-            if tags(module: module, typeID: type.id, records: records).contains(name) {
+            if tags(module: module, typeID: type.id, records: records, subject: subject).contains(name) {
                 candidates.append(LibraryKnowledgePointReference(module: module, typeID: type.id, name: name))
             }
         }
@@ -371,25 +415,28 @@ enum VerbalReasoningKnowledgePointRepository {
 
     private static func migrationReferenceTitle(
         _ reference: LibraryKnowledgePointReference,
-        types: [LibraryErrorType]
+        types: [LibraryErrorType],
+        subject: String
     ) -> String {
         guard let typeID = reference.typeID else {
-            return "\(reference.module ?? "言语理解") · 旧考点"
+            return "\(reference.module ?? subject) · 旧考点"
         }
         let typeName = types.first(where: { $0.id == typeID && $0.module == reference.module })?.name ?? "题型已删除"
-        return "\(reference.module ?? "言语理解") · \(typeName)"
+        return "\(reference.module ?? subject) · \(typeName)"
     }
 
     private static func prepareMigrationReferenceChanges(
         preview: VerbalKnowledgePointMigrationPreview,
         resolutions: [String: LibraryKnowledgePointReference],
-        records: [StoredRecord]
+        records: [StoredRecord],
+        subject: String
     ) throws -> [RecordChange] {
         var changes: [RecordChange] = []
+        let catalogNames = knownNames(records: records, subject: subject)
         for record in records where record.collection == "errors"
-            && (record.subject ?? record.indexObject?["subject"] as? String) == "言语理解" {
+            && (record.subject ?? record.indexObject?["subject"] as? String) == subject {
             guard var object = record.jsonObject else { continue }
-            let references = LibraryKnowledgePointReferencePolicy.references(from: object)
+            let references = LibraryKnowledgePointReferencePolicy.references(from: object, knownNames: catalogNames)
             let resolution = resolutions[record.compoundID]
             let plan = VerbalLegacyKnowledgePointMigrationPolicy.plan(
                 references: references,
@@ -426,16 +473,19 @@ enum VerbalReasoningKnowledgePointRepository {
         module: String,
         typeID: String,
         records: [StoredRecord],
-        context: ModelContext
+        context: ModelContext,
+        subject: String
     ) throws -> LibraryTagMutationResult {
         let changes = try prepareReferenceChanges(
             oldName: oldName,
             newName: newName,
             module: module,
             typeID: typeID,
-            records: records
+            records: records,
+            subject: subject
         )
-        let libraryRecord = records.first { $0.collection == "keyvalue" && $0.recordID == recordID }
+        let typedRecordID = recordID(for: subject)
+        let libraryRecord = records.first { $0.collection == "keyvalue" && $0.recordID == typedRecordID }
         let librarySnapshot = libraryRecord.map { ($0.payload, $0.indexPayload, $0.updatedAt) }
         let groupRecord = records.first {
             $0.collection == "keyvalue" && $0.recordID == LibraryKnowledgePointGroupRepository.recordID
@@ -444,9 +494,9 @@ enum VerbalReasoningKnowledgePointRepository {
 
         do {
             try context.transaction {
-                try persist(groups, records: records, context: context, save: false)
+                try persist(groups, records: records, context: context, save: false, subject: subject)
                 try LibraryKnowledgePointGroupRepository.renameTagMember(
-                    oldName, to: newName, subject: "言语理解", module: module, typeID: typeID,
+                    oldName, to: newName, subject: subject, module: module, typeID: typeID,
                     records: records, context: context, save: false
                 )
                 for change in changes {
@@ -463,7 +513,7 @@ enum VerbalReasoningKnowledgePointRepository {
                 libraryRecord.replacePayload(librarySnapshot.0, indexPayload: librarySnapshot.1)
                 libraryRecord.updatedAt = librarySnapshot.2
             } else if libraryRecord == nil {
-                let key = recordID
+                let key = typedRecordID
                 let descriptor = FetchDescriptor<StoredRecord>(predicate: #Predicate {
                     $0.collection == "keyvalue" && $0.recordID == key
                 })
@@ -495,14 +545,16 @@ enum VerbalReasoningKnowledgePointRepository {
         newName: String?,
         module: String,
         typeID: String,
-        records: [StoredRecord]
+        records: [StoredRecord],
+        subject: String
     ) throws -> [RecordChange] {
         let now = Date.now
         var changes: [RecordChange] = []
+        let catalogNames = knownNames(records: records, subject: subject)
         for record in records where record.collection == "errors"
-            && (record.subject ?? record.indexObject?["subject"] as? String) == "言语理解" {
+            && (record.subject ?? record.indexObject?["subject"] as? String) == subject {
             guard var object = record.jsonObject else { continue }
-            let references = LibraryKnowledgePointReferencePolicy.references(from: object)
+            let references = LibraryKnowledgePointReferencePolicy.references(from: object, knownNames: catalogNames)
             let hasMatch = references.contains {
                 $0.module == module && $0.typeID == typeID && $0.name == oldName
             }
@@ -551,8 +603,8 @@ enum VerbalReasoningKnowledgePointRepository {
         return value
     }
 
-    private static func loadGroups(records: [StoredRecord]) -> [String: [String: [String]]] {
-        guard let value = libraryValue(records: records) else { return [:] }
+    private static func loadGroups(records: [StoredRecord], subject: String = "言语理解") -> [String: [String: [String]]] {
+        guard let value = libraryValue(records: records, subject: subject) else { return [:] }
         return value.reduce(into: [:]) { result, moduleEntry in
             guard let rawGroups = moduleEntry.value as? [String: Any] else { return }
             result[moduleEntry.key] = rawGroups.reduce(into: [:]) { groups, typeEntry in
@@ -563,23 +615,26 @@ enum VerbalReasoningKnowledgePointRepository {
         }
     }
 
-    private static func libraryValue(records: [StoredRecord]) -> [String: Any]? {
-        records.first { $0.collection == "keyvalue" && $0.recordID == recordID }?.jsonObject?["value"] as? [String: Any]
+    private static func libraryValue(records: [StoredRecord], subject: String = "言语理解") -> [String: Any]? {
+        let key = recordID(for: subject)
+        return records.first { $0.collection == "keyvalue" && $0.recordID == key }?.jsonObject?["value"] as? [String: Any]
     }
 
     private static func persist(
         _ groups: [String: [String: [String]]],
         records: [StoredRecord],
         context: ModelContext,
-        save shouldSave: Bool = true
+        save shouldSave: Bool = true,
+        subject: String = "言语理解"
     ) throws {
-        let object: [String: Any] = ["key": recordID, "value": groups]
+        let key = recordID(for: subject)
+        let object: [String: Any] = ["key": key, "value": groups]
         let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-        if let record = records.first(where: { $0.collection == "keyvalue" && $0.recordID == recordID }) {
+        if let record = records.first(where: { $0.collection == "keyvalue" && $0.recordID == key }) {
             record.replacePayload(payload)
             record.updatedAt = .now
         } else {
-            context.insert(StoredRecord(collection: "keyvalue", recordID: recordID, payload: payload, updatedAt: .now))
+            context.insert(StoredRecord(collection: "keyvalue", recordID: key, payload: payload, updatedAt: .now))
         }
         if shouldSave { try context.save() }
     }

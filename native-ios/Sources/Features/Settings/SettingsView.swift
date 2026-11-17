@@ -148,9 +148,7 @@ struct SettingsView: View {
                 case .noteTypes: NoteTypeManagerView()
                 case .stickyTags: StickyTagManagerView()
                 case .quantityQuestionTypes: QuantityQuestionTypeManagerView()
-                case .errorTypes(.verbalReasoning):
-                    LibraryErrorTypeModulesView()
-                case let .errorTypes(subject): LibraryErrorTypeManagerView(subject: subject)
+                case let .errorTypes(subject): LibraryErrorTypeModulesView(subject: subject)
                 case .designSystem: NativeDesignSystemView()
                 }
             }

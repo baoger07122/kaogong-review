@@ -17,7 +17,7 @@ enum LibraryErrorTypeSubject: String, CaseIterable, Hashable {
     }
 
     var modules: [String] {
-        guard self == .verbalReasoning else { return [] }
+        guard self == .verbalReasoning || self == .dataAnalysis else { return [] }
         return SubjectDefinition.all.first { $0.name == rawValue }?.modules ?? []
     }
 }

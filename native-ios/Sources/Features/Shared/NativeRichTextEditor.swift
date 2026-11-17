@@ -302,6 +302,7 @@ struct NativeRichTextEditor: View {
     var internalLinks: [RichTextInternalLink] = []
     var onOpenInternalLink: ((RichTextInternalLink) -> Void)?
     var onFocusReady: ((UITextView) -> Void)?
+    var onCaretChange: ((UITextView) -> Void)?
     @StateObject private var localEditorSession = NativeRichTextEditorSession()
     @State private var localEditorSessionID = UUID()
     @State private var command: RichTextCommand?
@@ -368,6 +369,7 @@ struct NativeRichTextEditor: View {
                 internalLinks: internalLinks,
                 onOpenInternalLink: onOpenInternalLink,
                 onFocusReady: onFocusReady,
+                onCaretChange: onCaretChange,
                 keyboardAccessory: AnyView(keyboardToolbar),
                 keyboardAccessoryHeight: keyboardAccessoryHeight,
                 keyboardAccessoryState: RichTextKeyboardAccessoryState(
@@ -1435,7 +1437,10 @@ private final class RichTextKeyboardAccessoryView: UIView {
 @MainActor
 private final class RichTextPasteTextView: UITextView {
     var onPaste: ((UITextView) -> Bool)?
+    var onCopy: ((UITextView, Bool) -> Void)?
     var onLayout: ((UITextView) -> Void)?
+    var onBoundsChange: ((UITextView) -> Void)?
+    private var lastReportedBoundsSize: CGSize?
 
     init(pasteEnabledUsingTextLayoutManager: Bool) {
         if pasteEnabledUsingTextLayoutManager {
@@ -1459,9 +1464,20 @@ private final class RichTextPasteTextView: UITextView {
         super.paste(sender)
     }
 
+    override func copy(_ sender: Any?) {
+        onCopy?(self, false)
+        super.copy(sender)
+        onCopy?(self, true)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         onLayout?(self)
+        let size = bounds.size
+        if lastReportedBoundsSize != size {
+            lastReportedBoundsSize = size
+            onBoundsChange?(self)
+        }
     }
 }
 
@@ -1478,6 +1494,7 @@ private struct RichTextTextView: UIViewRepresentable {
     let internalLinks: [RichTextInternalLink]
     let onOpenInternalLink: ((RichTextInternalLink) -> Void)?
     let onFocusReady: ((UITextView) -> Void)?
+    let onCaretChange: ((UITextView) -> Void)?
     let keyboardAccessory: AnyView
     let keyboardAccessoryHeight: CGFloat
     let keyboardAccessoryState: RichTextKeyboardAccessoryState
@@ -1502,10 +1519,17 @@ private struct RichTextTextView: UIViewRepresentable {
         view.onPaste = { [weak coordinator = context.coordinator] textView in
             coordinator?.handlePaste(textView) ?? false
         }
+        view.onCopy = { [weak coordinator = context.coordinator] textView, completed in
+            coordinator?.logNoteCopy(textView, completed: completed)
+        }
         view.delegate = context.coordinator
         view.textLayoutManager?.delegate = noteFormatting ? context.coordinator : nil
         view.onLayout = { [weak coordinator = context.coordinator] textView in
             coordinator?.updateNativeTableWidths(in: textView)
+        }
+        view.onBoundsChange = { [weak coordinator = context.coordinator] textView in
+            guard coordinator?.parent.noteFormatting == true else { return }
+            coordinator?.parent.onCaretChange?(textView)
         }
         view.backgroundColor = .clear
         view.font = .systemFont(ofSize: RichTextMetrics.bodySize)
@@ -1884,6 +1908,7 @@ private struct RichTextTextView: UIViewRepresentable {
                 pendingPublish?.cancel()
                 pendingPublish = nil
             } else {
+                if parent.noteFormatting { parent.onCaretChange?(textView) }
                 schedulePublish(textView)
             }
             carryForcedNoteHeightMeasurementForward()
@@ -1892,6 +1917,7 @@ private struct RichTextTextView: UIViewRepresentable {
         func textViewDidBeginEditing(_ textView: UITextView) {
             rememberSelection(textView.selectedRange)
             scheduleLayoutAndToolbarRefresh(textView, updatesToolbar: true, updatesLayout: false)
+            if parent.noteFormatting { parent.onCaretChange?(textView) }
             DispatchQueue.main.async { self.parent.isEditing = true }
         }
 
@@ -1926,6 +1952,7 @@ private struct RichTextTextView: UIViewRepresentable {
             } else if parent.tableEditTarget != tableTarget {
                 DispatchQueue.main.async { self.parent.tableEditTarget = tableTarget }
             }
+            if parent.noteFormatting { parent.onCaretChange?(textView) }
             scheduleLayoutAndToolbarRefresh(textView, updatesToolbar: true, updatesLayout: false)
         }
 
@@ -2007,11 +2034,22 @@ private struct RichTextTextView: UIViewRepresentable {
             guard connectedSession?.isInputLocked != true else { return true }
             guard textView.markedTextRange == nil else { return false }
             let range = textView.selectedRange
+            if parent.noteFormatting {
+                LibraryPerformanceLog.event(
+                    "note.paste.begin id=\(LibraryPerformanceLog.shortIdentifier(parent.editorDocumentID ?? "")) revision=\(documentRevision) location=\(range.location) length=\(range.length)"
+                )
+            }
             guard range.location >= 0,
                   range.length >= 0,
-                  NSMaxRange(range) <= textView.attributedText.length else { return false }
+                  NSMaxRange(range) <= textView.attributedText.length else {
+                if parent.noteFormatting { LibraryPerformanceLog.event("note.paste.invalid-range revision=\(documentRevision)") }
+                return false
+            }
 
-            guard let replacement = preparedClipboardText() else { return false }
+            guard let replacement = preparedClipboardText() else {
+                if parent.noteFormatting { LibraryPerformanceLog.event("note.paste.system-fallback revision=\(documentRevision)") }
+                return false
+            }
             let prepared: NSAttributedString
             if parent.noteFormatting {
                 let noteFormatted = RichTextTextView.applyingNoteInsertionParagraphContext(
@@ -2027,7 +2065,19 @@ private struct RichTextTextView: UIViewRepresentable {
             if containsNativeTableAttachment(prepared) {
                 updateNativeTableWidths(in: textView, force: true)
             }
+            if parent.noteFormatting {
+                LibraryPerformanceLog.event("note.paste.applied revision=\(documentRevision) insertedLength=\(prepared.length)")
+            }
             return true
+        }
+
+        func logNoteCopy(_ textView: UITextView, completed: Bool) {
+            guard parent.noteFormatting else { return }
+            let range = textView.selectedRange
+            let isValid = validSelection(range, in: textView)
+            LibraryPerformanceLog.event(
+                "note.copy.\(completed ? "completed" : "begin") id=\(LibraryPerformanceLog.shortIdentifier(parent.editorDocumentID ?? "")) revision=\(documentRevision) valid=\(isValid) location=\(range.location) length=\(range.length)"
+            )
         }
 
         private func containsNativeTableAttachment(_ attributed: NSAttributedString) -> Bool {
@@ -3104,6 +3154,14 @@ private struct RichTextTextView: UIViewRepresentable {
                 }
             }
             let range = view.selectedRange
+            let stateRange: NSRange = if parent.noteFormatting,
+                range.length > 4096,
+                range.location >= 0,
+                range.location < view.attributedText.length {
+                NSRange(location: range.location, length: 1)
+            } else {
+                range
+            }
             let attributes = attributesForCaretOrSelection(range, view: view)
             let font = attributes[.font] as? UIFont ?? .systemFont(ofSize: RichTextMetrics.bodySize)
             let paragraph = attributes[.paragraphStyle] as? NSParagraphStyle
@@ -3115,9 +3173,9 @@ private struct RichTextTextView: UIViewRepresentable {
                 let lineRange = source.lineRange(for: NSRange(location: location, length: 0))
                 return source.substring(with: lineRange).trimmingCharacters(in: .newlines)
             }()
-            let heading: RichTextHeading = if everyAttribute(in: range, view: view, predicate: { (($0[.font] as? UIFont)?.pointSize ?? RichTextMetrics.bodySize) >= 20 }) {
+            let heading: RichTextHeading = if everyAttribute(in: stateRange, view: view, predicate: { (($0[.font] as? UIFont)?.pointSize ?? RichTextMetrics.bodySize) >= 20 }) {
                 .heading1
-            } else if everyAttribute(in: range, view: view, predicate: {
+            } else if everyAttribute(in: stateRange, view: view, predicate: {
                 let size = ($0[.font] as? UIFont)?.pointSize ?? RichTextMetrics.bodySize
                 return size >= 17 && size < 20
             }) {
@@ -3126,22 +3184,21 @@ private struct RichTextTextView: UIViewRepresentable {
                 .body
             }
             let state = RichTextSelectionState(
-                isBold: everyAttribute(in: range, view: view) { ($0[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitBold) == true },
-                isItalic: everyAttribute(in: range, view: view) { ($0[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true },
-                isUnderlined: everyAttribute(in: range, view: view) { ($0[.underlineStyle] as? Int ?? 0) != 0 },
-                isStruckThrough: everyAttribute(in: range, view: view) { ($0[.strikethroughStyle] as? Int ?? 0) != 0 },
-                isHighlighted: everyAttribute(in: range, view: view) { $0[.backgroundColor] != nil },
+                isBold: everyAttribute(in: stateRange, view: view) { ($0[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitBold) == true },
+                isItalic: everyAttribute(in: stateRange, view: view) { ($0[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true },
+                isUnderlined: everyAttribute(in: stateRange, view: view) { ($0[.underlineStyle] as? Int ?? 0) != 0 },
+                isStruckThrough: everyAttribute(in: stateRange, view: view) { ($0[.strikethroughStyle] as? Int ?? 0) != 0 },
+                isHighlighted: everyAttribute(in: stateRange, view: view) { $0[.backgroundColor] != nil },
                 isParagraphHighlighted: paragraph.map { _ in
-                    let paragraphRange = (view.text as NSString).paragraphRange(for: range)
-                    return paragraphRange.length > 0 && self.everyAttribute(in: paragraphRange, view: view) { $0[.backgroundColor] != nil }
+                    return self.everyAttribute(in: stateRange, view: view) { $0[.backgroundColor] != nil }
                 } ?? false,
-                isQuoted: everyAttribute(in: range, view: view) {
+                isQuoted: everyAttribute(in: stateRange, view: view) {
                     NativeRichTextNoteFormatting.isQuoted($0) || (($0[.paragraphStyle] as? NSParagraphStyle)?.headIndent ?? 0) >= 22
                 },
                 isBordered: abs((paragraph?.headIndent ?? 0) - 10) < 0.5 && abs((paragraph?.tailIndent ?? 0) + 10) < 0.5,
                 isBulleted: RichTextBulletStyle.allCases.contains { currentLine.hasPrefix($0.prefix) },
                 isNumbered: currentLine.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil,
-                isCode: everyAttribute(in: range, view: view) { ($0[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitMonoSpace) == true },
+                isCode: everyAttribute(in: stateRange, view: view) { ($0[.font] as? UIFont)?.fontDescriptor.symbolicTraits.contains(.traitMonoSpace) == true },
                 heading: heading,
                 foreground: RichTextColor.allCases.first(where: { foreground?.isEqual($0.uiColor) == true }) ?? .primary,
                 canUndo: view.undoManager?.canUndo == true,

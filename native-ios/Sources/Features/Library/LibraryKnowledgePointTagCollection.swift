@@ -39,8 +39,12 @@ struct LibraryKnowledgePointGroupBar: View {
 struct LibraryKnowledgePointTagCollection: UIViewRepresentable {
     let items: [LibraryKnowledgePointTagItem]
     var allowsReordering = false
+    var allowsManagementActions = true
     var onToggle: (LibraryKnowledgePointReference) -> Void
     var onReorder: ([LibraryKnowledgePointReference]) -> Bool
+    var onRename: (LibraryKnowledgePointReference) -> Void = { _ in }
+    var onDelete: (LibraryKnowledgePointReference) -> Void = { _ in }
+    var onAdjustOrder: (LibraryKnowledgePointReference) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -58,21 +62,12 @@ struct LibraryKnowledgePointTagCollection: UIViewRepresentable {
         view.delegate = context.coordinator
         view.register(KnowledgePointTagCell.self, forCellWithReuseIdentifier: KnowledgePointTagCell.reuseID)
         context.coordinator.collectionView = view
-        let longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleLongPress(_:)))
-        longPress.minimumPressDuration = 0.35
-        longPress.cancelsTouchesInView = true
-        longPress.delegate = context.coordinator
-        longPress.isEnabled = allowsReordering
-        view.addGestureRecognizer(longPress)
-        context.coordinator.longPress = longPress
         view.reloadData()
         return view
     }
 
     func updateUIView(_ view: KnowledgePointCollectionView, context: Context) {
         context.coordinator.parent = self
-        context.coordinator.longPress?.isEnabled = allowsReordering
-        guard !context.coordinator.isMoving else { return }
         if context.coordinator.items != items {
             context.coordinator.items = items
             (view.collectionViewLayout as? KnowledgePointTagCollectionLayout)?.update(items: items)
@@ -117,13 +112,10 @@ struct LibraryKnowledgePointTagCollection: UIViewRepresentable {
         return LibraryKnowledgePointTagLayoutPolicy.layout(itemSizes: sizes, width: width, spacing: spacing)
     }
 
-    final class Coordinator: NSObject, UICollectionViewDataSource, UICollectionViewDelegate, UIGestureRecognizerDelegate {
+    final class Coordinator: NSObject, UICollectionViewDataSource, UICollectionViewDelegate {
         var parent: LibraryKnowledgePointTagCollection
         var items: [LibraryKnowledgePointTagItem]
         weak var collectionView: UICollectionView?
-        weak var longPress: UILongPressGestureRecognizer?
-        var isMoving = false
-        private var startingOrder: [LibraryKnowledgePointReference] = []
 
         init(_ parent: LibraryKnowledgePointTagCollection) {
             self.parent = parent
@@ -137,7 +129,7 @@ struct LibraryKnowledgePointTagCollection: UIViewRepresentable {
             guard items.indices.contains(indexPath.item), let tagCell = cell as? KnowledgePointTagCell else { return cell }
             let item = items[indexPath.item]
             tagCell.configure(item) { [weak self] reference in
-                guard let self, !self.isMoving,
+                guard let self,
                       let current = self.items.first(where: { $0.reference == reference }) else { return }
                 self.parent.onToggle(current.reference)
             }
@@ -145,60 +137,39 @@ struct LibraryKnowledgePointTagCollection: UIViewRepresentable {
         }
 
         func collectionView(_ collectionView: UICollectionView, canMoveItemAt indexPath: IndexPath) -> Bool {
-            parent.allowsReordering && items.indices.contains(indexPath.item)
+            false
         }
 
         func collectionView(_ collectionView: UICollectionView, moveItemAt sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) {
-            guard items.indices.contains(sourceIndexPath.item), items.indices.contains(destinationIndexPath.item) else { return }
-            let item = items.remove(at: sourceIndexPath.item)
-            items.insert(item, at: destinationIndexPath.item)
-            (collectionView.collectionViewLayout as? KnowledgePointTagCollectionLayout)?.update(items: items)
+            return
         }
 
-        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            guard gestureRecognizer === longPress,
-                  parent.allowsReordering,
-                  let collectionView else { return false }
-            let point = gestureRecognizer.location(in: collectionView)
-            return collectionView.indexPathForItem(at: point) != nil
-        }
-
-        @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
-            guard let collectionView else { return }
-            let point = gesture.location(in: collectionView)
-            switch gesture.state {
-            case .began:
-                guard parent.allowsReordering, let indexPath = collectionView.indexPathForItem(at: point) else { return }
-                isMoving = true
-                startingOrder = items.map(\.reference)
-                if !collectionView.beginInteractiveMovementForItem(at: indexPath) { isMoving = false }
-            case .changed:
-                if isMoving { collectionView.updateInteractiveMovementTargetPosition(point) }
-            case .ended:
-                guard isMoving else { return }
-                collectionView.endInteractiveMovement()
-                let order = items.map(\.reference)
-                if order != startingOrder, !parent.onReorder(order) {
-                    resetToParentItems(in: collectionView)
+        func collectionView(
+            _ collectionView: UICollectionView,
+            contextMenuConfigurationForItemAt indexPath: IndexPath,
+            point: CGPoint
+        ) -> UIContextMenuConfiguration? {
+            guard parent.allowsManagementActions, items.indices.contains(indexPath.item) else { return nil }
+            let item = items[indexPath.item]
+            return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+                guard let self else { return UIMenu(children: []) }
+                var actions = [
+                    UIAction(title: "重命名", image: UIImage(systemName: "pencil")) { [weak self] _ in
+                        self?.parent.onRename(item.reference)
+                    }
+                ]
+                if self.parent.allowsReordering {
+                    actions.append(UIAction(title: "调整顺序", image: UIImage(systemName: "arrow.up.arrow.down")) { [weak self] _ in
+                        self?.parent.onAdjustOrder(item.reference)
+                    })
                 }
-                isMoving = false
-                startingOrder = []
-            case .cancelled, .failed:
-                guard isMoving else { return }
-                collectionView.cancelInteractiveMovement()
-                resetToParentItems(in: collectionView)
-                isMoving = false
-                startingOrder = []
-            default:
-                break
+                actions.append(UIAction(title: "删除", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
+                    self?.parent.onDelete(item.reference)
+                })
+                return UIMenu(children: actions)
             }
         }
 
-        private func resetToParentItems(in collectionView: UICollectionView) {
-            items = parent.items
-            (collectionView.collectionViewLayout as? KnowledgePointTagCollectionLayout)?.update(items: items)
-            collectionView.reloadData()
-        }
     }
 }
 

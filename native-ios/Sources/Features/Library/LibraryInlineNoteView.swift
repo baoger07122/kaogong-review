@@ -72,7 +72,8 @@ final class LibraryInlineNoteSession: ObservableObject {
     var finishEditing: ((@escaping (Bool) -> Void) -> Void)?
     private(set) weak var noteAnchorView: UIView?
     private var focusRevealSessionID: UUID?
-    private var keyboardShowObserver: NSObjectProtocol?
+    private var keyboardFrameObserver: NSObjectProtocol?
+    private var pendingReveal: DispatchWorkItem?
 
     func setNoteAnchor(_ view: UIView?) { noteAnchorView = view }
 
@@ -84,39 +85,54 @@ final class LibraryInlineNoteSession: ObservableObject {
 
     func resetFocusReveal() {
         focusRevealSessionID = nil
-        if let keyboardShowObserver {
-            NotificationCenter.default.removeObserver(keyboardShowObserver)
-            self.keyboardShowObserver = nil
+        pendingReveal?.cancel()
+        pendingReveal = nil
+        if let keyboardFrameObserver {
+            NotificationCenter.default.removeObserver(keyboardFrameObserver)
+            self.keyboardFrameObserver = nil
         }
     }
 
     func revealWritableArea(in textView: UITextView, sessionID: UUID) {
-        guard focusRevealSessionID != sessionID else { return }
-        focusRevealSessionID = sessionID
-        revealWritableAreaNow(in: textView, sessionID: sessionID)
-
-        guard let window = textView.window,
-              window.keyboardLayoutGuide.layoutFrame.height < 80,
-              textView.inputAccessoryView?.window == nil else { return }
-        keyboardShowObserver = NotificationCenter.default.addObserver(
-            forName: UIResponder.keyboardDidShowNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self, weak textView] _ in
-            guard let self, let textView else { return }
-            Task { @MainActor in
-                self.revealWritableAreaNow(in: textView, sessionID: sessionID)
-                self.resetKeyboardObserver()
+        guard textView.isFirstResponder else { return }
+        if focusRevealSessionID != sessionID {
+            resetFocusReveal()
+            focusRevealSessionID = sessionID
+            keyboardFrameObserver = NotificationCenter.default.addObserver(
+                forName: UIResponder.keyboardWillChangeFrameNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self, weak textView] _ in
+                guard let self, let textView else { return }
+                Task { @MainActor in
+                    self.scheduleWritableAreaReveal(in: textView, sessionID: sessionID)
+                }
             }
         }
+        scheduleWritableAreaReveal(in: textView, sessionID: sessionID)
+    }
+
+    private func scheduleWritableAreaReveal(in textView: UITextView, sessionID: UUID) {
+        pendingReveal?.cancel()
+        let work = DispatchWorkItem { [weak self, weak textView] in
+            guard let self, let textView else { return }
+            Task { @MainActor in
+                guard self.focusRevealSessionID == sessionID else { return }
+                self.revealWritableAreaNow(in: textView, sessionID: sessionID)
+            }
+        }
+        pendingReveal = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04, execute: work)
     }
 
     private func revealWritableAreaNow(in textView: UITextView, sessionID: UUID) {
         guard focusRevealSessionID == sessionID,
+              textView.isFirstResponder,
               let window = textView.window,
               let anchor = noteAnchorView,
               anchor.window === window else { return }
 
+        window.keyboardLayoutGuide.followsUndockedKeyboard = true
         window.layoutIfNeeded()
         var ancestor = textView.superview
         var outerScrollView: UIScrollView?
@@ -132,43 +148,39 @@ final class LibraryInlineNoteSession: ObservableObject {
 
         let viewport = scrollView.convert(scrollView.bounds, to: window)
         var visibleBottom = viewport.maxY - scrollView.adjustedContentInset.bottom
+        let position = textView.selectedTextRange?.end ?? textView.endOfDocument
+        let caret = textView.convert(textView.caretRect(for: position), to: window)
+        let caretHitArea = CGRect(x: caret.minX - 1, y: caret.minY, width: max(caret.width, 2) + 2, height: max(caret.height, 2))
         let keyboardFrame = window.keyboardLayoutGuide.layoutFrame
-        if keyboardFrame.height > 80, keyboardFrame.minY < visibleBottom {
-            visibleBottom = keyboardFrame.minY
+        let keyboardIntersectsCaret = keyboardFrame.height > 80 && caretHitArea.intersects(keyboardFrame)
+        let dockedKeyboardCoversCaret = keyboardFrame.width >= viewport.width * 0.8
+            && keyboardFrame.height > 80
+            && caret.maxY > keyboardFrame.minY
+            && caret.minY < viewport.maxY
+        if keyboardIntersectsCaret || dockedKeyboardCoversCaret {
+            visibleBottom = min(visibleBottom, keyboardFrame.minY)
         }
         if let accessory = textView.inputAccessoryView, accessory.window === window {
             let accessoryFrame = accessory.convert(accessory.bounds, to: window)
-            if accessoryFrame.height > 0, accessoryFrame.minY < visibleBottom {
+            if accessoryFrame.height > 0, caretHitArea.intersects(accessoryFrame) {
                 visibleBottom = accessoryFrame.minY
             }
         }
 
-        let position = textView.selectedTextRange?.end ?? textView.endOfDocument
-        let caret = textView.convert(textView.caretRect(for: position), to: window)
-        let visibleHeight = max(1, visibleBottom - viewport.minY)
-        let writingSpace = min(160, max(48, visibleHeight * 0.42))
-        let neededDelta = max(0, caret.maxY + writingSpace - visibleBottom)
+        let neededDelta = max(0, caret.maxY + 24 - visibleBottom)
         guard neededDelta > 1 else { return }
 
-        let noteTop = anchor.convert(anchor.bounds, to: window).minY
-        let titlePreservingDelta = max(0, noteTop - viewport.minY - 20)
         let maximumOffset = max(
             -scrollView.adjustedContentInset.top,
             scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
         )
         let scrollCapacity = max(0, maximumOffset - scrollView.contentOffset.y)
-        let delta = min(neededDelta, titlePreservingDelta, scrollCapacity)
+        let delta = min(neededDelta, scrollCapacity)
         guard delta > 1 else { return }
         scrollView.setContentOffset(
             CGPoint(x: scrollView.contentOffset.x, y: scrollView.contentOffset.y + delta),
             animated: true
         )
-    }
-
-    private func resetKeyboardObserver() {
-        guard let keyboardShowObserver else { return }
-        NotificationCenter.default.removeObserver(keyboardShowObserver)
-        self.keyboardShowObserver = nil
     }
 
     func setPendingChanges(_ value: Bool) {
@@ -440,10 +452,14 @@ struct LibraryInlineNoteView: View {
                     editorSessionID: editingSessionID,
                     onFocusReady: { textView in
                         session.revealWritableArea(in: textView, sessionID: editingSessionID)
+                    },
+                    onCaretChange: { textView in
+                        session.revealWritableArea(in: textView, sessionID: editingSessionID)
                     }
                 )
                 .accessibilityIdentifier("library-inline-note-editor")
                 .padding(.horizontal, 8)
+                .padding(.bottom, 96)
             } else {
                 if hasPendingDraft || errorMessage != nil {
                     pendingDraftDisplay
@@ -1124,6 +1140,9 @@ struct LibraryInlineNoteView: View {
     }
 
     private func failFinishBeforeSave(message: String, completion: @escaping (Bool) -> Void) {
+        LibraryPerformanceLog.event(
+            "note.finish.failed-before-save id=\(LibraryPerformanceLog.shortIdentifier(renderDocumentID)) session=\(editingSessionID.uuidString.prefix(8))"
+        )
         editorSession.setInputLocked(false)
         isFinishing = false
         transientErrorMessage = message
@@ -1501,6 +1520,9 @@ struct LibraryInlineNoteView: View {
         let state = saveService.state(recordID: renderDocumentID)
         let effectiveBaseVersion = baseVersion ?? state.latestBaseVersion ?? activeBaseVersion
         let effectiveBasePayload = basePayload ?? state.latestBasePayload ?? activeBasePayload
+        LibraryPerformanceLog.event(
+            "note.save.enqueue id=\(LibraryPerformanceLog.shortIdentifier(renderDocumentID)) session=\(editingSessionID.uuidString.prefix(8)) draft=\(draftVersion) bytes=\(content.utf8.count) snapshotRevision=\(editorSnapshot?.documentRevision.description ?? "none")"
+        )
         saveService.enqueue(
             recordID: renderDocumentID,
             draftVersion: draftVersion,
@@ -1515,6 +1537,9 @@ struct LibraryInlineNoteView: View {
             completion: { result in
                 switch result {
                 case .success(let version):
+                    LibraryPerformanceLog.event(
+                        "note.save.completed id=\(LibraryPerformanceLog.shortIdentifier(self.renderDocumentID)) draft=\(draftVersion) version=\(version)"
+                    )
                     self.activeBaseVersion = version
                     self.activeBasePayload = self.currentRecordPayload()
                     if !self.editing, let editorSnapshot, editorSnapshot.html == content {
@@ -1534,6 +1559,9 @@ struct LibraryInlineNoteView: View {
                         if !self.isFinishing { self.onSaved?(content) }
                     }
                 case .failure(let error):
+                    LibraryPerformanceLog.event(
+                        "note.save.failed id=\(LibraryPerformanceLog.shortIdentifier(self.renderDocumentID)) draft=\(draftVersion) errorType=\(String(reflecting: type(of: error)))"
+                    )
                     if self.saveService.state(recordID: self.renderDocumentID).latestDraftVersion == draftVersion {
                         self.transientErrorMessage = "笔记未保存，原记录未覆盖：\(error.localizedDescription)"
                     }

@@ -14,11 +14,8 @@ struct LibraryNoteDetailView: View {
     private var content: String {
         ["content", "note", "analysis"].compactMap { object[$0] as? String }.first ?? ""
     }
-    private var type: String { object["type"] as? String ?? "" }
-    private var knowledgePoint: String { object["knowledgePoint"] as? String ?? "" }
-    private var quantityStructure: String { object["quantityStructure"] as? String ?? "" }
-    private var weaknessTags: [String] { object["weaknessTags"] as? [String] ?? [] }
-    private var isQuantityRelations: Bool { record.subject == "数量关系" }
+    private var subject: String { record.subject ?? (object["subject"] as? String ?? "") }
+    private var module: String { record.module ?? (object["module"] as? String ?? "") }
 
     var body: some View {
         ZStack {
@@ -27,18 +24,8 @@ struct LibraryNoteDetailView: View {
                     Text(title)
                         .font(.system(size: 24, weight: .semibold))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    if !isQuantityRelations, !type.isEmpty || !knowledgePoint.isEmpty {
-                        NativeTagFlow(spacing: 6) {
-                            if !type.isEmpty { detailChip(type) }
-                            if !knowledgePoint.isEmpty { detailChip(knowledgePoint) }
-                        }
-                    }
-                    if isQuantityRelations {
-                        detailLine("题型", QuantityQuestionTypeCatalog.displayName(for: record.module))
-                        detailLine("题目结构", quantityStructure)
-                        detailTags("考点", splitTags(knowledgePoint))
-                        detailTags("弱项标签", weaknessTags)
-                    }
+                    detailLine("科目", subject)
+                    detailLine("模块", module)
                     if content.isEmpty {
                         Text("暂无正文")
                             .font(AppTheme.noteBodyFont)

@@ -39,9 +39,17 @@ struct LibraryReadingModeToggle: View {
 }
 
 private struct LibraryReadingModeToggleStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.93 : 1)
+            .background {
+                if configuration.isPressed {
+                    Circle().fill(AppTheme.accent.opacity(0.08))
+                }
+            }
             .brightness(configuration.isPressed ? -0.045 : 0)
-            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+            .animation(.easeOut(duration: configuration.isPressed ? 0.08 : 0.16), value: configuration.isPressed)
     }
 }

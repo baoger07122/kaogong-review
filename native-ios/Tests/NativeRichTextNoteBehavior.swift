@@ -167,7 +167,7 @@ enum NativeRichTextNoteBehavior {
         )
         precondition(ordinary.map(\.spacingAfter) == [4, 0], "adjacent ordinary paragraphs must receive one 4 pt gap")
         precondition(ordinary.map(\.spacingBefore) == [0, 0], "the inter-paragraph gap must be applied only once")
-        precondition(ordinary.map(\.lineSpacing) == [2, 2], "structured rich paragraphs must use 2 pt extra line spacing by default")
+        precondition(ordinary.map(\.lineSpacing) == [1, 1], "structured rich paragraphs must use 1 pt extra line spacing by default")
 
         let explicit = [
             NativeRichTextNoteParagraphHTMLStyle(spacingBefore: 0, spacingAfter: 2, lineSpacing: 3, fontSize: 16),
@@ -187,7 +187,7 @@ enum NativeRichTextNoteBehavior {
             hasStructuredParagraphs: true
         )
         precondition(merged.map(\.spacingAfter) == [4, 0], "source spacing on both sides must merge and cap at 4 pt")
-        precondition(merged.map(\.lineSpacing) == [2, 2], "source extra line spacing must be clamped to 0–2 pt")
+        precondition(merged.map(\.lineSpacing) == [1, 1], "source extra line spacing must be clamped to 0–1 pt")
 
         let withBlank = [defaults[0], defaults[0], defaults[0]]
         let blank = NativeRichTextNoteParagraphHTMLPolicy.normalizingPastedStyles(

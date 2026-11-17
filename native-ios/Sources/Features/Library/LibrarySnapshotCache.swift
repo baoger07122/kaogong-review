@@ -39,6 +39,7 @@ final class LibrarySnapshotCache {
         let indexPayloadCount: Int
         let includesImages: Bool
         let reviewSource: LibraryReviewSource
+        let knowledgePointNames: Set<String>
         let snapshot: LibraryRecordSnapshot
     }
 
@@ -132,7 +133,8 @@ final class LibrarySnapshotCache {
         linkedWordNamesByID: [String: String],
         includeImages: Bool,
         reviewSource: LibraryReviewSource = .pending,
-        sourceExamTitlesByID: [String: String] = [:]
+        sourceExamTitlesByID: [String: String] = [:],
+        knowledgePointNames: Set<String> = []
     ) -> LibraryRecordSnapshot {
         let payloadCount = record.payload.count
         let indexPayloadCount = record.indexPayload?.count ?? 0
@@ -141,7 +143,8 @@ final class LibrarySnapshotCache {
            cached.payloadCount == payloadCount,
            cached.indexPayloadCount == indexPayloadCount,
            cached.includesImages == includeImages,
-           cached.reviewSource == reviewSource {
+           cached.reviewSource == reviewSource,
+           cached.knowledgePointNames == knowledgePointNames {
             return cached.snapshot
         }
         let previousImageSnapshot = entries[record.compoundID]?.snapshot
@@ -151,7 +154,8 @@ final class LibrarySnapshotCache {
             sourceExamTitlesByID: sourceExamTitlesByID,
             reviewSource: reviewSource,
             includeImages: includeImages,
-            previousImageSnapshot: previousImageSnapshot
+            previousImageSnapshot: previousImageSnapshot,
+            knowledgePointNames: knowledgePointNames
         )
         entries[record.compoundID] = Entry(
             updatedAt: record.updatedAt,
@@ -159,6 +163,7 @@ final class LibrarySnapshotCache {
             indexPayloadCount: indexPayloadCount,
             includesImages: includeImages,
             reviewSource: reviewSource,
+            knowledgePointNames: knowledgePointNames,
             snapshot: value
         )
         return value
@@ -285,7 +290,7 @@ final class LibraryRecordListCache {
         let reviewSources = reviewSourceCache.classifications(for: records)
         sortedRecords = records.filter { record in
             guard record.collection == kind.collection, scope.contains(record) else { return false }
-            if kind != .words,
+            if kind != .words, kind != .notes,
                reviewSources[record.compoundID] != scope.reviewSource { return false }
             if isQuantityContext, kind == .errors || kind == .notes {
                 if selectedQuantityType == "未分类" {
@@ -373,7 +378,7 @@ final class LibraryRecordListCache {
         cachedUnclassifiedAvailability = records.contains { record in
             guard record.collection == kind.collection,
                   scope.contains(record),
-                  (kind == .words || reviewSources[record.compoundID] == scope.reviewSource)
+                  (kind == .words || kind == .notes || reviewSources[record.compoundID] == scope.reviewSource)
             else { return false }
 
             if isQuantityContext {

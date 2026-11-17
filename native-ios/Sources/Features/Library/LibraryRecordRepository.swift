@@ -47,6 +47,7 @@ struct LibraryRecordDraft {
     var type = ""
     var knowledgePoint = ""
     var knowledgePointRefs: [LibraryKnowledgePointReference] = []
+    var knowledgePointNames: [String] = []
     var errorCause = ""
     var errorTypeID: String?
     var centerComprehensionTrap = ""
@@ -113,7 +114,8 @@ struct LibraryRecordDraft {
         kind: LibraryContentKind,
         scope: LibraryScope,
         record: StoredRecord? = nil,
-        originalObject: [String: Any]? = nil
+        originalObject: [String: Any]? = nil,
+        knownKnowledgePointNames: Set<String> = []
     ) {
         original = originalObject ?? record?.jsonObject ?? [:]
         originalPayload = record?.payload
@@ -158,11 +160,13 @@ struct LibraryRecordDraft {
         if let values = original["knowledgePoints"] as? [String], !values.isEmpty {
             knowledgePoint = values.joined(separator: "、")
         }
-        if subject == "言语理解", kind == .errors {
+        if kind == .errors {
             knowledgePointRefs = LibraryKnowledgePointReferencePolicy.references(
                 from: original,
-                fallbackValue: knowledgePoint
+                fallbackValue: knowledgePoint,
+                knownNames: knownKnowledgePointNames
             )
+            knowledgePointNames = LibraryKnowledgePointReferencePolicy.displayNames(from: knowledgePointRefs)
         }
         quantityErrorCauseIsAuthoritative = LibraryQuantityErrorCauseCompatibility.isAuthoritative(in: original)
         errorCause = kind == .errors && subject == "数量关系"
@@ -297,6 +301,7 @@ struct LibraryRecordDraft {
             && type == other.type
             && knowledgePoint == other.knowledgePoint
             && knowledgePointRefs == other.knowledgePointRefs
+            && knowledgePointNames == other.knowledgePointNames
             && errorCause == other.errorCause
             && errorTypeID == other.errorTypeID
             && centerComprehensionTrap == other.centerComprehensionTrap
@@ -480,6 +485,7 @@ fileprivate struct LibraryRecordPayloadPreparationInput: @unchecked Sendable {
     let existingCreatedAt: Date
     let sourceExamIDToSave: String
     let preservesUnassignedAnalysisModule: Bool
+    let knowledgePointNames: [String]
 }
 
 private struct LibraryRecordPreparedPayload: Sendable {
@@ -531,15 +537,20 @@ enum LibraryRecordRepository {
         case .errors:
             object["reviewSource"] = draft.reviewSource.rawValue
             let knowledgePoints: [String]
-            if draft.subject == "言语理解" {
+            if LibraryErrorTypeSubject(rawValue: draft.subject) != nil {
                 let references = LibraryKnowledgePointReferencePolicy.uniqueReferences(draft.knowledgePointRefs)
                 knowledgePoints = LibraryKnowledgePointReferencePolicy.displayNames(from: references)
                 object["knowledgePointRefs"] = references.map(\.jsonValue)
             } else {
-                knowledgePoints = draft.knowledgePoint
-                    .split(whereSeparator: { "、,，".contains($0) })
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
+                let references = LibraryKnowledgePointReferencePolicy.uniqueReferences(
+                    draft.knowledgePointRefs.isEmpty && !input.knowledgePointNames.isEmpty
+                        ? input.knowledgePointNames.map {
+                            LibraryKnowledgePointReference(module: draft.module.isEmpty ? nil : draft.module, name: $0)
+                        }
+                        : draft.knowledgePointRefs
+                )
+                knowledgePoints = LibraryKnowledgePointReferencePolicy.displayNames(from: references)
+                object["knowledgePointRefs"] = references.map(\.jsonValue)
             }
             object["question"] = draft.title
             object["type"] = draft.type.isEmpty ? "错题" : draft.type
@@ -662,26 +673,13 @@ enum LibraryRecordRepository {
                 object["errorCause"] = ""
             }
         case .notes:
-            object["reviewSource"] = draft.reviewSource.rawValue
             object["title"] = draft.title
             object["content"] = draft.content
-            object["type"] = draft.type
-            object["knowledgePoint"] = draft.knowledgePoint
-            object["knowledgePoints"] = splitList(draft.knowledgePoint)
-            object["quantityStructure"] = draft.quantityStructure
-            object["weaknessTags"] = splitList(draft.weaknessTags)
-            object["linkedErrors"] = draft.linkedErrorIDs
-            object["linkedReviews"] = object["linkedReviews"] ?? []
-            object["mindMap"] = draft.mindMapData
-            object["pencilKitData"] = draft.pencilKitData
-            if draft.legacyDrawingPreview.isEmpty {
-                if draft.pencilKitData.isEmpty, !previousPencilKitData.isEmpty {
-                    object.removeValue(forKey: "drawingPreview")
-                    object.removeValue(forKey: "doodle")
-                }
+            object["subject"] = draft.subject
+            if draft.module.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                object.removeValue(forKey: "module")
             } else {
-                object["legacyDrawingPreview"] = draft.legacyDrawingPreview
-                object["drawingPreview"] = draft.legacyDrawingPreview
+                object["module"] = draft.module
             }
         case .stickies:
             object["reviewSource"] = draft.reviewSource.rawValue
@@ -767,6 +765,7 @@ enum LibraryRecordRepository {
             && draft.subject == "资料分析"
             && draft.module.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && (draft.original["module"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+        let knowledgePointNames = canonicalKnowledgePointNames(for: draft, records: records)
         let payloadInput = LibraryRecordPayloadPreparationInput(
             draft: draft,
             kind: kind,
@@ -774,7 +773,8 @@ enum LibraryRecordRepository {
             now: now,
             existingCreatedAt: existing?.createdAt ?? now,
             sourceExamIDToSave: sourceExamIDToSave,
-            preservesUnassignedAnalysisModule: preservesUnassignedAnalysisModule
+            preservesUnassignedAnalysisModule: preservesUnassignedAnalysisModule,
+            knowledgePointNames: knowledgePointNames
         )
         let preparedPayload = try await LibraryRecordPayloadPreparer.prepare(input: payloadInput)
 
@@ -788,15 +788,33 @@ enum LibraryRecordRepository {
                     throw LibraryRecordSaveError.recordChanged(existing.recordID)
                 }
             }
-            if kind == .errors || (kind == .notes && draft.subject == "数量关系") {
-                try TagLibraryRepository.add(
-                    splitList(draft.knowledgePoint),
-                    kind: .knowledgePoint,
-                    module: draft.module,
-                    records: records,
-                    context: context,
-                    persist: false
-                )
+            if (kind == .errors && LibraryErrorTypeSubject(rawValue: draft.subject) == nil)
+                || (kind == .notes && draft.subject == "数量关系") {
+                var namesByModule: [String: [String]] = [:]
+                if draft.subject == "数量关系", !draft.knowledgePointRefs.isEmpty {
+                    for reference in LibraryKnowledgePointReferencePolicy.uniqueReferences(draft.knowledgePointRefs) {
+                        let module = reference.module?.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let targetModule = module.flatMap { $0.isEmpty ? nil : $0 } ?? draft.module
+                        guard !targetModule.isEmpty else { continue }
+                        var names = namesByModule[targetModule] ?? []
+                        if !names.contains(reference.name) {
+                            names.append(reference.name)
+                            namesByModule[targetModule] = names
+                        }
+                    }
+                } else if !draft.module.isEmpty {
+                    namesByModule[draft.module] = knowledgePointNames
+                }
+                for module in namesByModule.keys.sorted() {
+                    try TagLibraryRepository.add(
+                        namesByModule[module] ?? [],
+                        kind: .knowledgePoint,
+                        module: module,
+                        records: records,
+                        context: context,
+                        persist: false
+                    )
+                }
             }
             if let existing {
                 existing.replacePayload(
@@ -847,6 +865,35 @@ enum LibraryRecordRepository {
         LibraryPerformanceLog.mark("record.save.context", since: contextSaveStart)
         LibraryPerformanceLog.mark("record.save.total", since: performanceStart)
         return id
+    }
+
+    private static func canonicalKnowledgePointNames(
+        for draft: LibraryRecordDraft,
+        records: [StoredRecord]
+    ) -> [String] {
+        if LibraryErrorTypeSubject(rawValue: draft.subject) != nil {
+            return LibraryKnowledgePointReferencePolicy.displayNames(
+                from: LibraryKnowledgePointReferencePolicy.uniqueReferences(draft.knowledgePointRefs)
+            )
+        }
+        if !draft.knowledgePointRefs.isEmpty {
+            return LibraryKnowledgePointReferencePolicy.displayNames(from: draft.knowledgePointRefs)
+        }
+        let selected = draft.knowledgePointNames
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !selected.isEmpty {
+            var seen = Set<String>()
+            return selected.filter { seen.insert($0).inserted }
+        }
+        let catalogNames = Set(TagLibraryRepository.tags(
+            kind: .knowledgePoint, module: draft.module, records: records
+        ))
+        let references = LibraryKnowledgePointReferencePolicy.references(
+            from: ["knowledgePoint": draft.knowledgePoint],
+            knownNames: catalogNames
+        )
+        return LibraryKnowledgePointReferencePolicy.displayNames(from: references)
     }
 
     /// Converts one legacy 申论 payload after the user has reviewed every

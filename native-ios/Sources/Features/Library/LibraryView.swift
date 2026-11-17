@@ -394,6 +394,8 @@ struct LibraryView: View {
             tagFilteredRecords = selectedTag.isEmpty
                 ? knowledgePointMatches
                 : filterRecords(matching: selectedTag, from: knowledgePointMatches)
+        } else if kind == .notes {
+            tagFilteredRecords = scopedRecords
         } else {
             tagFilteredRecords = filterRecords(matching: selectedTag, from: scopedRecords)
         }
@@ -445,7 +447,6 @@ struct LibraryView: View {
                         filterBar(availableTags: visibleTags)
                     }
                     if kind == .words { wordCategoryBar }
-                    if kind == .notes, noteContext != nil { noteTypeBar }
                     if kind == .stickies, stickyContext != nil { stickyTagBar }
                     if visibleRecords.isEmpty {
                         VStack(spacing: 10) {
@@ -828,9 +829,32 @@ struct LibraryView: View {
                 linkedWordNamesByID: wordNames,
                 includeImages: includesQuestionImages(in: $0),
                 reviewSource: scope.reviewSource,
-                sourceExamTitlesByID: examTitles
+                sourceExamTitlesByID: examTitles,
+                knowledgePointNames: knowledgePointNames(for: $0)
             )
         }
+    }
+
+    private func knowledgePointNames(for record: StoredRecord) -> Set<String> {
+        guard record.collection == "errors" else { return [] }
+        let object = record.indexObject ?? [:]
+        let subject = [record.subject, object["subject"] as? String, scope.subject]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
+        let module = [record.module, object["module"] as? String, scope.module]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
+        guard !module.isEmpty else { return [] }
+        var names = Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: module, records: records))
+        if let typeSubject = LibraryErrorTypeSubject(rawValue: subject) {
+            for type in LibraryErrorTypeRepository.types(for: typeSubject, records: records)
+                where type.isAvailable(in: module) {
+                names.formUnion(VerbalReasoningKnowledgePointRepository.tags(
+                    module: module, typeID: type.id, records: records, subject: subject
+                ))
+            }
+        }
+        return names
     }
 
     private func includesQuestionImages(in record: StoredRecord) -> Bool {
@@ -888,7 +912,8 @@ struct LibraryView: View {
                 linkedWordNamesByID: linkedWordNames,
                 includeImages: includesQuestionImages(in: record),
                 reviewSource: scope.reviewSource,
-                sourceExamTitlesByID: examTitles
+                sourceExamTitlesByID: examTitles,
+                knowledgePointNames: knowledgePointNames(for: record)
             )
         } knowledgePointMatches: { record in
             LibraryKnowledgePointFilterPolicy.matches(
@@ -913,8 +938,8 @@ struct LibraryView: View {
     private var errorTypes: [LibraryErrorType] {
         guard let errorTypeSubject else { return [] }
         let entries = LibraryErrorTypeRepository.types(for: errorTypeSubject, records: records)
-        guard let module = scope.module, errorTypeSubject == .verbalReasoning else { return entries }
-        return entries.filter { $0.module == module }
+        guard let module = scope.module else { return entries }
+        return entries.filter { $0.isAvailable(in: module) }
     }
 
     private var selectedKnowledgePointFilters: [LibraryKnowledgePointReference] {
@@ -937,16 +962,16 @@ struct LibraryView: View {
     }
 
     private var knowledgePointFilterGroups: [LibraryKnowledgePointGroup] {
-        if scope.subject == "言语理解" {
+        if let subject = errorTypeSubject {
             if let selectedID = selectedErrorType.selectedID,
                let type = errorTypes.first(where: { $0.id == selectedID }),
                let module = type.module ?? scope.module {
                 return LibraryKnowledgePointGroupRepository.groups(
-                    subject: "言语理解", module: module, typeID: selectedID, records: records
+                    subject: subject.rawValue, module: module, typeID: selectedID, records: records
                 )
             }
             if selectedErrorType == .unclassified, let module = scope.module {
-                return LibraryKnowledgePointGroupRepository.groups(subject: "言语理解", module: module, records: records)
+                return LibraryKnowledgePointGroupRepository.groups(subject: subject.rawValue, module: module, records: records)
             }
             return []
         }
@@ -987,7 +1012,7 @@ struct LibraryView: View {
         var catalogReferences: [LibraryKnowledgePointReference] = []
         var recordReferences: [LibraryKnowledgePointReference] = []
         let referenceIndex = knowledgePointReferenceIndex
-        let typeCatalog = LibraryErrorTypeRepository.types(for: .verbalReasoning, records: records)
+        let typeCatalog = errorTypeSubject.map { LibraryErrorTypeRepository.types(for: $0, records: records) } ?? []
         let modules = Set(sortedScopedRecords.compactMap { record in
             nonEmpty(record.module) ?? nonEmpty(record.indexObject?["module"] as? String)
         }).union(knowledgePointFilterModule.map { [$0] } ?? [])
@@ -996,12 +1021,13 @@ struct LibraryView: View {
             recordReferences.append(contentsOf: referenceIndex[record.compoundID] ?? [])
         }
 
-        if scope.subject == "言语理解" {
+        if let typeSubject = errorTypeSubject {
             for type in errorTypes {
                 if let selectedID = selectedErrorType.selectedID, selectedID != type.id { continue }
                 if selectedErrorType == .unclassified { continue }
                 for name in VerbalReasoningKnowledgePointRepository.tags(
-                    module: type.module ?? scope.module ?? "", typeID: type.id, records: records
+                    module: type.module ?? scope.module ?? "", typeID: type.id, records: records,
+                    subject: typeSubject.rawValue
                 ) {
                     catalogReferences.append(LibraryKnowledgePointReference(module: type.module ?? scope.module, typeID: type.id, name: name))
                 }
@@ -1032,7 +1058,7 @@ struct LibraryView: View {
             if nameCounts[reference.name, default: 0] > 1 {
                 if let typeID = reference.typeID {
                     let typeName = typeCatalog.first(where: { $0.id == typeID && $0.module == reference.module })?.name ?? "题型已删除"
-                    title = "\(reference.module ?? "言语理解") · \(typeName) · \(reference.name)"
+                    title = "\(reference.module ?? scope.subject ?? "旧考点") · \(typeName) · \(reference.name)"
                 } else {
                     title = "\(reference.module ?? scope.subject ?? "旧考点") · 旧考点 · \(reference.name)"
                 }
@@ -1068,24 +1094,28 @@ struct LibraryView: View {
     private var knowledgePointReferenceIndex: [String: [LibraryKnowledgePointReference]] {
         recordListCache.knowledgePointReferenceIndex(records: records, subject: scope.subject) {
             let errorRecords = records.filter { $0.collection == "errors" }
-            let verbalTypes = LibraryErrorTypeRepository.types(for: .verbalReasoning, records: records)
+            let typeSubject = scope.subject.flatMap(LibraryErrorTypeSubject.init(rawValue:))
+            let typedTypes = typeSubject.map { LibraryErrorTypeRepository.types(for: $0, records: records) } ?? []
             let modules = Set(errorRecords.compactMap { record in
                 nonEmpty(record.module) ?? nonEmpty(record.indexObject?["module"] as? String)
             })
             let legacyNamesByModule = Dictionary(uniqueKeysWithValues: modules.map { module in
                 (module, Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: module, records: records)))
             })
-            let typedNamesByScope = Dictionary(uniqueKeysWithValues: verbalTypes.compactMap { type -> (String, Set<String>)? in
-                guard let module = type.module else { return nil }
-                return (
-                    "\(module)\u{1f}\(type.id)",
-                    Set(VerbalReasoningKnowledgePointRepository.tags(module: module, typeID: type.id, records: records))
-                )
-            })
+            var typedNamesByScope: [String: Set<String>] = [:]
+            for type in typedTypes {
+                let typeModules = type.module.map { [$0] } ?? Array(modules)
+                for module in typeModules {
+                    typedNamesByScope["\(module)\u{1f}\(type.id)"] = Set(VerbalReasoningKnowledgePointRepository.tags(
+                        module: module, typeID: type.id, records: records, subject: typeSubject?.rawValue ?? "言语理解"
+                    ))
+                }
+            }
             return Dictionary(uniqueKeysWithValues: errorRecords.map { record in
                 (record.compoundID, resolveKnowledgePointReferences(
                     for: record,
-                    verbalTypes: verbalTypes,
+                    typedTypes: typedTypes,
+                    typeSubject: typeSubject,
                     legacyNamesByModule: legacyNamesByModule,
                     typedNamesByScope: typedNamesByScope
                 ))
@@ -1095,14 +1125,26 @@ struct LibraryView: View {
 
     private func resolveKnowledgePointReferences(
         for record: StoredRecord,
-        verbalTypes: [LibraryErrorType],
+        typedTypes: [LibraryErrorType],
+        typeSubject: LibraryErrorTypeSubject?,
         legacyNamesByModule: [String: Set<String>],
         typedNamesByScope: [String: Set<String>]
     ) -> [LibraryKnowledgePointReference] {
-        let object = record.indexObject ?? [:]
-        let source = LibraryKnowledgePointReferencePolicy.references(from: object)
+        var object = record.indexObject ?? [:]
         let recordModule = nonEmpty(record.module) ?? nonEmpty(object["module"] as? String)
-        guard scope.subject == "言语理解", let recordModule else {
+        if nonEmpty(object["knowledgePoint"] as? String) == nil,
+           let fallback = nonEmpty(object["point"] as? String) ?? nonEmpty(object["topic"] as? String) {
+            object["knowledgePoint"] = fallback
+        }
+        var knownNames = recordModule.flatMap { legacyNamesByModule[$0] } ?? []
+        if let recordModule {
+            let scopePrefix = "\(recordModule)\u{1f}"
+            for (scope, names) in typedNamesByScope where scope.hasPrefix(scopePrefix) {
+                knownNames.formUnion(names)
+            }
+        }
+        let source = LibraryKnowledgePointReferencePolicy.references(from: object, knownNames: knownNames)
+        guard typeSubject != nil, let recordModule else {
             return source.map { reference in
                 guard reference.module == nil, let recordModule else { return reference }
                 return LibraryKnowledgePointReference(module: recordModule, typeID: reference.typeID, name: reference.name)
@@ -1113,7 +1155,7 @@ struct LibraryView: View {
         return source.map { reference in
             if let typeID = reference.typeID {
                 if reference.module != nil { return reference }
-                let type = verbalTypes.first(where: { $0.id == typeID && $0.module == recordModule })
+                let type = typedTypes.first(where: { $0.id == typeID && $0.isAvailable(in: recordModule) })
                 return LibraryKnowledgePointReference(module: type?.module ?? recordModule, typeID: typeID, name: reference.name)
             }
             if reference.module != nil { return reference }
@@ -1141,8 +1183,10 @@ struct LibraryView: View {
         recordListCache.sortedScopedRecords(
             records: records,
             kind: kind,
-            scope: scope,
-            selectedQuantityType: selectedQuantityType,
+            scope: kind == .notes
+                ? LibraryScope(subject: scope.subject, module: nil, reviewSource: scope.reviewSource)
+                : scope,
+            selectedQuantityType: kind == .notes ? "" : selectedQuantityType,
             errorTypeFilter: errorTypeSubject == nil ? .all : selectedErrorType,
             validErrorTypeIDs: selectedErrorType == .all ? [] : Set(errorTypes.map(\.id))
         )
@@ -1172,7 +1216,12 @@ struct LibraryView: View {
                 }
             }
             let snapshots = candidates.map {
-                LibraryRecordSnapshot(record: $0, sourceExamTitlesByID: examTitles, reviewSource: scope.reviewSource)
+                LibraryRecordSnapshot(
+                    record: $0,
+                    sourceExamTitlesByID: examTitles,
+                    reviewSource: scope.reviewSource,
+                    knowledgePointNames: knowledgePointNames(for: $0)
+                )
             }
             return displayedRecords(from: snapshots).map { $0.record.recordID }
         }
@@ -1184,7 +1233,7 @@ struct LibraryView: View {
         return snapshots.filter { snapshot in
             let matchesSearch = keyword.isEmpty || normalizedSearch(snapshot.searchableText).contains(keyword)
             let matchesMasteredVisibility = kind != .errors || includesMasteredErrors || snapshot.status != "已掌握"
-            let matchesTag = kind == .words || selectedTag.isEmpty || snapshot.tags.contains(selectedTag)
+            let matchesTag = kind == .words || kind == .notes || selectedTag.isEmpty || snapshot.tags.contains(selectedTag)
             let matchesKnowledgePoint = kind != .errors || LibraryKnowledgePointFilterPolicy.matches(
                 recordReferences: referenceIndex[snapshot.record.compoundID] ?? [],
                 selectedReferences: selectedKnowledgePointFilters
@@ -1440,11 +1489,13 @@ struct LibraryView: View {
     }
 
     private var emptyTitle: String {
+        if kind == .notes { return kind.emptyTitle }
         if scope.reviewSource == .pending { return "暂无待确认来源的\(kind.rawValue)" }
         return kind.emptyTitle
     }
 
     private var emptyDetail: String {
+        if kind == .notes { return kind.emptyDetail }
         if scope.reviewSource == .pending {
             return pendingSourceCount > 0 ? "有 \(pendingSourceCount) 条记录待确认，可点上方按钮批量分类。" : "当前模块没有待确认来源的记录。"
         }

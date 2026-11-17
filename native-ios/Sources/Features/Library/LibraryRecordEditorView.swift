@@ -224,18 +224,31 @@ struct LibraryRecordEditorView: View {
             Task { await LibraryDraftStore.flush(snapshot, kind: kind, scope: scope) }
         }
         .onAppear {
-            if kind == .errors, draft.subject == "言语理解" {
-                let localNames = Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records))
-                let references = LibraryKnowledgePointReferencePolicy.resolvingLocalReferences(
-                    draft.knowledgePointRefs,
-                    currentModule: draft.module,
-                    availableNames: localNames
-                )
-                let displayNames = LibraryKnowledgePointReferencePolicy.displayNames(from: references).joined(separator: "、")
-                draft.knowledgePointRefs = references
-                draft.knowledgePoint = displayNames
-                editBaseline.knowledgePointRefs = references
-                editBaseline.knowledgePoint = displayNames
+            if kind == .errors {
+                var localNames = Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records))
+                if let typeSubject = LibraryErrorTypeSubject(rawValue: draft.subject) {
+                    for type in LibraryErrorTypeRepository.types(for: typeSubject, records: records)
+                        where type.isAvailable(in: draft.module) {
+                        localNames.formUnion(VerbalReasoningKnowledgePointRepository.tags(
+                            module: draft.module, typeID: type.id, records: records, subject: draft.subject
+                        ))
+                    }
+                }
+                let hasCanonicalDraftSelection = !draft.knowledgePointRefs.isEmpty || !draft.knowledgePointNames.isEmpty
+                if recordID != nil || !hasCanonicalDraftSelection {
+                    let references = LibraryKnowledgePointReferencePolicy.references(
+                        from: draft.original,
+                        fallbackValue: draft.knowledgePoint,
+                        knownNames: localNames
+                    )
+                    let displayNames = LibraryKnowledgePointReferencePolicy.displayNames(from: references)
+                    draft.knowledgePointRefs = references
+                    draft.knowledgePointNames = displayNames
+                    draft.knowledgePoint = displayNames.joined(separator: "、")
+                    editBaseline.knowledgePointRefs = references
+                    editBaseline.knowledgePointNames = displayNames
+                    editBaseline.knowledgePoint = draft.knowledgePoint
+                }
             }
             if kind != .words,
                let recordID,
@@ -343,7 +356,7 @@ struct LibraryRecordEditorView: View {
                 if kind != .words {
                     contextCard
                 }
-                if kind == .notes || kind == .stickies { reviewSourcePicker }
+                if kind == .stickies { reviewSourcePicker }
                 if kind == .errors && draft.reviewSource == .pending {
                     Label("请选择真题复盘或模拟题复盘后再保存。", systemImage: "exclamationmark.circle.fill")
                         .font(AppTheme.auxiliaryFont)
@@ -442,15 +455,19 @@ struct LibraryRecordEditorView: View {
             Button("取消", role: .cancel) {}
         } message: { Text("删除后无法在 App 内恢复。") }
         .confirmationDialog("未保存的\(kind.rawValue)草稿", isPresented: $showDiscardDraftConfirmation, titleVisibility: .visible) {
-            Button("保存并退出") { save() }
-                .disabled(!canSave || isSaving)
-                .accessibilityIdentifier("library-draft-save-exit")
-            Button("放弃草稿", role: .destructive) { discardDraftAndExit() }
+            if kind != .words {
+                Button("保存并退出") { save() }
+                    .disabled(!canSave || isSaving)
+                    .accessibilityIdentifier("library-draft-save-exit")
+            }
+            Button(kind == .words ? "放弃修改" : "放弃草稿", role: .destructive) { discardDraftAndExit() }
                 .accessibilityIdentifier("library-draft-discard")
             Button("继续编辑") {}
                 .accessibilityIdentifier("library-draft-continue")
         } message: {
-            Text("继续编辑会保留草稿；保存并退出会保存当前记录；只有选择“放弃草稿”才会清除本分类和作用域的草稿。")
+            Text(kind == .words
+                ? "词语编辑内容只在当前页面保留。放弃修改后将返回词语库，原有保存内容不受影响。"
+                : "继续编辑会保留草稿；保存并退出会保存当前记录；只有选择“放弃草稿”才会清除本分类和作用域的草稿。")
         }
     }
 
@@ -458,8 +475,10 @@ struct LibraryRecordEditorView: View {
         var overlays: [AnyView] = []
         if showSmartSplit { overlays.append(AnyView(smartSplitDialog)) }
         if let activeTags {
-            if activeTags == .knowledgePoint, kind == .errors, draft.subject == "言语理解" {
+            if activeTags == .knowledgePoint, kind == .errors,
+               LibraryErrorTypeSubject(rawValue: draft.subject) != nil {
                 overlays.append(AnyView(VerbalReasoningKnowledgePointSelectionDialog(
+                    subject: draft.subject,
                     currentModule: draft.module,
                     currentTypeID: draft.errorTypeID,
                     selection: $draft.knowledgePointRefs,
@@ -488,6 +507,10 @@ struct LibraryRecordEditorView: View {
                     subject: draft.subject,
                     selection: selection,
                     onClose: { self.activeTags = nil },
+                    selectionValues: activeTags == .knowledgePoint && kind == .errors
+                        ? $draft.knowledgePointNames : nil,
+                    selectionReferences: activeTags == .knowledgePoint && kind == .errors
+                        ? $draft.knowledgePointRefs : nil,
                     onTagMutation: applyTagMutation,
                     titleOverride: activeTags == .knowledgePoint ? knowledgePointLabel : errorCauseLabel,
                     maximumOverride: isQuantityRelations && activeTags == .errorCause
@@ -501,6 +524,8 @@ struct LibraryRecordEditorView: View {
                 currentType: draft.module,
                 selection: $draft.knowledgePoint,
                 onClose: { showQuantityKnowledgePoints = false },
+                selectionValues: $draft.knowledgePointNames,
+                selectionReferences: $draft.knowledgePointRefs,
                 onTagMutation: applyTagMutation
             )))
         }
@@ -554,7 +579,7 @@ struct LibraryRecordEditorView: View {
 
         switch result.kind {
         case .knowledgePoint:
-            if draft.subject == "言语理解" {
+            if LibraryErrorTypeSubject(rawValue: draft.subject) != nil {
                 let references = draft.knowledgePointRefs.compactMap { reference -> LibraryKnowledgePointReference? in
                     guard reference.module == result.module,
                           reference.typeID == result.typeID,
@@ -567,13 +592,25 @@ struct LibraryRecordEditorView: View {
                     )
                 }
                 draft.knowledgePointRefs = LibraryKnowledgePointReferencePolicy.uniqueReferences(references)
-                draft.knowledgePoint = LibraryKnowledgePointReferencePolicy.displayNames(from: draft.knowledgePointRefs).joined(separator: "、")
+                draft.knowledgePointNames = LibraryKnowledgePointReferencePolicy.displayNames(from: draft.knowledgePointRefs)
+                draft.knowledgePoint = draft.knowledgePointNames.joined(separator: "、")
                 let baselineReferences = LibraryKnowledgePointReferencePolicy.references(from: afterObject)
-                let localNames = Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records))
+                var localNames = Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records))
+                if let typeSubject = LibraryErrorTypeSubject(rawValue: draft.subject) {
+                    for type in LibraryErrorTypeRepository.types(for: typeSubject, records: records)
+                        where type.isAvailable(in: draft.module) {
+                        localNames.formUnion(VerbalReasoningKnowledgePointRepository.tags(
+                            module: draft.module, typeID: type.id, records: records, subject: draft.subject
+                        ))
+                    }
+                }
                 editBaseline.knowledgePointRefs = LibraryKnowledgePointReferencePolicy.resolvingLocalReferences(
                     baselineReferences,
                     currentModule: draft.module,
                     availableNames: localNames
+                )
+                editBaseline.knowledgePointNames = LibraryKnowledgePointReferencePolicy.displayNames(
+                    from: editBaseline.knowledgePointRefs
                 )
                 editBaseline.knowledgePoint = payloadTagValue(
                     from: afterObject,
@@ -581,12 +618,20 @@ struct LibraryRecordEditorView: View {
                     scalarKey: "knowledgePoint"
                 )
             } else {
-                draft.knowledgePoint = replacingTag(
-                    result.oldName,
-                    with: result.newName,
-                    in: draft.knowledgePoint,
-                    lineBased: false
+                let references = LibraryKnowledgePointReferencePolicy.references(
+                    from: afterObject,
+                    fallbackValue: payloadTagValue(
+                        from: afterObject,
+                        arrayKey: "knowledgePoints",
+                        scalarKey: "knowledgePoint"
+                    ),
+                    knownNames: Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: draft.module, records: records))
                 )
+                draft.knowledgePointRefs = references
+                draft.knowledgePointNames = LibraryKnowledgePointReferencePolicy.displayNames(from: references)
+                draft.knowledgePoint = draft.knowledgePointNames.joined(separator: "、")
+                editBaseline.knowledgePointRefs = references
+                editBaseline.knowledgePointNames = draft.knowledgePointNames
                 editBaseline.knowledgePoint = payloadTagValue(
                     from: afterObject,
                     arrayKey: "knowledgePoints",
@@ -688,11 +733,46 @@ struct LibraryRecordEditorView: View {
 
     private var contextControlsRow: some View {
         HStack(spacing: 8) {
-            subjectPicker
-            modulePicker
-            Spacer(minLength: 0)
-            addImagePicker
+            if kind == .notes {
+                noteSubjectPicker
+                noteModulePicker
+            } else {
+                subjectPicker
+                modulePicker
+                Spacer(minLength: 0)
+                addImagePicker
+            }
         }
+    }
+
+    private var noteSubjectPicker: some View {
+        Menu {
+            ForEach(SubjectDefinition.all) { subject in
+                Button(subject.name) {
+                    guard draft.subject != subject.name else { return }
+                    draft.subject = subject.name
+                    draft.module = ""
+                }
+            }
+        } label: {
+            compactProperty(title: "科目", value: draft.subject, image: "books.vertical")
+        }
+        .accessibilityIdentifier("library-note-subject-picker")
+    }
+
+    private var noteModulePicker: some View {
+        let modules = draft.subject == "数量关系"
+            ? QuantityQuestionTypeRepository.types(records: records)
+            : (SubjectDefinition.all.first(where: { $0.name == draft.subject })?.modules ?? [])
+        return Menu {
+            Button("不设置模块") { draft.module = "" }
+            ForEach(modules, id: \.self) { module in
+                Button(module) { draft.module = module }
+            }
+        } label: {
+            compactProperty(title: "模块（可选）", value: draft.module.isEmpty ? "未设置" : draft.module, image: "square.stack.3d.up")
+        }
+        .accessibilityIdentifier("library-note-module-picker")
     }
 
     private var subjectPicker: some View {
@@ -949,41 +1029,19 @@ struct LibraryRecordEditorView: View {
     private var noteFields: some View {
         VStack(alignment: .leading, spacing: 12) {
             TextField("笔记标题", text: $draft.title).textFieldStyle(NativeTextFieldStyle())
-            Menu {
-                Button("全部（不设置标签）") { draft.type = "" }
-                ForEach(noteTypes) { item in Button(item.name) { draft.type = item.name } }
-            } label: {
-                NativePropertyRow(title: "笔记标签", value: draft.type.isEmpty ? "全部" : draft.type, systemImage: "tag") {}
-                    .allowsHitTesting(false)
-            }
-            if isQuantityRelations {
-                quantityTextInput(title: "题目结构", placeholder: "例如：矩形边界植树", text: $draft.quantityStructure)
-                quantityTagInput(title: "考点", value: draft.knowledgePoint) {
-                    showQuantityKnowledgePoints = true
-                }
-                quantityTagInput(title: "弱项标签", value: draft.weaknessTags) {
-                    showQuantityWeaknessTags = true
-                }
-            } else {
-                TextField("考点（可选）", text: $draft.knowledgePoint).textFieldStyle(NativeTextFieldStyle())
-            }
             NativeFieldLabel(title: "正文")
-            richEditor(text: $draft.content, height: 240)
-            DisclosureGroup("思维导图") {
-                NativeMindMapEditor(encodedDocument: $draft.mindMapData).padding(.top, 8)
-            }
-            DisclosureGroup("涂鸦与手写") {
-                NativePencilDrawingEditor(
-                    encodedData: $draft.pencilKitData,
-                    legacyPreviewDataURL: draft.legacyDrawingPreview
-                )
-                .padding(.top, 8)
-            }
-            multiRelationSection(title: "关联错题", candidates: relationCandidates(collection: "errors"), selection: $draft.linkedErrorIDs)
-            Text("正文使用 TextKit 2 原生富文本编辑器，思维导图和 PencilKit 手写数据随当前笔记保存。")
-                .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
+            NativeRichTextEditor(
+                html: $draft.content,
+                minHeight: 360,
+                documentStyle: true,
+                tableAppearance: .libraryContent
+            )
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white)
+            .accessibilityIdentifier("library-independent-note-body")
         }
-        .nativeCard()
+        .padding(.vertical, 4)
     }
 
     private func quantityTagInput(title: String, value: String, action: @escaping () -> Void) -> some View {

@@ -12,6 +12,7 @@ struct KnowledgePointOrderView: View {
     var groupID: String? = nil
 
     @State private var names: [String] = []
+    @State private var originalNames: [String] = []
     @State private var errorMessage: String?
     @State private var editMode: EditMode = .active
 
@@ -27,8 +28,8 @@ struct KnowledgePointOrderView: View {
             .navigationTitle("调整考点顺序")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { EditButton() }
-                ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) { Button("完成", action: saveOrder) }
             }
             .overlay {
                 if names.isEmpty {
@@ -49,9 +50,9 @@ struct KnowledgePointOrderView: View {
 
     private func reload() {
         if let typeID {
-            let allNames = VerbalReasoningKnowledgePointRepository.tags(module: module, typeID: typeID, records: records)
+            let allNames = VerbalReasoningKnowledgePointRepository.tags(module: module, typeID: typeID, records: records, subject: subject)
             names = LibraryKnowledgePointGroupRepository.names(
-                in: groupID, allNames: allNames, subject: "言语理解", module: module,
+                in: groupID, allNames: allNames, subject: subject, module: module,
                 typeID: typeID, records: records
             )
         } else {
@@ -61,23 +62,61 @@ struct KnowledgePointOrderView: View {
                 records: records
             )
         }
+        originalNames = names
     }
 
     private func move(from source: IndexSet, to destination: Int) {
         names.move(fromOffsets: source, toOffset: destination)
+    }
+
+    private func saveOrder() {
+        guard names != originalNames else { dismiss(); return }
         do {
+            let latestScopeNames: [String]
+            if let typeID {
+                let allNames = VerbalReasoningKnowledgePointRepository.tags(
+                    module: module, typeID: typeID, records: records, subject: subject
+                )
+                latestScopeNames = LibraryKnowledgePointGroupRepository.names(
+                    in: groupID, allNames: allNames, subject: subject, module: module,
+                    typeID: typeID, records: records
+                )
+            } else {
+                let allNames = TagLibraryRepository.tags(
+                    kind: .knowledgePoint, module: module, records: records
+                )
+                latestScopeNames = LibraryKnowledgePointGroupRepository.names(
+                    in: groupID, allNames: allNames, subject: subject, module: module,
+                    records: records
+                )
+            }
+            guard latestScopeNames.count == originalNames.count,
+                  Set(latestScopeNames) == Set(originalNames) else {
+                throw KnowledgePointOrderSaveError.stale
+            }
             if let typeID {
                 try VerbalReasoningKnowledgePointRepository.reorder(
-                    names, module: module, typeID: typeID, records: records, context: modelContext, groupID: groupID
+                    names, module: module, typeID: typeID, records: records, context: modelContext, groupID: groupID,
+                    subject: subject
                 )
             } else {
                 try TagLibraryRepository.reorderKnowledgePoints(
                     names, module: module, groupID: groupID, subject: subject, records: records, context: modelContext
                 )
             }
+            originalNames = names
+            dismiss()
         } catch {
-            reload()
+            names = originalNames
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+private enum KnowledgePointOrderSaveError: LocalizedError {
+    case stale
+
+    var errorDescription: String? {
+        "考点清单已变化，本次排序未保存。请关闭后重新打开排序。"
     }
 }

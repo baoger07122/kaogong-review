@@ -128,8 +128,8 @@ enum NativeRichTextNoteParagraphHTMLPolicy {
                 result[index].spacingBefore = clamp(source[index].spacingBefore, 4)
                 result[index].spacingAfter = clamp(source[index].spacingAfter, 4)
                 result[index].lineSpacing = source[index].lineSpacing > 0.01
-                    ? clamp(source[index].lineSpacing, 2)
-                    : (hasStructuredParagraphs ? 2 : 0)
+                    ? clamp(source[index].lineSpacing, 1)
+                    : (hasStructuredParagraphs ? 1 : 0)
             }
         }
 

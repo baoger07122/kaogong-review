@@ -26,6 +26,37 @@ enum LibraryKnowledgePointReferenceBehavior {
         precondition(decoded.allSatisfy { $0.typeID != nil })
         precondition(Set(decoded.compactMap(\.typeID)) == Set<String>(["type-a", "type-b"]))
 
+        let mixedLegacyObject: [String: Any] = [
+            "knowledgePointRefs": [typeA.jsonValue],
+            "knowledgePoints": ["语境分析", "旧版未迁移考点"]
+        ]
+        let mixed = LibraryKnowledgePointReferencePolicy.references(from: mixedLegacyObject)
+        precondition(mixed.count == 2, "a mixed record must keep legacy names absent from its structured references")
+        precondition(mixed.contains(typeA))
+        precondition(mixed.contains(LibraryKnowledgePointReference(module: nil, name: "旧版未迁移考点")))
+
+        let authoritativeEmpty = LibraryKnowledgePointReferencePolicy.references(from: [
+            "knowledgePointRefs": [],
+            "knowledgePoints": ["stale legacy value"],
+            "knowledgePoint": "stale legacy value"
+        ])
+        precondition(authoritativeEmpty.isEmpty, "an explicit empty reference list must remain an intentional clear")
+
+        let knownCommaName = LibraryKnowledgePointReferencePolicy.references(
+            from: ["knowledgePoint": "综合,分析"], knownNames: ["综合,分析", "综合", "分析"]
+        )
+        precondition(knownCommaName.map(\.name) == ["综合,分析"], "an exact catalog name containing a comma must win over token splitting")
+
+        let unambiguousLegacyList = LibraryKnowledgePointReferencePolicy.references(
+            from: ["knowledgePoint": "综合、分析"], knownNames: ["综合", "分析"]
+        )
+        precondition(unambiguousLegacyList.map(\.name) == ["综合", "分析"])
+
+        let ambiguousLegacyText = LibraryKnowledgePointReferencePolicy.references(
+            from: ["knowledgePoint": "综合,陌生"], knownNames: ["综合"]
+        )
+        precondition(ambiguousLegacyText.map(\.name) == ["综合,陌生"], "unmatched legacy text must be preserved for review")
+
         let resolved = LibraryKnowledgePointReferencePolicy.resolvingLocalReferences(
             [LibraryKnowledgePointReference(module: nil, typeID: "type-a", name: "语境分析"),
              LibraryKnowledgePointReference(module: nil, name: "旧条目")],

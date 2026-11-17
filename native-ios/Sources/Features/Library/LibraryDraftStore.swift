@@ -9,6 +9,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
     var type: String
     var knowledgePoint: String
     var knowledgePointRefs: [LibraryKnowledgePointReference]?
+    var knowledgePointNames: [String]?
     var errorCause: String
     var errorTypeID: String?
     var status: String
@@ -80,6 +81,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         type = draft.type
         knowledgePoint = draft.knowledgePoint
         knowledgePointRefs = draft.knowledgePointRefs
+        knowledgePointNames = draft.knowledgePointNames
         errorCause = draft.errorCause
         errorTypeID = draft.errorTypeID
         status = draft.status
@@ -155,6 +157,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         draft.type = type
         draft.knowledgePoint = knowledgePoint
         draft.knowledgePointRefs = knowledgePointRefs ?? []
+        draft.knowledgePointNames = knowledgePointNames ?? []
         draft.errorTypeID = errorTypeID
         let restoredCauseAuthority = quantityErrorCauseIsAuthoritative ?? false
         draft.quantityErrorCauseIsAuthoritative = restoredCauseAuthority
@@ -241,6 +244,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !(knowledgePointRefs ?? []).isEmpty
+            || !(knowledgePointNames ?? []).isEmpty
             || !images.isEmpty
             || !(optionImages ?? []).allSatisfy(\.isEmpty)
             || !pencilKitData.isEmpty
@@ -283,6 +287,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
 
 enum LibraryDraftStore {
     static func load(kind: LibraryContentKind, scope: LibraryScope, category: String = "") -> LibraryDraftSnapshot? {
+        guard kind != .words else { return nil }
         let storageKey = key(kind: kind, scope: scope, category: category)
         if let data = UserDefaults.standard.data(forKey: storageKey),
            let snapshot = try? JSONDecoder().decode(LibraryDraftSnapshot.self, from: data) {
@@ -303,6 +308,7 @@ enum LibraryDraftStore {
     }
 
     static func save(_ snapshot: LibraryDraftSnapshot, kind: LibraryContentKind, scope: LibraryScope) {
+        guard kind != .words else { return }
         let storageKey = key(kind: kind, scope: scope, category: snapshot.type)
         let revision = LibraryDraftRevision.next(for: storageKey)
         Task {
@@ -315,6 +321,7 @@ enum LibraryDraftStore {
     }
 
     static func clear(kind: LibraryContentKind, scope: LibraryScope, category: String = "") {
+        guard kind != .words else { return }
         let storageKey = key(kind: kind, scope: scope, category: category)
         let revision = LibraryDraftRevision.next(for: storageKey)
         Task {
@@ -323,6 +330,7 @@ enum LibraryDraftStore {
     }
 
     static func flush(_ snapshot: LibraryDraftSnapshot, kind: LibraryContentKind, scope: LibraryScope) async {
+        guard kind != .words else { return }
         let storageKey = key(kind: kind, scope: scope, category: snapshot.type)
         let revision = LibraryDraftRevision.next(for: storageKey)
         await LibraryDraftPersistenceWriter.shared.flush(
@@ -333,6 +341,7 @@ enum LibraryDraftStore {
     }
 
     static func clearAndWait(kind: LibraryContentKind, scope: LibraryScope, category: String = "") async {
+        guard kind != .words else { return }
         let storageKey = key(kind: kind, scope: scope, category: category)
         let revision = LibraryDraftRevision.next(for: storageKey)
         await LibraryDraftPersistenceWriter.shared.clear(storageKey: storageKey, revision: revision)

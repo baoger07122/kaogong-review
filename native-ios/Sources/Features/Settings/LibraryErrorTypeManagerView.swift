@@ -10,15 +10,15 @@ struct LibraryErrorTypeModulesView: View {
     @Query(filter: #Predicate<StoredRecord> { $0.collection == "keyvalue" }) private var records: [StoredRecord]
     @State private var selectedModule: LibraryErrorTypeModuleSelection?
 
-    private let subject = LibraryErrorTypeSubject.verbalReasoning
+    let subject: LibraryErrorTypeSubject
 
     var body: some View {
         List {
             ForEach(subject.modules, id: \.self) { module in
-                moduleLink(module, module: module, accessibilityID: "verbal-error-module-\(module)")
+                moduleLink(module, module: module, accessibilityID: "error-type-module-\(subject.rawValue)-\(module)")
             }
             if LibraryErrorTypeRepository.types(for: subject, records: records).contains(where: { $0.module == nil }) {
-                moduleLink("原有通用类型", module: nil, accessibilityID: "verbal-error-module-legacy")
+                moduleLink("原有通用类型", module: nil, accessibilityID: "error-type-module-legacy-\(subject.rawValue)")
             }
         }
         .navigationTitle(subject.managementTitle)

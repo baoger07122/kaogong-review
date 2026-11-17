@@ -313,7 +313,8 @@ struct LibraryRecordSnapshot: Identifiable {
         sourceExamTitlesByID: [String: String] = [:],
         reviewSource: LibraryReviewSource = .pending,
         includeImages: Bool = false,
-        previousImageSnapshot: LibraryRecordSnapshot? = nil
+        previousImageSnapshot: LibraryRecordSnapshot? = nil,
+        knowledgePointNames: Set<String> = []
     ) {
         self.record = record
         let object = record.compatibilityIndexObject ?? [:]
@@ -363,16 +364,20 @@ struct LibraryRecordSnapshot: Identifiable {
         }
         wordEntryKinds = Array(Set(entryKinds))
 
-        if let points = object["knowledgePoints"] as? [String] {
-            knowledgePoints = points.map(Self.plainText).filter { !$0.isEmpty }
-        } else if let point = Self.firstText(in: object, keys: ["knowledgePoint", "point", "topic"]) {
-            knowledgePoints = point
-                .split(whereSeparator: { "、,，".contains($0) })
-                .map { Self.plainText(String($0)) }
-                .filter { !$0.isEmpty }
-        } else {
-            knowledgePoints = []
+        var knowledgePointObject = object
+        let legacyKnowledgePoint = Self.firstText(in: object, keys: ["knowledgePoint", "point", "topic"]) ?? ""
+        let storedKnowledgePoint = (knowledgePointObject["knowledgePoint"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if storedKnowledgePoint == nil || storedKnowledgePoint?.isEmpty == true {
+            knowledgePointObject["knowledgePoint"] = legacyKnowledgePoint
         }
+        knowledgePoints = LibraryKnowledgePointReferencePolicy.displayNames(
+            from: LibraryKnowledgePointReferencePolicy.references(
+                from: knowledgePointObject,
+                fallbackValue: legacyKnowledgePoint,
+                knownNames: knowledgePointNames
+            )
+        ).map(Self.plainText).filter { !$0.isEmpty }
         let quantityErrorCauses = record.collection == "errors" && subject == "数量关系"
             ? LibraryQuantityErrorCauseCompatibility.values(in: object)
             : []
@@ -472,13 +477,12 @@ struct LibraryRecordSnapshot: Identifiable {
             if isDifficult { values.append("难题") }
             if needsReview { values.append("待复习") }
         }
-        if let points = object["knowledgePoints"] as? [String] { values.append(contentsOf: points) }
+        values.append(contentsOf: knowledgePoints)
         if record.collection == "errors", subject == "数量关系" {
             values.append(contentsOf: quantityErrorCauses)
         } else {
             values.append(contentsOf: weaknessTags)
         }
-        if let point = Self.firstText(in: object, keys: ["knowledgePoint"]) { values.append(point) }
         var seen = Set<String>()
         tags = Array(values.filter { !$0.isEmpty && seen.insert($0).inserted })
 

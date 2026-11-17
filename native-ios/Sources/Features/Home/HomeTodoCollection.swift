@@ -33,6 +33,7 @@ struct HomeTodoCollection: UIViewRepresentable {
 
     func updateUIView(_ view: HomeTodoCollectionView, context: Context) {
         context.coordinator.parent = self
+        view.fallbackRowCount = items.count
         guard context.coordinator.items != items else { return }
         context.coordinator.items = items
         view.reloadData()
@@ -44,10 +45,16 @@ struct HomeTodoCollection: UIViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: HomeTodoCollectionView, context: Context) -> CGSize? {
         let width = proposal.width ?? uiView.bounds.width
         guard width > 0 else { return nil }
+        uiView.fallbackRowCount = items.count
         uiView.bounds.size.width = width
         uiView.setNeedsLayout()
+        uiView.collectionViewLayout.prepare()
         uiView.layoutIfNeeded()
-        return CGSize(width: width, height: uiView.collectionViewLayout.collectionViewContentSize.height)
+        let measuredHeight = uiView.collectionViewLayout.collectionViewContentSize.height
+        let height = measuredHeight > 0 || items.isEmpty
+            ? measuredHeight
+            : CGFloat(items.count) * HomeTodoCollectionView.fallbackRowHeight
+        return CGSize(width: width, height: height)
     }
 
     final class Coordinator: NSObject, UICollectionViewDataSource {
@@ -139,7 +146,23 @@ struct HomeTodoCollection: UIViewRepresentable {
 }
 
 final class HomeTodoCollectionView: UICollectionView {
+    static let fallbackRowHeight: CGFloat = 52
+    var fallbackRowCount = 0
+    private var lastMeasuredHeight: CGFloat = -1
+
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: collectionViewLayout.collectionViewContentSize.height)
+        let measuredHeight = collectionViewLayout.collectionViewContentSize.height
+        let height = measuredHeight > 0 || fallbackRowCount == 0
+            ? measuredHeight
+            : CGFloat(fallbackRowCount) * Self.fallbackRowHeight
+        return CGSize(width: UIView.noIntrinsicMetric, height: height)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let measuredHeight = collectionViewLayout.collectionViewContentSize.height
+        guard measuredHeight > 0, abs(measuredHeight - lastMeasuredHeight) > 0.5 else { return }
+        lastMeasuredHeight = measuredHeight
+        invalidateIntrinsicContentSize()
     }
 }

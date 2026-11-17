@@ -650,6 +650,7 @@ struct LibraryRecordDetailView: View {
             )
         } else if showVerbalKnowledgePointSelection {
             VerbalReasoningKnowledgePointSelectionDialog(
+                subject: activeSubject,
                 currentModule: activeModule,
                 currentTypeID: object["errorTypeID"] as? String,
                 selection: $verbalKnowledgePointReferences,
@@ -1510,12 +1511,13 @@ struct LibraryRecordDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             if canEditReviewAttributes {
                 Button {
-                    if kind == .errors, activeSubject == "言语理解", label == "考点" {
+                    if kind == .errors, LibraryErrorTypeSubject(rawValue: activeSubject) != nil, label == "考点" {
                         let references = LibraryKnowledgePointReferencePolicy.references(
                             from: object,
-                            fallbackValue: cleanedValues.joined(separator: "、")
+                            fallbackValue: cleanedValues.joined(separator: "、"),
+                            knownNames: typedKnowledgePointNames
                         )
-                        let localNames = Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: activeModule, records: records))
+                        let localNames = typedKnowledgePointNames
                         verbalKnowledgePointReferences = LibraryKnowledgePointReferencePolicy.resolvingLocalReferences(
                             references,
                             currentModule: activeModule,
@@ -2020,10 +2022,10 @@ struct LibraryRecordDetailView: View {
     }
 
     private func saveDetailKnowledgePointReferences(_ references: [LibraryKnowledgePointReference]) -> String? {
-        guard let record, record.collection == "errors", activeSubject == "言语理解" else {
+        guard let record, record.collection == "errors", LibraryErrorTypeSubject(rawValue: activeSubject) != nil else {
             return "题目记录不存在，修改未保存。"
         }
-        let localNames = Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: activeModule, records: records))
+        let localNames = typedKnowledgePointNames
         let resolvedReferences = LibraryKnowledgePointReferencePolicy.resolvingLocalReferences(
             references,
             currentModule: activeModule,
@@ -2573,6 +2575,17 @@ struct LibraryRecordDetailView: View {
             if let value = linkedQuestionFallbackObject[key] as? NSNumber { return value.stringValue }
         }
         return nil
+    }
+
+    private var typedKnowledgePointNames: Set<String> {
+        var names = Set(TagLibraryRepository.tags(kind: .knowledgePoint, module: activeModule, records: records))
+        guard let typeSubject = LibraryErrorTypeSubject(rawValue: activeSubject) else { return names }
+        for type in LibraryErrorTypeRepository.types(for: typeSubject, records: records).filter({ $0.isAvailable(in: activeModule) }) {
+            names.formUnion(VerbalReasoningKnowledgePointRepository.tags(
+                module: activeModule, typeID: type.id, records: records, subject: activeSubject
+            ))
+        }
+        return names
     }
     private func stringArray(_ key: String) -> [String]? {
         if let values = object[key] as? [String], !values.isEmpty { return values }
