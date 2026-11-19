@@ -32,8 +32,9 @@ enum ShenlunWorkspaceBehavior {
         let twoSheets = ShenlunAnswerGridLayout.project(answerText: "", maximumWordCount: 1_200)
         precondition(twoSheets.sheetCount == 2 && twoSheets.gridCellCount(on: 0) == 600 && twoSheets.gridCellCount(on: 1) == 600,
                      "a 1,200-cell upper limit should use two full 600-cell sheets")
-        precondition(twoSheets.markers(on: 1, minimumWordCount: 1_000) == [1_000, 1_200],
-                     "the second sheet should mark its word-count lower and upper bounds")
+        let secondSheetMarkers = twoSheets.markers(on: 1, minimumWordCount: 1_000)
+        precondition(secondSheetMarkers == [700, 800, 900, 1_000, 1_100, 1_200],
+                     "the second sheet should mark each 100-cell ruler plus the 1,000 lower and 1,200 upper bounds")
 
         precondition(ShenlunPDFPageSelectionPolicy.parse("1-3,5,3", pageCount: 7) == [0, 1, 2, 4],
                      "PDF range selection should preserve selected page order and remove repeated pages")
