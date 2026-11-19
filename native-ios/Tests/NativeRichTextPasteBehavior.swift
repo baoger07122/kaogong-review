@@ -9,6 +9,7 @@ enum NativeRichTextPasteBehavior {
         verifyOrdinaryLineBreaksStayPlain()
         verifyExplicitMarkdownIsConverted()
         verifyRichTextSpacingKeepsParagraphsAndBoldRuns()
+        verifyParagraphSpacingInference()
         verifyAttributedInsertionAndUndo()
         verifyMarkdownTablePasteParsing()
         verifyHTMLTablePasteParsing()
@@ -41,6 +42,43 @@ enum NativeRichTextPasteBehavior {
         let paragraph = compact.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
         precondition(paragraph?.paragraphSpacing == NativeRichTextPastePolicy.maximumParagraphSpacing, "oversized paragraph spacing should be capped")
         precondition(paragraph?.paragraphSpacingBefore == NativeRichTextPastePolicy.maximumParagraphSpacing, "oversized paragraph leading should be capped")
+    }
+
+    private static func verifyParagraphSpacingInference() {
+        let naturalKey = NativeRichTextPastePolicy.confirmedNaturalParagraph
+        let headingKey = NativeRichTextPastePolicy.semanticHeadingParagraph
+        let explicitKey = NativeRichTextPastePolicy.explicitParagraphSpacing
+
+        let ordinary = NSMutableAttributedString(string: "自然段一\n自然段二")
+        ordinary.addAttribute(naturalKey, value: true, range: NSRange(location: 0, length: ordinary.length))
+        let ordinaryCompacted = NativeRichTextPastePolicy.compactParagraphSpacing(in: ordinary)
+        let ordinaryStyle = ordinaryCompacted.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        precondition(ordinaryStyle?.paragraphSpacing == NativeRichTextPastePolicy.maximumParagraphSpacing,
+                     "confirmed adjacent ordinary source paragraphs should receive compact spacing")
+
+        let heading = NSMutableAttributedString(string: "标题\n正文")
+        heading.addAttribute(naturalKey, value: true, range: NSRange(location: 0, length: heading.length))
+        heading.addAttribute(headingKey, value: 1, range: NSRange(location: 0, length: ("标题\n" as NSString).length))
+        let headingCompacted = NativeRichTextPastePolicy.compactParagraphSpacing(in: heading)
+        let headingStyle = headingCompacted.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        precondition((headingStyle?.paragraphSpacing ?? 0) == 0,
+                     "a semantic title must not receive inferred paragraph spacing")
+
+        let explicitZero = NSMutableAttributedString(string: "显式零段距一\n显式零段距二")
+        explicitZero.addAttribute(naturalKey, value: true, range: NSRange(location: 0, length: explicitZero.length))
+        explicitZero.addAttribute(explicitKey, value: true, range: NSRange(location: 0, length: ("显式零段距一\n" as NSString).length))
+        let explicitCompacted = NativeRichTextPastePolicy.compactParagraphSpacing(in: explicitZero)
+        let explicitStyle = explicitCompacted.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        precondition((explicitStyle?.paragraphSpacing ?? 0) == 0,
+                     "source-confirmed explicit zero spacing must not be replaced by the default gap")
+
+        // A bare newline can represent an HTML <br> or an RTF soft line break.
+        // Without source paragraph metadata it must not be guessed as a paragraph boundary.
+        let softBreak = NSAttributedString(string: "软换行一\n软换行二")
+        let softBreakCompacted = NativeRichTextPastePolicy.compactParagraphSpacing(in: softBreak)
+        let softBreakStyle = softBreakCompacted.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        precondition((softBreakStyle?.paragraphSpacing ?? 0) == 0,
+                     "an unclassified soft line break must not receive inferred paragraph spacing")
     }
 
     private static func verifyAttributedInsertionAndUndo() {

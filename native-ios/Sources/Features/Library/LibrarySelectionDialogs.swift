@@ -9,6 +9,217 @@ private struct LibraryKnowledgePointOrderTarget: Identifiable {
     var id: String { "\(subject)|\(module)|\(typeID ?? "legacy")|\(groupID ?? "ungrouped")" }
 }
 
+private struct LibraryKnowledgePointAddTarget: Identifiable {
+    let id = UUID()
+    let name: String
+    let subject: String
+    let module: String
+    let typeID: String?
+}
+
+private struct LibraryKnowledgePointAddDestinationPopover: View {
+    let target: LibraryKnowledgePointAddTarget
+    let groups: [LibraryKnowledgePointGroup]
+    let onCreate: (String?) -> String?
+    let onCancel: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedGroupID: String?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("新增考点")
+                .font(.system(size: 14, weight: .semibold))
+            Text("名称：\(target.name)")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+
+            ScrollView {
+                VStack(spacing: 0) {
+                    destinationRow(title: "通用（不分组）", groupID: nil)
+                    ForEach(groups) { group in
+                        destinationRow(title: group.name, groupID: group.id)
+                    }
+                }
+            }
+            .frame(maxHeight: 264)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.system(size: 11))
+                    .foregroundStyle(AppTheme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 10) {
+                Button("取消") {
+                    onCancel()
+                    dismiss()
+                }
+                .buttonStyle(NativeSecondaryButtonStyle())
+                Button("确认") {
+                    if let error = onCreate(selectedGroupID) {
+                        errorMessage = error
+                    } else {
+                        onCancel()
+                        dismiss()
+                    }
+                }
+                .buttonStyle(NativePrimaryButtonStyle())
+            }
+        }
+        .padding(16)
+        .frame(width: 320, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .onAppear { selectedGroupID = nil }
+    }
+
+    private func destinationRow(title: String, groupID: String?) -> some View {
+        Button { selectedGroupID = groupID } label: {
+            HStack(spacing: 8) {
+                Image(systemName: selectedGroupID == groupID ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(selectedGroupID == groupID ? AppTheme.accent : Color.secondary)
+                Text(title)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct LibraryKnowledgePointSearchInput<Chips: View>: View {
+    @Binding var text: String
+    let onSubmit: () -> Void
+    let chips: Chips
+
+    init(
+        text: Binding<String>,
+        onSubmit: @escaping () -> Void,
+        @ViewBuilder chips: () -> Chips
+    ) {
+        _text = text
+        self.onSubmit = onSubmit
+        self.chips = chips()
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) {
+                chips
+                searchField
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 44)
+
+            VStack(alignment: .leading, spacing: 4) {
+                chips
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                searchField
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        }
+        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var searchField: some View {
+        TextField("搜索或新增考点", text: $text)
+            .modifier(NativeDirectionalTextFieldNavigation())
+            .font(.system(size: 14))
+            .textFieldStyle(.plain)
+            .frame(minWidth: 88, minHeight: 28)
+            .layoutPriority(1)
+            .onSubmit(onSubmit)
+    }
+}
+
+private struct LibraryKnowledgePointGroupMoveTarget: Identifiable {
+    let requestID = UUID()
+    let reference: LibraryKnowledgePointReference
+    let subject: String
+    let module: String
+    let typeID: String?
+    let groups: [LibraryKnowledgePointGroup]
+    var id: UUID { requestID }
+}
+
+private struct LibraryKnowledgePointGroupMoveDialog: ViewModifier {
+    @Binding var target: LibraryKnowledgePointGroupMoveTarget?
+    let onMove: (LibraryKnowledgePointGroupMoveTarget, String?) -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
+            "修改分组",
+            isPresented: Binding(
+                get: { target != nil },
+                set: { if !$0 { target = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("通用（不分组）") { move(to: nil) }
+            ForEach(target?.groups ?? []) { group in
+                Button(group.name) { move(to: group.id) }
+            }
+            Button("取消", role: .cancel) { target = nil }
+        } message: {
+            if let target { Text("将“\(target.reference.name)”移动到：") }
+        }
+    }
+
+    private func move(to groupID: String?) {
+        guard let target else { return }
+        onMove(target, groupID)
+        self.target = nil
+    }
+}
+
+private enum LibraryKnowledgePointGroupMover {
+    static func assign(
+        _ target: LibraryKnowledgePointGroupMoveTarget,
+        to groupID: String?,
+        records: [StoredRecord],
+        context: ModelContext
+    ) -> String? {
+        let name = target.reference.name
+        let names: [String]
+        if let typeID = target.typeID {
+            names = VerbalReasoningKnowledgePointRepository.tags(
+                module: target.module, typeID: typeID, records: records, subject: target.subject
+            )
+        } else {
+            names = TagLibraryRepository.tags(kind: .knowledgePoint, module: target.module, records: records)
+        }
+        guard names.contains(name) else { return "考点目录已变化，分组未修改。请重新打开后再试。" }
+        let groups = LibraryKnowledgePointGroupRepository.groups(
+            subject: target.subject, module: target.module, typeID: target.typeID, records: records
+        )
+        guard groupID == nil || groups.contains(where: { $0.id == groupID }) else {
+            return "目标分组已变化，考点未移动。请重新打开后再试。"
+        }
+        if LibraryKnowledgePointGroupRepository.groupID(
+            for: name, subject: target.subject, module: target.module, typeID: target.typeID, records: records
+        ) == groupID { return nil }
+        do {
+            try LibraryKnowledgePointGroupRepository.assign(
+                name, to: groupID, subject: target.subject, module: target.module,
+                typeID: target.typeID, records: records, context: context
+            )
+            return nil
+        } catch {
+            return "移动考点失败，请重试。"
+        }
+    }
+}
+
 /// Reuses the app's centered editor dialog, rather than embedding choices in the form.
 struct LibraryTagSelectionDialog: View {
     @Environment(\.modelContext) private var modelContext
@@ -31,6 +242,8 @@ struct LibraryTagSelectionDialog: View {
     @State private var deleting: String?
     @State private var selectedGroupID: String?
     @State private var showsOrder = false
+    @State private var addDestinationTarget: LibraryKnowledgePointAddTarget?
+    @State private var groupMoveTarget: LibraryKnowledgePointGroupMoveTarget?
 
     private var maximum: Int { maximumOverride ?? (kind == .knowledgePoint ? 3 : 1) }
     private var names: [String] {
@@ -67,7 +280,6 @@ struct LibraryTagSelectionDialog: View {
                     ScrollView(.vertical, showsIndicators: false) { knowledgePointTagContents }
                         .frame(maxHeight: .infinity)
                         .scrollDismissesKeyboard(.interactively)
-                    selectedTagChips
                     HStack {
                         Text("已选 \(selected.count) 项").font(.system(size: 12)).foregroundStyle(.secondary)
                         Spacer()
@@ -135,6 +347,11 @@ struct LibraryTagSelectionDialog: View {
         .sheet(isPresented: $showsOrder) {
             KnowledgePointOrderView(subject: subject, module: module, groupID: selectedGroupID)
         }
+        .modifier(LibraryKnowledgePointGroupMoveDialog(target: $groupMoveTarget) { target, groupID in
+            if let error = LibraryKnowledgePointGroupMover.assign(target, to: groupID, records: records, context: modelContext) {
+                message = error
+            }
+        })
     }
 
     private func split(_ value: String) -> [String] {
@@ -169,7 +386,7 @@ struct LibraryTagSelectionDialog: View {
                     }
                 }
             }
-            .frame(height: 28)
+            .frame(minWidth: 72, maxWidth: .infinity, minHeight: 28, maxHeight: 28)
         }
     }
     private var orderedSelected: [String] {
@@ -198,22 +415,28 @@ struct LibraryTagSelectionDialog: View {
     private var searchAndAdd: some View {
         HStack(spacing: 8) {
             if kind == .knowledgePoint {
-                TextField("搜索或新增考点", text: $search)
-                    .modifier(NativeDirectionalTextFieldNavigation())
-                    .font(.system(size: 14))
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .frame(height: 44)
-                    .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
-                    .onSubmit(addTag)
+                LibraryKnowledgePointSearchInput(text: $search, onSubmit: beginAddTag) {
+                    selectedTagChips
+                }
             } else {
                 TextField("搜索或输入新\(titleOverride ?? kind.rawValue)", text: $search)
                     .textFieldStyle(NativeTextFieldStyle())
                     .onSubmit(addTag)
             }
-            Button("新增", action: addTag)
+            Button("新增", action: beginAddTag)
                 .font(.system(size: 12, weight: .semibold))
                 .disabled(query.isEmpty || names.contains(query))
+                .popover(item: $addDestinationTarget, arrowEdge: .top) { target in
+                    LibraryKnowledgePointAddDestinationPopover(
+                        target: target,
+                        groups: LibraryKnowledgePointGroupRepository.groups(
+                            subject: target.subject, module: target.module, records: records
+                        ),
+                        onCreate: { groupID in createKnowledgePoint(target, groupID: groupID) },
+                        onCancel: { addDestinationTarget = nil }
+                    )
+                    .presentationCompactAdaptation(.popover)
+                }
         }
     }
 
@@ -267,6 +490,18 @@ struct LibraryTagSelectionDialog: View {
                 }
             },
             onRename: { renaming = $0.name; newName = $0.name },
+            onMoveGroup: { reference in
+                let targetModule = reference.module ?? module
+                groupMoveTarget = LibraryKnowledgePointGroupMoveTarget(
+                    reference: reference,
+                    subject: subject,
+                    module: targetModule,
+                    typeID: nil,
+                    groups: LibraryKnowledgePointGroupRepository.groups(
+                        subject: subject, module: targetModule, records: records
+                    )
+                )
+            },
             onDelete: { deleting = $0.name },
             onAdjustOrder: { _ in showsOrder = true }
         )
@@ -279,7 +514,45 @@ struct LibraryTagSelectionDialog: View {
         else if selected.count < maximum { selected.append(name) }
         else { message = "最多选择 \(maximum) 个\(titleOverride ?? kind.rawValue)" }
     }
+
+    private func beginAddTag() {
+        guard kind == .knowledgePoint else { addTag(); return }
+        let value = query
+        guard !value.isEmpty, !names.contains(value) else { return }
+        let target = LibraryKnowledgePointAddTarget(name: value, subject: subject, module: module, typeID: nil)
+        if knowledgePointGroups.isEmpty {
+            if let error = createKnowledgePoint(target, groupID: nil) { message = error }
+        } else {
+            addDestinationTarget = target
+        }
+    }
+
+    private func createKnowledgePoint(_ target: LibraryKnowledgePointAddTarget, groupID: String?) -> String? {
+        let currentGroups = LibraryKnowledgePointGroupRepository.groups(
+            subject: target.subject, module: target.module, records: records
+        )
+        guard groupID == nil || currentGroups.contains(where: { $0.id == groupID }) else {
+            return "目标分组已变化，请重新选择。"
+        }
+        guard !target.name.isEmpty,
+              !TagLibraryRepository.tags(kind: .knowledgePoint, module: target.module, records: records).contains(target.name) else {
+            return "该来源中已有同名考点。"
+        }
+        do {
+            try TagLibraryRepository.add(
+                target.name, kind: .knowledgePoint, module: target.module, records: records,
+                context: modelContext, knowledgePointGroupID: groupID, subject: target.subject
+            )
+            if !selected.contains(target.name) { selected.append(target.name) }
+            search = ""
+            return nil
+        } catch {
+            return "考点保存失败，请重试。"
+        }
+    }
+
     private func addTag() {
+        guard kind != .knowledgePoint else { beginAddTag(); return }
         let value = query
         guard !value.isEmpty, !names.contains(value) else { return }
         do {
@@ -398,6 +671,8 @@ struct QuantityKnowledgePointSelectionDialog: View {
     @State private var selectedGroupID: String?
     @State private var managingType: String?
     @State private var orderTarget: LibraryKnowledgePointOrderTarget?
+    @State private var addDestinationTarget: LibraryKnowledgePointAddTarget?
+    @State private var groupMoveTarget: LibraryKnowledgePointGroupMoveTarget?
 
     private var activeType: String { browsingType.isEmpty ? currentType : browsingType }
     private var questionTypes: [String] { QuantityQuestionTypeRepository.types(records: records) }
@@ -461,17 +736,23 @@ struct QuantityKnowledgePointSelectionDialog: View {
                 }
 
                 HStack(spacing: 8) {
-                    TextField("搜索或新增考点", text: $search)
-                        .modifier(NativeDirectionalTextFieldNavigation())
-                        .font(.system(size: 14))
-                        .textFieldStyle(.plain)
-                        .padding(.horizontal, 12)
-                        .frame(height: 44)
-                        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
-                        .onSubmit(addTag)
-                    Button("新增", action: addTag)
+                    LibraryKnowledgePointSearchInput(text: $search, onSubmit: beginAddTag) {
+                        selectedTagChips
+                    }
+                    Button("新增", action: beginAddTag)
                         .font(.system(size: 12, weight: .semibold))
                         .disabled(query.isEmpty || activeType.isEmpty || names.contains(query))
+                        .popover(item: $addDestinationTarget, arrowEdge: .top) { target in
+                            LibraryKnowledgePointAddDestinationPopover(
+                                target: target,
+                                groups: LibraryKnowledgePointGroupRepository.groups(
+                                    subject: target.subject, module: target.module, records: records
+                                ),
+                                onCreate: { groupID in createKnowledgePoint(target, groupID: groupID) },
+                                onCancel: { addDestinationTarget = nil }
+                            )
+                            .presentationCompactAdaptation(.popover)
+                        }
                 }
 
                 if !groups.isEmpty {
@@ -480,7 +761,6 @@ struct QuantityKnowledgePointSelectionDialog: View {
                 ScrollView(.vertical, showsIndicators: false) { groupedTagContents }
                     .frame(maxHeight: .infinity)
                     .scrollDismissesKeyboard(.interactively)
-                selectedTagChips
                 HStack {
                     Text("已选 \(selected.count) 项").font(.system(size: 12)).foregroundStyle(.secondary)
                     Spacer()
@@ -514,6 +794,11 @@ struct QuantityKnowledgePointSelectionDialog: View {
         .sheet(item: $orderTarget) { target in
             KnowledgePointOrderView(subject: target.subject, module: target.module, groupID: target.groupID)
         }
+        .modifier(LibraryKnowledgePointGroupMoveDialog(target: $groupMoveTarget) { target, groupID in
+            if let error = LibraryKnowledgePointGroupMover.assign(target, to: groupID, records: records, context: modelContext) {
+                message = error
+            }
+        })
     }
 
     private func parseSelection(_ value: String) -> [String] {
@@ -550,7 +835,7 @@ struct QuantityKnowledgePointSelectionDialog: View {
                     }
                 }
             }
-            .frame(height: 28)
+            .frame(minWidth: 72, maxWidth: .infinity, minHeight: 28, maxHeight: 28)
         }
     }
 
@@ -614,6 +899,18 @@ struct QuantityKnowledgePointSelectionDialog: View {
                 renaming = reference.name
                 newName = reference.name
             },
+            onMoveGroup: { reference in
+                let targetModule = reference.module ?? activeType
+                groupMoveTarget = LibraryKnowledgePointGroupMoveTarget(
+                    reference: reference,
+                    subject: "数量关系",
+                    module: targetModule,
+                    typeID: nil,
+                    groups: LibraryKnowledgePointGroupRepository.groups(
+                        subject: "数量关系", module: targetModule, records: records
+                    )
+                )
+            },
             onDelete: { reference in
                 managingType = reference.module ?? activeType
                 deleting = reference.name
@@ -636,16 +933,42 @@ struct QuantityKnowledgePointSelectionDialog: View {
     }
 
     private func addTag() {
+        beginAddTag()
+    }
+
+    private func beginAddTag() {
         guard !query.isEmpty, !activeType.isEmpty else { return }
+        let target = LibraryKnowledgePointAddTarget(
+            name: query, subject: "数量关系", module: activeType, typeID: nil
+        )
+        if groups.isEmpty {
+            if let error = createKnowledgePoint(target, groupID: nil) { message = error }
+        } else {
+            addDestinationTarget = target
+        }
+    }
+
+    private func createKnowledgePoint(_ target: LibraryKnowledgePointAddTarget, groupID: String?) -> String? {
+        let currentGroups = LibraryKnowledgePointGroupRepository.groups(
+            subject: target.subject, module: target.module, records: records
+        )
+        guard groupID == nil || currentGroups.contains(where: { $0.id == groupID }) else {
+            return "目标分组已变化，请重新选择。"
+        }
+        let existingNames = TagLibraryRepository.tags(kind: .knowledgePoint, module: target.module, records: records)
+        guard !target.name.isEmpty, !existingNames.contains(target.name) else { return "该题型中已有同名考点。" }
         do {
             try TagLibraryRepository.add(
-                query, kind: .knowledgePoint, module: activeType, records: records,
-                context: modelContext, knowledgePointGroupID: selectedGroupID, subject: "数量关系"
+                target.name, kind: .knowledgePoint, module: target.module, records: records,
+                context: modelContext, knowledgePointGroupID: groupID, subject: target.subject
             )
-            let reference = LibraryKnowledgePointReference(module: activeType, name: query)
+            let reference = LibraryKnowledgePointReference(module: target.module, name: target.name)
             if !selected.contains(reference) { selected.append(reference) }
             search = ""
-        } catch { message = "考点保存失败，请重试" }
+            return nil
+        } catch {
+            return "考点保存失败，请重试。"
+        }
     }
 
     private func renameTag() {
@@ -713,6 +1036,8 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
     @State private var selectedGroupID: String?
     @State private var managingReference: LibraryKnowledgePointReference?
     @State private var orderTarget: LibraryKnowledgePointOrderTarget?
+    @State private var addDestinationTarget: LibraryKnowledgePointAddTarget?
+    @State private var groupMoveTarget: LibraryKnowledgePointGroupMoveTarget?
 
     private var typeLabel: String { subject == "资料分析" ? "错误类型" : "题型" }
     private var deletedTypeLabel: String { "\(typeLabel)已删除" }
@@ -838,17 +1163,24 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                 }
 
                 HStack(spacing: 8) {
-                    TextField("搜索或新增考点", text: $search)
-                        .modifier(NativeDirectionalTextFieldNavigation())
-                        .font(.system(size: 14))
-                        .textFieldStyle(.plain)
-                        .padding(.horizontal, 12)
-                        .frame(height: 44)
-                        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
-                        .onSubmit(addTag)
-                    Button("新增", action: addTag)
+                    LibraryKnowledgePointSearchInput(text: $search, onSubmit: beginAddTag) {
+                        selectedReferenceChips
+                    }
+                    Button("新增", action: beginAddTag)
                         .font(.system(size: 12, weight: .semibold))
                         .disabled(query.isEmpty || names.contains(query) || currentModule.isEmpty)
+                        .popover(item: $addDestinationTarget, arrowEdge: .top) { target in
+                            LibraryKnowledgePointAddDestinationPopover(
+                                target: target,
+                                groups: LibraryKnowledgePointGroupRepository.groups(
+                                    subject: target.subject, module: target.module,
+                                    typeID: target.typeID, records: records
+                                ),
+                                onCreate: { groupID in createKnowledgePoint(target, groupID: groupID) },
+                                onCancel: { addDestinationTarget = nil }
+                            )
+                            .presentationCompactAdaptation(.popover)
+                        }
                 }
 
                 if !groups.isEmpty {
@@ -897,7 +1229,6 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                 }
                 .frame(maxHeight: .infinity)
                 .scrollDismissesKeyboard(.interactively)
-                selectedReferenceChips
                 HStack {
                     Text("已选 \(selected.count) 项").font(.system(size: 12)).foregroundStyle(.secondary)
                     Spacer()
@@ -923,6 +1254,11 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
         .sheet(item: $orderTarget) { target in
             KnowledgePointOrderView(subject: target.subject, module: target.module, typeID: target.typeID, groupID: target.groupID)
         }
+        .modifier(LibraryKnowledgePointGroupMoveDialog(target: $groupMoveTarget) { target, groupID in
+            if let error = LibraryKnowledgePointGroupMover.assign(target, to: groupID, records: records, context: modelContext) {
+                message = error
+            }
+        })
         .alert("重命名考点", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("考点名称", text: $newName).modifier(NativeDirectionalTextFieldNavigation())
             Button("保存") { renameTag() }
@@ -973,7 +1309,7 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                     }
                 }
             }
-            .frame(height: 28)
+            .frame(minWidth: 72, maxWidth: .infinity, minHeight: 28, maxHeight: 28)
         }
     }
 
@@ -1022,6 +1358,9 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
             onDelete: { reference in
                 managingReference = reference
                 deleting = reference.name
+            },
+            onMoveGroup: { reference in
+                beginGroupMove(reference, module: reference.module ?? currentModule, typeID: reference.typeID)
             },
             onAdjustOrder: { reference in
                 orderTarget = LibraryKnowledgePointOrderTarget(
@@ -1087,6 +1426,9 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                     managingReference = reference
                     deleting = reference.name
                 },
+                onMoveGroup: { reference in
+                    beginGroupMove(reference, module: reference.module ?? currentModule, typeID: reference.typeID)
+                },
                 onAdjustOrder: { reference in
                     orderTarget = LibraryKnowledgePointOrderTarget(
                         subject: subject, module: reference.module ?? currentModule, typeID: nil, groupID: nil
@@ -1102,6 +1444,22 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
         else { selected.append(reference) }
     }
 
+    private func beginGroupMove(
+        _ reference: LibraryKnowledgePointReference,
+        module: String,
+        typeID: String?
+    ) {
+        groupMoveTarget = LibraryKnowledgePointGroupMoveTarget(
+            reference: reference,
+            subject: subject,
+            module: module,
+            typeID: typeID,
+            groups: LibraryKnowledgePointGroupRepository.groups(
+                subject: subject, module: module, typeID: typeID, records: records
+            )
+        )
+    }
+
     private func commitSelection() {
         let values = LibraryKnowledgePointReferencePolicy.uniqueReferences(selected)
         if let error = onCommit?(values) {
@@ -1114,22 +1472,52 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
     }
 
     private func addTag() {
+        beginAddTag()
+    }
+
+    private func beginAddTag() {
         guard !query.isEmpty, !currentModule.isEmpty, !names.contains(query) else { return }
+        let target = LibraryKnowledgePointAddTarget(
+            name: query, subject: subject, module: currentModule, typeID: activeTypeID
+        )
+        if groups.isEmpty {
+            if let error = createKnowledgePoint(target, groupID: nil) { message = error }
+        } else {
+            addDestinationTarget = target
+        }
+    }
+
+    private func createKnowledgePoint(_ target: LibraryKnowledgePointAddTarget, groupID: String?) -> String? {
+        let currentGroups = LibraryKnowledgePointGroupRepository.groups(
+            subject: target.subject, module: target.module, typeID: target.typeID, records: records
+        )
+        guard groupID == nil || currentGroups.contains(where: { $0.id == groupID }) else {
+            return "目标分组已变化，请重新选择。"
+        }
+        let targetNames = target.typeID.map {
+            VerbalReasoningKnowledgePointRepository.tags(
+                module: target.module, typeID: $0, records: records, subject: target.subject
+            )
+        } ?? TagLibraryRepository.tags(kind: .knowledgePoint, module: target.module, records: records)
+        guard !target.name.isEmpty, !targetNames.contains(target.name) else { return "该来源中已有同名考点。" }
         do {
-            if let activeTypeID {
+            if let typeID = target.typeID {
                 try VerbalReasoningKnowledgePointRepository.add(
-                    query, module: currentModule, typeID: activeTypeID, records: records,
-                    context: modelContext, groupID: selectedGroupID, subject: subject
+                    target.name, module: target.module, typeID: typeID, records: records,
+                    context: modelContext, groupID: groupID, subject: target.subject
                 )
             } else {
                 try TagLibraryRepository.add(
-                    query, kind: .knowledgePoint, module: currentModule, records: records,
-                    context: modelContext, knowledgePointGroupID: selectedGroupID, subject: subject
+                    target.name, kind: .knowledgePoint, module: target.module, records: records,
+                    context: modelContext, knowledgePointGroupID: groupID, subject: target.subject
                 )
             }
-            toggle(LibraryKnowledgePointReference(module: currentModule, typeID: activeTypeID, name: query))
+            toggle(LibraryKnowledgePointReference(module: target.module, typeID: target.typeID, name: target.name))
             search = ""
-        } catch { message = "考点保存失败，请重试" }
+            return nil
+        } catch {
+            return "考点保存失败，请重试。"
+        }
     }
 
     private func renameTag() {

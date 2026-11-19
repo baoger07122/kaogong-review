@@ -258,6 +258,7 @@ struct LibraryInlineNoteView: View {
     @State private var didAttemptDraftRestoreForAppearance = false
     @State private var draftRestoreAppearanceID = UUID()
     @State private var isRestoringDraft = false
+    @State private var legacyDraftVersionAwaitingReplacement: UInt64?
     @State private var suppressNextDraftChange = false
     @State private var finishCompletionsWaitingForRestore: [(Bool) -> Void] = []
     @State private var finishCompletionsWaitingForCommit: [(Bool) -> Void] = []
@@ -394,6 +395,13 @@ struct LibraryInlineNoteView: View {
         }
     }
 
+    private var noteSaveStatusTitle: String {
+        if editing, editorSession.hasUnsavedImageInsertion, saveStatus == .saved {
+            return "等待保存…"
+        }
+        return saveStatus.title
+    }
+
     private var errorMessage: String? {
         if let transientErrorMessage { return transientErrorMessage }
         if let saveError = noteSaveState.errorMessage { return saveError }
@@ -425,7 +433,7 @@ struct LibraryInlineNoteView: View {
                 Label(title, systemImage: "note.text")
                     .font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
                 Spacer()
-                Text(isInsertingPhoto ? "正在插入图片…" : saveStatus.title)
+                Text(isInsertingPhoto ? "正在插入图片…" : noteSaveStatusTitle)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(saveStatus.color)
                     .accessibilityIdentifier("library-inline-note-save-status")
@@ -515,12 +523,11 @@ struct LibraryInlineNoteView: View {
             saveService.markExistingContentConfirmed(
                 recordID: renderDocumentID,
                 content: storedNote,
-                recordVersion: currentRecordVersion(),
-                payload: nil
+                readVersion: currentRecordVersion()
             )
             let state = saveService.state(recordID: renderDocumentID)
-            activeBaseVersion = state.latestBaseVersion ?? currentRecordVersion()
-            activeBasePayload = state.latestBasePayload
+            activeBaseVersion = state.latestBaseVersion ?? currentRecordEditVersion()
+            activeBasePayload = state.latestBasePayload ?? currentRecordPayload()
             if state.latestContent != state.confirmedContent || state.phase == .failed {
                 setDraftWithoutScheduling(state.latestContent)
                 currentDraftVersion = state.latestDraftVersion
@@ -922,7 +929,7 @@ struct LibraryInlineNoteView: View {
                     try await LibraryInlineNoteDraftStorage.shared.write(
                         LibraryInlineNoteDraftSnapshot(
                             recordID: renderDocumentID,
-                            baseVersion: currentState.latestBaseVersion ?? currentRecordVersion(),
+                            baseVersion: currentState.latestBaseVersion ?? currentRecordEditVersion(),
                             draftVersion: currentState.latestDraftVersion,
                             content: currentState.latestContent,
                             updatedAt: .now
@@ -952,11 +959,18 @@ struct LibraryInlineNoteView: View {
                 saveService.markExistingContentConfirmed(
                     recordID: renderDocumentID,
                     content: storedNote,
-                    recordVersion: currentRecordVersion(),
-                    payload: currentRecordPayload()
+                    readVersion: currentRecordVersion()
                 )
                 setDraftWithoutScheduling(storedNote)
                 transientErrorMessage = nil
+                return
+            }
+
+            guard LibraryInlineNoteSaveService.hasPayloadDigest(pending.baseVersion) else {
+                setDraftWithoutScheduling(pending.content)
+                currentDraftVersion = pending.draftVersion
+                legacyDraftVersionAwaitingReplacement = pending.draftVersion
+                transientErrorMessage = "旧版笔记草稿基线无法验证：草稿已恢复并保留，未自动写回。请先对照当前保存内容；确认后再主动编辑并保存。"
                 return
             }
 
@@ -1021,6 +1035,11 @@ struct LibraryInlineNoteView: View {
             completion(false)
             return
         }
+        if transientErrorMessage?.hasPrefix("旧版笔记草稿基线无法验证：") == true {
+            updateFinishResult(false)
+            completion(false)
+            return
+        }
         let state = saveService.state(recordID: renderDocumentID)
         if !saveService.hasPending(recordID: renderDocumentID),
            state.latestContent != state.confirmedContent,
@@ -1079,6 +1098,13 @@ struct LibraryInlineNoteView: View {
                 )
                 return
             }
+            guard self.imageSnapshotIsValid(snapshot, documentID: documentID, sessionID: sessionID) else {
+                self.failFinishBeforeSave(
+                    message: "当前笔记图片与富文本快照无法对应，原草稿仍保留；请重新打开笔记检查后再保存。",
+                    completion: completion
+                )
+                return
+            }
             let beforeEnding = LibraryInlineNoteFinishRevision(
                 documentID: documentID,
                 sessionID: sessionID,
@@ -1103,6 +1129,14 @@ struct LibraryInlineNoteView: View {
                         return
                     }
                     let finalEditorSnapshot = self.editorSession.captureSnapshot()
+                    if let finalEditorSnapshot,
+                       !self.imageSnapshotIsValid(finalEditorSnapshot, documentID: documentID, sessionID: sessionID) {
+                        self.editorSession.setInputLocked(false)
+                        self.isFinishing = false
+                        self.transientErrorMessage = "结束输入时图片与笔记快照不一致，原草稿仍保留；请重试。"
+                        self.resolveFinishCompletions(primary: completion, result: false)
+                        return
+                    }
                     let afterEnding = finalEditorSnapshot.map {
                         LibraryInlineNoteFinishRevision(
                             documentID: documentID,
@@ -1133,6 +1167,14 @@ struct LibraryInlineNoteView: View {
                     } else {
                         matchingEditorSnapshot = nil
                     }
+                    if !self.editorSession.insertionReceipts(forDocumentID: documentID, sessionID: sessionID).isEmpty,
+                       matchingEditorSnapshot == nil {
+                        self.editorSession.setInputLocked(false)
+                        self.isFinishing = false
+                        self.transientErrorMessage = "无法读取与插图回执匹配的最终快照，原草稿仍保留；请重试。"
+                        self.resolveFinishCompletions(primary: completion, result: false)
+                        return
+                    }
                     LibraryPerformanceLog.event(
                         "note.finish.final id=\(LibraryPerformanceLog.shortIdentifier(documentID)) session=\(sessionID.uuidString.prefix(8)) revision=\(finalRevision.revision) bytes=\(finalRevision.html.utf8.count) changed=\(finalRevision.html != beforeEnding.html)"
                     )
@@ -1154,6 +1196,23 @@ struct LibraryInlineNoteView: View {
         isFinishing = false
         transientErrorMessage = message
         resolveFinishCompletions(primary: completion, result: false)
+    }
+
+    private func imageSnapshotIsValid(
+        _ snapshot: NativeRichTextEditorSnapshot,
+        documentID: String,
+        sessionID: UUID
+    ) -> Bool {
+        guard snapshot.hasConsistentImageMarkers else { return false }
+        guard let latestReceipt = editorSession
+            .insertionReceipts(forDocumentID: documentID, sessionID: sessionID)
+            .max(by: { $0.revision < $1.revision }) else { return true }
+        guard snapshot.documentRevision >= latestReceipt.revision else { return false }
+        if snapshot.imageMarkers != latestReceipt.imageMarkers,
+           snapshot.userEditRevision <= latestReceipt.userEditRevision {
+            return false
+        }
+        return true
     }
 
     private func commitFinishRevision(
@@ -1310,6 +1369,12 @@ struct LibraryInlineNoteView: View {
             resolveFinishCompletions(primary: completion, result: false)
             return
         }
+        editorSession.confirmImageInsertionsSaved(
+            documentID: finalRevision.documentID,
+            sessionID: finalRevision.sessionID,
+            revision: finalRevision.revision
+        )
+        removeSupersededLegacyDraftIfMatching()
         installConfirmedPreview(content: content, editorSnapshot: editorSnapshot)
         onFinishConfirmed?(content)
         editing = false
@@ -1514,6 +1579,18 @@ struct LibraryInlineNoteView: View {
         draft = value
     }
 
+    private func removeSupersededLegacyDraftIfMatching() {
+        guard let draftVersion = legacyDraftVersionAwaitingReplacement else { return }
+        legacyDraftVersionAwaitingReplacement = nil
+        let recordID = renderDocumentID
+        Task {
+            try? await LibraryInlineNoteDraftStorage.shared.removeIfMatching(
+                recordID: recordID,
+                draftVersion: draftVersion
+            )
+        }
+    }
+
     private func enqueueSave(
         _ content: String,
         draftVersion: UInt64,
@@ -1562,6 +1639,14 @@ struct LibraryInlineNoteView: View {
                         )
                     }
                     if self.saveService.state(recordID: self.renderDocumentID).latestDraftVersion == draftVersion {
+                        if let editorSnapshot {
+                            self.editorSession.confirmImageInsertionsSaved(
+                                documentID: self.renderDocumentID,
+                                sessionID: self.editingSessionID,
+                                revision: editorSnapshot.documentRevision
+                            )
+                        }
+                        self.removeSupersededLegacyDraftIfMatching()
                         self.transientErrorMessage = nil
                         if !self.isFinishing { self.onSaved?(content) }
                     }

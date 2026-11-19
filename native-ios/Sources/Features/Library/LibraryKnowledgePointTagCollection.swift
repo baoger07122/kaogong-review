@@ -43,6 +43,7 @@ struct LibraryKnowledgePointTagCollection: UIViewRepresentable {
     var onToggle: (LibraryKnowledgePointReference) -> Void
     var onReorder: ([LibraryKnowledgePointReference]) -> Bool
     var onRename: (LibraryKnowledgePointReference) -> Void = { _ in }
+    var onMoveGroup: ((LibraryKnowledgePointReference) -> Void)? = nil
     var onDelete: (LibraryKnowledgePointReference) -> Void = { _ in }
     var onAdjustOrder: (LibraryKnowledgePointReference) -> Void = { _ in }
 
@@ -158,6 +159,11 @@ struct LibraryKnowledgePointTagCollection: UIViewRepresentable {
                         self?.parent.onRename(item.reference)
                     }
                 ]
+                if self.parent.onMoveGroup != nil {
+                    actions.append(UIAction(title: "修改分组", image: UIImage(systemName: "folder")) { [weak self] _ in
+                        self?.parent.onMoveGroup?(item.reference)
+                    })
+                }
                 if self.parent.allowsReordering {
                     actions.append(UIAction(title: "调整顺序", image: UIImage(systemName: "arrow.up.arrow.down")) { [weak self] _ in
                         self?.parent.onAdjustOrder(item.reference)

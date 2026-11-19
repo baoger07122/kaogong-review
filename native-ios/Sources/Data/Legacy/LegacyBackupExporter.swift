@@ -33,7 +33,13 @@ enum LegacyBackupExporter {
         ("words", "words"),
         ("word_review_plans", "wordReviewPlans"),
         ("word_review_history", "wordReviewHistory"),
-        ("stickies", "stickies")
+        ("stickies", "stickies"),
+        ("shenlun_workspace_practices", "shenlunWorkspacePractices"),
+        ("shenlun_workspace_questions", "shenlunWorkspaceQuestions"),
+        ("shenlun_workspace_materials", "shenlunWorkspaceMaterials"),
+        ("shenlun_workspace_assets", "shenlunWorkspaceAssets"),
+        ("shenlun_workspace_answers", "shenlunWorkspaceAnswers"),
+        ("shenlun_workspace_drawings", "shenlunWorkspaceDrawings")
     ]
 
     static func makeDocument(

@@ -184,6 +184,46 @@ struct NativeRichTextEditorSnapshot {
     let attributedText: NSAttributedString
     let selection: NSRange
     let documentRevision: UInt64
+    let userEditRevision: UInt64
+
+    var imageMarkers: [String] {
+        var markers: [String] = []
+        attributedText.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributedText.length)) { value, _, _ in
+            if let image = value as? NativeImageAttachment {
+                markers.append(image.marker)
+            } else if let image = value as? NativeUnavailableImageAttachment {
+                markers.append(image.marker)
+            } else if let opaque = value as? NativeOpaqueRichTextAttachment,
+                      !Self.imageMarkers(in: opaque.marker).isEmpty {
+                markers.append(opaque.marker)
+            }
+        }
+        return markers
+    }
+
+    var htmlImageMarkers: [String] {
+        Self.imageMarkers(in: html)
+    }
+
+    var hasConsistentImageMarkers: Bool {
+        imageMarkers == htmlImageMarkers
+    }
+
+    static func imageMarkers(in html: String) -> [String] {
+        let pattern = #"\[\[NATIVE_IMAGE:[A-Za-z0-9+/=]+\]\]"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let source = html as NSString
+        return expression.matches(in: html, range: NSRange(location: 0, length: source.length))
+            .map { source.substring(with: $0.range) }
+    }
+}
+
+struct NativeRichTextImageInsertionReceipt: Equatable {
+    let documentID: String?
+    let sessionID: UUID
+    let revision: UInt64
+    let userEditRevision: UInt64
+    let imageMarkers: [String]
 }
 
 enum NativeRichTextImageLimits {
@@ -440,8 +480,10 @@ struct NativeRichTextEditor: View {
                 do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
                 if photoItem == nil, photoLoadTask == nil {
                     if !awaitingImageInsertion {
+                        if let sessionID = capturedPhotoTarget?.sessionID {
+                            activeEditorSession.setMediaOperationInProgress(false, sessionID: sessionID)
+                        }
                         capturedPhotoTarget = nil
-                        activeEditorSession.setMediaOperationInProgress(false)
                     }
                 }
             }
@@ -610,16 +652,16 @@ struct NativeRichTextEditor: View {
                 imageCompletion: { result in
                     self.awaitingImageInsertion = false
                     self.capturedPhotoTarget = nil
-                    self.activeEditorSession.setMediaOperationInProgress(false)
+                    self.activeEditorSession.setMediaOperationInProgress(false, sessionID: target.sessionID)
                     if case .failure(let error) = result { self.presentImageError(error.localizedDescription) }
                 }
             )
         } catch is CancellationError {
             capturedPhotoTarget = nil
-            activeEditorSession.setMediaOperationInProgress(false)
+            if let target { activeEditorSession.setMediaOperationInProgress(false, sessionID: target.sessionID) }
         } catch {
             capturedPhotoTarget = nil
-            activeEditorSession.setMediaOperationInProgress(false)
+            if let target { activeEditorSession.setMediaOperationInProgress(false, sessionID: target.sessionID) }
             presentImageError(error.localizedDescription)
         }
     }
@@ -795,6 +837,9 @@ final class NativeRichTextEditorSession: ObservableObject {
     @Published private(set) var isInputLocked = false
     @Published private(set) var mediaNotice: NativeRichTextMediaNotice?
     @Published private(set) var imageImportRequest: NativeRichTextImageImportRequest?
+    @Published private(set) var imageInsertionReceipts: [NativeRichTextImageInsertionReceipt] = []
+    @Published private(set) var hasUnsavedImageInsertion = false
+    private var confirmedImageInsertionRevision: UInt64 = 0
 
     private var latestHTMLReader: (() -> String?)?
     private var latestAttributedTextReader: (() -> NSAttributedString?)?
@@ -818,6 +863,9 @@ final class NativeRichTextEditorSession: ObservableObject {
             isComposingText = false
             isInputLocked = false
             imageImportRequest = nil
+            imageInsertionReceipts = []
+            hasUnsavedImageInsertion = false
+            confirmedImageInsertionRevision = 0
         }
         self.documentID = documentID
         self.sessionID = sessionID
@@ -833,6 +881,9 @@ final class NativeRichTextEditorSession: ObservableObject {
         isComposingText = false
         isInputLocked = false
         imageImportRequest = nil
+        imageInsertionReceipts = []
+        hasUnsavedImageInsertion = false
+        confirmedImageInsertionRevision = 0
     }
 
     func latestHTML() -> String? { latestHTMLReader?() }
@@ -865,6 +916,26 @@ final class NativeRichTextEditorSession: ObservableObject {
 
     func matches(_ target: NativeRichTextInsertionTarget) -> Bool {
         documentID == target.documentID && sessionID == target.sessionID
+    }
+
+    func recordSuccessfulImageInsertion(_ receipt: NativeRichTextImageInsertionReceipt) {
+        guard documentID == receipt.documentID, sessionID == receipt.sessionID else { return }
+        imageInsertionReceipts.append(receipt)
+        hasUnsavedImageInsertion = true
+    }
+
+    func confirmImageInsertionsSaved(documentID: String?, sessionID: UUID, revision: UInt64) {
+        guard self.documentID == documentID, self.sessionID == sessionID,
+              let latestReceipt = imageInsertionReceipts
+                .filter({ $0.documentID == documentID && $0.sessionID == sessionID })
+                .max(by: { $0.revision < $1.revision }),
+              latestReceipt.revision <= revision else { return }
+        confirmedImageInsertionRevision = max(confirmedImageInsertionRevision, revision)
+        hasUnsavedImageInsertion = latestReceipt.revision > confirmedImageInsertionRevision
+    }
+
+    func insertionReceipts(forDocumentID documentID: String?, sessionID: UUID) -> [NativeRichTextImageInsertionReceipt] {
+        imageInsertionReceipts.filter { $0.documentID == documentID && $0.sessionID == sessionID }
     }
 
     func cancelMediaOperation(sessionID: UUID, message: String) {
@@ -939,6 +1010,10 @@ final class NativeRichTextEditorSession: ObservableObject {
     }
 
     func setMediaOperationInProgress(_ value: Bool) { isMediaOperationInProgress = value }
+    func setMediaOperationInProgress(_ value: Bool, sessionID: UUID) {
+        guard self.sessionID == sessionID else { return }
+        isMediaOperationInProgress = value
+    }
     func setAuxiliaryPanelPresented(_ value: Bool) { isAuxiliaryPanelPresented = value }
     func setComposingText(_ value: Bool) {
         guard isComposingText != value else { return }
@@ -1572,6 +1647,11 @@ private struct RichTextTextView: UIViewRepresentable {
             )
         }
         context.coordinator.setPublishedHTML(html)
+        context.coordinator.rememberManagedDocumentIdentity(
+            isManaged: usesLazyHTMLInitialization,
+            documentID: editorDocumentID,
+            sessionID: editorSessionID
+        )
         context.coordinator.updateNativeTableWidths(in: view, force: true)
         context.coordinator.connect(editorSession, to: view)
         context.coordinator.rememberSelection(view.selectedRange)
@@ -1628,15 +1708,23 @@ private struct RichTextTextView: UIViewRepresentable {
             on: view
         )
         context.coordinator.connect(editorSession, to: view)
-        let replacingDocumentContent = context.coordinator.lastHTML != html && !view.isFirstResponder
+        let managedDocumentChanged = context.coordinator.updateManagedDocumentIdentity(
+            isManaged: usesLazyHTMLInitialization,
+            documentID: editorDocumentID,
+            sessionID: editorSessionID
+        )
+        let replacingDocumentContent = usesLazyHTMLInitialization
+            ? managedDocumentChanged
+            : context.coordinator.lastHTML != html && !view.isFirstResponder
         if replacingDocumentContent {
+            if managedDocumentChanged { view.resignFirstResponder() }
             if let preparedInitialAttributedText, preparedInitialHTML == html {
                 view.attributedText = NativeRichTextDisplayRenderer.applyingTableAppearance(
                     to: preparedInitialAttributedText,
                     appearance: tableAppearance
                 )
                 context.coordinator.setPublishedHTML(html)
-            } else if !usesLazyHTMLInitialization {
+            } else if !usesLazyHTMLInitialization || managedDocumentChanged {
                 view.attributedText = NativeRichTextDisplayRenderer.applyingTableAppearance(
                     to: Self.attributed(from: html, noteFormatting: noteFormatting),
                     appearance: tableAppearance
@@ -1648,12 +1736,17 @@ private struct RichTextTextView: UIViewRepresentable {
         if let command, context.coordinator.lastCommandID != command.id {
             context.coordinator.lastCommandID = command.id
             let result = context.coordinator.apply(command.kind, to: view, tableEditTarget: command.tableEditTarget)
+            let commandKind = command.kind
             let imageCompletion = command.imageCompletion
             let tableCompletion = command.tableCompletion
             DispatchQueue.main.async {
                 self.command = nil
                 if let imageCompletion {
-                    imageCompletion(result ?? .failure(NativeRichTextEditorError.imageAttachmentInvalid))
+                    imageCompletion(context.coordinator.completeImageInsertion(
+                        commandKind,
+                        result: result ?? .failure(NativeRichTextEditorError.imageAttachmentInvalid),
+                        in: view
+                    ))
                 }
                 if let tableCompletion {
                     tableCompletion(result ?? .failure(NativeRichTextEditorError.tableTargetChanged))
@@ -1675,6 +1768,7 @@ private struct RichTextTextView: UIViewRepresentable {
         private var layoutRefreshUpdatesLayout = false
         private weak var pendingLayoutRefreshView: UITextView?
         private var documentRevision: UInt64 = 0
+        private var userEditRevision: UInt64 = 0
         private var publishedRevision: UInt64 = 0
         private var publishedHTML = ""
         private var cachedSnapshot: NativeRichTextEditorSnapshot?
@@ -1690,7 +1784,33 @@ private struct RichTextTextView: UIViewRepresentable {
         private var accessoryController: UIHostingController<AnyView>?
         private weak var accessoryContainer: RichTextKeyboardAccessoryView?
         private var lastKeyboardAccessoryState: RichTextKeyboardAccessoryState?
+        private var hasManagedDocumentIdentity = false
+        private var managedDocumentID: String?
+        private var managedSessionID: UUID?
         init(parent: RichTextTextView) { self.parent = parent }
+
+        func rememberManagedDocumentIdentity(isManaged: Bool, documentID: String?, sessionID: UUID) {
+            guard isManaged else { return }
+            hasManagedDocumentIdentity = true
+            managedDocumentID = documentID
+            managedSessionID = sessionID
+        }
+
+        func updateManagedDocumentIdentity(isManaged: Bool, documentID: String?, sessionID: UUID) -> Bool {
+            guard isManaged else {
+                hasManagedDocumentIdentity = false
+                managedDocumentID = nil
+                managedSessionID = nil
+                return false
+            }
+            let changed = !hasManagedDocumentIdentity
+                || managedDocumentID != documentID
+                || managedSessionID != sessionID
+            hasManagedDocumentIdentity = true
+            managedDocumentID = documentID
+            managedSessionID = sessionID
+            return changed
+        }
 
         private var hasPendingForcedNoteHeightMeasurement: Bool {
             guard let pending = forcedNoteHeightMeasurement else { return false }
@@ -1892,6 +2012,7 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
+            userEditRevision &+= 1
             let isComposing = textView.markedTextRange != nil
             connectedSession?.setComposingText(isComposing)
             if parent.noteFormatting {
@@ -2092,6 +2213,118 @@ private struct RichTextTextView: UIViewRepresentable {
             return found
         }
 
+        private func normalizeResidualMarkdownBold(in value: NSMutableAttributedString) {
+            guard value.length > 0 else { return }
+            let source = value.string as NSString
+            var pairs: [(open: NSRange, close: NSRange, content: NSRange)] = []
+
+            func isEscaped(at location: Int) -> Bool {
+                var cursor = location - 1
+                var slashCount = 0
+                while cursor >= 0, source.character(at: cursor) == 92 {
+                    slashCount += 1
+                    cursor -= 1
+                }
+                return slashCount % 2 == 1
+            }
+
+            func isTripleMarker(_ range: NSRange) -> Bool {
+                let before = range.location > 0 && source.character(at: range.location - 1) == 42
+                let after = NSMaxRange(range) < source.length && source.character(at: NSMaxRange(range)) == 42
+                return before || after
+            }
+
+            func isWhitespace(at location: Int) -> Bool {
+                guard location >= 0, location < source.length else { return true }
+                return source.substring(with: NSRange(location: location, length: 1))
+                    .rangeOfCharacter(from: .whitespacesAndNewlines) != nil
+            }
+
+            func isCodeOrLink(_ range: NSRange) -> Bool {
+                var protected = false
+                value.enumerateAttributes(in: range) { attributes, _, stop in
+                    let font = attributes[.font] as? UIFont
+                    if attributes[.link] != nil
+                        || attributes[.attachment] != nil
+                        || font?.fontDescriptor.symbolicTraits.contains(.traitMonoSpace) == true {
+                        protected = true
+                        stop.pointee = true
+                    }
+                }
+                return protected
+            }
+
+            var paragraphCursor = 0
+            while paragraphCursor < source.length {
+                var paragraphStart = 0
+                var paragraphEnd = 0
+                var contentsEnd = 0
+                source.getParagraphStart(
+                    &paragraphStart,
+                    end: &paragraphEnd,
+                    contentsEnd: &contentsEnd,
+                    for: NSRange(location: paragraphCursor, length: 0)
+                )
+                guard paragraphEnd > paragraphCursor else { break }
+                let contentEnd = max(paragraphStart, contentsEnd)
+                var cursor = paragraphStart
+                while cursor + 1 < contentEnd {
+                    let open = source.range(of: "**", options: [], range: NSRange(location: cursor, length: contentEnd - cursor))
+                    guard open.location != NSNotFound else { break }
+                    let openRange = NSRange(location: open.location, length: 2)
+                    guard !isEscaped(at: openRange.location), !isTripleMarker(openRange),
+                          !isWhitespace(at: NSMaxRange(openRange)), !isCodeOrLink(openRange) else {
+                        cursor = NSMaxRange(openRange)
+                        continue
+                    }
+
+                    var closeCursor = NSMaxRange(openRange)
+                    var acceptedClose: NSRange?
+                    while closeCursor + 1 < contentEnd {
+                        let close = source.range(
+                            of: "**",
+                            options: [],
+                            range: NSRange(location: closeCursor, length: contentEnd - closeCursor)
+                        )
+                        guard close.location != NSNotFound else { break }
+                        let closeRange = NSRange(location: close.location, length: 2)
+                        if !isEscaped(at: closeRange.location), !isTripleMarker(closeRange),
+                           !isWhitespace(at: closeRange.location - 1), !isCodeOrLink(closeRange) {
+                            acceptedClose = closeRange
+                            break
+                        }
+                        closeCursor = NSMaxRange(closeRange)
+                    }
+                    guard let closeRange = acceptedClose,
+                          closeRange.location > NSMaxRange(openRange) else {
+                        cursor = NSMaxRange(openRange)
+                        continue
+                    }
+                    pairs.append((
+                        open: openRange,
+                        close: closeRange,
+                        content: NSRange(location: NSMaxRange(openRange), length: closeRange.location - NSMaxRange(openRange))
+                    ))
+                    cursor = NSMaxRange(closeRange)
+                }
+                paragraphCursor = paragraphEnd
+            }
+
+            for pair in pairs.reversed() {
+                var fontUpdates: [(NSRange, UIFont)] = []
+                value.enumerateAttribute(.font, in: pair.content) { attribute, range, _ in
+                    let font = attribute as? UIFont ?? .systemFont(ofSize: RichTextMetrics.bodySize)
+                    var traits = font.fontDescriptor.symbolicTraits
+                    traits.insert(.traitBold)
+                    let descriptor = font.fontDescriptor.withSymbolicTraits(traits) ?? font.fontDescriptor
+                    fontUpdates.append((range, UIFont(descriptor: descriptor, size: font.pointSize)))
+                }
+                for (range, font) in fontUpdates { value.addAttribute(.font, value: font, range: range) }
+                value.deleteCharacters(in: pair.close)
+                value.deleteCharacters(in: pair.open)
+            }
+        }
+
         private func preparedClipboardText() -> NSAttributedString? {
             let pasteboard = UIPasteboard.general
             let richCandidates: [(String, NSAttributedString.DocumentType)] = [
@@ -2163,21 +2396,51 @@ private struct RichTextTextView: UIViewRepresentable {
                           let imported = Self.attributedRepresentation(raw, documentType: documentType) else { continue }
                     let htmlValue = item[UTType.html.identifier]
                     let clipboardHTML = htmlValue.flatMap(Self.stringRepresentation)
-                    var companionHTML = documentType == .html || !parent.noteFormatting
-                        ? nil
-                        : htmlValue.flatMap { Self.attributedRepresentation($0, documentType: .html) }
-                    if let plainText, let currentCompanion = companionHTML {
-                        let normalized = NSMutableAttributedString(attributedString: currentCompanion)
+                    let primary = NSMutableAttributedString(attributedString: imported)
+                    if let plainText {
+                        NativeRichTextPastePolicy.removeOnlyProvenBoundaryNewlines(from: primary, matching: plainText)
+                    }
+                    var companionHTML = htmlValue.flatMap { Self.attributedRepresentation($0, documentType: .html) }
+                    if let plainText, let companionHTML {
+                        let normalized = NSMutableAttributedString(attributedString: companionHTML)
                         NativeRichTextPastePolicy.removeOnlyProvenBoundaryNewlines(from: normalized, matching: plainText)
                         companionHTML = normalized
                     }
+
+                    let alignedCompanion = documentType != .html
+                        && companionHTML.map { clipboardRepresentationsMatch(primary, $0) } == true
+                    if documentType == .html {
+                        return finalizedRichPaste(
+                            primary,
+                            plainText: plainText,
+                            htmlData: Self.dataRepresentation(raw),
+                            sourceHTML: clipboardHTML,
+                            htmlIsPrimary: true
+                        )
+                    }
+                    if alignedCompanion, let companionHTML {
+                        let attachments = clipboardAttachmentRanges(in: primary)
+                        if attachments.isEmpty {
+                            return finalizedRichPaste(
+                                companionHTML,
+                                plainText: plainText,
+                                htmlData: nil,
+                                sourceHTML: clipboardHTML,
+                                htmlIsPrimary: true
+                            )
+                        }
+                        return finalizedRichPaste(
+                            primary,
+                            plainText: plainText,
+                            htmlData: nil,
+                            sourceHTML: clipboardHTML,
+                            companionHTML: companionHTML
+                        )
+                    }
                     return finalizedRichPaste(
-                        imported,
+                        primary,
                         plainText: plainText,
-                        htmlData: documentType == .html ? Self.dataRepresentation(raw) : nil,
-                        sourceHTML: clipboardHTML,
-                        companionHTML: companionHTML,
-                        htmlIsPrimary: documentType == .html
+                        htmlData: nil
                     )
                 }
 
@@ -2196,6 +2459,53 @@ private struct RichTextTextView: UIViewRepresentable {
             return nil
         }
 
+        private func clipboardRepresentationsMatch(
+            _ primary: NSAttributedString,
+            _ companion: NSAttributedString
+        ) -> Bool {
+            let primaryText = NativeRichTextTablePasteParser.normalizeLineEndings(primary.string)
+            let companionText = NativeRichTextTablePasteParser.normalizeLineEndings(companion.string)
+            guard primaryText == companionText,
+                  RichTextTextView.paragraphContents(in: primary) == RichTextTextView.paragraphContents(in: companion) else { return false }
+
+            let primaryAttachments = clipboardAttachmentRanges(in: primary)
+            let companionAttachments = clipboardAttachmentRanges(in: companion)
+            guard primaryAttachments.count == companionAttachments.count else { return false }
+            for (left, right) in zip(primaryAttachments, companionAttachments) {
+                guard left.range == right.range else { return false }
+                switch (left.attachment, right.attachment) {
+                case let (lhs as NativeImageAttachment, rhs as NativeImageAttachment):
+                    guard lhs.marker == rhs.marker else { return false }
+                case let (lhs as NativeUnavailableImageAttachment, rhs as NativeUnavailableImageAttachment):
+                    guard lhs.marker == rhs.marker else { return false }
+                case let (lhs as NativeTableAttachment, rhs as NativeTableAttachment):
+                    guard lhs.table == rhs.table else { return false }
+                case let (lhs as NativeFormulaAttachment, rhs as NativeFormulaAttachment):
+                    guard lhs.formula == rhs.formula else { return false }
+                case let (lhs as NativeOpaqueRichTextAttachment, rhs as NativeOpaqueRichTextAttachment):
+                    guard lhs.marker == rhs.marker else { return false }
+                default:
+                    guard left.attachment.fileType == right.attachment.fileType,
+                          let leftData = left.attachment.fileWrapper?.regularFileContents,
+                          let rightData = right.attachment.fileWrapper?.regularFileContents,
+                          leftData == rightData else { return false }
+                }
+            }
+            return true
+        }
+
+        private func clipboardAttachmentRanges(
+            in value: NSAttributedString
+        ) -> [(range: NSRange, attachment: NSTextAttachment)] {
+            guard value.length > 0 else { return [] }
+            var result: [(NSRange, NSTextAttachment)] = []
+            value.enumerateAttribute(.attachment, in: NSRange(location: 0, length: value.length)) { item, range, _ in
+                guard let attachment = item as? NSTextAttachment else { return }
+                result.append((range, attachment))
+            }
+            return result
+        }
+
         private func finalizedRichPaste(
             _ source: NSAttributedString,
             plainText: String?,
@@ -2209,22 +2519,30 @@ private struct RichTextTextView: UIViewRepresentable {
             if let plainText {
                 NativeRichTextPastePolicy.removeOnlyProvenBoundaryNewlines(from: richText, matching: plainText)
             }
+            let plainTextMatchesPrimary = plainText.map {
+                NativeRichTextTablePasteParser.normalizeLineEndings(richText.string)
+                    == NativeRichTextTablePasteParser.normalizeLineEndings($0)
+            } ?? false
+            let markdownMarkup = plainTextMatchesPrimary
+                ? plainText.flatMap(NativeRichTextMarkdown.htmlIfMarkdown)
+                : nil
             let markup = sourceHTML
                 ?? htmlData.flatMap { String(data: $0, encoding: .utf8) }
-                ?? plainText.flatMap(NativeRichTextMarkdown.htmlIfMarkdown)
+                ?? markdownMarkup
             var paragraphMetadata: [NativeRichTextNoteParagraphHTMLMetadata?]?
             var headingSizes: [String: [CGFloat]] = [:]
             var markupMatchesPrimary = htmlIsPrimary
             if let markup, htmlIsPrimary {
                 paragraphMetadata = RichTextTextView.alignedParagraphMetadata(in: markup, matching: richText)
                 headingSizes = RichTextTextView.semanticHeadingSizes(in: markup, matching: richText)
-            } else if parent.noteFormatting, let markup, let companionHTML {
+            } else if let markup, let companionHTML {
                 let companion = NSMutableAttributedString(attributedString: companionHTML)
                 if let plainText {
                     NativeRichTextPastePolicy.removeOnlyProvenBoundaryNewlines(from: companion, matching: plainText)
                 }
                 let companionMetadata = RichTextTextView.alignedParagraphMetadata(in: markup, matching: companion)
-                if RichTextTextView.applyingCompanionParagraphStyles(
+                if clipboardRepresentationsMatch(richText, companion),
+                   RichTextTextView.applyingCompanionParagraphStyles(
                     from: companion,
                     to: richText,
                     paragraphMetadata: companionMetadata
@@ -2239,6 +2557,14 @@ private struct RichTextTextView: UIViewRepresentable {
             } else if headingSizes.isEmpty, let htmlData {
                 headingSizes = RichTextTextView.semanticHeadingSizes(in: htmlData)
             }
+            if !parent.noteFormatting {
+                RichTextTextView.markSourceParagraphSemantics(
+                    in: richText,
+                    metadata: paragraphMetadata,
+                    semanticHeadingSizes: headingSizes
+                )
+            }
+            normalizeResidualMarkdownBold(in: richText)
             RichTextTextView.normalizePastedFonts(in: richText, semanticHeadingSizes: headingSizes)
             if parent.noteFormatting {
                 if let markup { RichTextTextView.applyHTMLListMarkers(from: markup, to: richText) }
@@ -2277,7 +2603,11 @@ private struct RichTextTextView: UIViewRepresentable {
                     .foregroundColor: UIColor.label
                 ]
             )
-            guard parent.noteFormatting else { return plain }
+            guard parent.noteFormatting else {
+                let explicitParagraphs = NSMutableAttributedString(attributedString: plain)
+                RichTextTextView.markConfirmedPlainTextParagraphs(in: explicitParagraphs)
+                return explicitParagraphs
+            }
             let styled = RichTextTextView.applyingNoteParagraphFormatting(to: plain, sourceHTML: nil)
             return RichTextTextView.normalizingPastedNoteParagraphs(in: styled, hasStructuredParagraphs: false)
         }
@@ -2487,10 +2817,6 @@ private struct RichTextTextView: UIViewRepresentable {
             rememberSelection(view.selectedRange)
             scheduleLayoutAndToolbarRefresh(view, updatesToolbar: true)
             if let imageResult {
-                if case .success = imageResult {
-                    _ = publishNow(view)
-                    connectedSession?.setMediaOperationInProgress(false)
-                }
                 return imageResult
             }
             if let tableResult {
@@ -3070,7 +3396,8 @@ private struct RichTextTextView: UIViewRepresentable {
                     html: cachedSnapshot.html,
                     attributedText: cachedSnapshot.attributedText,
                     selection: selection,
-                    documentRevision: documentRevision
+                    documentRevision: documentRevision,
+                    userEditRevision: userEditRevision
                 )
             }
 
@@ -3082,13 +3409,48 @@ private struct RichTextTextView: UIViewRepresentable {
                 html: html,
                 attributedText: attributedText,
                 selection: selection,
-                documentRevision: documentRevision
+                documentRevision: documentRevision,
+                userEditRevision: userEditRevision
             )
             cachedSnapshot = snapshot
             if parent.noteFormatting, parent.editorSession != nil {
                 LibraryPerformanceLog.markIfSlow("note.editor.rich-text-snapshot", since: snapshotStart)
             }
             return snapshot
+        }
+
+        func completeImageInsertion(
+            _ command: RichTextCommandKind,
+            result: Result<Void, NativeRichTextEditorError>,
+            in view: UITextView
+        ) -> Result<Void, NativeRichTextEditorError> {
+            guard case .image(let dataURL, let target) = command else { return result }
+            guard case .success = result else { return result }
+            guard parent.editorSession != nil,
+                  parent.editorDocumentID == target.documentID,
+                  parent.editorSessionID == target.sessionID,
+                  connectedSession?.matches(target) == true else {
+                return .failure(.editorSessionChanged)
+            }
+
+            let snapshot = snapshotNow(view)
+            let expectedMarker = "[[NATIVE_IMAGE:\(Data(dataURL.utf8).base64EncodedString())]]"
+            guard snapshot.documentRevision > target.revision,
+                  snapshot.hasConsistentImageMarkers,
+                  snapshot.imageMarkers.contains(expectedMarker) else {
+                return .failure(.imageAttachmentInvalid)
+            }
+            publish(snapshot.html)
+            connectedSession?.recordSuccessfulImageInsertion(
+                NativeRichTextImageInsertionReceipt(
+                    documentID: target.documentID,
+                    sessionID: target.sessionID,
+                    revision: snapshot.documentRevision,
+                    userEditRevision: snapshot.userEditRevision,
+                    imageMarkers: snapshot.imageMarkers
+                )
+            )
+            return .success(())
         }
 
         private func currentHTML(_ view: UITextView) -> String {
@@ -3254,10 +3616,12 @@ private struct RichTextTextView: UIViewRepresentable {
             data: data, options: [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue], documentAttributes: nil
         ) {
             restoreNativeTables(in: result)
-            normalizeFonts(in: result, semanticHeadingSizes: semanticHeadingSizes(in: data))
+            let headings = semanticHeadingSizes(in: data)
+            normalizeFonts(in: result, semanticHeadingSizes: headings)
+            let metadata = alignedParagraphMetadata(in: source, matching: result)
+            markSourceParagraphSemantics(in: result, metadata: metadata, semanticHeadingSizes: headings)
             guard noteFormatting else { return result }
             applyHTMLListMarkers(from: source, to: result)
-            let metadata = alignedParagraphMetadata(in: source, matching: result)
             return applyingNoteParagraphFormatting(
                 to: result,
                 sourceHTML: source,
@@ -3718,6 +4082,70 @@ private struct RichTextTextView: UIViewRepresentable {
         return result
     }
 
+    fileprivate static func markSourceParagraphSemantics(
+        in value: NSMutableAttributedString,
+        metadata: [NativeRichTextNoteParagraphHTMLMetadata?]?,
+        semanticHeadingSizes: [String: [CGFloat]]
+    ) {
+        guard value.length > 0 else { return }
+        var ranges: [NSRange] = []
+        enumerateParagraphRanges(in: value.string) { range, _ in ranges.append(range) }
+        guard !ranges.isEmpty else { return }
+        if let metadata, metadata.count != ranges.count { return }
+        let sourceConfirmsParagraphs = metadata?.count == ranges.count
+
+        var remainingHeadingSizes = semanticHeadingSizes
+        for index in ranges.indices {
+            let range = ranges[index]
+            guard range.location < value.length else { continue }
+            let row = metadata?[index]
+            if sourceConfirmsParagraphs {
+                value.addAttribute(
+                    NativeRichTextPastePolicy.confirmedNaturalParagraph,
+                    value: true,
+                    range: range
+                )
+            }
+            if row?.hasExplicitSpacing == true {
+                value.addAttribute(
+                    NativeRichTextPastePolicy.explicitParagraphSpacing,
+                    value: true,
+                    range: range
+                )
+            }
+
+            let paragraphText = (value.string as NSString).substring(with: range)
+            let key = semanticHeadingKey(paragraphText)
+            let semanticSize: CGFloat? = {
+                guard var sizes = remainingHeadingSizes[key], !sizes.isEmpty else { return nil }
+                let size = sizes.removeFirst()
+                remainingHeadingSizes[key] = sizes
+                return size
+            }()
+            let headingLevel = row?.headingLevel
+                ?? semanticSize.map { $0 >= 20.5 ? 1 : ($0 >= 17.5 ? 2 : 0) }
+            if let headingLevel, headingLevel > 0 {
+                value.addAttribute(
+                    NativeRichTextPastePolicy.semanticHeadingParagraph,
+                    value: headingLevel,
+                    range: range
+                )
+            }
+        }
+    }
+
+    fileprivate static func markConfirmedPlainTextParagraphs(in value: NSMutableAttributedString) {
+        guard value.length > 0 else { return }
+        enumerateParagraphRanges(in: value.string) { range, _ in
+            guard range.location < value.length else { return }
+            value.addAttribute(
+                NativeRichTextPastePolicy.confirmedNaturalParagraph,
+                value: true,
+                range: range
+            )
+        }
+    }
+
     fileprivate static func applyingCompanionParagraphStyles(
         from companion: NSAttributedString,
         to primary: NSMutableAttributedString,
@@ -3785,7 +4213,39 @@ private struct RichTextTextView: UIViewRepresentable {
         for (range, marker) in replacements.reversed() { serializable.replaceCharacters(in: range, with: marker) }
         if noteFormatting { return noteHTML(from: serializable) }
         guard serializable.length > 0, let data = try? serializable.data(from: NSRange(location: 0, length: serializable.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.html]) else { return "" }
-        return String(data: data, encoding: .utf8) ?? value.string
+        return htmlWithSourceParagraphSemantics(String(data: data, encoding: .utf8) ?? value.string, from: value)
+    }
+
+    private static func htmlWithSourceParagraphSemantics(_ html: String, from value: NSAttributedString) -> String {
+        guard value.length > 0,
+              let expression = try? NSRegularExpression(pattern: #"(?is)<(p|h[1-6])\b[^>]*>"#) else { return html }
+        var paragraphRanges: [NSRange] = []
+        enumerateParagraphRanges(in: value.string) { range, _ in paragraphRanges.append(range) }
+        let source = html as NSString
+        let matches = expression.matches(in: html, range: NSRange(location: 0, length: source.length))
+        guard matches.count == paragraphRanges.count else { return html }
+        let output = NSMutableString(string: html)
+        for index in matches.indices.reversed() {
+            let match = matches[index]
+            let range = paragraphRanges[index]
+            guard range.location < value.length else { continue }
+            let tag = source.substring(with: match.range)
+            let attributes = value.attributes(at: range.location, effectiveRange: nil)
+            var additions = ""
+            if let heading = (attributes[NativeRichTextPastePolicy.semanticHeadingParagraph] as? NSNumber)?.intValue,
+               (1...6).contains(heading),
+               !tag.contains("data-native-rich-text-heading-level=") {
+                additions += " data-native-rich-text-heading-level=\"\(heading)\""
+            }
+            if (attributes[NativeRichTextPastePolicy.explicitParagraphSpacing] as? NSNumber)?.boolValue == true,
+               !tag.contains("data-native-rich-text-explicit-spacing=") {
+                additions += " data-native-rich-text-explicit-spacing=\"1\""
+            }
+            guard !additions.isEmpty, let close = tag.lastIndex(of: ">") else { continue }
+            let updatedTag = String(tag[..<close]) + additions + ">"
+            output.replaceCharacters(in: match.range, with: updatedTag)
+        }
+        return output as String
     }
 
     private static func noteHTML(from value: NSAttributedString) -> String {
@@ -4030,6 +4490,33 @@ private struct RichTextTextView: UIViewRepresentable {
                 let key = semanticHeadingKey(paragraph)
                 guard !key.isEmpty else { continue }
                 result[key, default: []].append(size)
+            }
+        }
+        if let paragraphExpression = try? NSRegularExpression(pattern: #"(?is)<p\b([^>]*)>(.*?)</p\s*>"#),
+           let sizeExpression = try? NSRegularExpression(pattern: #"(?i)font-size\s*:\s*(21|18)(?:\.0+)?\s*pt\b"#) {
+            for match in paragraphExpression.matches(in: html, range: NSRange(location: 0, length: source.length)).prefix(64) {
+                guard match.numberOfRanges > 2 else { continue }
+                let paragraphHTML = source.substring(with: match.range)
+                let paragraphNSString = paragraphHTML as NSString
+                guard let sizeMatch = sizeExpression.firstMatch(
+                    in: paragraphHTML,
+                    range: NSRange(location: 0, length: paragraphNSString.length)
+                ), sizeMatch.numberOfRanges > 1,
+                let sizeValue = Int(paragraphNSString.substring(with: sizeMatch.range(at: 1))) else { continue }
+                let innerHTML = source.substring(with: match.range(at: 2))
+                guard innerHTML.utf8.count <= 16 * 1024,
+                      let fragmentData = "<html><head><meta charset=\"utf-8\"></head><body>\(innerHTML)</body></html>".data(using: .utf8),
+                      let fragment = try? NSAttributedString(
+                        data: fragmentData,
+                        options: [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue],
+                        documentAttributes: nil
+                      ) else { continue }
+                let size = sizeValue == 21 ? RichTextMetrics.heading1Size : RichTextMetrics.heading2Size
+                for paragraph in fragment.string.components(separatedBy: .newlines) {
+                    let key = semanticHeadingKey(paragraph)
+                    guard !key.isEmpty else { continue }
+                    result[key, default: []].append(size)
+                }
             }
         }
         return result

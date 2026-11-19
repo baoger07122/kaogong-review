@@ -23,6 +23,7 @@ struct SettingsView: View {
     @State private var clearMessage: String?
     @State private var isClearingLocalData = false
     @AppStorage("native.lastLocalBackupAt") private var lastLocalBackupAt = 0.0
+    @AppStorage("native.showReviewTab") private var showsReviewTab = false
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
@@ -32,6 +33,18 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Text("设置").font(AppTheme.pageTitleFont)
+
+                settingsSection("页面模块") {
+                    Toggle("显示复习", isOn: $showsReviewTab)
+                        .font(AppTheme.inputFont)
+                        .tint(AppTheme.accent)
+                        .frame(minHeight: 42)
+                    Text("开启后，复习入口显示在申论和设置之间。关闭不会删除复习数据。")
+                        .font(AppTheme.auxiliaryFont)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.bottom, 7)
+                }
 
                 settingsSection("本地数据与备份") {
                     VStack(alignment: .leading, spacing: 12) {

@@ -29,20 +29,25 @@ extension EnvironmentValues {
 enum RootTab: String, CaseIterable, Identifiable {
     case home
     case library
+    case shenlun
     case review
     case questionBank
     case settings
 
     var id: String { rawValue }
 
-    static var availableTabs: [RootTab] { allCases.filter(\.isAvailable) }
+    static var availableTabs: [RootTab] {
+        let showsReview = UserDefaults.standard.bool(forKey: "native.showReviewTab")
+        return allCases.filter { $0.isAvailable && ($0 != .review || showsReview) }
+    }
 
     var isAvailable: Bool { self != .questionBank }
 
     var title: String {
         switch self {
         case .home: "首页"
-        case .library: "学习库"
+        case .library: "行测"
+        case .shenlun: "申论"
         case .review: "复习"
         case .questionBank: "真题"
         case .settings: "设置"
@@ -53,6 +58,7 @@ enum RootTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: "house"
         case .library: "square.stack.3d.up.fill"
+        case .shenlun: "pencil.and.outline"
         case .review: "checkmark.seal.fill"
         case .questionBank: "books.vertical.fill"
         case .settings: "gearshape"
@@ -65,11 +71,13 @@ struct RootTabView: View {
     @State private var selectionGeneration = 0
     @State private var homePath: [AppRoute] = []
     @State private var libraryPath: [LibraryRoute] = []
+    @State private var shenlunPath: [ShenlunWorkspaceRoute] = []
     @State private var settingsPath: [SettingsRoute] = []
     @State private var isReviewSessionActive = false
     // Store the shared reference without subscribing this entire tab shell to its
     // frequent canvas updates; LibraryDoodleRootOverlay owns that observation.
     @State private var libraryDoodleSession = LibraryDoodleSession()
+    @AppStorage("native.showReviewTab") private var showsReviewTab = false
 
     var body: some View {
         GeometryReader { window in
@@ -87,7 +95,7 @@ struct RootTabView: View {
     }
 
     private var tabPages: some View {
-        ForEach(RootTab.availableTabs) { tab in
+        ForEach(RootTab.allCases.filter { $0.isAvailable && ($0 != .review || showsReviewTab) }) { tab in
             tabContent(tab)
                 .modifier(RootTabFirstFrameMarker(
                     tab: tab,
@@ -110,7 +118,7 @@ struct RootTabView: View {
     }
 
     private func selectTab(_ tab: RootTab) {
-        guard tab.isAvailable else { return }
+        guard RootTab.availableTabs.contains(tab) else { return }
         guard selection != tab else { return }
         NativePerformanceLog.beginTabSelection(tab)
         selectionGeneration &+= 1
@@ -136,6 +144,13 @@ struct RootTabView: View {
                 .environmentObject(libraryDoodleSession)
                 .environment(\.rootTabBarIsVisible, libraryPath.isEmpty)
                 .toolbar(libraryPath.isEmpty ? .visible : .hidden, for: .tabBar)
+        case .shenlun:
+            NavigationStack(path: $shenlunPath) {
+                ShenlunWorkspaceView(navigationPath: $shenlunPath)
+            }
+                .environmentObject(libraryDoodleSession)
+                .environment(\.rootTabBarIsVisible, shenlunPath.isEmpty)
+                .toolbar(shenlunPath.isEmpty ? .visible : .hidden, for: .tabBar)
         case .review:
             NavigationStack { ReviewView(isSessionActive: $isReviewSessionActive) }
                 .environment(\.rootTabBarIsVisible, !isReviewSessionActive)

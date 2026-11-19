@@ -38,10 +38,12 @@ enum NativeRichTextNoteParagraphHTMLPolicy {
                 return NativeRichTextNoteParagraphHTMLMetadata(tagName: "p", headingLevel: nil, versionedLayout: nil, hasExplicitSpacing: false)
             }
             let tagName = source.substring(with: match.range(at: 1)).lowercased()
-            let headingLevel = match.range(at: 2).location == NSNotFound
+            let attributes = source.substring(with: match.range(at: 3))
+            let storedHeadingLevel = attribute("data-native-rich-text-heading-level", in: attributes).flatMap { Int($0) }
+            let tagHeadingLevel = match.range(at: 2).location == NSNotFound
                 ? nil
                 : Int(source.substring(with: match.range(at: 2)))
-            let attributes = source.substring(with: match.range(at: 3))
+            let headingLevel = storedHeadingLevel ?? tagHeadingLevel
             let layoutVersion = attribute("data-note-layout-version", in: attributes)
             let before = attribute("data-note-spacing-before", in: attributes).flatMap { Double($0) }
             let after = attribute("data-note-spacing-after", in: attributes).flatMap { Double($0) }
@@ -69,6 +71,7 @@ enum NativeRichTextNoteParagraphHTMLPolicy {
             let hasExplicitSpacing = layout != nil
                 || before != nil
                 || after != nil
+                || attribute("data-native-rich-text-explicit-spacing", in: attributes) == "1"
                 || cssSpacing != nil
                 || css.range(of: #"(?i)(?:^|;)\s*-apple-paragraph-spacing\s*:"#, options: .regularExpression) != nil
             return NativeRichTextNoteParagraphHTMLMetadata(

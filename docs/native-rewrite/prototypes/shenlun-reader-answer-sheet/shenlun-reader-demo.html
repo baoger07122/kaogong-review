@@ -1,0 +1,2560 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>申论学习工作区 · 设计原型</title>
+<style>
+  :root {
+    --ink: #182131;
+    --secondary: #536074;
+    --muted: #68758a;
+    --line: #e4e9f0;
+    --surface: #f2f4f8;
+    --paper-back: #e8edf5;
+    --white: #fff;
+    --blue: #1262cc;
+    --blue-fill: #e8f1ff;
+    --green: #176450;
+    --green-fill: #e7f4ed;
+    --orange: #885727;
+    --orange-fill: #fcf2e3;
+    --radius: 17px;
+    --font: -apple-system, BlinkMacSystemFont, "Microsoft YaHei UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  * { box-sizing: border-box }
+  [hidden] { display: none !important }
+  html, body { height: 100%; margin: 0 }
+  body { overflow: hidden; font: 14px/1.55 var(--font); color: var(--ink); background: var(--surface) }
+  button, input, textarea, select { font: inherit; color: inherit }
+  button { cursor: pointer }
+  button:disabled { opacity: .48; cursor: not-allowed }
+  button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--blue); outline-offset: 2px
+  }
+  h1, h2, h3, p { margin: 0 }
+  h1 { font-size: 21px; font-weight: 700; line-height: 1.25 }
+  h2 { font-size: 16px; font-weight: 700 }
+  h3 { font-size: 15px; font-weight: 700 }
+  .minor { color: var(--muted); font-size: 12px }
+  .summary { color: var(--secondary); line-height: 1.72 }
+  .app { height: 100%; display: grid; grid-template-rows: 64px minmax(0, 1fr) }
+  .bar {
+    position: relative; z-index: 4; border-bottom: 1px solid var(--line);
+    background: rgba(255, 255, 255, .96); display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 0 24px
+  }
+  .bar-left, .bar-actions { display: flex; align-items: center; gap: 10px; min-width: 0 }
+  .bar-left { grid-column: 1 }
+  .bar-actions { grid-column: 3; justify-content: flex-end }
+  .bar-name { display: flex; gap: 9px; align-items: center }
+  .demo { color: var(--muted); font-size: 11px; font-weight: 500; white-space: nowrap }
+  .detail-name { min-width: 0; text-align: center; grid-column: 2 }
+  .detail-name h1 { font-size: 17px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis }
+  .detail-name .minor { margin-top: 3px }
+  .icon {
+    width: 20px; height: 20px; flex: 0 0 20px; display: inline-flex;
+    align-items: center; justify-content: center; color: currentColor; position: relative
+  }
+  .icon-book::before { content: ""; width: 13px; height: 15px; border: 1.7px solid currentColor; border-radius: 3px }
+  .icon-book::after { content: ""; width: 6px; height: 1.6px; background: currentColor; position: absolute; top: 7px; box-shadow: 0 4px currentColor }
+  .icon-grid::before { content: ""; width: 5px; height: 5px; border: 1.5px solid currentColor; border-radius: 1px; transform: translate(-4px, -4px); box-shadow: 8px 0 currentColor, 0 8px currentColor, 8px 8px currentColor }
+  .icon-home::before { content: ""; width: 11px; height: 11px; border-left: 1.6px solid currentColor; border-top: 1.6px solid currentColor; transform: rotate(45deg); position: absolute; top: 3px }
+  .icon-home::after { content: ""; width: 11px; height: 9px; border: 1.6px solid currentColor; border-top: 0; border-radius: 1px; position: absolute; top: 9px }
+  .icon-gear, .icon-check { font-size: 21px; line-height: 1 }
+  .primary, .plain, .quiet, .soft, .back {
+    min-height: 44px; border: 0; border-radius: 11px; padding: 0 15px; white-space: nowrap; background: none; font-weight: 600
+  }
+  .primary { color: white; background: #1264d7 }
+  .primary:hover:not(:disabled) { background: #0d59c4 }
+  .plain { color: var(--blue); background: transparent }
+  .plain:hover, .quiet:hover, .back:hover, .soft:hover { background: var(--blue-fill) }
+  .soft { background: var(--blue-fill); color: var(--blue) }
+  .quiet { color: var(--secondary); padding: 0 10px }
+  .back { padding: 0 6px; color: var(--blue); font-size: 15px }
+  .back .chevron { font-size: 25px; vertical-align: -2px; margin-right: 3px; font-weight: 400 }
+  .pill {
+    padding: 4px 9px; border-radius: 999px; display: inline-flex; align-items: center; gap: 5px;
+    white-space: nowrap; font-size: 12px; font-weight: 600; line-height: 1.4
+  }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor }
+  .state-work { color: var(--blue); background: var(--blue-fill) }
+  .state-review { color: var(--orange); background: var(--orange-fill) }
+  .state-score { color: var(--green); background: var(--green-fill) }
+  .body-screen { min-height: 0; position: relative }
+  .home-screen { height: 100%; min-height: 0; overflow-y: auto }
+  .library-wrap { width: min(900px, calc(100% - 48px)); margin: 50px auto 140px }
+  .list-title { font-size: 29px; letter-spacing: .02em; margin-bottom: 19px }
+  .practice-modes { display: inline-flex; gap: 4px; padding: 4px; margin-bottom: 18px; background: #e5eaf2; border-radius: 12px }
+  .practice-modes button { min-height: 44px; padding: 0 20px; border: 0; border-radius: 9px; background: none; font-weight: 600; color: var(--secondary) }
+  .practice-modes button[aria-current="true"] { background: white; color: var(--blue); box-shadow: 0 1px 4px #172d5420 }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px }
+  .filter {
+    border: 1px solid var(--line); border-radius: 999px; background: white;
+    padding: 0 18px; min-height: 44px; color: var(--secondary); font-weight: 600
+  }
+  .filter[aria-pressed="true"] { background: var(--blue-fill); color: var(--blue); border-color: #c7ddff }
+  .entry-list { background: white; border: 1px solid var(--line); border-radius: 19px; overflow: hidden }
+  .entry {
+    display: grid; grid-template-columns: 40px minmax(0, 1fr) auto 16px; align-items: center;
+    width: 100%; text-align: left; border: 0; background: white; padding: 17px 20px; gap: 16px
+  }
+  .entry + .entry { border-top: 1px solid var(--line) }
+  .entry:hover { background: #f8fbff }
+  .entry h3 { font-size: 17px; margin: 4px 0 3px }
+  .entry-progress { color: var(--secondary); text-align: right; font-size: 12px; line-height: 1.55; white-space: nowrap }
+  .entry-mark { height: 40px; width: 40px; border-radius: 11px; color: var(--blue); background: var(--blue-fill); display: grid; place-items: center }
+  .entry-arrow { font-size: 23px; color: #6a7890 }
+  .empty { color: var(--muted); padding: 25px 18px; text-align: center }
+  .dock {
+    position: absolute; z-index: 6; left: 50%; transform: translateX(-50%); bottom: 20px;
+    max-width: calc(100% - 22px); min-width: 370px; padding: 5px; display: flex;
+    border: 1px solid #dce4f0; border-radius: 32px; background: rgba(255, 255, 255, .94);
+    box-shadow: 0 10px 30px rgba(43, 65, 97, .13); backdrop-filter: blur(12px)
+  }
+  .dock button { border: 0; border-radius: 26px; min-height: 50px; flex: 1; min-width: 62px; color: var(--secondary); display: grid; justify-items: center; align-content: center; gap: 2px; font-size: 12px; background: none }
+  .dock button[aria-current="page"] { color: var(--blue); background: var(--blue-fill); font-weight: 700 }
+  .settings-switch { display: flex; gap: 18px; align-items: center; justify-content: space-between; padding: 17px 18px }
+  .settings-switch input { appearance: none; width: 48px; height: 28px; border-radius: 16px; background: #ccd3dd; margin: 0; position: relative; flex: 0 0 48px }
+  .settings-switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: white; box-shadow: 0 1px 3px #26334540 }
+  .settings-switch input:checked { background: #24a268 }
+  .settings-switch input:checked::after { left: 23px }
+
+  .detail-screen {
+    height: 100%; min-height: 0; display: grid;
+    grid-template-columns: minmax(0, 60fr) minmax(320px, 40fr);
+    background: white
+  }
+  .narrow-nav { display: none }
+  .reader, .workspace { min-width: 0; min-height: 0; display: flex; flex-direction: column }
+  .reader { border-right: 1px solid #d9e1ec; background: var(--paper-back) }
+  .reading-top { position: relative; z-index: 4; background: white; border-bottom: 1px solid var(--line); padding: 5px 16px 0 }
+  .material-row { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px }
+  .material-nav { min-width: 0; display: flex; overflow: auto; padding: 0 0 1px; scrollbar-width: none }
+  .material-nav::-webkit-scrollbar { display: none }
+  .material-tab, .section-tab, .narrow-tab {
+    background: transparent; border: 0; min-height: 44px; padding: 0 13px; font-weight: 600;
+    color: var(--secondary); white-space: nowrap; border-bottom: 2px solid transparent
+  }
+  .material-tab[aria-current="true"], .section-tab[aria-current="true"], .narrow-tab[aria-current="true"] {
+    color: var(--blue); border-bottom-color: #2676db
+  }
+  .tools {
+    position: relative; z-index: 3; flex: 0 0 auto; min-height: 53px; padding: 4px 14px; background: #f9fbff; border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; gap: 8px; align-items: center
+  }
+  .doodle-controls, .zoom { display: flex; align-items: center; gap: 6px; min-width: 0 }
+  .doodle-scroll { overflow: auto; padding-block: 4px; scrollbar-width: none }
+  .doodle-scroll::-webkit-scrollbar { display: none }
+  .doodle-capsule {
+    width: max-content; min-width: 0; height: 40px; display: flex; gap: 2px; align-items: center;
+    padding: 0 6px; border-radius: 23px; border: 1px solid #d9e1eb;
+    background: #ffffffdf; box-shadow: 0 2px 5px #24365014; backdrop-filter: blur(14px)
+  }
+  .doodle-capsule button { border: 0; background: transparent; width: 32px; height: 38px; color: var(--ink); padding: 0; border-radius: 18px; display: grid; place-items: center; flex: 0 0 32px }
+  .doodle-capsule button:hover, .doodle-capsule button[aria-pressed="true"], .layers-button[aria-expanded="true"] { color: var(--blue); background: var(--blue-fill) }
+  .doodle-glyph { font: 15px/1 "Segoe MDL2 Assets", "Segoe UI Symbol", sans-serif }
+  .doodle-hand { font: 18px/1 "Segoe UI Symbol", sans-serif }
+  .layer-indicator { margin-left: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+  .layers-button { display: flex; align-items: center; gap: 6px; border-radius: 20px }
+  .stack-icon { position: relative; display: inline-block; width: 15px; height: 15px; flex: 0 0 15px }
+  .stack-icon::before, .stack-icon::after { content: ""; width: 9px; height: 9px; position: absolute; left: 2px; transform: rotate(45deg) skew(-12deg,-12deg); border: 1.4px solid currentColor; border-radius: 2px }
+  .stack-icon::before { top: 1px; z-index: 1; background: #f9fbff }
+  .stack-icon::after { top: 5px }
+  .zoom button, .page-controls button {
+    height: 44px; min-width: 44px; padding: 0 9px; border: 0; border-radius: 9px; color: var(--secondary); white-space: nowrap; background: transparent
+  }
+  .zoom button:hover, .page-controls button:hover { background: var(--blue-fill) }
+  .swatch {
+    width: 28px; height: 28px; border-radius: 50%; display: inline-block; background: var(--stroke, #222)
+  }
+  .floating-panel {
+    position: absolute; width: min(322px, calc(100% - 22px)); background: #fff;
+    border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 10px 36px #182d4933; padding: 13px;
+    max-height: min(520px, 65vh); overflow: auto
+  }
+  .layers-panel { z-index: 5; top: 47px; right: 12px }
+  .palette-panel { top: calc(100% + 3px); left: 12px }
+  .floating-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px }
+  .floating-head .mini-btn { color: var(--secondary) }
+  .layer-list { display: grid; margin: 0 0 7px; padding: 0; list-style: none }
+  .layer-line { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; min-height: 48px; padding: 0 3px; border-bottom: 1px solid var(--line); gap: 2px }
+  .layer-line:first-child { border-top: 1px solid var(--line) }
+  .layer-line[data-current="true"] { background: #f2f7ff; border-color: #dce9ff }
+  .layer-name { text-align: left; min-height: 44px; background: none; border: 0; padding: 3px 7px; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px }
+  .layer-name strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600 }
+  .layer-line[data-current="true"] .layer-name, .layer-line[data-current="true"] .layer-name .minor { color: var(--blue) }
+  .layer-eye { min-width: 38px; height: 44px; display: grid; place-items: center; color: var(--secondary); border: 0; background: none; border-radius: 8px }
+  .eye-icon { position: relative; width: 18px; height: 12px; border: 1.4px solid currentColor; border-radius: 70% 70%; display: inline-grid; place-items: center }
+  .eye-icon::before { content: ""; width: 5px; height: 5px; background: currentColor; border-radius: 50% }
+  .layer-eye[aria-pressed="false"] .eye-icon::after { content: ""; position: absolute; width: 20px; height: 1.5px; background: currentColor; transform: rotate(-35deg) }
+  .layer-actions { display: flex; align-items: center; justify-content: space-between; gap: 5px }
+  .layer-name-form { display: grid; gap: 6px; padding: 5px 0 7px }
+  .layer-name-form input { min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px }
+  .layer-name-form footer { display: flex; justify-content: flex-end; gap: 4px }
+  .palette-panel .color-choices { display: flex; justify-content: space-between; gap: 5px; margin: 7px 0 12px }
+  .color-choices button { min-width: 48px; min-height: 44px; border: 0; background: none; padding: 3px; display: grid; place-items: center }
+  .color-choices button[aria-pressed="true"] .swatch { outline: 2px solid var(--blue); outline-offset: 3px }
+  .tool-options { display: flex; gap: 3px; margin: 4px 0 11px; border-radius: 8px; padding: 3px; background: #eef1f6 }
+  .tool-options button { flex: 1; min-height: 37px; border: 0; border-radius: 6px; background: none }
+  .tool-options [aria-pressed="true"] { color: var(--blue); background: white; box-shadow: 0 1px 3px #24365020 }
+  .zoom { flex: 0 0 auto }
+  .zoom button, .page-controls button { font-size: 20px; line-height: 1 }
+  .zoom-output { font-size: 12px; min-width: 37px; text-align: center }
+  .reader-scroll { position: relative; min-height: 0; flex: 1; overflow: auto; padding: 18px 16px 22px; overscroll-behavior: contain }
+  .reader-pages { display: grid; justify-items: center; align-items: start; gap: 16px; min-width: max-content; position: relative }
+  .paper-wrap { position: relative; width: 612px; height: 866.033px; box-shadow: 0 8px 28px #3549631e }
+  .paper {
+    position: absolute; left: 0; top: 0; width: 612px; height: 866.033px; background: white;
+    transform-origin: top left; color: #1a1b22; overflow: hidden; touch-action: pan-y pinch-zoom
+  }
+  .paper-running { position: absolute; left: 70px; right: 69.5px; top: 47px; display: flex; align-items: center; justify-content: space-between; color: #526584; border-bottom: 1px solid #e3e8f0; padding-bottom: 8px; font: 9.2px/1.4 var(--font) }
+  .paper-copy { position: absolute; top: 91px; left: 70px; right: 69.5px; bottom: 60px; font: 11.31px/20.6px "FangSong", "STFangsong", "仿宋", "Noto Serif SC", serif; font-weight: 400; color: #17191e }
+  .paper-copy.continuing { top: 96px }
+  .paper-copy p { margin: 0; text-indent: 22.63px; text-align: justify; text-align-last: auto; line-break: strict; overflow-wrap: anywhere; orphans: 2; widows: 2 }
+  .paper-copy .latin { font-family: "Times New Roman", serif }
+  .paper-copy h2 { font: 16px/21px var(--font); font-weight: 700; color: #181b22; margin-bottom: 19px }
+  .paper-copy h3 { width: max-content; padding: 0 9px; border-radius: 4px; background: #477ded; color: white; font: 700 11.5px/23px var(--font); margin-bottom: 15px }
+  .paper-copy .paragraph-continuation { text-indent: 0 }
+  .paper-copy.paper-measure { position: fixed; top: 0; left: -1000px; right: auto; bottom: auto; width: 472.5px; height: 715.033px; visibility: hidden; overflow: hidden; pointer-events: none }
+  .paper-measure.continuing { height: 710.033px }
+  .paper-footer { position: absolute; left: 70px; right: 69.5px; bottom: 30px; border-top: 1px solid #e3e8f0; padding-top: 7px; color: #5f7089; font-size: 9px; text-align: right }
+  .ink { position: absolute; inset: 0; width: 100%; height: 100%; background: transparent; touch-action: pan-y pinch-zoom }
+  .ink.hide-ink { visibility: hidden; pointer-events: none }
+  .ink.finger-ink { touch-action: none }
+  .ink.read-ink { pointer-events: none }
+  .page-controls { position: relative; z-index: 2; align-self: center; display: flex; gap: 8px; align-items: center; margin: 6px 0 9px; min-height: 44px; padding: 0 5px; border-radius: 24px; background: #fff; border: 1px solid #dce5f0; font-size: 12px; color: #526277 }
+  .page-controls button { border-radius: 20px }
+
+  .workspace { background: #f7f8fb }
+  .workspace-head { padding: 7px 19px 0; background: white; border-bottom: 1px solid var(--line) }
+  .paper-nav { padding-bottom: 8px; border-bottom: 1px solid var(--line) }
+  .question-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px }
+  .question-tabs { min-width: 0; display: flex; align-items: center; gap: 7px; overflow-x: auto; scrollbar-width: thin; padding: 3px 0 }
+  .question-tab { min-height: 44px; flex: 0 0 auto; padding: 3px 11px; border: 1px solid var(--line); border-radius: 9px; background: white; color: var(--secondary); font-size: 13px; font-weight: 600; white-space: nowrap }
+  .question-tab span { font-size: 11px; margin-inline-start: 5px; font-weight: 500 }
+  .question-tab[aria-current="true"] { background: var(--blue-fill); border-color: #c7ddff; color: var(--blue) }
+  .question-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap }
+  .question-links .mini-btn { padding-inline: 3px }
+  .question-links .anchor { padding-inline: 3px }
+  .workspace-title { display: flex; min-height: 36px; align-items: center; justify-content: space-between; gap: 10px }
+  .workspace-tabs { display: flex; gap: 1px; overflow: auto; scrollbar-width: none }
+  .section-tab { padding-inline: 12px }
+  .pane-scroll { flex: 1; overflow-y: auto; min-height: 0; overscroll-behavior: contain; padding: 16px 18px 20px; display: grid; align-content: start; gap: 12px }
+  .panel { background: white; padding: 15px; border: 1px solid var(--line); border-radius: var(--radius); min-width: 0 }
+  .panel + .panel { margin-top: 0 }
+  .panel-head, .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0 }
+  .panel-head { min-height: 29px; margin-bottom: 8px }
+  .panel-head.tight { margin-bottom: 0 }
+  .panel p { overflow-wrap: anywhere }
+  .question-text { font-size: 14.5px; font-weight: 600; line-height: 1.75; margin: 5px 0 6px; white-space: pre-wrap }
+  .requirement { color: var(--secondary); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap }
+  .workspace textarea, .workspace input, dialog input, dialog textarea, dialog select {
+    width: 100%; background: #f7f9fc; border: 1px solid #e1e7f0; border-radius: 10px;
+    color: var(--ink); padding: 10px 11px; line-height: 1.65
+  }
+  .workspace textarea { display: block; min-height: 76px; resize: vertical }
+  .workspace .answer-input { min-height: 114px }
+  .read-answer { white-space: pre-wrap; line-height: 1.8 }
+  .reference-text { background: #f2f7ff; border-color: #dbe9fc }
+  .below { margin-top: 8px }
+  .doubt-list { padding: 0; margin: 0; list-style: none }
+  .doubt-list li { padding: 10px 0 }
+  .doubt-list li + li { border-top: 1px solid var(--line) }
+  .doubt-number { font: 700 12px/1 var(--font); width: 23px; height: 23px; border-radius: 8px; display: inline-grid; place-items: center; background: var(--blue-fill); color: var(--blue); flex: 0 0 23px }
+  .doubt-body { display: flex; gap: 9px; align-items: flex-start }
+  .doubt-body strong { font-weight: 600 }
+  .anchor { color: var(--blue); font-size: 11.5px; min-height: 25px; padding: 0; border: 0; background: none; line-height: 1.4; text-align: left }
+  .anchor:hover { text-decoration: underline }
+  .mini-btn { min-height: 44px; border: 0; border-radius: 9px; background: none; color: var(--blue); padding: 0 8px; font-size: 12px; font-weight: 600; white-space: nowrap }
+  .mini-btn:hover { background: var(--blue-fill) }
+  .meter { color: var(--blue); font-size: 25px; font-weight: 700; letter-spacing: -.02em }
+  .meter small { color: var(--muted); font-size: 13px; font-weight: 600; letter-spacing: 0 }
+  .score-input { width: 92px !important }
+  .score-check { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; margin-bottom: 8px }
+  .footer-actions { flex: 0 0 auto; background: white; border-top: 1px solid var(--line); padding: 9px 18px; display: flex; gap: 9px; justify-content: flex-end; align-items: center }
+  .footer-actions .minor { margin-right: auto }
+  .footer-actions .primary, .footer-actions .soft { min-height: 44px }
+  .ai-status { font-size: 12px; color: var(--blue); min-width: 0; margin-right: auto; line-height: 1.4 }
+  .ai-status:empty { display: none }
+  .ai-status[data-busy="true"]::before { display: inline-block; content: ""; width: 11px; height: 11px; border: 2px solid #c1d7f8; border-top-color: var(--blue); border-radius: 50%; margin-right: 6px; vertical-align: -2px; animation: spin .8s linear infinite }
+  @keyframes spin { to { transform: rotate(360deg) } }
+  .ai-draft { border-color: #c7ddff; background: #f3f8ff }
+  .ai-draft .review-tag { color: var(--blue); font-size: 12px; white-space: nowrap }
+  .evidence-list { margin: 13px 0 0; padding: 0; list-style: none }
+  .evidence-list li { padding: 10px 0 8px; border-top: 1px solid #dce8f8 }
+  .evidence-list strong { font-weight: 600 }
+  .notice { color: var(--orange); background: var(--orange-fill); padding: 8px 10px; border-radius: 9px; margin-bottom: 8px; font-size: 12px }
+  dialog { border: 1px solid var(--line); border-radius: 18px; max-width: min(500px, calc(100% - 24px)); width: 100%; padding: 20px; box-shadow: 0 18px 50px #24334a4a }
+  dialog::backdrop { background: rgba(24, 34, 53, .32) }
+  dialog form { display: grid; gap: 11px }
+  dialog label { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; font-weight: 600 }
+  .form-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px }
+  #material-ref-choices { display: grid; gap: 5px }
+  #material-ref-choices label { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 9px }
+  #material-ref-choices input { width: auto; margin: 0; accent-color: var(--blue) }
+  dialog textarea { min-height: 80px; resize: vertical }
+  dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px }
+  .entry-screen { height: 100%; overflow-y: auto }
+  .entry-form { display: grid; gap: 16px; width: min(1100px, calc(100% - 46px)); margin: 26px auto 42px; grid-template-columns: minmax(0, 1.52fr) minmax(320px, 1fr); align-items: start }
+  .entry-column { display: grid; align-content: start; gap: 14px; min-width: 0 }
+  .entry-card { background: white; border: 1px solid var(--line); border-radius: 16px; padding: 19px; display: grid; gap: 13px }
+  .entry-card h2 { font-size: 16px; margin-bottom: 2px }
+  .entry-card label { min-width: 0; display: grid; gap: 6px; font-size: 13px; color: var(--secondary); font-weight: 600 }
+  .entry-card input, .entry-card textarea, .entry-card select { width: 100%; background: #f5f7fb; border: 1px solid #e1e7f0; border-radius: 9px; padding: 10px 11px; font-size: 15px; color: var(--ink); font-weight: 400 }
+  .entry-card input, .entry-card select { min-height: 44px }
+  .entry-card textarea { resize: vertical; line-height: 1.65; min-height: 90px }
+  .entry-card textarea[name="stem"] { min-height: 164px }
+  .entry-card summary { min-height: 44px; cursor: pointer; padding-block: 9px; font-size: 14px; font-weight: 600 }
+  .entry-card details label { margin: 7px 0 3px }
+  .entry-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px }
+  .entry-actions button { padding-inline: 10px }
+  .entry-material-list { display: grid; gap: 6px }
+  .entry-material { padding: 9px 10px; background: #f5f7fb; border: 1px solid var(--line); border-radius: 8px; display: grid; gap: 3px }
+  .entry-material p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .entry-hint { color: var(--secondary); font-size: 12px }
+  #entry-feedback:empty { display: none }
+
+  @media (max-width: 899px) {
+    .detail-screen { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 45px minmax(0, 1fr) }
+    .narrow-nav { display: flex; gap: 0; background: white; border-bottom: 1px solid var(--line); align-items: center; justify-content: center }
+    .narrow-tab { min-width: 100px }
+    .reader { border-right: 0 }
+    .detail-screen[data-narrow="reader"] .workspace, .detail-screen[data-narrow="workspace"] .reader { display: none }
+    .workspace { padding-inline: max(0px, calc((100% - 675px) / 2)) }
+    .entry-form { display: flex; flex-flow: column nowrap; reading-flow: flex-visual; width: min(680px, calc(100% - 30px)); margin: 16px auto 36px }
+    .entry-column { display: contents }
+    .entry-card { width: 100% }
+    .entry-card[data-entry-order="meta"] { order: -2 }
+    .entry-card[data-entry-order="body"] { order: -1 }
+    .entry-card[data-entry-order="reference"] { order: 1 }
+  }
+  @media (max-width: 540px) {
+    .app { grid-template-rows: 55px minmax(0, 1fr) }
+    .bar { padding: 0 10px; gap: 5px; grid-template-columns: 1fr auto 1fr }
+    .bar .detail-name h1 { max-width: 44vw; font-size: 15px }
+    .bar .detail-name .minor { font-size: 10.5px }
+    .back { font-size: 13px }
+    .bar-actions .pill { font-size: 10px; padding: 3px 5px }
+    .demo { display: none }
+    .library-wrap { width: calc(100% - 25px); margin: 28px auto 110px }
+    .list-title { font-size: 24px }
+    .filters { gap: 5px }
+    .filter { padding-inline: 9px; font-size: 12px }
+    .entry { gap: 8px; padding: 12px 10px; grid-template-columns: 30px minmax(0, 1fr) auto 10px }
+    .entry h3 { font-size: 14px }
+    .entry-mark { width: 30px; height: 30px; border-radius: 8px }
+    .entry .pill { font-size: 10px; padding-inline: 6px }
+    .dock { min-width: min(370px, calc(100% - 20px)); bottom: 13px }
+    .dock button { min-width: 49px; font-size: 11px }
+    .reader-scroll { padding: 12px 8px 18px }
+    .reading-top { padding-inline: 8px }
+    .tools { padding-inline: 5px; gap: 4px; min-height: 49px }
+    .layer-indicator { display: none }
+    .zoom { gap: 0 }
+    .zoom button { padding-inline: 3px; min-width: 35px }
+    .zoom-output { min-width: 32px; font-size: 11px }
+    .pane-scroll { padding: 10px }
+    .footer-actions { padding-inline: 9px; gap: 5px; flex-wrap: wrap }
+    .entry-progress { font-size: 10.5px }
+    .workspace-head { padding-inline: 10px }
+  }
+
+  .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0 }
+  .app { grid-template-rows: auto minmax(0, 1fr) }
+  .bar { min-height: 64px }
+  .bar.is-detail {
+    grid-template-columns: minmax(90px, 1fr) minmax(0, auto) minmax(0, 1fr);
+    grid-template-areas: "back title actions"; column-gap: 10px;
+    padding: 19px 12px 0 20px; min-height: 79px; z-index: 8;
+  }
+  .bar.is-detail .bar-left { grid-area: back }
+  .bar.is-detail .bar-actions { display: contents }
+  .bar.is-detail .detail-name { grid-area: title; min-width: 0 }
+  .bar.is-detail .detail-name h1 { font-size: 16px; max-width: 100%; font-weight: 650 }
+  .detail-actions, .top-doodle { display: flex; align-items: center; gap: 7px; min-width: 0 }
+  .detail-actions { grid-area: actions; justify-content: flex-end }
+  .top-doodle { justify-content: flex-end }
+  .top-icon { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 20px; border: 0; padding: 0; display: grid; place-items: center; font-size: 23px; color: var(--ink); background: transparent }
+  .top-icon:hover, .top-icon[aria-expanded="true"] { color: var(--blue); background: var(--blue-fill) }
+  .top-icon .stack-icon { transform: scale(1.17) translateY(-1px) }
+  .bar.is-detail .doodle-scroll { min-width: 0; padding-inline: 2px }
+  .top-doodle .doodle-scroll { flex: 0 0 auto }
+  .top-doodle .doodle-capsule { height: 40px; background: #f7f8fb; border-color: #e0e4eb; box-shadow: 0 2px 5px #19203313 }
+  .top-doodle .doodle-capsule:has(button[aria-pressed="true"]) { color: var(--ink) }
+  .top-doodle .doodle-capsule button { height: 40px }
+
+  .floating-panel.layers-panel, .floating-panel.detail-menu, .floating-panel.palette-panel { top: calc(100% + 5px); right: auto; left: var(--pop-x, auto); z-index: 10 }
+  .floating-panel.layers-panel { padding: 7px; width: min(265px, calc(100% - 20px)); background: #fbfcfe; border-radius: 14px }
+  .floating-panel.detail-menu { width: min(173px, calc(100% - 20px)); padding: 5px; border-radius: 12px }
+  .floating-panel.palette-panel { left: auto; right: 12px }
+  .menu-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; text-align: left; white-space: nowrap; color: var(--ink); font-size: 14px; font-weight: 550 }
+  .menu-item:hover { background: var(--blue-fill) }
+  .menu-plus { width: 15px; font-size: 17px }
+  .layer-list { margin: 0 }
+  .layer-line { position: relative; min-height: 47px; grid-template-columns: minmax(0, 1fr) 44px 44px; gap: 0; padding: 0 2px; border: 0; border-radius: 8px }
+  .layer-line:first-child { border-top: 0 }
+  .layer-line + .layer-line { margin-top: 2px }
+  .layer-line[data-current="true"] { background: #e8f1fe; border-color: transparent }
+  .layer-name { flex-direction: row; align-items: center; justify-content: flex-start; padding: 0 6px; gap: 9px; font-size: 13px }
+  .layer-preview { flex: 0 0 34px; width: 34px; height: 31px; border: 1px solid #e0e6ee; border-radius: 5px; background: #fff }
+  .layer-eye { min-width: 44px; color: var(--secondary) }
+  .layer-more { padding: 0; color: var(--secondary); font-size: 16px; min-width: 44px }
+  .layer-overflow { grid-column: 1 / -1; padding: 0 5px 4px; }
+  .layer-overflow .menu-item { min-height: 37px; font-size: 12px; color: var(--blue); background: white }
+  .layer-actions { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 2px }
+  .layer-name-form { padding: 7px 5px 4px }
+
+  .revised-workspace.detail-screen {
+    grid-template-columns: minmax(0, 55fr) minmax(280px, 45fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .revised-workspace .reader { border-right: 1px solid #dee3eb; background: #eeeff3 }
+  .revised-workspace .reading-top { padding: 0 15px }
+  .revised-workspace .material-nav { align-items: center; padding: 0; height: 51px }
+  .revised-workspace .material-tab { font-size: 13px; padding-inline: 11px; min-height: 51px }
+  .revised-workspace .material-tab[aria-current="true"] { color: var(--blue); border-color: #2676db }
+  .revised-workspace .reader-scroll { padding: 14px 10px 16px }
+  .revised-workspace .paper-wrap { box-shadow: 0 2px 15px #30395317 }
+  .paper-copy, .paper-copy.continuing { top: 68px; bottom: 57px }
+  .paper-copy.paper-measure, .paper-measure.continuing { height: 741.033px; position: absolute }
+  .paper-copy .material-heading { background: transparent; font: 650 12px/20px var(--font); color: #244a7a; margin: 0 0 11px; padding: 0 }
+  .question-copy h2 { font-size: 17px; margin-bottom: 24px }
+  .paper-copy .question-block { margin: 0 0 14px }
+  .paper-copy .question-block h3 {
+    text-align: center; background: transparent; color: #1a1b22; font: 700 12px/18px "FangSong", "STFangsong", "仿宋", serif;
+    width: auto; padding: 0; margin: 0 0 10px;
+  }
+  .paper-copy .question-block p { text-indent: 0; text-align: start; white-space: pre-wrap; line-height: 20px }
+  .paper-copy .question-block .question-copy-stem { font-weight: 700 }
+  .paper-copy .question-block[data-active="true"] h3 { color: #284e81 }
+  .reader-footer {
+    flex: 0 0 auto; min-height: 48px; display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 0 9px; background: #fafbfc; border-top: 1px solid var(--line)
+  }
+  .reader-footer .zoom button { font-size: 15px; min-width: 34px; padding: 0 5px }
+  .reader-footer .page-controls { margin: 0; min-height: 41px; gap: 4px; border: 0; background: none; padding: 0 }
+  .reader-footer .page-controls button { min-width: 37px; padding: 0 4px; font-size: 19px }
+  #page-label { white-space: nowrap; font-variant-numeric: tabular-nums }
+
+  .revised-workspace .workspace { background: #f8f9fb }
+  .revised-workspace .workspace-head { position: relative; z-index: 2; padding: 0 18px; flex: 0 0 auto }
+  .revised-workspace .workspace-title { min-height: 51px }
+  .workspace-title h2 { font-size: 15px; font-weight: 650 }
+  .question-pager {
+    margin: 0; height: 39px; min-height: 39px; padding: 0 1px; gap: 0;
+    background: #f1f3f6; border: 0; border-radius: 23px; position: relative;
+  }
+  .question-pager button { min-width: 36px; height: 39px; padding: 0 6px }
+  .question-pager .question-count { min-width: 43px; font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--ink) }
+  .question-chooser {
+    width: 164px; top: calc(100% + 6px); right: 0; display: grid; padding: 5px;
+    border-radius: 12px; z-index: 6;
+  }
+  .question-chooser button { text-align: left; padding: 0 9px; font-size: 13px; min-height: 37px }
+  .question-chooser button[aria-current="true"] { color: var(--blue); background: var(--blue-fill); font-weight: 650 }
+  .revised-workspace .pane-scroll { padding: 14px 18px 18px }
+  .answer-sheets { min-width: 0; display: grid; gap: 11px }
+  .sheet-card { background: #fff; border: 1px solid #e8e9ee; border-radius: 12px; padding: 8px 13px 15px; min-width: 0 }
+  .sheet-head { min-height: 35px; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px }
+  .sheet-count { color: #70616a; font-size: 12px; font-variant-numeric: tabular-nums }
+  .sheet-count[data-over="true"] { color: #a13e45 }
+  .sheet-head button { min-height: 34px; font-size: 12px; border-radius: 8px; display: flex; align-items: center; gap: 6px }
+  .sheet-head button .doodle-glyph { font-size: 13px }
+  .sheet-grids { display: grid; gap: 16px; container-type: inline-size }
+  .sheet-grid { --grid-line: #b57f82; --grid-dark: #935360; min-width: 0; white-space: normal; display: grid; gap: 5px }
+  .sheet-rows { display: grid; gap: 1.62cqw; border-radius: 1px; min-width: 0; position: relative }
+  .sheet-row { display: grid; grid-template-columns: repeat(25, minmax(0, 1fr)); position: relative }
+  .answer-cell {
+    aspect-ratio: 1; min-width: 0; display: grid; place-items: center; font-size: clamp(7px, 2.90cqw, 17px); line-height: 1;
+    color: #24202a; border: 1px solid var(--grid-line); border-right: 0; overflow: hidden;
+  }
+  .answer-cell:last-of-type { border-right: 1px solid var(--grid-line) }
+  .answer-cell[data-marker] { border-bottom-color: var(--grid-dark); border-right-color: var(--grid-dark) }
+  .sheet-row .sheet-mark {
+    position: absolute; top: 100%; font-variant-numeric: tabular-nums; line-height: 1; font-size: clamp(7px, 1.45cqw, 10px);
+    color: #7d4e59; pointer-events: none; transform: translate(-100%, 1px)
+  }
+  .sheet-row:last-child .sheet-mark { transform: translate(-100%, 4px) }
+  .sheet-grid:not(:last-of-type) { padding-bottom: 14px; border-bottom: 1px solid var(--line) }
+  .sheet-page-number { text-align: right; font-size: 11px; color: var(--muted); margin-bottom: 3px }
+  .sheet-help { margin: 0 0 9px; font-size: 12px; color: var(--muted) }
+  .sheet-help:empty { display: none }
+  .sheet-card[data-has-limit="true"] { padding-bottom: 22px }
+  .answer-composer {
+    padding: 5px 17px 9px; flex: 0 0 auto; min-height: 0; border-top: 1px solid var(--line); background: white;
+  }
+  .answer-composer label { font-size: 12px; color: var(--secondary) }
+  .answer-composer textarea { min-height: 72px; max-height: 136px; resize: none }
+  .answer-composer #close-composer { min-height: 36px }
+  .work-doubts { padding: 3px 7px 5px; color: var(--secondary); font-size: 13px; min-width: 0 }
+  .work-doubts summary { display: list-item; min-height: 35px; padding-top: 8px; cursor: pointer }
+  .work-doubts .doubt-list { padding-inline: 5px }
+  .workspace .footer-actions { min-height: 55px; padding: 5px 16px; }
+  .workspace .footer-actions .primary { font-size: 13px }
+
+  @media (min-width: 680px) and (max-width: 1000px) {
+    .revised-workspace .pane-scroll { padding: 12px; }
+    .revised-workspace .workspace-head { padding-inline: 12px }
+    .revised-workspace .material-tab { padding-inline: 9px; font-size: 12px }
+    .sheet-card { padding-inline: 10px }
+  }
+  @media (max-width: 1000px) {
+    .bar.is-detail { grid-template-columns: max-content minmax(0,1fr) max-content; column-gap: 9px; padding-left: 13px }
+  }
+  @media (max-width: 679px) {
+    .bar.is-detail { grid-template-areas: "back title actions" "tools tools tools"; grid-template-rows: 46px 45px; padding: 0 8px 2px; gap: 0 7px }
+    .bar.is-detail .detail-actions { display: contents }
+    .bar.is-detail #detail-more { grid-area: actions; justify-self: end }
+    .bar.is-detail .top-doodle { grid-area: tools; justify-self: end; max-width: 100%; gap: 4px }
+    .bar.is-detail .top-doodle .doodle-scroll { flex: 0 1 auto }
+    .bar.is-detail .detail-menu { top: 46px }
+    .bar.is-detail .detail-name h1 { font-size: 15px }
+    .revised-workspace.detail-screen { grid-template-columns: minmax(0,1fr); grid-template-rows: minmax(278px, 43%) minmax(332px, 1fr); overflow: auto }
+    .revised-workspace .reader { border-right: 0; border-bottom: 1px solid #dfe4ec }
+    .revised-workspace .workspace { padding-inline: 0 }
+    .revised-workspace .reading-top { padding-inline: 7px }
+    .revised-workspace .material-nav { height: 45px }
+    .revised-workspace .material-tab { min-height: 45px; padding-inline: 8px }
+    .revised-workspace .pane-scroll { padding: 10px 9px }
+    .revised-workspace .workspace-head { padding-inline: 12px }
+    .revised-workspace .workspace-title { min-height: 44px }
+    .revised-workspace .sheet-card { padding-inline: 8px }
+    .bar:not(.is-detail) { min-height: 55px }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <div class="bar-left">
+      <div id="bar-name" class="bar-name"><span class="icon icon-book" aria-hidden="true" style="color:var(--blue)"></span><h1 id="root-title">申论</h1><span class="demo">交互示例</span></div>
+      <button id="back" class="back" type="button" hidden><span class="chevron" aria-hidden="true">‹</span>申论</button>
+      <button id="entry-cancel" class="back" type="button" hidden>取消</button>
+    </div>
+    <div id="detail-name" class="detail-name" hidden><h1 id="exam-title"></h1></div>
+    <div id="entry-name" class="detail-name" hidden><h1 id="new-title">录入单题</h1><div id="entry-context" class="minor" hidden></div></div>
+    <div class="bar-actions">
+      <button id="new" class="primary" type="button">＋ 新建练习</button>
+      <button id="entry-save" class="primary" type="submit" form="new-form" hidden>保存题目</button>
+      <div id="detail-actions" class="detail-actions" hidden>
+        <button id="detail-more" class="top-icon" aria-label="练习操作" aria-expanded="false" aria-controls="detail-edit-menu" type="button">···</button>
+        <div id="top-doodle" class="top-doodle" role="group" aria-label="材料涂鸦">
+          <button id="layers-toggle" class="top-icon layers-button" type="button" aria-label="图层" aria-expanded="false" aria-controls="layers-panel" title="图层"><span class="stack-icon" aria-hidden="true"></span></button>
+          <button id="tool-toggle" class="top-icon" type="button" aria-label="展开涂鸦工具" title="展开涂鸦工具" hidden><span class="doodle-glyph" aria-hidden="true">&#xE70F;</span></button>
+          <div class="doodle-scroll" id="doodle-scroll">
+            <div class="doodle-capsule" aria-label="现有涂鸦工具">
+              <button id="collapse-doodle" type="button" aria-label="收起涂鸦工具" title="收起涂鸦工具"><span class="doodle-glyph" aria-hidden="true">&#xE711;</span></button>
+              <button type="button" data-tool="pen" aria-label="画笔" title="画笔" aria-pressed="true"><span class="doodle-glyph" aria-hidden="true">&#xE70F;</span></button>
+              <button type="button" data-tool="erase" aria-label="橡皮擦" title="橡皮擦" aria-pressed="false"><span class="doodle-glyph" aria-hidden="true">&#xE75C;</span></button>
+              <button id="undo" type="button" aria-label="撤销" title="撤销"><span class="doodle-glyph" aria-hidden="true">&#xE7A7;</span></button>
+              <button id="clear-ink" type="button" aria-label="清空当前页活动图层" title="清空当前页活动图层"><span class="doodle-glyph" aria-hidden="true">&#xE74D;</span></button>
+              <button id="colors" type="button" aria-label="画笔调节" title="画笔调节" aria-pressed="false"><span class="doodle-glyph" aria-hidden="true">&#xE790;</span></button>
+              <button id="finger-draw" type="button" aria-label="手指涂鸦" title="手指涂鸦" aria-pressed="false"><span class="doodle-hand" aria-hidden="true">☝︎</span></button>
+            </div>
+          </div>
+          <span id="layer-indicator" class="visually-hidden" aria-live="polite"></span>
+        </div>
+      </div>
+    </div>
+    <div id="detail-edit-menu" class="floating-panel detail-menu" role="group" aria-label="练习操作" hidden>
+      <button class="menu-item" data-command="edit-question" type="button"><span class="doodle-glyph" aria-hidden="true">&#xE70F;</span>编辑题目</button>
+      <button id="append-command" class="menu-item" data-command="append-question" type="button"><span class="menu-plus" aria-hidden="true">＋</span>添加题目</button>
+    </div>
+    <section class="floating-panel layers-panel" id="layers-panel" aria-label="图层" hidden>
+      <ul id="layer-list" class="layer-list"></ul>
+      <form id="layer-name-form" class="layer-name-form" hidden>
+        <label id="layer-name-label" for="layer-name-input" class="minor">图层名称</label>
+        <input id="layer-name-input" name="layerName" required autocomplete="off">
+        <footer><button id="cancel-layer-name" class="quiet" type="button">取消</button><button class="primary" type="submit">保存</button></footer>
+      </form>
+      <div class="layer-actions">
+        <button id="new-layer" type="button" class="mini-btn">＋ 新建图层</button>
+        <button id="ink-toggle" type="button" class="layer-eye" aria-pressed="true" aria-label="隐藏全部笔迹" title="隐藏全部笔迹"><span class="eye-icon" aria-hidden="true"></span></button>
+      </div>
+    </section>
+    <section id="palette-panel" class="floating-panel palette-panel" aria-labelledby="palette-title" hidden>
+      <div class="floating-head"><h2 id="palette-title">画笔调节</h2><button id="close-palette" class="mini-btn" type="button">完成</button></div>
+      <div class="color-choices" aria-label="笔色">
+        <button type="button" data-color="#252525" aria-label="黑色"><span class="swatch" style="--stroke:#252525"></span></button>
+        <button type="button" data-color="#ff3b30" aria-label="红色"><span class="swatch" style="--stroke:#ff3b30"></span></button>
+        <button type="button" data-color="#007aff" aria-label="蓝色"><span class="swatch" style="--stroke:#007aff"></span></button>
+        <button type="button" data-color="#34c759" aria-label="绿色"><span class="swatch" style="--stroke:#34c759"></span></button>
+      </div>
+      <p class="minor">画笔粗细</p>
+      <div class="tool-options"><button type="button" data-pen-width="2">细</button><button type="button" data-pen-width="4">中</button><button type="button" data-pen-width="8">粗</button></div>
+      <p class="minor">橡皮擦大小</p>
+      <div class="tool-options"><button type="button" data-eraser-width="14">小</button><button type="button" data-eraser-width="28">中</button><button type="button" data-eraser-width="44">大</button></div>
+    </section>
+  </header>
+  <main class="body-screen">
+    <section id="library" class="home-screen" aria-label="申论练习">
+      <div class="library-wrap">
+        <h2 class="list-title">申论练习</h2>
+        <nav id="practice-modes" class="practice-modes" aria-label="练习入口">
+          <button type="button" data-mode="single" aria-current="true">单题练习</button>
+          <button type="button" data-mode="paper" aria-current="false">套卷练习</button>
+        </nav>
+        <div id="filters" class="filters" aria-label="题型筛选">
+          <button class="filter" type="button" data-kind="全部" aria-pressed="true">全部</button>
+          <button class="filter" type="button" data-kind="单一题" aria-pressed="false">单一题</button>
+          <button class="filter" type="button" data-kind="公文题" aria-pressed="false">公文题</button>
+          <button class="filter" type="button" data-kind="作文题" aria-pressed="false">作文题</button>
+        </div>
+        <div id="entries" class="entry-list"></div>
+        <div id="outside-prototype" class="entry-list" hidden><p class="empty">此原型演示申论工作区和显示复习的设置。</p></div>
+      </div>
+    </section>
+    <section id="settings" class="home-screen" aria-label="设置" hidden>
+      <div class="library-wrap">
+        <h2 class="list-title">页面模块</h2>
+        <div class="entry-list">
+          <label for="review-toggle" class="settings-switch"><span><strong>显示复习</strong><br><span class="minor">在底部导航显示复习入口</span></span><input type="checkbox" id="review-toggle" role="switch"></label>
+        </div>
+      </div>
+    </section>
+    <nav id="dock" class="dock" aria-label="底部导航">
+      <button type="button" data-dock="home"><span class="icon icon-home" aria-hidden="true"></span>首页</button>
+      <button type="button" data-dock="xct"><span class="icon icon-grid" aria-hidden="true"></span>行测</button>
+      <button type="button" data-dock="library" aria-current="page"><span class="icon icon-book" aria-hidden="true"></span>申论</button>
+      <button id="dock-review" type="button" data-dock="review" hidden><span class="icon icon-check" aria-hidden="true">✓</span>复习</button>
+      <button type="button" data-dock="settings"><span class="icon icon-gear" aria-hidden="true">⚙</span>设置</button>
+    </nav>
+    <section id="detail" class="detail-screen revised-workspace" hidden>
+      <section class="reader" aria-label="材料与作答要求">
+        <div class="reading-top">
+          <nav id="material-tabs" class="material-nav" aria-label="材料与作答要求"></nav>
+        </div>
+        <div id="reader-scroll" class="reader-scroll"><div id="pages" class="reader-pages"></div></div>
+        <div class="reader-footer">
+          <div class="zoom" aria-label="纸面缩放">
+            <button id="zoom-out" type="button" aria-label="缩小纸页">−</button>
+            <output class="zoom-output" id="zoom-label">100%</output>
+            <button id="zoom-in" type="button" aria-label="放大纸页">＋</button>
+          </div>
+          <div id="page-controls" class="page-controls" aria-label="材料与题目纸页">
+            <button id="page-prev" type="button" aria-label="上一张纸页">‹</button>
+            <span id="page-label" aria-live="polite"></span>
+            <button id="page-next" type="button" aria-label="下一张纸页">›</button>
+          </div>
+        </div>
+      </section>
+      <section class="workspace" aria-label="题目工作区">
+        <div class="workspace-head">
+          <div class="workspace-title">
+            <h2 id="workspace-title">答题纸</h2>
+            <div id="question-pager" class="page-controls question-pager" aria-label="练习题序" hidden>
+              <button id="question-prev" type="button" aria-label="上一道题">‹</button>
+              <button id="question-count" class="question-count" type="button" aria-label="选择题目" aria-expanded="false" aria-controls="question-chooser"></button>
+              <button id="question-next" type="button" aria-label="下一道题">›</button>
+              <div id="question-chooser" class="floating-panel question-chooser" aria-label="选择题目" hidden></div>
+            </div>
+          </div>
+          <div id="workspace-tabs" class="workspace-tabs" aria-label="工作区阶段"></div>
+        </div>
+        <div id="workspace-content" class="pane-scroll"></div>
+        <div id="answer-composer" class="answer-composer" hidden>
+          <div class="row"><label for="answer-input">键入作答</label><button id="close-composer" class="mini-btn" type="button">收起</button></div>
+          <textarea id="answer-input" rows="3" placeholder="输入或粘贴我的作答"></textarea>
+        </div>
+        <div id="footer-actions" class="footer-actions"></div>
+      </section>
+    </section>
+    <section id="question-entry" class="entry-screen" aria-labelledby="new-title" hidden>
+      <form id="new-form" class="entry-form">
+        <div class="entry-column">
+          <section class="entry-card" data-entry-order="body">
+            <h2>题干与作答要求</h2>
+            <label>题干<textarea name="stem" required placeholder="粘贴或输入题干原文"></textarea></label>
+            <label>作答要求<textarea name="requirement" placeholder="粘贴原题的具体要求"></textarea></label>
+          </section>
+          <section class="entry-card" data-entry-order="reference">
+            <details id="entry-reference">
+              <summary>预录参考答案 <span class="minor">选填</span></summary>
+              <label>参考答案原文<textarea name="reference" placeholder="粘贴原文"></textarea></label>
+              <p class="entry-hint">完成独立作答后在「对照答案」显示。</p>
+            </details>
+            <div id="entry-reference-sealed" class="row" hidden><h2>参考答案</h2><span class="minor"></span></div>
+          </section>
+        </div>
+        <div class="entry-column">
+          <section class="entry-card" data-entry-order="meta">
+            <h2>题目信息</h2>
+            <label id="paper-title-field" hidden>套卷名称<input name="paperTitle" placeholder="例如 2026 国考 · 地市级"></label>
+            <label id="source-field">题目来源 <input name="source" placeholder="例如 2026 国考 · 地市级"></label>
+            <div class="form-columns">
+              <label>题型<select name="kind"><option>单一题</option><option>公文题</option><option>作文题</option></select></label>
+              <label>题号<input name="number" placeholder="按顺序生成"></label>
+            </div>
+            <div class="form-columns">
+              <label>题目满分<input name="full" type="number" min=".5" step=".5" inputmode="decimal" placeholder="分"></label>
+              <label>字数上限<input name="limit" type="number" min="1" inputmode="numeric" placeholder="字"></label>
+            </div>
+            <label>字数下限（选填）<input name="minimum" type="number" min="1" inputmode="numeric" placeholder="只有题目给出范围时填写"></label>
+          </section>
+          <section class="entry-card">
+            <div class="row"><h2>给定材料</h2><span id="entry-material-count" class="minor"></span></div>
+            <div id="entry-material-list" class="entry-material-list"></div>
+            <div class="entry-actions">
+              <button id="entry-refs" class="soft" type="button" hidden>关联本卷材料</button>
+              <button id="entry-paste" class="soft" type="button">粘贴文字</button>
+              <button class="quiet" type="button" data-entry-asset="PDF">导入 PDF</button>
+              <button class="quiet" type="button" data-entry-asset="图片">添加图片</button>
+            </div>
+            <p id="entry-feedback" class="entry-hint" role="status"></p>
+          </section>
+        </div>
+      </form>
+    </section>
+  </main>
+</div>
+<dialog id="material-ref-dialog" aria-labelledby="material-ref-title">
+  <form id="material-ref-form">
+    <h2 id="material-ref-title">关联本题材料</h2>
+    <p class="minor">选择本题作答、答疑和评分引用的材料。也可设为无需材料。</p>
+    <div id="material-ref-choices"></div>
+    <footer><button data-close="material-ref-dialog" class="quiet" type="button">取消</button><button class="primary" type="submit">确定</button></footer>
+  </form>
+</dialog>
+<dialog id="material-dialog" aria-label="添加材料">
+  <form id="material-form">
+    <h2>添加材料</h2>
+    <label>材料正文<textarea name="body" rows="5" required placeholder="粘贴正文，保留原来的自然段"></textarea></label>
+    <footer><button data-close="material-dialog" class="quiet" type="button">取消</button><button class="primary" type="submit">添加</button></footer>
+  </form>
+</dialog>
+<dialog id="doubt-dialog" aria-label="记一条疑惑">
+  <form id="doubt-form">
+    <h2>记一条疑惑</h2>
+    <label>疑惑<textarea name="question" rows="3" required placeholder="写下你此刻想确认的问题"></textarea></label>
+    <p id="doubt-anchor" class="minor"></p>
+    <footer><button data-close="doubt-dialog" class="quiet" type="button">取消</button><button class="primary" type="submit">保存</button></footer>
+  </form>
+</dialog>
+<script id="reference-materials" type="application/json">[{"material":1,"paragraphs":["为落实国家推动绿色物流、优化运输结构的政策，作为铁路物流业务的市场经营主体，江化铁路物流中心积极与江化市庆北工业园协调，整合物流资源，为园区企业提供全流程铁路运输服务。","庆北工业园是位于内陆地区的综合性产业基地。作为园区的龙头企业，盛力钢铁有限公司在距离主厂区不到一公里处新建了铁运原材料卸料区，数条铁路轨道在此交汇，火车车厢内的矿石由巨型翻车机倾倒进集料区，再通过传送带直接输送至原料厂。","过去，盛力钢铁主要通过公路运输矿石。公司曾经也试过铁路运输，工厂离港口距离仅75公里，但需先经铁路将矿石由码头运至30公里外的铁路货运站，再经汽车转运入厂。经成本核算，最终还是选择了公路运输。","“2020年初，我们与上级部门协同推进，新建了8条园区铁路专用线，实现非临港钢铁企业铁路专用线接入全覆盖。随后，经我们多方协调，港口、铁路及园区铁路专用线的物流费用均下调约50%，这样就比公路运输有了明显优势。”江化铁路物流中心张主任说。","物流费用的下降吸引了园区内不少钢铁企业选择铁路运输。然而，随着钢铁企业货物量的不断增长，铁路的运输和装卸能力又出现了新的瓶颈。对此，江化铁路物流中心经过反复研究论证，于2023年陆续启动了一系列升级改造项目。","“我们通过协调上级部门扩建铁路线路、增加班次，并为各个货运站升级改造装卸设备，从而提升整体运力，确保货物高效周转，保障企业的运输需求。”张主任说。","2023年11月，改造完成的江化货运北站新增一条到发线路，货场面积和装卸能力都增加了一倍，铁路的运输能力也增加了80%。扩能改造后，园区钢铁企业的铁路运输占比越来越高。江化铁路物流中心还依托铁路网络优势，整合社会物流资源，与多家钢铁企业签订了“物流总包”协议，运价降幅达14%。","2024年3月，盛力钢铁与江化铁路物流中心正式签署“物流总包”协议，全面启动铁路运输。“以前我们主要都是靠公路运输，现在有50%以上是铁路运输，铁路运输一吨能省3.5元。仅铁矿石一项，我们年运输量1100万吨，粗略计算，运输成本节省接近4000万元。”盛力钢铁田经理说，“根据‘物流总包’协议，年发运量超过300万吨即可享受26.5元/吨的总包价，这个价格很有吸引力。公路运输价格波动较大，成本不好控制。长期稳定的价格是我们经营的重要保障。”","“对于签订协议的企业，我们提供包括运输方案选择、交通工具衔接、物流装备开发和单证手续办理等‘一条龙’服务。同时，我们从前端放货到装车、挂运，一直到卸车，每个环节都有人盯控，确保货物安全。”张主任说。","实际上，除了服务像盛力钢铁这样有大宗货物运输需求的企业，江化铁路物流中心也关注到需要长距离运输的散货杂货。园区的富同有限公司是一家箱包进出口企业，箱包体积大、重量轻，货值不算太高。过去，像这种对物流成本比较敏感的进出口企业，大都设在沿海城市。但是，老板唐先生却把工厂设在了位于内陆地区的庆北工业园。“我是本地人，早有意愿回家乡投资，但我们以外贸为主，之前测算出的运费很不合适，所以一直没有落地。”唐先生说。","对于内陆地区，很多散杂货物来源都比较分散，无法直接用铁路专列运输。“打通铁路进港的‘最后一公里’，是实现多式联运‘无缝’切换的重要一环。”张主任说，“以往园区货物需要用汽车短驳至国际陆港，每个集装箱的拖车费是1700元。如今通过我们积极协调，开通了直通国际陆港的铁路专用线，实现了园区企业货物的就地发运。”","“相比海港城市，在内陆设厂主要差在内陆运费，能省下拖车费，成本就能降低不少。而内陆地区场地租赁和人工成本都比沿海地区要低，两头算下来在园区设厂更划算。”唐先生说。出于同样的考虑，越来越多的外贸企业把工厂搬到了庆北工业园。","“传统公路运输具有灵活便捷的优势，但在长距离、大宗货物运输方面，其能耗与排放相对较高。铁路运输则凭借其运量大、单位能耗低的特点，成为构建高效、低碳综合交通运输体系的关键环节。”张主任说。"]},{"material":2,"paragraphs":["走进路宇村的“巧手工坊”，数十位老年人正围坐在一起剥莲子。“在家闲着也是闲着，来这儿吹着空调挣钱，还能唠嗑。”72岁的何奶奶笑着说。","这个温暖场景的背后是年轻人苏晓返乡创业的故事。2019年，苏晓考察了多个农业项目都不太满意。困惑之际，她向父亲寻求建议。父亲老苏常年致力于莲子品种研究，恰巧发现了一个莲心清甜的野生莲种，并将其命名为“莲湖果莲”。父亲告诉她，相比其他项目，果莲市场的竞争比较小。因此，苏晓决定听从父亲的建议，做一名“果莲农人”。","2020年7月，苏晓在离家10公里的齐平区路宇村找到了规模化种植基地。该村河网密布，曾改造了千亩荷塘，但莲藕产业收益一直上不去。与村党支部孟书记交谈后，双方一拍即合。苏晓找到了理想的果莲种植基地，而路宇村也由此获得产业升级的契机。区政府得知这一合作意向后，非常支持，根据农业产业扶持政策提供了30万元创业补贴，并协调农技站专家组建帮扶小组。同年，苏晓联合村委会创办了“莲语农业”公司，并吸纳返乡青年负责种植技术和市场运营。公司通过土地流转获得50亩荷塘，开启规模化种植。","苏晓团队虚心向老师傅们请教，快速掌握了种植技术要领，但也很快遇到鲜食莲子采摘时机把控和保鲜两大难题。这导致产品损耗率很高，有限利润空间被大幅挤压。无奈之下，苏晓向区里寻求帮助。在区政府协调下，“莲语农业”联合省农科院、农业大学和电子科技大学的有关科研团队展开攻关，成功研发了成熟度识别准确率达95%的视觉系统，配合改进后的分段预冷和气调保鲜技术，莲子保鲜期延长至5天。2021年5月，该技术体系通过市级认证，推动制定了鲜食果莲的地方标准，为果莲产业的规范发展和价值提升打开了新局面。","在市场开拓初期，“莲语农业”又遇到了销售困境。因鲜食莲子保质期短且知名度低，多家大型综合商超拒绝合作。苏晓调整了思路：“小众产品也许更适合特色商超。”这一思路带来了转机，大型连锁生鲜超市“悦品鲜”的采购经理品鉴果莲后高度认可。当年夏季，莲湖果莲在“悦品鲜”上市，广受欢迎。","借助“悦品鲜”的供应链优势，莲湖果莲销至全国，年产值近千万元，同时带动了周边农产品的销售。产业快速发展的同时，用工短缺问题随之出现。果莲产业属于劳动密集型产业，莲蓬采摘和脱粒都需要人工操作。此时，苏晓注意到留在村里的近半村民都是老年人，便萌生了一个想法。与村委会沟通后，“莲语农业”发布了一份特殊的“招工启事”：招聘莲子脱粒员工，不限年龄，月薪3000元起……","第二天上午，加工点外聚集了七八十位前来应聘的中老年村民。面对远超预期的人数，苏晓决定全部录用，并将加工点命名为“巧手工坊”。“这一举措既解决了‘莲语农业’用工问题，也让这些人获得了一定收入。”孟书记说。","随着规模的扩大，“巧手工坊”开始吸引大学生的加入。这些年轻人主要负责技术研发与运营管理等工作，为“莲语农业”的发展注入了新的活力。“我很看好这个家门口的产业。”大学生小戴表示。","2024年底，“莲语农业”推出“藕鳖共养”生态养殖新模式。苏晓解释道：“甲鱼就像‘生态工人’，它们吃福寿螺保护莲藕，排泄物还能肥田，保护生态。”在实施过程中，“莲语农业”建立起一套严格的环保标准体系，包装环节采用氮气保鲜并拒绝使用防腐剂，种植环节创新使用沼液肥料。这套生态种植标准最终被纳入区农业技术推广手册。","2025年初，“莲语农业”的生态养殖模式在邻村得到推广，亩均收益提升40%，还带动了周边三个村庄共同发展。更可喜的是，这种生态农业模式吸引了文旅部门的关注，被区文旅局纳入“农耕体验游”特色项目。“借助项目资助，村里新建了栈道、凉亭，并增设了公共停车位、公厕等公共服务设施，不仅为游客提供了便利，村里整体环境也更好了。”孟书记兴奋地说。","看着满载莲子的货车驶出村口，苏晓感慨道：“农业产业化发展不是简单的规模扩张，而是要让产业链上的每个环节都能创造价值。我们最大的收获，是找到了经济效益、生态效益和社会效益‘三效’共生的实践之路。”"]},{"material":3,"paragraphs":["2025年1月，S市发布了一批“公众参与科学项目”。项目发布人S市科委负责人说：“我们大力推动‘专业科研+公众参与’这种公众科学模式的实施，是希望营造崇尚科学、尊重科学的浓厚氛围，提升市民科学素养，为知识生产注入新动能。”","目前，S市科委的“公众参与科学项目”网络平台上，正在持续推进一系列公众可参与的科学项目，例如“我的自然百宝箱”“鸟撞调查”“昆虫家谱”“貉口普查”等项目。这些项目由不同研究机构发起，每年持续更新并反馈研究成果。","以“貉口普查”项目为例，它由F大学和市林业总站于2019年联合发起，以公众科学模式开展对国家二级保护动物貉的研究。该项目补充了S市城市野生动物相关数据，构建起公众参与科学研究的新范式，2023年还被选入全市“生物多样性优秀实践案例”，2025年获得政府专项资助。","“貉口普查”项目负责人F大学章教授介绍说，公众科学模式是职业科学家与公众协同研究的科研模式，涵盖数据收集、技术探索、问题研究等方面。该模式打破了职业与年龄壁垒，让公众广泛参与到科学研究之中，既可以增加公众对科学的了解，也能从不同领域为科研人员提供启发。","10岁的豆豆对野生动物特别感兴趣，妈妈带着他参加了不少相关的科普讲座、科学讲坛活动。从前，他总感觉科学有点遥不可及，参加“貉口普查”活动后，豆豆觉得自己“离科学近了”。木匠许师傅凭借自学的昆虫摄影技术参与过多类公众科学活动，他说感觉自己就像一块海绵，每次参与都能吸收很多知识养分，还被评为了优秀参与者。软件工程师小郭已第三次担任普查领队，很享受“公众科学家”的隐藏身份，他说：“与一群志同道合的人做一件很纯粹的事，改变了我对科学家‘高冷’的刻板印象，其实他们很务实、很谦逊。”","2019年刚开始启动“貉口普查”项目时，章教授团队购置了80多台红外照相机，与市民共同布设于城市绿地、公园等区域，搭建起野生动物监测网络。这些设备至今仍在运行，曾拍摄到国家一级保护动物小灵猫因施工惊扰迁移的画面，科研人员据此预判其迁移路径会被小河阻隔，便联合绿化部门架设临时浮桥，帮助小灵猫安全渡河并找到新的栖息地。","“在项目实施过程中，我们发现短期集中调查更符合公众参与习惯。因此自2020年起，我们结合貉的活动规律与公众空闲时间，重新优化方案，设计了周末两天的集中调查路线。”章教授介绍。2023年夏，300多位经培训的市民，在周末夜间利用手电和城市灯光，调查貉的分布和数量，记录小区环境、猫粮投喂、垃圾管理等影响貉活动的状况。仅用两个夜晚，就完成了90个小区的普查，这相当于传统科研团队两个半月的工作量。目前，此项目已有千余名“公众科学家”参与。","“公众参与科学项目”以具体科学问题为导向，按照“项目发布-公众注册-项目培训-观察记录-数据上传-处理校验-研究结论”的流程推进。科研团队负责专业科研问题设计、任务拆解、课题项目发布。公众在“公众参与科学项目”线上平台注册报名，通过在线教程、直播培训、线下讲座等形式学习掌握设备使用、样本记录等，然后参与研究，如开展观察、记录并上传信息。最后，科研团队多源验证相关数据，形成并发布研究报告。例如，2024年12月发布的《S市昆虫名录》，收录物种数从3090种提升至3556种，其中20%的新增记录是公众科学家们发现的。","“我们支持各领域的科学家积极申报‘公众参与科学项目’，立项后将予以专项经费支持，以促进更多科学家、科学爱好者和其他志愿者直接开展更深入的科研合作。”S市科委负责人表示。近些年S市的“公众参与科学项目”主要集中在生态学领域，接下来将扩展到天文学、心理学等多个领域。目前S市科委正联合相关部门、高校、科研机构等进行筹备，计划在2026年1月发布8个项目。"]},{"material":4,"paragraphs":["为盘活农村闲置资产、增加农民财产性收入、促进城乡资源互补，G县积极探索“共享村落”试点项目。该项目旨在通过租赁闲置宅基地和农房使用权，吸引城市资本下乡，促进城乡融合发展。","G县“共享村落”试点项目于2023年5月正式启动，消息发出后引起广泛关注，村民们对这项政策充满了期待。大渭村村民王大婶兴奋地说：“我家老房空了好几年，要是租出去不仅能赚点钱，还能让城里人来村里住，热闹热闹。”G县政府积极推动政策落地，召开了多次专题推进会，并通过媒体进行大力宣传。","2023年7月，大渭村迎来了首位承租人——退休教师袁先生。一直向往乡村生活的袁先生夫妇获悉该项目后，多次咨询并实地考察，最终以4万元租金取得一处农房的10年使用权。袁先生坦言，除了价格比城里划算，他更看重的是田园生活。对于10年租期，72岁的他解释道：“如果82岁后身体还硬朗，再续签也不迟。”","此后几个月，尽管咨询和看房的人不少，但成交量并不理想。到2024年底，大渭村首批50户房源仅成交9户，其中6户为退休人员，3户为文创从业者，平均租金为3.8万元/10年，低于政府预期的5万元。G县其他村的情况也和大渭村差不多。","为深入了解“共享村落”试点项目推进缓慢的原因，加快项目推进速度，2025年3月，G县政府成立了专项调研组，对试点村落展开调研。","在大渭村，村民韩大爷说：“这房子毕竟是祖辈传下来的，租出去收不回来咋办？”来自外地的华先生表示：“我想把租的房子改造成民宿，但政策规定最长租20年。我投入了大量改造资金，20年后怎么办？”","在袁先生家，他带调研组参观了自己的菜园和改造后的房屋。袁先生说：“住在这里很舒服，空气也好。不过，有些地方确实需要改善，比如天然气普及和环境卫生，这些都会影响大家的居住意愿。”调研组注意到，大渭村村内道路比较狭窄，部分路段坑洼不平。此外，村里的污水处理设施简陋，生活垃圾也未能及时得到处理。","在大千村调研时，村党支部书记老程向调研组反映：“政策是好政策，但执行起来太难。我们村天然气入户申请交上去半年了还没有下文。我们也咨询了几个上级部门，都表示农村天然气项目一个部门说了不算，需要统筹协调才行。”","小阳村的村党支部徐书记向调研组讲起近期发生的一起纠纷。租户小吕在院子里办聚会，因声音过大而引发村民投诉。小吕向调研组解释：“我开了文创工作室，为聚人气，周末在院子里搞个小聚会。好多村民说我们‘太吵’‘不像话’。村里既没有合适的活动场所，也没有相关规定，确实不知道该如何把握分寸。”","调研组来到前卫村，村干部小刘向调研组反映：“最近有几个年轻人过来看房想开工作室，但一看村里啥都没有，就走了。要是能有个像样的咖啡馆或者书店，说不定能吸引更多人。”村党支部书记老宋叹了口气：“除了出租房子没啥别的了，年轻人来了连个能待得住的地方都没有。”","在调研过程中，调研组还重点关注了“新村民计划”项目的实施情况。该项目作为“共享村落”项目的子部分，旨在通过引入外来人才和项目盘活乡村资源，同时带动传统手工艺等本地特色产业的发展。项目运营负责人董经理介绍：“‘新村民’携带经营项目入驻，可通过‘基础租金+收益分成’模式获得空间使用权。根据合同，创业者需将20%营业收益投入村发展基金，并雇佣2名本地村民。”","然而，该项目实施效果并不理想。大渭村的竹编艺人杨师傅说：“‘新村民’带来了不少新项目，但我们这些本地传统工艺还是无人问津。竹编手艺搭不上这个便车。”小阳村陶艺师吴师傅也表示：“‘新村民’虽然开了陶艺工作室，但人家做的跟小阳村陶艺完全是两码事，对我们没啥帮助。”","调研组了解到，小阳村曾因“新村民计划”项目发生过冲突。村里的陶艺工作室运营三个月仍未按照承诺聘用2名帮工，一些村民产生了不满，并干扰工作室正常运营。调研组进一步调查发现，项目合同中缺乏对违约情形的具体约束条款，所以出现的纠纷难以得到有效解决。董经理反思道：“人人参与，人人共享，便是‘共享村落’的含义。但是理想与现实之间还存在不小差距，我们还有很长的路要走。”"]},{"material":5,"paragraphs":["2024年，由金教授领导的“环境考古”团队在某权威杂志上发表了关于古人类下颌骨化石的研究成果，为人类起源的研究提供了新视角。","“环境考古就是将目光投向更广阔的天地和更遥远的过往，其核心内容之一在于探讨过去的人地关系，即人类如何适应、利用和改造自然环境，以及这些环境变化如何反作用于人类社会，这要求站在不同学科的角度，借助考古发掘出来的各种遗存材料，解读人类与环境的互动历史。我们就是这样一支由考古学、地理学、地质学、生物学等多学科成员组成的‘跨界’团队。”团队成员季研究员说。","“2004年考研时，我从考古学专业转向地理学，加入导师金教授的‘环境考古’研究团队。当时，金教授交给我一个极具挑战性的课题：探讨‘现代人起源和扩散’。”团队的另一名成员赵老师回忆道。这意味着她不但要走出校园寻找遗址，还要不断摸索合适的研究方法。","“挑战确实不少。不过挑战就像锻炼时的痛苦一样，是成长和进步的必经之路。”她感慨道，“从纯粹的文科背景转向理科，需要补充大量地球科学和生物学知识，需要在全新环境中摸索前行。”在此过程中，她通过广泛阅读文献、参加讲座和研讨会等，逐渐构建起自己的知识体系。","2010年，博士研究生毕业后的她选择留在金教授的团队，成为一名老师。“在课程设置上，我们注重文科与理科的融合，让学生既学习考古学、历史学等人文社科课程，也学习地球科学、生物学等自然科学课程。”赵老师说，“团队鼓励学生广泛涉猎不同学科的知识，培养他们的跨学科思维和创新能力。”","团队成员小马本科攻读的是自然地理学，研究生阶段选择将环境考古作为研究方向。最终，她在古蛋白质组学领域形成独特优势，其研究成果已成功应用于多个研究项目，并获得了业内认可。","赵老师认为，良好的学术氛围对跨学科研究至关重要。团队特别注重营造开放、包容、创新的学术氛围，定期举行学术研讨会和讲座，邀请国内外知名学者来校交流，鼓励学生参加国际学术会议和实践项目，拓宽学术视野，增强实践能力。","“每周组会上，不管是博士生、硕士生，还是刚加入团队的本科生，都可以畅所欲言，提出质疑或建议。”博士生小郭印象深刻，“不管是谁汇报，赵老师都会鼓励大家随时提问，积极讨论。”","金教授深有感触地说：“团队的师生讨论，能突破同质思维局限，碰撞出多元化、差异化观点，推动大家探索新视角，提升决策和问题解决能力，进而促进突破性创新。正如美妙动听的器乐合奏是由多种乐器发出不同的音色并巧妙融合而产生的，多样性蕴含着创造力。”"]}]</script>
+<script>
+(() => {
+  const byID = (id) => document.getElementById(id);
+  const referenceMaterials = JSON.parse(byID("reference-materials").textContent);
+  const params = new URLSearchParams(location.search);
+  const storageKey = "shenlun-workspace-layout-refined-v1";
+  const examplePaper = "national-2026";
+  const standaloneGroup = "standalone-rail-demo";
+  const exampleAnswer = "一是协调园区建设专用线，降低铁路运输费用。二是扩建线路、增加班次，升级货运站装卸设备，提高运输和周转能力。三是整合社会物流资源，与企业签订物流总包协议。";
+  const exampleReference = "协调园区及有关部门建设专用线路，统筹港口、铁路和园区物流降费。扩建线路、增加班次并升级装卸设备，提高运力和周转效率。整合物流资源，实行物流总包，提供运输方案、交通衔接和全程盯控等服务。";
+  const examples = [
+    {
+      id: "first", source: "2026 国考 · 地市级", number: "第一题", kind: "单一题",
+      short: "铁路物流服务的提供与优化",
+      stem: "根据“给定资料1”，简要说明江化铁路物流中心是如何提供和优化铁路物流服务的。",
+      requirement: "全面、准确、有条理。不超过250字。", group: "national-2026", materialRefs: [1], limit: 250, full: 10,
+      answer: exampleAnswer, reference: "", status: "work", limitsLabel: "限 250 字",
+      doubts: [
+        { id: "d1", text: "专用线建设和运费下降，应该合成一条还是分开写？", page: "m1-1", reply: "" },
+        { id: "d2", text: "“物流总包”和“一条龙服务”之间是什么关系？", page: "m1-2", reply: "" }
+      ]
+    },
+    {
+      id: "second", source: "2026 国考 · 地市级", number: "第二题", kind: "单一题",
+      short: "“莲语农业”三项效益的体现",
+      stem: "“给定资料2”提到，“莲语农业”的实践探索在经济效益、社会效益和生态效益取得了良好成效，请分别谈谈这“三效”的具体体现。",
+      requirement: "归类准确，内容全面，条理清晰。不超过300字。",
+      group: "national-2026", materialRefs: [2], limit: 300, full: 15, limitsLabel: "限 300 字",
+      answer: "", reference: "", status: "work", doubts: []
+    },
+    {
+      id: "official", source: "公文强化 · 日练", number: "第 1 题", kind: "公文题",
+      short: "拟写社区志愿服务倡议书", stem: "根据练习材料，拟写一份社区志愿服务倡议书。",
+      requirement: "对象明确，内容具体，语气得体。", group: "official", limit: 450, full: 20,
+      limitsLabel: "限 450 字", answer: "各位居民：社区志愿服务需要更多居民参与。欢迎通过社区服务点了解服务安排，选择适合的岗位。",
+      reference: "", status: "review", doubts: []
+    },
+    {
+      id: "essay", source: "作文练习 · 周练", number: "第 1 题", kind: "作文题",
+      short: "数字服务与基层治理", stem: "请结合给定资料，围绕数字服务与基层治理写一篇文章。",
+      requirement: "自选角度，自拟题目。", group: "essay", limit: 1200, full: 35, limitsLabel: "限 1200 字",
+      answer: "", reference: "", status: "work", doubts: []
+    }
+  ];
+  const otherExamQuestions = [
+    ["third", "第三题", "公文题", "公众参与科学项目发布词",
+      "S市科委拟发布“2026年公众参与科学项目”，假如你是S市科委工作人员，请根据“给定资料3”，拟写一份发布词，呼吁公众积极报名参加。",
+      "宗旨明确，介绍全面，有号召力。不超过450字。", 20, 450, null],
+    ["fourth", "第四题", "单一题", "“共享村落”试点推进",
+      "假如你是G县“共享村落”试点项目专项调研组成员，请根据“给定资料4”，阐述“共享村落”试点项目推进缓慢的原因，并提出下一步工作建议。",
+      "（1）原因阐述全面、准确、有条理；\n（2）所提建议有针对性、切实可行；\n（3）不超过450字。", 20, 450, null],
+    ["fifth", "第五题", "作文题", "多样性蕴含着创造力",
+      "“给定资料5”中提到“多样性蕴含着创造力”，请你对此深入思考，参考给定资料，联系实际，自选角度，自拟题目，写一篇文章。",
+      "（1）观点明确，见解深刻；\n（2）参考给定资料，但不拘泥于给定资料；\n（3）思路清晰，语言顺畅；\n（4）字数1000-1200字。", 35, 1200, 1000]
+  ].map(([id, number, kind, short, stem, requirement, full, limit, minimum], index) => ({
+    id, number, kind, short, stem, requirement, full, limit, minimum,
+    group: examplePaper, source: examples[0].source, materialRefs: [index + 3],
+    limitsLabel: minimum ? `限 ${minimum}–${limit} 字` : `限 ${limit} 字`, answer: "", reference: "", status: "work", doubts: []
+  }));
+  examples.splice(2, 0, ...otherExamQuestions);
+  const standaloneExample = { ...structuredClone(examples[0]), id: "standalone-rail", group: standaloneGroup };
+  let model = {
+    items: [structuredClone(standaloneExample), ...structuredClone(examples)],
+    papers: { [examplePaper]: { title: examples[0].source } },
+    customGroups: {},
+    drawings: {},
+    layerGroups: {},
+    pencil: { color: "#252525", width: 4, eraserWidth: 28, tool: "pen" },
+    showReview: false
+  };
+  try {
+    const cached = JSON.parse(localStorage.getItem(storageKey) || "null");
+    if (Array.isArray(cached?.items)) {
+      model = { ...model, ...cached };
+      if (!model.items.some((item) => item.id === standaloneExample.id)) {
+        model.items.unshift(structuredClone(standaloneExample));
+      }
+    }
+  } catch {}
+  let current = null;
+  let route = "library";
+  let practiceMode = params.get("mode") === "paper" ? "paper" : "single";
+  let newMode = "single";
+  let entry = null;
+  let kindFilter = "全部";
+  let activePhase = "work";
+  let activePanel = "compare";
+  let toolbarVisible = true;
+  let inkVisible = true;
+  let fingerDrawing = false;
+  let paletteOpen = false;
+  let layersOpen = false;
+  let layerMenu = null;
+  let lastToolPage = null;
+  let composerOpen = false;
+  let answerCellNodes = [];
+  let sourcePages;
+  let lastLayerGroup = null;
+  let nameEdit = null;
+  let zoom = 1;
+  let activePage = 0;
+  let scrollFrame = 0;
+  let pageObserver = null;
+  let rendered = [];
+  let workingStroke = null;
+  let workspaceScroll = 0;
+  const readingPositions = new Map();
+  const analysisJobs = new Map();
+  const analysisMessages = new Map();
+  const paperWidth = 612;
+  const paperHeight = 866.033;
+  const backingScale = 2;
+  const docScroll = byID("reader-scroll");
+  const save = () => { try { localStorage.setItem(storageKey, JSON.stringify(model)); } catch {} };
+  const escape = (text) => String(text ?? "").replace(/[&<>"']/g, (mark) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[mark]);
+  const uniq = () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+  const stageName = (item) => item.status === "work" && !item.answer.trim() ? "未作答"
+    : ({ work: "作答中", review: "待复盘", score: "已评分", revise: "需复核" })[item.status] ?? "待复盘";
+  const badgeColor = (item) => item.status === "revise" ? "review" : item.status;
+  const questionsIn = (group) => model.items.filter((item) => item.group === group);
+  const paperFor = (item) => model.papers[item?.group];
+  const chapters = (group = current?.group) => {
+    const added = model.customGroups[group] ?? [];
+    if (group === examplePaper || group === standaloneGroup) {
+      sourcePages ??= referenceMaterials.flatMap(({material, paragraphs}) =>
+        paginateMaterial(material, paragraphs).map((page, i) => ({ ...page, id: `m${material}-${i + 1}` })));
+      return [...(group === examplePaper ? sourcePages : sourcePages.filter((page) => page.material === 1)), ...added];
+    }
+    return added;
+  };
+
+  function popoverAt(anchor, panel) {
+    const bar = document.querySelector(".bar").getBoundingClientRect();
+    const control = anchor.getBoundingClientRect();
+    const width = panel.getBoundingClientRect().width;
+    const inset = 10;
+    const anchorX = control.right - bar.left;
+    const offset = Math.max(inset, Math.min(anchorX - width, bar.width - width - inset));
+    panel.style.setProperty("--pop-x", `${offset}px`);
+  }
+
+  function closeEditMenu() {
+    byID("detail-edit-menu").hidden = true;
+    byID("detail-more").setAttribute("aria-expanded", "false");
+  }
+
+  function closeQuestionChooser() {
+    byID("question-chooser").hidden = true;
+    byID("question-count").setAttribute("aria-expanded", "false");
+  }
+
+  function setDetailHeader(shows) {
+    document.querySelector(".bar").classList.toggle("is-detail", shows);
+    byID("detail-actions").hidden = !shows;
+    closeEditMenu();
+    closeQuestionChooser();
+    if (!shows) {
+      byID("layers-panel").hidden = true;
+      byID("palette-panel").hidden = true;
+    }
+  }
+
+  function selectDock(name) {
+    if (route === "detail") {
+      finishDrawing();
+      rememberReading();
+    }
+    route = name;
+    setDetailHeader(false);
+    pageObserver?.disconnect();
+    hideQuestionEntry();
+    const settings = name === "settings";
+    const showLibrary = name === "library";
+    byID("detail").hidden = true;
+    byID("detail-name").hidden = true;
+    byID("back").hidden = true;
+    byID("dock").hidden = false;
+    byID("bar-name").hidden = false;
+    byID("new").hidden = !showLibrary;
+    byID("library").hidden = settings;
+    byID("settings").hidden = !settings;
+    byID("root-title").textContent = { library: "申论", settings: "设置", home: "首页", xct: "行测", review: "复习" }[name];
+    byID("root-title").closest(".bar-name").querySelector(".icon").className = `icon icon-${settings ? "gear" : "book"}`;
+    byID("root-title").closest(".bar-name").querySelector(".icon").textContent = settings ? "⚙" : "";
+    byID("dock-review").hidden = !model.showReview;
+    byID("review-toggle").checked = model.showReview;
+    for (const button of document.querySelectorAll("[data-dock]")) {
+      if (button.dataset.dock === name) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    }
+    const wrapper = byID("library").querySelector(".library-wrap");
+    wrapper.querySelector(".list-title").textContent = showLibrary ? "申论练习" : ({ home: "首页", xct: "行测", review: "复习" })[name] || "";
+    byID("practice-modes").hidden = !showLibrary;
+    byID("filters").hidden = !showLibrary || practiceMode === "paper";
+    byID("entries").hidden = !showLibrary;
+    byID("outside-prototype").hidden = showLibrary;
+    if (showLibrary) renderList();
+  }
+
+  function renderList() {
+    const papers = practiceMode === "paper";
+    byID("filters").hidden = papers;
+    byID("new").textContent = papers ? "＋ 新建套卷" : "＋ 新建单题";
+    for (const button of document.querySelectorAll("[data-mode]")) {
+      button.setAttribute("aria-current", String(button.dataset.mode === practiceMode));
+    }
+    if (papers) {
+      const entries = Object.entries(model.papers).map(([group, paper]) => {
+        const questions = questionsIn(group);
+        const answered = questions.filter((item) => item.status !== "work").length;
+        const rated = questions.filter((item) => item.status === "score").length;
+        return `
+          <button class="entry" type="button" data-paper="${escape(group)}">
+            <span class="entry-mark"><span class="icon icon-book" aria-hidden="true"></span></span>
+            <span><span class="minor">${paper.excerpt ? "前两题节选 · " : ""}${questions.length} 道题</span>
+              <h3>${escape(paper.title)}</h3></span>
+            <span class="entry-progress">已作答 ${answered}/${questions.length}<br>已评分 ${rated}/${questions.length}</span>
+            <span class="entry-arrow" aria-hidden="true">›</span>
+          </button>`;
+      });
+      byID("entries").innerHTML = entries.join("") || '<p class="empty">暂无套卷。</p>';
+      return;
+    }
+    const visible = model.items.filter((item) => !paperFor(item) && (kindFilter === "全部" || item.kind === kindFilter));
+    byID("entries").innerHTML = visible.length ? visible.map((item) => `
+      <button class="entry" type="button" data-id="${escape(item.id)}">
+        <span class="entry-mark"><span class="icon icon-book" aria-hidden="true"></span></span>
+        <span><span class="minor">${escape(item.source)} · ${escape(item.number)} · ${escape(item.kind)}</span>
+          <h3>${escape(item.short || item.stem)}</h3></span>
+        <span class="pill state-${badgeColor(item)}">${stageName(item)}</span><span class="entry-arrow" aria-hidden="true">›</span>
+      </button>`).join("") : '<p class="empty">当前题型暂无练习。</p>';
+  }
+
+  function openDetail(item, preferredPanel = "compare") {
+    if (!item) return;
+    finishDrawing();
+    const samePaper = route === "detail" && current?.group === item.group;
+    if (samePaper) rememberReading();
+    current = item;
+    route = "detail";
+    const paper = paperFor(item);
+    if (paper) {
+      paper.recent = item.id;
+      practiceMode = "paper";
+      save();
+    } else {
+      practiceMode = "single";
+    }
+    activePhase = item.status === "work" ? "work" : "review";
+    composerOpen = false;
+    activePanel = preferredPanel;
+    workspaceScroll = 0;
+    if (!samePaper) {
+      zoom = 1;
+      toolbarVisible = true;
+      inkVisible = true;
+      fingerDrawing = false;
+      paletteOpen = false;
+      layersOpen = false;
+      layerMenu = null;
+      nameEdit = null;
+      lastLayerGroup = null;
+      activePage = 0;
+    }
+    for (const id of ["bar-name", "dock", "library", "settings", "new"]) byID(id).hidden = true;
+    hideQuestionEntry();
+    for (const id of ["detail", "detail-name", "back"]) byID(id).hidden = false;
+    setDetailHeader(true);
+    byID("append-command").hidden = !paper;
+    byID("exam-title").textContent = paper?.title || item.source || "申论练习";
+    if (!samePaper) renderPaper();
+    restoreReading(item);
+    highlightQuestion();
+    renderWorkspace();
+    updateTools();
+  }
+
+  function paperText(text) {
+    return text.split(/([0-9A-Za-z%]+(?:[.\-][0-9A-Za-z]+)*)/g).map((part, index) =>
+      index % 2 ? `<span class="latin">${escape(part)}</span>` : escape(part)
+    ).join("");
+  }
+
+  function paperHeading(page) {
+    return page.continues ? "" : `<h3 class="material-heading">材料 ${page.material}</h3>`;
+  }
+
+  function paginateMaterial(material, paragraphs) {
+    const pages = [];
+    const measure = document.createElement("div");
+    measure.className = "paper-copy paper-measure";
+    measure.setAttribute("aria-hidden", "true");
+    document.body.appendChild(measure);
+    let page = { id: uniq(), material, paragraphs: [] };
+    measure.innerHTML = paperHeading(page);
+    const overflows = () => measure.scrollHeight > measure.clientHeight;
+
+    function nextPage(firstContinues) {
+      pages.push(page);
+      page = { id: uniq(), material, continues: true, firstContinues, paragraphs: [] };
+      measure.replaceChildren();
+      measure.classList.add("continuing");
+    }
+
+    for (const paragraph of paragraphs) {
+      let remaining = Array.from(paragraph);
+      while (remaining.length) {
+        const node = document.createElement("p");
+        if (page.firstContinues && !page.paragraphs.length) node.className = "paragraph-continuation";
+        measure.appendChild(node);
+        node.innerHTML = paperText(remaining.join(""));
+        let length = remaining.length;
+        if (overflows()) {
+          let low = 0;
+          let high = length - 1;
+          while (low < high) {
+            const middle = Math.ceil((low + high) / 2);
+            node.innerHTML = paperText(remaining.slice(0, middle).join(""));
+            if (overflows()) high = middle - 1;
+            else low = middle;
+          }
+          length = low;
+        }
+        if (!length) {
+          nextPage(false);
+          continue;
+        }
+        const portion = remaining.slice(0, length).join("");
+        node.innerHTML = paperText(portion);
+        page.paragraphs.push(portion);
+        remaining = remaining.slice(length);
+        if (remaining.length) nextPage(true);
+      }
+    }
+    pages.push(page);
+    measure.remove();
+    return pages;
+  }
+
+  function questionBlock(part) {
+    return `<section class="question-block" data-paper-question="${escape(part.id)}">
+      ${part.label ? `<h3>${escape(part.label)}</h3>` : ""}
+      ${part.stem ? `<p class="question-copy-stem">${paperText(part.stem)}</p>` : ""}
+      ${part.requirement ? `<p>${paperText(part.requirement)}</p>` : ""}
+    </section>`;
+  }
+
+  function paginateQuestions(items) {
+    if (!items.length) return [];
+    const measure = document.createElement("div");
+    measure.className = "paper-copy paper-measure question-copy";
+    measure.setAttribute("aria-hidden", "true");
+    document.body.appendChild(measure);
+    measure.innerHTML = "<h2>作答要求</h2>";
+    const pages = [];
+    let blocks = [];
+    const next = () => {
+      if (blocks.length) pages.push({ id: `questions-${pages.length + 1}`, kind: "questions", blocks });
+      blocks = [];
+      measure.replaceChildren();
+    };
+    const fits = (block) => {
+      measure.insertAdjacentHTML("beforeend", questionBlock(block));
+      const okay = measure.scrollHeight <= measure.clientHeight;
+      measure.lastElementChild.remove();
+      return okay;
+    };
+    const append = (block) => { blocks.push(block); measure.insertAdjacentHTML("beforeend", questionBlock(block)); };
+    for (const item of items) {
+      const score = item.full && !/[（(]\s*\d+(\.\d+)?\s*分\s*[）)]\s*$/.test(item.stem) ? `（${item.full}分）` : "";
+      const req = (item.requirement || "").trim();
+      const stemChars = Array.from(item.stem + score);
+      const reqChars = Array.from(req ? (/^要求[：:]/.test(req) ? req : `要求：${req.includes("\n") ? "\n" : ""}${req}`) : "");
+      const cutoff = stemChars.length;
+      const end = cutoff + reqChars.length;
+      const piece = (from, to) => ({
+        id: item.id, label: from === 0 ? item.number : "",
+        stem: from < cutoff ? stemChars.slice(from, Math.min(to, cutoff)).join("") : "",
+        requirement: to > cutoff ? reqChars.slice(Math.max(from - cutoff, 0), to - cutoff).join("") : ""
+      });
+      if (blocks.length && !fits(piece(0, end))) next();
+      let from = 0;
+      while (from < end) {
+        let low = from + 1;
+        let high = end;
+        while (low < high) {
+          const middle = Math.ceil((low + high) / 2);
+          if (fits(piece(from, middle))) low = middle;
+          else high = middle - 1;
+        }
+        append(piece(from, low));
+        if (low < end) next();
+        from = low;
+      }
+    }
+    next();
+    measure.remove();
+    return pages;
+  }
+
+  function renderPaper() {
+    pageObserver?.disconnect();
+    const materials = chapters();
+    const previousPages = new Map(rendered.filter((page) => page.group === current.group).map((page) => [page.id, page.undo]));
+    const pages = [...materials, ...paginateQuestions(questionsIn(current.group))];
+    const tabs = pages.filter((page) => !page.continues);
+    byID("material-tabs").innerHTML = tabs.filter((page) => page.kind !== "questions" || page.id === "questions-1").map((page) =>
+      `<button class="material-tab" type="button" data-page="${escape(page.id)}">${page.kind === "questions" ? "作答要求" : `材料 ${page.material}`}</button>`).join("");
+    byID("pages").innerHTML = pages.map((page, index) => page.kind === "questions" ? `
+      <div class="paper-wrap" data-page-id="${page.id}" data-paper-kind="questions">
+        <article class="paper" aria-label="作答要求">
+          <div class="paper-copy question-copy">
+            ${page.id === "questions-1" ? "<h2>作答要求</h2>" : ""}${page.blocks.map(questionBlock).join("")}
+          </div>
+        </article>
+      </div>` : `
+      <div class="paper-wrap" data-page-id="${escape(page.id)}">
+        <article class="paper" aria-label="材料 ${page.material} 第 ${index + 1} 页">
+          <div class="paper-copy${page.continues ? " continuing" : ""}">
+            ${paperHeading(page)}
+            ${page.paragraphs.map((text, n) => `<p class="${page.firstContinues && n === 0 ? "paragraph-continuation" : ""}">${paperText(text)}</p>`).join("")}
+          </div>
+          <canvas class="ink" width="1" height="1" aria-label="材料笔迹"></canvas>
+        </article>
+      </div>`).join("");
+    const shells = document.querySelectorAll(".paper-wrap");
+    rendered = pages.map((page, index) => {
+      const shell = shells[index];
+      return { ...page, group: current.group, shell, paper: shell.querySelector(".paper"), canvas: shell.querySelector("canvas"), undo: previousPages.get(page.id) ?? new Map() };
+    });
+    byID("page-controls").hidden = pages.length < 2;
+    activePage = 0;
+    docScroll.scrollTop = 0;
+    applySize();
+    watchVisiblePages(rendered);
+    for (const page of rendered) if (page.canvas) wireCanvas(page);
+    updatePageStatus();
+    updateTools();
+  }
+
+  async function watchVisiblePages(visiblePages) {
+    await document.fonts.ready;
+    if (route !== "detail" || rendered !== visiblePages) return;
+    const canvases = visiblePages.filter((page) => page.canvas);
+    const pagesByElement = new Map(canvases.map((page) => [page.shell, page]));
+    pageObserver = new IntersectionObserver((entries) => {
+      if (route !== "detail" || rendered !== visiblePages) return;
+      let updateActive = false;
+      for (const entry of entries) {
+        const page = pagesByElement.get(entry.target);
+        if (!entry.isIntersecting) {
+          page.canvas.width = 1;
+          page.canvas.height = 1;
+          continue;
+        }
+        if (page.id === "m1-1") seedDemonstration(page);
+        redraw(page);
+        if (page === rendered[activePage]) updateActive = true;
+      }
+      if (updateActive) updateTools();
+    }, { root: docScroll, rootMargin: "280px" });
+    for (const page of canvases) pageObserver.observe(page.shell);
+  }
+
+  function scaleForWidth() {
+    const padding = docScroll.clientWidth < 540 ? 20 : 26;
+    return Math.min(1, Math.max(.40, (docScroll.clientWidth - padding) / paperWidth)) * zoom;
+  }
+
+  function applySize() {
+    if (!rendered.length || docScroll.clientWidth === 0) return;
+    const scale = scaleForWidth();
+    for (const page of rendered) {
+      page.shell.style.width = `${paperWidth * scale}px`;
+      page.shell.style.height = `${paperHeight * scale}px`;
+      page.paper.style.transform = `scale(${scale})`;
+    }
+    byID("pages").style.paddingBottom = `${Math.max(0, docScroll.clientHeight - paperHeight * scale - 24)}px`;
+    byID("zoom-label").textContent = `${Math.round(scale * 100)}%`;
+  }
+
+  function rememberReading() {
+    const page = rendered[activePage];
+    if (!current || !page || !docScroll.clientWidth) return;
+    const offset = Math.max(0, docScroll.scrollTop - page.shell.offsetTop) / scaleForWidth();
+    readingPositions.set(current.id, { page: page.id, offset });
+  }
+
+  function scrollToPage(id, offset = 0) {
+    const page = rendered.find((value) => value.id === id);
+    if (!page) return;
+    activePage = rendered.indexOf(page);
+    docScroll.scrollTo({ top: page.shell.offsetTop + offset * scaleForWidth(), left: docScroll.scrollLeft, behavior: "instant" });
+    updatePageStatus();
+  }
+
+  function restoreReading(item) {
+    const resume = readingPositions.get(item.id);
+    const first = rendered.find((page) => item.materialRefs?.includes(page.material)) ?? rendered[0];
+    const target = resume && rendered.some((page) => page.id === resume.page) ? resume : first ? { page: first.id, offset: 0 } : null;
+    if (target && docScroll.clientWidth) scrollToPage(target.page, target.offset);
+  }
+
+  function focusPage(id) {
+    finishDrawing();
+    scrollToPage(id);
+  }
+
+  function highlightQuestion() {
+    byID("pages").querySelectorAll("[data-paper-question]").forEach((group) => {
+      group.dataset.active = String(group.dataset.paperQuestion === current.id);
+    });
+  }
+
+  function navigateQuestion(item) {
+    if (!item || item === current) return;
+    const onQuestions = rendered[activePage]?.kind === "questions";
+    openDetail(item);
+    if (!onQuestions) return;
+    const anchor = byID("pages").querySelector(`[data-paper-question="${CSS.escape(item.id)}"]`);
+    const page = anchor?.closest(".paper-wrap");
+    if (!page) return;
+    const offset = Math.max(0, (anchor.getBoundingClientRect().top - page.getBoundingClientRect().top) / scaleForWidth() - 76);
+    scrollToPage(page.dataset.pageId, offset);
+  }
+
+  function updatePageStatus() {
+    activePage = Math.min(activePage, Math.max(0, rendered.length - 1));
+    byID("page-label").textContent = rendered.length ? `${activePage + 1}/${rendered.length} 页` : "";
+    byID("page-prev").disabled = !activePage;
+    byID("page-next").disabled = activePage >= rendered.length - 1;
+    const active = rendered[activePage];
+    for (const tab of document.querySelectorAll(".material-tab")) {
+      const tabPage = rendered.find((page) => page.id === tab.dataset.page);
+      const selected = Boolean(tabPage && active && (tabPage.kind === "questions" ? active.kind === "questions" : tabPage.material === active.material));
+      tab.setAttribute("aria-current", String(selected));
+      if (selected) {
+        const nav = byID("material-tabs");
+        const bounds = nav.getBoundingClientRect();
+        const item = tab.getBoundingClientRect();
+        if (item.right > bounds.right + 1 || item.left < bounds.left - 1) {
+          nav.scrollLeft += item.left - bounds.left - Math.max(0, (bounds.width - item.width) / 2);
+        }
+      }
+    }
+    const layerKey = active?.canvas ? scopeKey(active) : null;
+    const pageChanged = lastToolPage !== active?.id;
+    lastToolPage = active?.id;
+    if (layerKey !== lastLayerGroup) {
+      lastLayerGroup = layerKey;
+      nameEdit = null;
+      layerMenu = null;
+      if (!layerKey) { layersOpen = false; paletteOpen = false; }
+      updateTools();
+    } else {
+      updateInkActions(active);
+      if (pageChanged && layersOpen && active?.canvas) paintLayerPreviews(active);
+    }
+  }
+
+  function scopeKey(page) {
+    return `${current.group}|${page.material}`;
+  }
+
+  function layersFor(page) {
+    return model.layerGroups[scopeKey(page)] ??= {
+      active: "base",
+      list: page.material === 1 && [examplePaper, standaloneGroup].includes(current.group)
+        ? [{ id: "base", name: "通读批注", visible: true }, { id: "review", name: "对照补记", visible: true }]
+        : [{ id: "base", name: "批注", visible: true }]
+    };
+  }
+
+  function inkKey(page, layer = "base") {
+    const base = `${current.group}|${page.id}`;
+    return layer === "base" ? base : `${base}|${layer}`;
+  }
+
+  function drawings(page, layer) {
+    return model.drawings[inkKey(page, layer)] ?? [];
+  }
+
+  function writableLayer(page) {
+    if (!page?.canvas || !toolbarVisible || !inkVisible) return null;
+    const layers = layersFor(page);
+    return layers.list.find((layer) => layer.visible && layer.id === layers.active);
+  }
+
+  function updateInkActions(page) {
+    const layer = writableLayer(page);
+    byID("undo").disabled = !layer || !page.undo.get(inkKey(page, layer.id))?.length;
+    byID("clear-ink").disabled = !layer || !drawings(page, layer.id).length;
+  }
+
+  function updateTools() {
+    const page = rendered[activePage];
+    const canAnnotate = Boolean(page?.canvas);
+    const group = canAnnotate ? layersFor(page) : null;
+    const active = group?.list.find((item) => item.id === group.active);
+    byID("doodle-scroll").hidden = !toolbarVisible;
+    byID("tool-toggle").hidden = toolbarVisible;
+    byID("tool-toggle").disabled = !canAnnotate;
+    byID("layer-indicator").textContent = !canAnnotate || !toolbarVisible ? ""
+      : !inkVisible ? "笔迹暂时隐藏" : active?.name ? `正在写入 · ${active.name}` : "请选择可见图层";
+    byID("layers-toggle").disabled = !canAnnotate;
+    byID("layers-toggle").setAttribute("aria-expanded", String(layersOpen && canAnnotate));
+    byID("layers-panel").hidden = !layersOpen || !canAnnotate;
+    byID("palette-panel").hidden = !paletteOpen || !toolbarVisible || !canAnnotate;
+    byID("colors").setAttribute("aria-pressed", String(paletteOpen && toolbarVisible));
+    byID("finger-draw").setAttribute("aria-pressed", String(fingerDrawing));
+    byID("finger-draw").disabled = !canAnnotate;
+    byID("colors").disabled = !canAnnotate;
+    const toggleAction = inkVisible ? "隐藏全部笔迹" : "显示全部笔迹";
+    byID("ink-toggle").setAttribute("aria-label", toggleAction);
+    byID("ink-toggle").title = toggleAction;
+    byID("ink-toggle").setAttribute("aria-pressed", String(inkVisible));
+    for (const [attribute, key] of [["tool", "tool"], ["color", "color"], ["pen-width", "width"], ["eraser-width", "eraserWidth"]]) {
+      for (const button of document.querySelectorAll(`[data-${attribute}]`)) {
+        button.setAttribute("aria-pressed", String(button.getAttribute(`data-${attribute}`) === String(model.pencil[key])));
+        if (attribute === "tool") button.disabled = !canAnnotate;
+      }
+    }
+    updateInkActions(page);
+    for (const value of rendered) {
+      if (!value.canvas) continue;
+      value.canvas.classList.toggle("hide-ink", !inkVisible);
+      value.canvas.classList.toggle("read-ink", !writableLayer(value));
+      value.canvas.classList.toggle("finger-ink", Boolean(fingerDrawing && writableLayer(value)));
+    }
+    if (layersOpen && canAnnotate) {
+      popoverAt(byID("layers-toggle"), byID("layers-panel"));
+      renderLayers(page);
+    }
+  }
+
+  function renderLayers(page) {
+    const layers = layersFor(page);
+    byID("layer-name-form").hidden = !nameEdit;
+    byID("layer-list").innerHTML = [...layers.list].reverse().map((layer) => {
+      const active = layer.id === layers.active;
+      const name = escape(layer.name);
+      const more = layer.id === layerMenu;
+      return `<li class="layer-line" data-current="${active}">
+        <button class="layer-name" type="button" data-layer-select="${escape(layer.id)}" aria-pressed="${active}" title="${name}">
+          <canvas class="layer-preview" data-thumb="${escape(layer.id)}" width="70" height="62" aria-hidden="true"></canvas><strong>${name}</strong></button>
+        <button class="layer-eye" type="button" data-layer-visibility="${escape(layer.id)}" aria-pressed="${layer.visible}"
+          aria-label="${layer.visible ? "隐藏" : "显示"} ${name}"><span class="eye-icon" aria-hidden="true"></span></button>
+        <button class="mini-btn layer-more" type="button" data-layer-menu="${escape(layer.id)}" aria-expanded="${more}" aria-label="${name}的更多操作">···</button>
+        ${more ? `<div class="layer-overflow"><button class="menu-item" type="button" data-layer-rename="${escape(layer.id)}">重命名</button></div>` : ""}
+      </li>`;
+    }).join("");
+    paintLayerPreviews(page);
+  }
+
+  function paintLayerPreviews(page) {
+    for (const thumbnail of byID("layer-list").querySelectorAll("[data-thumb]")) {
+      const ctx = thumbnail.getContext("2d");
+      ctx.clearRect(0, 0, thumbnail.width, thumbnail.height);
+      const samples = drawings(page, thumbnail.dataset.thumb);
+      if (!samples.length) continue;
+      let x0=paperWidth, y0=paperHeight, x1=0, y1=0;
+      for (const sample of samples) {
+        for (const [x, y] of sample.points || [[sample.x, sample.y], [sample.x + 26, sample.y + 7]]) {
+          x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+        }
+      }
+      if (x0 > x1 || y0 > y1) continue;
+      const scale = Math.min(60 / Math.max(20, x1-x0), 48 / Math.max(20, y1-y0), 1.3);
+      ctx.save();
+      ctx.translate((thumbnail.width-(x1-x0)*scale)/2, (thumbnail.height-(y1-y0)*scale)/2);
+      ctx.scale(scale, scale);
+      ctx.translate(-x0, -y0);
+      paintStrokes(ctx, samples);
+      ctx.restore();
+    }
+  }
+
+  function refreshLayerInk(page) {
+    for (const value of rendered) {
+      if (value.material === page.material && value.canvas?.width > 1) redraw(value);
+    }
+    updateTools();
+  }
+
+  function changeLayer(kind, id) {
+    const page = rendered[activePage];
+    if (!page?.canvas) return;
+    const group = layersFor(page);
+    const layer = group.list.find((item) => item.id === id);
+    if (!layer) return;
+    finishDrawing();
+    layerMenu = null;
+    if (kind === "select") {
+      layer.visible = true;
+      group.active = id;
+    } else {
+      layer.visible = !layer.visible;
+      if (!layer.visible && group.active === id) group.active = group.list.findLast((item) => item.visible)?.id ?? null;
+      if (layer.visible && !group.active) group.active = id;
+    }
+    save();
+    refreshLayerInk(page);
+  }
+
+  function editLayerName(id) {
+    const page = rendered[activePage];
+    if (!page?.canvas) return;
+    const group = layersFor(page);
+    const layer = group.list.find((item) => item.id === id);
+    layerMenu = null;
+    nameEdit = { scope: scopeKey(page), id: layer?.id ?? null };
+    byID("layer-name-label").textContent = layer ? "重命名图层" : "新建图层";
+    const input = byID("layer-name-input");
+    input.setCustomValidity("");
+    input.value = layer?.name ?? "";
+    input.placeholder = `图层 ${group.list.length + 1}`;
+    renderLayers(page);
+    input.focus();
+    input.select();
+  }
+
+  function redraw(page) {
+    if (page.canvas.width === 1) {
+      page.canvas.width = paperWidth * backingScale;
+      page.canvas.height = Math.ceil(paperHeight * backingScale);
+    }
+    const context = page.canvas.getContext("2d");
+    context.setTransform(backingScale, 0, 0, backingScale, 0, 0);
+    context.clearRect(0, 0, paperWidth, paperHeight);
+    const samples = layersFor(page).list.filter((layer) => layer.visible).flatMap((layer) => drawings(page, layer.id));
+    paintStrokes(context, samples);
+  }
+
+  function paintStrokes(context, samples) {
+    for (const stroke of samples) {
+      if (stroke.kind === "note") {
+        context.save();
+        context.translate(stroke.x, stroke.y);
+        context.rotate(-.13);
+        context.fillStyle = stroke.color;
+        context.font = '13px "KaiTi", "Microsoft YaHei", sans-serif';
+        context.fillText(stroke.text, 0, 0);
+        context.restore();
+      } else if (stroke.points?.length) {
+        const [first, ...remaining] = stroke.points;
+        context.globalAlpha = stroke.kind === "highlight" ? .43 : .96;
+        context.lineWidth = stroke.width;
+        context.strokeStyle = stroke.color;
+        context.lineCap = "round";
+        context.lineJoin = "round";
+        context.beginPath();
+        context.moveTo(first[0], first[1]);
+        if (!remaining.length) context.lineTo(first[0] + .1, first[1] + .1);
+        for (const point of remaining) context.lineTo(point[0], point[1]);
+        context.stroke();
+        context.globalAlpha = 1;
+      }
+    }
+  }
+
+  function textRects(page, needle) {
+    const paragraph = [...page.paper.querySelectorAll("p")].find((node) => node.textContent.includes(needle));
+    if (!paragraph) return [];
+    const from = paragraph.textContent.indexOf(needle);
+    const to = from + needle.length;
+    const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    let i = 0, node, first = false;
+    while ((node = walker.nextNode())) {
+      const length = node.textContent.length;
+      if (!first && from < i + length) { range.setStart(node, from - i); first = true; }
+      if (first && to <= i + length) { range.setEnd(node, to - i); break; }
+      i += length;
+    }
+    const base = page.paper.getBoundingClientRect();
+    const scale = base.width / paperWidth;
+    const lines = [];
+    for (const rect of range.getClientRects()) {
+      const item = { x: (rect.left - base.left) / scale, y: (rect.top - base.top) / scale, w: rect.width / scale, h: rect.height / scale };
+      const sameLine = lines.find((line) => Math.abs(item.y - line.y) < 3);
+      if (sameLine) {
+        sameLine.w = Math.max(sameLine.x + sameLine.w, item.x + item.w) - Math.min(sameLine.x, item.x);
+        sameLine.x = Math.min(sameLine.x, item.x);
+        sameLine.h = Math.max(sameLine.h, item.h);
+      } else lines.push(item);
+    }
+    return lines;
+  }
+
+  function seedDemonstration(page) {
+    const base = inkKey(page);
+    const review = inkKey(page, "review");
+    if (!page.paper.getBoundingClientRect().width || (Object.hasOwn(model.drawings, base) && Object.hasOwn(model.drawings, review))) return;
+    const values = [];
+    const reviewMarks = [];
+    const color = "#252525";
+    const red = "#bb3d38";
+    function mark(phrase, kind, strokes = values, strokeColor = color) {
+      return textRects(page, phrase).map((rect) => {
+        let points;
+        if (kind === "circle") {
+          points = Array.from({ length: 31 }, (_, index) => {
+            const angle = index / 30 * Math.PI * 2;
+            const t = Math.sin(index * .82) * .8;
+            return [rect.x + rect.w / 2 + (rect.w / 2 + 5 + t) * Math.cos(angle), rect.y + rect.h / 2 + (rect.h / 2 + 2 + t) * Math.sin(angle)];
+          });
+        } else {
+          const y = rect.y + rect.h * 1.02;
+          points = Array.from({ length: 17 }, (_, index) => [rect.x + rect.w * index / 16, y + Math.sin(index * 1.7) * .6]);
+        }
+        strokes.push({ kind: "pen", width: 1.55, points, color: strokeColor });
+        return rect;
+      });
+    }
+    mark("整合物流资源", "circle");
+    mark("提供全流程铁路运输服务", "underline");
+    mark("新建了8条园区铁路专用线", "underline");
+    const cost = mark("均下调约50%", "circle");
+    mark("扩建铁路线路、增加班次", "underline");
+    const capacity = mark("升级改造装卸设备", "circle", reviewMarks, red);
+    mark("“物流总包”协议", "underline", reviewMarks, red);
+    if (cost[0]) values.push({ kind: "note", x: 551, y: cost[0].y + 8, text: "降成本", color });
+    if (capacity[0]) reviewMarks.push({ kind: "note", x: 550, y: capacity[0].y + 9, text: "扩能", color: red });
+    model.drawings[base] ??= values;
+    model.drawings[review] ??= reviewMarks;
+  }
+
+  function pushUndo(page, key, previous) {
+    const history = page.undo.get(key) ?? [];
+    history.push(previous);
+    page.undo.set(key, history);
+  }
+
+  function finishDrawing() {
+    if (!workingStroke) return;
+    const { page, key, previous, pointer } = workingStroke;
+    workingStroke = null;
+    if (page.canvas.hasPointerCapture(pointer)) page.canvas.releasePointerCapture(pointer);
+    if (model.drawings[key] !== previous) {
+      pushUndo(page, key, previous);
+      save();
+    }
+  }
+
+  function eraseAt(session, position) {
+    let changed = false;
+    const visible = model.drawings[session.key] ?? [];
+    const remaining = [];
+    const radius = model.pencil.eraserWidth / 2;
+    for (const stroke of visible) {
+      if (!stroke.points?.some(([x, y]) => Math.hypot(x - position[0], y - position[1]) <= radius)) {
+        remaining.push(stroke);
+        continue;
+      }
+      changed = true;
+      let section = [];
+      for (const point of stroke.points) {
+        if (Math.hypot(point[0] - position[0], point[1] - position[1]) > radius) section.push(point);
+        else if (section.length) {
+          remaining.push({ ...stroke, points: section });
+          section = [];
+        }
+      }
+      if (section.length) remaining.push({ ...stroke, points: section });
+    }
+    if (changed) model.drawings[session.key] = remaining;
+  }
+
+  function drawAt(session, point) {
+    const stroke = session.stroke;
+    const last = stroke.points.at(-1);
+    const steps = Math.max(1, Math.ceil(Math.hypot(point[0] - last[0], point[1] - last[1]) / 4));
+    for (let step = 1; step <= steps; step++) {
+      const fraction = step / steps;
+      stroke.points.push([last[0] + fraction * (point[0] - last[0]), last[1] + fraction * (point[1] - last[1])]);
+    }
+  }
+
+  function editCurrentInk(action) {
+    finishDrawing();
+    const page = rendered[activePage];
+    const layer = writableLayer(page);
+    if (!layer) return;
+    const key = inkKey(page, layer.id);
+    if (action === "clear") {
+      pushUndo(page, key, drawings(page, layer.id));
+      model.drawings[key] = [];
+    } else {
+      const undone = page.undo.get(key)?.pop();
+      if (!undone) return;
+      model.drawings[key] = undone;
+    }
+    redraw(page);
+    save();
+    updateTools();
+  }
+
+  function wireCanvas(page) {
+    const point = (event) => {
+      const rect = page.canvas.getBoundingClientRect();
+      return [(event.clientX - rect.left) * paperWidth / rect.width, (event.clientY - rect.top) * paperHeight / rect.height];
+    };
+    page.canvas.addEventListener("pointerdown", (event) => {
+      const layer = writableLayer(page);
+      if (!layer || workingStroke || (event.pointerType === "touch" && !fingerDrawing) || event.button !== 0) return;
+      activePage = rendered.indexOf(page);
+      updatePageStatus();
+      const position = point(event);
+      const key = inkKey(page, layer.id);
+      const previous = model.drawings[key] ?? [];
+      event.preventDefault();
+      page.canvas.setPointerCapture(event.pointerId);
+      const erasing = model.pencil.tool === "erase";
+      const stroke = erasing ? null : { kind: "pen", color: model.pencil.color, width: model.pencil.width, points: [position] };
+      workingStroke = { page, key, previous, pointer: event.pointerId, stroke };
+      if (erasing) {
+        model.drawings[key] ??= previous;
+        eraseAt(workingStroke, position);
+      } else {
+        model.drawings[key] = [...previous, stroke];
+      }
+      redraw(page);
+    });
+    page.canvas.addEventListener("pointermove", (event) => {
+      if (workingStroke?.page !== page || workingStroke.pointer !== event.pointerId) return;
+      if (workingStroke.stroke) drawAt(workingStroke, point(event));
+      else eraseAt(workingStroke, point(event));
+      redraw(page);
+    });
+    for (const action of ["pointerup", "pointercancel", "lostpointercapture"]) {
+      page.canvas.addEventListener(action, (event) => {
+        if (workingStroke?.page !== page || workingStroke.pointer !== event.pointerId) return;
+        finishDrawing();
+        updateTools();
+      });
+    }
+  }
+
+  const countAnswer = (answer) => [...(answer || "").replace(/\s/g, "")].length;
+
+  function anchorButton(id, label) {
+    const page = rendered.find((entry) => entry.id === id);
+    if (!page) return "";
+    const name = label || (page.kind === "questions" ? "作答要求" : `材料 ${page.material} · 第 ${rendered.indexOf(page) + 1} 页`);
+    return `<button class="anchor" type="button" data-anchor="${escape(id)}">${escape(name)} ↗</button>`;
+  }
+
+  function renderQuestionNavigation() {
+    const items = questionsIn(current.group);
+    const index = items.indexOf(current);
+    const count = byID("question-count");
+    byID("question-pager").hidden = items.length < 2;
+    count.textContent = `${index + 1}/${items.length}`;
+    count.setAttribute("aria-label", `第 ${index + 1} 题，共 ${items.length} 题，选择题目`);
+    byID("question-prev").disabled = index <= 0;
+    byID("question-next").disabled = index >= items.length - 1;
+    byID("question-chooser").innerHTML = items.map((item, position) =>
+      `<button class="menu-item" type="button" data-question="${escape(item.id)}" aria-current="${String(item === current)}">第 ${position + 1} 题</button>`).join("");
+  }
+
+  const answerColumns = 25;
+  const answerPageSize = answerColumns * 24;
+  const glyphs = typeof Intl.Segmenter === "function" ? new Intl.Segmenter("zh", { granularity: "grapheme" }) : null;
+
+  function answerPositions(text, limit) {
+    const cells = [];
+    let columnPosition = 0;
+    let used = 0;
+    const lines = text.replace(/\r\n?/g, "\n").split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const entries = glyphs ? [...glyphs.segment(line)].map(({segment}) => segment) : Array.from(line);
+      for (const letter of entries) {
+        if (columnPosition < limit) cells[columnPosition] = /^\s$/u.test(letter) ? "" : letter;
+        columnPosition++;
+        used = columnPosition;
+      }
+      if (i < lines.length - 1) {
+        const isPartial = columnPosition % answerColumns;
+        columnPosition += isPartial ? answerColumns - isPartial : !entries.length ? answerColumns : 0;
+      }
+    }
+    return { cells, used };
+  }
+
+  function answerSheets(limit, minimum) {
+    const template = [];
+    const sheets = Math.ceil(limit / answerPageSize);
+    for (let index = 0; index < sheets; index++) {
+      const start = index * answerPageSize + 1;
+      const end = Math.min(start + answerPageSize - 1, limit);
+      const rows = [];
+      for (let row = start; row <= end; row += answerColumns) {
+        const marks = [];
+        const cells = [];
+        for (let i = row; i <= Math.min(row + answerColumns - 1, end); i++) {
+          const marker = i === limit || i === minimum || i % 100 === 0;
+          cells.push(`<span class="answer-cell" aria-hidden="true"${marker ? " data-marker" : ""}></span>`);
+          if (marker) marks.push({ i, pos: (i - row + 1) * 4 });
+        }
+        const labels = marks.map((mark, i) => {
+          if (marks[i + 1]?.pos - mark.pos < 11) return "";
+          const text = i && mark.pos - marks[i-1].pos < 11 ? `${marks[i-1].i} / ${mark.i}` : mark.i;
+          return `<small class="sheet-mark" style="left:${mark.pos}%" aria-hidden="true">${text}</small>`;
+        });
+        rows.push(`<div class="sheet-row">${cells.join("")}${labels.join("")}</div>`);
+      }
+      template.push(`<section class="sheet-grid" data-sheet-size="${end - start + 1}" aria-label="第 ${index + 1} 张答题纸，${end - start + 1} 格">
+        ${sheets > 1 ? `<div class="sheet-page-number">${index + 1}/${sheets} 张</div>` : ""}
+        <div class="sheet-rows">${rows.join("")}</div></section>`);
+    }
+    return template.join("");
+  }
+
+  function updateAnswerSheet() {
+    const output = byID("answer-count");
+    const help = byID("sheet-help");
+    if (!output) return;
+    const cap = current.limit;
+    const layout = cap ? answerPositions(current.answer, cap) : { used: countAnswer(current.answer) };
+    output.textContent = cap ? `${layout.used}/${cap} 格` : `${layout.used} 字`;
+    output.dataset.over = String(Boolean(cap && layout.used > cap));
+    if (help) help.textContent = cap
+      ? layout.used > cap ? `超出 ${layout.used - cap} 格，原文未截断。` : ""
+      : "未设字数上限";
+    if (!cap) return;
+    for (let i = 0; i < answerCellNodes.length; i++) {
+      const value = layout.cells[i] ?? "";
+      if (answerCellNodes[i].textContent !== value) answerCellNodes[i].textContent = value;
+    }
+  }
+
+  function updateComposer(focus = false) {
+    const open = activePhase === "work" && (composerOpen || !current.limit);
+    const input = byID("answer-input");
+    byID("answer-composer").hidden = !open;
+    byID("close-composer").hidden = !current.limit;
+    if (open && input.value !== current.answer) input.value = current.answer;
+    if (open && focus) input.focus({ preventScroll: true });
+  }
+
+  function startTyping() {
+    if (activePhase !== "work") return;
+    composerOpen = true;
+    updateComposer(true);
+  }
+
+  function syncAnswer(input) {
+    if (!current || route !== "detail" || activePhase !== "work") return;
+    if (current.answer !== input.value) {
+      invalidateAnalysis(current);
+      current.answer = input.value;
+      save();
+    }
+    updateAnswerSheet();
+    const finish = byID("finish-answer");
+    if (finish) finish.disabled = !current.answer.trim();
+  }
+
+  function workPanels() {
+    const doubts = current.doubts;
+    return `<section class="answer-sheets" aria-label="我的作答纸">
+        <div class="sheet-card" data-has-limit="${Boolean(current.limit)}">
+          <div class="sheet-head">
+            <button class="mini-btn" data-command="type-answer" type="button"><span class="doodle-glyph" aria-hidden="true">&#xE765;</span>键入</button>
+            <output class="sheet-count" id="answer-count"></output>
+          </div>
+          <p id="sheet-help" class="sheet-help" role="status"></p>
+          ${current.limit ? `<div class="sheet-grids" data-answer-sheet>${answerSheets(current.limit, current.minimum)}</div>` : ""}
+        </div>
+      </section>
+      ${doubts.length ? `<details class="work-doubts"><summary>疑惑 ${doubts.length}</summary>
+        <ol class="doubt-list">${doubts.map((item, index) => `<li><div class="doubt-body"><span class="doubt-number">${index + 1}</span><div><p>${escape(item.text)}</p>${anchorButton(item.page)}</div></div></li>`).join("")}</ol>
+      </details>` : ""}`;
+  }
+
+  function comparePanels() {
+    return `
+      <div class="panel">
+        <div class="panel-head"><h3>我的作答</h3><button class="mini-btn" type="button" data-command="edit-answer">编辑</button></div>
+        <p class="read-answer">${escape(current.answer)}</p>
+      </div>
+      <div class="panel reference-text">
+        <div class="panel-head"><h3><label for="reference-input">参考答案</label></h3>
+          ${current.reference === exampleReference ? '<span class="minor">演示内容</span>'
+            : supportsReviewExample(current) && !current.reference ? '<button class="mini-btn" type="button" data-command="use-example-reference">填入演示参考</button>' : ""}
+        </div>
+        <textarea id="reference-input" class="answer-input" placeholder="粘贴参考答案原文">${escape(current.reference)}</textarea>
+      </div>`;
+  }
+
+  const isPendingDoubt = (item) => !item.reply?.trim() && !item.deferred;
+  const draftReplies = (item) => item.doubts.filter((doubt) => doubt.draft && isPendingDoubt(doubt));
+  const supportsReviewExample = (item) => item.stem === examples[0].stem && item.answer === exampleAnswer;
+
+  function analysisBlock(item, mode) {
+    if (!item.answer?.trim() || !item.reference?.trim()) return "先在「对照答案」补齐我的作答和参考答案";
+    if (paperFor(item) && !Array.isArray(item.materialRefs)) return "先确认本题关联材料";
+    if (mode === "score" && item.doubts.some(isPendingDoubt)) return "先完成答疑，或把未解决的问题标为待验证";
+    return "";
+  }
+
+  function doubtPanels() {
+    const list = current.doubts;
+    const block = list.some(isPendingDoubt) ? analysisBlock(current, "doubt") : "";
+    return `
+      <div class="panel">
+        <div class="panel-head tight"><h3>疑惑清单</h3><button class="mini-btn" type="button" data-command="add-doubt">＋ 记一条</button></div>
+        <p class="minor">${list.length ? `已答 ${list.filter((item) => item.reply?.trim()).length} / ${list.length}${draftReplies(current).length ? ` · ${draftReplies(current).length} 条待确认` : ""}` : "暂无记录的疑惑"}</p>
+        ${block ? `<p class="notice below">${block}</p>` : ""}
+      </div>
+      ${list.map((item, index) => {
+        const draft = isPendingDoubt(item) ? item.draft : null;
+        const evidence = draft?.page ?? item.evidence;
+        const state = draft ? "待确认" : item.reply?.trim() ? "已答" : item.deferred ? "待验证" : "待答";
+        return `<div class="panel${draft ? " ai-draft" : ""}">
+          <div class="panel-head"><div class="doubt-body"><span class="doubt-number">${index + 1}</span><strong>${escape(item.text)}</strong></div>
+            <span class="minor" data-reply-state="${escape(item.id)}">${state}</span></div>
+          ${anchorButton(item.page)}
+          <label class="minor" for="reply-${escape(item.id)}">${draft ? "AI 答复草稿" : "答疑"}</label>
+          <textarea ${draft ? "data-draft-reply" : "data-reply"}="${escape(item.id)}" id="reply-${escape(item.id)}" placeholder="记录结论与材料依据">${escape(draft?.text ?? item.reply ?? "")}</textarea>
+          ${evidence ? anchorButton(evidence, "查看材料依据") : ""}
+          <button class="mini-btn" type="button" data-defer="${escape(item.id)}">${item.deferred ? "取消待验证" : "留待验证"}</button>
+        </div>`;
+      }).join("")}`;
+  }
+
+  function scorePanels() {
+    const block = analysisBlock(current, "score");
+    const draft = current.scoreDraft;
+    const values = draft ?? current.scorePending ?? { value: current.score, reason: current.scoreReason };
+    return `
+      <div class="panel${draft ? " ai-draft" : ""}">
+        <div class="panel-head"><h3>${draft ? "AI 评分草稿" : "评分"}</h3>${draft ? '<span class="review-tag">待确认</span>' : ""}</div>
+        ${block ? `<p class="notice">${block}</p>` : ""}
+        ${current.status === "revise" ? '<p class="notice">答案已有修改，旧评分待复核。</p>' : ""}
+        <div class="score-check"><label for="score-input" class="summary">${draft ? "建议得分" : "得分"}</label><input id="score-input" class="score-input" type="number" min="0" ${current.full ? `max="${current.full}"` : ""} step="any" value="${escape(values.value ?? "")}" ${current.full ? "" : "disabled"}>${current.full ? `<span class="minor">/ ${current.full} 分</span>` : '<span class="minor">文字评估</span>'}</div>
+        <label for="score-reason" class="minor">评分依据与扣分点</label>
+        <textarea id="score-reason" class="below" placeholder="记录得分依据或待核实项">${escape(values.reason || "")}</textarea>
+        ${(draft?.points ?? current.savedPoints)?.length ? `<ul class="evidence-list">${(draft?.points ?? current.savedPoints).map((entry) =>
+          `<li><div class="row"><strong>${escape(entry.title)}</strong><span class="minor">${escape(entry.points)}</span></div>
+            <p class="minor">${escape(entry.text)}</p>${anchorButton(entry.page)}</li>`
+        ).join("")}</ul>` : ""}
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3><label for="analysis-input">分析笔记</label></h3></div>
+        <textarea id="analysis-input" class="answer-input" placeholder="记录考点、错因、下次可验证的规则">${escape(current.analysis || "")}</textarea>
+      </div>`;
+  }
+
+  function renderWorkspace() {
+    renderQuestionNavigation();
+    const isWork = activePhase === "work";
+    byID("workspace-title").textContent = isWork ? "答题纸" : "复盘";
+    const stages = isWork ? [] : [["compare", "对照答案"], ["doubt", "逐条答疑"], ["score", "评分与分析"]];
+    byID("workspace-tabs").hidden = isWork;
+    byID("workspace-tabs").innerHTML = stages.map(([state, label]) => `<button class="section-tab" data-review-panel="${state}" aria-current="${String(activePanel === state)}" type="button">${label}</button>`).join("");
+    byID("workspace-content").innerHTML = isWork ? workPanels() : { compare: comparePanels, doubt: doubtPanels, score: scorePanels }[activePanel]();
+    answerCellNodes = [...byID("workspace-content").querySelectorAll(".answer-cell")];
+    updateAnswerSheet();
+    updateComposer();
+    renderFooter();
+    byID("workspace-content").scrollTop = workspaceScroll;
+  }
+
+  function renderFooter() {
+    const footer = byID("footer-actions");
+    if (activePhase === "work") {
+      footer.innerHTML = `<button class="soft" data-command="add-doubt" type="button">记疑惑</button>
+        <button id="finish-answer" class="primary" data-command="finish" type="button" ${current.answer.trim() ? "" : "disabled"}>完成作答</button>`;
+      return;
+    }
+    const job = analysisJobs.get(current.id);
+    const message = job ? `正在为${current.number}${job.mode === "doubt" ? "答疑" : "评分"}…`
+      : analysisMessages.get(current.id) || requestScope();
+    const status = `<span id="work-message" class="ai-status" role="status" data-busy="${Boolean(job)}">${escape(message)}</span>`;
+    if (job) {
+      footer.innerHTML = status + '<button class="soft" data-command="cancel-analysis" type="button">取消请求</button>';
+      return;
+    }
+    if (activePanel === "compare") {
+      footer.innerHTML = status + '<button class="primary" data-review-panel="doubt" type="button">进入逐条答疑</button>';
+      return;
+    }
+    if (activePanel === "doubt") {
+      const hasDraft = draftReplies(current).some((item) => item.draft.text.trim());
+      const action = hasDraft ? ["confirm-doubts", "确认答疑"] : ["request-doubts", "发起答疑"];
+      const button = current.doubts.some(isPendingDoubt)
+        ? `<button class="primary" data-command="${action[0]}" type="button">${action[1]}</button>`
+        : '<button class="primary" data-review-panel="score" type="button">进入评分与分析</button>';
+      footer.innerHTML = status + button;
+      return;
+    }
+    const editable = current.scoreDraft || current.scorePending;
+    const request = `<button class="${editable ? "soft" : "primary"}" data-command="request-score" type="button">${current.scoreDraft || current.status === "score" ? "重新评分" : "发起评分"}</button>`;
+    const confirm = editable ? '<button class="primary" data-command="save-score" type="button">保存评分</button>' : "";
+    footer.innerHTML = status + request + confirm;
+  }
+
+  function report(text, item = current) {
+    analysisMessages.set(item.id, text);
+    if (route === "detail" && current === item && activePhase === "review") renderFooter();
+  }
+
+  function analysisPages(item) {
+    const pages = chapters(item.group);
+    return paperFor(item) ? pages.filter((page) => item.materialRefs?.includes(page.material)) : pages;
+  }
+
+  function requestScope() {
+    if (activePanel === "compare" || analysisBlock(current, activePanel)) return "";
+    if (activePanel === "doubt" && !current.doubts.some(isPendingDoubt)) return "";
+    const materials = [...new Set(analysisPages(current).map((page) => page.material))];
+    const scope = materials.map((number) => `材料 ${number}`).join("、");
+    return scope ? `使用本题两份答案与${scope}` : "使用本题题干和两份答案";
+  }
+
+  function analysisSignature(item) {
+    return JSON.stringify([
+      item.kind, item.stem, item.requirement, item.full, item.limit, item.minimum, item.answer, item.reference,
+      analysisPages(item).map((page) => page.id),
+      item.doubts.map((entry) => [entry.id, entry.text, entry.page, entry.deferred, entry.reply])
+    ]);
+  }
+
+  function demoReplies(item) {
+    const replies = [
+      { text: "修建专用线解决铁路接入，协调降费解决运输成本。题干要求说明如何优化，可放在同一个大点下并列两项措施。", page: "m1-1" },
+      { text: "总包是整合资源的服务方式，一条龙服务是其具体内容。先写实行物流总包，再写运输方案、交通衔接和全程盯控等服务。", page: "m1-2" }
+    ];
+    for (const doubt of item.doubts.filter(isPendingDoubt)) {
+      const index = examples[0].doubts.findIndex((sample) => sample.text === doubt.text);
+      if (index >= 0) doubt.draft = { ...replies[index] };
+    }
+    return draftReplies(item).length;
+  }
+
+  function demoScore() {
+    return {
+      value: 7,
+      reason: "覆盖专用线建设、调度扩能和物流总包。降费写得较概括，遗漏了一条龙服务的环节和全程盯控。",
+      points: [
+        { title: "专用线与降费", points: "部分覆盖", text: "已提到建线与降费，可补上协调港口、铁路和园区费用。", page: "m1-1" },
+        { title: "扩大运力", points: "已覆盖", text: "写到了扩线、增班和设备升级。", page: "m1-1" },
+        { title: "物流总包与全程服务", points: "部分覆盖", text: "已提到整合资源与总包，缺少运输方案、交通衔接和全程盯控。", page: "m1-2" }
+      ]
+    };
+  }
+
+  function startAnalysis(mode) {
+    const item = current;
+    if (analysisJobs.has(item.id)) return;
+    const blocked = analysisBlock(item, mode);
+    if (blocked) return report(blocked);
+    if (mode === "doubt" && !item.doubts.some(isPendingDoubt)) return;
+    const signature = analysisSignature(item);
+    const job = { mode, timer: null };
+    analysisJobs.set(item.id, job);
+    renderFooter();
+    job.timer = setTimeout(() => {
+      if (analysisJobs.get(item.id) !== job) return;
+      analysisJobs.delete(item.id);
+      if (analysisSignature(item) !== signature) return report("本题内容已更新，请重新发起", item);
+      const approvedDemo = supportsReviewExample(item) && item.reference === exampleReference
+        && analysisPages(item).some((page) => page.id === "m1-2");
+      if (!approvedDemo) return report("原型使用铁路物流题演示生成结果", item);
+      if (mode === "doubt") {
+        const count = demoReplies(item);
+        analysisMessages.set(item.id, count ? `${count} 条答复待确认` : "样例答复已查看，可手动记录新增疑惑");
+      } else {
+        item.scoreDraft = demoScore();
+        analysisMessages.set(item.id, "评分草稿待确认");
+      }
+      save();
+      if (route === "detail" && current === item && activePhase === "review") renderWorkspace();
+    }, 860);
+  }
+
+  function invalidateAnalysis(item) {
+    invalidateScore(item);
+    for (const doubt of item.doubts) delete doubt.draft;
+  }
+
+  function invalidateScore(item) {
+    if (item.status === "score") item.status = "revise";
+    delete item.scoreDraft;
+    delete item.scorePending;
+  }
+
+  function confirmDoubts() {
+    invalidateScore(current);
+    for (const doubt of draftReplies(current)) {
+      if (!doubt.draft.text.trim()) continue;
+      doubt.reply = doubt.draft.text;
+      doubt.evidence = doubt.draft.page;
+      delete doubt.draft;
+    }
+    analysisMessages.set(current.id, "答疑已保存");
+    save();
+    renderWorkspace();
+  }
+
+  function confirmScore() {
+    const blocked = analysisBlock(current, "score");
+    if (blocked) return report(blocked);
+    const input = byID("score-input");
+    const reason = byID("score-reason").value;
+    if (current.full && (!input.value || !input.reportValidity())) return report("请输入满分范围内的得分");
+    if (!reason.trim()) return report("请补充评分依据");
+    current.score = current.full ? Number(input.value) : null;
+    current.scoreReason = reason;
+    if (current.scoreDraft?.points) current.savedPoints = current.scoreDraft.points;
+    delete current.scoreDraft;
+    delete current.scorePending;
+    current.status = "score";
+    analysisMessages.set(current.id, "评分已保存");
+    save();
+    renderWorkspace();
+  }
+
+  function openQuestionForm(mode) {
+    newMode = mode;
+    const fromDetail = route === "detail";
+    if (fromDetail) {
+      finishDrawing();
+      rememberReading();
+    }
+    const existing = mode === "edit" ? current : null;
+    const group = fromDetail ? current.group : null;
+    const paper = group ? model.papers[group] : null;
+    entry = { fromDetail, group, paper, existing, refs: existing?.materialRefs?.slice() ?? null, staged: [] };
+    route = "entry";
+    setDetailHeader(false);
+    layersOpen = false;
+    paletteOpen = false;
+    for (const id of ["library", "settings", "detail", "dock", "bar-name", "back", "detail-name", "new"]) byID(id).hidden = true;
+    for (const id of ["question-entry", "entry-name", "entry-save", "entry-cancel"]) byID(id).hidden = false;
+    const form = byID("new-form");
+    form.reset();
+    form.elements.stem.setCustomValidity("");
+    form.elements.paperTitle.setCustomValidity("");
+    form.elements.minimum.setCustomValidity("");
+    const title = { single: "录入单题", paper: "新建套卷", append: "录入套卷题目", edit: "编辑题目" }[mode];
+    byID("new-title").textContent = title;
+    byID("entry-context").textContent = paper ? `${paper.title} · ${existing?.number || `第 ${questionsIn(group).length + 1} 题`}` : "";
+    byID("entry-context").hidden = !paper;
+    byID("entry-save").textContent = mode === "paper" ? "保存套卷" : "保存题目";
+    byID("entry-save").disabled = false;
+    byID("paper-title-field").hidden = mode !== "paper";
+    form.elements.paperTitle.required = mode === "paper";
+    form.elements.number.placeholder = mode === "append" ? `第 ${questionsIn(group).length + 1} 题` : "第 1 题";
+    if (existing) {
+      for (const field of ["source", "number", "kind", "stem", "requirement", "full", "limit", "minimum"]) {
+        form.elements[field].value = existing[field] ?? "";
+      }
+    }
+    byID("entry-reference").open = false;
+    byID("entry-reference").hidden = Boolean(existing);
+    byID("entry-reference-sealed").hidden = !existing;
+    byID("entry-reference-sealed").querySelector(".minor").textContent = existing?.reference
+      ? existing.status === "work" ? "已封存 · 作答完成后显示" : "已录入 · 可在对照答案查看"
+      : "可在作答后补录";
+    byID("entry-refs").hidden = !paper;
+    byID("entry-feedback").textContent = "";
+    byID("question-entry").scrollTop = 0;
+    renderEntryMaterials();
+  }
+
+  function hideQuestionEntry() {
+    for (const id of ["question-entry", "entry-name", "entry-save", "entry-cancel"]) byID(id).hidden = true;
+  }
+
+  function closeQuestionEntry() {
+    const target = entry;
+    entry = null;
+    hideQuestionEntry();
+    if (!target?.fromDetail) return selectDock("library");
+    route = "detail";
+    for (const id of ["detail", "detail-name", "back"]) byID(id).hidden = false;
+    setDetailHeader(true);
+    applySize();
+    restoreReading(current);
+    renderWorkspace();
+    updateTools();
+  }
+
+  function renderEntryMaterials() {
+    const existing = entry.group ? chapters(entry.group) : [];
+    const selected = existing.filter((page) => !page.continues && (!entry.paper || entry.refs?.includes(page.material)));
+    const total = selected.length + entry.staged.length;
+    const existingRows = selected.map((page) => `<div class="entry-material">
+      <div class="row"><strong>材料 ${page.material}</strong><span class="minor">${existing.filter((value) => value.material === page.material).length} 页</span></div>
+      <p class="minor">${escape(page.paragraphs[0] || "")}</p></div>`);
+    const stagedRows = entry.staged.map((pages, index) => `<div class="entry-material">
+      <div class="row"><strong>材料 ${pages[0].material} <span class="minor">· ${pages.length} 页</span></strong>
+        <button class="mini-btn" type="button" data-remove-staged="${index}">移除</button></div>
+      <p class="minor">${escape(pages[0].paragraphs[0] || "")}</p></div>`);
+    byID("entry-material-list").innerHTML = total ? [...existingRows, ...stagedRows].join("")
+      : `<p class="entry-hint">${entry.paper && Array.isArray(entry.refs) ? "当前题目无关联材料。" : "材料选填，可在保存后补录。"}</p>`;
+    byID("entry-material-count").textContent = total ? `${total} 份` : "";
+  }
+
+  function openMaterialReferences() {
+    if (route !== "entry" || !entry?.paper) return;
+    const sources = chapters(entry.group);
+    const selected = entry.refs;
+    const firstPages = sources.filter((page) => !page.continues);
+    byID("material-ref-choices").innerHTML = firstPages.length
+      ? firstPages.map((page) => `<label><input type="checkbox" name="materials" value="${page.material}"
+          ${selected?.includes(page.material) ? "checked" : ""}> 材料 ${page.material}</label>`).join("")
+      : '<p class="minor">套卷暂无材料，可先保存为无需材料。</p>';
+    byID("material-ref-dialog").showModal();
+  }
+
+  docScroll.addEventListener("scroll", () => {
+    if (scrollFrame) return;
+    scrollFrame = requestAnimationFrame(() => {
+      scrollFrame = 0;
+      if (route !== "detail" || !rendered.length) return;
+      const position = docScroll.scrollTop + 42;
+      activePage = Math.max(0, rendered.findLastIndex((page) => page.shell.offsetTop <= position));
+      updatePageStatus();
+      rememberReading();
+    });
+  }, { passive: true });
+  window.addEventListener("resize", () => {
+    applySize();
+    if (!byID("detail-edit-menu").hidden) popoverAt(byID("detail-more"), byID("detail-edit-menu"));
+    if (!byID("layers-panel").hidden) popoverAt(byID("layers-toggle"), byID("layers-panel"));
+  }, { passive: true });
+  byID("workspace-content").addEventListener("scroll", (event) => { workspaceScroll = event.target.scrollTop; }, { passive: true });
+  byID("review-toggle").addEventListener("change", (event) => {
+    model.showReview = event.target.checked;
+    byID("dock-review").hidden = !model.showReview;
+    save();
+  });
+
+  function dismissLayers(restoreFocus = false) {
+    layersOpen = false;
+    nameEdit = null;
+    layerMenu = null;
+    updateTools();
+    if (restoreFocus) byID("layers-toggle").focus();
+  }
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || route !== "detail" || document.querySelector("dialog[open]")) return;
+    if (layersOpen) dismissLayers(true);
+    else if (paletteOpen) { paletteOpen = false; updateTools(); byID("colors").focus(); }
+    else if (!byID("detail-edit-menu").hidden) { closeEditMenu(); byID("detail-more").focus(); }
+    else if (!byID("question-chooser").hidden) { closeQuestionChooser(); byID("question-count").focus(); }
+    else if (composerOpen && current.limit) { composerOpen = false; updateComposer(); }
+    else return;
+    event.preventDefault();
+  });
+
+  document.addEventListener("click", (event) => {
+    const hit = event.target;
+    const button = hit.closest("button");
+    if (route === "detail") {
+      if (layersOpen && !hit.closest("#layers-panel, #layers-toggle")) dismissLayers();
+      if (paletteOpen && !hit.closest("#palette-panel, #colors")) { paletteOpen = false; updateTools(); }
+      if (!hit.closest("#detail-edit-menu, #detail-more")) closeEditMenu();
+      if (!hit.closest("#question-pager")) closeQuestionChooser();
+      if (!button && hit.closest("[data-answer-sheet]")) return startTyping();
+    }
+    if (!button || button.disabled) return;
+    const { close, dock, mode, kind, id, paper, question, page, tool, color, anchor, reviewPanel, command, defer: deferID } = button.dataset;
+    const { penWidth, eraserWidth, layerSelect, layerVisibility, layerMenu: requestedLayerMenu, layerRename, entryAsset, removeStaged } = button.dataset;
+    if (close) return byID(close).close();
+    if (dock) return selectDock(dock);
+    if (mode) {
+      practiceMode = mode;
+      return renderList();
+    }
+    if (kind) {
+      kindFilter = kind;
+      byID("filters").querySelectorAll("button").forEach((entry) => entry.setAttribute("aria-pressed", String(entry === button)));
+      return renderList();
+    }
+    if (id) return openDetail(model.items.find((item) => item.id === id));
+    if (paper) {
+      const questions = questionsIn(paper);
+      return openDetail(questions.find((item) => item.id === model.papers[paper].recent) ?? questions[0]);
+    }
+    if (question) { closeQuestionChooser(); return navigateQuestion(questionsIn(current.group).find((item) => item.id === question)); }
+    if (page || anchor) return focusPage(page || anchor);
+    if (tool || color || penWidth || eraserWidth) {
+      finishDrawing();
+      if (tool) model.pencil.tool = tool;
+      if (color || penWidth) model.pencil.tool = "pen";
+      if (color) model.pencil.color = color;
+      if (penWidth) model.pencil.width = Number(penWidth);
+      if (eraserWidth) {
+        model.pencil.tool = "erase";
+        model.pencil.eraserWidth = Number(eraserWidth);
+      }
+      save();
+      return updateTools();
+    }
+    if (layerSelect) return changeLayer("select", layerSelect);
+    if (layerVisibility) return changeLayer("visibility", layerVisibility);
+    if (requestedLayerMenu) {
+      layerMenu = layerMenu === requestedLayerMenu ? null : requestedLayerMenu;
+      nameEdit = null;
+      return updateTools();
+    }
+    if (layerRename) return editLayerName(layerRename);
+    if (entryAsset) {
+      byID("entry-feedback").textContent = `${entryAsset}导入将在 App 中接入，可先试用粘贴文字。`;
+      return;
+    }
+    if (removeStaged !== undefined) {
+      entry.staged.splice(Number(removeStaged), 1);
+      const last = entry.group ? (chapters(entry.group).at(-1)?.material ?? 0) : 0;
+      entry.staged.forEach((pages, index) => pages.forEach((page) => { page.material = last + index + 1; }));
+      return renderEntryMaterials();
+    }
+    if (reviewPanel) {
+      if (activePanel !== reviewPanel && !analysisJobs.has(current.id)) analysisMessages.delete(current.id);
+      activePanel = reviewPanel;
+      workspaceScroll = 0;
+      return renderWorkspace();
+    }
+    if (deferID) {
+      const item = current.doubts.find((doubt) => doubt.id === deferID);
+      if (item) {
+        item.deferred = !item.deferred;
+        if (item.deferred) delete item.draft;
+        invalidateScore(current);
+        save();
+        renderWorkspace();
+      }
+      return;
+    }
+    if (button.id === "back") return selectDock("library");
+    if (button.id === "new") return openQuestionForm(practiceMode);
+    if (button.id === "entry-cancel") return closeQuestionEntry();
+    if (button.id === "detail-more") {
+      const menu = byID("detail-edit-menu");
+      menu.hidden = !menu.hidden;
+      button.setAttribute("aria-expanded", String(!menu.hidden));
+      if (!menu.hidden) popoverAt(button, menu);
+      return;
+    }
+    if (button.id === "question-count") {
+      const picker = byID("question-chooser");
+      picker.hidden = !picker.hidden;
+      button.setAttribute("aria-expanded", String(!picker.hidden));
+      return;
+    }
+    if (button.id === "question-next" || button.id === "question-prev") {
+      const bank = questionsIn(current.group);
+      return navigateQuestion(bank[bank.indexOf(current) + (button.id === "question-next" ? 1 : -1)]);
+    }
+    if (button.id === "entry-paste" && route === "entry") {
+      const materialForm = byID("material-form");
+      materialForm.reset();
+      materialForm.elements.body.setCustomValidity("");
+      return byID("material-dialog").showModal();
+    }
+    if (button.id === "entry-refs") return openMaterialReferences();
+    if (button.id === "colors" || button.id === "close-palette") {
+      paletteOpen = button.id === "colors" && !paletteOpen;
+      if (paletteOpen) { layersOpen = false; nameEdit = null; layerMenu = null; }
+      return updateTools();
+    }
+    if (button.id === "tool-toggle" || button.id === "collapse-doodle") {
+      finishDrawing();
+      toolbarVisible = button.id === "tool-toggle";
+      if (!toolbarVisible) paletteOpen = false;
+      return updateTools();
+    }
+    if (button.id === "layers-toggle") {
+      layersOpen = !layersOpen;
+      nameEdit = null;
+      layerMenu = null;
+      if (layersOpen) paletteOpen = false;
+      return updateTools();
+    }
+    if (button.id === "new-layer") return editLayerName(null);
+    if (button.id === "cancel-layer-name") { nameEdit = null; return updateTools(); }
+    if (button.id === "ink-toggle") {
+      finishDrawing();
+      inkVisible = !inkVisible;
+      return updateTools();
+    }
+    if (button.id === "finger-draw") { fingerDrawing = !fingerDrawing; return updateTools(); }
+    if (button.id === "undo" || button.id === "clear-ink") return editCurrentInk(button.id === "undo" ? "undo" : "clear");
+    if (button.id === "zoom-in" || button.id === "zoom-out") {
+      const page = rendered[activePage];
+      zoom = Math.min(2.40, Math.max(.66, zoom + (button.id === "zoom-in" ? .14 : -.14)));
+      applySize();
+      if (page) focusPage(page.id);
+      return;
+    }
+    if (button.id === "page-next" || button.id === "page-prev") {
+      const next = rendered[activePage + (button.id === "page-next" ? 1 : -1)];
+      if (next) focusPage(next.id);
+      return;
+    }
+    if (button.id === "close-composer") {
+      syncAnswer(byID("answer-input"));
+      composerOpen = false;
+      return updateComposer();
+    }
+    if (command === "type-answer") return startTyping();
+    if (command === "add-doubt") {
+      const paper = rendered[activePage];
+      byID("doubt-anchor").textContent = !paper ? "" : paper.kind === "questions"
+        ? "将关联作答要求" : `将关联材料 ${paper.material} · 第 ${activePage + 1} 页`;
+      return byID("doubt-dialog").showModal();
+    }
+    if (command === "append-question") return openQuestionForm("append");
+    if (command === "edit-question") return openQuestionForm("edit");
+    if (command === "finish") {
+      if (!current.answer.trim()) return;
+      if (current.status === "work") current.status = "review";
+      activePhase = "review"; activePanel = "compare"; workspaceScroll = 0; save(); renderWorkspace(); return;
+    }
+    if (command === "edit-answer") { activePhase = "work"; workspaceScroll = 0; composerOpen = true; return renderWorkspace(); }
+    if (command === "use-example-reference") {
+      current.reference = exampleReference;
+      save();
+      return renderWorkspace();
+    }
+    if (command === "request-doubts") return startAnalysis("doubt");
+    if (command === "request-score") return startAnalysis("score");
+    if (command === "confirm-doubts") return confirmDoubts();
+    if (command === "save-score") return confirmScore();
+    if (command === "cancel-analysis") {
+      const job = analysisJobs.get(current.id);
+      if (!job) return;
+      clearTimeout(job.timer);
+      analysisJobs.delete(current.id);
+      return report("已取消，可重新发起");
+    }
+  });
+
+  document.addEventListener("input", (event) => {
+    if (!current) return;
+    const input = event.target;
+    if (input.id === "answer-input") {
+      if (!event.isComposing) syncAnswer(input);
+      return;
+    } else if (input.id === "reference-input") {
+      if (current.reference !== input.value) invalidateAnalysis(current);
+      current.reference = input.value;
+    } else if (input.id === "score-input" || input.id === "score-reason") {
+      const next = current.scoreDraft ?? (current.scorePending ??= { value: current.score, reason: current.scoreReason });
+      if (input.id === "score-input") next.value = input.value === "" ? null : Number(input.value);
+      else next.reason = input.value;
+      if (!byID("footer-actions").querySelector('[data-command="save-score"]')) renderFooter();
+    } else if (input.id === "analysis-input") current.analysis = input.value;
+    else if (input.dataset.draftReply) {
+      const item = current.doubts.find((doubt) => doubt.id === input.dataset.draftReply);
+      if (!item?.draft) return;
+      item.draft.text = input.value;
+      renderFooter();
+    } else if (input.dataset.reply) {
+      const item = current.doubts.find((doubt) => doubt.id === input.dataset.reply);
+      if (!item) return;
+      item.reply = input.value;
+      invalidateScore(current);
+      const label = document.querySelector(`[data-reply-state="${CSS.escape(item.id)}"]`);
+      if (label) label.textContent = item.reply.trim() ? "已答" : item.deferred ? "待验证" : "待答";
+      renderFooter();
+    } else return;
+    save();
+  });
+  byID("answer-input").addEventListener("compositionend", (event) => syncAnswer(event.target));
+
+  function showRequired(field, message) {
+    field.setCustomValidity(message);
+    field.reportValidity();
+  }
+
+  for (const field of [byID("new-form").elements.stem, byID("new-form").elements.paperTitle, byID("new-form").elements.minimum,
+    byID("material-form").elements.body, byID("layer-name-input")]) {
+    field.addEventListener("input", () => field.setCustomValidity(""));
+  }
+  byID("new-form").elements.limit.addEventListener("input", () => byID("new-form").elements.minimum.setCustomValidity(""));
+
+  byID("new-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const target = entry;
+    if (route !== "entry" || !target) return;
+    const form = new FormData(event.target);
+    const stem = form.get("stem");
+    const isNewPaper = newMode === "paper";
+    const paperTitle = form.get("paperTitle").trim();
+    if (!stem.trim()) return showRequired(event.target.elements.stem, "请输入题干");
+    if (isNewPaper && !paperTitle) return showRequired(event.target.elements.paperTitle, "请输入套卷名称");
+    const group = target.group ?? uniq();
+    const source = form.get("source").trim() || target.paper?.title || paperTitle || "自建练习";
+    const full = Number(form.get("full")) || null;
+    const limit = Number(form.get("limit")) || null;
+    const minimum = Number(form.get("minimum")) || null;
+    if (minimum && (!limit || minimum > limit)) {
+      return showRequired(event.target.elements.minimum, "字数下限不能高于上限，请同时填写上限");
+    }
+    const nextNumber = newMode === "append" ? questionsIn(group).length + 1 : 1;
+    const item = target.existing ?? {
+      id: uniq(), group, answer: "", reference: form.get("reference"), status: "work", doubts: []
+    };
+    const previousSignature = target.existing ? analysisSignature(item) : null;
+    Object.assign(item, {
+      source, kind: form.get("kind"), number: form.get("number").trim() || `第 ${nextNumber} 题`,
+      stem, short: target.existing?.stem === stem && target.existing.short
+        ? target.existing.short : Array.from(stem.trim().replace(/\s+/g, " ")).slice(0, 30).join(""),
+      requirement: form.get("requirement"), full, limit, minimum, limitsLabel: minimum ? `限 ${minimum}–${limit} 字` : limit ? `限 ${limit} 字` : ""
+    });
+    if (isNewPaper) model.papers[group] = { title: paperTitle };
+    if (target.staged.length) (model.customGroups[group] ||= []).push(...target.staged.flat());
+    if (paperFor(item)) {
+      const additions = target.staged.map(([first]) => first.material);
+      item.materialRefs = additions.length ? [...(target.refs ?? []), ...additions] : target.refs;
+    }
+    if (target.existing) {
+      if (previousSignature !== analysisSignature(item)) invalidateAnalysis(item);
+    } else if (paperFor(item)) model.items.push(item);
+    else model.items.unshift(item);
+    save();
+    const panel = target.existing ? activePanel : "compare";
+    if (target.fromDetail) {
+      closeQuestionEntry();
+      renderPaper();
+      restoreReading(current);
+    } else entry = null;
+    openDetail(item, panel);
+  });
+
+  byID("material-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    const field = form.elements.body;
+    const raw = field.value;
+    const paragraphs = raw.split(/\r\n?|\n/).filter((p) => p.trim());
+    if (!paragraphs.length) return showRequired(field, "请输入材料正文");
+    const pending = entry;
+    if (route !== "entry" || !pending) return;
+    const submit = form.querySelector('[type="submit"]');
+    if (submit.disabled) return;
+    submit.disabled = true;
+    try {
+      await document.fonts.ready;
+      if (route !== "entry" || entry !== pending || !byID("material-dialog").open || field.value !== raw) return;
+      const previous = pending.group ? chapters(pending.group) : [];
+      const material = (previous.at(-1)?.material ?? 0) + pending.staged.length + 1;
+      const pages = paginateMaterial(material, paragraphs);
+      pending.staged.push(pages);
+      byID("entry-feedback").textContent = "";
+      renderEntryMaterials();
+      byID("material-dialog").close();
+      form.reset();
+    } finally { submit.disabled = false; }
+  });
+
+  byID("material-ref-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (route !== "entry" || !entry?.paper) return;
+    const selected = new FormData(event.target).getAll("materials").map(Number);
+    entry.refs = selected;
+    byID("material-ref-dialog").close();
+    renderEntryMaterials();
+  });
+
+  byID("layer-name-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const page = rendered[activePage];
+    if (!nameEdit || !page?.canvas || nameEdit.scope !== scopeKey(page)) return;
+    const input = byID("layer-name-input");
+    const name = input.value.trim();
+    if (!name) return showRequired(input, "请输入图层名称");
+    finishDrawing();
+    const group = layersFor(page);
+    if (nameEdit.id) {
+      const layer = group.list.find((item) => item.id === nameEdit.id);
+      if (layer) layer.name = name;
+    } else {
+      const id = uniq();
+      group.list.push({ id, name, visible: true });
+      group.active = id;
+    }
+    nameEdit = null;
+    save();
+    refreshLayerInk(page);
+  });
+
+  byID("doubt-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const value = new FormData(event.target).get("question").trim();
+    if (!value) return;
+    current.doubts.push({ id: uniq(), text: value, page: rendered[activePage]?.id, reply: "" });
+    invalidateScore(current);
+    save();
+    byID("doubt-dialog").close();
+    event.target.reset();
+    renderWorkspace();
+  });
+
+  const screen = params.get("screen") || "read";
+  if (screen === "settings") selectDock("settings");
+  else if (screen === "entry") {
+    selectDock("library");
+    openQuestionForm(practiceMode);
+  } else if (["read", "review", "layers", "questions"].includes(screen)) {
+    const itemID = params.get("mode") === "single" ? standaloneExample.id : params.get("question") || "first";
+    const item = model.items.find((entry) => entry.id === itemID) ?? model.items.find((entry) => entry.id === "first");
+    const stage = params.get("stage");
+    openDetail(item, ["compare", "doubt", "score"].includes(stage) ? stage : "compare");
+    if (screen === "questions") focusPage("questions-1");
+    if (screen === "layers") {
+      layersOpen = true;
+      updateTools();
+    }
+  } else {
+    selectDock("library");
+  }
+})();
+
+</script>
+</body>
+</html>

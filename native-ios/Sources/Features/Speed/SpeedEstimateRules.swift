@@ -66,13 +66,18 @@ enum SpeedEstimateRules {
         correctionRatio(source: source, approximate: approximate) >= minimumCorrectionRatio
     }
 
+    static func hasUsefulCandidate(rows: [SpeedEstimateRow]) -> Bool {
+        (101...999).contains { source in
+            isUseful(source: source, approximate: approximation(for: source, rows: rows).value)
+        }
+    }
+
     /// Select only questions where rounding changes the source by at least 1.5%.
     /// If a fully user-defined table leaves no useful source, return nil instead of
     /// silently weakening the training threshold.
     static func question(rows: [SpeedEstimateRow]) -> SpeedQuestion? {
         let candidates = (101...999).filter { source in
-            let match = approximation(for: source, rows: rows)
-            return isUseful(source: source, approximate: match.value)
+            isUseful(source: source, approximate: approximation(for: source, rows: rows).value)
         }
         guard let source = candidates.randomElement() else { return nil }
         return question(source: source, rows: rows)

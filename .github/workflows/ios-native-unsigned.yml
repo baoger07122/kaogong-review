@@ -125,6 +125,11 @@ jobs:
             -o "$RUNNER_TEMP/native-rich-text-paste-behavior"
           "$RUNNER_TEMP/native-rich-text-paste-behavior"
           swiftc -parse-as-library \
+            native-ios/Sources/Features/Library/ShenlunAnswerGridLayout.swift \
+            native-ios/Tests/ShenlunWorkspaceBehavior.swift \
+            -o "$RUNNER_TEMP/shenlun-workspace-behavior"
+          "$RUNNER_TEMP/shenlun-workspace-behavior"
+          swiftc -parse-as-library \
             native-ios/Sources/Features/Library/LibraryDataAnalysisCauseLayout.swift \
             native-ios/Tests/LibraryDataAnalysisCauseLayoutBehavior.swift \
             -o "$RUNNER_TEMP/library-data-analysis-cause-layout-behavior"
@@ -734,13 +739,30 @@ jobs:
 
           printf '{\n  "version": "%s",\n  "build": %s,\n  "releasedAt": "%s",\n  "file": "%s"\n}\n' \
             "$NATIVE_VERSION" "$BUILD_NUMBER" "$RELEASE_DATE" "$DOWNLOAD_URL" > downloads/native/latest.json
+          RECORD_PATH="docs/native-rewrite/deliveries/${NATIVE_VERSION}.md"
+          mkdir -p "$(dirname "$RECORD_PATH")"
+          cat > "$RECORD_PATH" <<EOF
+          # Native ${NATIVE_VERSION} delivery record
+
+          - App version/build: ${NATIVE_VERSION} / ${BUILD_NUMBER}
+          - Source commit: ${GITHUB_SHA}
+          - Workflow run: [${GITHUB_RUN_ID}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})
+          - Release: [native-v${NATIVE_VERSION}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/native-v${NATIVE_VERSION})
+          - IPA asset: [${IPA_NAME}](${DOWNLOAD_URL})
+          - CI/package result: successful; this record is written only after the archive, resource/version checks, and IPA upload step have succeeded.
+          - Local source check: `git diff --check` passed before this release push. The Windows host has no `xcodebuild` or `swiftc`; the GitHub workflow supplies the Xcode archive and configured domain checks.
+          - Interactive acceptance: simulator tests were not requested for this run. iPad UI, Pencil/eraser latency, Chinese IME, and the SP-A1 first-key cold-start trace remain unverified on a physical device. The scoring/analysis service is not connected and is not simulated by this version.
+
+          The implementation specification and prototypes are archived under `docs/native-rewrite/SHENLUN_V1_LUNA_IMPLEMENTATION_SPEC.md` and `docs/native-rewrite/prototypes/shenlun-reader-answer-sheet/`.
+          EOF
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add downloads/native/latest.json
+          git add "$RECORD_PATH"
           if git diff --cached --quiet; then
-            echo "Native release manifest is already current"
+            echo "Native release manifest and delivery record are already current"
           else
-            git commit -m "chore: publish native ${NATIVE_VERSION} release manifest [skip ci]"
+            git commit -m "chore: record native ${NATIVE_VERSION} release [skip ci]"
             git push origin HEAD:codex/ios-native-rewrite
           fi
 

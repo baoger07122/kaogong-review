@@ -36,6 +36,7 @@ struct LibraryInlineNoteRecordSaveState: Equatable, Sendable {
     var confirmedDraftVersion: UInt64 = 0
     var confirmedContent = ""
     var confirmedRecordVersion: String?
+    var confirmedReadVersion: String?
     var phase: LibraryInlineNoteSavePhase = .idle
     var errorMessage: String?
 }
@@ -128,8 +129,7 @@ final class LibraryInlineNoteSaveService: ObservableObject {
     func markExistingContentConfirmed(
         recordID: String,
         content: String,
-        recordVersion: String,
-        payload: Data?
+        readVersion: String
     ) {
         guard !hasPending(recordID: recordID) else { return }
         var state = self.state(recordID: recordID)
@@ -137,10 +137,13 @@ final class LibraryInlineNoteSaveService: ObservableObject {
                 || state.phase == .saved
                 || (state.phase == .failed && state.latestContent == content) else { return }
         state.latestContent = content
-        state.latestBaseVersion = recordVersion
-        state.latestBasePayload = payload
+        // The lightweight read key is only for identifying what the view read.
+        // Never place it in the write chain: writeNote expects the payload hash.
+        state.latestBaseVersion = nil
+        state.latestBasePayload = nil
         state.confirmedContent = content
-        state.confirmedRecordVersion = recordVersion
+        state.confirmedRecordVersion = nil
+        state.confirmedReadVersion = readVersion
         state.confirmedDraftVersion = state.latestDraftVersion
         state.phase = .saved
         state.errorMessage = nil
@@ -464,6 +467,12 @@ final class LibraryInlineNoteSaveService: ObservableObject {
         let payloadDigest = SHA256.hash(data: payload).map { String(format: "%02x", Int($0)) }.joined()
         let dateKey = updatedAt.map { String($0.timeIntervalSince1970.bitPattern, radix: 16) } ?? "none"
         return "\(dateKey):\(payloadDigest)"
+    }
+
+    nonisolated static func hasPayloadDigest(_ version: String) -> Bool {
+        guard let separator = version.lastIndex(of: ":") else { return false }
+        let digest = version[version.index(after: separator)...]
+        return digest.count == 64 && digest.allSatisfy(\.isHexDigit)
     }
 }
 

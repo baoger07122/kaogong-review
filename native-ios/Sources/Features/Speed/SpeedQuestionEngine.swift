@@ -1,5 +1,30 @@
 import Foundation
 
+struct SpeedQuestionBatchAccumulator {
+    let targetCount: Int
+    private(set) var questions: [SpeedQuestion] = []
+    private(set) var usedExpressions: Set<String> = []
+
+    init(targetCount: Int) {
+        self.targetCount = max(1, targetCount)
+    }
+
+    var isComplete: Bool { questions.count == targetCount }
+    var completedQuestions: [SpeedQuestion]? { isComplete ? questions : nil }
+
+    func contains(expression: String) -> Bool {
+        usedExpressions.contains(expression)
+    }
+
+    @discardableResult
+    mutating func appendIfUnique(_ question: SpeedQuestion) -> Bool {
+        guard questions.count < targetCount,
+              usedExpressions.insert(question.expression).inserted else { return false }
+        questions.append(question)
+        return true
+    }
+}
+
 enum SpeedQuestionEngine {
     static func questions(
         types: [SpeedTypeKey],
@@ -13,17 +38,180 @@ enum SpeedQuestionEngine {
     ) -> [SpeedQuestion] {
         let available = types.filter(\.isAvailable)
         guard !available.isEmpty else { return [] }
-        return (0..<max(1, count)).compactMap { index in
-            let type = sequential ? available[index % available.count] : available.randomElement() ?? available[0]
-            guard let question = make(type: type, estimates: estimates) else { return nil }
-            return applyCustomNumber(
-                to: question,
+        let targetCount = max(1, count)
+        var batch = SpeedQuestionBatchAccumulator(targetCount: targetCount)
+        var exhaustedTypes = Set<SpeedTypeKey>()
+
+        while !batch.isComplete {
+            let preferredType = sequential
+                ? available[batch.questions.count % available.count]
+                : available.randomElement() ?? available[0]
+            let candidates: [SpeedTypeKey]
+            if sequential {
+                let start = available.firstIndex(of: preferredType) ?? 0
+                candidates = Array(available[start...]) + Array(available[..<start])
+            } else {
+                candidates = [preferredType] + available.filter { $0 != preferredType }.shuffled()
+            }
+
+            var nextQuestion: SpeedQuestion?
+            for type in candidates where !exhaustedTypes.contains(type) {
+                // Rejection sampling is cheap for the broad practice types. If the
+                // random stream collides repeatedly, switch to a lazy ordered scan
+                // instead of accepting a duplicate or building a full question pool.
+                for _ in 0..<8 {
+                    guard let candidate = make(type: type, estimates: estimates) else { break }
+                    let finalQuestion = applyCustomNumber(
+                        to: candidate,
+                        mode: customMode,
+                        fixedNumbers: fixedNumbers,
+                        rangeMinimum: rangeMinimum,
+                        rangeMaximum: rangeMaximum
+                    )
+                    if !batch.contains(expression: finalQuestion.expression) {
+                        nextQuestion = finalQuestion
+                        break
+                    }
+                }
+                if nextQuestion == nil {
+                    nextQuestion = firstUnusedQuestion(
+                        type: type,
+                        usedExpressions: batch.usedExpressions,
+                        estimates: estimates,
+                        customMode: customMode,
+                        fixedNumbers: fixedNumbers,
+                        rangeMinimum: rangeMinimum,
+                        rangeMaximum: rangeMaximum
+                    )
+                    if nextQuestion == nil {
+                        exhaustedTypes.insert(type)
+                    }
+                }
+                if nextQuestion != nil { break }
+            }
+
+            guard let nextQuestion else { return [] }
+            guard batch.appendIfUnique(nextQuestion) else { return [] }
+        }
+        return batch.completedQuestions ?? []
+    }
+
+    /// Finds the first available unique question lazily. The candidate space is
+    /// walked only after eight random collisions for a slot, and stops as soon as
+    /// one unused final expression is found.
+    private static func firstUnusedQuestion(
+        type: SpeedTypeKey,
+        usedExpressions: Set<String>,
+        estimates: [SpeedEstimateRow],
+        customMode: SpeedCustomNumberMode?,
+        fixedNumbers: [Int],
+        rangeMinimum: Int,
+        rangeMaximum: Int
+    ) -> SpeedQuestion? {
+        var found: SpeedQuestion?
+        func accept(_ candidate: SpeedQuestion) -> Bool {
+            let final = applyCustomNumber(
+                to: candidate,
                 mode: customMode,
                 fixedNumbers: fixedNumbers,
                 rangeMinimum: rangeMinimum,
                 rangeMaximum: rangeMaximum
             )
+            guard !usedExpressions.contains(final.expression) else { return false }
+            found = final
+            return true
         }
+
+        switch type {
+        case .addsub2, .add3, .addsub3:
+            let lower = type == .addsub2 ? 10 : 100
+            let upper = type == .addsub2 ? 99 : 999
+            for a in lower...upper {
+                for b in lower...upper {
+                    if accept(SpeedQuestion(id: UUID().uuidString, type: type, expression: "\(a) + \(b)", answer: Double(a + b))) { return found }
+                    if type != .add3,
+                       accept(SpeedQuestion(id: UUID().uuidString, type: type, expression: "\(a + b) − \(b)", answer: Double(a))) { return found }
+                }
+            }
+        case .sub3:
+            for a in 300...999 {
+                for b in 100..<a where accept(SpeedQuestion(id: UUID().uuidString, type: type, expression: "\(a) − \(b)", answer: Double(a - b))) {
+                    return found
+                }
+            }
+        case .mul2x1, .mul3x1:
+            let lower = type == .mul2x1 ? 10 : 100
+            let upper = type == .mul2x1 ? 99 : 999
+            for a in lower...upper {
+                for b in 2...9 where accept(SpeedQuestion(id: UUID().uuidString, type: type, expression: "\(a) × \(b)", answer: Double(a * b))) {
+                    return found
+                }
+            }
+        case .div3x1:
+            let allowedDivisors: [Int]
+            if customMode == .fixed {
+                allowedDivisors = Array(Set(fixedNumbers.filter { (2...19).contains($0) })).sorted()
+            } else if customMode == .range {
+                allowedDivisors = (2...19).filter { $0 >= rangeMinimum && $0 <= rangeMaximum }
+            } else {
+                allowedDivisors = []
+            }
+            for n in 100...999 {
+                let divisors = allowedDivisors.isEmpty ? Array(2...9) : allowedDivisors
+                for d in divisors {
+                    if accept(SpeedQuestion(id: UUID().uuidString, type: type, expression: "\(n) ÷ \(d)", answer: rounded(Double(n) / Double(d)))) { return found }
+                }
+            }
+        case .div5x3:
+            for n in 10_000...99_999 {
+                for d in 100...999 {
+                    if accept(SpeedQuestion(id: UUID().uuidString, type: type, expression: "\(n) ÷ \(d)", answer: rounded(Double(n) / Double(d)))) { return found }
+                }
+            }
+        case .spDen:
+            let pool: [(Double, String)] = [(5, "5%"), (12.5, "12.5%"), (25, "25%"), (37.5, "37.5%"), (50, "50%"), (75, "75%"), (87.5, "87.5%")]
+            for n in 40...400 {
+                for item in pool {
+                    let answer = Double(Int((Double(n) * item.0 / 100).rounded()))
+                    if accept(SpeedQuestion(id: UUID().uuidString, type: type, expression: "\(n) × \(item.1)", answer: answer)) { return found }
+                }
+            }
+        case .est05:
+            for source in 101...999 {
+                let match = SpeedEstimateRules.approximation(for: source, rows: estimates)
+                guard SpeedEstimateRules.isUseful(source: source, approximate: match.value) else { continue }
+                for initial in SpeedEstimateRules.resultRange(source: source, approximate: match.value) {
+                    let problem = SpeedEstimateProblem(source: source, approximate: match.value, initialResult: initial, isUserDefined: match.userDefined)
+                    let answer = (Double(initial) * Double(match.value) / Double(source) * 100).rounded() / 100
+                    let candidate = SpeedQuestion(
+                        id: UUID().uuidString,
+                        type: type,
+                        expression: "\(source)→\(match.value)，\(initial)→?",
+                        answer: answer,
+                        estimate: problem
+                    )
+                    if accept(candidate) { return found }
+                }
+            }
+        case .base:
+            for base in 100...9_999 {
+                for rate in 2...30 {
+                    let current = Int((Double(base) * Double(100 + rate) / 100).rounded())
+                    let answer = Double(Int((Double(current) * 100 / Double(100 + rate)).rounded()))
+                    if accept(SpeedQuestion(id: UUID().uuidString, type: type, expression: "现期 \(current)，同比 +\(rate)%，求基期", answer: answer)) { return found }
+                }
+            }
+        case .growth:
+            for base in 100...9_999 {
+                for rate in 2...30 {
+                    let answer = Double(Int((Double(base * rate) / 100).rounded()))
+                    if accept(SpeedQuestion(id: UUID().uuidString, type: type, expression: "基期 \(base)，增长率 \(rate)%，求增量", answer: answer)) { return found }
+                }
+            }
+        case .dataReal:
+            return nil
+        }
+        return found
     }
 
     static func make(type: SpeedTypeKey, estimates: [SpeedEstimateRow]) -> SpeedQuestion? {
@@ -84,7 +272,7 @@ enum SpeedQuestionEngine {
         value.rounded() == value ? String(Int(value)) : String(format: "%.2f", value)
     }
 
-    private static func applyCustomNumber(
+    static func applyCustomNumber(
         to question: SpeedQuestion,
         mode: SpeedCustomNumberMode?,
         fixedNumbers: [Int],

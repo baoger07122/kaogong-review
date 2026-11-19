@@ -37,6 +37,7 @@ struct SpeedPracticeView: View {
     @State private var customFixedNumberText = ""
     @StateObject private var doodleController = PencilDrawingController()
     @State private var settingsSaveTask: Task<Void, Never>?
+    @State private var questionGenerationFailure: String?
 
     private var practiceTitle: String {
         settings.useCustomPractice == true || activeTypes.count > 1
@@ -304,6 +305,14 @@ struct SpeedPracticeView: View {
                 .buttonStyle(.plain)
                 .disabled(!canStart)
                 .accessibilityIdentifier("speed-start")
+                .alert("题目不足", isPresented: Binding(
+                    get: { questionGenerationFailure != nil },
+                    set: { if !$0 { questionGenerationFailure = nil } }
+                )) {
+                    Button("好", role: .cancel) { questionGenerationFailure = nil }
+                } message: {
+                    Text(questionGenerationFailure ?? "当前设置无法生成所选数量的不同题目，请调整题量或练习设置。")
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -1079,7 +1088,14 @@ struct SpeedPracticeView: View {
             rangeMinimum: settings.customRangeMinimum ?? 1,
             rangeMaximum: settings.customRangeMaximum ?? 99
         )
-        guard !generated.isEmpty else { return }
+        guard generated.count == settings.questionCount else {
+            questionGenerationFailure = activeTypes.contains(.est05)
+                && !SpeedEstimateRules.hasUsefulCandidate(rows: estimateRows)
+                ? "估算表没有符合 1.5% 修正门槛的候选题，请调整估算表。"
+                : "当前设置无法生成所选数量的不同题目，请调整题量或练习设置。"
+            return
+        }
+        questionGenerationFailure = nil
         resetAttemptState()
         questions = generated
         index = 0

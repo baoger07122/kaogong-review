@@ -958,12 +958,16 @@ struct LibraryRecordDetailView: View {
                     }
                 }
             }
+            if let detailQuestionType {
+                readOnlyMetadataTextLine("题型", value: detailQuestionType)
+            }
             if isQuantityRelations {
                 metadataTextLine("题目结构", value: firstText(["quantityStructure"]) ?? "")
                 metadataTagLine("考点", values: knowledgePoints, emphasis: .strong)
                 quantityErrorCauseMetadata
             } else {
-                if displayQuestionBankContext != nil, !activeModule.isEmpty {
+                if displayQuestionBankContext != nil, !activeModule.isEmpty,
+                   !(kind == .errors && isDataAnalysis) {
                     metadataTextLine("题型", value: activeModule)
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("question-bank-detail-question-type")
@@ -2197,6 +2201,50 @@ struct LibraryRecordDetailView: View {
         if let values = stringArray("weaknessTags"), !values.isEmpty { return values }
         return textValues(["weaknessTags"])
             .flatMap { $0.split(whereSeparator: { "、,，".contains($0) }).map(String.init) }
+    }
+
+    private var detailQuestionType: String? {
+        guard kind == .errors else { return nil }
+
+        if activeSubject == "数量关系" {
+            guard let record else { return nil }
+            let indexed = record.indexObject ?? [:]
+            let rawModule: String
+            if indexed.keys.contains("module") {
+                rawModule = indexed["module"] as? String ?? ""
+            } else {
+                rawModule = record.jsonObject?["module"] as? String ?? ""
+            }
+            return LibraryQuantityTypeSelectionPolicy.concreteType(
+                selected: rawModule,
+                availableTypes: QuantityQuestionTypeRepository.types(records: records)
+            )
+        }
+
+        guard activeSubject == "资料分析", let record, let payload = record.jsonObject,
+              let rawID = payload["errorTypeID"] as? String else { return nil }
+        let typeID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !typeID.isEmpty else { return nil }
+        let module = (payload["module"] as? String ?? record.module ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let type = LibraryErrorTypeRepository.types(for: .dataAnalysis, records: records)
+                .first(where: { $0.id == typeID && $0.isAvailable(in: module) }) else { return nil }
+        let name = type.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
+    private func readOnlyMetadataTextLine(_ label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("\(label)：")
+            Text(value)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(.system(size: 12.5, weight: .regular))
+        .foregroundStyle(.primary)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label)：\(value)")
+        .accessibilityIdentifier("library-detail-saved-question-type")
     }
 
     private var quantityErrorCauseValues: [String] {
