@@ -2401,8 +2401,8 @@ private struct RichTextTextView: UIViewRepresentable {
                         NativeRichTextPastePolicy.removeOnlyProvenBoundaryNewlines(from: primary, matching: plainText)
                     }
                     var companionHTML = htmlValue.flatMap { Self.attributedRepresentation($0, documentType: .html) }
-                    if let plainText, let companionHTML {
-                        let normalized = NSMutableAttributedString(attributedString: companionHTML)
+                    if let plainText, let companion = companionHTML {
+                        let normalized = NSMutableAttributedString(attributedString: companion)
                         NativeRichTextPastePolicy.removeOnlyProvenBoundaryNewlines(from: normalized, matching: plainText)
                         companionHTML = normalized
                     }

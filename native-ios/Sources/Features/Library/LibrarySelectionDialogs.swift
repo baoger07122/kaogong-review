@@ -1355,12 +1355,12 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                 renaming = reference.name
                 newName = reference.name
             },
+            onMoveGroup: { reference in
+                beginGroupMove(reference, module: reference.module ?? currentModule, typeID: reference.typeID)
+            },
             onDelete: { reference in
                 managingReference = reference
                 deleting = reference.name
-            },
-            onMoveGroup: { reference in
-                beginGroupMove(reference, module: reference.module ?? currentModule, typeID: reference.typeID)
             },
             onAdjustOrder: { reference in
                 orderTarget = LibraryKnowledgePointOrderTarget(
@@ -1394,48 +1394,8 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                 tagCollection(ungrouped, groupID: nil, typeID: nil)
             }
         } else {
-            let items = legacyNames.map { name in
-                let reference = selected.first(where: {
-                    $0.name == name && $0.typeID == nil && ($0.module == currentModule || $0.module == nil)
-                }) ?? LibraryKnowledgePointReference(module: currentModule, name: name)
-                return LibraryKnowledgePointTagItem(
-                    reference: reference,
-                    title: name,
-                    isSelected: selected.contains(reference)
-                )
-            }
-            LibraryKnowledgePointTagCollection(
-                items: items,
-                allowsReordering: query.isEmpty,
-                onToggle: toggle,
-                onReorder: { references in
-                    do {
-                        try TagLibraryRepository.reorderKnowledgePoints(
-                            references.map(\.name), module: currentModule, subject: subject,
-                            records: records, context: modelContext
-                        )
-                        return true
-                    } catch { message = "排序未保存"; return false }
-                },
-                onRename: { reference in
-                    managingReference = reference
-                    renaming = reference.name
-                    newName = reference.name
-                },
-                onDelete: { reference in
-                    managingReference = reference
-                    deleting = reference.name
-                },
-                onMoveGroup: { reference in
-                    beginGroupMove(reference, module: reference.module ?? currentModule, typeID: reference.typeID)
-                },
-                onAdjustOrder: { reference in
-                    orderTarget = LibraryKnowledgePointOrderTarget(
-                        subject: subject, module: reference.module ?? currentModule, typeID: nil, groupID: nil
-                    )
-                }
-            )
-            .id("verbal-legacy-picker|\(currentModule)")
+            tagCollection(legacyNames, groupID: nil, typeID: nil)
+                .id("verbal-legacy-picker|\(currentModule)")
         }
     }
 

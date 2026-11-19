@@ -234,7 +234,6 @@ struct ShenlunWorkspaceEditorView: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
             }
-            .font(.system(size: 13, weight: .medium))
         }
     }
 

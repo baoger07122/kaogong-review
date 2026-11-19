@@ -79,7 +79,7 @@ enum ShenlunWorkspaceRepository {
             pageID: pageID
         )
         let descriptor = FetchDescriptor<StoredRecord>(predicate: #Predicate {
-            $0.collection == collectionKey && $0.recordID.hasPrefix(prefix)
+            $0.collection == collectionKey && $0.recordID.starts(with: prefix)
         })
         return try context.fetch(descriptor).compactMap { try? decode(ShenlunWorkspaceDrawing.self, from: $0.payload) }
     }
