@@ -12,9 +12,20 @@ struct LibraryKnowledgePointGroup: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+enum LibraryKnowledgePointGroupCategory: String, Codable, Hashable, Sendable {
+    case knowledgePoint
+    case mistakeTag
+}
+
 enum LibraryKnowledgePointGroupPolicy {
-    static func scopeKey(subject: String = "", module: String, typeID: String?) -> String {
-        "\(subject)\u{1f}\(module)\u{1f}\(typeID ?? "")"
+    static func scopeKey(
+        subject: String = "",
+        module: String,
+        typeID: String?,
+        category: LibraryKnowledgePointGroupCategory = .knowledgePoint
+    ) -> String {
+        let base = "\(subject)\u{1f}\(module)\u{1f}\(typeID ?? "")"
+        return category == .knowledgePoint ? base : "\(base)\u{1f}\(category.rawValue)"
     }
 
     static func normalizedName(_ raw: String) -> String {

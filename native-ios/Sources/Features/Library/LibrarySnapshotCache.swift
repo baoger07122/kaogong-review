@@ -83,14 +83,15 @@ final class LibrarySnapshotCache {
     private(set) var examTitleRevision = 0
 
     func knowledgePointCatalog(records: [StoredRecord]) -> LibraryKnowledgePointCatalogSnapshot {
-        let catalogIDs: Set<String> = [
+        var catalogIDs: Set<String> = [
             ManagedTagKind.knowledgePoint.recordID,
-            LibraryKnowledgePointGroupRepository.recordID,
-            LibraryErrorTypeSubject.dataAnalysis.recordID,
-            LibraryErrorTypeSubject.verbalReasoning.recordID,
-            VerbalReasoningKnowledgePointRepository.recordID(for: LibraryErrorTypeSubject.dataAnalysis.rawValue),
-            VerbalReasoningKnowledgePointRepository.recordID(for: LibraryErrorTypeSubject.verbalReasoning.rawValue)
+            LibraryMistakeTagRepository.recordID,
+            LibraryKnowledgePointGroupRepository.recordID
         ]
+        for subject in LibraryErrorTypeSubject.allCases {
+            catalogIDs.insert(subject.recordID)
+            catalogIDs.insert(VerbalReasoningKnowledgePointRepository.recordID(for: subject.rawValue))
+        }
         let catalogRecords = records
             .filter { $0.collection == "keyvalue" && catalogIDs.contains($0.recordID) }
             .sorted { $0.recordID < $1.recordID }
@@ -309,6 +310,7 @@ final class LibraryRecordListCache {
         let scope: LibraryScope
         let selectedTag: String
         let selectedKnowledgePoints: [LibraryKnowledgePointReference]
+        let selectedMistakeTags: [LibraryKnowledgePointReference]
         let search: String
         let includesMasteredErrors: Bool
         let validErrorTypeIDs: Set<String>
@@ -335,6 +337,8 @@ final class LibraryRecordListCache {
     private var tagsByRecord: [String: [String]] = [:]
     private var knowledgePointEntriesQuery: KnowledgePointEntriesQuery?
     private var cachedKnowledgePointEntries: [LibraryKnowledgePointPickerEntry] = []
+    private var mistakeTagEntriesQuery: KnowledgePointEntriesQuery?
+    private var cachedMistakeTagEntries: [LibraryKnowledgePointPickerEntry] = []
     private var knowledgePointReferenceIndexQuery: KnowledgePointReferenceIndexQuery?
     private var cachedKnowledgePointReferences: [String: [LibraryKnowledgePointReference]] = [:]
     private var quantityTypesRevision: [RecordRevision]?
@@ -433,11 +437,13 @@ final class LibraryRecordListCache {
         scope: LibraryScope,
         selectedTag: String,
         selectedKnowledgePoints: [LibraryKnowledgePointReference],
+        selectedMistakeTags: [LibraryKnowledgePointReference],
         search: String,
         includesMasteredErrors: Bool,
         validErrorTypeIDs: Set<String>,
         quantityTypes: Set<String>,
         buildSnapshot: (StoredRecord) -> LibraryRecordSnapshot,
+        mistakeTagMatches: (StoredRecord) -> Bool,
         knowledgePointMatches: (StoredRecord) -> Bool
     ) -> Bool {
         let query = UnclassifiedAvailabilityQuery(
@@ -446,6 +452,7 @@ final class LibraryRecordListCache {
             scope: scope,
             selectedTag: selectedTag,
             selectedKnowledgePoints: selectedKnowledgePoints,
+            selectedMistakeTags: selectedMistakeTags,
             search: search,
             includesMasteredErrors: includesMasteredErrors,
             validErrorTypeIDs: validErrorTypeIDs,
@@ -475,6 +482,7 @@ final class LibraryRecordListCache {
             let snapshot = buildSnapshot(record)
             guard selectedTag.isEmpty || snapshot.tags.contains(selectedTag) else { return false }
             guard knowledgePointMatches(record) else { return false }
+            guard mistakeTagMatches(record) else { return false }
             guard search.isEmpty || LibrarySnapshotSearch.normalize(snapshot.searchableText).contains(search) else { return false }
             guard kind != .errors || includesMasteredErrors || snapshot.status != "已掌握" else { return false }
             return true
@@ -507,6 +515,18 @@ final class LibraryRecordListCache {
         return cachedKnowledgePointEntries
     }
 
+    func mistakeTagEntries(
+        records: [StoredRecord],
+        key: String,
+        build: () -> [LibraryKnowledgePointPickerEntry]
+    ) -> [LibraryKnowledgePointPickerEntry] {
+        let query = KnowledgePointEntriesQuery(records: records.map(RecordRevision.init), key: key)
+        guard query != mistakeTagEntriesQuery else { return cachedMistakeTagEntries }
+        cachedMistakeTagEntries = build()
+        mistakeTagEntriesQuery = query
+        return cachedMistakeTagEntries
+    }
+
     func knowledgePointReferenceIndex(
         records: [StoredRecord],
         subject: String?,
@@ -532,6 +552,8 @@ final class LibraryRecordListCache {
         tagsByRecord.removeAll()
         knowledgePointEntriesQuery = nil
         cachedKnowledgePointEntries.removeAll()
+        mistakeTagEntriesQuery = nil
+        cachedMistakeTagEntries.removeAll()
         knowledgePointReferenceIndexQuery = nil
         cachedKnowledgePointReferences.removeAll()
     }

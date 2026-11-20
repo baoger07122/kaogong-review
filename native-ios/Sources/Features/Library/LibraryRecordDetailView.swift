@@ -91,6 +91,9 @@ struct LibraryRecordDetailView: View {
     @State private var showVerbalKnowledgePointSelection = false
     @State private var verbalKnowledgePointReferences: [LibraryKnowledgePointReference] = []
     @State private var verbalKnowledgePointDisplaySelection = ""
+    @State private var showMistakeTagSelection = false
+    @State private var mistakeTagReferences: [LibraryKnowledgePointReference] = []
+    @State private var mistakeTagDisplaySelection = ""
     @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
     @State private var linkedQuestionBankContext: QuestionBankQuestionAnalysisContext?
     @State private var linkedQuestionFallbackObject: [String: Any] = [:]
@@ -640,11 +643,24 @@ struct LibraryRecordDetailView: View {
                 subject: activeSubject,
                 currentModule: activeModule,
                 currentTypeID: object["errorTypeID"] as? String,
+                tagKind: .knowledgePoint,
                 selection: $verbalKnowledgePointReferences,
                 legacyDisplaySelection: $verbalKnowledgePointDisplaySelection,
                 onClose: { showVerbalKnowledgePointSelection = false },
                 onTagMutation: applyDetailKnowledgePointMutation,
                 onCommit: saveDetailKnowledgePointReferences
+            )
+        } else if showMistakeTagSelection {
+            VerbalReasoningKnowledgePointSelectionDialog(
+                subject: activeSubject,
+                currentModule: activeModule,
+                currentTypeID: object["errorTypeID"] as? String,
+                tagKind: .mistakeTag,
+                selection: $mistakeTagReferences,
+                legacyDisplaySelection: $mistakeTagDisplaySelection,
+                onClose: { showMistakeTagSelection = false },
+                onTagMutation: applyDetailMistakeTagMutation,
+                onCommit: saveDetailMistakeTagReferences
             )
         } else if showWordSelection {
             LibraryRelationSelectionDialog(
@@ -964,6 +980,7 @@ struct LibraryRecordDetailView: View {
             if isQuantityRelations {
                 metadataTextLine("题目结构", value: firstText(["quantityStructure"]) ?? "")
                 metadataTagLine("考点", values: knowledgePoints, emphasis: .strong)
+                metadataTagLine("错因标签", values: mistakeTags, emphasis: .strong)
                 quantityErrorCauseMetadata
             } else {
                 if displayQuestionBankContext != nil, !activeModule.isEmpty,
@@ -973,6 +990,7 @@ struct LibraryRecordDetailView: View {
                         .accessibilityIdentifier("question-bank-detail-question-type")
                 }
                 metadataTagLine(knowledgePointLabel, values: knowledgePoints, emphasis: .strong)
+                metadataTagLine("错因标签", values: mistakeTags, emphasis: .strong)
                 dataAnalysisCauseMetadata
                 if isGraphReasoning {
                     metadataTextLine("图形规律", value: firstText(["graphRule", "patternRule"]) ?? "")
@@ -1506,6 +1524,12 @@ struct LibraryRecordDetailView: View {
                             .displayNames(from: verbalKnowledgePointReferences)
                             .joined(separator: "、")
                         showVerbalKnowledgePointSelection = true
+                    } else if kind == .errors, label == "错因标签" {
+                        mistakeTagReferences = LibraryMistakeTagPolicy.references(from: object)
+                        mistakeTagDisplaySelection = LibraryKnowledgePointReferencePolicy
+                            .displayNames(from: mistakeTagReferences)
+                            .joined(separator: "、")
+                        showMistakeTagSelection = true
                     } else {
                         let key = attributeKey(for: label)
                         beginAttributeEdit(key: key, label: label, value: cleanedValues.joined(separator: "、"))
@@ -1807,7 +1831,7 @@ struct LibraryRecordDetailView: View {
         let values = LibraryDataAnalysisCauseLayout.values(in: object)
         if !values.isEmpty {
             let row = HStack(alignment: .top, spacing: 6) {
-                Text("\(errorCauseLabel)：")
+                Text("错因说明：")
                     .fixedSize(horizontal: true, vertical: false)
                     .font(.system(size: 12.5))
                     .foregroundStyle(.primary)
@@ -1829,7 +1853,7 @@ struct LibraryRecordDetailView: View {
                 Button {
                     editingDataAnalysisCauses = LibraryDetailAttribute(
                         key: "errorCause",
-                        label: errorCauseLabel,
+                        label: "错因说明",
                         value: values.joined(separator: "\n")
                     )
                 } label: { row }
@@ -1845,7 +1869,7 @@ struct LibraryRecordDetailView: View {
     private var quantityErrorCauseMetadata: some View {
         let values = quantityErrorCauseValues.map(clean).filter { !$0.isEmpty }
         let row = HStack(alignment: .top, spacing: 6) {
-            Text("\(errorCauseLabel)：")
+            Text("错因说明：")
                 .fixedSize(horizontal: true, vertical: false)
                 .font(.system(size: 12.5))
                 .foregroundStyle(.primary)
@@ -1875,7 +1899,7 @@ struct LibraryRecordDetailView: View {
             Button {
                 editingDataAnalysisCauses = LibraryDetailAttribute(
                     key: "errorCause",
-                    label: errorCauseLabel,
+                    label: "错因说明",
                     value: values.joined(separator: "\n")
                 )
             } label: { row }
@@ -2019,6 +2043,49 @@ struct LibraryRecordDetailView: View {
         guard JSONSerialization.isValidJSONObject(updated),
               let payload = try? JSONSerialization.data(withJSONObject: updated, options: [.sortedKeys]) else {
             return "考点数据格式无效，修改未保存。"
+        }
+
+        let previousPayload = record.payload
+        let previousIndexPayload = record.indexPayload
+        let previousUpdatedAt = record.updatedAt
+        let wasAutosaveEnabled = modelContext.autosaveEnabled
+        modelContext.autosaveEnabled = false
+        defer { modelContext.autosaveEnabled = wasAutosaveEnabled }
+        record.replacePayload(payload)
+        record.updatedAt = .now
+        do {
+            try modelContext.save()
+            refreshObject(updated)
+            return nil
+        } catch {
+            record.payload = previousPayload
+            record.indexPayload = previousIndexPayload
+            record.updatedAt = previousUpdatedAt
+            return "保存失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func applyDetailMistakeTagMutation(_ result: LibraryTagMutationResult) {
+        guard result.kind == .mistakeTag,
+              let change = result.recordChanges.first(where: {
+                  $0.collection == "errors" && $0.recordID == activeRecordID
+              }),
+              let updated = (try? JSONSerialization.jsonObject(with: change.afterPayload)) as? [String: Any]
+        else { return }
+        refreshObject(updated)
+    }
+
+    private func saveDetailMistakeTagReferences(_ references: [LibraryKnowledgePointReference]) -> String? {
+        guard let record, record.collection == "errors" else {
+            return "题目记录不存在，修改未保存。"
+        }
+        let resolvedReferences = LibraryKnowledgePointReferencePolicy.uniqueReferences(references)
+        var updated = object
+        updated["mistakeTagRefs"] = resolvedReferences.map(\.jsonValue)
+        updated["updatedAt"] = ISO8601DateFormatter().string(from: .now)
+        guard JSONSerialization.isValidJSONObject(updated),
+              let payload = try? JSONSerialization.data(withJSONObject: updated, options: [.sortedKeys]) else {
+            return "错因标签数据格式无效，修改未保存。"
         }
 
         let previousPayload = record.payload
@@ -2203,6 +2270,12 @@ struct LibraryRecordDetailView: View {
             .flatMap { $0.split(whereSeparator: { "、,，".contains($0) }).map(String.init) }
     }
 
+    private var mistakeTags: [String] {
+        LibraryKnowledgePointReferencePolicy.displayNames(
+            from: LibraryMistakeTagPolicy.references(from: object)
+        )
+    }
+
     private var detailQuestionType: String? {
         guard kind == .errors else { return nil }
 
@@ -2221,14 +2294,17 @@ struct LibraryRecordDetailView: View {
             )
         }
 
-        guard activeSubject == "资料分析", let record, let payload = record.jsonObject,
+        guard let typeSubject = LibraryErrorTypeSubject(rawValue: activeSubject),
+              let record, let payload = record.jsonObject,
               let rawID = payload["errorTypeID"] as? String else { return nil }
         let typeID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typeID.isEmpty else { return nil }
         let module = (payload["module"] as? String ?? record.module ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let type = LibraryErrorTypeRepository.types(for: .dataAnalysis, records: records)
-                .first(where: { $0.id == typeID && $0.isAvailable(in: module) }) else { return nil }
+        guard let type = LibraryErrorTypeRepository.types(for: typeSubject, records: records)
+                .first(where: {
+                    $0.id == typeID && (typeSubject == .verbalReasoning ? $0.module == module : $0.isAvailable(in: module))
+                }) else { return nil }
         let name = type.name.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? nil : name
     }

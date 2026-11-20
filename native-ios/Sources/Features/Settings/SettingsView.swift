@@ -105,15 +105,10 @@ struct SettingsView: View {
                         settingsNavigationRow("便签标签", image: "tag.square")
                     }.buttonStyle(.plain)
                     settingsDivider
-                    NavigationLink(value: SettingsRoute.quantityQuestionTypes) {
-                        settingsNavigationRow("数量题型管理", image: "square.stack.3d.up")
-                    }.buttonStyle(.plain)
-                    ForEach(LibraryErrorTypeSubject.allCases, id: \.self) { subject in
-                        settingsDivider
-                        NavigationLink(value: SettingsRoute.errorTypes(subject)) {
-                            settingsNavigationRow(subject.managementTitle, image: "tag")
-                        }.buttonStyle(.plain)
+                    NavigationLink(value: SettingsRoute.xingceQuestionTypes) {
+                        settingsNavigationRow("题型管理", image: "square.stack.3d.up")
                     }
+                    .buttonStyle(.plain)
                 }
 
                 settingsSection("界面与标准") {
@@ -160,8 +155,7 @@ struct SettingsView: View {
                 case .cloudSync: CloudSyncView()
                 case .noteTypes: NoteTypeManagerView()
                 case .stickyTags: StickyTagManagerView()
-                case .quantityQuestionTypes: QuantityQuestionTypeManagerView()
-                case let .errorTypes(subject): LibraryErrorTypeModulesView(subject: subject)
+                case .xingceQuestionTypes: XingceQuestionTypeManagementView()
                 case .designSystem: NativeDesignSystemView()
                 }
             }

@@ -475,14 +475,15 @@ struct LibraryRecordEditorView: View {
         var overlays: [AnyView] = []
         if showSmartSplit { overlays.append(AnyView(smartSplitDialog)) }
         if let activeTags {
-            if activeTags == .knowledgePoint, kind == .errors,
-               LibraryErrorTypeSubject(rawValue: draft.subject) != nil {
+            if (activeTags == .knowledgePoint || activeTags == .mistakeTag), kind == .errors {
+                let isMistakeTag = activeTags == .mistakeTag
                 overlays.append(AnyView(VerbalReasoningKnowledgePointSelectionDialog(
                     subject: draft.subject,
                     currentModule: draft.module,
                     currentTypeID: draft.errorTypeID,
-                    selection: $draft.knowledgePointRefs,
-                    legacyDisplaySelection: $draft.knowledgePoint,
+                    tagKind: activeTags,
+                    selection: isMistakeTag ? $draft.mistakeTagRefs : $draft.knowledgePointRefs,
+                    legacyDisplaySelection: isMistakeTag ? mistakeTagDisplaySelection : $draft.knowledgePoint,
                     onClose: { self.activeTags = nil },
                     onTagMutation: applyTagMutation
                 )))
@@ -668,7 +669,18 @@ struct LibraryRecordEditorView: View {
                 arrayKey: "weaknessTags",
                 scalarKey: nil
             )
+        case .mistakeTag:
+            let references = LibraryMistakeTagPolicy.references(from: afterObject)
+            draft.mistakeTagRefs = references
+            editBaseline.mistakeTagRefs = references
         }
+    }
+
+    private var mistakeTagDisplaySelection: Binding<String> {
+        Binding(
+            get: { LibraryKnowledgePointReferencePolicy.displayNames(from: draft.mistakeTagRefs).joined(separator: "、") },
+            set: { _ in }
+        )
     }
 
     private func replacingTag(_ oldName: String, with newName: String?, in value: String, lineBased: Bool) -> String {
@@ -855,7 +867,7 @@ struct LibraryRecordEditorView: View {
                 }
             } label: {
                 compactProperty(
-                    title: draft.subject == "言语理解" ? "题型" : "错误类型",
+                    title: "题型",
                     value: selected?.name ?? "未分类",
                     image: "tag"
                 )

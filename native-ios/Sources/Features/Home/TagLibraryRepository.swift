@@ -3,12 +3,25 @@ import SwiftData
 
 enum ManagedTagKind: String, CaseIterable, Identifiable {
     case knowledgePoint = "考点"
+    case mistakeTag = "错因标签"
     case errorCause = "错因"
     case thinkingTrap = "思维误区"
+
+    static let primaryCases: [ManagedTagKind] = [.knowledgePoint, .mistakeTag]
+
+    var groupCategory: LibraryKnowledgePointGroupCategory? {
+        switch self {
+        case .knowledgePoint: .knowledgePoint
+        case .mistakeTag: .mistakeTag
+        case .errorCause, .thinkingTrap: nil
+        }
+    }
+
     var id: String { rawValue }
     var recordID: String {
         switch self {
         case .knowledgePoint: "kp_library"
+        case .mistakeTag: LibraryMistakeTagRepository.recordID
         case .errorCause: "kp_ec_library"
         case .thinkingTrap: "kp_trap_library"
         }
@@ -29,6 +42,9 @@ struct LibraryTagMutationResult: Equatable {
     let newName: String?
     let recordChanges: [LibraryTagRecordPayloadChange]
     var typeID: String? = nil
+    var subject: String? = nil
+    var destinationModule: String? = nil
+    var destinationTypeID: String? = nil
 }
 
 enum TagLibraryRepository {

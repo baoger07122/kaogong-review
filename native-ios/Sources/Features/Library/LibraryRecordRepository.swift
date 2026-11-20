@@ -48,6 +48,7 @@ struct LibraryRecordDraft {
     var knowledgePoint = ""
     var knowledgePointRefs: [LibraryKnowledgePointReference] = []
     var knowledgePointNames: [String] = []
+    var mistakeTagRefs: [LibraryKnowledgePointReference] = []
     var errorCause = ""
     var errorTypeID: String?
     var centerComprehensionTrap = ""
@@ -167,6 +168,7 @@ struct LibraryRecordDraft {
                 knownNames: knownKnowledgePointNames
             )
             knowledgePointNames = LibraryKnowledgePointReferencePolicy.displayNames(from: knowledgePointRefs)
+            mistakeTagRefs = LibraryMistakeTagPolicy.references(from: original)
         }
         quantityErrorCauseIsAuthoritative = LibraryQuantityErrorCauseCompatibility.isAuthoritative(in: original)
         errorCause = kind == .errors && subject == "数量关系"
@@ -302,6 +304,7 @@ struct LibraryRecordDraft {
             && knowledgePoint == other.knowledgePoint
             && knowledgePointRefs == other.knowledgePointRefs
             && knowledgePointNames == other.knowledgePointNames
+            && mistakeTagRefs == other.mistakeTagRefs
             && errorCause == other.errorCause
             && errorTypeID == other.errorTypeID
             && centerComprehensionTrap == other.centerComprehensionTrap
@@ -557,6 +560,8 @@ enum LibraryRecordRepository {
             object["note"] = draft.content
             object["knowledgePoints"] = knowledgePoints
             object["knowledgePoint"] = knowledgePoints.first ?? ""
+            object["mistakeTagRefs"] = LibraryKnowledgePointReferencePolicy.uniqueReferences(draft.mistakeTagRefs)
+                .map(\.jsonValue)
             if draft.subject == "数量关系" {
                 object["errorCause"] = LibraryQuantityErrorCauseCompatibility.lines(from: draft.errorCause)
             } else {

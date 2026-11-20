@@ -10,6 +10,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
     var knowledgePoint: String
     var knowledgePointRefs: [LibraryKnowledgePointReference]?
     var knowledgePointNames: [String]?
+    var mistakeTagRefs: [LibraryKnowledgePointReference]?
     var errorCause: String
     var errorTypeID: String?
     var status: String
@@ -82,6 +83,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         knowledgePoint = draft.knowledgePoint
         knowledgePointRefs = draft.knowledgePointRefs
         knowledgePointNames = draft.knowledgePointNames
+        mistakeTagRefs = draft.mistakeTagRefs
         errorCause = draft.errorCause
         errorTypeID = draft.errorTypeID
         status = draft.status
@@ -158,6 +160,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
         draft.knowledgePoint = knowledgePoint
         draft.knowledgePointRefs = knowledgePointRefs ?? []
         draft.knowledgePointNames = knowledgePointNames ?? []
+        draft.mistakeTagRefs = mistakeTagRefs ?? []
         draft.errorTypeID = errorTypeID
         let restoredCauseAuthority = quantityErrorCauseIsAuthoritative ?? false
         draft.quantityErrorCauseIsAuthoritative = restoredCauseAuthority
@@ -245,6 +248,7 @@ struct LibraryDraftSnapshot: Codable, Equatable, Sendable {
             || !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !(knowledgePointRefs ?? []).isEmpty
             || !(knowledgePointNames ?? []).isEmpty
+            || !(mistakeTagRefs ?? []).isEmpty
             || !images.isEmpty
             || !(optionImages ?? []).allSatisfy(\.isEmpty)
             || !pencilKitData.isEmpty

@@ -19,7 +19,9 @@ struct LibraryView: View {
     @State private var searchText = ""
     @State private var selectedTag = ""
     @State private var knowledgePointFiltersBySource: [LibraryReviewSource: [LibraryKnowledgePointReference]] = [:]
+    @State private var mistakeTagFiltersBySource: [LibraryReviewSource: [LibraryKnowledgePointReference]] = [:]
     @State private var showsKnowledgePointFilter = false
+    @State private var showsMistakeTagFilter = false
     @AppStorage("native.library.errors.redoMode") private var redoPracticeEnabled = false
     @AppStorage("native.library.card-size.v1") private var storedCardSize = LibraryCardSize.medium.rawValue
     @AppStorage("native.library.errors.includeMastered.v1") private var includesMasteredErrors = false
@@ -88,7 +90,13 @@ struct LibraryView: View {
         .onChange(of: selectedErrorType) { _, _ in pruneKnowledgePointFiltersForCurrentScope() }
         .onChange(of: selectedQuantityType) { _, _ in pruneKnowledgePointFiltersForCurrentScope() }
         .onChange(of: showsCategoryControl) { oldValue, newValue in
-            if oldValue && !newValue { knowledgePointFiltersBySource[scope.reviewSource] = [] }
+            if oldValue && !newValue {
+                knowledgePointFiltersBySource[scope.reviewSource] = []
+                mistakeTagFiltersBySource[scope.reviewSource] = []
+            }
+        }
+        .onChange(of: mistakeTagFilterCacheKey) { _, _ in
+            renderLimit = 40
         }
         .onChange(of: hasUnclassifiedTypeAvailable) { _, isAvailable in
             guard !isAvailable else { return }
@@ -127,6 +135,7 @@ struct LibraryView: View {
         .overlay {
             if showsKnowledgePointFilter {
                 LibraryKnowledgePointFilterDialog(
+                    filterTitle: "考点",
                     scopeTitle: knowledgePointFilterScopeTitle,
                     entries: knowledgePointFilterEntries,
                     groups: knowledgePointFilterGroups,
@@ -138,6 +147,22 @@ struct LibraryView: View {
                         renderLimit = 40
                     }
                 )
+                .id("library-filter-knowledge-points")
+            } else if showsMistakeTagFilter {
+                LibraryKnowledgePointFilterDialog(
+                    filterTitle: "错因标签",
+                    scopeTitle: mistakeTagFilterScopeTitle,
+                    entries: mistakeTagFilterEntries,
+                    groups: mistakeTagFilterGroups,
+                    initialSelection: selectedMistakeTagFilters,
+                    onClose: { showsMistakeTagFilter = false },
+                    onConfirm: { values in
+                        mistakeTagFiltersBySource[scope.reviewSource] = values
+                        showsMistakeTagFilter = false
+                        renderLimit = 40
+                    }
+                )
+                .id("library-filter-mistake-tags")
             } else if showNewNoteType {
                 noteTypeDialog
             } else if let deleteTarget {
@@ -388,9 +413,10 @@ struct LibraryView: View {
             tagFilteredRecords = scopedRecords
         } else if kind == .errors {
             let knowledgePointMatches = filterRecords(matchingKnowledgePoints: selectedKnowledgePointFilters, from: scopedRecords)
+            let mistakeTagMatches = filterRecords(matchingMistakeTags: selectedMistakeTagFilters, from: knowledgePointMatches)
             tagFilteredRecords = selectedTag.isEmpty
-                ? knowledgePointMatches
-                : filterRecords(matching: selectedTag, from: knowledgePointMatches)
+                ? mistakeTagMatches
+                : filterRecords(matching: selectedTag, from: mistakeTagMatches)
         } else if kind == .notes {
             tagFilteredRecords = scopedRecords
         } else {
@@ -470,7 +496,7 @@ struct LibraryView: View {
                             records: visibleRecords,
                             kind: kind,
                             cardSize: cardSize,
-                            partitionKey: "\(kind.collection)|\(scope.subject ?? "")|\(scope.module ?? "")|\(scope.reviewSource.rawValue)|\(includesMasteredErrors)|\(selectedTag)|\(knowledgePointFilterCacheKey)|\(selectedQuantityType)|\(selectedErrorType)|\(searchText)",
+                            partitionKey: "\(kind.collection)|\(scope.subject ?? "")|\(scope.module ?? "")|\(scope.reviewSource.rawValue)|\(includesMasteredErrors)|\(selectedTag)|\(knowledgePointFilterCacheKey)|\(mistakeTagFilterCacheKey)|\(selectedQuantityType)|\(selectedErrorType)|\(searchText)",
                             onOpen: { open($0) },
                             onDelete: { deleteTarget = LibraryDeleteTarget(kind: kind, recordID: $0.record.recordID) },
                             hiddenTags: kind == .notes && !selectedTag.isEmpty ? [selectedTag] : [],
@@ -580,7 +606,7 @@ struct LibraryView: View {
             Section("显示控件") {
                 if canShowCategoryControl {
                     Toggle(isOn: $showsCategoryControl) {
-                        Label(kind == .errors ? "考点筛选" : "标签筛选", systemImage: "tag")
+                        Label("标签筛选", systemImage: "tag")
                     }
                 }
                 Toggle(isOn: $showsCardSizeControl) { Label("题卡大小", systemImage: "rectangle.grid.2x2") }
@@ -588,9 +614,12 @@ struct LibraryView: View {
         if hasActiveFilterConditions {
                 Section("当前生效筛选") {
                     if !selectedTag.isEmpty { Text("分类：\(selectedTag)") }
-                if !selectedKnowledgePointFilters.isEmpty {
+                if kind == .errors, !selectedKnowledgePointFilters.isEmpty {
                     Text("考点：已选 \(selectedKnowledgePointFilters.count) 项")
                 }
+                    if kind == .errors, !selectedMistakeTagFilters.isEmpty {
+                        Text("错因标签：已选 \(selectedMistakeTagFilters.count) 项")
+                    }
                     if !selectedQuantityType.isEmpty { Text("题型：\(selectedQuantityType)") }
                     if kind == .words, let category = WordCategory(rawValue: wordCategory.rawValue) {
                         Text("词语类别：\(category.shortTitle)")
@@ -715,13 +744,19 @@ struct LibraryView: View {
     private func filterBar(availableTags: [String]) -> some View {
         if hasVisibleFilterControls {
         HStack(spacing: 8) {
-            if kind == .errors, showsCategoryControl, !knowledgePointFilterEntries.isEmpty {
-                Button { showsKnowledgePointFilter = true } label: {
-                    filterLabel(selectedKnowledgePointFilters.isEmpty
-                                ? "筛选考点"
-                                : "考点 · \(selectedKnowledgePointFilters.count)")
+            if kind == .errors, showsCategoryControl, canShowCategoryControl {
+                let selectedFilterCount = selectedKnowledgePointFilters.count + selectedMistakeTagFilters.count
+                Menu {
+                    if !knowledgePointFilterEntries.isEmpty || !selectedKnowledgePointFilters.isEmpty {
+                        Button("考点 · \(selectedKnowledgePointFilters.count)") { showsKnowledgePointFilter = true }
+                    }
+                    if !mistakeTagFilterEntries.isEmpty || !selectedMistakeTagFilters.isEmpty {
+                        Button("错因标签 · \(selectedMistakeTagFilters.count)") { showsMistakeTagFilter = true }
+                    }
+                } label: {
+                    filterLabel(selectedFilterCount == 0 ? "筛选标签" : "筛选标签 · \(selectedFilterCount)")
                 }
-                .accessibilityIdentifier("library-knowledge-point-filter")
+                .accessibilityIdentifier("library-label-filter")
             } else if kind != .words, showsCategoryControl && canShowCategoryControl && !availableTags.isEmpty {
                 Menu {
                     Button(kind == .notes ? "全部标签" : "全部标签/标记") { selectTag("") }
@@ -762,7 +797,7 @@ struct LibraryView: View {
 
     private var canShowCategoryControl: Bool {
         guard kind == .errors else { return false }
-        return !knowledgePointFilterEntries.isEmpty
+        return !knowledgePointFilterEntries.isEmpty || !mistakeTagFilterEntries.isEmpty
     }
 
     private var hasVisibleFilterControls: Bool {
@@ -772,13 +807,15 @@ struct LibraryView: View {
     }
 
     private var hasActiveFilterConditions: Bool {
-        !selectedTag.isEmpty || !selectedKnowledgePointFilters.isEmpty
+        !selectedTag.isEmpty || (kind == .errors && !selectedKnowledgePointFilters.isEmpty)
+            || (kind == .errors && !selectedMistakeTagFilters.isEmpty)
             || !selectedQuantityType.isEmpty || selectedErrorType != .all
     }
 
     private func clearActiveFilters() {
         selectedTag = ""
         knowledgePointFiltersBySource[scope.reviewSource] = []
+        mistakeTagFiltersBySource[scope.reviewSource] = []
         selectedQuantityType = ""
         selectedErrorType = .all
         wordEntryKind = ""
@@ -890,6 +927,7 @@ struct LibraryView: View {
             scope: scope,
             selectedTag: selectedTag,
             selectedKnowledgePoints: selectedKnowledgePointFilters,
+            selectedMistakeTags: selectedMistakeTagFilters,
             search: keyword,
             includesMasteredErrors: includesMasteredErrors,
             validErrorTypeIDs: Set(errorTypes.map(\.id)),
@@ -902,6 +940,11 @@ struct LibraryView: View {
                 reviewSource: scope.reviewSource,
                 sourceExamTitlesByID: examTitles,
                 knowledgePointNames: knowledgePointNames(for: record)
+            )
+        } mistakeTagMatches: { record in
+            LibraryKnowledgePointFilterPolicy.matches(
+                recordReferences: mistakeTagReferences(for: record),
+                selectedReferences: selectedMistakeTagFilters
             )
         } knowledgePointMatches: { record in
             LibraryKnowledgePointFilterPolicy.matches(
@@ -934,8 +977,16 @@ struct LibraryView: View {
         knowledgePointFiltersBySource[scope.reviewSource] ?? []
     }
 
+    private var selectedMistakeTagFilters: [LibraryKnowledgePointReference] {
+        mistakeTagFiltersBySource[scope.reviewSource] ?? []
+    }
+
     private var knowledgePointFilterCacheKey: String {
         selectedKnowledgePointFilters.map(\.id).sorted().joined(separator: "\u{1e}")
+    }
+
+    private var mistakeTagFilterCacheKey: String {
+        selectedMistakeTagFilters.map(\.id).sorted().joined(separator: "\u{1e}")
     }
 
     private var knowledgePointFilterScopeTitle: String {
@@ -982,8 +1033,7 @@ struct LibraryView: View {
     }
 
     private var knowledgePointFilterEntries: [LibraryKnowledgePointPickerEntry] {
-        guard kind == .errors,
-              showsCategoryControl || showsKnowledgePointFilter || !selectedKnowledgePointFilters.isEmpty else { return [] }
+        guard kind == .errors else { return [] }
         let errorTypeKey = selectedErrorType.selectedID
             ?? (selectedErrorType == .unclassified ? "unclassified" : "all")
         let key = [
@@ -992,6 +1042,159 @@ struct LibraryView: View {
         ].joined(separator: "\u{1f}")
         return recordListCache.knowledgePointEntries(records: records, key: key) {
             buildKnowledgePointFilterEntries()
+        }
+    }
+
+    private var mistakeTagFilterScopeTitle: String {
+        if let selectedID = selectedErrorType.selectedID,
+           let type = errorTypes.first(where: { $0.id == selectedID }) {
+            return "\(scope.title) · \(type.name)"
+        }
+        if scope.subject == "数量关系", !selectedQuantityType.isEmpty {
+            return "数量关系 · \(selectedQuantityType)"
+        }
+        return scope.title
+    }
+
+    private var mistakeTagFilterScope: (module: String, typeID: String?)? {
+        if let selectedID = selectedErrorType.selectedID,
+           let type = errorTypes.first(where: { $0.id == selectedID }) {
+            let modules = type.module.map { [$0] }
+                ?? scope.module.map { [$0] }
+                ?? Array(Set(sortedScopedRecords.compactMap { nonEmpty($0.module) ?? nonEmpty($0.indexObject?["module"] as? String) })).sorted()
+            guard modules.count == 1, let module = modules.first else { return nil }
+            return (module, selectedID)
+        }
+        if selectedErrorType == .unclassified, let module = scope.module {
+            return (module, nil)
+        }
+        if scope.subject == "数量关系", !selectedQuantityType.isEmpty {
+            return (
+                selectedQuantityType == LibraryQuantityTypeSelectionPolicy.unclassifiedTitle ? "" : selectedQuantityType,
+                nil
+            )
+        }
+        if let module = scope.module { return (module, nil) }
+        return nil
+    }
+
+    private var mistakeTagFilterGroups: [LibraryKnowledgePointGroup] {
+        guard let subject = scope.subject, let filterScope = mistakeTagFilterScope else { return [] }
+        return LibraryKnowledgePointGroupRepository.groups(
+            subject: subject,
+            module: filterScope.module,
+            typeID: filterScope.typeID,
+            category: .mistakeTag,
+            records: records
+        )
+    }
+
+    private var mistakeTagFilterEntries: [LibraryKnowledgePointPickerEntry] {
+        guard kind == .errors else { return [] }
+        let errorTypeKey = selectedErrorType.selectedID
+            ?? (selectedErrorType == .unclassified ? "unclassified" : "all")
+        let key = [
+            "mistakeTag", scope.subject ?? "", scope.module ?? "", scope.reviewSource.rawValue,
+            selectedQuantityType, errorTypeKey
+        ].joined(separator: "\u{1f}")
+        return recordListCache.mistakeTagEntries(records: records, key: key) {
+            buildMistakeTagFilterEntries()
+        }
+    }
+
+    private func buildMistakeTagFilterEntries() -> [LibraryKnowledgePointPickerEntry] {
+        guard kind == .errors else { return [] }
+        let modules = Array(Set(sortedScopedRecords.compactMap { record in
+            nonEmpty(record.module) ?? nonEmpty(record.indexObject?["module"] as? String)
+        }).union(scope.module.map { [$0] } ?? [])).sorted()
+        var catalogScopes: [(module: String, typeID: String?)] = []
+
+        if errorTypeSubject != nil {
+            if let selectedID = selectedErrorType.selectedID,
+               let type = errorTypes.first(where: { $0.id == selectedID }) {
+                let typeModules = type.module.map { [$0] }
+                    ?? scope.module.map { [$0] }
+                    ?? Array(modules)
+                catalogScopes.append(contentsOf: typeModules.map { ($0, selectedID) })
+            } else if selectedErrorType != .unclassified {
+                for type in errorTypes {
+                    let typeModules = type.module.map { [$0] }
+                        ?? scope.module.map { [$0] }
+                        ?? Array(modules)
+                    catalogScopes.append(contentsOf: typeModules.map { ($0, type.id) })
+                }
+            }
+            if selectedErrorType == .all || selectedErrorType == .unclassified {
+                catalogScopes.append(contentsOf: modules.map { ($0, nil) })
+            }
+        } else if scope.subject == "数量关系" {
+            if !selectedQuantityType.isEmpty {
+                let module = selectedQuantityType == LibraryQuantityTypeSelectionPolicy.unclassifiedTitle
+                    ? ""
+                    : selectedQuantityType
+                catalogScopes.append((module, nil))
+            } else {
+                catalogScopes.append(contentsOf: modules.map { ($0, nil) })
+                if sortedScopedRecords.contains(where: { nonEmpty($0.module) == nil && nonEmpty($0.indexObject?["module"] as? String) == nil }) {
+                    catalogScopes.append(("", nil))
+                }
+            }
+        } else {
+            catalogScopes.append(contentsOf: modules.map { ($0, nil) })
+        }
+
+        var seenScopes = Set<String>()
+        catalogScopes = catalogScopes.filter { seenScopes.insert("\($0.module)\u{1f}\($0.typeID ?? "")").inserted }
+        var references: [LibraryKnowledgePointReference] = []
+        for catalogScope in catalogScopes {
+            references.append(contentsOf: LibraryMistakeTagRepository.tags(
+                subject: scope.subject ?? "",
+                module: catalogScope.module,
+                typeID: catalogScope.typeID,
+                records: records
+            ).map {
+                LibraryKnowledgePointReference(module: catalogScope.module.isEmpty ? nil : catalogScope.module,
+                                               typeID: catalogScope.typeID, name: $0)
+            })
+        }
+        for record in sortedScopedRecords {
+            references.append(contentsOf: mistakeTagReferences(for: record))
+        }
+
+        let unique = LibraryKnowledgePointFilterPolicy.unique(references)
+        let nameCounts = unique.reduce(into: [String: Int]()) { counts, reference in
+            counts[reference.name, default: 0] += 1
+        }
+        let typeCatalog = errorTypeSubject.map { LibraryErrorTypeRepository.types(for: $0, records: records) } ?? []
+        let filterScope = mistakeTagFilterScope
+        let filterGroups = mistakeTagFilterGroups
+        let groupIDs = Set(filterGroups.map(\.id))
+
+        return unique.map { reference in
+            let title: String
+            if nameCounts[reference.name, default: 0] > 1 {
+                if let typeID = reference.typeID {
+                    let typeName = typeCatalog.first(where: { $0.id == typeID })?.name ?? "题型已删除"
+                    title = "\(reference.module ?? scope.subject ?? "未分类") · \(typeName) · \(reference.name)"
+                } else {
+                    title = "\(reference.module ?? "未分类") · 未分类 · \(reference.name)"
+                }
+            } else {
+                title = reference.name
+            }
+            let groupID: String?
+            if let filterScope,
+               (reference.module ?? "") == filterScope.module,
+               reference.typeID == filterScope.typeID {
+                let candidate = filterGroups.first(where: { $0.memberNames.contains(reference.name) })?.id
+                groupID = candidate.flatMap { groupIDs.contains($0) ? $0 : nil }
+            } else {
+                groupID = nil
+            }
+            return LibraryKnowledgePointPickerEntry(
+                item: LibraryKnowledgePointTagItem(reference: reference, title: title, isSelected: false),
+                groupID: groupID
+            )
         }
     }
 
@@ -1079,6 +1282,14 @@ struct LibraryView: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private func mistakeTagReferences(for record: StoredRecord) -> [LibraryKnowledgePointReference] {
+        let index = record.indexObject ?? [:]
+        if index["mistakeTagRefs"] != nil {
+            return LibraryMistakeTagPolicy.references(from: index)
+        }
+        return LibraryMistakeTagPolicy.references(from: record.jsonObject ?? index)
+    }
+
     private var knowledgePointReferenceIndex: [String: [LibraryKnowledgePointReference]] {
         recordListCache.knowledgePointReferenceIndex(records: records, subject: scope.subject) {
             let errorRecords = records.filter { $0.collection == "errors" }
@@ -1162,12 +1373,20 @@ struct LibraryView: View {
     }
 
     private func pruneKnowledgePointFiltersForCurrentScope() {
-        let current = selectedKnowledgePointFilters
-        guard !current.isEmpty else { return }
-        knowledgePointFiltersBySource[scope.reviewSource] = LibraryKnowledgePointFilterPolicy.preservingAvailableSelection(
-            current,
-            among: knowledgePointFilterEntries.map(\.item.reference)
-        )
+        let currentKnowledgePoints = selectedKnowledgePointFilters
+        if !currentKnowledgePoints.isEmpty {
+            knowledgePointFiltersBySource[scope.reviewSource] = LibraryKnowledgePointFilterPolicy.preservingAvailableSelection(
+                currentKnowledgePoints,
+                among: knowledgePointFilterEntries.map(\.item.reference)
+            )
+        }
+        let currentMistakeTags = selectedMistakeTagFilters
+        if !currentMistakeTags.isEmpty {
+            mistakeTagFiltersBySource[scope.reviewSource] = LibraryKnowledgePointFilterPolicy.preservingAvailableSelection(
+                currentMistakeTags,
+                among: mistakeTagFilterEntries.map(\.item.reference)
+            )
+        }
     }
 
     private var sortedScopedRecords: [StoredRecord] {
@@ -1189,14 +1408,15 @@ struct LibraryView: View {
         let keyword = normalizedSearch(searchText)
         let examTitles = !keyword.isEmpty && scope.reviewSource == .mock ? snapshotCache.examTitles(in: records) : [:]
         return recordListCache.visibleErrorIDs(
-            tag: "\(selectedTag)|\(knowledgePointFilterCacheKey)", search: keyword, includesMastered: includesMasteredErrors,
+            tag: "\(selectedTag)|\(knowledgePointFilterCacheKey)|\(mistakeTagFilterCacheKey)", search: keyword, includesMastered: includesMasteredErrors,
             examTitleRevision: snapshotCache.examTitleRevision
         ) {
             let knowledgePointCandidates = filterRecords(matchingKnowledgePoints: selectedKnowledgePointFilters, from: scoped)
+            let mistakeTagCandidates = filterRecords(matchingMistakeTags: selectedMistakeTagFilters, from: knowledgePointCandidates)
             let candidates = selectedTag.isEmpty
-                ? knowledgePointCandidates
-                : filterRecords(matching: selectedTag, from: knowledgePointCandidates)
-            if keyword.isEmpty && selectedTag.isEmpty && selectedKnowledgePointFilters.isEmpty {
+                ? mistakeTagCandidates
+                : filterRecords(matching: selectedTag, from: mistakeTagCandidates)
+            if keyword.isEmpty && selectedTag.isEmpty && selectedKnowledgePointFilters.isEmpty && selectedMistakeTagFilters.isEmpty {
                 if includesMasteredErrors { return candidates.map(\.recordID) }
                 return candidates.compactMap { record in
                     let index = record.indexObject ?? [:]
@@ -1229,8 +1449,13 @@ struct LibraryView: View {
                 recordReferences: referenceIndex[snapshot.record.compoundID] ?? [],
                 selectedReferences: selectedKnowledgePointFilters
             )
+            let matchesMistakeTag = kind != .errors || LibraryKnowledgePointFilterPolicy.matches(
+                recordReferences: mistakeTagReferences(for: snapshot.record),
+                selectedReferences: selectedMistakeTagFilters
+            )
             let matchesWordCategory = kind != .words || snapshot.category == wordCategory.rawValue
-            return matchesSearch && matchesMasteredVisibility && matchesTag && matchesKnowledgePoint && matchesWordCategory
+            return matchesSearch && matchesMasteredVisibility && matchesTag && matchesKnowledgePoint
+                && matchesMistakeTag && matchesWordCategory
         }
     }
 
@@ -1350,6 +1575,19 @@ struct LibraryView: View {
         return records.filter { record in
             LibraryKnowledgePointFilterPolicy.matches(
                 recordReferences: referenceIndex[record.compoundID] ?? [],
+                selectedReferences: selected
+            )
+        }
+    }
+
+    private func filterRecords(
+        matchingMistakeTags selected: [LibraryKnowledgePointReference],
+        from records: [StoredRecord]
+    ) -> [StoredRecord] {
+        guard kind == .errors, !selected.isEmpty else { return records }
+        return records.filter { record in
+            LibraryKnowledgePointFilterPolicy.matches(
+                recordReferences: mistakeTagReferences(for: record),
                 selectedReferences: selected
             )
         }

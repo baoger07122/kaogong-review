@@ -17,12 +17,25 @@ private struct KnowledgePointTypeMove: Identifiable {
     let preview: VerbalKnowledgePointMigrationPreview
 }
 
+private struct MistakeTagTypeMove: Identifiable {
+    let id = UUID()
+    let name: String
+    let sourceModule: String
+    let destinationModule: String
+    let sourceTypeID: String?
+    let destinationTypeID: String?
+    let sourceTitle: String
+    let destinationTitle: String
+    let referenceCount: Int
+}
+
 private struct KnowledgePointGroupMoveRequest: Identifiable {
     let id = UUID()
     let tagName: String
     let subject: String
     let module: String
     let typeID: String?
+    let category: LibraryKnowledgePointGroupCategory
     let currentGroupID: String?
     let groups: [LibraryKnowledgePointGroup]
     let anchorRect: CGRect
@@ -59,19 +72,27 @@ struct KnowledgePointManagerView: View {
     @State private var migrationResolutions: [String: LibraryKnowledgePointReference] = [:]
     @State private var showsMigrationReview = false
     @State private var typeMoveInformation: String?
+    @State private var mistakeTagTypeMove: MistakeTagTypeMove?
     @State private var folderAnchors: [String: CGRect] = [:]
     @State private var groupMoveRequest: KnowledgePointGroupMoveRequest?
 
-    private var selectedTypeID: String? { isVerbalKnowledgePoint ? selectedVerbalTypeID : nil }
+    private var selectedTypeID: String? { isTypedCatalogTag ? selectedVerbalTypeID : nil }
     private var errorTypeLabel: String { subject.name == "资料分析" ? "错误类型" : "题型" }
+    private var isTypedCatalogTag: Bool {
+        kind.groupCategory != nil && LibraryErrorTypeSubject(rawValue: subject.name) != nil
+    }
     private var groups: [LibraryKnowledgePointGroup] {
-        guard kind == .knowledgePoint else { return [] }
-        return LibraryKnowledgePointGroupRepository.groups(subject: subject.name, module: module, typeID: selectedTypeID, records: records)
+        guard let category = kind.groupCategory else { return [] }
+        return LibraryKnowledgePointGroupRepository.groups(
+            subject: subject.name, module: module, typeID: selectedTypeID,
+            category: category, records: records
+        )
     }
     private var visibleTags: [String] {
-        guard kind == .knowledgePoint, !groups.isEmpty else { return tags }
+        guard kind.groupCategory != nil, !groups.isEmpty else { return tags }
         return LibraryKnowledgePointGroupRepository.names(
-            in: selectedGroupID, allNames: tags, subject: subject.name, module: module, typeID: selectedTypeID, records: records
+            in: selectedGroupID, allNames: tags, subject: subject.name, module: module,
+            typeID: selectedTypeID, category: kind.groupCategory ?? .knowledgePoint, records: records
         )
     }
 
@@ -85,13 +106,20 @@ struct KnowledgePointManagerView: View {
         verbalTypeSelection == Self.legacyVerbalType ? nil : verbalTypeSelection
     }
     private var selectedVerbalTypeName: String {
-        if verbalTypeSelection == Self.legacyVerbalType { return "旧考点" }
+        if verbalTypeSelection == Self.legacyVerbalType {
+            return kind == .mistakeTag ? "未分类" : "旧考点"
+        }
         return verbalTypes.first(where: { $0.id == verbalTypeSelection })?.name ?? "旧考点"
     }
     private var scopeTitle: String {
-        isVerbalKnowledgePoint ? "\(module) · \(selectedVerbalTypeName)" : "\(module) · \(kind.rawValue)"
+        isTypedCatalogTag ? "\(module) · \(selectedVerbalTypeName)" : "\(module) · \(kind.rawValue)"
     }
     private var tags: [String] {
+        if kind == .mistakeTag {
+            return LibraryMistakeTagRepository.tags(
+                subject: subject.name, module: module, typeID: selectedTypeID, records: records
+            )
+        }
         guard isVerbalKnowledgePoint else {
             return TagLibraryRepository.tags(kind: kind, module: module, records: records)
         }
@@ -112,7 +140,7 @@ struct KnowledgePointManagerView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("考点、错因和思维误区按当前科目与模块统一管理；录入错题时输入的新内容会自动加入这里，不再自动创建预设标签。")
+                Text("标签按当前科目、模块和题型分别管理；录入错题时新增的标签会保存到对应范围。")
                     .font(AppTheme.auxiliaryFont)
                     .foregroundStyle(.secondary)
                 if let errorMessage {
@@ -130,25 +158,35 @@ struct KnowledgePointManagerView: View {
                     HStack(spacing: 10) {
                         subjectSelector
                         moduleSelector
-                        if isVerbalKnowledgePoint { verbalTypeSelector }
+                        if isTypedCatalogTag { verbalTypeSelector }
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         subjectSelector
                         moduleSelector
-                        if isVerbalKnowledgePoint { verbalTypeSelector }
+                        if isTypedCatalogTag { verbalTypeSelector }
                     }
                 }
 
-                Picker("标签类型", selection: $kind) {
-                    ForEach(ManagedTagKind.allCases) { Text($0.rawValue).tag($0) }
+                if kind.groupCategory != nil {
+                    Picker("标签类型", selection: $kind) {
+                        ForEach(ManagedTagKind.primaryCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                } else {
+                    HStack {
+                        Text(kind == .errorCause ? "错因说明词库" : "思维误区")
+                            .font(AppTheme.sectionTitleFont)
+                        Spacer()
+                        Button("返回标签管理") { kind = .knowledgePoint }
+                            .font(AppTheme.inputFont.weight(.medium))
+                    }
                 }
-                .pickerStyle(.segmented)
 
                 HStack {
                     Text(scopeTitle)
                         .font(AppTheme.sectionTitleFont)
                     Spacer()
-                    if kind == .knowledgePoint {
+                    if kind.groupCategory != nil {
                         Button("调整顺序") { showsOrder = true }
                             .font(AppTheme.inputFont.weight(.semibold))
                         Button("新增分组") {
@@ -162,7 +200,7 @@ struct KnowledgePointManagerView: View {
                         .font(AppTheme.inputFont.weight(.semibold))
                 }
 
-                if kind == .knowledgePoint, !groups.isEmpty {
+                if kind.groupCategory != nil, !groups.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
                             ForEach(groups) { group in
@@ -194,8 +232,8 @@ struct KnowledgePointManagerView: View {
 
                 if visibleTags.isEmpty {
                     NativeStatusCard(
-                        title: "暂无考点",
-                        detail: groups.isEmpty ? "点击新增建立当前范围的第一项" : "此分组还没有考点",
+                        title: kind == .mistakeTag ? "暂无错因标签" : (kind == .knowledgePoint ? "暂无考点" : "暂无\(kind.rawValue)"),
+                        detail: groups.isEmpty ? "点击新增建立当前范围的第一项" : "此分组还没有标签",
                         systemImage: "tag",
                         color: AppTheme.accent
                     )
@@ -203,7 +241,7 @@ struct KnowledgePointManagerView: View {
                     VStack(spacing: 0) {
                         ForEach(Array(visibleTags.enumerated()), id: \.element) { index, name in
                             HStack(spacing: 10) {
-                                if kind != .knowledgePoint {
+                                if kind.groupCategory == nil {
                                     Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary)
                                 }
                                 Text(name)
@@ -211,14 +249,14 @@ struct KnowledgePointManagerView: View {
                                     .lineLimit(2)
                                     .fixedSize(horizontal: false, vertical: true)
                                 Spacer()
-                                if kind == .knowledgePoint, !groups.isEmpty {
+                                if kind.groupCategory != nil, !groups.isEmpty {
                                     Button { beginGroupMove(name) } label: {
                                         Image(systemName: "folder")
                                             .frame(width: 44, height: 44)
                                             .contentShape(Rectangle())
                                     }
                                     .buttonStyle(.plain)
-                                    .accessibilityLabel("移动考点分组：\(name)")
+                                    .accessibilityLabel("移动\(kind.rawValue)分组：\(name)")
                                     .background {
                                         GeometryReader { proxy in
                                             Color.clear.preference(
@@ -251,7 +289,37 @@ struct KnowledgePointManagerView: View {
                                     }
                                     .accessibilityLabel("更改\(subject.name == "资料分析" ? "错误类型" : "题型")：\(name)")
                                 }
-                                if kind != .knowledgePoint {
+                                if kind == .mistakeTag, isTypedCatalogTag {
+                                    Menu {
+                                        if selectedTypeID != nil {
+                                            Button("未分类") { beginMistakeTagTypeMove(name, to: nil) }
+                                        }
+                                        ForEach(verbalTypes.filter { $0.id != selectedTypeID }) { type in
+                                            Button(type.name) { beginMistakeTagTypeMove(name, to: type.id) }
+                                        }
+                                    } label: {
+                                        Text("改\(errorTypeLabel)")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundStyle(AppTheme.accent)
+                                            .frame(minWidth: 44, minHeight: 44)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .accessibilityLabel("更改错因标签所属\(errorTypeLabel)：\(name)")
+                                } else if kind == .mistakeTag, subject.name == "数量关系" {
+                                    Menu {
+                                        ForEach(QuantityQuestionTypeRepository.types(records: records).filter { $0 != module }, id: \.self) { type in
+                                            Button(type) { beginMistakeTagModuleMove(name, to: type) }
+                                        }
+                                    } label: {
+                                        Text("改题型")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundStyle(AppTheme.accent)
+                                            .frame(minWidth: 44, minHeight: 44)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .accessibilityLabel("更改错因标签所属题型：\(name)")
+                                }
+                                if kind.groupCategory == nil {
                                     Button { move(name, -1) } label: { Image(systemName: "chevron.up") }.disabled(index == 0)
                                     Button { move(name, 1) } label: { Image(systemName: "chevron.down") }.disabled(index == tags.count - 1)
                                 }
@@ -282,8 +350,21 @@ struct KnowledgePointManagerView: View {
             .allowsHitTesting(false)
         }
         .background(Color.white)
-        .navigationTitle("错题标签管理")
+        .navigationTitle("标签管理")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button("错因说明词库") { kind = .errorCause }
+                    Button("思维误区") { kind = .thinkingTrap }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("更多标签管理")
+            }
+        }
         .alert(Text(typeMoveInformation == nil ? "操作失败" : "改\(errorTypeLabel)"), isPresented: Binding(
             get: { errorMessage != nil || typeMoveInformation != nil },
             set: { if !$0 { errorMessage = nil; typeMoveInformation = nil } }
@@ -298,7 +379,7 @@ struct KnowledgePointManagerView: View {
             if let deletingGroup {
                 NativeDeleteDialog(
                     title: "删除分组",
-                    message: "删除“\(deletingGroup.name)”后，分组中的考点会保留并变为未分组。",
+                    message: "删除“\(deletingGroup.name)”后，分组中的标签会保留并变为未分组。",
                     onDelete: { removeGroup(deletingGroup) },
                     onCancel: { self.deletingGroup = nil }
                 )
@@ -329,6 +410,18 @@ struct KnowledgePointManagerView: View {
                     onCancel: cancelTypeMove
                 )
             }
+            if let mistakeTagTypeMove {
+                NativeConfirmationDialog(
+                    title: "更改错因标签所属\(errorTypeLabel)",
+                    message: "将“\(mistakeTagTypeMove.name)”从“\(mistakeTagTypeMove.sourceTitle)”移动到“\(mistakeTagTypeMove.destinationTitle)”。已有 \(mistakeTagTypeMove.referenceCount) 道错题的对应引用会同步更新。",
+                    confirmTitle: "移动",
+                    cancelTitle: "取消",
+                    confirmIdentifier: "confirm-move-mistake-tag-type",
+                    cancelIdentifier: "cancel-move-mistake-tag-type",
+                    onConfirm: { performMistakeTagTypeMove(mistakeTagTypeMove) },
+                    onCancel: { self.mistakeTagTypeMove = nil }
+                )
+            }
             if let deletingName {
                 NativeDeleteDialog(
                     title: "删除\(kind.rawValue)",
@@ -339,7 +432,12 @@ struct KnowledgePointManagerView: View {
             }
         }
         .sheet(isPresented: $showsOrder) {
-            KnowledgePointOrderView(subject: subject.name, module: module, typeID: isVerbalKnowledgePoint ? selectedVerbalTypeID : nil, groupID: selectedGroupID)
+            KnowledgePointOrderView(
+                subject: subject.name, module: module,
+                typeID: isTypedCatalogTag ? selectedVerbalTypeID : nil,
+                groupID: selectedGroupID,
+                category: kind.groupCategory ?? .knowledgePoint
+            )
         }
         .onAppear {
             resetVerbalTypeSelection()
@@ -350,7 +448,7 @@ struct KnowledgePointManagerView: View {
         .onChange(of: selectedVerbalTypeID) { _, _ in moveTypeChangedScope(); selectDefaultGroupIfNeeded() }
         .onChange(of: kind) { _, _ in moveTypeChangedScope(); selectDefaultGroupIfNeeded() }
         .onChange(of: verbalTypes.map(\.id)) { _, _ in
-            if isVerbalKnowledgePoint,
+            if isTypedCatalogTag,
                !verbalTypes.contains(where: { $0.id == verbalTypeSelection }),
                verbalTypeSelection != Self.legacyVerbalType {
                 resetVerbalTypeSelection()
@@ -429,7 +527,7 @@ struct KnowledgePointManagerView: View {
             onSave: saveEditor
         ) {
             TextField("名称", text: $draftName).textFieldStyle(NativeTextFieldStyle())
-            Text("保存范围：\(subject.name) → \(module)\(isVerbalKnowledgePoint ? " → \(selectedVerbalTypeName)" : "")")
+            Text("保存范围：\(subject.name) → \(module)\(isTypedCatalogTag ? " → \(selectedVerbalTypeName)" : "")")
                 .font(AppTheme.auxiliaryFont).foregroundStyle(.secondary)
         }
     }
@@ -473,7 +571,19 @@ struct KnowledgePointManagerView: View {
     private func saveEditor() {
         guard let editor else { return }
         do {
-            if isVerbalKnowledgePoint, let typeID = selectedVerbalTypeID {
+            if kind == .mistakeTag {
+                if let original = editor.original {
+                    try LibraryMistakeTagRepository.rename(
+                        original, to: draftName, subject: subject.name, module: module,
+                        typeID: selectedTypeID, records: records, context: modelContext
+                    )
+                } else {
+                    try LibraryMistakeTagRepository.add(
+                        draftName, subject: subject.name, module: module, typeID: selectedTypeID,
+                        groupID: activeGroupForNewTag, records: records, context: modelContext
+                    )
+                }
+            } else if isVerbalKnowledgePoint, let typeID = selectedVerbalTypeID {
                 if let original = editor.original {
                     try VerbalReasoningKnowledgePointRepository.rename(
                         original, to: draftName, module: module, typeID: typeID, records: records, context: modelContext,
@@ -505,7 +615,14 @@ struct KnowledgePointManagerView: View {
 
     private func move(_ name: String, _ direction: Int) {
         do {
-            try TagLibraryRepository.move(name, direction: direction, kind: kind, module: module, records: records, context: modelContext)
+            if kind == .mistakeTag {
+                try LibraryMistakeTagRepository.move(
+                    name, direction: direction, subject: subject.name, module: module,
+                    typeID: selectedTypeID, records: records, context: modelContext
+                )
+            } else {
+                try TagLibraryRepository.move(name, direction: direction, kind: kind, module: module, records: records, context: modelContext)
+            }
             errorMessage = nil
         } catch {
             errorMessage = "标签排序保存失败：\(error.localizedDescription)"
@@ -514,7 +631,12 @@ struct KnowledgePointManagerView: View {
 
     private func remove(_ name: String) {
         do {
-            if isVerbalKnowledgePoint, let typeID = selectedVerbalTypeID {
+            if kind == .mistakeTag {
+                try LibraryMistakeTagRepository.delete(
+                    name, subject: subject.name, module: module, typeID: selectedTypeID,
+                    records: records, context: modelContext
+                )
+            } else if isVerbalKnowledgePoint, let typeID = selectedVerbalTypeID {
                 try VerbalReasoningKnowledgePointRepository.delete(
                     name, module: module, typeID: typeID, records: records, context: modelContext,
                     subject: subject.name
@@ -535,7 +657,8 @@ struct KnowledgePointManagerView: View {
 
     private func selectDefaultGroupIfNeeded() {
         selectedGroupID = LibraryKnowledgePointGroupRepository.groups(
-            subject: subject.name, module: module, typeID: selectedTypeID, records: records
+            subject: subject.name, module: module, typeID: selectedTypeID,
+            category: kind.groupCategory ?? .knowledgePoint, records: records
         ).first?.id
     }
 
@@ -544,7 +667,7 @@ struct KnowledgePointManagerView: View {
             if let editingGroupID {
                 guard try LibraryKnowledgePointGroupRepository.renameGroup(
                     editingGroupID, to: groupNameDraft, subject: subject.name, module: module, typeID: selectedTypeID,
-                    records: records, context: modelContext
+                    category: kind.groupCategory ?? .knowledgePoint, records: records, context: modelContext
                 ) else {
                     errorMessage = "分组名称不能为空或重复"
                     return
@@ -552,7 +675,7 @@ struct KnowledgePointManagerView: View {
             } else {
                 guard let group = try LibraryKnowledgePointGroupRepository.addGroup(
                     groupNameDraft, subject: subject.name, module: module, typeID: selectedTypeID,
-                    records: records, context: modelContext
+                    category: kind.groupCategory ?? .knowledgePoint, records: records, context: modelContext
                 ) else {
                     errorMessage = "分组名称不能为空或重复"
                     return
@@ -569,7 +692,8 @@ struct KnowledgePointManagerView: View {
     private func removeGroup(_ group: LibraryKnowledgePointGroup) {
         do {
             try LibraryKnowledgePointGroupRepository.deleteGroup(
-                group.id, subject: subject.name, module: module, typeID: selectedTypeID, records: records, context: modelContext
+                group.id, subject: subject.name, module: module, typeID: selectedTypeID,
+                category: kind.groupCategory ?? .knowledgePoint, records: records, context: modelContext
             )
             deletingGroup = nil
             selectDefaultGroupIfNeeded()
@@ -579,19 +703,21 @@ struct KnowledgePointManagerView: View {
     }
 
     private func beginGroupMove(_ name: String) {
-        guard kind == .knowledgePoint, !groups.isEmpty else { return }
+        guard let category = kind.groupCategory, !groups.isEmpty else { return }
         guard let anchorRect = folderAnchors[name], anchorRect.width > 0, anchorRect.height > 0 else {
             errorMessage = "无法定位分组按钮，请稍后重试。"
             return
         }
         let currentGroupID = LibraryKnowledgePointGroupRepository.groupID(
-            for: name, subject: subject.name, module: module, typeID: selectedTypeID, records: records
+            for: name, subject: subject.name, module: module, typeID: selectedTypeID,
+            category: category, records: records
         )
         groupMoveRequest = KnowledgePointGroupMoveRequest(
             tagName: name,
             subject: subject.name,
             module: module,
             typeID: selectedTypeID,
+            category: category,
             currentGroupID: currentGroupID,
             groups: groups,
             anchorRect: anchorRect
@@ -602,7 +728,11 @@ struct KnowledgePointManagerView: View {
         groupMoveRequest = nil
         guard request.currentGroupID != groupID else { return }
         let currentNames: [String]
-        if LibraryErrorTypeSubject(rawValue: request.subject) != nil, let typeID = request.typeID {
+        if request.category == .mistakeTag {
+            currentNames = LibraryMistakeTagRepository.tags(
+                subject: request.subject, module: request.module, typeID: request.typeID, records: records
+            )
+        } else if LibraryErrorTypeSubject(rawValue: request.subject) != nil, let typeID = request.typeID {
             currentNames = VerbalReasoningKnowledgePointRepository.tags(
                 module: request.module, typeID: typeID, records: records, subject: request.subject
             )
@@ -616,7 +746,8 @@ struct KnowledgePointManagerView: View {
             return
         }
         let currentGroups = LibraryKnowledgePointGroupRepository.groups(
-            subject: request.subject, module: request.module, typeID: request.typeID, records: records
+            subject: request.subject, module: request.module, typeID: request.typeID,
+            category: request.category, records: records
         )
         guard groupID == nil || currentGroups.contains(where: { $0.id == groupID }) else {
             errorMessage = "目标分组已变化，考点未移动。请重新打开后再试。"
@@ -625,7 +756,7 @@ struct KnowledgePointManagerView: View {
         do {
             try LibraryKnowledgePointGroupRepository.assign(
                 request.tagName, to: groupID, subject: request.subject, module: request.module,
-                typeID: request.typeID, records: records, context: modelContext
+                typeID: request.typeID, category: request.category, records: records, context: modelContext
             )
             errorMessage = nil
         } catch {
@@ -655,6 +786,78 @@ struct KnowledgePointManagerView: View {
             statusMessage = nil
         } catch {
             errorMessage = "无法准备\(errorTypeLabel)迁移：\(error.localizedDescription)"
+        }
+    }
+
+    private func beginMistakeTagTypeMove(_ name: String, to destinationTypeID: String?) {
+        guard kind == .mistakeTag, isTypedCatalogTag, destinationTypeID != selectedTypeID else { return }
+        let destinationTitle = destinationTypeID.flatMap { id in verbalTypes.first(where: { $0.id == id })?.name } ?? "未分类"
+        beginMistakeTagMove(
+            name,
+            destinationModule: module,
+            destinationTypeID: destinationTypeID,
+            destinationTitle: destinationTitle
+        )
+    }
+
+    private func beginMistakeTagModuleMove(_ name: String, to destinationModule: String) {
+        guard kind == .mistakeTag, subject.name == "数量关系", destinationModule != module else { return }
+        beginMistakeTagMove(
+            name,
+            destinationModule: destinationModule,
+            destinationTypeID: nil,
+            destinationTitle: destinationModule
+        )
+    }
+
+    private func beginMistakeTagMove(
+        _ name: String,
+        destinationModule: String,
+        destinationTypeID: String?,
+        destinationTitle: String
+    ) {
+        let sourceTypeID = selectedTypeID
+        let source = LibraryKnowledgePointReference(module: module, typeID: sourceTypeID, name: name)
+        let referenceCount = records.filter { record in
+            guard record.collection == "errors", let object = record.jsonObject else { return false }
+            let recordSubject = (object["subject"] as? String) ?? record.subject
+                ?? (record.indexObject?["subject"] as? String)
+            let recordModule = (object["module"] as? String) ?? record.module
+                ?? (record.indexObject?["module"] as? String)
+            guard recordSubject == subject.name, recordModule == module else { return false }
+            return LibraryMistakeTagPolicy.references(from: object).contains(source)
+        }.count
+        let sourceTitle = subject.name == "数量关系"
+            ? module
+            : (sourceTypeID.flatMap { id in verbalTypes.first(where: { $0.id == id })?.name } ?? "未分类")
+        mistakeTagTypeMove = MistakeTagTypeMove(
+            name: name,
+            sourceModule: module,
+            destinationModule: destinationModule,
+            sourceTypeID: sourceTypeID,
+            destinationTypeID: destinationTypeID,
+            sourceTitle: sourceTitle,
+            destinationTitle: destinationTitle,
+            referenceCount: referenceCount
+        )
+    }
+
+    private func performMistakeTagTypeMove(_ move: MistakeTagTypeMove) {
+        do {
+            try LibraryMistakeTagRepository.move(
+                move.name,
+                subject: subject.name,
+                from: LibraryKnowledgePointReference(module: move.sourceModule, typeID: move.sourceTypeID, name: move.name),
+                to: LibraryKnowledgePointReference(module: move.destinationModule, typeID: move.destinationTypeID, name: move.name),
+                records: records,
+                context: modelContext
+            )
+            mistakeTagTypeMove = nil
+            statusMessage = "已将错因标签移动到“\(move.destinationTitle)”，同步更新 \(move.referenceCount) 道错题。"
+            errorMessage = nil
+            selectDefaultGroupIfNeeded()
+        } catch {
+            errorMessage = "错因标签移动失败：\(error.localizedDescription)"
         }
     }
 
@@ -705,6 +908,7 @@ struct KnowledgePointManagerView: View {
     private func moveTypeChangedScope() {
         groupMoveRequest = nil
         typeMove = nil
+        mistakeTagTypeMove = nil
         showsMigrationReview = false
         migrationResolutions = [:]
     }

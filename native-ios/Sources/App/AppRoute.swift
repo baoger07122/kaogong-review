@@ -20,7 +20,6 @@ enum SettingsRoute: Hashable {
     case cloudSync
     case noteTypes
     case stickyTags
-    case quantityQuestionTypes
-    case errorTypes(LibraryErrorTypeSubject)
+    case xingceQuestionTypes
     case designSystem
 }

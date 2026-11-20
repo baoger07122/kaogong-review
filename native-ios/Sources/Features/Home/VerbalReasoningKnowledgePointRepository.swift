@@ -46,7 +46,18 @@ enum VerbalReasoningKnowledgePointRepository {
     static let recordID = "verbal_reasoning_knowledge_points_by_type"
 
     static func recordID(for subject: String) -> String {
-        subject == "资料分析" ? "data_analysis_knowledge_points_by_type" : recordID
+        switch subject {
+        case "言语理解": recordID
+        case "资料分析": "data_analysis_knowledge_points_by_type"
+        case "判断推理": "judgment_reasoning_knowledge_points_by_type"
+        case "常识判断": "common_knowledge_knowledge_points_by_type"
+        default:
+            let encoded = Data(subject.utf8).base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+            return "subject_\(encoded)_knowledge_points_by_type"
+        }
     }
 
     static func tags(module: String, typeID: String, records: [StoredRecord], subject: String = "言语理解") -> [String] {

@@ -10,6 +10,7 @@ struct KnowledgePointOrderView: View {
     let module: String
     var typeID: String? = nil
     var groupID: String? = nil
+    var category: LibraryKnowledgePointGroupCategory = .knowledgePoint
 
     @State private var names: [String] = []
     @State private var originalNames: [String] = []
@@ -25,7 +26,7 @@ struct KnowledgePointOrderView: View {
                 .onMove(perform: move)
             }
             .environment(\.editMode, $editMode)
-            .navigationTitle("调整考点顺序")
+            .navigationTitle("调整\(category == .mistakeTag ? "错因标签" : "考点")顺序")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
@@ -33,7 +34,8 @@ struct KnowledgePointOrderView: View {
             }
             .overlay {
                 if names.isEmpty {
-                    ContentUnavailableView("暂无考点", systemImage: "tag", description: Text("当前范围还没有可排序的考点。"))
+                    let label = category == .mistakeTag ? "错因标签" : "考点"
+                    ContentUnavailableView("暂无\(label)", systemImage: "tag", description: Text("当前范围还没有可排序的\(label)。"))
                 }
             }
             .alert("排序保存失败", isPresented: Binding(
@@ -49,17 +51,25 @@ struct KnowledgePointOrderView: View {
     }
 
     private func reload() {
-        if let typeID {
+        if category == .mistakeTag {
+            let allNames = LibraryMistakeTagRepository.tags(
+                subject: subject, module: module, typeID: typeID, records: records
+            )
+            names = LibraryKnowledgePointGroupRepository.names(
+                in: groupID, allNames: allNames, subject: subject, module: module,
+                typeID: typeID, category: category, records: records
+            )
+        } else if let typeID {
             let allNames = VerbalReasoningKnowledgePointRepository.tags(module: module, typeID: typeID, records: records, subject: subject)
             names = LibraryKnowledgePointGroupRepository.names(
                 in: groupID, allNames: allNames, subject: subject, module: module,
-                typeID: typeID, records: records
+                typeID: typeID, category: category, records: records
             )
         } else {
             let allNames = TagLibraryRepository.tags(kind: .knowledgePoint, module: module, records: records)
             names = LibraryKnowledgePointGroupRepository.names(
                 in: groupID, allNames: allNames, subject: subject, module: module,
-                records: records
+                category: category, records: records
             )
         }
         originalNames = names
@@ -73,13 +83,21 @@ struct KnowledgePointOrderView: View {
         guard names != originalNames else { dismiss(); return }
         do {
             let latestScopeNames: [String]
-            if let typeID {
+            if category == .mistakeTag {
+                let allNames = LibraryMistakeTagRepository.tags(
+                    subject: subject, module: module, typeID: typeID, records: records
+                )
+                latestScopeNames = LibraryKnowledgePointGroupRepository.names(
+                    in: groupID, allNames: allNames, subject: subject, module: module,
+                    typeID: typeID, category: category, records: records
+                )
+            } else if let typeID {
                 let allNames = VerbalReasoningKnowledgePointRepository.tags(
                     module: module, typeID: typeID, records: records, subject: subject
                 )
                 latestScopeNames = LibraryKnowledgePointGroupRepository.names(
                     in: groupID, allNames: allNames, subject: subject, module: module,
-                    typeID: typeID, records: records
+                    typeID: typeID, category: category, records: records
                 )
             } else {
                 let allNames = TagLibraryRepository.tags(
@@ -87,14 +105,19 @@ struct KnowledgePointOrderView: View {
                 )
                 latestScopeNames = LibraryKnowledgePointGroupRepository.names(
                     in: groupID, allNames: allNames, subject: subject, module: module,
-                    records: records
+                    category: category, records: records
                 )
             }
             guard latestScopeNames.count == originalNames.count,
                   Set(latestScopeNames) == Set(originalNames) else {
                 throw KnowledgePointOrderSaveError.stale
             }
-            if let typeID {
+            if category == .mistakeTag {
+                try LibraryMistakeTagRepository.reorder(
+                    names, subject: subject, module: module, typeID: typeID, groupID: groupID,
+                    records: records, context: modelContext
+                )
+            } else if let typeID {
                 try VerbalReasoningKnowledgePointRepository.reorder(
                     names, module: module, typeID: typeID, records: records, context: modelContext, groupID: groupID,
                     subject: subject
@@ -108,7 +131,9 @@ struct KnowledgePointOrderView: View {
             dismiss()
         } catch {
             names = originalNames
-            errorMessage = error.localizedDescription
+            errorMessage = category == .mistakeTag && error is KnowledgePointOrderSaveError
+                ? "错因标签清单已变化，本次排序未保存。请关闭后重新打开排序。"
+                : error.localizedDescription
         }
     }
 }

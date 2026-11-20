@@ -52,7 +52,7 @@ struct HomeShortcutView: View {
         case .speedPractice: "速算练习"
         case .exams: "套卷记录"
         case .currentAffairs: "时政常识"
-        case .knowledgePoints: "考点管理"
+        case .knowledgePoints: "标签管理"
         default: "功能"
         }
     }

@@ -4,8 +4,14 @@ import SwiftData
 enum LibraryKnowledgePointGroupRepository {
     static let recordID = "library_knowledge_point_groups_v1"
 
-    static func groups(subject: String = "", module: String, typeID: String? = nil, records: [StoredRecord]) -> [LibraryKnowledgePointGroup] {
-        load(records: records)[LibraryKnowledgePointGroupPolicy.scopeKey(subject: subject, module: module, typeID: typeID)] ?? []
+    static func groups(
+        subject: String = "", module: String, typeID: String? = nil,
+        category: LibraryKnowledgePointGroupCategory = .knowledgePoint,
+        records: [StoredRecord]
+    ) -> [LibraryKnowledgePointGroup] {
+        load(records: records)[LibraryKnowledgePointGroupPolicy.scopeKey(
+            subject: subject, module: module, typeID: typeID, category: category
+        )] ?? []
     }
 
     static func groupID(
@@ -13,9 +19,10 @@ enum LibraryKnowledgePointGroupRepository {
         subject: String = "",
         module: String,
         typeID: String? = nil,
+        category: LibraryKnowledgePointGroupCategory = .knowledgePoint,
         records: [StoredRecord]
     ) -> String? {
-        groups(subject: subject, module: module, typeID: typeID, records: records)
+        groups(subject: subject, module: module, typeID: typeID, category: category, records: records)
             .first(where: { $0.memberNames.contains(tag) })?.id
     }
 
@@ -25,9 +32,10 @@ enum LibraryKnowledgePointGroupRepository {
         subject: String = "",
         module: String,
         typeID: String? = nil,
+        category: LibraryKnowledgePointGroupCategory = .knowledgePoint,
         records: [StoredRecord]
     ) -> [String] {
-        let allGroups = groups(subject: subject, module: module, typeID: typeID, records: records)
+        let allGroups = groups(subject: subject, module: module, typeID: typeID, category: category, records: records)
         guard !allGroups.isEmpty else { return allNames }
         if let groupID {
             guard let group = allGroups.first(where: { $0.id == groupID }) else { return [] }
@@ -43,10 +51,13 @@ enum LibraryKnowledgePointGroupRepository {
         subject: String = "",
         module: String,
         typeID: String? = nil,
+        category: LibraryKnowledgePointGroupCategory = .knowledgePoint,
         records: [StoredRecord],
         context: ModelContext
     ) throws -> LibraryKnowledgePointGroup? {
-        let scope = LibraryKnowledgePointGroupPolicy.scopeKey(subject: subject, module: module, typeID: typeID)
+        let scope = LibraryKnowledgePointGroupPolicy.scopeKey(
+            subject: subject, module: module, typeID: typeID, category: category
+        )
         var values = load(records: records)
         let current = values[scope] ?? []
         let name = LibraryKnowledgePointGroupPolicy.normalizedName(rawName)
@@ -63,10 +74,13 @@ enum LibraryKnowledgePointGroupRepository {
         subject: String = "",
         module: String,
         typeID: String? = nil,
+        category: LibraryKnowledgePointGroupCategory = .knowledgePoint,
         records: [StoredRecord],
         context: ModelContext
     ) throws -> Bool {
-        let scope = LibraryKnowledgePointGroupPolicy.scopeKey(subject: subject, module: module, typeID: typeID)
+        let scope = LibraryKnowledgePointGroupPolicy.scopeKey(
+            subject: subject, module: module, typeID: typeID, category: category
+        )
         var values = load(records: records)
         guard let changed = LibraryKnowledgePointGroupPolicy.renameGroup(id, to: rawName, in: values[scope] ?? []) else {
             return false
@@ -81,10 +95,13 @@ enum LibraryKnowledgePointGroupRepository {
         subject: String = "",
         module: String,
         typeID: String? = nil,
+        category: LibraryKnowledgePointGroupCategory = .knowledgePoint,
         records: [StoredRecord],
         context: ModelContext
     ) throws {
-        let scope = LibraryKnowledgePointGroupPolicy.scopeKey(subject: subject, module: module, typeID: typeID)
+        let scope = LibraryKnowledgePointGroupPolicy.scopeKey(
+            subject: subject, module: module, typeID: typeID, category: category
+        )
         var values = load(records: records)
         values[scope] = LibraryKnowledgePointGroupPolicy.deleteGroup(id, from: values[scope] ?? [])
         try persist(values, records: records, context: context)
@@ -96,11 +113,14 @@ enum LibraryKnowledgePointGroupRepository {
         subject: String = "",
         module: String,
         typeID: String? = nil,
+        category: LibraryKnowledgePointGroupCategory = .knowledgePoint,
         records: [StoredRecord],
         context: ModelContext,
         save shouldSave: Bool = true
     ) throws {
-        let scope = LibraryKnowledgePointGroupPolicy.scopeKey(subject: subject, module: module, typeID: typeID)
+        let scope = LibraryKnowledgePointGroupPolicy.scopeKey(
+            subject: subject, module: module, typeID: typeID, category: category
+        )
         var values = load(records: records)
         let groups = values[scope] ?? []
         guard groupID == nil || groups.contains(where: { $0.id == groupID }) else { return }
@@ -114,13 +134,55 @@ enum LibraryKnowledgePointGroupRepository {
         subject: String = "",
         module: String,
         typeID: String? = nil,
+        category: LibraryKnowledgePointGroupCategory = .knowledgePoint,
         records: [StoredRecord],
         context: ModelContext,
         save shouldSave: Bool = true
     ) throws {
         guard let groupID else { return }
-        try assign(tag, to: groupID, subject: subject, module: module, typeID: typeID, records: records,
+        try assign(tag, to: groupID, subject: subject, module: module, typeID: typeID, category: category, records: records,
                    context: context, save: shouldSave)
+    }
+
+    static func migrateQuantityTypeScope(
+        from sourceModule: String,
+        to destinationModule: String?,
+        records: [StoredRecord],
+        context: ModelContext,
+        save shouldSave: Bool = true
+    ) throws {
+        let destinationModule = destinationModule ?? ""
+        guard sourceModule != destinationModule else { return }
+
+        var values = load(records: records)
+        var changed = false
+        for category in [LibraryKnowledgePointGroupCategory.knowledgePoint, .mistakeTag] {
+            let sourceScope = LibraryKnowledgePointGroupPolicy.scopeKey(
+                subject: "数量关系", module: sourceModule, typeID: nil, category: category
+            )
+            let destinationScope = LibraryKnowledgePointGroupPolicy.scopeKey(
+                subject: "数量关系", module: destinationModule, typeID: nil, category: category
+            )
+            guard let sourceGroups = values.removeValue(forKey: sourceScope) else { continue }
+            changed = true
+            var destinationGroups = values[destinationScope] ?? []
+            for sourceGroup in sourceGroups {
+                if let index = destinationGroups.firstIndex(where: {
+                    LibraryKnowledgePointGroupPolicy.normalizedName($0.name)
+                        == LibraryKnowledgePointGroupPolicy.normalizedName(sourceGroup.name)
+                }) {
+                    var merged = destinationGroups[index]
+                    merged.memberNames = uniqueNames(merged.memberNames + sourceGroup.memberNames)
+                    destinationGroups[index] = merged
+                } else {
+                    destinationGroups.append(sourceGroup)
+                }
+            }
+            values[destinationScope] = destinationGroups
+        }
+
+        guard changed else { return }
+        try persist(values, records: records, context: context, save: shouldSave)
     }
 
     static func renameTagMember(
@@ -129,6 +191,7 @@ enum LibraryKnowledgePointGroupRepository {
         subject: String? = nil,
         module: String,
         typeID: String? = nil,
+        category: LibraryKnowledgePointGroupCategory = .knowledgePoint,
         records: [StoredRecord],
         context: ModelContext,
         save shouldSave: Bool = true
@@ -136,11 +199,17 @@ enum LibraryKnowledgePointGroupRepository {
         var values = load(records: records)
         let matchingScopes: [String]
         if let subject {
-            matchingScopes = [LibraryKnowledgePointGroupPolicy.scopeKey(subject: subject, module: module, typeID: typeID)]
+            matchingScopes = [LibraryKnowledgePointGroupPolicy.scopeKey(
+                subject: subject, module: module, typeID: typeID, category: category
+            )]
         } else {
             matchingScopes = values.keys.filter { key in
                 let parts = key.components(separatedBy: "\u{1f}")
-                guard parts.count == 3, parts[1] == module else { return false }
+                guard parts.count >= 3, parts[1] == module else { return false }
+                let keyCategory: LibraryKnowledgePointGroupCategory = parts.count >= 4
+                    ? (LibraryKnowledgePointGroupCategory(rawValue: parts[3]) ?? .knowledgePoint)
+                    : .knowledgePoint
+                guard keyCategory == category else { return false }
                 return typeID == nil || parts[2] == typeID
             }
         }
@@ -161,11 +230,12 @@ enum LibraryKnowledgePointGroupRepository {
         subject: String = "",
         module: String,
         typeID: String? = nil,
+        category: LibraryKnowledgePointGroupCategory = .knowledgePoint,
         records: [StoredRecord]
     ) -> [String] {
         LibraryKnowledgePointGroupPolicy.mergedOrder(
             fullOrder: fullOrder,
-            groups: groups(subject: subject, module: module, typeID: typeID, records: records),
+            groups: groups(subject: subject, module: module, typeID: typeID, category: category, records: records),
             groupID: groupID,
             displayedOrder: displayedOrder
         ) ?? fullOrder
@@ -216,5 +286,10 @@ enum LibraryKnowledgePointGroupRepository {
             }
             throw error
         }
+    }
+
+    private static func uniqueNames(_ names: [String]) -> [String] {
+        var seen = Set<String>()
+        return names.filter { seen.insert($0).inserted }
     }
 }

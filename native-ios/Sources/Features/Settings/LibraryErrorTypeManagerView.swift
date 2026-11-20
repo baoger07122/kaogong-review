@@ -21,7 +21,7 @@ struct LibraryErrorTypeModulesView: View {
                 moduleLink("原有通用类型", module: nil, accessibilityID: "error-type-module-legacy-\(subject.rawValue)")
             }
         }
-        .navigationTitle(subject.managementTitle)
+        .navigationTitle(subject.rawValue)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $selectedModule) { selection in
             NavigationStack {
@@ -58,7 +58,7 @@ struct LibraryErrorTypeModulesView: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier(accessibilityID)
         .accessibilityLabel(title)
-        .accessibilityHint("打开\(title)\(subject == .verbalReasoning ? "题型" : "错误类型")管理")
+        .accessibilityHint("打开\(title)题型管理")
     }
 }
 
@@ -78,7 +78,7 @@ struct LibraryErrorTypeManagerView: View {
         LibraryErrorTypeRepository.types(for: subject, records: records).filter { $0.module == module }
     }
 
-    private var typeLabel: String { subject == .verbalReasoning ? "题型" : "错误类型" }
+    private var typeLabel: String { "题型" }
 
     private var canAddType: Bool {
         subject != .verbalReasoning || module != nil
@@ -107,7 +107,7 @@ struct LibraryErrorTypeManagerView: View {
             .padding(20)
         }
         .background(Color.white)
-        .navigationTitle(module ?? (subject == .verbalReasoning ? "原有通用类型" : subject.managementTitle))
+        .navigationTitle(module ?? "原有通用类型")
         .navigationBarTitleDisplayMode(.inline)
         .overlay {
             if isEditing {

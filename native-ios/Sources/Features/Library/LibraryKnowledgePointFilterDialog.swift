@@ -7,6 +7,7 @@ struct LibraryKnowledgePointPickerEntry: Identifiable, Hashable {
 }
 
 struct LibraryKnowledgePointFilterDialog: View {
+    let filterTitle: String
     let scopeTitle: String
     let entries: [LibraryKnowledgePointPickerEntry]
     let groups: [LibraryKnowledgePointGroup]
@@ -26,7 +27,7 @@ struct LibraryKnowledgePointFilterDialog: View {
 
     var body: some View {
         NativeEditorDialog(
-            title: "筛选考点",
+            title: "筛选\(filterTitle)",
             canSave: true,
             actionTitle: "确定",
             onClose: onClose,
@@ -42,7 +43,7 @@ struct LibraryKnowledgePointFilterDialog: View {
 
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("搜索考点", text: $search)
+                    TextField("搜索\(filterTitle)", text: $search)
                         .modifier(NativeDirectionalTextFieldNavigation())
                         .font(.system(size: 14))
                         .textFieldStyle(.plain)
@@ -69,7 +70,7 @@ struct LibraryKnowledgePointFilterDialog: View {
                             tagCollection(for: visibleEntries)
                         } else if groups.isEmpty {
                             if entries.isEmpty {
-                                Text("当前范围暂无考点")
+                                Text("当前范围暂无\(filterTitle)")
                                     .font(.system(size: 12)).foregroundStyle(.secondary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             } else {
@@ -78,7 +79,7 @@ struct LibraryKnowledgePointFilterDialog: View {
                         } else {
                             let selectedGroupEntries = entries.filter { $0.groupID == selectedGroupID }
                             if selectedGroupEntries.isEmpty {
-                                Text("暂无考点")
+                                Text("暂无\(filterTitle)")
                                     .font(.system(size: 12)).foregroundStyle(.secondary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             } else {
@@ -140,7 +141,7 @@ struct LibraryKnowledgePointFilterDialog: View {
             onToggle: toggle,
             onReorder: { _ in false }
         )
-        .id("filter-knowledge-points|" + items.map(\.id).joined(separator: "\u{1f}"))
+        .id("filter-\(filterTitle)|" + items.map(\.id).joined(separator: "\u{1f}"))
     }
 
     private func toggle(_ reference: LibraryKnowledgePointReference) {

@@ -531,6 +531,12 @@ private struct LibraryErrorAnalysisSection: View {
             }
         )
     }
+    private var mistakeTagDisplay: Binding<String> {
+        Binding(
+            get: { LibraryKnowledgePointReferencePolicy.displayNames(from: draft.mistakeTagRefs).joined(separator: "、") },
+            set: { _ in }
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -547,7 +553,8 @@ private struct LibraryErrorAnalysisSection: View {
             Label("题型分析", systemImage: "tag").font(.system(size: 13, weight: .medium))
             quantityTextInput(title: "题目结构", placeholder: "例如：矩形边界植树", text: $draft.quantityStructure)
             quantityTagInput(title: "考点", value: draft.knowledgePointNames.joined(separator: "、")) { showQuantityKnowledgePoints = true }
-            LibraryMultilinePlainTextInput(label: "错因", text: quantityErrorCause)
+            tagInput(title: "错因标签", text: mistakeTagDisplay, allowsMultiple: true, selectionKind: .mistakeTag)
+            LibraryMultilinePlainTextInput(label: "错因说明", text: quantityErrorCause)
             plainTextInput(label: "提醒", text: $draft.reminder)
         }
         .padding(14)
@@ -559,13 +566,8 @@ private struct LibraryErrorAnalysisSection: View {
         VStack(alignment: .leading, spacing: 7) {
             Label("\(knowledgeLabel)与\(causeLabel)", systemImage: "tag").font(.system(size: 13, weight: .medium))
             tagInput(title: knowledgeLabel, text: $draft.knowledgePoint, allowsMultiple: true, showsChevron: false)
-            if isDataAnalysis || isLogicFill {
-                LibraryMultilinePlainTextInput(label: "错因", text: $draft.errorCause)
-            } else if isAnalogy {
-                LibraryMultilinePlainTextInput(label: causeLabel, text: $draft.errorCause)
-            } else {
-                LibraryMultilinePlainTextInput(label: causeLabel, text: $draft.errorCause)
-            }
+            tagInput(title: "错因标签", text: mistakeTagDisplay, allowsMultiple: true, selectionKind: .mistakeTag)
+            LibraryMultilinePlainTextInput(label: "错因说明", text: $draft.errorCause)
             if !isLogicFill {
                 plainTextInput(label: isDataAnalysis ? "陷阱" : "思维误区", text: $draft.pitfall)
             }
@@ -576,10 +578,16 @@ private struct LibraryErrorAnalysisSection: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color(red: 0.88, green: 0.88, blue: 0.88), lineWidth: 0.8))
     }
 
-    private func tagInput(title: String, text: Binding<String>, allowsMultiple: Bool, showsChevron: Bool = true) -> some View {
+    private func tagInput(
+        title: String,
+        text: Binding<String>,
+        allowsMultiple: Bool,
+        showsChevron: Bool = true,
+        selectionKind: ManagedTagKind? = nil
+    ) -> some View {
         Button {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-            activeTags = allowsMultiple ? .knowledgePoint : .errorCause
+            activeTags = selectionKind ?? (allowsMultiple ? .knowledgePoint : .errorCause)
         } label: {
             HStack(spacing: 8) {
                 Text(title).font(.system(size: 11)).foregroundStyle(.secondary).frame(width: 66, alignment: .leading)

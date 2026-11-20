@@ -4,20 +4,21 @@ import SwiftData
 enum LibraryErrorTypeSubject: String, CaseIterable, Hashable {
     case dataAnalysis = "资料分析"
     case verbalReasoning = "言语理解"
+    case judgmentReasoning = "判断推理"
+    case commonKnowledge = "常识判断"
 
     var recordID: String {
         switch self {
         case .dataAnalysis: "data_analysis_error_types"
         case .verbalReasoning: "verbal_reasoning_error_types"
+        case .judgmentReasoning: "judgment_reasoning_question_types"
+        case .commonKnowledge: "common_knowledge_question_types"
         }
     }
 
-    var managementTitle: String {
-        self == .verbalReasoning ? "言语理解题型管理" : "\(rawValue)错误类型管理"
-    }
+    var managementTitle: String { "\(rawValue)题型管理" }
 
     var modules: [String] {
-        guard self == .verbalReasoning || self == .dataAnalysis else { return [] }
         return SubjectDefinition.all.first { $0.name == rawValue }?.modules ?? []
     }
 }
