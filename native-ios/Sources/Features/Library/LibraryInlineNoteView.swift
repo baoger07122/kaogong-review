@@ -409,7 +409,7 @@ struct LibraryInlineNoteView: View {
             if isFinishing { return .writing }
             return draft == storedNote && !manualDraftHasVersionConflict ? .saved : .unsaved
         }
-        switch noteSaveState.phase {
+        return switch noteSaveState.phase {
         case .idle, .saved: .saved
         case .debouncing: .debouncing
         case .queued: .queued

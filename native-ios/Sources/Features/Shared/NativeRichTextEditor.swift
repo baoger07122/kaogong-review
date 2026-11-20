@@ -1662,6 +1662,7 @@ private struct RichTextTextView: UIViewRepresentable {
     var growsWithContent = false
     var tableAppearance: NativeRichTextTableAppearance = .system
     var noteFormatting = false
+    var usesStabilizedInlineNoteMeasurement = false
     var minimumContentHeight: CGFloat = 0
     var focusOnAppear = false
     var initialSelectionOffset: Int? = nil
