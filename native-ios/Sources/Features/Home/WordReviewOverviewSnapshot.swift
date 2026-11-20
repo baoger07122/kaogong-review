@@ -13,6 +13,129 @@ struct WordReviewOverviewRecordInput: Sendable {
     let createdAt: Date?
 }
 
+struct WordReviewHomeBadgeKey: Hashable, Sendable {
+    let revision: Int
+    let reviewDay: Date
+    let restoreGeneration: Int
+}
+
+struct WordReviewHomeBadgeInput: Sendable {
+    let collection: String
+    let recordID: String
+    let metadata: Data?
+    let createdAt: Date?
+}
+
+struct WordReviewHomeBadgeSnapshot: Sendable {
+    let key: WordReviewHomeBadgeKey
+    let dueCount: Int
+}
+
+/// Builds the Home shortcut badge from the small indexed word metadata and
+/// plan records. It deliberately does not read review history or write plans.
+enum WordReviewHomeBadgeBuilder {
+    private struct WordMetadata {
+        let addedAt: Date
+    }
+
+    static func build(
+        key: WordReviewHomeBadgeKey,
+        inputs: [WordReviewHomeBadgeInput],
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> WordReviewHomeBadgeSnapshot {
+        var wordsByID: [String: WordMetadata] = [:]
+        var plansByID: [String: WordReviewPlan] = [:]
+        let decoder = JSONDecoder()
+
+        for input in inputs {
+            guard let data = input.metadata else { continue }
+            switch input.collection {
+            case "words":
+                guard let object = jsonObject(data),
+                      let metadata = wordMetadata(input, object: object, now: now) else { continue }
+                wordsByID[input.recordID] = metadata
+            case "word_review_plans":
+                guard let plan = try? decoder.decode(WordReviewPlan.self, from: data),
+                      plan.wordRecordID == input.recordID else { continue }
+                plansByID[input.recordID] = plan
+            default:
+                continue
+            }
+        }
+
+        var dueIDs = Set<String>()
+        for (recordID, metadata) in wordsByID {
+            let plan: WordReviewPlan
+            if let storedPlan = plansByID[recordID] {
+                plan = WordReviewEnrollmentPolicy.backfilledPlan(
+                    storedPlan,
+                    addedAt: metadata.addedAt,
+                    now: now,
+                    calendar: calendar
+                ) ?? storedPlan
+            } else {
+                // WordReviewView automatically enrolls an eligible word with
+                // its creation day as the first due date. Mirror that date
+                // without writing a plan from Home.
+                plan = WordReviewEnrollmentPolicy.makePlan(
+                    wordRecordID: recordID,
+                    addedAt: metadata.addedAt,
+                    now: now,
+                    calendar: calendar
+                )
+            }
+            if !plan.isPaused,
+               WordReviewSchedulingPolicy.isDue(plan.nextDueDate, on: key.reviewDay, calendar: calendar) {
+                dueIDs.insert(recordID)
+            }
+        }
+
+        return WordReviewHomeBadgeSnapshot(key: key, dueCount: dueIDs.count)
+    }
+
+    private static func wordMetadata(
+        _ input: WordReviewHomeBadgeInput,
+        object: [String: Any],
+        now: Date
+    ) -> WordMetadata? {
+        let categoryRawValue = (object["category"] as? String) ?? (object["type"] as? String) ?? ""
+        guard WordReviewEnrollmentPolicy.isValidCategory(categoryRawValue),
+              let category = WordCategory(rawValue: categoryRawValue) else { return nil }
+
+        let compareWords = object["compareWords"] as? [[String: Any]] ?? []
+        let names = compareWords.compactMap { item -> String? in
+            guard let name = item["name"] as? String else { return nil }
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        let sourceName = [object["name"] as? String, object["words"] as? String, object["title"] as? String]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty }) ?? ""
+        let title = category.isComparison && !names.isEmpty ? names.joined(separator: "｜") : sourceName
+        guard !title.isEmpty else { return nil }
+
+        return WordMetadata(
+            addedAt: input.createdAt ?? payloadDate(object["createdAt"]) ?? now
+        )
+    }
+
+    private static func jsonObject(_ data: Data) -> [String: Any]? {
+        (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    private static func payloadDate(_ value: Any?) -> Date? {
+        if let number = value as? NSNumber {
+            let raw = number.doubleValue
+            return Date(timeIntervalSince1970: raw > 10_000_000_000 ? raw / 1_000 : raw)
+        }
+        guard let value = value as? String, !value.isEmpty else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+}
+
 struct WordReviewEnrollmentCandidate: Equatable, Sendable {
     let wordRecordID: String
     let addedAt: Date

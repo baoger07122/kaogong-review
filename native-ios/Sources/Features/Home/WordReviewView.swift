@@ -41,7 +41,8 @@ struct WordReviewView: View {
     @State private var activeSession: [SessionEntry] = []
     @State private var sessionIndex = 0
     @State private var isRevealed = false
-    @State private var savedHistory: WordReviewHistory?
+    @State private var sessionGeneration = UUID()
+    @State private var submissionInProgressID: String?
     @State private var errorMessage: String?
     @State private var reviewDay = Calendar.current.startOfDay(for: .now)
     @State private var overviewSnapshot: WordReviewOverviewSnapshot?
@@ -262,9 +263,7 @@ struct WordReviewView: View {
     private var reviewSession: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                if let savedHistory {
-                    savedFeedbackView(savedHistory)
-                } else if let entry = currentEntry, let group = currentGroup {
+                if let entry = currentEntry, let group = currentGroup {
                     HStack {
                         Button("结束") { endSession() }
                             .font(.system(size: 14, weight: .medium))
@@ -416,25 +415,6 @@ struct WordReviewView: View {
         .buttonStyle(.plain)
     }
 
-    private func savedFeedbackView(_ item: WordReviewHistory) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Label("已记录：\(item.feedback.title)", systemImage: feedbackIcon(item.feedback))
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(feedbackColor(item.feedback))
-            Text(item.title).font(.system(size: 20, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
-            Text(item.nextDueDate.map { "下次计划：\(shortDate($0))" }
-                 ?? (item.isContextValidationPending == true ? "等待语境验证" : "本轮未安排下次复习"))
-                .font(.system(size: 14)).foregroundStyle(.secondary)
-            Button(sessionIndex + 1 < activeSession.count ? "下一组" : "完成") {
-                advanceSession()
-            }
-            .buttonStyle(ReviewPrimaryButtonStyle())
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(Color(red: 0.96, green: 0.98, blue: 0.96), in: RoundedRectangle(cornerRadius: 16))
-    }
-
     private func emptyState(title: String, detail: String, image: String) -> some View {
         VStack(spacing: 10) {
             Image(systemName: image).font(.system(size: 26, weight: .light)).foregroundStyle(AppTheme.accent.opacity(0.75))
@@ -561,18 +541,25 @@ struct WordReviewView: View {
             )
         }
         guard !entries.isEmpty else { return }
+        sessionGeneration = UUID()
+        submissionInProgressID = nil
         activeSession = entries
         sessionIndex = 0
         isRevealed = false
-        savedHistory = nil
         loadedGroup = nil
         loadedGroupKey = nil
     }
 
     private func submit(_ feedback: WordReviewFeedback, for entry: SessionEntry) {
-        guard let group = currentGroup, group.recordID == entry.wordRecordID else { return }
+        guard submissionInProgressID == nil,
+              currentEntry?.submissionID == entry.submissionID,
+              currentEntry?.id == entry.id,
+              let group = currentGroup,
+              group.recordID == entry.wordRecordID else { return }
+        let expectedSessionGeneration = sessionGeneration
+        submissionInProgressID = entry.submissionID
         do {
-            savedHistory = try WordReviewRepository.submit(
+            _ = try WordReviewRepository.submit(
                 wordRecordID: group.recordID,
                 title: group.title,
                 categoryTitle: group.categoryTitle,
@@ -581,13 +568,26 @@ struct WordReviewView: View {
                 submissionID: entry.submissionID,
                 in: modelContext
             )
+            guard sessionGeneration == expectedSessionGeneration,
+                  currentEntry?.submissionID == entry.submissionID else {
+                if submissionInProgressID == entry.submissionID {
+                    submissionInProgressID = nil
+                }
+                return
+            }
+            submissionInProgressID = nil
+            advanceSession()
         } catch {
+            if submissionInProgressID == entry.submissionID {
+                submissionInProgressID = nil
+            }
             errorMessage = error.localizedDescription
         }
     }
 
     private func advanceSession() {
-        savedHistory = nil
+        sessionGeneration = UUID()
+        submissionInProgressID = nil
         if sessionIndex + 1 < activeSession.count {
             sessionIndex += 1
             isRevealed = false
@@ -599,10 +599,11 @@ struct WordReviewView: View {
     }
 
     private func endSession() {
+        sessionGeneration = UUID()
+        submissionInProgressID = nil
         activeSession = []
         sessionIndex = 0
         isRevealed = false
-        savedHistory = nil
         loadedGroup = nil
         loadedGroupKey = nil
         tab = .today
@@ -611,18 +612,6 @@ struct WordReviewView: View {
     private func perform(_ action: () throws -> Void) {
         do { try action() }
         catch { errorMessage = error.localizedDescription }
-    }
-}
-
-private struct ReviewPrimaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .frame(height: 48)
-            .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 13))
-            .opacity(configuration.isPressed ? 0.76 : 1)
     }
 }
 

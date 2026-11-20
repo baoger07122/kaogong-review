@@ -233,6 +233,20 @@ struct LibraryView: View {
     @ViewBuilder
     private func destination(for route: LibraryRoute) -> some View {
         switch route {
+        case .wordMigrationList:
+            LibraryWordMigrationListView()
+        case let .wordMigrationDetail(recordID):
+            if let record = records.first(where: { $0.collection == "words" && $0.recordID == recordID }) {
+                LibraryWordMigrationDetailView(record: record)
+            } else {
+                NativeStatusCard(
+                    title: "词语已更新",
+                    detail: "原记录已变化或删除，请返回迁移列表后重试。",
+                    systemImage: "exclamationmark.triangle",
+                    color: AppTheme.warning
+                )
+                .padding(20)
+            }
         case let .shenlunAdaptation(recordID):
             shenlunAdaptationDestination(recordID: recordID)
         case let .editor(kind, recordID):
@@ -246,6 +260,9 @@ struct LibraryView: View {
                         onDelete: {
                             remove(LibraryDeleteTarget(kind: kind, recordID: recordID))
                             popCurrentRoute()
+                        },
+                        onMigrateLegacyWord: {
+                            navigationPath.append(.wordMigrationDetail(recordID: recordID))
                         },
                         onOpenLinkedError: { navigationPath.append(.detail(kind: .errors, recordID: $0)) }
                     )
@@ -345,6 +362,9 @@ struct LibraryView: View {
             preferredErrorTypeID: recordID == nil && kind == .errors ? selectedErrorType.selectedID : nil,
             preparedDraft: preparedDraft,
             dismissAfterSave: !(recordID == nil && (kind == .errors || kind == .words)),
+            onMigrateLegacyWord: recordID.map { id in
+                { replaceCurrentRoute(with: .wordMigrationDetail(recordID: id)) }
+            },
             onSaved: { savedID in
                 if let recordID {
                     preparedEditDrafts["\(kind.collection)|\(recordID)"] = nil
@@ -597,6 +617,13 @@ struct LibraryView: View {
     private var headerMenu: some View {
         Menu {
             Button { showSearch = true } label: { Label("搜索", systemImage: "magnifyingglass") }
+            if kind == .words, scope.isLogicFill {
+                Section("词语管理") {
+                    Button { navigationPath.append(.wordMigrationList) } label: {
+                        Label("迁移旧词语", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                }
+            }
             if kind == .errors {
                 Button { redoPracticeEnabled.toggle() } label: {
                     Label(redoPracticeEnabled ? "错题模式" : "重做模式", systemImage: redoPracticeEnabled ? "doc.text" : "arrow.counterclockwise")

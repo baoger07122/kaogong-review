@@ -49,6 +49,9 @@ struct HomeView: View {
             || record.collection == "stickies"
             || record.collection == "keyvalue"
     }) private var records: [StoredRecord]
+    @Query(filter: #Predicate<StoredRecord> { record in
+        record.collection == "words" || record.collection == "word_review_plans"
+    }) private var wordReviewRecords: [StoredRecord]
 
     @State private var editor: Editor?
     @State private var inlineStickyID: String?
@@ -72,11 +75,35 @@ struct HomeView: View {
     @State private var dailyTodoNoteTarget: DailyTodoNoteTarget?
     @State private var isReorderingDailyRules = false
     @State private var showsCompletedTodos = false
+    @State private var wordReviewDay = Calendar.current.startOfDay(for: .now)
+    @State private var wordReviewRestoreGeneration = 0
+    @State private var wordReviewBadge: WordReviewHomeBadgeSnapshot?
     @AppStorage("native.home.todoTimersRemoved.11.17.3") private var didStopLegacyTodoTimers = false
 
     private var todos: [HomeTodo] { HomeRecordRepository.todos(from: records) }
     private var stickies: [HomeSticky] { HomeRecordRepository.stickies(from: records) }
     private var countdowns: [HomeCountdown] { HomeRecordRepository.countdowns(from: records) }
+    private var wordReviewBadgeKey: WordReviewHomeBadgeKey {
+        var hasher = Hasher()
+        for record in wordReviewRecords {
+            hasher.combine(record.compoundID)
+            hasher.combine(record.createdAt)
+            hasher.combine(record.updatedAt)
+            // Hash the compact index data so same-length imports or edits
+            // invalidate the badge even when their timestamps are unchanged.
+            hasher.combine(record.indexPayload ?? record.payload)
+        }
+        return WordReviewHomeBadgeKey(
+            revision: hasher.finalize(),
+            reviewDay: wordReviewDay,
+            restoreGeneration: wordReviewRestoreGeneration
+        )
+    }
+
+    private var currentWordReviewBadgeCount: Int? {
+        guard let wordReviewBadge, wordReviewBadge.key == wordReviewBadgeKey else { return nil }
+        return wordReviewBadge.dueCount
+    }
 
     var body: some View {
         let visibleTodos = todayTodos
@@ -105,6 +132,10 @@ struct HomeView: View {
             stopLegacyTodoTimersIfNeeded()
         }
         .task(id: scenePhase) { await maintainDailyTodoInstancesWhileActive() }
+        .task(id: wordReviewBadgeKey) { await prepareWordReviewBadge(for: wordReviewBadgeKey) }
+        .onReceive(NotificationCenter.default.publisher(for: .legacyBackupRestoreDidComplete)) { _ in
+            wordReviewRestoreGeneration &+= 1
+        }
         .navigationDestination(for: AppRoute.self) { route in
             HomeShortcutView(route: route)
                 .secondaryPageTabBarHidden()
@@ -249,11 +280,27 @@ struct HomeView: View {
             ForEach(HomeFeature.all) { feature in
                 NavigationLink(value: feature.route) {
                     VStack(spacing: 8) {
-                        Image(systemName: feature.systemImage)
-                            .font(.system(size: 23, weight: .semibold))
-                            .foregroundStyle(feature.color)
-                            .frame(width: 56, height: 56)
-                            .background(feature.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: feature.systemImage)
+                                .font(.system(size: 23, weight: .semibold))
+                                .foregroundStyle(feature.color)
+                                .frame(width: 56, height: 56)
+                            if feature.id == "word-review",
+                               let count = currentWordReviewBadgeCount,
+                               count > 0 {
+                                Text("\(count)")
+                                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 4)
+                                    .frame(minWidth: 18, minHeight: 18)
+                                    .background(Color.red, in: Capsule())
+                                    .overlay(Capsule().stroke(Color.white, lineWidth: 1.2))
+                                    .offset(x: 5, y: -5)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .background(feature.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
                         Text(feature.title)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.secondary)
@@ -266,6 +313,9 @@ struct HomeView: View {
                 }
                 .buttonStyle(NativePressButtonStyle())
                 .accessibilityIdentifier("home-shortcut-\(feature.id)")
+                .accessibilityLabel(feature.id == "word-review"
+                    ? (currentWordReviewBadgeCount.map { "词语复习，待复习 \($0) 项" } ?? "词语复习")
+                    : feature.title)
             }
         }
     }
@@ -847,6 +897,7 @@ struct HomeView: View {
     @MainActor
     private func maintainDailyTodoInstancesWhileActive() async {
         guard scenePhase == .active else { return }
+        refreshWordReviewDay()
         refreshDailyTodoInstances()
         while !Task.isCancelled {
             var calendar = Calendar.current
@@ -860,8 +911,35 @@ struct HomeView: View {
             let delay = max(1, nextMidnight.timeIntervalSince(now) + 1)
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled, scenePhase == .active else { return }
+            refreshWordReviewDay()
             refreshDailyTodoInstances()
         }
+    }
+
+    private func refreshWordReviewDay() {
+        let today = Calendar.current.startOfDay(for: .now)
+        guard wordReviewDay != today else { return }
+        wordReviewDay = today
+    }
+
+    private func prepareWordReviewBadge(for key: WordReviewHomeBadgeKey) async {
+        let inputs = wordReviewRecords.map { record in
+            WordReviewHomeBadgeInput(
+                collection: record.collection,
+                recordID: record.recordID,
+                // Legacy records may predate indexPayload; decode their raw
+                // payload only inside the detached badge calculation below.
+                metadata: record.indexPayload ?? record.payload,
+                createdAt: record.createdAt
+            )
+        }
+        let now = Date.now
+        let calendar = Calendar.current
+        let snapshot = await Task.detached(priority: .utility) {
+            WordReviewHomeBadgeBuilder.build(key: key, inputs: inputs, now: now, calendar: calendar)
+        }.value
+        guard !Task.isCancelled, key == wordReviewBadgeKey else { return }
+        wordReviewBadge = snapshot
     }
 
     private func refreshDailyTodoInstances() {

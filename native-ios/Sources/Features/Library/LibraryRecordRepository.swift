@@ -694,6 +694,7 @@ enum LibraryRecordRepository {
             object["pinned"] = draft.pinned
         case .words:
             let category = wordCategory(from: draft.type)
+            let categoryChanged = LibraryWordMigrationPolicy.resolvedCategory(in: draft.original)?.rawValue != draft.type
             object["name"] = draft.title
             object["words"] = draft.title
             object["category"] = draft.type
@@ -701,13 +702,13 @@ enum LibraryRecordRepository {
             if category.isComparison {
                 let originalBody = LibraryComparisonDocumentProjection.wordContent(in: draft.original, category: category)
                 let editedBody = draft.comparisonDocument ?? LibraryComparisonDocumentProjection.project(draft: draft)
-                if editedBody != originalBody {
+                if categoryChanged || editedBody != originalBody {
                     object["comparisonDocument"] = editedBody
                 }
             } else {
                 let originalBodyKey = wordDefinitionBodyKey(in: draft.original)
                 let originalBody = originalBodyKey.flatMap { draft.original[$0] as? String } ?? ""
-                if draft.content != originalBody {
+                if categoryChanged || draft.content != originalBody {
                     object["meaning"] = draft.content
                     if let originalBodyKey, originalBodyKey != "meaning" {
                         object[originalBodyKey] = draft.content
@@ -727,6 +728,70 @@ enum LibraryRecordRepository {
             if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return key }
         }
         return nil
+    }
+
+    @MainActor
+    static func migrateLegacyWord(
+        record: StoredRecord,
+        expectedPayload: Data,
+        expectedUpdatedAt: Date?,
+        targetCategory: WordCategory,
+        body: String,
+        context: ModelContext
+    ) throws {
+        guard record.collection == "words",
+              let sourceObject = (try? JSONSerialization.jsonObject(with: expectedPayload)) as? [String: Any] else {
+            throw LibraryWordMigrationError.invalidRecord
+        }
+        guard record.payload == expectedPayload, record.updatedAt == expectedUpdatedAt else {
+            throw LibraryWordMigrationError.recordChanged
+        }
+        guard LibraryWordMigrationPolicy.candidate(for: record) != nil else {
+            throw LibraryWordMigrationError.noLongerNeedsMigration
+        }
+
+        var object = sourceObject
+        object["category"] = targetCategory.rawValue
+        object["type"] = targetCategory.rawValue
+        if targetCategory.isComparison {
+            // Persist even when this exactly equals the temporary legacy projection.
+            object["comparisonDocument"] = body
+        } else {
+            // Persist even when this is an explicit empty value.
+            object["meaning"] = body
+        }
+        let now = Date.now
+        object["updatedAt"] = iso(now)
+        let payload = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+
+        let oldIndexPayload = record.indexPayload
+        let oldSubject = record.subject
+        let oldModule = record.module
+        let oldUpdatedAt = record.updatedAt
+        let wasAutosaveEnabled = context.autosaveEnabled
+        context.autosaveEnabled = false
+        defer { context.autosaveEnabled = wasAutosaveEnabled }
+
+        do {
+            try context.transaction {
+                guard record.payload == expectedPayload, record.updatedAt == expectedUpdatedAt else {
+                    throw LibraryWordMigrationError.recordChanged
+                }
+                guard LibraryWordMigrationPolicy.candidate(for: record) != nil else {
+                    throw LibraryWordMigrationError.noLongerNeedsMigration
+                }
+                record.replacePayload(payload)
+                record.updatedAt = now
+            }
+            try context.save()
+        } catch {
+            context.rollback()
+            record.replacePayload(expectedPayload, indexPayload: oldIndexPayload)
+            record.subject = oldSubject
+            record.module = oldModule
+            record.updatedAt = oldUpdatedAt
+            throw error
+        }
     }
 
     @MainActor

@@ -5,6 +5,7 @@ struct WordLibraryRecordDetailView: View {
     let record: StoredRecord
     var onEdit: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
+    var onMigrateLegacyWord: (() -> Void)? = nil
     var onOpenLinkedError: ((String) -> Void)? = nil
 
     @Environment(\.modelContext) private var modelContext
@@ -17,15 +18,13 @@ struct WordLibraryRecordDetailView: View {
     @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
 
     private var object: [String: Any] { record.jsonObject ?? [:] }
-    private var category: WordCategory {
-        WordCategory(rawValue: text("category", "type")) ?? .idiomDefinition
-    }
+    private var category: WordCategory? { LibraryWordMigrationPolicy.resolvedCategory(in: object) }
     var body: some View {
         ZStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack(spacing: 7) {
-                        detailTag(category.title, color: AppTheme.accent)
+                        detailTag(category?.title ?? "待确认类别", color: category == nil ? AppTheme.warning : AppTheme.accent)
                     }
 
                     Text(displayTitle)
@@ -36,7 +35,7 @@ struct WordLibraryRecordDetailView: View {
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
                     NativeRichTextDisplay(
-                        html: LibraryComparisonDocumentProjection.wordContent(in: object, category: category),
+                        html: LibraryWordMigrationPolicy.originalPreview(in: object, sourceCategory: category),
                         minHeight: 34,
                         tableAppearance: .libraryContent
                     )
@@ -72,7 +71,7 @@ struct WordLibraryRecordDetailView: View {
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                if onEdit != nil || onDelete != nil {
+                if onEdit != nil || onDelete != nil || onMigrateLegacyWord != nil {
                     Menu {
                         if let onEdit {
                             Button(action: onEdit) {
@@ -82,6 +81,11 @@ struct WordLibraryRecordDetailView: View {
                         if onDelete != nil {
                             Button(role: .destructive) { showDelete = true } label: {
                                 Label("删除词语", systemImage: "trash")
+                            }
+                        }
+                        if let onMigrateLegacyWord, LibraryWordMigrationPolicy.candidate(for: record) != nil {
+                            Button(action: onMigrateLegacyWord) {
+                                Label("迁移旧词语", systemImage: "arrow.triangle.2.circlepath")
                             }
                         }
                     } label: {

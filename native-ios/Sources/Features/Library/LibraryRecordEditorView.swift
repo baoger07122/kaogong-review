@@ -105,6 +105,7 @@ struct LibraryRecordEditorView: View {
     let recordID: String?
     let onSaved: ((String) -> Void)?
     let dismissAfterSave: Bool
+    let onMigrateLegacyWord: (() -> Void)?
     @State private var draft: LibraryRecordDraft
     @State private var editBaseline: LibraryRecordDraft
     @State private var showDelete = false
@@ -146,12 +147,14 @@ struct LibraryRecordEditorView: View {
         preferredErrorTypeID: String? = nil,
         preparedDraft: LibraryRecordDraft? = nil,
         dismissAfterSave: Bool = true,
+        onMigrateLegacyWord: (() -> Void)? = nil,
         onSaved: ((String) -> Void)? = nil
     ) {
         self.kind = kind
         self.scope = scope
         self.onSaved = onSaved
         self.dismissAfterSave = dismissAfterSave
+        self.onMigrateLegacyWord = onMigrateLegacyWord
         recordID = record?.recordID
         let currentPreparedDraft = preparedDraft.flatMap { candidate -> LibraryRecordDraft? in
             guard let record,
@@ -1126,13 +1129,28 @@ struct LibraryRecordEditorView: View {
             if recordID == nil {
                 newWordCategorySelector
             } else {
-                compactWordProperty(title: "类别", value: wordCategory.title, image: wordCategory.systemImage)
+                existingWordCategorySelector
+                if !canSafelyEditExistingWordCategory {
+                    legacyWordCategoryNotice
+                } else if let prepared = currentPreparedWordContent, !prepared.isEditable {
+                    legacyWordCategoryNotice
+                } else if isWordContentPreparing, !wordContentHTML.isEmpty {
+                    legacyWordCategoryNotice
+                }
             }
             NativeFieldLabel(title: "标题")
             compactWordTextField("标题", text: $draft.title)
                 .accessibilityIdentifier("library-word-title")
             NativeFieldLabel(title: "内容")
-            Group {
+            if recordID != nil, !canSafelyEditExistingWordCategory {
+                Label("原类别未知或冲突。为避免把旧正文归错类别，请先进入迁移预览。", systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 13))
+                    .foregroundStyle(AppTheme.warning)
+                    .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
+                    .padding(12)
+                    .background(AppTheme.warning.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+            } else {
+              Group {
                 if let prepared = currentPreparedWordContent,
                    let attributedText = prepared.editableAttributedText {
                     NativeRichTextEditor(
@@ -1173,6 +1191,7 @@ struct LibraryRecordEditorView: View {
                     .frame(maxWidth: .infinity, minHeight: 360, alignment: .topLeading)
                     .accessibilityIdentifier("library-word-content-loading")
                 }
+              }
             }
             multiRelationSection(title: "关联错题", candidates: relationCandidates(collection: "errors"), selection: $draft.linkedErrorIDs)
         }
@@ -1202,12 +1221,64 @@ struct LibraryRecordEditorView: View {
                             )
                     }
                     .buttonStyle(.plain)
-                    .disabled(isSwitchingWordCategory || !wordContentEditorSession.canFinishEditing)
+                    .disabled(!canSwitchWordCategory)
                     .accessibilityAddTraits(isSelected ? .isSelected : [])
                 }
             }
         }
         .accessibilityIdentifier("library-new-word-category-selector")
+    }
+
+    private var existingWordCategorySelector: some View {
+        let categories: [WordCategory] = [.wordDefinition, .idiomDefinition, .wordComparison, .idiomComparison]
+        return Menu {
+            ForEach(categories) { category in
+                Button {
+                    switchNewWordCategory(to: category)
+                } label: {
+                    HStack {
+                        Text(newWordCategoryTitle(category))
+                        Spacer(minLength: 20)
+                        if wordCategory == category {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                    .frame(minHeight: 44)
+                }
+            }
+        } label: {
+            compactWordProperty(
+                title: "类别",
+                value: canSafelyEditExistingWordCategory ? wordCategory.title : "待确认类别",
+                image: canSafelyEditExistingWordCategory ? wordCategory.systemImage : "questionmark.circle"
+            )
+            .frame(minHeight: 44)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .disabled(!canSwitchWordCategory)
+        .accessibilityIdentifier("library-existing-word-category-selector")
+    }
+
+    private var legacyWordCategoryNotice: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(!canSafelyEditExistingWordCategory
+                 ? "原类别未知或冲突，不能安全地按现有类别编辑。"
+                 : isWordContentPreparing
+                    ? "正文正在载入，类别切换暂不可用。"
+                    : "这段正文暂时不能安全编辑或切换类别。原记录会保留。")
+                .font(.system(size: 12))
+                .foregroundStyle(AppTheme.warning)
+            if canOpenWordMigration, let onMigrateLegacyWord {
+                Button("打开旧词语迁移预览", action: onMigrateLegacyWord)
+                    .font(.system(size: 12, weight: .medium))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(AppTheme.accent)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(AppTheme.warning.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func newWordCategoryTitle(_ category: WordCategory) -> String {
@@ -1220,15 +1291,12 @@ struct LibraryRecordEditorView: View {
     }
 
     private func switchNewWordCategory(to category: WordCategory) {
-        guard recordID == nil,
-              category != wordCategory,
-              !isSwitchingWordCategory,
-              wordContentEditorSession.canFinishEditing else { return }
+        guard category != wordCategory, canSwitchWordCategory else { return }
 
         isSwitchingWordCategory = true
         let sourceHTML = wordContentHTML
         wordContentEditorSession.endEditing { latestHTML in
-            guard self.recordID == nil else {
+            guard self.canSafelyEditExistingWordCategory else {
                 self.isSwitchingWordCategory = false
                 return
             }
@@ -1247,6 +1315,31 @@ struct LibraryRecordEditorView: View {
 
     private var wordCategory: WordCategory {
         WordCategory(rawValue: draft.type) ?? .idiomDefinition
+    }
+
+    private var canSafelyEditExistingWordCategory: Bool {
+        guard WordCategory(rawValue: draft.type) != nil else { return false }
+        guard recordID != nil else { return true }
+        return LibraryWordMigrationPolicy.resolvedCategory(in: draft.original) != nil
+    }
+
+    private var canSwitchWordCategory: Bool {
+        guard canSafelyEditExistingWordCategory,
+              !isSwitchingWordCategory,
+              wordContentEditorSession.canFinishEditing else { return false }
+        guard recordID != nil else { return true }
+        return currentPreparedWordContent?.isEditable == true
+    }
+
+    private var isWordContentPreparing: Bool {
+        if case .none = currentPreparedWordContent { return true }
+        return false
+    }
+
+    private var canOpenWordMigration: Bool {
+        guard let recordID,
+              let record = records.first(where: { $0.collection == "words" && $0.recordID == recordID }) else { return false }
+        return LibraryWordMigrationPolicy.candidate(for: record) != nil
     }
 
     private var wordContentBinding: Binding<String> {
@@ -1914,6 +2007,7 @@ struct LibraryRecordEditorView: View {
         case .notes: !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .words:
             !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && canSafelyEditExistingWordCategory
                 && currentPreparedWordContent?.isEditable == true
         case .stickies: !draft.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
@@ -1952,7 +2046,9 @@ struct LibraryRecordEditorView: View {
     private func save() {
         guard !isSaving else { return }
         if kind == .words {
-            guard let prepared = currentPreparedWordContent, prepared.isEditable else { return }
+            guard canSafelyEditExistingWordCategory,
+                  let prepared = currentPreparedWordContent,
+                  prepared.isEditable else { return }
             isSaving = true
             wordContentEditorSession.endEditing { latestHTML in
                 guard self.wordContentPreparationKey == prepared.key else {

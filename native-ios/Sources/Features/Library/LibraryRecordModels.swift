@@ -106,6 +106,8 @@ enum LibraryRoute: Hashable {
     case editor(kind: LibraryContentKind, recordID: String?)
     case shenlunAdaptation(recordID: String)
     case detail(kind: LibraryContentKind, recordID: String)
+    case wordMigrationList
+    case wordMigrationDetail(recordID: String)
 }
 
 enum ShenlunRecordFormat {
