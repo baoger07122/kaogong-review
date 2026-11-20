@@ -9,7 +9,7 @@ struct WordReviewView: View {
         var id: String { rawValue }
     }
 
-    private struct SessionEntry: Identifiable {
+    private struct SessionEntry: Identifiable, Hashable {
         let wordRecordID: String
         let attemptType: WordReviewAttemptType
         let submissionID: String
@@ -38,11 +38,13 @@ struct WordReviewView: View {
 
     @State private var tab: OverviewTab = .today
     @State private var selectedCategory: WordCategory = .idiomDefinition
+    @State private var historyCategory: WordCategory?
     @State private var activeSession: [SessionEntry] = []
     @State private var sessionIndex = 0
-    @State private var isRevealed = false
+    @State private var revealedEntry: SessionEntry?
     @State private var sessionGeneration = UUID()
     @State private var submissionInProgressID: String?
+    @State private var submissionErrorMessage: String?
     @State private var errorMessage: String?
     @State private var reviewDay = Calendar.current.startOfDay(for: .now)
     @State private var overviewSnapshot: WordReviewOverviewSnapshot?
@@ -98,6 +100,9 @@ struct WordReviewView: View {
         .background(Color.white)
         .navigationTitle("词语复习")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $revealedEntry) { entry in
+            reviewedWordDetail(entry)
+        }
         .toolbar {
             if !isReviewing {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -171,7 +176,7 @@ struct WordReviewView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if tab == .today {
                 Button {
-                    beginDueSession(categoryDueWordIDs)
+                    beginDueSession()
                 } label: {
                     Text("开始复习")
                         .font(.system(size: 15, weight: .semibold))
@@ -192,23 +197,10 @@ struct WordReviewView: View {
 
     private var todayContent: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(WordCategory.allCases) { category in
-                        Button { selectedCategory = category } label: {
-                            HStack(spacing: 6) {
-                                Text(category.title)
-                                Text("\(currentOverview?.dueWordIDsByCategory[category.rawValue]?.count ?? 0)").monospacedDigit()
-                            }
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(selectedCategory == category ? Color.white : Color.primary)
-                            .padding(.horizontal, 12)
-                            .frame(height: 32)
-                            .background(selectedCategory == category ? AppTheme.accent : Color.primary.opacity(0.055), in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+            categorySelector(selection: selectedCategory, includesAll: false, count: { category in
+                currentOverview?.dueWordIDsByCategory[category.rawValue]?.count ?? 0
+            }) { category in
+                if let category { selectedCategory = category }
             }
 
             if currentOverview == nil {
@@ -227,7 +219,7 @@ struct WordReviewView: View {
                 LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
                     ForEach(categoryDueWordIDs, id: \.self) { wordRecordID in
                         if let card = currentOverview?.cardsByID[wordRecordID] {
-                            Button { beginDueSession([wordRecordID]) } label: {
+                            Button { beginDueSession(startingAt: wordRecordID) } label: {
                                 Text(card.title)
                                     .font(.system(size: 14, weight: .regular))
                                     .foregroundStyle(.primary)
@@ -246,18 +238,69 @@ struct WordReviewView: View {
     }
 
     private var historyContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("复习历史").font(.system(size: 18, weight: .semibold))
+        let history = currentOverview?.histories ?? []
+        let visibleHistory = historyCategory.map { category in
+            history.filter {
+                [category.title, category.shortTitle, category.rawValue].contains($0.categoryTitle)
+            }
+        } ?? history
+        return LazyVStack(alignment: .leading, spacing: 12) {
+            categorySelector(selection: historyCategory, includesAll: true) { historyCategory = $0 }
             if currentOverview == nil {
                 ProgressView().frame(maxWidth: .infinity).padding(.vertical, 24)
-            } else if currentOverview?.histories.isEmpty != false {
-                emptyState(title: "还没有复习记录", detail: "每次提交“不会、模糊、掌握”后都会保存在这里。", image: "clock")
+            } else if visibleHistory.isEmpty {
+                emptyState(
+                    title: historyCategory == nil ? "还没有复习记录" : "此类暂无复习记录",
+                    detail: "提交评价后可在这里查看。",
+                    image: "clock"
+                )
             } else {
-                ForEach(currentOverview?.histories ?? []) { item in
+                ForEach(visibleHistory) { item in
                     historyRow(item)
                 }
             }
         }
+    }
+
+    private func categorySelector(
+        selection: WordCategory?,
+        includesAll: Bool,
+        count: ((WordCategory) -> Int)? = nil,
+        onSelect: @escaping (WordCategory?) -> Void
+    ) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if includesAll {
+                    categoryChip("全部", selected: selection == nil) { onSelect(nil) }
+                }
+                ForEach(WordCategory.allCases) { category in
+                    categoryChip(category.title, count: count?(category), selected: selection == category) {
+                        onSelect(category)
+                    }
+                }
+            }
+        }
+    }
+
+    private func categoryChip(
+        _ title: String,
+        count: Int? = nil,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text(title)
+                if let count { Text("\(count)").monospacedDigit() }
+            }
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(selected ? Color.white : Color.primary)
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .background(selected ? AppTheme.accent : Color.primary.opacity(0.055), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private var reviewSession: some View {
@@ -285,40 +328,25 @@ struct WordReviewView: View {
                     .padding(18)
                     .background(Color(red: 0.95, green: 0.97, blue: 1), in: RoundedRectangle(cornerRadius: 18))
 
-                    if isRevealed {
-                        revealedContent(group)
-                        NavigationLink(value: AppRoute.wordReviewWordDetail(group.recordID)) {
-                            Label("打开原词条", systemImage: "arrow.up.right.square")
-                                .font(.system(size: 14, weight: .medium))
-                        }
-                        .padding(.top, 2)
-                        Text("这组词你掌握得怎样？")
+                    Button {
+                        submissionErrorMessage = nil
+                        revealedEntry = entry
+                    } label: {
+                        Label(group.category.isComparison ? "查看辨析" : "查看释义", systemImage: "eye")
                             .font(.system(size: 15, weight: .semibold))
-                        HStack(spacing: 9) {
-                            feedbackButton(.unknown, entry: entry)
-                            feedbackButton(.fuzzy, entry: entry)
-                            feedbackButton(.mastered, entry: entry)
-                        }
-                    } else {
-                        Button {
-                            withAnimation(.easeOut(duration: 0.18)) { isRevealed = true }
-                        } label: {
-                            Label(group.category.isComparison ? "查看辨析" : "查看释义", systemImage: "eye")
-                                .font(.system(size: 15, weight: .semibold))
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 48)
-                                .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 13))
-                                .foregroundStyle(.white)
-                        }
-                        .buttonStyle(.plain)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 13))
+                            .foregroundStyle(.white)
                     }
-                } else if currentEntry != nil, currentWordDetailKey != nil {
+                    .buttonStyle(.plain)
+                } else if let key = currentWordDetailKey, loadedGroupKey != key {
                     ProgressView("正在打开词语…")
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 48)
                 } else {
-                    emptyState(title: "词条已不可用", detail: "该词语组可能已被删除，可结束本次复习。", image: "questionmark.folder")
-                    Button("返回词语复习") { endSession() }
+                    emptyState(title: "词条已不可用", detail: "可以跳过此词，继续复习。", image: "questionmark.folder")
+                    Button("跳过此词") { advanceSession() }
                 }
             }
             .padding(20)
@@ -326,6 +354,49 @@ struct WordReviewView: View {
             .padding(.bottom, 32)
             .frame(maxWidth: 700, alignment: .leading)
             .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func reviewedWordDetail(_ entry: SessionEntry) -> some View {
+        WordReviewWordDetailDestination(recordID: entry.wordRecordID, onDeleted: {
+            guard currentEntry == entry else { return }
+            advanceSession()
+        })
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if currentEntry == entry {
+                VStack(alignment: .leading, spacing: 9) {
+                    HStack {
+                        Text("掌握程度").font(.system(size: 15, weight: .semibold))
+                        Spacer()
+                        Text("\(sessionIndex + 1) / \(activeSession.count)")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    if currentWordDetailKey == nil || (loadedGroupKey == currentWordDetailKey && currentGroup == nil) {
+                        Button("跳过此词") { advanceSession() }
+                    } else {
+                        HStack(spacing: 9) {
+                            feedbackButton(.unknown, entry: entry)
+                            feedbackButton(.fuzzy, entry: entry)
+                            feedbackButton(.mastered, entry: entry)
+                        }
+                        .disabled(currentGroup == nil || submissionInProgressID != nil)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .frame(maxWidth: 700)
+                .frame(maxWidth: .infinity)
+                .background(.white)
+            }
+        }
+        .alert("保存评价失败", isPresented: Binding(
+            get: { submissionErrorMessage != nil },
+            set: { if !$0 { submissionErrorMessage = nil } }
+        )) {
+            Button("好", role: .cancel) { submissionErrorMessage = nil }
+        } message: {
+            Text(submissionErrorMessage ?? "")
         }
     }
 
@@ -347,57 +418,6 @@ struct WordReviewView: View {
         }
         .padding(.vertical, 9)
         .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.7) }
-    }
-
-    private func revealedContent(_ group: WordReviewWordGroup) -> some View {
-        VStack(alignment: .leading, spacing: 13) {
-            if group.category.isComparison {
-                if !group.commonMeaning.isEmpty { revealSection("共同语义", text: group.commonMeaning) }
-                if !group.coreDifference.isEmpty { revealSection("核心区别", text: group.coreDifference) }
-                ForEach(group.terms) { term in
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(term.name).font(.system(size: 15, weight: .semibold))
-                        if !term.meaning.isEmpty { revealRichTextSection("词义", html: term.meaning) }
-                        if !term.coreFocus.isEmpty { revealSection("核心侧重", text: term.coreFocus) }
-                        if !term.quickDecision.isEmpty { revealSection("一眼判断", text: term.quickDecision) }
-                        if !term.example.isEmpty { revealRichTextSection("例句", html: term.example) }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-                }
-                if !group.judgmentHint.isEmpty { revealRichTextSection("判断提示", html: group.judgmentHint) }
-            } else if let term = group.terms.first {
-                if !term.pinyin.isEmpty { revealSection("拼音", text: term.pinyin) }
-                if !term.partOfSpeech.isEmpty { revealSection("词性", text: term.partOfSpeech) }
-                if !term.meaning.isEmpty { revealRichTextSection("释义", html: term.meaning) }
-                if !term.example.isEmpty { revealRichTextSection("例句", html: term.example) }
-                if !term.myUnderstanding.isEmpty { revealRichTextSection("我的理解", html: term.myUnderstanding) }
-                if !term.collocations.isEmpty { revealRichTextSection("常见搭配", html: term.collocations) }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func revealSection(_ title: String, text: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
-            Text(text).font(.system(size: 14)).fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    private func revealRichTextSection(_ title: String, html: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
-            NativeRichTextDisplay(html: html, minHeight: 24)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func feedbackButton(_ feedback: WordReviewFeedback, entry: SessionEntry) -> some View {
@@ -527,10 +547,18 @@ struct WordReviewView: View {
         return formatter.string(from: date)
     }
 
-    private func beginDueSession(_ wordRecordIDs: [String]) {
+    private func beginDueSession(startingAt wordRecordID: String? = nil) {
         guard let snapshot = currentOverview else { return }
+        let dueIDs = categoryDueWordIDs
+        let orderedIDs: [String]
+        if let wordRecordID {
+            guard let startIndex = dueIDs.firstIndex(of: wordRecordID) else { return }
+            orderedIDs = Array(dueIDs[startIndex...] + dueIDs[..<startIndex])
+        } else {
+            orderedIDs = dueIDs
+        }
         var seenIDs = Set<String>()
-        let entries = wordRecordIDs.compactMap { wordRecordID -> SessionEntry? in
+        let entries = orderedIDs.compactMap { wordRecordID -> SessionEntry? in
             guard let plan = snapshot.plansByID[wordRecordID],
                   !plan.isPaused,
                   snapshot.cardsByID[wordRecordID] != nil,
@@ -545,7 +573,8 @@ struct WordReviewView: View {
         submissionInProgressID = nil
         activeSession = entries
         sessionIndex = 0
-        isRevealed = false
+        revealedEntry = nil
+        submissionErrorMessage = nil
         loadedGroup = nil
         loadedGroupKey = nil
     }
@@ -581,16 +610,20 @@ struct WordReviewView: View {
             if submissionInProgressID == entry.submissionID {
                 submissionInProgressID = nil
             }
-            errorMessage = error.localizedDescription
+            submissionErrorMessage = error.localizedDescription
         }
     }
 
     private func advanceSession() {
         sessionGeneration = UUID()
         submissionInProgressID = nil
-        if sessionIndex + 1 < activeSession.count {
-            sessionIndex += 1
-            isRevealed = false
+        revealedEntry = nil
+        submissionErrorMessage = nil
+        let availableIDs = Set(wordRecords.map(\.recordID))
+        if let nextIndex = activeSession.indices.dropFirst(sessionIndex + 1).first(where: {
+            availableIDs.contains(activeSession[$0].wordRecordID)
+        }) {
+            sessionIndex = nextIndex
             loadedGroup = nil
             loadedGroupKey = nil
         } else {
@@ -603,30 +636,86 @@ struct WordReviewView: View {
         submissionInProgressID = nil
         activeSession = []
         sessionIndex = 0
-        isRevealed = false
+        revealedEntry = nil
+        submissionErrorMessage = nil
         loadedGroup = nil
         loadedGroupKey = nil
         tab = .today
     }
 
-    private func perform(_ action: () throws -> Void) {
-        do { try action() }
-        catch { errorMessage = error.localizedDescription }
-    }
 }
 
 struct WordReviewWordDetailDestination: View {
-    let recordID: String
+    private enum WordAction: String, Hashable {
+        case edit
+        case migrate
+    }
 
-    @Query(filter: #Predicate<StoredRecord> { record in
-        record.collection == "words"
-    }) private var words: [StoredRecord]
+    private let recordID: String
+    private let onDeleted: (() -> Void)?
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Query private var words: [StoredRecord]
+    @State private var action: WordAction?
+    @State private var deletionError: String?
+
+    init(recordID: String, onDeleted: (() -> Void)? = nil) {
+        self.recordID = recordID
+        self.onDeleted = onDeleted
+        _words = Query(filter: #Predicate<StoredRecord> { record in
+            record.collection == "words" && record.recordID == recordID
+        })
+    }
 
     var body: some View {
-        if let record = words.first(where: { $0.recordID == recordID }) {
-            WordLibraryRecordDetailView(record: record)
-        } else {
-            ContentUnavailableView("词条已删除", systemImage: "text.book.closed", description: Text("该词语组已从词语库移除。"))
+        Group {
+            if let record = words.first {
+                WordLibraryRecordDetailView(
+                    record: record,
+                    onEdit: { action = .edit },
+                    onDelete: { deleteWord() },
+                    onMigrateLegacyWord: { action = .migrate }
+                )
+                .id(record.recordID)
+            } else {
+                ContentUnavailableView("词条已删除", systemImage: "text.book.closed", description: Text("该词语组已从词语库移除。"))
+            }
+        }
+        .navigationDestination(item: $action) { action in
+            if let record = words.first {
+                switch action {
+                case .edit:
+                    LibraryRecordEditorView(
+                        kind: .words,
+                        scope: LibraryScope(subject: record.subject, module: record.module),
+                        record: record,
+                        onMigrateLegacyWord: { self.action = .migrate }
+                    )
+                case .migrate:
+                    LibraryWordMigrationDetailView(record: record)
+                }
+            }
+        }
+        .alert("删除词语失败", isPresented: Binding(
+            get: { deletionError != nil },
+            set: { if !$0 { deletionError = nil } }
+        )) {
+            Button("好", role: .cancel) { deletionError = nil }
+        } message: {
+            Text(deletionError ?? "")
+        }
+    }
+
+    private func deleteWord() {
+        do {
+            let errors = try modelContext.fetch(FetchDescriptor<StoredRecord>(
+                predicate: #Predicate<StoredRecord> { $0.collection == "errors" }
+            ))
+            try LibraryRecordRepository.remove(kind: .words, id: recordID, records: words + errors, context: modelContext)
+            if let onDeleted { onDeleted() }
+            else { dismiss() }
+        } catch {
+            deletionError = error.localizedDescription
         }
     }
 }
