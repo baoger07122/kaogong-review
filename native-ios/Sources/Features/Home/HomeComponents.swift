@@ -82,6 +82,7 @@ struct HomeTodoRow: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .layoutPriority(1)
+                        Spacer(minLength: 8)
                         Text(todo.isSkipped ? "今日已跳过" : HomeTodoSchedulePresentation.label(
                             isCompleted: todo.isCompleted,
                             completedAt: todo.completedAt,

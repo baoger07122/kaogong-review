@@ -62,6 +62,7 @@ enum QuantityQuestionTypeRepository {
             )
             try updateRecordModules(from: oldName, to: value, records: records)
             try renameTagLibraryKeys(from: oldName, to: value, records: records)
+            try LibraryTagDisplayPreferences.shared.migrateQuantityTypeScope(from: oldName, to: value)
             try save(values, records: records, context: context, shouldSave: false)
         }
     }
@@ -78,6 +79,7 @@ enum QuantityQuestionTypeRepository {
             )
             try updateRecordModules(from: name, to: nil, records: records)
             try renameTagLibraryKeys(from: name, to: nil, records: records)
+            try LibraryTagDisplayPreferences.shared.migrateQuantityTypeScope(from: name, to: nil)
             try save(values, records: records, context: context, shouldSave: false)
         }
     }
@@ -150,6 +152,8 @@ enum QuantityQuestionTypeRepository {
         context: ModelContext,
         mutation: () throws -> Void
     ) throws {
+        let tagDisplayPreferences = LibraryTagDisplayPreferences.shared
+        let tagDisplayPreferenceSnapshot = tagDisplayPreferences.persistedDataSnapshot()
         let snapshots = mutationSnapshots(from: sourceModule, records: records)
         let keyValueIDs = Set([
             recordID,
@@ -163,6 +167,7 @@ enum QuantityQuestionTypeRepository {
         do {
             try context.transaction { try mutation() }
         } catch {
+            tagDisplayPreferences.restorePersistedData(tagDisplayPreferenceSnapshot)
             for snapshot in snapshots {
                 snapshot.record.replacePayload(snapshot.payload, indexPayload: snapshot.indexPayload)
                 snapshot.record.module = snapshot.module

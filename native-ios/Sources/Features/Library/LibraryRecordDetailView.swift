@@ -26,6 +26,8 @@ private struct LibraryDetailPayloadKey: Equatable {
 
 private struct LibraryDetailPageVersion: Equatable {
     let recordID: String
+    let payloadKey: LibraryDetailPayloadKey?
+    let loadRequestID: UUID?
     let revision: Int
     let isLoading: Bool
     let didFail: Bool
@@ -37,6 +39,18 @@ private struct LibraryDetailPageVersion: Equatable {
     let showsDelete: Bool
     let showsWordSelection: Bool
     let scenePhase: ScenePhase
+}
+
+private struct LibraryDetailLoadTrigger: Equatable {
+    let payloadKey: LibraryDetailPayloadKey?
+    let retryCount: Int
+}
+
+private enum LibraryDetailPayloadLoadState: Equatable {
+    case idle
+    case loading(key: LibraryDetailPayloadKey, requestID: UUID)
+    case loaded(key: LibraryDetailPayloadKey)
+    case failed(key: LibraryDetailPayloadKey?, requestID: UUID, message: String)
 }
 
 @MainActor
@@ -60,7 +74,13 @@ struct LibraryRecordDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var doodleSession: LibraryDoodleSession
-    @Query(filter: #Predicate<StoredRecord> { record in record.collection == "words" || record.collection == "errors" || record.collection == "exams" }) private var records: [StoredRecord]
+    @ObservedObject private var tagDisplayPreferences = LibraryTagDisplayPreferences.shared
+    @Query(filter: #Predicate<StoredRecord> {
+        record.collection == "words"
+            || record.collection == "errors"
+            || record.collection == "exams"
+            || record.collection == "keyvalue"
+    }) private var records: [StoredRecord]
     let kind: LibraryContentKind
     let scope: LibraryScope
     let onEdit: (String) -> Void
@@ -76,8 +96,9 @@ struct LibraryRecordDetailView: View {
     @State private var redoActionsAvailable = false
     @State private var redoActionsRecordID: String?
     @State private var imageSourceIdentities: [String: LibraryDetailImageSourceIdentity]
-    @State private var payloadDecodeFailed = false
     @State private var loadedPayloadKey: LibraryDetailPayloadKey?
+    @State private var payloadLoadState: LibraryDetailPayloadLoadState = .idle
+    @State private var payloadRetryCount = 0
     @State private var pageContentRevision = 0
     @State private var hasActiveQuestionTextSelection = false
     @State private var lastLocallySavedNoteUpdate: Date?
@@ -138,7 +159,6 @@ struct LibraryRecordDetailView: View {
         _activeRecordKey = State(initialValue: record.recordID)
         _object = State(initialValue: [:])
         _imageSourceIdentities = State(initialValue: [:])
-        _payloadDecodeFailed = State(initialValue: false)
     }
 
     var body: some View {
@@ -147,8 +167,14 @@ struct LibraryRecordDetailView: View {
 
     private var detailBehavior: some View {
         detailStateTracking
-            .task(id: activePayloadKey) {
-                await loadActivePayload()
+            .task(id: activePayloadLoadTrigger) {
+                await loadActivePayload(for: activePayloadLoadTrigger)
+            }
+            .task(id: activePayloadLoadRequestID) {
+                guard let requestID = activePayloadLoadRequestID,
+                      case let .loading(key, currentRequestID) = payloadLoadState,
+                      currentRequestID == requestID else { return }
+                await failPayloadLoadIfTimedOut(key: key, requestID: requestID)
             }
             .task(id: linkedQuestionContextKey) { loadLinkedQuestionContext() }
     }
@@ -298,6 +324,8 @@ struct LibraryRecordDetailView: View {
     private var detailPageVersion: LibraryDetailPageVersion {
         LibraryDetailPageVersion(
             recordID: activeRecordID,
+            payloadKey: activePayloadKey,
+            loadRequestID: activePayloadLoadRequestID,
             revision: pageContentRevision,
             isLoading: isPayloadLoading,
             didFail: payloadDecodeFailed,
@@ -351,12 +379,24 @@ struct LibraryRecordDetailView: View {
                     ProgressView("正在加载题目…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if payloadDecodeFailed {
-                    NativeStatusCard(
-                        title: "错题详情暂时无法读取",
-                        detail: "原始记录数据无法解析。笔记和编辑保存已阻止，以保留数据库中的原始内容。",
-                        systemImage: "exclamationmark.triangle",
-                        color: AppTheme.warning
-                    )
+                    VStack(spacing: 12) {
+                        NativeStatusCard(
+                            title: "错题详情暂时无法读取",
+                            detail: payloadLoadFailureMessage,
+                            systemImage: "exclamationmark.triangle",
+                            color: AppTheme.warning
+                        )
+                        Button {
+                            retryPayloadLoad()
+                        } label: {
+                            Label("重试", systemImage: "arrow.clockwise")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(minWidth: 112, minHeight: 44)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AppTheme.accent)
+                        .accessibilityIdentifier("library-record-detail-payload-retry")
+                    }
                     .padding(16)
                     .accessibilityIdentifier("library-record-detail-payload-error")
                 } else if showsDetachedDataAnalysisMaterial {
@@ -983,8 +1023,12 @@ struct LibraryRecordDetailView: View {
             }
             if isQuantityRelations {
                 metadataTextLine("题目结构", value: firstText(["quantityStructure"]) ?? "")
-                metadataTagLine("考点", values: knowledgePoints, emphasis: .strong)
-                metadataTagLine("错因标签", values: mistakeTags, emphasis: .strong)
+                if showsKnowledgePointAttribute {
+                    metadataTagLine("考点", values: knowledgePoints, emphasis: .strong)
+                }
+                if showsMistakeTagAttribute {
+                    metadataTagLine("错因标签", values: mistakeTags, emphasis: .strong)
+                }
                 quantityErrorCauseMetadata
             } else {
                 if displayQuestionBankContext != nil, !activeModule.isEmpty,
@@ -993,8 +1037,12 @@ struct LibraryRecordDetailView: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("question-bank-detail-question-type")
                 }
-                metadataTagLine(knowledgePointLabel, values: knowledgePoints, emphasis: .strong)
-                metadataTagLine("错因标签", values: mistakeTags, emphasis: .strong)
+                if showsKnowledgePointAttribute {
+                    metadataTagLine(knowledgePointLabel, values: knowledgePoints, emphasis: .strong)
+                }
+                if showsMistakeTagAttribute {
+                    metadataTagLine("错因标签", values: mistakeTags, emphasis: .strong)
+                }
                 dataAnalysisCauseMetadata
                 if isGraphReasoning {
                     metadataTextLine("图形规律", value: firstText(["graphRule", "patternRule"]) ?? "")
@@ -1858,7 +1906,7 @@ struct LibraryRecordDetailView: View {
             if canEditReviewAttributes {
                 Button {
                     editingDataAnalysisCauses = LibraryDetailAttribute(
-                        key: "errorCause",
+                        key: LibraryDataAnalysisCauseLayout.storageKey(in: object),
                         label: "错因说明",
                         value: values.joined(separator: "\n")
                     )
@@ -1904,7 +1952,7 @@ struct LibraryRecordDetailView: View {
         if canEditReviewAttributes {
             Button {
                 editingDataAnalysisCauses = LibraryDetailAttribute(
-                    key: "errorCause",
+                    key: LibraryDataAnalysisCauseLayout.storageKey(in: object),
                     label: "错因说明",
                     value: values.joined(separator: "\n")
                 )
@@ -2172,6 +2220,29 @@ struct LibraryRecordDetailView: View {
         if let values = stringArray("knowledgePoints"), !values.isEmpty { return values }
         return textValues(["knowledgePoint", "point", "topic"])
             .flatMap { $0.split(whereSeparator: { "、,，".contains($0) }).map(String.init) }
+    }
+
+    private var currentTagDisplaySettings: LibraryTagDisplaySettings {
+        tagDisplayPreferences.settings(
+            subject: activeSubject,
+            module: activeModule,
+            typeID: object["errorTypeID"] as? String,
+            records: records
+        )
+    }
+
+    private var showsKnowledgePointAttribute: Bool {
+        guard isXingceTagDisplayScope else { return true }
+        return currentTagDisplaySettings.showsKnowledgePointAttribute
+    }
+
+    private var showsMistakeTagAttribute: Bool {
+        guard isXingceTagDisplayScope else { return true }
+        return currentTagDisplaySettings.showsMistakeTagAttribute
+    }
+
+    private var isXingceTagDisplayScope: Bool {
+        kind == .errors && (activeSubject == "数量关系" || LibraryErrorTypeSubject(rawValue: activeSubject) != nil)
     }
 
     private var displayQuestionBankContext: QuestionBankQuestionAnalysisContext? {
@@ -2555,33 +2626,82 @@ struct LibraryRecordDetailView: View {
         )
     }
 
-    private var isPayloadLoading: Bool {
-        guard let key = activePayloadKey else { return !payloadDecodeFailed }
-        return loadedPayloadKey?.recordID != key.recordID
+    private var activePayloadLoadTrigger: LibraryDetailLoadTrigger {
+        LibraryDetailLoadTrigger(payloadKey: activePayloadKey, retryCount: payloadRetryCount)
     }
 
-    private func loadActivePayload() async {
-        guard let key = activePayloadKey,
+    private var activePayloadLoadRequestID: UUID? {
+        guard let activePayloadKey,
+              case let .loading(key, requestID) = payloadLoadState,
+              key == activePayloadKey else { return nil }
+        return requestID
+    }
+
+    private var isPayloadLoading: Bool {
+        guard let key = activePayloadKey else { return !payloadDecodeFailed }
+        switch payloadLoadState {
+        case let .loaded(loadedKey):
+            return loadedKey != key
+        case let .failed(failedKey, _, _):
+            return failedKey != key
+        case .loading:
+            return true
+        case .idle:
+            return loadedPayloadKey != key
+        }
+    }
+
+    private var payloadDecodeFailed: Bool {
+        guard case let .failed(failedKey, _, _) = payloadLoadState else { return false }
+        return failedKey == activePayloadKey
+    }
+
+    private var payloadLoadFailureMessage: String {
+        guard case let .failed(failedKey, _, message) = payloadLoadState,
+              failedKey == activePayloadKey else {
+            return "本次详情读取没有完成。你可以重试，或直接返回题目列表。"
+        }
+        return message
+    }
+
+    private func loadActivePayload(for trigger: LibraryDetailLoadTrigger) async {
+        guard !Task.isCancelled, trigger == activePayloadLoadTrigger else { return }
+        let requestID = UUID()
+        guard let key = trigger.payloadKey,
               let record,
               record.compoundID == key.recordID else {
             object = [:]
             imageSourceIdentities = [:]
-            payloadDecodeFailed = true
             loadedPayloadKey = nil
             redoActionsAvailable = false
             redoActionsRecordID = nil
+            payloadLoadState = .failed(
+                key: trigger.payloadKey,
+                requestID: requestID,
+                message: "当前错题记录已不可用，笔记和编辑已停止，原始数据未被修改。"
+            )
+            LibraryPerformanceLog.event(
+                "detail.payload.missing id=\(LibraryPerformanceLog.shortIdentifier(activeRecordID)) req=\(requestID.uuidString.prefix(8))"
+            )
             return
         }
-        guard loadedPayloadKey != key else { return }
+        if loadedPayloadKey == key {
+            payloadLoadState = .loaded(key: key)
+            return
+        }
         if let lastLocallySavedNoteUpdate,
            key.updatedAt == lastLocallySavedNoteUpdate {
             self.lastLocallySavedNoteUpdate = nil
             loadedPayloadKey = key
+            payloadLoadState = .loaded(key: key)
             return
         }
 
-        guard !Task.isCancelled else { return }
+        payloadLoadState = .loading(key: key, requestID: requestID)
         let payload = record.payload
+        LibraryPerformanceLog.event(
+            "detail.payload.begin id=\(LibraryPerformanceLog.shortIdentifier(key.recordID)) req=\(requestID.uuidString.prefix(8)) bytes=\(payload.count)"
+        )
         let decoded = await LibraryPayloadDecodeCoordinator.shared.decode(
             key: LibraryPayloadDecodeKey(
                 recordID: key.recordID,
@@ -2592,18 +2712,82 @@ struct LibraryRecordDetailView: View {
             payload: payload,
             priority: .userInitiated
         )
-        guard !Task.isCancelled, activePayloadKey == key else { return }
+        if Task.isCancelled {
+            if activePayloadKey == key,
+               case let .loading(currentKey, currentRequestID) = payloadLoadState,
+               currentKey == key,
+               currentRequestID == requestID {
+                payloadLoadState = .failed(
+                    key: key,
+                    requestID: requestID,
+                    message: "本次详情读取被中断。你可以重试，或直接返回题目列表。"
+                )
+                LibraryPerformanceLog.event(
+                    "detail.payload.cancel id=\(LibraryPerformanceLog.shortIdentifier(key.recordID)) req=\(requestID.uuidString.prefix(8))"
+                )
+            }
+            return
+        }
+        guard activePayloadLoadTrigger == trigger,
+              activePayloadKey == key,
+              case let .loading(currentKey, currentRequestID) = payloadLoadState,
+              currentKey == key,
+              currentRequestID == requestID else { return }
+
         if let decoded {
             refreshObject(decoded.object)
-            payloadDecodeFailed = false
+            loadedPayloadKey = key
+            payloadLoadState = .loaded(key: key)
             updateRedoActionAvailability(for: record, payload: decoded.object)
+            LibraryPerformanceLog.event(
+                "detail.payload.success id=\(LibraryPerformanceLog.shortIdentifier(key.recordID)) req=\(requestID.uuidString.prefix(8)) bytes=\(payload.count)"
+            )
         } else {
             refreshObject([:])
-            payloadDecodeFailed = true
+            loadedPayloadKey = nil
+            payloadLoadState = .failed(
+                key: key,
+                requestID: requestID,
+                message: "原始记录数据无法解析。笔记和编辑保存已停止，以保留数据库中的原始内容。"
+            )
             redoActionsAvailable = false
             redoActionsRecordID = key.recordID
+            LibraryPerformanceLog.event(
+                "detail.payload.decode-failed id=\(LibraryPerformanceLog.shortIdentifier(key.recordID)) req=\(requestID.uuidString.prefix(8)) bytes=\(payload.count)"
+            )
         }
-        loadedPayloadKey = key
+    }
+
+    private func failPayloadLoadIfTimedOut(key: LibraryDetailPayloadKey, requestID: UUID) async {
+        do {
+            try await Task.sleep(nanoseconds: 20_000_000_000)
+        } catch {
+            return
+        }
+        guard !Task.isCancelled,
+              activePayloadKey == key,
+              case let .loading(currentKey, currentRequestID) = payloadLoadState,
+              currentKey == key,
+              currentRequestID == requestID else { return }
+        payloadLoadState = .failed(
+            key: key,
+            requestID: requestID,
+            message: "题目读取超过 20 秒仍未完成。你可以重试，或直接返回题目列表。"
+        )
+        LibraryPerformanceLog.event(
+            "detail.payload.timeout id=\(LibraryPerformanceLog.shortIdentifier(key.recordID)) req=\(requestID.uuidString.prefix(8)) bytes=\(key.payloadCount)"
+        )
+    }
+
+    private func retryPayloadLoad() {
+        guard payloadDecodeFailed else { return }
+        object = [:]
+        imageSourceIdentities = [:]
+        loadedPayloadKey = nil
+        redoActionsAvailable = false
+        redoActionsRecordID = nil
+        payloadLoadState = .idle
+        payloadRetryCount &+= 1
     }
 
     private func updateRedoActionAvailability(for record: StoredRecord, payload: [String: Any]) {

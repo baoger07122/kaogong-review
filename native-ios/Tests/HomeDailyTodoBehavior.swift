@@ -40,9 +40,9 @@ struct HomeDailyTodoBehavior {
             now: dayTwo,
             calendar: calendar
         )
-        expect(completionLabel == "2026年11月11日",
-            "completed items show the actual completion day without a time")
-        expect(completionLabel != "2026年11月10日",
+        expect(completionLabel == "11.11",
+            "completed items show the actual completion day as an unpadded month and day")
+        expect(completionLabel != "11.10",
             "completed items do not show the planned day instead of the completion day")
         expect(HomeTodoSchedulePresentation.label(
             isCompleted: true,
@@ -50,7 +50,14 @@ struct HomeDailyTodoBehavior {
             scheduledAt: plannedTime,
             now: dayTwo,
             calendar: calendar
-        ) == "2026年11月10日", "legacy completed items without a timestamp fall back to their planned date")
+        ) == "11.10", "legacy completed items without a timestamp fall back to their planned date")
+        expect(HomeTodoSchedulePresentation.label(
+            isCompleted: false,
+            completedAt: nil,
+            scheduledAt: date(2026, 1, 5, 8, 0, calendar: calendar),
+            now: dayTwo,
+            calendar: calendar
+        ) == "1.5", "single-digit months and days are not zero-padded")
 
         let orderEntries = [
             HomeDailyTodoRuleOrderEntry(id: "old-a", sortOrder: nil, createdAt: dayOne),

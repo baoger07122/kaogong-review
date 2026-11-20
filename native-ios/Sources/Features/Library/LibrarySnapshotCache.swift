@@ -69,6 +69,7 @@ final class LibrarySnapshotCache {
         let includesImages: Bool
         let reviewSource: LibraryReviewSource
         let knowledgePointNames: Set<String>
+        let tagDisplaySettings: LibraryTagDisplaySettings
         let snapshot: LibraryRecordSnapshot
     }
 
@@ -214,7 +215,8 @@ final class LibrarySnapshotCache {
         includeImages: Bool,
         reviewSource: LibraryReviewSource = .pending,
         sourceExamTitlesByID: [String: String] = [:],
-        knowledgePointNames: Set<String> = []
+        knowledgePointNames: Set<String> = [],
+        tagDisplaySettings: LibraryTagDisplaySettings = .defaults
     ) -> LibraryRecordSnapshot {
         let payloadCount = record.payload.count
         let indexPayloadCount = record.indexPayload?.count ?? 0
@@ -224,7 +226,8 @@ final class LibrarySnapshotCache {
            cached.indexPayloadCount == indexPayloadCount,
            cached.includesImages == includeImages,
            cached.reviewSource == reviewSource,
-           cached.knowledgePointNames == knowledgePointNames {
+           cached.knowledgePointNames == knowledgePointNames,
+           cached.tagDisplaySettings == tagDisplaySettings {
             return cached.snapshot
         }
         let previousImageSnapshot = entries[record.compoundID]?.snapshot
@@ -235,7 +238,8 @@ final class LibrarySnapshotCache {
             reviewSource: reviewSource,
             includeImages: includeImages,
             previousImageSnapshot: previousImageSnapshot,
-            knowledgePointNames: knowledgePointNames
+            knowledgePointNames: knowledgePointNames,
+            tagDisplaySettings: tagDisplaySettings
         )
         entries[record.compoundID] = Entry(
             updatedAt: record.updatedAt,
@@ -244,6 +248,7 @@ final class LibrarySnapshotCache {
             includesImages: includeImages,
             reviewSource: reviewSource,
             knowledgePointNames: knowledgePointNames,
+            tagDisplaySettings: tagDisplaySettings,
             snapshot: value
         )
         return value

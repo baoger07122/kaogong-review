@@ -155,7 +155,7 @@ enum HomeTodoSchedulePresentation {
     }
 
     private static func dateLabel(_ date: Date, calendar: Calendar) -> String {
-        let values = calendar.dateComponents([.year, .month, .day], from: date)
-        return "\(values.year ?? 0)年\(values.month ?? 0)月\(values.day ?? 0)日"
+        let values = calendar.dateComponents([.month, .day], from: date)
+        return "\(values.month ?? 0).\(values.day ?? 0)"
     }
 }

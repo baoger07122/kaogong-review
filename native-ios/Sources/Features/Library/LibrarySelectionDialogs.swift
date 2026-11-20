@@ -201,7 +201,7 @@ private struct SelectedTagSearchFlow: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = max(1, proposal.width ?? 320)
         let result = layout(subviews, width: width)
-        return CGSize(width: width, height: max(44, result.height))
+        return CGSize(width: width, height: max(28, result.height))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {

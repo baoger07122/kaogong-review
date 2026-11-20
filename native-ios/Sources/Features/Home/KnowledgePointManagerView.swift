@@ -75,6 +75,7 @@ struct KnowledgePointManagerView: View {
     @State private var mistakeTagTypeMove: MistakeTagTypeMove?
     @State private var folderAnchors: [String: CGRect] = [:]
     @State private var groupMoveRequest: KnowledgePointGroupMoveRequest?
+    @State private var showsTagDisplaySettings = false
 
     private var selectedTypeID: String? { isTypedCatalogTag ? selectedVerbalTypeID : nil }
     private var errorTypeLabel: String { subject.name == "资料分析" ? "错误类型" : "题型" }
@@ -137,6 +138,22 @@ struct KnowledgePointManagerView: View {
         subject.name == "数量关系" ? QuantityQuestionTypeRepository.types(records: records) : subject.modules
     }
 
+    private var supportsTagDisplaySettings: Bool {
+        (subject.name == "数量关系" || LibraryErrorTypeSubject(rawValue: subject.name) != nil)
+            && !module.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var tagDisplayScopeDescription: String {
+        if subject.name == "数量关系" {
+            return "\(subject.name) · \(module)"
+        }
+        if let selectedVerbalTypeID,
+           let selectedType = verbalTypes.first(where: { $0.id == selectedVerbalTypeID }) {
+            return "\(subject.name) · \(module) · \(selectedType.name)"
+        }
+        return "\(subject.name) · \(module) · 模块默认"
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -165,6 +182,26 @@ struct KnowledgePointManagerView: View {
                         moduleSelector
                         if isTypedCatalogTag { verbalTypeSelector }
                     }
+                }
+
+                if kind.groupCategory != nil, supportsTagDisplaySettings {
+                    Button { showsTagDisplaySettings = true } label: {
+                        HStack(spacing: 8) {
+                            Text("标签展示")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.primary)
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("library-tag-display-settings")
                 }
 
                 if kind.groupCategory != nil {
@@ -437,6 +474,15 @@ struct KnowledgePointManagerView: View {
                 typeID: isTypedCatalogTag ? selectedVerbalTypeID : nil,
                 groupID: selectedGroupID,
                 category: kind.groupCategory ?? .knowledgePoint
+            )
+        }
+        .sheet(isPresented: $showsTagDisplaySettings) {
+            LibraryTagDisplaySettingsSheet(
+                subject: subject.name,
+                module: module,
+                typeID: selectedVerbalTypeID,
+                scopeDescription: tagDisplayScopeDescription,
+                records: records
             )
         }
         .onAppear {

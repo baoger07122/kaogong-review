@@ -15,6 +15,11 @@ enum LibraryDataAnalysisCauseLayout {
         return []
     }
 
+    static func storageKey(in object: [String: Any]) -> String {
+        if object["errorCause"] != nil { return "errorCause" }
+        return ["cause", "reason"].first(where: { object[$0] != nil }) ?? "errorCause"
+    }
+
     static func splitLines(_ text: String) -> [String] {
         text.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

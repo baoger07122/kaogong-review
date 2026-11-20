@@ -510,6 +510,7 @@ private struct LibraryDataAnalysisMaterialSection: View {
 
 private struct LibraryErrorAnalysisSection: View {
     let records: [StoredRecord]
+    @ObservedObject private var tagDisplayPreferences = LibraryTagDisplayPreferences.shared
     @Binding var draft: LibraryRecordDraft
     @Binding var activeTags: ManagedTagKind?
     @Binding var showQuantityKnowledgePoints: Bool
@@ -522,6 +523,14 @@ private struct LibraryErrorAnalysisSection: View {
     private var isLogicJudgment: Bool { draft.subject == "判断推理" && draft.module == "逻辑判断" }
     private var knowledgeLabel: String { isLogicJudgment ? "题干逻辑结构" : "考点" }
     private var causeLabel: String { isLogicJudgment ? "选项逻辑作用" : (isAnalogy ? "二级辨析" : "错因") }
+    private var tagDisplaySettings: LibraryTagDisplaySettings {
+        tagDisplayPreferences.settings(
+            subject: draft.subject,
+            module: draft.module,
+            typeID: draft.errorTypeID,
+            records: records
+        )
+    }
     private var quantityErrorCause: Binding<String> {
         Binding(
             get: { draft.errorCause },
@@ -552,8 +561,12 @@ private struct LibraryErrorAnalysisSection: View {
         VStack(alignment: .leading, spacing: 7) {
             Label("题型分析", systemImage: "tag").font(.system(size: 13, weight: .medium))
             quantityTextInput(title: "题目结构", placeholder: "例如：矩形边界植树", text: $draft.quantityStructure)
-            quantityTagInput(title: "考点", value: draft.knowledgePointNames.joined(separator: "、")) { showQuantityKnowledgePoints = true }
-            tagInput(title: "错因标签", text: mistakeTagDisplay, allowsMultiple: true, selectionKind: .mistakeTag)
+            if tagDisplaySettings.showsKnowledgePointAttribute {
+                quantityTagInput(title: "考点", value: draft.knowledgePointNames.joined(separator: "、")) { showQuantityKnowledgePoints = true }
+            }
+            if tagDisplaySettings.showsMistakeTagAttribute {
+                tagInput(title: "错因标签", text: mistakeTagDisplay, allowsMultiple: true, selectionKind: .mistakeTag)
+            }
             LibraryMultilinePlainTextInput(label: "错因说明", text: quantityErrorCause)
             plainTextInput(label: "提醒", text: $draft.reminder)
         }
@@ -565,8 +578,12 @@ private struct LibraryErrorAnalysisSection: View {
     private var generalAnalysis: some View {
         VStack(alignment: .leading, spacing: 7) {
             Label("\(knowledgeLabel)与\(causeLabel)", systemImage: "tag").font(.system(size: 13, weight: .medium))
-            tagInput(title: knowledgeLabel, text: $draft.knowledgePoint, allowsMultiple: true, showsChevron: false)
-            tagInput(title: "错因标签", text: mistakeTagDisplay, allowsMultiple: true, selectionKind: .mistakeTag)
+            if tagDisplaySettings.showsKnowledgePointAttribute {
+                tagInput(title: knowledgeLabel, text: $draft.knowledgePoint, allowsMultiple: true, showsChevron: false)
+            }
+            if tagDisplaySettings.showsMistakeTagAttribute {
+                tagInput(title: "错因标签", text: mistakeTagDisplay, allowsMultiple: true, selectionKind: .mistakeTag)
+            }
             LibraryMultilinePlainTextInput(label: "错因说明", text: $draft.errorCause)
             if !isLogicFill {
                 plainTextInput(label: isDataAnalysis ? "陷阱" : "思维误区", text: $draft.pitfall)

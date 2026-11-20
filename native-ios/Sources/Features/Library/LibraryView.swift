@@ -5,6 +5,7 @@ import SwiftUI
 struct LibraryView: View {
     @Binding var navigationPath: [LibraryRoute]
     @Environment(\.modelContext) private var modelContext
+    @ObservedObject private var tagDisplayPreferences = LibraryTagDisplayPreferences.shared
     @Query(filter: #Predicate<StoredRecord> { record in
         record.collection == "errors"
             || record.collection == "notes"
@@ -486,7 +487,7 @@ struct LibraryView: View {
                                 .buttonStyle(NativeSecondaryButtonStyle())
                             }
                         }
-                    } else if isGraphReasoningContext, graphDisplayMode == "flashcards" {
+                    } else if isGraphReasoningContext, selectedGraphDisplayMode == "flashcards" {
                         GraphReasoningFlashcardView(
                             records: visibleRecords,
                             onEdit: { navigationPath.append(.editor(kind: kind, recordID: $0.record.recordID)) }
@@ -496,7 +497,7 @@ struct LibraryView: View {
                             records: visibleRecords,
                             kind: kind,
                             cardSize: cardSize,
-                            partitionKey: "\(kind.collection)|\(scope.subject ?? "")|\(scope.module ?? "")|\(scope.reviewSource.rawValue)|\(includesMasteredErrors)|\(selectedTag)|\(knowledgePointFilterCacheKey)|\(mistakeTagFilterCacheKey)|\(selectedQuantityType)|\(selectedErrorType)|\(searchText)",
+                            partitionKey: "\(kind.collection)|\(scope.subject ?? "")|\(scope.module ?? "")|\(scope.reviewSource.rawValue)|\(includesMasteredErrors)|\(selectedTag)|\(knowledgePointFilterCacheKey)|\(mistakeTagFilterCacheKey)|\(selectedQuantityType)|\(selectedErrorType)|\(searchText)|tag-display-\(tagDisplayPreferences.revision)|graph-mode-\(isGraphReasoningContext ? selectedGraphDisplayMode : "none")",
                             onOpen: { open($0) },
                             onDelete: { deleteTarget = LibraryDeleteTarget(kind: kind, recordID: $0.record.recordID) },
                             hiddenTags: kind == .notes && !selectedTag.isEmpty ? [selectedTag] : [],
@@ -504,7 +505,8 @@ struct LibraryView: View {
                                 && LibraryQuantityTypeSelectionPolicy.concreteType(
                                     selected: selectedQuantityType,
                                     availableTypes: quantityQuestionTypes
-                                ) != nil
+                                ) != nil,
+                            usesMemoryCardPresentation: isGraphReasoningContext && selectedGraphDisplayMode == "memoryCards"
                         )
                     }
                     if hasMoreVisibleRecords {
@@ -743,7 +745,32 @@ struct LibraryView: View {
     @ViewBuilder
     private func filterBar(availableTags: [String]) -> some View {
         if hasVisibleFilterControls {
-        HStack(spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    categoryFilterControl(availableTags: availableTags)
+                    cardSizeControl
+                    graphModeControl
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        categoryFilterControl(availableTags: availableTags)
+                        cardSizeControl
+                    }
+                    graphModeControl
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    categoryFilterControl(availableTags: availableTags)
+                    cardSizeControl
+                    graphModeControl
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func categoryFilterControl(availableTags: [String]) -> some View {
             if kind == .errors, showsCategoryControl, canShowCategoryControl {
                 let selectedFilterCount = selectedKnowledgePointFilters.count + selectedMistakeTagFilters.count
                 Menu {
@@ -767,7 +794,10 @@ struct LibraryView: View {
                     filterLabel(selectedTag.isEmpty ? "标签/标记" : selectedTag)
                 }
             }
+    }
 
+    @ViewBuilder
+    private var cardSizeControl: some View {
             if showsCardSizeControl {
                 HStack(spacing: 1) {
                     ForEach(LibraryCardSize.allCases) { size in
@@ -782,17 +812,19 @@ struct LibraryView: View {
                 .padding(3)
                 .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
+    }
 
+    @ViewBuilder
+    private var graphModeControl: some View {
             if isGraphReasoningContext {
                 HStack(spacing: 1) {
                     graphModeButton("卡片", value: "cards")
+                    graphModeButton("默卡", value: "memoryCards")
                     graphModeButton("闪卡", value: "flashcards")
                 }
                 .padding(3)
                 .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
-        }
-        }
     }
 
     private var canShowCategoryControl: Bool {
@@ -827,12 +859,17 @@ struct LibraryView: View {
         Button { graphDisplayMode = value } label: {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(graphDisplayMode == value ? AppTheme.accent : Color.secondary)
+                .foregroundStyle(selectedGraphDisplayMode == value ? AppTheme.accent : Color.secondary)
                 .frame(width: 38, height: 28)
-                .background(graphDisplayMode == value ? AppTheme.accent.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+                .background(selectedGraphDisplayMode == value ? AppTheme.accent.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+        .accessibilityValue(selectedGraphDisplayMode == value ? "已选中" : "未选中")
+    }
+
+    private var selectedGraphDisplayMode: String {
+        ["cards", "memoryCards", "flashcards"].contains(graphDisplayMode) ? graphDisplayMode : "cards"
     }
 
     private func filterLabel(_ value: String) -> some View {
@@ -857,6 +894,8 @@ struct LibraryView: View {
     private func snapshots(from scopedRecords: [StoredRecord]) -> [LibraryRecordSnapshot] {
         let wordNames = snapshotCache.wordNames(in: records)
         let examTitles = snapshotCache.examTitles(in: records)
+        let typeCatalog = snapshotCache.knowledgePointCatalog(records: records)
+        let quantityTypes = Set(recordListCache.quantityTypes(records: records))
         return Array(scopedRecords.prefix(renderLimit)).map {
             snapshotCache.snapshot(
                 record: $0,
@@ -864,9 +903,46 @@ struct LibraryView: View {
                 includeImages: includesQuestionImages(in: $0),
                 reviewSource: scope.reviewSource,
                 sourceExamTitlesByID: examTitles,
-                knowledgePointNames: knowledgePointNames(for: $0)
+                knowledgePointNames: knowledgePointNames(for: $0),
+                tagDisplaySettings: tagDisplaySettings(
+                    for: $0,
+                    typeCatalog: typeCatalog,
+                    quantityTypes: quantityTypes
+                )
             )
         }
+    }
+
+    private func tagDisplaySettings(
+        for record: StoredRecord,
+        typeCatalog: LibraryKnowledgePointCatalogSnapshot,
+        quantityTypes: Set<String>
+    ) -> LibraryTagDisplaySettings {
+        let object = record.compatibilityIndexObject ?? [:]
+        let subject = [record.subject, object["subject"] as? String]
+            .compactMap { $0 }
+            .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
+        let module = [record.module, object["module"] as? String]
+            .compactMap { $0 }
+            .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? ""
+        let validTypeIDs: Set<String>?
+        if let typeSubject = LibraryErrorTypeSubject(rawValue: subject) {
+            validTypeIDs = Set(
+                typeCatalog.types(for: typeSubject)
+                    .filter { $0.isAvailable(in: module) }
+                    .map(\.id)
+            )
+        } else {
+            validTypeIDs = nil
+        }
+        return tagDisplayPreferences.settings(
+            subject: subject,
+            module: module,
+            typeID: object["errorTypeID"] as? String,
+            records: records,
+            validTypeIDs: validTypeIDs,
+            validQuantityTypes: quantityTypes
+        )
     }
 
     private func knowledgePointNames(for record: StoredRecord) -> Set<String> {

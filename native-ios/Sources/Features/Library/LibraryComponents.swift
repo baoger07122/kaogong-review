@@ -404,10 +404,67 @@ private struct LibraryErrorRecordCard: View {
     let snapshot: LibraryRecordSnapshot
     let size: LibraryCardSize
     let hidesQuantityTypeLabel: Bool
+    let usesMemoryCardPresentation: Bool
     @State private var cardWidth: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if usesMemoryCardPresentation {
+                memoryCardContent
+            } else {
+                regularCardContent
+            }
+        }
+        .padding(14)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: usesMemoryCardPresentation || !isDataAnalysisComposite ? 110 : 0,
+            alignment: .leading
+        )
+        .background {
+            if isDataAnalysisComposite && !usesMemoryCardPresentation {
+                GeometryReader { proxy in
+                    Color.clear.preference(key: LibraryErrorCardWidthPreferenceKey.self, value: proxy.size.width)
+                }
+            }
+        }
+        .onPreferenceChange(LibraryErrorCardWidthPreferenceKey.self) { width in
+            guard isDataAnalysisComposite, !usesMemoryCardPresentation else { return }
+            guard width > 0, abs(width - cardWidth) > 0.5 else { return }
+            cardWidth = width
+        }
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.primary.opacity(0.065), lineWidth: 0.7)
+        }
+        .shadow(color: Color.black.opacity(0.04), radius: 6, y: 3)
+    }
+
+    @ViewBuilder
+    private var memoryCardContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !snapshot.imageValues.isEmpty {
+                images(showsImageCountHint: false)
+            }
+            if !snapshot.questionPrompt.isEmpty {
+                Text(snapshot.questionPrompt)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color.primary)
+                    .lineSpacing(2.5)
+                    .lineLimit(size.questionLineLimit)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if snapshot.imageValues.isEmpty {
+                Text("未命名记录")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var regularCardContent: some View {
             questionKnowledgeHeader
             if isLogicFill, !displayedLogicComparisonGroups.isEmpty {
                 logicComparisonLine
@@ -422,7 +479,7 @@ private struct LibraryErrorRecordCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            images
+            images(showsImageCountHint: true)
 
             Text(isLogicFill ? LibraryLogicComparisonLayout.preview(snapshot.title) : snapshot.title)
                 .font(.system(size: 14, weight: .regular))
@@ -482,31 +539,10 @@ private struct LibraryErrorRecordCard: View {
                     }
                 }
             }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: isDataAnalysisComposite ? 0 : 110, alignment: .leading)
-        .background {
-            if isDataAnalysisComposite {
-                GeometryReader { proxy in
-                    Color.clear.preference(key: LibraryErrorCardWidthPreferenceKey.self, value: proxy.size.width)
-                }
-            }
-        }
-        .onPreferenceChange(LibraryErrorCardWidthPreferenceKey.self) { width in
-            guard isDataAnalysisComposite else { return }
-            guard width > 0, abs(width - cardWidth) > 0.5 else { return }
-            cardWidth = width
-        }
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.primary.opacity(0.065), lineWidth: 0.7)
-        }
-        .shadow(color: Color.black.opacity(0.04), radius: 6, y: 3)
     }
 
     @ViewBuilder
-    private var images: some View {
+    private func images(showsImageCountHint: Bool) -> some View {
         if !snapshot.imageValues.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(Array(snapshot.imageValues.prefix(isDataAnalysisComposite ? 1 : 3).enumerated()), id: \.offset) { index, source in
@@ -524,7 +560,7 @@ private struct LibraryErrorRecordCard: View {
                         Spacer(minLength: 0)
                     }
                 }
-                if !isDataAnalysisComposite, snapshot.imageValues.count > 3 {
+                if showsImageCountHint, !isDataAnalysisComposite, snapshot.imageValues.count > 3 {
                     Text("+\(snapshot.imageValues.count - 3) 张图片")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
@@ -676,16 +712,18 @@ private struct LibraryErrorRecordCard: View {
     @ViewBuilder
     private var questionKnowledgeHeader: some View {
         if isQuantityRelations {
-            VStack(alignment: .leading, spacing: 6) {
-                if showsQuantityTypeInHeader {
-                    knowledgeHeaderTag(quantityQuestionTypeTitle)
-                }
-                if !snapshot.knowledgePoints.isEmpty {
-                    knowledgePointsLine(snapshot.knowledgePoints)
+            if showsQuantityTypeInHeader || !snapshot.cardTopTagLabels.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    if showsQuantityTypeInHeader {
+                        knowledgeHeaderTag(quantityQuestionTypeTitle)
+                    }
+                    if !snapshot.cardTopTagLabels.isEmpty {
+                        knowledgePointsLine(snapshot.cardTopTagLabels)
+                    }
                 }
             }
-        } else if !snapshot.knowledgePoints.isEmpty {
-            knowledgePointsLine(snapshot.knowledgePoints)
+        } else if !snapshot.cardTopTagLabels.isEmpty {
+            knowledgePointsLine(snapshot.cardTopTagLabels)
         }
     }
 
@@ -1175,6 +1213,7 @@ struct LibraryMasonryGrid: View {
     let onDelete: (LibraryRecordSnapshot) -> Void
     var hiddenTags: Set<String> = []
     var hidesQuantityTypeLabel = false
+    var usesMemoryCardPresentation = false
     @State private var columnAssignments: [String: Int] = [:]
     @State private var lastColumnCount: Int?
     @State private var lastPartitionKey: String?
@@ -1228,7 +1267,8 @@ struct LibraryMasonryGrid: View {
                 LibraryErrorRecordCard(
                     snapshot: record,
                     size: cardSize,
-                    hidesQuantityTypeLabel: hidesQuantityTypeLabel
+                    hidesQuantityTypeLabel: hidesQuantityTypeLabel,
+                    usesMemoryCardPresentation: usesMemoryCardPresentation
                 )
             } else {
                 LibraryRecordCard(snapshot: record, kind: kind, size: cardSize, hiddenTags: hiddenTags)
@@ -1316,6 +1356,9 @@ struct LibraryMasonryGrid: View {
 
     private func estimatedHeight(of record: LibraryRecordSnapshot, availableWidth: CGFloat) -> CGFloat {
         guard kind == .errors else { return 145 }
+        if usesMemoryCardPresentation {
+            return estimatedMemoryCardHeight(of: record, availableWidth: availableWidth)
+        }
         let isDataAnalysisComposite = SubjectModuleTitle.normalized(record.subject) == "资料分析"
             && SubjectModuleTitle.normalized(record.module) == "综合题"
         let isDataAnalysis = SubjectModuleTitle.normalized(record.subject) == "资料分析"
@@ -1326,26 +1369,24 @@ struct LibraryMasonryGrid: View {
         let displayedTitle = isLogicFill ? LibraryLogicComparisonLayout.preview(record.title) : record.title
         let titleLineLimit = isLogicFill ? 4 : (isDataAnalysisComposite ? 2 : cardSize.questionLineLimit)
         let titleLines = estimatedLineCount(displayedTitle, width: contentWidth, fontSize: 14, limit: titleLineLimit)
-        let quantityKnowledgeLabel = record.record.subject == "数量关系" ? "考点" : nil
         let knowledgePointAccessoryWidth = LibraryKnowledgePointTagCloud.leadingAccessoryWidth(
-            label: quantityKnowledgeLabel,
-            showsBulb: quantityKnowledgeLabel == nil
+            showsBulb: true
         )
         let knowledgePointsWidth = max(1, contentWidth - knowledgePointAccessoryWidth)
         let knowledgePointsHeight = LibraryKnowledgePointTagLayout.estimatedHeight(
-            for: record.knowledgePoints,
+            for: record.cardTopTagLabels,
             width: knowledgePointsWidth
         )
         var sections: [CGFloat] = []
         if record.record.subject == "数量关系" {
             var quantityHeaderHeight: CGFloat = 0
             if !hidesQuantityTypeLabel { quantityHeaderHeight += 21 }
-            if !record.knowledgePoints.isEmpty {
+            if !record.cardTopTagLabels.isEmpty {
                 if quantityHeaderHeight > 0 { quantityHeaderHeight += 6 }
                 quantityHeaderHeight += knowledgePointsHeight
             }
             if quantityHeaderHeight > 0 { sections.append(quantityHeaderHeight) }
-        } else if !record.knowledgePoints.isEmpty {
+        } else if !record.cardTopTagLabels.isEmpty {
             sections.append(knowledgePointsHeight)
         }
 
@@ -1404,6 +1445,31 @@ struct LibraryMasonryGrid: View {
 
         let contentHeight = sections.reduce(0, +) + CGFloat(max(0, sections.count - 1)) * 8
         return max(110, contentHeight + 28) // content plus vertical card padding
+    }
+
+    private func estimatedMemoryCardHeight(of record: LibraryRecordSnapshot, availableWidth: CGFloat) -> CGFloat {
+        let contentWidth = max(1, availableWidth - 28)
+        let imageCount = min(3, record.imageValues.count)
+        var sections: [CGFloat] = []
+        if imageCount > 0 {
+            sections.append(
+                CGFloat(imageCount) * cardSize.imageMaximumHeight * 0.72
+                    + CGFloat(max(0, imageCount - 1)) * 8
+            )
+        }
+        if !record.questionPrompt.isEmpty {
+            let lines = estimatedLineCount(
+                record.questionPrompt,
+                width: contentWidth,
+                fontSize: 14,
+                limit: cardSize.questionLineLimit
+            )
+            sections.append(CGFloat(lines) * 19)
+        } else if imageCount == 0 {
+            sections.append(19)
+        }
+        let contentHeight = sections.reduce(0, +) + CGFloat(max(0, sections.count - 1)) * 8
+        return max(110, contentHeight + 28)
     }
 
     private func estimatedLogicComparisonHeight(_ groups: [LogicComparisonDraft], width: CGFloat) -> CGFloat {

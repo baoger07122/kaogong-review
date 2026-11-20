@@ -267,6 +267,7 @@ struct LibraryRecordSnapshot: Identifiable {
     let subject: String
     let module: String
     let title: String
+    let questionPrompt: String
     let summary: String
     let wordCardBody: String
     let stickyContent: String
@@ -283,6 +284,7 @@ struct LibraryRecordSnapshot: Identifiable {
     let sentiment: String
     let wordEntryKinds: [String]
     let knowledgePoints: [String]
+    let cardTopTagLabels: [String]
     let errorCause: String
     let quantityErrorCauses: [String]
     let dataAnalysisErrorCause: String
@@ -314,7 +316,8 @@ struct LibraryRecordSnapshot: Identifiable {
         reviewSource: LibraryReviewSource = .pending,
         includeImages: Bool = false,
         previousImageSnapshot: LibraryRecordSnapshot? = nil,
-        knowledgePointNames: Set<String> = []
+        knowledgePointNames: Set<String> = [],
+        tagDisplaySettings: LibraryTagDisplaySettings = .defaults
     ) {
         self.record = record
         let object = record.compatibilityIndexObject ?? [:]
@@ -329,6 +332,8 @@ struct LibraryRecordSnapshot: Identifiable {
             : ["title", "question", "name", "words", "text", "content"]
         title = Self.firstText(in: object, keys: titleKeys)
             .map(Self.plainText) ?? "未命名记录"
+        questionPrompt = Self.firstText(in: object, keys: ["question"])
+            .map(Self.plainText) ?? ""
         let categoryValue = Self.firstText(in: object, keys: ["category", "type"])
             ?? WordCategory.idiomDefinition.rawValue
         let resolvedWordCardBody: String
@@ -371,13 +376,26 @@ struct LibraryRecordSnapshot: Identifiable {
         if storedKnowledgePoint == nil || storedKnowledgePoint?.isEmpty == true {
             knowledgePointObject["knowledgePoint"] = legacyKnowledgePoint
         }
-        knowledgePoints = LibraryKnowledgePointReferencePolicy.displayNames(
+        let resolvedKnowledgePoints = LibraryKnowledgePointReferencePolicy.displayNames(
             from: LibraryKnowledgePointReferencePolicy.references(
                 from: knowledgePointObject,
                 fallbackValue: legacyKnowledgePoint,
                 knownNames: knowledgePointNames
             )
         ).map(Self.plainText).filter { !$0.isEmpty }
+        knowledgePoints = resolvedKnowledgePoints
+        let mistakeTagNames = LibraryKnowledgePointReferencePolicy.displayNames(
+            from: LibraryMistakeTagPolicy.references(from: object)
+        ).map(Self.plainText).filter { !$0.isEmpty }
+        var cardHeaderNames: [String] = []
+        if tagDisplaySettings.showsKnowledgePointCardHeader {
+            cardHeaderNames.append(contentsOf: resolvedKnowledgePoints)
+        }
+        if tagDisplaySettings.showsMistakeTagCardHeader {
+            cardHeaderNames.append(contentsOf: mistakeTagNames)
+        }
+        var seenCardHeaderNames = Set<String>()
+        cardTopTagLabels = cardHeaderNames.filter { seenCardHeaderNames.insert($0).inserted }
         let quantityErrorCauses = record.collection == "errors" && subject == "数量关系"
             ? LibraryQuantityErrorCauseCompatibility.values(in: object)
             : []

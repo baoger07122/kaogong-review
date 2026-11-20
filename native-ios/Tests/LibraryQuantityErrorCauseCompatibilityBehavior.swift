@@ -36,5 +36,13 @@ struct LibraryQuantityErrorCauseCompatibilityBehavior {
                 authoritative: true
             ).isEmpty
         )
+
+        precondition(
+            LibraryQuantityErrorCauseCompatibility.values(
+                errorCause: "长句，包含逗号，仍然是同一条错因",
+                weaknessTags: [String](),
+                authoritative: false
+            ) == ["长句，包含逗号，仍然是同一条错因"]
+        )
     }
 }
