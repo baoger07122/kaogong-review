@@ -401,7 +401,7 @@ struct LibraryInlineNoteView: View {
         if commitMode == .explicit {
             return draft != storedNote || manualDraftHasVersionConflict || noteSaveState.phase == .failed
         }
-        noteSaveState.latestContent != noteSaveState.confirmedContent || noteSaveState.phase == .failed
+        return noteSaveState.latestContent != noteSaveState.confirmedContent || noteSaveState.phase == .failed
     }
 
     private var saveStatus: LibraryInlineNoteSaveStatus {
