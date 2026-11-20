@@ -47,10 +47,10 @@ enum VerbalReasoningKnowledgePointRepository {
 
     static func recordID(for subject: String) -> String {
         switch subject {
-        case "言语理解": recordID
-        case "资料分析": "data_analysis_knowledge_points_by_type"
-        case "判断推理": "judgment_reasoning_knowledge_points_by_type"
-        case "常识判断": "common_knowledge_knowledge_points_by_type"
+        case "言语理解": return recordID
+        case "资料分析": return "data_analysis_knowledge_points_by_type"
+        case "判断推理": return "judgment_reasoning_knowledge_points_by_type"
+        case "常识判断": return "common_knowledge_knowledge_points_by_type"
         default:
             let encoded = Data(subject.utf8).base64EncodedString()
                 .replacingOccurrences(of: "+", with: "-")
