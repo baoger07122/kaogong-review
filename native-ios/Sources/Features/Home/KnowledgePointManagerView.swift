@@ -411,61 +411,72 @@ struct KnowledgePointManagerView: View {
             Text(errorMessage ?? typeMoveInformation ?? "")
         }
         .overlay {
-            if editor != nil { editorDialog }
-            if isAddingGroup { groupEditorDialog }
-            if let deletingGroup {
-                NativeDeleteDialog(
-                    title: "删除分组",
-                    message: "删除“\(deletingGroup.name)”后，分组中的标签会保留并变为未分组。",
-                    onDelete: { removeGroup(deletingGroup) },
-                    onCancel: { self.deletingGroup = nil }
+            if showsTagDisplaySettings {
+                LibraryTagDisplaySettingsSheet(
+                    subject: subject.name,
+                    module: module,
+                    typeID: selectedVerbalTypeID,
+                    scopeDescription: tagDisplayScopeDescription,
+                    records: records,
+                    onClose: { showsTagDisplaySettings = false }
                 )
-            }
-            if showsMigrationReview, let typeMove {
-                VerbalKnowledgePointMigrationReviewDialog(
-                    preview: typeMove.preview,
-                    resolutions: $migrationResolutions,
-                    onCancel: cancelTypeMove,
-                    onMove: { performTypeMove(typeMove) }
-                )
-            } else if let typeMove {
-                NativeConfirmationDialog(
-                    title: "更改所属\(errorTypeLabel)",
-                    message: typeMoveConfirmationMessage(typeMove),
-                    confirmTitle: typeMove.preview.reviewItems.isEmpty ? "移动" : "核对关联",
-                    cancelTitle: "取消",
-                    confirmIdentifier: "confirm-move-verbal-knowledge-point",
-                    cancelIdentifier: "cancel-move-verbal-knowledge-point",
-                    onConfirm: {
-                        if typeMove.preview.reviewItems.isEmpty {
-                            performTypeMove(typeMove)
-                        } else {
-                            migrationResolutions = [:]
-                            showsMigrationReview = true
-                        }
-                    },
-                    onCancel: cancelTypeMove
-                )
-            }
-            if let mistakeTagTypeMove {
-                NativeConfirmationDialog(
-                    title: "更改错因标签所属\(errorTypeLabel)",
-                    message: "将“\(mistakeTagTypeMove.name)”从“\(mistakeTagTypeMove.sourceTitle)”移动到“\(mistakeTagTypeMove.destinationTitle)”。已有 \(mistakeTagTypeMove.referenceCount) 道错题的对应引用会同步更新。",
-                    confirmTitle: "移动",
-                    cancelTitle: "取消",
-                    confirmIdentifier: "confirm-move-mistake-tag-type",
-                    cancelIdentifier: "cancel-move-mistake-tag-type",
-                    onConfirm: { performMistakeTagTypeMove(mistakeTagTypeMove) },
-                    onCancel: { self.mistakeTagTypeMove = nil }
-                )
-            }
-            if let deletingName {
-                NativeDeleteDialog(
-                    title: "删除\(kind.rawValue)",
-                    message: "确定删除“\(deletingName)”？相关错题和笔记中的引用也会一并移除。",
-                    onDelete: { remove(deletingName) },
-                    onCancel: { self.deletingName = nil }
-                )
+            } else {
+                if editor != nil { editorDialog }
+                if isAddingGroup { groupEditorDialog }
+                if let deletingGroup {
+                    NativeDeleteDialog(
+                        title: "删除分组",
+                        message: "删除“\(deletingGroup.name)”后，分组中的标签会保留并变为未分组。",
+                        onDelete: { removeGroup(deletingGroup) },
+                        onCancel: { self.deletingGroup = nil }
+                    )
+                }
+                if showsMigrationReview, let typeMove {
+                    VerbalKnowledgePointMigrationReviewDialog(
+                        preview: typeMove.preview,
+                        resolutions: $migrationResolutions,
+                        onCancel: cancelTypeMove,
+                        onMove: { performTypeMove(typeMove) }
+                    )
+                } else if let typeMove {
+                    NativeConfirmationDialog(
+                        title: "更改所属\(errorTypeLabel)",
+                        message: typeMoveConfirmationMessage(typeMove),
+                        confirmTitle: typeMove.preview.reviewItems.isEmpty ? "移动" : "核对关联",
+                        cancelTitle: "取消",
+                        confirmIdentifier: "confirm-move-verbal-knowledge-point",
+                        cancelIdentifier: "cancel-move-verbal-knowledge-point",
+                        onConfirm: {
+                            if typeMove.preview.reviewItems.isEmpty {
+                                performTypeMove(typeMove)
+                            } else {
+                                migrationResolutions = [:]
+                                showsMigrationReview = true
+                            }
+                        },
+                        onCancel: cancelTypeMove
+                    )
+                }
+                if let mistakeTagTypeMove {
+                    NativeConfirmationDialog(
+                        title: "更改错因标签所属\(errorTypeLabel)",
+                        message: "将“\(mistakeTagTypeMove.name)”从“\(mistakeTagTypeMove.sourceTitle)”移动到“\(mistakeTagTypeMove.destinationTitle)”。已有 \(mistakeTagTypeMove.referenceCount) 道错题的对应引用会同步更新。",
+                        confirmTitle: "移动",
+                        cancelTitle: "取消",
+                        confirmIdentifier: "confirm-move-mistake-tag-type",
+                        cancelIdentifier: "cancel-move-mistake-tag-type",
+                        onConfirm: { performMistakeTagTypeMove(mistakeTagTypeMove) },
+                        onCancel: { self.mistakeTagTypeMove = nil }
+                    )
+                }
+                if let deletingName {
+                    NativeDeleteDialog(
+                        title: "删除\(kind.rawValue)",
+                        message: "确定删除“\(deletingName)”？相关错题和笔记中的引用也会一并移除。",
+                        onDelete: { remove(deletingName) },
+                        onCancel: { self.deletingName = nil }
+                    )
+                }
             }
         }
         .sheet(isPresented: $showsOrder) {
@@ -474,15 +485,6 @@ struct KnowledgePointManagerView: View {
                 typeID: isTypedCatalogTag ? selectedVerbalTypeID : nil,
                 groupID: selectedGroupID,
                 category: kind.groupCategory ?? .knowledgePoint
-            )
-        }
-        .sheet(isPresented: $showsTagDisplaySettings) {
-            LibraryTagDisplaySettingsSheet(
-                subject: subject.name,
-                module: module,
-                typeID: selectedVerbalTypeID,
-                scopeDescription: tagDisplayScopeDescription,
-                records: records
             )
         }
         .onAppear {

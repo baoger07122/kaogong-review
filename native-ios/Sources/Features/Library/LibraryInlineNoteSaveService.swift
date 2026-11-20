@@ -66,7 +66,7 @@ actor LibraryInlineNoteDraftStorage {
         let snapshot = try JSONDecoder().decode(LibraryInlineNoteDraftSnapshot.self, from: data)
         guard snapshot.recordID == recordID else { return nil }
         if snapshot.draftVersion <= removedDraftVersions[recordID, default: 0] {
-            try? FileManager.default.removeItem(at: fileURL)
+            try FileManager.default.removeItem(at: fileURL)
             return nil
         }
         return snapshot

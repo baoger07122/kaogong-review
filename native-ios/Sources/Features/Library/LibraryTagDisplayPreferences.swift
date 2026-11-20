@@ -183,13 +183,13 @@ final class LibraryTagDisplayPreferences: ObservableObject {
 }
 
 struct LibraryTagDisplaySettingsSheet: View {
-    @Environment(\.dismiss) private var dismiss
     @ObservedObject private var preferences = LibraryTagDisplayPreferences.shared
     let subject: String
     let module: String
     let typeID: String?
     let scopeDescription: String
     let records: [StoredRecord]
+    let onClose: () -> Void
     @State private var errorMessage: String?
 
     private var settings: LibraryTagDisplaySettings {
@@ -197,7 +197,15 @@ struct LibraryTagDisplaySettingsSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NativeEditorDialog(
+            title: "标签展示",
+            canSave: true,
+            actionTitle: "完成",
+            onClose: onClose,
+            onSave: onClose,
+            preferredSize: CGSize(width: 420, height: 420),
+            spacing: 12
+        ) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("当前范围：\(scopeDescription)")
@@ -255,19 +263,9 @@ struct LibraryTagDisplaySettingsSheet: View {
                             .foregroundStyle(AppTheme.danger)
                     }
                 }
-                .padding(16)
-            }
-            .background(AppTheme.groupedBackground)
-            .navigationTitle("标签展示")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
+                .padding(.vertical, 4)
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
     }
 
     private func settingsGroup<Content: View>(

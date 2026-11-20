@@ -71,17 +71,24 @@ enum LibraryInlineNoteCommitMode: Equatable {
     case explicit
 }
 
+private enum LibraryInlineNoteRecoveryConfirmation: Equatable {
+    case restoreOriginal
+    case discard
+}
+
 /// The parent can finish editing before entering drawing mode without observing every keystroke.
 @MainActor
 final class LibraryInlineNoteSession: ObservableObject {
     @Published private(set) var isEditing = false
     @Published private(set) var hasPendingChanges = false
+    @Published private(set) var isRestoringDraft = false
     @Published private(set) var finishFailureMessage: String?
     var finishEditing: ((@escaping (Bool) -> Void) -> Void)?
     private(set) weak var noteAnchorView: UIView?
     private var focusRevealSessionID: UUID?
     private var keyboardFrameObserver: NSObjectProtocol?
     private var pendingReveal: DispatchWorkItem?
+    private var draftRestoreCompletions: [() -> Void] = []
 
     func setNoteAnchor(_ view: UIView?) { noteAnchorView = view }
 
@@ -195,6 +202,47 @@ final class LibraryInlineNoteSession: ObservableObject {
         hasPendingChanges = value
     }
 
+    func setRestoringDraft(_ value: Bool) {
+        guard isRestoringDraft != value else { return }
+        isRestoringDraft = value
+        guard !value else { return }
+        let completions = draftRestoreCompletions
+        draftRestoreCompletions = []
+        completions.forEach { $0() }
+    }
+
+    func whenDraftRestoreSettles(_ completion: @escaping () -> Void) {
+        guard isRestoringDraft else {
+            completion()
+            return
+        }
+        draftRestoreCompletions.append(completion)
+    }
+
+    func revealNoteBlock() {
+        guard let anchor = noteAnchorView, let window = anchor.window else { return }
+        var ancestor = anchor.superview
+        var scrollView: UIScrollView?
+        while let view = ancestor {
+            if let candidate = view as? UIScrollView {
+                scrollView = candidate
+                break
+            }
+            ancestor = view.superview
+        }
+        guard let scrollView, scrollView.window === window else { return }
+        let anchorFrame = anchor.convert(anchor.bounds, to: scrollView)
+        let minimumOffset = -scrollView.adjustedContentInset.top
+        let targetOffset = max(
+            minimumOffset,
+            scrollView.contentOffset.y + anchorFrame.minY - scrollView.adjustedContentInset.top - 12
+        )
+        scrollView.setContentOffset(
+            CGPoint(x: scrollView.contentOffset.x, y: targetOffset),
+            animated: true
+        )
+    }
+
     func setFinishFailureMessage(_ value: String?) {
         finishFailureMessage = value
     }
@@ -263,6 +311,12 @@ struct LibraryInlineNoteView: View {
     @State private var currentDraftVersion: UInt64?
     @State private var manualDraftVersion: UInt64 = 0
     @State private var manualDraftHasVersionConflict = false
+    @State private var pendingRecoveryDraftSnapshot: LibraryInlineNoteDraftSnapshot?
+    @State private var recoveryConfirmation: LibraryInlineNoteRecoveryConfirmation?
+    @State private var isRebasingManualDraft = false
+    @State private var isDiscardingManualDraft = false
+    @State private var hasInitializedDraftState = false
+    @State private var activeRecoveryCommitID: UUID?
     @State private var activeBaseVersion = ""
     @State private var activeBasePayload: Data?
     @State private var editingSessionID = UUID()
@@ -401,13 +455,22 @@ struct LibraryInlineNoteView: View {
 
     private var hasPendingDraft: Bool {
         if commitMode == .explicit {
-            return draft != storedNote || manualDraftHasVersionConflict || noteSaveState.phase == .failed
+            return draft != storedNote || manualDraftHasVersionConflict
         }
-        return noteSaveState.latestContent != noteSaveState.confirmedContent || noteSaveState.phase == .failed
+        return noteSaveState.latestContent != noteSaveState.confirmedContent
     }
 
     private var shouldShowPendingDraftDisplay: Bool {
-        hasPendingDraft || errorMessage != nil
+        hasInitializedDraftState && !isRestoringDraft && hasPendingDraft
+    }
+
+    private var shouldShowSaveStatus: Bool {
+        guard hasInitializedDraftState else { return false }
+        return editing
+            || isFinishing
+            || isInsertingPhoto
+            || !storedNote.isEmpty
+            || hasPendingDraft
     }
 
     private var saveStatus: LibraryInlineNoteSaveStatus {
@@ -478,10 +541,12 @@ struct LibraryInlineNoteView: View {
                 Label(title, systemImage: "note.text")
                     .font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
                 Spacer()
-                Text(isInsertingPhoto ? "正在插入图片…" : noteSaveStatusTitle)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(saveStatus.color)
-                    .accessibilityIdentifier("library-inline-note-save-status")
+                if isInsertingPhoto || shouldShowSaveStatus {
+                    Text(isInsertingPhoto ? "正在插入图片…" : noteSaveStatusTitle)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(saveStatus.color)
+                        .accessibilityIdentifier("library-inline-note-save-status")
+                }
                 if editing {
                     Button("完成") { finishEditing() }
                         .font(.system(size: 14, weight: .semibold))
@@ -529,10 +594,22 @@ struct LibraryInlineNoteView: View {
                 }
             }
             if let errorMessage {
-                Text(errorMessage)
-                    .fixedSize(horizontal: false, vertical: true)
-                .font(.system(size: 11))
-                .foregroundStyle(AppTheme.danger)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(errorMessage)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppTheme.danger)
+                    if commitMode == .explicit,
+                       pendingRecoveryDraftSnapshot != nil,
+                       draft == storedNote {
+                        Button("重试清理本地草稿") {
+                            recoveryConfirmation = .discard
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AppTheme.danger)
+                        .frame(minHeight: 44, alignment: .leading)
+                    }
+                }
             } else if let displayWarning, !editing {
                 Text(displayWarning)
                     .font(.system(size: 11))
@@ -558,6 +635,31 @@ struct LibraryInlineNoteView: View {
                 .ignoresSafeArea()
             } else {
                 Color.clear
+            }
+        }
+        .overlay {
+            if let recoveryConfirmation {
+                NativeConfirmationDialog(
+                    title: recoveryConfirmationTitle(for: recoveryConfirmation),
+                    message: recoveryConfirmationMessage(for: recoveryConfirmation),
+                    confirmTitle: recoveryConfirmation == .restoreOriginal ? "完成" : "丢弃",
+                    cancelTitle: "取消",
+                    confirmIdentifier: recoveryConfirmation == .restoreOriginal
+                        ? "restore-original-inline-note-draft"
+                        : "discard-inline-note-draft",
+                    cancelIdentifier: "cancel-inline-note-recovery-action",
+                    onConfirm: {
+                        let action = recoveryConfirmation
+                        self.recoveryConfirmation = nil
+                        guard let action else { return }
+                        switch action {
+                        case .restoreOriginal: restoreOriginalPendingDraft()
+                        case .discard: discardManualRecoveryDraft()
+                        }
+                    },
+                    onCancel: { self.recoveryConfirmation = nil },
+                    isDanger: recoveryConfirmation == .discard
+                )
             }
         }
         .onChange(of: editorSession.imageImportRequest) { _, _ in advanceImageImportRequest() }
@@ -586,10 +688,12 @@ struct LibraryInlineNoteView: View {
             } else {
                 setDraftWithoutScheduling(storedNote)
             }
+            hasInitializedDraftState = true
             updateSessionPendingState()
             guard !didAttemptDraftRestoreForAppearance else { return }
             didAttemptDraftRestoreForAppearance = true
             isRestoringDraft = true
+            session.setRestoringDraft(true)
             session.setPendingChanges(true)
             let appearanceID = draftRestoreAppearanceID
             LibraryInlineNoteSaveService.shared.whenIdle(recordID: renderDocumentID) { _ in
@@ -660,6 +764,7 @@ struct LibraryInlineNoteView: View {
             guard !editorSession.isMediaOperationInProgress else { return }
             editorSession.commitCompositionIfNeeded()
             if commitMode == .explicit {
+                guard editing else { return }
                 guard let snapshot = editorSession.captureSnapshot() else {
                     transientErrorMessage = "切到后台时无法读取当前输入，草稿仍保留在编辑会话中。"
                     return
@@ -746,6 +851,7 @@ struct LibraryInlineNoteView: View {
             session.setEditing(false)
             updateSessionPendingState()
             session.finishEditing = nil
+            session.setRestoringDraft(false)
             didAttemptDraftRestoreForAppearance = false
             draftRestoreAppearanceID = UUID()
             if isRestoringDraft {
@@ -1034,22 +1140,35 @@ struct LibraryInlineNoteView: View {
     }
 
     @ViewBuilder private var manualDraftActions: some View {
-        if manualDraftHasVersionConflict {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) {
-                    rebaseDraftButton
-                    keepCurrentDraftButton
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    rebaseDraftButton
-                    keepCurrentDraftButton
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            if manualDraftHasVersionConflict {
+                rebaseDraftButton
+            } else if let prepared = currentPreparedPendingDraft,
+                      prepared.editableAttributedText != nil {
+                Button("继续编辑") { resumePendingDraftEditing() }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.blue)
+                    .frame(minHeight: 44, alignment: .leading)
+                    .disabled(isFinishing || isRebasingManualDraft || isDiscardingManualDraft)
+            } else if currentPreparedPendingDraft != nil
+                        || pendingDraftPreparationFailureKey == pendingDraftRenderKey {
+                Button("原样恢复") { recoveryConfirmation = .restoreOriginal }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.blue)
+                    .frame(minHeight: 44, alignment: .leading)
+                    .disabled(isFinishing || isRebasingManualDraft || isDiscardingManualDraft)
+            } else {
+                Text("正在准备草稿操作…")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .frame(minHeight: 32, alignment: .leading)
             }
-        } else {
-            Button("继续编辑") { resumePendingDraftEditing() }
+
+            Button("丢弃草稿") { recoveryConfirmation = .discard }
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.blue)
-                .disabled(currentPreparedPendingDraft?.editableAttributedText == nil)
+                .foregroundStyle(AppTheme.danger)
+                .frame(minHeight: 44, alignment: .leading)
+                .disabled(isFinishing || isRebasingManualDraft || isDiscardingManualDraft)
         }
     }
 
@@ -1057,12 +1176,21 @@ struct LibraryInlineNoteView: View {
         Button("以恢复草稿为准") { confirmManualDraftRebase() }
             .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(Color.blue)
+            .frame(minHeight: 44, alignment: .leading)
+            .disabled(isFinishing || isRebasingManualDraft || isDiscardingManualDraft)
     }
 
-    private var keepCurrentDraftButton: some View {
-        Button("保留当前内容") { discardManualRecoveryDraft() }
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(.secondary)
+    private func recoveryConfirmationTitle(for action: LibraryInlineNoteRecoveryConfirmation) -> String {
+        action == .restoreOriginal ? "原样恢复这份草稿？" : "丢弃这份本地草稿？"
+    }
+
+    private func recoveryConfirmationMessage(for action: LibraryInlineNoteRecoveryConfirmation) -> String {
+        switch action {
+        case .restoreOriginal:
+            return "将使用本题保存基准，把未截断的草稿原文写入正式笔记。原有排版和附件随原文保存；部分格式可能继续以只读方式预览。"
+        case .discard:
+            return "只移除本题这份本地恢复草稿，不修改当前正式笔记。"
+        }
     }
 
     private func resumePendingDraftEditing() {
@@ -1094,38 +1222,320 @@ struct LibraryInlineNoteView: View {
     }
 
     private func confirmManualDraftRebase() {
-        guard commitMode == .explicit, manualDraftHasVersionConflict else { return }
-        activeBaseVersion = currentRecordEditVersion()
-        activeBasePayload = currentRecordPayload()
-        manualDraftHasVersionConflict = false
-        transientErrorMessage = "已选择以当前记录为保存基准。恢复草稿仍未保存，请继续编辑后点“完成”。"
-        persistManualRecoveryDraft(draft, sessionID: editingSessionID)
-        updateSessionPendingState()
+        guard commitMode == .explicit,
+              manualDraftHasVersionConflict,
+              !isRebasingManualDraft,
+              !draft.isEmpty || pendingRecoveryDraftSnapshot != nil else { return }
+        let recordID = renderDocumentID
+        let sessionID = editingSessionID
+        let content = draft
+        let baseVersion = currentRecordEditVersion()
+        let basePayload = currentRecordPayload()
+        let version = saveService.nextRecoveryDraftVersion(
+            recordID: recordID,
+            after: max(manualDraftVersion, currentDraftVersion ?? 0)
+        )
+        let rebased = LibraryInlineNoteDraftSnapshot(
+            recordID: recordID,
+            baseVersion: baseVersion,
+            draftVersion: version,
+            content: content,
+            updatedAt: .now
+        )
+        isRebasingManualDraft = true
+        transientErrorMessage = nil
+        Task { @MainActor in
+            defer {
+                if self.renderDocumentID == recordID, self.editingSessionID == sessionID {
+                    self.isRebasingManualDraft = false
+                }
+            }
+            do {
+                try await self.saveService.persistRecoveryDraft(rebased, requiresBackgroundTime: true)
+                guard self.renderDocumentID == recordID,
+                      self.editingSessionID == sessionID,
+                      self.draft == content,
+                      let persisted = try await LibraryInlineNoteDraftStorage.shared.load(recordID: recordID),
+                      persisted.draftVersion == version,
+                      persisted.baseVersion == baseVersion,
+                      persisted.content == content else {
+                    guard self.renderDocumentID == recordID,
+                          self.editingSessionID == sessionID else { return }
+                    if let latest = try await LibraryInlineNoteDraftStorage.shared.load(recordID: recordID),
+                       latest.draftVersion > version {
+                        self.pendingRecoveryDraftSnapshot = latest
+                        self.setDraftWithoutScheduling(latest.content)
+                        self.manualDraftVersion = latest.draftVersion
+                        self.currentDraftVersion = latest.draftVersion
+                        self.manualDraftHasVersionConflict = latest.baseVersion != self.currentRecordEditVersion()
+                    }
+                    self.transientErrorMessage = "恢复草稿在设定新基准时已更新；最新版本仍保留，请重新核对。"
+                    self.updateSessionPendingState()
+                    return
+                }
+                guard self.currentRecordEditVersion() == baseVersion else {
+                    self.pendingRecoveryDraftSnapshot = persisted
+                    self.manualDraftHasVersionConflict = true
+                    self.transientErrorMessage = "设定基准期间题目记录又发生变化；恢复草稿已保留，请重新核对。"
+                    self.updateSessionPendingState()
+                    return
+                }
+                self.pendingRecoveryDraftSnapshot = persisted
+                self.activeBaseVersion = baseVersion
+                self.activeBasePayload = basePayload
+                self.manualDraftVersion = version
+                self.currentDraftVersion = version
+                self.manualDraftHasVersionConflict = false
+                self.transientErrorMessage = "已选择以当前记录为保存基准。恢复草稿仍未保存，请继续编辑后点“完成”。"
+                self.updateSessionPendingState()
+            } catch {
+                guard self.renderDocumentID == recordID,
+                      self.editingSessionID == sessionID else { return }
+                self.transientErrorMessage = "恢复草稿基准未能保存；冲突状态和原文仍保留。\(error.localizedDescription)"
+                self.updateSessionPendingState()
+            }
+        }
     }
 
     private func discardManualRecoveryDraft() {
-        guard commitMode == .explicit, manualDraftHasVersionConflict else { return }
+        guard commitMode == .explicit,
+              !isDiscardingManualDraft,
+              !saveService.hasPending(recordID: renderDocumentID) else { return }
         let recordID = renderDocumentID
-        let discardThroughVersion = saveService.recoveryDraftVersionHighWatermark(recordID: recordID)
-        setDraftWithoutScheduling(storedNote)
-        currentDraftVersion = nil
-        manualDraftVersion = 0
-        manualDraftHasVersionConflict = false
-        activeBaseVersion = currentRecordEditVersion()
-        activeBasePayload = currentRecordPayload()
+        let sessionID = editingSessionID
+        let expected = pendingRecoveryDraftSnapshot
+        isDiscardingManualDraft = true
         transientErrorMessage = nil
-        saveService.discardUncommittedDraft(
-            recordID: renderDocumentID,
-            content: storedNote,
-            readVersion: currentRecordVersion()
-        )
-        Task {
-            try? await LibraryInlineNoteDraftStorage.shared.removeDrafts(
-                recordID: recordID,
-                through: discardThroughVersion
-            )
+        Task { @MainActor in
+            defer {
+                if self.renderDocumentID == recordID, self.editingSessionID == sessionID {
+                    self.isDiscardingManualDraft = false
+                }
+            }
+            do {
+                let stored = try await LibraryInlineNoteDraftStorage.shared.load(recordID: recordID)
+                if let expected, let stored, stored.draftVersion > expected.draftVersion {
+                    guard self.renderDocumentID == recordID,
+                          self.editingSessionID == sessionID else { return }
+                    self.pendingRecoveryDraftSnapshot = stored
+                    self.setDraftWithoutScheduling(stored.content)
+                    self.manualDraftVersion = stored.draftVersion
+                    self.currentDraftVersion = stored.draftVersion
+                    self.manualDraftHasVersionConflict = stored.baseVersion != self.currentRecordEditVersion()
+                    self.transientErrorMessage = "发现较新的恢复草稿，已保留最新版本；请再次核对后操作。"
+                    self.updateSessionPendingState()
+                    return
+                }
+                let target = expected ?? stored
+                let throughVersion = target?.draftVersion
+                    ?? self.saveService.recoveryDraftVersionHighWatermark(recordID: recordID)
+                if throughVersion > 0 {
+                    try await LibraryInlineNoteDraftStorage.shared.removeDrafts(
+                        recordID: recordID,
+                        through: throughVersion
+                    )
+                }
+                let remaining = try await LibraryInlineNoteDraftStorage.shared.load(recordID: recordID)
+                guard self.renderDocumentID == recordID,
+                      self.editingSessionID == sessionID else { return }
+                if let remaining, remaining.draftVersion > throughVersion {
+                    self.pendingRecoveryDraftSnapshot = remaining
+                    self.setDraftWithoutScheduling(remaining.content)
+                    self.manualDraftVersion = remaining.draftVersion
+                    self.currentDraftVersion = remaining.draftVersion
+                    self.manualDraftHasVersionConflict = remaining.baseVersion != self.currentRecordEditVersion()
+                    self.transientErrorMessage = "发现较新的恢复草稿，已保留最新版本；请再次核对后操作。"
+                    self.updateSessionPendingState()
+                    return
+                }
+                guard remaining == nil else {
+                    self.transientErrorMessage = "草稿文件仍存在，尚未丢弃；请重试。"
+                    self.updateSessionPendingState()
+                    return
+                }
+                self.pendingRecoveryDraftSnapshot = nil
+                self.setDraftWithoutScheduling(self.storedNote)
+                self.currentDraftVersion = nil
+                self.manualDraftVersion = 0
+                self.manualDraftHasVersionConflict = false
+                self.activeBaseVersion = self.currentRecordEditVersion()
+                self.activeBasePayload = self.currentRecordPayload()
+                self.transientErrorMessage = nil
+                self.saveService.discardUncommittedDraft(
+                    recordID: recordID,
+                    content: self.storedNote,
+                    readVersion: self.currentRecordVersion()
+                )
+                self.updateSessionPendingState()
+            } catch {
+                guard self.renderDocumentID == recordID,
+                      self.editingSessionID == sessionID else { return }
+                self.transientErrorMessage = "本地恢复草稿未能删除；原草稿仍保留，请重试。\(error.localizedDescription)"
+                self.updateSessionPendingState()
+            }
         }
-        updateSessionPendingState()
+    }
+
+    private func restoreOriginalPendingDraft() {
+        guard commitMode == .explicit,
+              !manualDraftHasVersionConflict,
+              !isFinishing,
+              !saveService.hasPending(recordID: renderDocumentID) else { return }
+        let recordID = renderDocumentID
+        let sessionID = editingSessionID
+        let operationID = UUID()
+        activeRecoveryCommitID = operationID
+        isFinishing = true
+        transientErrorMessage = nil
+
+        Task { @MainActor in
+            do {
+                guard let candidate = self.pendingRecoveryDraftSnapshot,
+                      candidate.recordID == recordID,
+                      candidate.content == self.draft else {
+                    self.isFinishing = false
+                    self.activeRecoveryCommitID = nil
+                    self.transientErrorMessage = "当前恢复草稿身份已变化；原文仍保留，请重新打开后核对。"
+                    self.updateSessionPendingState()
+                    return
+                }
+                try await self.saveService.persistRecoveryDraft(candidate, requiresBackgroundTime: true)
+                guard self.renderDocumentID == recordID,
+                      self.editingSessionID == sessionID,
+                      self.activeRecoveryCommitID == operationID else { return }
+                guard let persisted = try await LibraryInlineNoteDraftStorage.shared.load(recordID: recordID),
+                      persisted.draftVersion == candidate.draftVersion,
+                      persisted.content == candidate.content,
+                      persisted.baseVersion == candidate.baseVersion else {
+                    if let newer = try await LibraryInlineNoteDraftStorage.shared.load(recordID: recordID) {
+                        self.pendingRecoveryDraftSnapshot = newer
+                        self.setDraftWithoutScheduling(newer.content)
+                        self.manualDraftVersion = newer.draftVersion
+                        self.currentDraftVersion = newer.draftVersion
+                        self.manualDraftHasVersionConflict = newer.baseVersion != self.currentRecordEditVersion()
+                    }
+                    self.isFinishing = false
+                    self.activeRecoveryCommitID = nil
+                    self.transientErrorMessage = "恢复草稿版本已更新；最新原文仍保留，请重新核对。"
+                    self.updateSessionPendingState()
+                    return
+                }
+                let snapshot = persisted
+                guard self.currentRecordEditVersion() == snapshot.baseVersion else {
+                    self.manualDraftHasVersionConflict = true
+                    self.activeBaseVersion = snapshot.baseVersion
+                    self.activeBasePayload = self.currentRecordPayload()
+                    self.transientErrorMessage = "题目记录已变化；恢复草稿仍保留。请先选择“以恢复草稿为准”后再完成。"
+                    self.isFinishing = false
+                    self.activeRecoveryCommitID = nil
+                    self.updateSessionPendingState()
+                    return
+                }
+                guard self.saveService.restoreDraft(
+                    recordID: recordID,
+                    content: snapshot.content,
+                    draftVersion: snapshot.draftVersion,
+                    baseVersion: snapshot.baseVersion,
+                    basePayload: self.currentRecordPayload()
+                ) else {
+                    self.isFinishing = false
+                    self.activeRecoveryCommitID = nil
+                    self.transientErrorMessage = "恢复草稿版本已更新；原文已保留，请重试。"
+                    self.updateSessionPendingState()
+                    return
+                }
+                self.pendingRecoveryDraftSnapshot = snapshot
+                self.manualDraftVersion = snapshot.draftVersion
+                self.currentDraftVersion = snapshot.draftVersion
+                let basePayload = self.currentRecordPayload()
+                self.enqueueSave(
+                    snapshot.content,
+                    draftVersion: snapshot.draftVersion,
+                    baseVersion: snapshot.baseVersion,
+                    basePayload: basePayload,
+                    requiresBackgroundTime: true
+                ) { result in
+                    Task { @MainActor in
+                        guard self.renderDocumentID == recordID,
+                              self.editingSessionID == sessionID,
+                              self.activeRecoveryCommitID == operationID else { return }
+                        switch result {
+                        case .failure(let error):
+                            self.isFinishing = false
+                            self.activeRecoveryCommitID = nil
+                            self.transientErrorMessage = "原样恢复失败，草稿仍保留：\(error.localizedDescription)"
+                            self.updateSessionPendingState()
+                        case .success(let committedVersion):
+                            let state = self.saveService.state(recordID: recordID)
+                            guard state.confirmedDraftVersion >= snapshot.draftVersion,
+                                  state.confirmedContent == snapshot.content,
+                                  committedVersion == state.confirmedRecordVersion else {
+                                self.isFinishing = false
+                                self.activeRecoveryCommitID = nil
+                                self.transientErrorMessage = "正式笔记写入回执与恢复草稿不一致；草稿仍保留，请核对后重试。"
+                                self.updateSessionPendingState()
+                                return
+                            }
+                            self.onFinishConfirmed?(snapshot.content)
+                            do {
+                                try await LibraryInlineNoteDraftStorage.shared.removeDrafts(
+                                    recordID: recordID,
+                                    through: snapshot.draftVersion
+                                )
+                                let remaining = try await LibraryInlineNoteDraftStorage.shared.load(recordID: recordID)
+                                guard self.renderDocumentID == recordID,
+                                      self.editingSessionID == sessionID,
+                                      self.activeRecoveryCommitID == operationID else { return }
+                                if let remaining, remaining.draftVersion > snapshot.draftVersion {
+                                    self.pendingRecoveryDraftSnapshot = remaining
+                                    self.setDraftWithoutScheduling(remaining.content)
+                                    self.manualDraftVersion = remaining.draftVersion
+                                    self.currentDraftVersion = remaining.draftVersion
+                                    self.manualDraftHasVersionConflict = remaining.baseVersion != self.currentRecordEditVersion()
+                                    self.isFinishing = false
+                                    self.activeRecoveryCommitID = nil
+                                    self.transientErrorMessage = "原文已写入正式笔记；较新的本地草稿已保留，请继续核对。"
+                                    self.updateSessionPendingState()
+                                    return
+                                }
+                                guard remaining == nil else {
+                                    self.isFinishing = false
+                                    self.activeRecoveryCommitID = nil
+                                    self.transientErrorMessage = "正式笔记已写入，但本地恢复草稿尚未清理；请重试处理。"
+                                    self.updateSessionPendingState()
+                                    return
+                                }
+                                self.pendingRecoveryDraftSnapshot = nil
+                                self.currentDraftVersion = nil
+                                self.manualDraftVersion = 0
+                                self.manualDraftHasVersionConflict = false
+                                self.setDraftWithoutScheduling(snapshot.content)
+                                self.activeBaseVersion = self.currentRecordEditVersion()
+                                self.activeBasePayload = self.currentRecordPayload()
+                                self.installConfirmedPreview(content: snapshot.content, editorSnapshot: nil)
+                                self.isFinishing = false
+                                self.activeRecoveryCommitID = nil
+                                self.transientErrorMessage = nil
+                                self.updateSessionPendingState()
+                            } catch {
+                                self.isFinishing = false
+                                self.activeRecoveryCommitID = nil
+                                self.transientErrorMessage = "正式笔记已写入，但本地恢复草稿清理失败；草稿仍保留，请重试。\(error.localizedDescription)"
+                                self.updateSessionPendingState()
+                            }
+                        }
+                    }
+                }
+            } catch {
+                guard self.renderDocumentID == recordID,
+                      self.editingSessionID == sessionID,
+                      self.activeRecoveryCommitID == operationID else { return }
+                self.isFinishing = false
+                self.activeRecoveryCommitID = nil
+                self.transientErrorMessage = "原样恢复无法开始，草稿原文仍保留：\(error.localizedDescription)"
+                self.updateSessionPendingState()
+            }
+        }
     }
 
     private func beginEditing(
@@ -1183,6 +1593,7 @@ struct LibraryInlineNoteView: View {
             if appearanceID == draftRestoreAppearanceID {
                 isRestoringDraft = false
                 updateSessionPendingState()
+                session.setRestoringDraft(false)
                 resolveFinishCompletionsWaitingForRestore()
             }
         }
@@ -1297,6 +1708,7 @@ struct LibraryInlineNoteView: View {
             if appearanceID == draftRestoreAppearanceID {
                 isRestoringDraft = false
                 updateSessionPendingState()
+                session.setRestoringDraft(false)
                 resolveFinishCompletionsWaitingForRestore()
             }
         }
@@ -1304,13 +1716,31 @@ struct LibraryInlineNoteView: View {
             if let pending = try await LibraryInlineNoteDraftStorage.shared.load(recordID: renderDocumentID) {
                 guard appearanceID == draftRestoreAppearanceID, !editing else { return }
                 saveService.observeRecoveryDraftVersion(recordID: renderDocumentID, version: pending.draftVersion)
+                pendingRecoveryDraftSnapshot = pending
                 if pending.content == storedNote {
                     try await LibraryInlineNoteDraftStorage.shared.removeDrafts(
                         recordID: renderDocumentID,
                         through: pending.draftVersion
                     )
+                    guard appearanceID == draftRestoreAppearanceID else { return }
+                    if let newer = try await LibraryInlineNoteDraftStorage.shared.load(recordID: renderDocumentID) {
+                        pendingRecoveryDraftSnapshot = newer
+                        activeBaseVersion = newer.baseVersion
+                        activeBasePayload = currentRecordPayload()
+                        currentDraftVersion = newer.draftVersion
+                        manualDraftVersion = newer.draftVersion
+                        manualDraftHasVersionConflict = newer.baseVersion != currentRecordEditVersion()
+                        setDraftWithoutScheduling(newer.content)
+                        transientErrorMessage = "发现较新的本地恢复草稿，已保留最新版本。"
+                        return
+                    }
                     setDraftWithoutScheduling(storedNote)
+                    pendingRecoveryDraftSnapshot = nil
+                    currentDraftVersion = nil
+                    manualDraftVersion = 0
                     manualDraftHasVersionConflict = false
+                    activeBaseVersion = currentRecordEditVersion()
+                    activeBasePayload = currentRecordPayload()
                     saveService.discardUncommittedDraft(
                         recordID: renderDocumentID,
                         content: storedNote,
@@ -1323,26 +1753,56 @@ struct LibraryInlineNoteView: View {
                 currentDraftVersion = pending.draftVersion
                 manualDraftVersion = pending.draftVersion
                 manualDraftHasVersionConflict = pending.baseVersion != currentRecordEditVersion()
+                let adopted = saveService.restoreDraft(
+                    recordID: renderDocumentID,
+                    content: pending.content,
+                    draftVersion: pending.draftVersion,
+                    baseVersion: pending.baseVersion,
+                    basePayload: activeBasePayload
+                )
                 setDraftWithoutScheduling(pending.content)
                 transientErrorMessage = manualDraftHasVersionConflict
                     ? "恢复草稿基于旧版题目记录。当前保存内容和恢复草稿都已保留；请选择采用哪一份，再编辑并点“完成”。"
                     : "已恢复未保存的笔记草稿。请继续编辑并点“完成”写入正式记录。"
+                if !adopted {
+                    transientErrorMessage = "恢复草稿仍已保留，但保存服务中存在更新版本；请先核对最新草稿。"
+                }
                 return
             }
 
             let state = saveService.state(recordID: renderDocumentID)
             guard state.latestContent != state.confirmedContent else { return }
             let baseVersion = state.latestBaseVersion ?? currentRecordEditVersion()
+            let version = state.latestDraftVersion > 0
+                ? state.latestDraftVersion
+                : saveService.nextRecoveryDraftVersion(recordID: renderDocumentID, after: 0)
+            let recovered = LibraryInlineNoteDraftSnapshot(
+                recordID: renderDocumentID,
+                baseVersion: baseVersion,
+                draftVersion: version,
+                content: state.latestContent,
+                updatedAt: .now
+            )
             activeBaseVersion = baseVersion
             activeBasePayload = currentRecordPayload()
-            currentDraftVersion = state.latestDraftVersion
-            manualDraftVersion = state.latestDraftVersion
+            currentDraftVersion = version
+            manualDraftVersion = version
             manualDraftHasVersionConflict = baseVersion != currentRecordEditVersion()
             setDraftWithoutScheduling(state.latestContent)
+            pendingRecoveryDraftSnapshot = recovered
+            try await saveService.persistRecoveryDraft(recovered, requiresBackgroundTime: true)
+            guard appearanceID == draftRestoreAppearanceID,
+                  let persisted = try await LibraryInlineNoteDraftStorage.shared.load(recordID: renderDocumentID),
+                  persisted.draftVersion == version,
+                  persisted.content == state.latestContent,
+                  persisted.baseVersion == baseVersion else {
+                transientErrorMessage = "恢复中的本地草稿已更新；最新内容仍保留，请重新打开后核对。"
+                return
+            }
+            pendingRecoveryDraftSnapshot = persisted
             transientErrorMessage = manualDraftHasVersionConflict
                 ? "恢复草稿基于旧版题目记录。当前保存内容和恢复草稿都已保留；请选择采用哪一份，再编辑并点“完成”。"
                 : "已恢复未保存的笔记草稿。请继续编辑并点“完成”写入正式记录。"
-            persistManualRecoveryDraft(state.latestContent, sessionID: editingSessionID)
         } catch {
             guard appearanceID == draftRestoreAppearanceID else { return }
             transientErrorMessage = "笔记草稿读取失败：\(error.localizedDescription)"
@@ -1354,21 +1814,48 @@ struct LibraryInlineNoteView: View {
               sessionID == editingSessionID else { return }
         let recordID = renderDocumentID
         if content == storedNote {
-            let discardThroughVersion = saveService.recoveryDraftVersionHighWatermark(recordID: recordID)
-            Task {
-                try? await LibraryInlineNoteDraftStorage.shared.removeDrafts(
-                    recordID: recordID,
-                    through: discardThroughVersion
-                )
-            }
-            currentDraftVersion = nil
-            manualDraftVersion = 0
-            manualDraftHasVersionConflict = false
-            saveService.discardUncommittedDraft(
-                recordID: recordID,
-                content: content,
-                readVersion: currentRecordVersion()
+            let throughVersion = max(
+                pendingRecoveryDraftSnapshot?.draftVersion ?? 0,
+                saveService.recoveryDraftVersionHighWatermark(recordID: recordID)
             )
+            Task { @MainActor in
+                do {
+                    if throughVersion > 0 {
+                        try await LibraryInlineNoteDraftStorage.shared.removeDrafts(
+                            recordID: recordID,
+                            through: throughVersion
+                        )
+                    }
+                    guard self.renderDocumentID == recordID,
+                          self.editingSessionID == sessionID,
+                          self.draft == content else { return }
+                    if let newer = try await LibraryInlineNoteDraftStorage.shared.load(recordID: recordID) {
+                        self.pendingRecoveryDraftSnapshot = newer
+                        self.setDraftWithoutScheduling(newer.content)
+                        self.currentDraftVersion = newer.draftVersion
+                        self.manualDraftVersion = newer.draftVersion
+                        self.manualDraftHasVersionConflict = newer.baseVersion != self.currentRecordEditVersion()
+                        self.transientErrorMessage = "更高版本的恢复草稿仍存在，已保留该版本。"
+                        self.updateSessionPendingState()
+                        return
+                    }
+                    self.pendingRecoveryDraftSnapshot = nil
+                    self.currentDraftVersion = nil
+                    self.manualDraftVersion = 0
+                    self.manualDraftHasVersionConflict = false
+                    self.saveService.discardUncommittedDraft(
+                        recordID: recordID,
+                        content: content,
+                        readVersion: self.currentRecordVersion()
+                    )
+                    self.transientErrorMessage = nil
+                    self.updateSessionPendingState()
+                } catch {
+                    guard self.renderDocumentID == recordID,
+                          self.editingSessionID == sessionID else { return }
+                    self.transientErrorMessage = "本地恢复草稿清理失败，当前内容仍保留：\(error.localizedDescription)"
+                }
+            }
             return
         }
 
@@ -1385,12 +1872,29 @@ struct LibraryInlineNoteView: View {
             content: content,
             updatedAt: .now
         )
-        Task {
+        pendingRecoveryDraftSnapshot = snapshot
+        Task { @MainActor in
             do {
-                try await LibraryInlineNoteSaveService.shared.persistRecoveryDraft(
-                    snapshot,
-                    requiresBackgroundTime: true
-                )
+                try await self.saveService.persistRecoveryDraft(snapshot, requiresBackgroundTime: true)
+                guard self.renderDocumentID == recordID,
+                      self.editingSessionID == sessionID else { return }
+                guard let persisted = try await LibraryInlineNoteDraftStorage.shared.load(recordID: recordID),
+                      persisted.draftVersion == version,
+                      persisted.baseVersion == snapshot.baseVersion,
+                      persisted.content == snapshot.content else {
+                    if let newer = try await LibraryInlineNoteDraftStorage.shared.load(recordID: recordID),
+                       newer.draftVersion > version,
+                       self.manualDraftVersion == version {
+                        self.pendingRecoveryDraftSnapshot = newer
+                        self.manualDraftVersion = newer.draftVersion
+                        self.currentDraftVersion = newer.draftVersion
+                    }
+                    self.transientErrorMessage = "本地恢复草稿已更新；最新内容仍保留，请重新核对。"
+                    return
+                }
+                guard self.manualDraftVersion == version else { return }
+                self.pendingRecoveryDraftSnapshot = persisted
+                self.transientErrorMessage = nil
             } catch {
                 guard self.renderDocumentID == recordID,
                       self.editingSessionID == sessionID else { return }
@@ -1890,11 +2394,29 @@ struct LibraryInlineNoteView: View {
               sessionID == editingSessionID else { throw CancellationError() }
         let recordID = renderDocumentID
         if content == storedNote {
-            try await LibraryInlineNoteDraftStorage.shared.removeDrafts(
-                recordID: recordID,
-                through: saveService.recoveryDraftVersionHighWatermark(recordID: recordID)
+            let throughVersion = max(
+                pendingRecoveryDraftSnapshot?.draftVersion ?? 0,
+                saveService.recoveryDraftVersionHighWatermark(recordID: recordID)
             )
+            if throughVersion > 0 {
+                try await LibraryInlineNoteDraftStorage.shared.removeDrafts(
+                    recordID: recordID,
+                    through: throughVersion
+                )
+            }
+            guard renderDocumentID == recordID,
+                  editingSessionID == sessionID else { throw CancellationError() }
+            if let newer = try await LibraryInlineNoteDraftStorage.shared.load(recordID: recordID) {
+                pendingRecoveryDraftSnapshot = newer
+                manualDraftVersion = newer.draftVersion
+                currentDraftVersion = newer.draftVersion
+                manualDraftHasVersionConflict = newer.baseVersion != currentRecordEditVersion()
+                throw CancellationError()
+            }
+            pendingRecoveryDraftSnapshot = nil
             manualDraftVersion = 0
+            currentDraftVersion = nil
+            manualDraftHasVersionConflict = false
             return
         }
 
@@ -1913,8 +2435,10 @@ struct LibraryInlineNoteView: View {
         guard renderDocumentID == recordID,
               editingSessionID == sessionID,
               let persisted = try await LibraryInlineNoteDraftStorage.shared.load(recordID: recordID),
+              persisted.draftVersion == version,
               persisted.content == content,
               persisted.baseVersion == activeBaseVersion else { throw CancellationError() }
+        pendingRecoveryDraftSnapshot = persisted
         manualDraftVersion = persisted.draftVersion
         currentDraftVersion = persisted.draftVersion
     }
@@ -1982,22 +2506,87 @@ struct LibraryInlineNoteView: View {
             revision: finalRevision.revision
         )
         removeSupersededLegacyDraftIfMatching()
-        if commitMode == .explicit {
-            manualDraftHasVersionConflict = false
-            let recordID = renderDocumentID
-            let recoveryVersion = manualDraftVersion
-            manualDraftVersion = 0
-            if recoveryVersion > 0 {
-                Task {
-                    try? await LibraryInlineNoteDraftStorage.shared.removeDrafts(
-                        recordID: recordID,
-                        through: recoveryVersion
-                    )
-                }
-            }
-        }
-        installConfirmedPreview(content: content, editorSnapshot: editorSnapshot)
         onFinishConfirmed?(content)
+        if commitMode == .explicit {
+            let recordID = renderDocumentID
+            let sessionID = finalRevision.sessionID
+            let recoveryVersion = max(
+                manualDraftVersion,
+                pendingRecoveryDraftSnapshot?.draftVersion ?? 0
+            )
+            Task { @MainActor in
+                var survivingDraft = self.pendingRecoveryDraftSnapshot
+                var cleanupMessage: String?
+                if recoveryVersion > 0 {
+                    do {
+                        try await LibraryInlineNoteDraftStorage.shared.removeDrafts(
+                            recordID: recordID,
+                            through: recoveryVersion
+                        )
+                        survivingDraft = try await LibraryInlineNoteDraftStorage.shared.load(recordID: recordID)
+                        if let survivingDraft, survivingDraft.draftVersion > recoveryVersion {
+                            cleanupMessage = "笔记已保存；较新的本地恢复草稿已保留，请继续核对。"
+                        } else if survivingDraft != nil {
+                            cleanupMessage = "笔记已保存，但本地恢复草稿仍存在；请重试清理。"
+                        }
+                    } catch {
+                        cleanupMessage = "笔记已保存，但本地恢复草稿清理失败；草稿仍保留，请重试。\(error.localizedDescription)"
+                    }
+                }
+                guard self.renderDocumentID == recordID,
+                      self.editingSessionID == sessionID else { return }
+                if let survivingDraft, survivingDraft.draftVersion > recoveryVersion {
+                    self.pendingRecoveryDraftSnapshot = survivingDraft
+                    self.setDraftWithoutScheduling(survivingDraft.content)
+                    self.manualDraftVersion = survivingDraft.draftVersion
+                    self.currentDraftVersion = survivingDraft.draftVersion
+                    self.manualDraftHasVersionConflict = survivingDraft.baseVersion != self.currentRecordEditVersion()
+                } else if cleanupMessage == nil {
+                    self.pendingRecoveryDraftSnapshot = nil
+                    self.manualDraftVersion = 0
+                    self.currentDraftVersion = nil
+                    self.manualDraftHasVersionConflict = false
+                    self.setDraftWithoutScheduling(content)
+                } else {
+                    self.pendingRecoveryDraftSnapshot = survivingDraft ?? self.pendingRecoveryDraftSnapshot
+                    self.manualDraftVersion = recoveryVersion
+                    self.currentDraftVersion = recoveryVersion > 0 ? recoveryVersion : nil
+                    self.manualDraftHasVersionConflict = false
+                    self.setDraftWithoutScheduling(content)
+                }
+                self.completeConfirmedEditorPresentation(
+                    version: version,
+                    finalRevision: finalRevision,
+                    content: content,
+                    editorSnapshot: editorSnapshot,
+                    completion: completion,
+                    transientErrorMessage: cleanupMessage,
+                    fullyClearedRecoveryDraft: cleanupMessage == nil
+                )
+            }
+            return
+        }
+        completeConfirmedEditorPresentation(
+            version: version,
+            finalRevision: finalRevision,
+            content: content,
+            editorSnapshot: editorSnapshot,
+            completion: completion,
+            transientErrorMessage: nil,
+            fullyClearedRecoveryDraft: true
+        )
+    }
+
+    private func completeConfirmedEditorPresentation(
+        version: UInt64,
+        finalRevision: LibraryInlineNoteFinishRevision,
+        content: String,
+        editorSnapshot: NativeRichTextEditorSnapshot?,
+        completion: @escaping (Bool) -> Void,
+        transientErrorMessage: String?,
+        fullyClearedRecoveryDraft: Bool
+    ) {
+        installConfirmedPreview(content: content, editorSnapshot: editorSnapshot)
         editing = false
         session.setEditing(false)
         editingInitialHTML = nil
@@ -2005,12 +2594,12 @@ struct LibraryInlineNoteView: View {
         initialSelectionOffset = nil
         initialSelectionWidth = nil
         isFinishing = false
-        transientErrorMessage = nil
+        self.transientErrorMessage = transientErrorMessage
         updateSessionPendingState()
         LibraryPerformanceLog.event(
             "note.finish.preview-confirmed id=\(LibraryPerformanceLog.shortIdentifier(renderDocumentID)) session=\(finalRevision.sessionID.uuidString.prefix(8)) revision=\(finalRevision.revision) version=\(version) bytes=\(content.utf8.count)"
         )
-        resolveFinishCompletions(primary: completion, result: true)
+        resolveFinishCompletions(primary: completion, result: fullyClearedRecoveryDraft)
     }
 
     private func resolveFinishCompletions(primary: @escaping (Bool) -> Void, result: Bool) {

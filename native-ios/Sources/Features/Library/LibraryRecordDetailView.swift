@@ -92,7 +92,7 @@ struct LibraryRecordDetailView: View {
     var onOpenLinkedError: ((String) -> Void)? = nil
 
     @State private var activeRecordKey: String
-    @State private var object: [String: Any]
+    @State private var loadedPayloadObject: [String: Any]
     @State private var redoActionsAvailable = false
     @State private var redoActionsRecordID: String?
     @State private var imageSourceIdentities: [String: LibraryDetailImageSourceIdentity]
@@ -132,6 +132,8 @@ struct LibraryRecordDetailView: View {
     @State private var showsNoteSaveProgress = false
     @State private var noteSaveProgressToken: UUID?
     @State private var editorTransitionErrorMessage: String?
+    @State private var showsNoteDraftHandlingAction = false
+    @State private var pendingDraftRestoreEditorRequestID: String?
     @State private var didHandOffEditRequest = false
 
     init(
@@ -157,7 +159,7 @@ struct LibraryRecordDetailView: View {
         self.onOpenLinkedError = onOpenLinkedError
         _redoPracticeEnabled = State(initialValue: UserDefaults.standard.bool(forKey: "native.library.errors.redoMode"))
         _activeRecordKey = State(initialValue: record.recordID)
-        _object = State(initialValue: [:])
+        _loadedPayloadObject = State(initialValue: [:])
         _imageSourceIdentities = State(initialValue: [:])
     }
 
@@ -182,6 +184,7 @@ struct LibraryRecordDetailView: View {
     private var detailStateTracking: some View {
         detailNavigationDestination
             .onChange(of: activeRecordID) { _, newRecordID in
+                pendingDraftRestoreEditorRequestID = nil
                 hasActiveQuestionTextSelection = false
                 lastLocallySavedNoteUpdate = nil
                 backgroundDoodleSaveRequestID = nil
@@ -287,6 +290,11 @@ struct LibraryRecordDetailView: View {
         detailContent
             .navigationTitle(detailNavigationTitle)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    detailPrincipalTitle
+                }
+            }
             .background(NativeNavigationInteraction(blocked: doodleSession.isPresented))
             .toolbar(.visible, for: .navigationBar)
             .onAppear {
@@ -294,19 +302,35 @@ struct LibraryRecordDetailView: View {
             }
             .onDisappear(perform: invalidateEditorRequestOnExit)
             .alert(
-                Text(splitDoodleErrorMessage == nil ? "无法打开编辑" : "涂鸦未保存"),
+                Text(splitDoodleErrorMessage == nil
+                     ? (showsNoteDraftHandlingAction ? "请先处理这道题的笔记草稿" : "无法打开编辑")
+                     : "涂鸦未保存"),
                 isPresented: Binding(
                     get: { editorTransitionErrorMessage != nil || splitDoodleErrorMessage != nil },
                     set: {
                         if !$0 {
                             editorTransitionErrorMessage = nil
                             splitDoodleErrorMessage = nil
+                            showsNoteDraftHandlingAction = false
                         }
                     }
             )) {
-                Button("好", role: .cancel) {
-                    editorTransitionErrorMessage = nil
-                    splitDoodleErrorMessage = nil
+                if showsNoteDraftHandlingAction {
+                    Button("处理草稿") {
+                        editorTransitionErrorMessage = nil
+                        showsNoteDraftHandlingAction = false
+                        noteSession.revealNoteBlock()
+                    }
+                    Button("取消", role: .cancel) {
+                        editorTransitionErrorMessage = nil
+                        showsNoteDraftHandlingAction = false
+                    }
+                } else {
+                    Button("好", role: .cancel) {
+                        editorTransitionErrorMessage = nil
+                        splitDoodleErrorMessage = nil
+                        showsNoteDraftHandlingAction = false
+                    }
                 }
             } message: {
                 Text(splitDoodleErrorMessage ?? editorTransitionErrorMessage ?? "")
@@ -316,9 +340,38 @@ struct LibraryRecordDetailView: View {
     private var detailNavigationTitle: String {
         SubjectModuleTitle.errorDetailTitle(
             recordModule: record?.module,
-            payloadModule: isPayloadLoading ? nil : object["module"] as? String,
+            payloadModule: object["module"] as? String,
             questionBankModule: isPayloadLoading ? nil : displayQuestionBankContext?.typeMapping.module
         )
+    }
+
+    private var detailPrincipalTitleAccessibilityLabel: String {
+        guard canShowReviewContentInCurrentMode, let detailQuestionType else {
+            return detailNavigationTitle
+        }
+        return "\(detailNavigationTitle)，\(detailQuestionType)"
+    }
+
+    private var detailPrincipalTitle: some View {
+        HStack(spacing: 8) {
+            Text(detailNavigationTitle)
+                .font(.system(size: 17, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
+            if canShowReviewContentInCurrentMode, let detailQuestionType {
+                Text(detailQuestionType)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(0)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(detailPrincipalTitleAccessibilityLabel)
+        .accessibilityIdentifier("library-detail-principal-title")
     }
 
     private var detailPageVersion: LibraryDetailPageVersion {
@@ -375,31 +428,7 @@ struct LibraryRecordDetailView: View {
             let availableWidth = proxy.size.width.isFinite ? max(0, proxy.size.width) : 0
             let layoutDirection = splitLayoutDirection(for: proxy.size)
             ZStack {
-                if isPayloadLoading {
-                    ProgressView("正在加载题目…")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if payloadDecodeFailed {
-                    VStack(spacing: 12) {
-                        NativeStatusCard(
-                            title: "错题详情暂时无法读取",
-                            detail: payloadLoadFailureMessage,
-                            systemImage: "exclamationmark.triangle",
-                            color: AppTheme.warning
-                        )
-                        Button {
-                            retryPayloadLoad()
-                        } label: {
-                            Label("重试", systemImage: "arrow.clockwise")
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(minWidth: 112, minHeight: 44)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(AppTheme.accent)
-                        .accessibilityIdentifier("library-record-detail-payload-retry")
-                    }
-                    .padding(16)
-                    .accessibilityIdentifier("library-record-detail-payload-error")
-                } else if showsDetachedDataAnalysisMaterial {
+                if showsDetachedDataAnalysisMaterial {
                     dataAnalysisSplitLayout(
                         availableSize: proxy.size,
                         layoutDirection: splitDoodleLayoutDirection
@@ -417,6 +446,41 @@ struct LibraryRecordDetailView: View {
             .onChange(of: layoutDirection) { _, newDirection in
                 handleSplitDoodleLayoutChange(to: newDirection)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var payloadStatusBlock: some View {
+        if payloadDecodeFailed {
+            VStack(alignment: .leading, spacing: 8) {
+                NativeStatusCard(
+                    title: "错题详情暂时无法读取",
+                    detail: payloadLoadFailureMessage,
+                    systemImage: "exclamationmark.triangle",
+                    color: AppTheme.warning
+                )
+                Button {
+                    retryPayloadLoad()
+                } label: {
+                    Label("重试", systemImage: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(minWidth: 112, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AppTheme.accent)
+                .accessibilityIdentifier("library-record-detail-payload-retry")
+            }
+            .accessibilityIdentifier("library-record-detail-payload-error")
+        } else if isPayloadLoading {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("正在补齐题目内容…")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("library-record-detail-payload-loading")
         }
     }
 
@@ -519,6 +583,7 @@ struct LibraryRecordDetailView: View {
         let readingColumnWidth = min(availableWidth.isFinite ? max(0, availableWidth) : 0, 920)
         return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                payloadStatusBlock
                 if kind == .errors {
                     errorClassificationAndMasteryRow
                 }
@@ -544,7 +609,17 @@ struct LibraryRecordDetailView: View {
                 reviewContent(comparisonBlock)
                 reviewContent(linkedErrorBlock)
                 reviewContent(reviewBlock)
-                reviewContent(noteBlock)
+                if loadedPayloadKey == activePayloadKey, !isPayloadLoading, !payloadDecodeFailed {
+                    reviewContent(noteBlock)
+                } else if isPayloadLoading {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("正在读取笔记…")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 reviewContent(dateBlock)
             }
             .padding(.horizontal, 16)
@@ -829,15 +904,34 @@ struct LibraryRecordDetailView: View {
 
     private func requestEdit() {
         guard pendingEditorRequestID == nil, !doodleSession.isPresented else { return }
+        let requestID = activeRecordKey
+        if noteSession.isRestoringDraft {
+            guard pendingDraftRestoreEditorRequestID != requestID else { return }
+            pendingDraftRestoreEditorRequestID = requestID
+            noteSession.whenDraftRestoreSettles {
+                guard self.pendingDraftRestoreEditorRequestID == requestID else { return }
+                self.pendingDraftRestoreEditorRequestID = nil
+                guard self.activeRecordKey == requestID,
+                      self.record?.recordID == requestID,
+                      !self.doodleSession.isPresented else { return }
+                self.requestEdit()
+            }
+            return
+        }
         guard !isPayloadLoading, loadedPayloadKey == activePayloadKey, !payloadDecodeFailed else {
             editorTransitionErrorMessage = "题目仍在载入或内容无法读取，请稍后重试。"
             return
         }
         guard !noteSession.hasPendingChanges else {
-            editorTransitionErrorMessage = "错题笔记还有未保存内容，请先点笔记右上角的“完成”，再编辑题目。"
+            if noteSession.isEditing {
+                editorTransitionErrorMessage = "错题笔记仍在编辑中，请先点击右上角“完成”保存后再编辑题目。"
+                showsNoteDraftHandlingAction = false
+            } else {
+                editorTransitionErrorMessage = "请先处理这道题的笔记草稿，再打开题目编辑。"
+                showsNoteDraftHandlingAction = true
+            }
             return
         }
-        let requestID = activeRecordKey
         let transitionRecordID = record?.recordID ?? requestID
         pendingEditorRequestID = requestID
         pendingEditorTransitionRecordID = transitionRecordID
@@ -961,6 +1055,7 @@ struct LibraryRecordDetailView: View {
     }
 
     private func resetEditorRequestAfterReturn() {
+        pendingDraftRestoreEditorRequestID = nil
         guard pendingEditorRequestID != nil else { return }
         pendingEditorRequestID = nil
         pendingEditorTransitionRecordID = nil
@@ -971,6 +1066,7 @@ struct LibraryRecordDetailView: View {
     }
 
     private func invalidateEditorRequestOnExit() {
+        pendingDraftRestoreEditorRequestID = nil
         guard let pendingEditorRequestID else { return }
         let wasHandedOff = didHandOffEditRequest
         let transitionRecordID = pendingEditorTransitionRecordID ?? pendingEditorRequestID
@@ -1017,9 +1113,6 @@ struct LibraryRecordDetailView: View {
                         )
                     }
                 }
-            }
-            if let detailQuestionType {
-                readOnlyMetadataTextLine("题型", value: detailQuestionType)
             }
             if isQuantityRelations {
                 metadataTextLine("题目结构", value: firstText(["quantityStructure"]) ?? "")
@@ -1460,20 +1553,21 @@ struct LibraryRecordDetailView: View {
                     session: noteSession,
                     commitMode: .explicit,
                     readNote: {
-                        if let note = record.jsonObject?["note"] as? String { return note }
-                        if let note = object["note"] as? String { return note }
+                        if let note = loadedPayloadObject["note"] as? String { return note }
                         return ["content", "errorNote", "analysis"]
-                            .compactMap { object[$0] as? String }
+                            .compactMap { loadedPayloadObject[$0] as? String }
                             .first ?? ""
                     },
                     onSaved: { note in
                         guard activeRecordID == record.compoundID else { return }
-                        object["note"] = note
+                        var updated = loadedPayloadObject
+                        updated["note"] = note
+                        refreshObject(updated)
                         lastLocallySavedNoteUpdate = record.updatedAt
                     },
                     onFinishConfirmed: { note in
                         guard activeRecordID == record.compoundID else { return }
-                        var updated = record.jsonObject ?? object
+                        var updated = loadedPayloadObject
                         updated["note"] = note
                         lastLocallySavedNoteUpdate = record.updatedAt
                         refreshObject(updated)
@@ -2354,17 +2448,20 @@ struct LibraryRecordDetailView: View {
     }
 
     private var detailQuestionType: String? {
-        guard kind == .errors else { return nil }
+        guard kind == .errors,
+              !isPayloadLoading,
+              !payloadDecodeFailed,
+              loadedPayloadKey == activePayloadKey else { return nil }
+        guard let record,
+              record.collection == kind.collection,
+              record.recordID == activeRecordKey,
+              record.compoundID == activeRecordID else { return nil }
+        let currentPayload = object
 
         if activeSubject == "数量关系" {
-            guard let record else { return nil }
-            let indexed = record.indexObject ?? [:]
-            let rawModule: String
-            if indexed.keys.contains("module") {
-                rawModule = indexed["module"] as? String ?? ""
-            } else {
-                rawModule = record.jsonObject?["module"] as? String ?? ""
-            }
+            let rawModule = currentPayload.keys.contains("module")
+                ? (currentPayload["module"] as? String ?? "")
+                : (record.module ?? "")
             return LibraryQuantityTypeSelectionPolicy.concreteType(
                 selected: rawModule,
                 availableTypes: QuantityQuestionTypeRepository.types(records: records)
@@ -2372,11 +2469,10 @@ struct LibraryRecordDetailView: View {
         }
 
         guard let typeSubject = LibraryErrorTypeSubject(rawValue: activeSubject),
-              let record, let payload = record.jsonObject,
-              let rawID = payload["errorTypeID"] as? String else { return nil }
+              let rawID = currentPayload["errorTypeID"] as? String else { return nil }
         let typeID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typeID.isEmpty else { return nil }
-        let module = (payload["module"] as? String ?? record.module ?? "")
+        let module = (currentPayload["module"] as? String ?? record.module ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let type = LibraryErrorTypeRepository.types(for: typeSubject, records: records)
                 .first(where: {
@@ -2384,20 +2480,6 @@ struct LibraryRecordDetailView: View {
                 }) else { return nil }
         let name = type.name.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? nil : name
-    }
-
-    private func readOnlyMetadataTextLine(_ label: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text("\(label)：")
-            Text(value)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .font(.system(size: 12.5, weight: .regular))
-        .foregroundStyle(.primary)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label)：\(value)")
-        .accessibilityIdentifier("library-detail-saved-question-type")
     }
 
     private var quantityErrorCauseValues: [String] {
@@ -2670,7 +2752,7 @@ struct LibraryRecordDetailView: View {
         guard let key = trigger.payloadKey,
               let record,
               record.compoundID == key.recordID else {
-            object = [:]
+            loadedPayloadObject = [:]
             imageSourceIdentities = [:]
             loadedPayloadKey = nil
             redoActionsAvailable = false
@@ -2781,7 +2863,7 @@ struct LibraryRecordDetailView: View {
 
     private func retryPayloadLoad() {
         guard payloadDecodeFailed else { return }
-        object = [:]
+        loadedPayloadObject = [:]
         imageSourceIdentities = [:]
         loadedPayloadKey = nil
         redoActionsAvailable = false
@@ -2807,6 +2889,19 @@ struct LibraryRecordDetailView: View {
         records.first { $0.collection == kind.collection && $0.recordID == activeRecordKey }
     }
 
+    private var object: [String: Any] {
+        if let activePayloadKey, loadedPayloadKey == activePayloadKey {
+            return loadedPayloadObject
+        }
+        guard let record,
+              record.recordID == activeRecordKey,
+              let indexPayload = record.indexPayload,
+              let indexed = (try? JSONSerialization.jsonObject(with: indexPayload)) as? [String: Any] else {
+            return [:]
+        }
+        return indexed
+    }
+
     private func imageCacheKey(kind: String, index: Int, source: String, metadataID: String) -> String {
         let slot = "\(kind):\(index)"
         let identity = imageSourceIdentities[slot]
@@ -2816,7 +2911,8 @@ struct LibraryRecordDetailView: View {
 
     private func refreshObject(_ value: [String: Any]) {
         imageSourceIdentities = Self.reconciledImageSourceIdentities(for: value, previous: imageSourceIdentities)
-        object = value
+        loadedPayloadObject = value
+        loadedPayloadKey = activePayloadKey
         pageContentRevision &+= 1
     }
 
