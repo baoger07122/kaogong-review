@@ -75,7 +75,7 @@ struct LibraryRecordDetailView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var doodleSession: LibraryDoodleSession
     @ObservedObject private var tagDisplayPreferences = LibraryTagDisplayPreferences.shared
-    @Query(filter: #Predicate<StoredRecord> {
+    @Query(filter: #Predicate<StoredRecord> { record in
         record.collection == "words"
             || record.collection == "errors"
             || record.collection == "exams"
