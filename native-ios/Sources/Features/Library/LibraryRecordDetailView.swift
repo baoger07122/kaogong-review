@@ -793,6 +793,10 @@ struct LibraryRecordDetailView: View {
             editorTransitionErrorMessage = "题目仍在载入或内容无法读取，请稍后重试。"
             return
         }
+        guard !noteSession.hasPendingChanges else {
+            editorTransitionErrorMessage = "错题笔记还有未保存内容，请先点笔记右上角的“完成”，再编辑题目。"
+            return
+        }
         let requestID = activeRecordKey
         let transitionRecordID = record?.recordID ?? requestID
         pendingEditorRequestID = requestID
@@ -1406,7 +1410,9 @@ struct LibraryRecordDetailView: View {
                 LibraryInlineNoteView(
                     record: record,
                     session: noteSession,
+                    commitMode: .explicit,
                     readNote: {
+                        if let note = record.jsonObject?["note"] as? String { return note }
                         if let note = object["note"] as? String { return note }
                         return ["content", "errorNote", "analysis"]
                             .compactMap { object[$0] as? String }

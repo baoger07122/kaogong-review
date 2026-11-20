@@ -45,6 +45,7 @@ struct LibraryInlineNoteRecordSaveState: Equatable, Sendable {
 /// cannot race a newer atomic snapshot write for the same record.
 actor LibraryInlineNoteDraftStorage {
     static let shared = LibraryInlineNoteDraftStorage()
+    private var removedDraftVersions: [String: UInt64] = [:]
 
     private func url(recordID: String) throws -> URL {
         guard let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
@@ -64,11 +65,22 @@ actor LibraryInlineNoteDraftStorage {
         let data = try Data(contentsOf: fileURL)
         let snapshot = try JSONDecoder().decode(LibraryInlineNoteDraftSnapshot.self, from: data)
         guard snapshot.recordID == recordID else { return nil }
+        if snapshot.draftVersion <= removedDraftVersions[recordID, default: 0] {
+            try? FileManager.default.removeItem(at: fileURL)
+            return nil
+        }
         return snapshot
     }
 
     func write(_ snapshot: LibraryInlineNoteDraftSnapshot) throws {
         let fileURL = try url(recordID: snapshot.recordID)
+        if snapshot.draftVersion <= removedDraftVersions[snapshot.recordID, default: 0] {
+            return
+        }
+        if let existing = try? load(recordID: snapshot.recordID),
+           existing.draftVersion > snapshot.draftVersion {
+            return
+        }
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -79,6 +91,13 @@ actor LibraryInlineNoteDraftStorage {
 
     func removeIfMatching(recordID: String, draftVersion: UInt64) throws {
         guard let current = try load(recordID: recordID), current.draftVersion == draftVersion else { return }
+        try FileManager.default.removeItem(at: url(recordID: recordID))
+        removedDraftVersions[recordID] = max(removedDraftVersions[recordID, default: 0], draftVersion)
+    }
+
+    func removeDrafts(recordID: String, through draftVersion: UInt64) throws {
+        removedDraftVersions[recordID] = max(removedDraftVersions[recordID, default: 0], draftVersion)
+        guard let current = try load(recordID: recordID), current.draftVersion <= draftVersion else { return }
         try FileManager.default.removeItem(at: url(recordID: recordID))
     }
 }
@@ -116,7 +135,9 @@ final class LibraryInlineNoteSaveService: ObservableObject {
     private var completions: [RecordVersion: [Completion]] = [:]
     private var idleHandlers: [String: [@MainActor (Bool) -> Void]] = [:]
     private var committedVersionChains: [String: VersionChain] = [:]
+    private var recoveryDraftVersionHighWater: [String: UInt64] = [:]
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    private var recoveryWriteCount = 0
 
     func state(recordID: String) -> LibraryInlineNoteRecordSaveState {
         recordStates[recordID] ?? LibraryInlineNoteRecordSaveState()
@@ -124,6 +145,44 @@ final class LibraryInlineNoteSaveService: ObservableObject {
 
     func hasPending(recordID: String) -> Bool {
         workers[recordID] != nil || !(queues[recordID]?.isEmpty ?? true)
+    }
+
+    func persistRecoveryDraft(
+        _ snapshot: LibraryInlineNoteDraftSnapshot,
+        requiresBackgroundTime: Bool = false
+    ) async throws {
+        recoveryDraftVersionHighWater[snapshot.recordID] = max(
+            recoveryDraftVersionHighWater[snapshot.recordID, default: 0],
+            snapshot.draftVersion
+        )
+        if requiresBackgroundTime {
+            recoveryWriteCount += 1
+            beginBackgroundExecutionIfNeeded()
+        }
+        defer {
+            if requiresBackgroundTime {
+                recoveryWriteCount = max(0, recoveryWriteCount - 1)
+                endBackgroundExecutionIfIdle()
+            }
+        }
+        try await LibraryInlineNoteDraftStorage.shared.write(snapshot)
+    }
+
+    func nextRecoveryDraftVersion(recordID: String, after version: UInt64) -> UInt64 {
+        let next = max(recoveryDraftVersionHighWater[recordID, default: 0], version) &+ 1
+        recoveryDraftVersionHighWater[recordID] = next
+        return next
+    }
+
+    func observeRecoveryDraftVersion(recordID: String, version: UInt64) {
+        recoveryDraftVersionHighWater[recordID] = max(
+            recoveryDraftVersionHighWater[recordID, default: 0],
+            version
+        )
+    }
+
+    func recoveryDraftVersionHighWatermark(recordID: String) -> UInt64 {
+        recoveryDraftVersionHighWater[recordID, default: 0]
     }
 
     func markExistingContentConfirmed(
@@ -158,6 +217,16 @@ final class LibraryInlineNoteSaveService: ObservableObject {
         recordStates[recordID] = nil
     }
 
+    func discardUncommittedDraft(
+        recordID: String,
+        content: String,
+        readVersion: String
+    ) {
+        guard !hasPending(recordID: recordID) else { return }
+        recordStates[recordID] = nil
+        markExistingContentConfirmed(recordID: recordID, content: content, readVersion: readVersion)
+    }
+
     /// Registers each distinct editor revision before its debounce begins.
     /// A completed callback for an older revision therefore cannot mark newer
     /// text as saved or failed.
@@ -173,7 +242,11 @@ final class LibraryInlineNoteSaveService: ObservableObject {
             return state.latestDraftVersion
         }
 
-        let nextVersion = max(state.latestDraftVersion, state.confirmedDraftVersion) &+ 1
+        let nextVersion = max(
+            max(state.latestDraftVersion, state.confirmedDraftVersion),
+            recoveryDraftVersionHighWater[recordID, default: 0]
+        ) &+ 1
+        observeRecoveryDraftVersion(recordID: recordID, version: nextVersion)
         state.latestDraftVersion = nextVersion
         state.latestContent = content
         state.latestBaseVersion = baseVersion
@@ -208,6 +281,7 @@ final class LibraryInlineNoteSaveService: ObservableObject {
             && state.latestDraftVersion >= draftVersion
             && state.latestContent == content
         state.latestDraftVersion = max(draftVersion, state.latestDraftVersion)
+        observeRecoveryDraftVersion(recordID: recordID, version: state.latestDraftVersion)
         state.latestContent = content
         state.latestBaseVersion = baseVersion
         state.latestBasePayload = basePayload
@@ -434,7 +508,7 @@ final class LibraryInlineNoteSaveService: ObservableObject {
     }
 
     private func endBackgroundExecutionIfIdle() {
-        guard workers.isEmpty, backgroundTaskID != .invalid else { return }
+        guard workers.isEmpty, recoveryWriteCount == 0, backgroundTaskID != .invalid else { return }
         UIApplication.shared.endBackgroundTask(backgroundTaskID)
         backgroundTaskID = .invalid
     }

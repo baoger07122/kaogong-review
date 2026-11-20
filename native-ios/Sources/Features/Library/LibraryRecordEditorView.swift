@@ -1323,16 +1323,14 @@ struct LibraryRecordEditorView: View {
         }.value
         guard !Task.isCancelled, key == wordContentPreparationKey else { return }
 
-        let isLossless = fallbackRuns.map { NativeRichTextDisplayRenderer.supportsLosslessEditing($0) } ?? false
         let requiresFallbackSnapshot = rendered.usedSafeFallback || rendered.attributedText.string.contains("[[NATIVE_")
         let editableAttributedText: NSAttributedString?
-        if !isLossless {
-            editableAttributedText = nil
-        } else if requiresFallbackSnapshot {
-            guard fallbackHTMLPreservesEditableStructure(sourceHTML),
+        if requiresFallbackSnapshot {
+            let isLossless = fallbackRuns.map { NativeRichTextDisplayRenderer.supportsLosslessEditing($0) } ?? false
+            guard isLossless,
+                  fallbackHTMLPreservesEditableStructure(sourceHTML),
                   let runs = fallbackRuns,
                   let attributed = NativeRichTextDisplayRenderer.editableAttributedText(from: runs) else {
-                editableAttributedText = nil
                 preparedWordContent = PreparedLibraryWordContent(
                     key: key,
                     sourceHTML: sourceHTML,
@@ -1342,8 +1340,13 @@ struct LibraryRecordEditorView: View {
                 return
             }
             editableAttributedText = attributed
-        } else {
+        } else if NativeRichTextDisplayRenderer.supportsNativeEditingSnapshot(
+            sourceHTML: sourceHTML,
+            rendered: rendered
+        ) {
             editableAttributedText = rendered.attributedText.copy() as? NSAttributedString ?? rendered.attributedText
+        } else {
+            editableAttributedText = nil
         }
 
         guard !Task.isCancelled, key == wordContentPreparationKey else { return }

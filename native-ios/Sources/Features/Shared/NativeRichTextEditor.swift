@@ -329,6 +329,7 @@ struct NativeRichTextEditor: View {
     var mode: RichTextToolbarMode = .full
     var documentStyle = false
     var noteFormatting = false
+    var usesStabilizedInlineNoteMeasurement = false
     var tableAppearance: NativeRichTextTableAppearance = .system
     var focusOnAppear = false
     var initialSelectionOffset: Int? = nil
@@ -425,6 +426,7 @@ struct NativeRichTextEditor: View {
                 growsWithContent: documentStyle,
                 tableAppearance: tableAppearance,
                 noteFormatting: noteFormatting,
+                usesStabilizedInlineNoteMeasurement: usesStabilizedInlineNoteMeasurement,
                 minimumContentHeight: documentStyle ? minHeight : 0,
                 focusOnAppear: focusOnAppear,
                 initialSelectionOffset: initialSelectionOffset,
@@ -1067,6 +1069,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     var minHeight: CGFloat = 0
     var tableAppearance: NativeRichTextTableAppearance = .system
     var noteFormatting = false
+    var usesStabilizedInlineNoteMeasurement = false
     var accessibilityIdentifier: String? = nil
     var onFallback: (() -> Void)? = nil
     var onTapTextOffset: ((Int, NSAttributedString, CGFloat) -> Void)? = nil
@@ -1431,6 +1434,89 @@ enum NativeRichTextDisplayRenderer {
         return true
     }
 
+    /// The system HTML importer is the preferred editing snapshot for app-exported
+    /// HTML. This guard rejects parser fallbacks, unparsed markup, unresolved native
+    /// markers, and attachments that the editor cannot serialize back losslessly.
+    static func supportsNativeEditingSnapshot(
+        sourceHTML: String,
+        rendered: NativeRichTextDisplayRenderResult
+    ) -> Bool {
+        guard sourceHTML.utf8.count <= maximumImportedHTMLBytes,
+              !rendered.usedSafeFallback,
+              rendered.attributedText.length <= 1_000_000,
+              hasBalancedHTMLTags(sourceHTML),
+              !containsUnparsedHTMLOrNativeMarker(rendered.attributedText.string) else { return false }
+
+        var supportedAttachments = true
+        var attachmentCount = 0
+        var imagePayloadBytes = 0
+        rendered.attributedText.enumerateAttribute(
+            .attachment,
+            in: NSRange(location: 0, length: rendered.attributedText.length)
+        ) { value, _, stop in
+            guard let attachment = value as? NSTextAttachment else { return }
+            attachmentCount += 1
+            guard attachmentCount <= 64 else {
+                supportedAttachments = false
+                stop.pointee = true
+                return
+            }
+            if let image = attachment as? NativeImageAttachment {
+                imagePayloadBytes += image.dataURL.utf8.count
+                guard imagePayloadBytes <= 8 * 1024 * 1024,
+                      image.dataURL.utf8.count <= NativeRichTextImageLimits.maximumEncodedBytes else {
+                    supportedAttachments = false
+                    stop.pointee = true
+                    return
+                }
+            } else if let table = attachment as? NativeTableAttachment {
+                guard table.marker != nil else {
+                    supportedAttachments = false
+                    stop.pointee = true
+                    return
+                }
+            } else if let formula = attachment as? NativeFormulaAttachment {
+                guard formula.marker != nil else {
+                    supportedAttachments = false
+                    stop.pointee = true
+                    return
+                }
+            } else {
+                supportedAttachments = false
+                stop.pointee = true
+            }
+        }
+        return supportedAttachments
+    }
+
+    private static func containsUnparsedHTMLOrNativeMarker(_ text: String) -> Bool {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"<\s*/?\s*[A-Za-z][^>]*>|\[\[NATIVE_[^\]]*"#
+        ) else { return true }
+        return expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+    }
+
+    private static func hasBalancedHTMLTags(_ html: String) -> Bool {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"</?\s*([A-Za-z][A-Za-z0-9:-]*)\b[^>]*>"#,
+            options: [.caseInsensitive]
+        ) else { return false }
+        let voidTags: Set<String> = ["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]
+        let source = html as NSString
+        var stack: [String] = []
+        for match in expression.matches(in: html, range: NSRange(location: 0, length: source.length)) {
+            guard match.numberOfRanges > 1 else { return false }
+            let tag = source.substring(with: match.range).lowercased()
+            let name = source.substring(with: match.range(at: 1)).lowercased()
+            if tag.hasPrefix("</") {
+                guard let last = stack.popLast(), last == name else { return false }
+            } else if !voidTags.contains(name), !tag.hasSuffix("/>") {
+                stack.append(name)
+            }
+        }
+        return stack.isEmpty
+    }
+
     private static func fallbackTextAttributes(
         _ style: NativeRichTextFallbackTextStyle,
         baseFont: UIFont
@@ -1716,6 +1802,12 @@ private struct RichTextTextView: UIViewRepresentable {
         let replacingDocumentContent = usesLazyHTMLInitialization
             ? managedDocumentChanged
             : context.coordinator.lastHTML != html && !view.isFirstResponder
+        if usesStabilizedInlineNoteMeasurement, editorSession != nil,
+           managedDocumentChanged || context.coordinator.lastHTML != html {
+            LibraryPerformanceLog.event(
+                "note.editor.update documentChanged=\(managedDocumentChanged) replacement=\(replacingDocumentContent) focused=\(view.isFirstResponder) bindingBytes=\(html.utf8.count) storageLength=\(view.textStorage.length) selection=\(view.selectedRange.location):\(view.selectedRange.length)"
+            )
+        }
         if replacingDocumentContent {
             if managedDocumentChanged { view.resignFirstResponder() }
             if let preparedInitialAttributedText, preparedInitialHTML == html {
@@ -1854,6 +1946,32 @@ private struct RichTextTextView: UIViewRepresentable {
         func contentHeight(for view: UITextView, width: CGFloat, minimum: CGFloat) -> CGFloat {
             didMeasureHeightDuringLastRequest = false
             let normalizedWidth = floor(width * 2) / 2
+            if parent.usesStabilizedInlineNoteMeasurement {
+                if let lastMeasuredWidth,
+                   abs(lastMeasuredWidth - normalizedWidth) <= 0.5,
+                   !measuredHeightNeedsRefresh {
+                    return max(minimum, lastMeasuredHeight)
+                }
+                ensureCurrentNoteLayout(view)
+                let size = view.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+                didMeasureHeightDuringLastRequest = true
+                lastMeasuredWidth = normalizedWidth
+                let fittedHeight = size.height.isFinite ? ceil(size.height) : minimum
+                let caret = view.caretRect(for: view.endOfDocument)
+                let caretHeight = !caret.isNull && caret.maxY.isFinite
+                    ? ceil(caret.maxY + view.textContainerInset.bottom + 2)
+                    : minimum
+                lastMeasuredHeight = max(minimum, max(fittedHeight, caretHeight))
+                measuredHeightNeedsRefresh = false
+                if hasPendingForcedNoteHeightMeasurement { forcedNoteHeightMeasurement = nil }
+                if parent.editorSession != nil {
+                    LibraryPerformanceLog.event(
+                        "note.editor.height revision=\(documentRevision) edit=\(userEditRevision) length=\(view.textStorage.length) selection=\(view.selectedRange.location):\(view.selectedRange.length) width=\(normalizedWidth) fit=\(Int(fittedHeight)) caret=\(Int(caretHeight)) result=\(Int(lastMeasuredHeight))"
+                    )
+                }
+                return lastMeasuredHeight
+            }
+
             if parent.noteFormatting, hasPendingForcedNoteHeightMeasurement {
                 let size = view.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
                 didMeasureHeightDuringLastRequest = true
@@ -1885,14 +2003,34 @@ private struct RichTextTextView: UIViewRepresentable {
             return lastMeasuredHeight
         }
 
+        private func ensureCurrentNoteLayout(_ view: UITextView) {
+            guard let textLayoutManager = view.textLayoutManager,
+                  let textContentManager = textLayoutManager.textContentManager else { return }
+            textLayoutManager.ensureLayout(for: textContentManager.documentRange)
+        }
+
         private func updateCachedNoteHeightFromTextKit(_ view: UITextView) -> Bool {
             guard parent.noteFormatting,
                   let lastMeasuredWidth,
                   view.bounds.width.isFinite,
-                  abs(lastMeasuredWidth - floor(view.bounds.width * 2) / 2) <= 0.5,
-                  let usedHeight = view.textLayoutManager?.usageBoundsForTextContainer.height,
-                  usedHeight.isFinite, usedHeight > 0 else { return false }
-            let updatedHeight = max(parent.minimumContentHeight, ceil(usedHeight))
+                  abs(lastMeasuredWidth - floor(view.bounds.width * 2) / 2) <= 0.5 else { return false }
+            guard parent.usesStabilizedInlineNoteMeasurement else {
+                guard let usedHeight = view.textLayoutManager?.usageBoundsForTextContainer.height,
+                      usedHeight.isFinite, usedHeight > 0 else { return false }
+                let updatedHeight = max(parent.minimumContentHeight, ceil(usedHeight))
+                measuredHeightNeedsRefresh = false
+                guard abs(updatedHeight - lastMeasuredHeight) > 0.5 else { return false }
+                lastMeasuredHeight = updatedHeight
+                return true
+            }
+            ensureCurrentNoteLayout(view)
+            let size = view.sizeThatFits(CGSize(width: view.bounds.width, height: .greatestFiniteMagnitude))
+            guard size.height.isFinite, size.height > 0 else { return false }
+            let caret = view.caretRect(for: view.endOfDocument)
+            let caretHeight = !caret.isNull && caret.maxY.isFinite
+                ? ceil(caret.maxY + view.textContainerInset.bottom + 2)
+                : parent.minimumContentHeight
+            let updatedHeight = max(parent.minimumContentHeight, max(ceil(size.height), caretHeight))
             measuredHeightNeedsRefresh = false
             guard abs(updatedHeight - lastMeasuredHeight) > 0.5 else { return false }
             lastMeasuredHeight = updatedHeight
@@ -2015,6 +2153,11 @@ private struct RichTextTextView: UIViewRepresentable {
             userEditRevision &+= 1
             let isComposing = textView.markedTextRange != nil
             connectedSession?.setComposingText(isComposing)
+            if parent.usesStabilizedInlineNoteMeasurement, parent.editorSession != nil {
+                LibraryPerformanceLog.event(
+                    "note.editor.change length=\(textView.textStorage.length) selection=\(textView.selectedRange.location):\(textView.selectedRange.length) revision=\(documentRevision) edit=\(userEditRevision) composing=\(isComposing) locked=\(connectedSession?.isInputLocked == true)"
+                )
+            }
             if parent.noteFormatting {
                 measuredHeightNeedsRefresh = true
             }
@@ -2078,7 +2221,14 @@ private struct RichTextTextView: UIViewRepresentable {
         }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
-            guard connectedSession?.isInputLocked != true else { return false }
+            let isLocked = connectedSession?.isInputLocked == true
+            if parent.usesStabilizedInlineNoteMeasurement, parent.editorSession != nil {
+                let action = text.isEmpty ? "delete" : (text == "\n" ? "newline" : "insert")
+                LibraryPerformanceLog.event(
+                    "note.editor.input action=\(action) range=\(range.location):\(range.length) insertLength=\(text.utf16.count) storageLength=\(textView.textStorage.length) selection=\(textView.selectedRange.location):\(textView.selectedRange.length) revision=\(documentRevision) edit=\(userEditRevision) locked=\(isLocked)"
+                )
+            }
+            guard !isLocked else { return false }
             if textView.markedTextRange != nil { return true }
             if text.isEmpty, range.length == 1, removeEmptyListPrefixBeforeBackspace(in: textView, range: range) {
                 return false
