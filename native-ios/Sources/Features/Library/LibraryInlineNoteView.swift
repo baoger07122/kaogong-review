@@ -651,7 +651,6 @@ struct LibraryInlineNoteView: View {
                     onConfirm: {
                         let action = recoveryConfirmation
                         self.recoveryConfirmation = nil
-                        guard let action else { return }
                         switch action {
                         case .restoreOriginal: restoreOriginalPendingDraft()
                         case .discard: discardManualRecoveryDraft()
