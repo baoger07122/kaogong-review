@@ -277,6 +277,8 @@ struct LibraryInlineNoteView: View {
     @State private var isEndingProgrammaticTransition = false
     @State private var preparedNote: PreparedLibraryInlineNote?
     @State private var preparationFailureKey: LibraryInlineNoteRenderKey?
+    @State private var preparedPendingDraft: PreparedLibraryInlineNote?
+    @State private var pendingDraftPreparationFailureKey: LibraryInlineNoteRenderKey?
     @State private var transientErrorMessage: String?
     @State private var displayWarning: String?
     @State private var editingInitialHTML: String?
@@ -404,6 +406,10 @@ struct LibraryInlineNoteView: View {
         return noteSaveState.latestContent != noteSaveState.confirmedContent || noteSaveState.phase == .failed
     }
 
+    private var shouldShowPendingDraftDisplay: Bool {
+        hasPendingDraft || errorMessage != nil
+    }
+
     private var saveStatus: LibraryInlineNoteSaveStatus {
         if commitMode == .explicit {
             if isFinishing { return .writing }
@@ -444,6 +450,14 @@ struct LibraryInlineNoteView: View {
         )
     }
 
+    private var pendingDraftRenderKey: LibraryInlineNoteRenderKey {
+        LibraryInlineNoteRenderKey(
+            documentID: renderDocumentID,
+            version: "\(questionBankContextVersion)|draft:\(max(currentDraftVersion ?? 0, manualDraftVersion))",
+            html: draft
+        )
+    }
+
     private var questionBankContextVersion: String {
         "\(renderVersion())|\(storedNote.utf8.count)"
     }
@@ -451,6 +465,11 @@ struct LibraryInlineNoteView: View {
     private var currentPreparedNote: PreparedLibraryInlineNote? {
         guard preparedNote?.key == noteRenderKey else { return nil }
         return preparedNote
+    }
+
+    private var currentPreparedPendingDraft: PreparedLibraryInlineNote? {
+        guard preparedPendingDraft?.key == pendingDraftRenderKey else { return nil }
+        return preparedPendingDraft
     }
 
     var body: some View {
@@ -501,7 +520,7 @@ struct LibraryInlineNoteView: View {
                 .padding(.horizontal, 8)
                 .padding(.bottom, 96)
             } else {
-                if hasPendingDraft || errorMessage != nil {
+                if shouldShowPendingDraftDisplay {
                     pendingDraftDisplay
                         .padding(.horizontal, 8)
                 } else {
@@ -740,6 +759,10 @@ struct LibraryInlineNoteView: View {
             let key = noteRenderKey
             await prepareNote(for: key)
         }
+        .task(id: LibraryInlineNotePreparationKey(note: pendingDraftRenderKey, isEditing: editing || !shouldShowPendingDraftDisplay)) {
+            guard !editing, shouldShowPendingDraftDisplay else { return }
+            await preparePendingDraft(for: pendingDraftRenderKey)
+        }
         .onChange(of: noteSaveState) { _, _ in updateSessionPendingState() }
     }
 
@@ -769,49 +792,85 @@ struct LibraryInlineNoteView: View {
             installedPreparedNote = true
             return
         }
-        let result = NativeRichTextDisplayRenderer.render(
-            key.html,
-            noteFormatting: true,
-            cleanLegacyInjectedSpacing: true
-        )
-        let editableAttributedText: NSAttributedString?
-        if result.usedSafeFallback {
-            let html = key.html
-            let runs = await Task.detached(priority: .utility) {
-                NativeRichTextFallbackParser.parseForEditing(html)
-            }.value
-            guard !Task.isCancelled else { return }
-            editableAttributedText = runs.flatMap {
-                guard let editable = NativeRichTextDisplayRenderer.editableAttributedText(from: $0) else { return nil }
-                return NativeRichTextDisplayRenderer.applyingNoteFormatting(
-                    to: NativeRichTextDisplayRenderResult(attributedText: editable, usedSafeFallback: true),
-                    sourceHTML: html
-                ).attributedText
-            }
-        } else {
-            editableAttributedText = nil
-        }
+        guard let prepared = await prepareNativeNotePreview(for: key) else { return }
         guard !Task.isCancelled, !editing, key == noteRenderKey else { return }
-        let displayResult: NativeRichTextDisplayRenderResult
-        if result.usedSafeFallback, let editableAttributedText {
-            let fallbackResult = NativeRichTextDisplayRenderResult(
-                attributedText: editableAttributedText,
-                usedSafeFallback: true
-            )
-            displayResult = NativeRichTextDisplayRenderer.applyingNoteFormatting(to: fallbackResult, sourceHTML: key.html)
+        preparedNote = prepared
+        installedPreparedNote = true
+        if prepared.result.usedSafeFallback, prepared.editableAttributedText == nil {
+            displayWarning = "预览已降级；笔记过长或含有未闭合附件，当前仅保留原内容并以只读方式显示。"
         } else {
-            displayResult = result
+            displayWarning = nil
         }
-        preparedNote = PreparedLibraryInlineNote(
+    }
+
+    @MainActor
+    private func preparePendingDraft(for key: LibraryInlineNoteRenderKey) async {
+        pendingDraftPreparationFailureKey = nil
+        guard !editing, shouldShowPendingDraftDisplay else { return }
+        if let preparedPendingDraft,
+           preparedPendingDraft.key.documentID == key.documentID,
+           preparedPendingDraft.key.html == key.html {
+            self.preparedPendingDraft = PreparedLibraryInlineNote(
+                key: key,
+                result: preparedPendingDraft.result,
+                editableAttributedText: preparedPendingDraft.editableAttributedText,
+                editorDocumentRevision: preparedPendingDraft.editorDocumentRevision
+            )
+            return
+        }
+        guard let prepared = await prepareNativeNotePreview(for: key) else {
+            guard !Task.isCancelled, !editing, shouldShowPendingDraftDisplay, key == pendingDraftRenderKey else { return }
+            pendingDraftPreparationFailureKey = key
+            return
+        }
+        guard !Task.isCancelled, !editing, shouldShowPendingDraftDisplay, key == pendingDraftRenderKey else { return }
+        preparedPendingDraft = prepared
+    }
+
+    @MainActor
+    private func prepareNativeNotePreview(for key: LibraryInlineNoteRenderKey) async -> PreparedLibraryInlineNote? {
+        let html = key.html
+        let parsed = await Task.detached(priority: .utility) { () -> (runs: [NativeRichTextFallbackRun], supportsEditing: Bool) in
+            if let editableRuns = NativeRichTextFallbackParser.parseForEditing(html) {
+                return (editableRuns, true)
+            }
+            return (NativeRichTextFallbackParser.parse(html), false)
+        }.value
+        guard !Task.isCancelled else { return nil }
+
+        let editableSnapshot: NSAttributedString?
+        if parsed.supportsEditing,
+           NativeRichTextDisplayRenderer.supportsLosslessEditing(parsed.runs),
+           let editable = NativeRichTextDisplayRenderer.editableAttributedText(from: parsed.runs) {
+            editableSnapshot = NativeRichTextDisplayRenderer.applyingNoteFormatting(
+                to: NativeRichTextDisplayRenderResult(attributedText: editable, usedSafeFallback: true),
+                sourceHTML: html,
+                cleanLegacyInjectedSpacing: true
+            ).attributedText
+        } else {
+            editableSnapshot = nil
+        }
+
+        let result: NativeRichTextDisplayRenderResult
+        if let editableSnapshot {
+            result = NativeRichTextDisplayRenderResult(
+                attributedText: editableSnapshot,
+                usedSafeFallback: false
+            )
+        } else {
+            result = NativeRichTextDisplayRenderer.renderFallbackPreview(
+                parsed.runs,
+                sourceHTML: html,
+                noteFormatting: true,
+                cleanLegacyInjectedSpacing: true
+            )
+        }
+        return PreparedLibraryInlineNote(
             key: key,
-            result: displayResult,
-            editableAttributedText: editableAttributedText,
+            result: result,
+            editableAttributedText: editableSnapshot,
             editorDocumentRevision: nil
         )
-        installedPreparedNote = true
-        if result.usedSafeFallback, editableAttributedText == nil {
-            displayWarning = "预览已降级；笔记过长或含有未闭合附件，当前仅保留原内容并以只读方式显示。"
-        }
     }
 
     @ViewBuilder private var noteDisplay: some View {
@@ -838,6 +897,7 @@ struct LibraryInlineNoteView: View {
                     minHeight: noteCanvasMinimumHeight,
                     accessibilityIdentifier: "library-inline-note-display",
                     noteFormatting: true,
+                    requiresPreparedSnapshot: true,
                     onFallback: {
                         displayWarning = currentPreparedNote.editableAttributedText == nil
                             ? "预览已降级；笔记过长或含有未闭合附件，当前仅保留原内容并以只读方式显示。"
@@ -863,12 +923,11 @@ struct LibraryInlineNoteView: View {
                     Text("笔记暂时无法显示")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(AppTheme.warning)
-                    NativeRichTextDisplay(
-                        html: storedNote,
-                        minHeight: noteCanvasMinimumHeight,
-                        accessibilityIdentifier: "library-inline-note-safe-fallback",
-                        noteFormatting: true
-                    )
+                    Text("原始笔记仍保留；安全预览暂时无法生成。")
+                        .font(AppTheme.noteBodyFont)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("library-inline-note-safe-fallback")
                     Button("重试") {
                         let retryKey = noteRenderKey
                         Task { await prepareNote(for: retryKey) }
@@ -894,33 +953,72 @@ struct LibraryInlineNoteView: View {
                 Label("题目当前保存内容", systemImage: "doc.text")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
-                NativeRichTextDisplay(
-                    html: storedNote,
-                    minHeight: min(noteCanvasMinimumHeight, 160),
-                    accessibilityIdentifier: "library-inline-note-current-version",
-                    noteFormatting: true
-                )
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+                if storedNote.isEmpty {
+                    Text("（暂无已保存笔记）")
+                        .font(AppTheme.noteBodyFont)
+                        .foregroundStyle(.secondary)
+                } else if let currentPreparedNote {
+                    NativeRichTextDisplay(
+                        html: storedNote,
+                        preparedSnapshot: currentPreparedNote.result,
+                        renderVersion: currentPreparedNote.key.rendererVersion,
+                        minHeight: min(noteCanvasMinimumHeight, 160),
+                        accessibilityIdentifier: "library-inline-note-current-version",
+                        noteFormatting: true,
+                        requiresPreparedSnapshot: true
+                    )
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                } else {
+                    Text(preparationFailureKey == noteRenderKey
+                         ? "当前保存内容仍保留，但安全预览暂时无法生成。"
+                         : "当前保存内容正在准备安全预览…")
+                        .font(AppTheme.noteBodyFont)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Divider()
             }
             Label("未保存草稿", systemImage: "exclamationmark.triangle")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(AppTheme.warning)
-            NativeRichTextDisplay(
-                html: draft,
-                minHeight: noteCanvasMinimumHeight,
-                accessibilityIdentifier: "library-inline-note-pending-draft",
-                noteFormatting: true,
-                onTapTextOffset: { offset, snapshot, width in
-                    beginEditing(
-                        html: draft,
-                        snapshot: snapshot,
-                        selectionOffset: offset,
-                        sourceWidth: width
-                    )
+            if let preparedDraft = currentPreparedPendingDraft {
+                NativeRichTextDisplay(
+                    html: draft,
+                    preparedSnapshot: preparedDraft.result,
+                    renderVersion: preparedDraft.key.rendererVersion,
+                    minHeight: noteCanvasMinimumHeight,
+                    accessibilityIdentifier: "library-inline-note-pending-draft",
+                    noteFormatting: true,
+                    requiresPreparedSnapshot: true,
+                    onTapTextOffset: pendingDraftTapHandler(for: preparedDraft)
+                )
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                if preparedDraft.result.usedSafeFallback,
+                   preparedDraft.editableAttributedText == nil {
+                    Text("此草稿仅以安全文本预览，暂不支持直接编辑；原始草稿仍保留。")
+                        .font(.system(size: 11))
+                        .foregroundStyle(AppTheme.warning)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-            )
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            } else if pendingDraftPreparationFailureKey == pendingDraftRenderKey {
+                Text("草稿原文仍保留；安全预览暂时无法生成。")
+                    .font(AppTheme.noteBodyFont)
+                    .foregroundStyle(AppTheme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                Button("重试预览") {
+                    let retryKey = pendingDraftRenderKey
+                    Task { await preparePendingDraft(for: retryKey) }
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.blue)
+            } else {
+                Text("草稿正在准备安全预览…")
+                    .font(AppTheme.noteBodyFont)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+            }
             if commitMode == .explicit {
                 manualDraftActions
             } else {
@@ -951,6 +1049,7 @@ struct LibraryInlineNoteView: View {
             Button("继续编辑") { resumePendingDraftEditing() }
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Color.blue)
+                .disabled(currentPreparedPendingDraft?.editableAttributedText == nil)
         }
     }
 
@@ -967,13 +1066,31 @@ struct LibraryInlineNoteView: View {
     }
 
     private func resumePendingDraftEditing() {
-        let rendered = NativeRichTextDisplayRenderer.render(draft, noteFormatting: true)
+        guard let prepared = currentPreparedPendingDraft,
+              let snapshot = prepared.editableAttributedText else {
+            displayWarning = "当前恢复草稿无法安全转为可编辑格式；原文仍保留。"
+            return
+        }
         beginEditing(
             html: draft,
-            snapshot: rendered.attributedText,
-            selectionOffset: rendered.attributedText.length,
+            snapshot: snapshot,
+            selectionOffset: snapshot.length,
             sourceWidth: nil
         )
+    }
+
+    private func pendingDraftTapHandler(
+        for preparedDraft: PreparedLibraryInlineNote
+    ) -> ((Int, NSAttributedString, CGFloat) -> Void)? {
+        guard preparedDraft.editableAttributedText != nil else { return nil }
+        return { offset, snapshot, width in
+            beginEditing(
+                html: draft,
+                snapshot: snapshot,
+                selectionOffset: offset,
+                sourceWidth: width
+            )
+        }
     }
 
     private func confirmManualDraftRebase() {
@@ -1807,8 +1924,11 @@ struct LibraryInlineNoteView: View {
         editorSnapshot: NativeRichTextEditorSnapshot?
     ) {
         onSaved?(content)
-        let result: NativeRichTextDisplayRenderResult
-        let editableAttributedText: NSAttributedString?
+        let key = LibraryInlineNoteRenderKey(
+            documentID: renderDocumentID,
+            version: questionBankContextVersion,
+            html: content
+        )
         if let editorSnapshot, editorSnapshot.html == content {
             let formatted = NativeRichTextDisplayRenderer.applyingNoteFormatting(
                 to: NativeRichTextDisplayRenderResult(
@@ -1817,28 +1937,20 @@ struct LibraryInlineNoteView: View {
                 ),
                 sourceHTML: content
             )
-            result = formatted
-            editableAttributedText = formatted.attributedText.copy() as? NSAttributedString ?? formatted.attributedText
+            preparedNote = PreparedLibraryInlineNote(
+                key: key,
+                result: formatted,
+                editableAttributedText: formatted.attributedText.copy() as? NSAttributedString ?? formatted.attributedText,
+                editorDocumentRevision: editorSnapshot.documentRevision
+            )
+            displayWarning = nil
         } else {
-            let rendered = NativeRichTextDisplayRenderer.render(content, noteFormatting: true)
-            result = rendered
-            editableAttributedText = rendered.usedSafeFallback ? nil : rendered.attributedText
+            // Do not re-import saved HTML on the main actor after commit. The
+            // keyed preparation task supplies a bounded, non-WebKit preview.
+            preparedNote = nil
+            displayWarning = nil
         }
-        let key = LibraryInlineNoteRenderKey(
-            documentID: renderDocumentID,
-            version: questionBankContextVersion,
-            html: content
-        )
-        preparedNote = PreparedLibraryInlineNote(
-            key: key,
-            result: result,
-            editableAttributedText: editableAttributedText,
-            editorDocumentRevision: editorSnapshot?.documentRevision
-        )
         preparationFailureKey = nil
-        displayWarning = result.usedSafeFallback && editableAttributedText == nil
-            ? "预览已降级；笔记过长或含有未闭合附件，当前仅保留原内容并以只读方式显示。"
-            : nil
     }
 
     private func finishEditorAfterConfirmedSave(

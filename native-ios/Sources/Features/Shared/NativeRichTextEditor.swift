@@ -1070,6 +1070,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     var tableAppearance: NativeRichTextTableAppearance = .system
     var noteFormatting = false
     var usesStabilizedInlineNoteMeasurement = false
+    var requiresPreparedSnapshot = false
     var accessibilityIdentifier: String? = nil
     var onFallback: (() -> Void)? = nil
     var onTapTextOffset: ((Int, NSAttributedString, CGFloat) -> Void)? = nil
@@ -1082,6 +1083,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         tableAppearance: NativeRichTextTableAppearance = .system,
         accessibilityIdentifier: String? = nil,
         noteFormatting: Bool = false,
+        requiresPreparedSnapshot: Bool = false,
         onFallback: (() -> Void)? = nil,
         onTapTextOffset: ((Int, NSAttributedString, CGFloat) -> Void)? = nil
     ) {
@@ -1090,6 +1092,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         self.tableAppearance = tableAppearance
         self.accessibilityIdentifier = accessibilityIdentifier
         self.noteFormatting = noteFormatting
+        self.requiresPreparedSnapshot = requiresPreparedSnapshot
         self.onFallback = onFallback
         self.onTapTextOffset = onTapTextOffset
         preparedSnapshot = nil
@@ -1104,6 +1107,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         tableAppearance: NativeRichTextTableAppearance = .system,
         accessibilityIdentifier: String? = nil,
         noteFormatting: Bool = false,
+        requiresPreparedSnapshot: Bool = false,
         onFallback: (() -> Void)? = nil,
         onTapTextOffset: ((Int, NSAttributedString, CGFloat) -> Void)? = nil
     ) {
@@ -1112,6 +1116,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         self.tableAppearance = tableAppearance
         self.accessibilityIdentifier = accessibilityIdentifier
         self.noteFormatting = noteFormatting
+        self.requiresPreparedSnapshot = requiresPreparedSnapshot
         self.onFallback = onFallback
         self.onTapTextOffset = onTapTextOffset
         self.preparedSnapshot = preparedSnapshot
@@ -1125,6 +1130,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         var lastRenderVersion: String?
         var lastTableAppearance: NativeRichTextTableAppearance = .system
         var lastNoteFormatting = false
+        var lastRequiresPreparedSnapshot = false
         var fallbackReportedHTML: String?
 
         init(parent: NativeRichTextDisplay) {
@@ -1146,7 +1152,8 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         }
 
         @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
-            guard let view = recognizer.view as? UITextView,
+            guard (!parent.requiresPreparedSnapshot || parent.preparedSnapshot != nil),
+                  let view = recognizer.view as? UITextView,
                   recognizer.state == .ended,
                   let position = view.closestPosition(to: recognizer.location(in: view)) else { return }
             let offset = view.offset(from: view.beginningOfDocument, to: position)
@@ -1168,6 +1175,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         view.isSelectable = false
         view.isScrollEnabled = false
         view.isUserInteractionEnabled = onTapTextOffset != nil
+            && (!requiresPreparedSnapshot || preparedSnapshot != nil)
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
         view.adjustsFontForContentSizeCategory = false
@@ -1182,6 +1190,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         context.coordinator.lastRenderVersion = renderVersion
         context.coordinator.lastTableAppearance = tableAppearance
         context.coordinator.lastNoteFormatting = noteFormatting
+        context.coordinator.lastRequiresPreparedSnapshot = requiresPreparedSnapshot
         return view
     }
 
@@ -1191,15 +1200,18 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         view.isAccessibilityElement = true
         view.accessibilityIdentifier = accessibilityIdentifier
         view.isUserInteractionEnabled = onTapTextOffset != nil
+            && (!requiresPreparedSnapshot || preparedSnapshot != nil)
         guard context.coordinator.lastHTML != html
                 || context.coordinator.lastRenderVersion != renderVersion
                 || context.coordinator.lastTableAppearance != tableAppearance
-                || context.coordinator.lastNoteFormatting != noteFormatting else { return }
+                || context.coordinator.lastNoteFormatting != noteFormatting
+                || context.coordinator.lastRequiresPreparedSnapshot != requiresPreparedSnapshot else { return }
         applyContent(to: view, coordinator: context.coordinator)
         context.coordinator.lastHTML = html
         context.coordinator.lastRenderVersion = renderVersion
         context.coordinator.lastTableAppearance = tableAppearance
         context.coordinator.lastNoteFormatting = noteFormatting
+        context.coordinator.lastRequiresPreparedSnapshot = requiresPreparedSnapshot
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
@@ -1210,12 +1222,22 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     }
 
     private func applyContent(to view: UITextView, coordinator: Coordinator) {
-        let rendered = preparedSnapshot ?? NativeRichTextDisplayRenderer.render(
-            html,
-            tableAppearance: tableAppearance,
-            noteFormatting: noteFormatting,
-            cleanLegacyInjectedSpacing: noteFormatting
-        )
+        let rendered: NativeRichTextDisplayRenderResult
+        if let preparedSnapshot {
+            rendered = preparedSnapshot
+        } else if requiresPreparedSnapshot {
+            rendered = NativeRichTextDisplayRenderResult(
+                attributedText: NSAttributedString(string: ""),
+                usedSafeFallback: false
+            )
+        } else {
+            rendered = NativeRichTextDisplayRenderer.render(
+                html,
+                tableAppearance: tableAppearance,
+                noteFormatting: noteFormatting,
+                cleanLegacyInjectedSpacing: noteFormatting
+            )
+        }
         let styled = NativeRichTextDisplayRenderer.applyingTableAppearance(to: rendered.attributedText, appearance: tableAppearance)
         view.attributedText = styled
         view.accessibilityLabel = styled.string
@@ -1300,14 +1322,34 @@ enum NativeRichTextDisplayRenderer {
         return result.copy() as? NSAttributedString ?? result
     }
 
+    static func renderFallbackPreview(
+        _ runs: [NativeRichTextFallbackRun],
+        sourceHTML: String,
+        tableAppearance: NativeRichTextTableAppearance = .system,
+        noteFormatting: Bool = false,
+        cleanLegacyInjectedSpacing: Bool = false
+    ) -> NativeRichTextDisplayRenderResult {
+        let result = fallback(runs, tableAppearance: tableAppearance)
+        return noteFormatting
+            ? applyingNoteFormatting(to: result, sourceHTML: sourceHTML, cleanLegacyInjectedSpacing: cleanLegacyInjectedSpacing)
+            : result
+    }
+
     private static func fallback(
         _ html: String,
+        tableAppearance: NativeRichTextTableAppearance
+    ) -> NativeRichTextDisplayRenderResult {
+        fallback(NativeRichTextFallbackParser.parse(html), tableAppearance: tableAppearance)
+    }
+
+    private static func fallback(
+        _ runs: [NativeRichTextFallbackRun],
         tableAppearance: NativeRichTextTableAppearance
     ) -> NativeRichTextDisplayRenderResult {
         let attributed = NSMutableAttributedString(string: "")
         let font = UIFont.systemFont(ofSize: RichTextMetrics.bodySize)
         let textAttributes: [NSAttributedString.Key: Any] = [.font: font]
-        for run in NativeRichTextFallbackParser.parse(html) {
+        for run in runs {
             switch run {
             case .text(let text):
                 attributed.append(NSAttributedString(string: text, attributes: textAttributes))
