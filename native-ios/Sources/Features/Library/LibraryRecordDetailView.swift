@@ -27,7 +27,6 @@ private struct LibraryDetailPayloadKey: Equatable {
 private struct LibraryDetailPageVersion: Equatable {
     let recordID: String
     let payloadKey: LibraryDetailPayloadKey?
-    let loadRequestID: UUID?
     let revision: Int
     let isLoading: Bool
     let didFail: Bool
@@ -99,6 +98,10 @@ struct LibraryRecordDetailView: View {
     @State private var loadedPayloadKey: LibraryDetailPayloadKey?
     @State private var payloadLoadState: LibraryDetailPayloadLoadState = .idle
     @State private var payloadRetryCount = 0
+    @State private var payloadRetryKey: LibraryDetailPayloadKey?
+    @State private var payloadDecodeTask: Task<LibraryDecodedJSONPayload?, Never>?
+    @State private var failedPreviewKey: LibraryDetailPayloadKey?
+    @State private var failedPreviewText: String?
     @State private var pageContentRevision = 0
     @State private var hasActiveQuestionTextSelection = false
     @State private var lastLocallySavedNoteUpdate: Date?
@@ -117,7 +120,9 @@ struct LibraryRecordDetailView: View {
     @State private var mistakeTagDisplaySelection = ""
     @State private var linkedWordDetailTarget: LinkedWordDetailTarget?
     @State private var linkedQuestionBankContext: QuestionBankQuestionAnalysisContext?
-    @State private var linkedQuestionFallbackObject: [String: Any] = [:]
+    @State private var resolvedLinkedQuestionKey = ""
+    @State private var resolvedLinkedQuestionRecordID = ""
+    @State private var resolvedLinkedQuestionObject: [String: Any] = [:]
     @State private var editingAttribute: LibraryDetailAttribute?
     @State private var editingDataAnalysisCauses: LibraryDetailAttribute?
     @State private var detailAttributeSaveError: String?
@@ -179,6 +184,9 @@ struct LibraryRecordDetailView: View {
                 await failPayloadLoadIfTimedOut(key: key, requestID: requestID)
             }
             .task(id: linkedQuestionContextKey) { loadLinkedQuestionContext() }
+            .task(id: payloadDecodeFailed ? activePayloadKey : nil) {
+                await loadFailedPayloadPreview()
+            }
     }
 
     private var detailStateTracking: some View {
@@ -341,7 +349,7 @@ struct LibraryRecordDetailView: View {
         SubjectModuleTitle.errorDetailTitle(
             recordModule: record?.module,
             payloadModule: object["module"] as? String,
-            questionBankModule: isPayloadLoading ? nil : displayQuestionBankContext?.typeMapping.module
+            questionBankModule: displayQuestionBankContext?.typeMapping.module
         )
     }
 
@@ -378,9 +386,8 @@ struct LibraryRecordDetailView: View {
         LibraryDetailPageVersion(
             recordID: activeRecordID,
             payloadKey: activePayloadKey,
-            loadRequestID: activePayloadLoadRequestID,
             revision: pageContentRevision,
-            isLoading: isPayloadLoading,
+            isLoading: isWaitingForQuestionContent,
             didFail: payloadDecodeFailed,
             showsMaterial: showsDetachedDataAnalysisMaterial,
             splitDirection: splitDoodleLayoutDirection,
@@ -471,17 +478,19 @@ struct LibraryRecordDetailView: View {
                 .accessibilityIdentifier("library-record-detail-payload-retry")
             }
             .accessibilityIdentifier("library-record-detail-payload-error")
-        } else if isPayloadLoading {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("正在补齐题目内容…")
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier("library-record-detail-payload-loading")
         }
+    }
+
+    private var questionLoadingPlaceholder: some View {
+        Text("正在读取题目…")
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
+            .overlay {
+                RoundedRectangle(cornerRadius: 8).stroke(webBorder, lineWidth: 0.8)
+            }
+            .accessibilityIdentifier("library-record-detail-payload-loading")
     }
 
     private func detailScrollView(availableWidth: CGFloat) -> some View {
@@ -583,44 +592,45 @@ struct LibraryRecordDetailView: View {
         let readingColumnWidth = min(availableWidth.isFinite ? max(0, availableWidth) : 0, 920)
         return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                payloadStatusBlock
-                if kind == .errors {
-                    errorClassificationAndMasteryRow
-                }
-                reviewContent(metadata)
-                if kind == .errors && isDataAnalysis {
-                    if !separatesDataAnalysisMaterial {
-                        dataAnalysisMaterialBlock
+                if payloadDecodeFailed {
+                    payloadStatusBlock
+                    if failedPreviewKey == activePayloadKey, let failedPreviewText {
+                        Text(failedPreviewText)
+                            .font(.system(size: 14.5))
+                            .textSelection(.enabled)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                } else if isWaitingForQuestionContent {
+                    questionLoadingPlaceholder
+                } else {
+                    if kind == .errors {
+                        errorClassificationAndMasteryRow
+                    }
+                    reviewContent(metadata)
+                    if kind == .errors && isDataAnalysis {
+                        if !separatesDataAnalysisMaterial {
+                            dataAnalysisMaterialBlock
+                            imagesBlock(availableWidth: max(0, readingColumnWidth - 32))
+                        }
+                        questionBlock
+                    } else {
+                        questionBankMaterialBlock
+                        questionBlock
                         imagesBlock(availableWidth: max(0, readingColumnWidth - 32))
                     }
-                    questionBlock
-                } else {
-                    questionBankMaterialBlock
-                    questionBlock
-                    imagesBlock(availableWidth: max(0, readingColumnWidth - 32))
-                }
-                optionsBlock
-                redoFeedbackBlock
-                    .opacity(isRedoPractice ? 1 : 0)
-                    .allowsHitTesting(isRedoPractice)
-                    .accessibilityHidden(!isRedoPractice)
-                reviewContent(answerAndSource)
-                reviewContent(explanationBlock)
-                reviewContent(comparisonBlock)
-                reviewContent(linkedErrorBlock)
-                reviewContent(reviewBlock)
-                if loadedPayloadKey == activePayloadKey, !isPayloadLoading, !payloadDecodeFailed {
-                    reviewContent(noteBlock)
-                } else if isPayloadLoading {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("正在读取笔记…")
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundStyle(.secondary)
+                    optionsBlock
+                    if isRedoPractice {
+                        redoFeedbackBlock
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    reviewContent(answerAndSource)
+                    reviewContent(explanationBlock)
+                    reviewContent(comparisonBlock)
+                    reviewContent(linkedErrorBlock)
+                    reviewContent(reviewBlock)
+                    reviewContent(noteBlock)
+                    reviewContent(dateBlock)
                 }
-                reviewContent(dateBlock)
             }
             .padding(.horizontal, 16)
             .padding(.top, 5)
@@ -1979,7 +1989,7 @@ struct LibraryRecordDetailView: View {
         let values = LibraryDataAnalysisCauseLayout.values(in: object)
         if !values.isEmpty {
             let row = HStack(alignment: .top, spacing: 6) {
-                Text("错因说明：")
+                Text("错因：")
                     .fixedSize(horizontal: true, vertical: false)
                     .font(.system(size: 12.5))
                     .foregroundStyle(.primary)
@@ -2017,7 +2027,7 @@ struct LibraryRecordDetailView: View {
     private var quantityErrorCauseMetadata: some View {
         let values = quantityErrorCauseValues.map(clean).filter { !$0.isEmpty }
         let row = HStack(alignment: .top, spacing: 6) {
-            Text("错因说明：")
+            Text("错因：")
                 .fixedSize(horizontal: true, vertical: false)
                 .font(.system(size: 12.5))
                 .foregroundStyle(.primary)
@@ -2340,7 +2350,18 @@ struct LibraryRecordDetailView: View {
     }
 
     private var displayQuestionBankContext: QuestionBankQuestionAnalysisContext? {
-        linkedQuestionBankContext
+        guard !resolvedLinkedQuestionRecordID.isEmpty, resolvedLinkedQuestionRecordID == activeRecordID else { return nil }
+        return linkedQuestionBankContext
+    }
+
+    private var linkedQuestionFallbackObject: [String: Any] {
+        resolvedLinkedQuestionRecordID == activeRecordID ? resolvedLinkedQuestionObject : [:]
+    }
+
+    private var isWaitingForQuestionContent: Bool {
+        if isPayloadLoading { return true }
+        let key = linkedQuestionContextKey
+        return !key.isEmpty && key != resolvedLinkedQuestionKey
     }
 
     private var linkedQuestionContextKey: String {
@@ -2353,7 +2374,7 @@ struct LibraryRecordDetailView: View {
         let imageReferences = (object["images"] as? [String] ?? [])
             + (object["optionImages"] as? [String] ?? [])
         let hasLinkedImageReference = imageReferences.contains { value in
-            !value.isEmpty && value.count < 256 && !value.contains("://") && !value.hasPrefix("/")
+            !value.isEmpty && value.utf8.prefix(256).count < 256 && !value.contains("://") && !value.hasPrefix("/")
         }
         let materialID = (object["materialID"] as? String ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2369,7 +2390,9 @@ struct LibraryRecordDetailView: View {
         guard !contextKey.isEmpty else {
             if linkedQuestionBankContext != nil { pageContentRevision &+= 1 }
             linkedQuestionBankContext = nil
-            linkedQuestionFallbackObject = [:]
+            resolvedLinkedQuestionKey = ""
+            resolvedLinkedQuestionRecordID = ""
+            resolvedLinkedQuestionObject = [:]
             return
         }
         let startedAt = ProcessInfo.processInfo.systemUptime
@@ -2384,7 +2407,9 @@ struct LibraryRecordDetailView: View {
               let questionID = object["questionBankQuestionID"] as? String else {
             if linkedQuestionBankContext != nil { pageContentRevision &+= 1 }
             linkedQuestionBankContext = nil
-            linkedQuestionFallbackObject = [:]
+            resolvedLinkedQuestionKey = contextKey
+            resolvedLinkedQuestionRecordID = ""
+            resolvedLinkedQuestionObject = [:]
             return
         }
         let context = QuestionBankQuestionAnalysisContext.linkedErrorContext(
@@ -2394,7 +2419,9 @@ struct LibraryRecordDetailView: View {
             context: modelContext
         )
         linkedQuestionBankContext = context
-        linkedQuestionFallbackObject = context?.detailObject ?? [:]
+        resolvedLinkedQuestionKey = contextKey
+        resolvedLinkedQuestionRecordID = activeRecordID
+        resolvedLinkedQuestionObject = context?.detailObject ?? [:]
         pageContentRevision &+= 1
     }
 
@@ -2449,7 +2476,7 @@ struct LibraryRecordDetailView: View {
 
     private var detailQuestionType: String? {
         guard kind == .errors,
-              !isPayloadLoading,
+              !isWaitingForQuestionContent,
               !payloadDecodeFailed,
               loadedPayloadKey == activePayloadKey else { return nil }
         guard let record,
@@ -2784,16 +2811,27 @@ struct LibraryRecordDetailView: View {
         LibraryPerformanceLog.event(
             "detail.payload.begin id=\(LibraryPerformanceLog.shortIdentifier(key.recordID)) req=\(requestID.uuidString.prefix(8)) bytes=\(payload.count)"
         )
-        let decoded = await LibraryPayloadDecodeCoordinator.shared.decode(
-            key: LibraryPayloadDecodeKey(
-                recordID: key.recordID,
-                updatedAt: key.updatedAt,
-                payloadByteCount: payload.count,
-                source: "payload"
-            ),
-            payload: payload,
-            priority: .userInitiated
-        )
+        let isRetry = payloadRetryKey == key
+        payloadRetryKey = nil
+        let source = isRetry ? "detail-retry-\(requestID)" : "payload"
+        let task = Task {
+            await LibraryPayloadDecodeCoordinator.shared.decode(
+                key: LibraryPayloadDecodeKey(
+                    recordID: key.recordID,
+                    updatedAt: key.updatedAt,
+                    payloadByteCount: payload.count,
+                    source: source
+                ),
+                payload: payload,
+                priority: .userInitiated
+            )
+        }
+        payloadDecodeTask = task
+        let decoded = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
         if Task.isCancelled {
             if activePayloadKey == key,
                case let .loading(currentKey, currentRequestID) = payloadLoadState,
@@ -2804,6 +2842,7 @@ struct LibraryRecordDetailView: View {
                     requestID: requestID,
                     message: "本次详情读取被中断。你可以重试，或直接返回题目列表。"
                 )
+                payloadDecodeTask = nil
                 LibraryPerformanceLog.event(
                     "detail.payload.cancel id=\(LibraryPerformanceLog.shortIdentifier(key.recordID)) req=\(requestID.uuidString.prefix(8))"
                 )
@@ -2816,6 +2855,7 @@ struct LibraryRecordDetailView: View {
               currentKey == key,
               currentRequestID == requestID else { return }
 
+        payloadDecodeTask = nil
         if let decoded {
             refreshObject(decoded.object)
             loadedPayloadKey = key
@@ -2856,6 +2896,8 @@ struct LibraryRecordDetailView: View {
             requestID: requestID,
             message: "题目读取超过 20 秒仍未完成。你可以重试，或直接返回题目列表。"
         )
+        payloadDecodeTask?.cancel()
+        payloadDecodeTask = nil
         LibraryPerformanceLog.event(
             "detail.payload.timeout id=\(LibraryPerformanceLog.shortIdentifier(key.recordID)) req=\(requestID.uuidString.prefix(8)) bytes=\(key.payloadCount)"
         )
@@ -2868,8 +2910,25 @@ struct LibraryRecordDetailView: View {
         loadedPayloadKey = nil
         redoActionsAvailable = false
         redoActionsRecordID = nil
+        payloadRetryKey = activePayloadKey
         payloadLoadState = .idle
         payloadRetryCount &+= 1
+    }
+
+    private func loadFailedPayloadPreview() async {
+        guard payloadDecodeFailed, let key = activePayloadKey, let index = record?.indexPayload else { return }
+        let decoded = await LibraryPayloadDecodeCoordinator.shared.decode(
+            key: LibraryPayloadDecodeKey(
+                recordID: key.recordID, updatedAt: key.updatedAt, payloadByteCount: index.count, source: "index"
+            ),
+            payload: index,
+            priority: .userInitiated
+        )
+        guard !Task.isCancelled, payloadDecodeFailed, key == activePayloadKey, let indexed = decoded?.object else { return }
+        failedPreviewText = ["question", "title"].compactMap { indexed[$0] as? String }
+            .map(cleanMultiline).first { !$0.isEmpty }
+        failedPreviewKey = key
+        pageContentRevision &+= 1
     }
 
     private func updateRedoActionAvailability(for record: StoredRecord, payload: [String: Any]) {
@@ -2893,13 +2952,7 @@ struct LibraryRecordDetailView: View {
         if let activePayloadKey, loadedPayloadKey == activePayloadKey {
             return loadedPayloadObject
         }
-        guard let record,
-              record.recordID == activeRecordKey,
-              let indexPayload = record.indexPayload,
-              let indexed = (try? JSONSerialization.jsonObject(with: indexPayload)) as? [String: Any] else {
-            return [:]
-        }
-        return indexed
+        return [:]
     }
 
     private func imageCacheKey(kind: String, index: Int, source: String, metadataID: String) -> String {
@@ -3182,7 +3235,7 @@ private struct LibraryDataAnalysisCauseEditor: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
-                LibraryMultilinePlainTextInput(label: "错因", text: $value)
+                LibraryMultilinePlainTextInput(label: "错因说明", text: $value)
                     .padding(12)
                     .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 0.8))

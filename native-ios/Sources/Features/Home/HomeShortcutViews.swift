@@ -66,13 +66,13 @@ private struct HomeErrorDetailDestination: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var doodleSession: LibraryDoodleSession
     @Query(filter: #Predicate<StoredRecord> { record in
         record.collection == "errors"
             || record.collection == "words"
             || record.collection == "notes"
             || record.collection == "exams"
     }) private var records: [StoredRecord]
-    @StateObject private var doodleSession = LibraryDoodleSession()
     @State private var isShowingEditor = false
     @State private var isShowingAdaptation = false
 
@@ -89,7 +89,6 @@ private struct HomeErrorDetailDestination: View {
                         onEdit: { isShowingAdaptation = record.requiresShenlunAdaptation; isShowingEditor = !record.requiresShenlunAdaptation },
                         onDelete: { delete(record) }
                     )
-                    .environmentObject(doodleSession)
                 } else {
                     LibraryRecordDetailView(
                         kind: .errors,
@@ -98,10 +97,15 @@ private struct HomeErrorDetailDestination: View {
                         onEdit: { _ in isShowingEditor = true },
                         onDelete: { _ in delete(record) }
                     )
-                    .environmentObject(doodleSession)
                 }
             } else {
                 ContentUnavailableView("错题已删除", systemImage: "xmark.circle", description: Text("这条错题已从题库移除。"))
+            }
+        }
+        .onDisappear {
+            guard doodleSession.isPresented, doodleSession.targetRecordID == "errors:\(recordID)" else { return }
+            doodleSession.dismiss(reopenOnSaveFailure: false) { error in
+                if let error { NativePerformanceLog.event("linked error doodle exit: \(error)") }
             }
         }
         .navigationDestination(isPresented: $isShowingEditor) {
@@ -120,7 +124,7 @@ private struct HomeErrorDetailDestination: View {
         LibraryScope(
             subject: record.subject,
             module: record.module,
-            reviewSource: LibraryReviewSource.explicitValue(in: record.jsonObject ?? [:]) ?? .real
+            reviewSource: LibraryReviewSource.explicitValue(in: record.indexObject ?? [:]) ?? .real
         )
     }
 

@@ -120,6 +120,11 @@ struct RootTabView: View {
     private func selectTab(_ tab: RootTab) {
         guard RootTab.availableTabs.contains(tab) else { return }
         guard selection != tab else { return }
+        if libraryDoodleSession.isPresented {
+            libraryDoodleSession.dismiss(reopenOnSaveFailure: false) { error in
+                if let error { NativePerformanceLog.event("doodle tab exit: \(error)") }
+            }
+        }
         NativePerformanceLog.beginTabSelection(tab)
         selectionGeneration &+= 1
         selection = tab
@@ -135,6 +140,7 @@ struct RootTabView: View {
         switch tab {
         case .home:
             NavigationStack(path: $homePath) { HomeView() }
+                .environmentObject(libraryDoodleSession)
                 .environment(\.rootTabBarIsVisible, homePath.isEmpty)
                 .toolbar(homePath.isEmpty ? .visible : .hidden, for: .tabBar)
         case .library:

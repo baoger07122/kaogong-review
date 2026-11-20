@@ -7,13 +7,26 @@ enum NativeRichTextFallbackImageLimits {
     static let maximumMarkerPayloadBytes = maximumMarkerBytes - 32
 }
 
-struct NativeRichTextFallbackTextStyle: OptionSet, Equatable, Sendable {
-    let rawValue: Int
-    static let bold = NativeRichTextFallbackTextStyle(rawValue: 1 << 0)
-    static let italic = NativeRichTextFallbackTextStyle(rawValue: 1 << 1)
-    static let underline = NativeRichTextFallbackTextStyle(rawValue: 1 << 2)
-    static let heading1 = NativeRichTextFallbackTextStyle(rawValue: 1 << 3)
-    static let heading2 = NativeRichTextFallbackTextStyle(rawValue: 1 << 4)
+struct NativeRichTextFallbackTextStyle: Equatable, Sendable {
+    enum Trait: Hashable, Sendable {
+        case bold, italic, underline, heading1, heading2
+    }
+
+    private var traits: Set<Trait> = []
+    var pointSize: CGFloat?
+    var color: UInt32?
+    var link: URL?
+
+    var isEmpty: Bool { traits.isEmpty && pointSize == nil && color == nil && link == nil }
+    func contains(_ trait: Trait) -> Bool { traits.contains(trait) }
+    mutating func insert(_ trait: Trait) { traits.insert(trait) }
+    mutating func formUnion(_ additions: [Trait]) { traits.formUnion(additions) }
+    mutating func merge(_ other: NativeRichTextFallbackTextStyle) {
+        traits.formUnion(other.traits)
+        pointSize = other.pointSize ?? pointSize
+        color = other.color ?? color
+        link = other.link ?? link
+    }
 }
 
 enum NativeRichTextFallbackRun: Equatable, Sendable {
@@ -27,6 +40,13 @@ enum NativeRichTextFallbackRun: Equatable, Sendable {
     case tableWithMarker(encoded: String, marker: String)
     case formulaWithMarker(encoded: String, marker: String)
     case opaque(label: String, marker: String)
+
+    fileprivate var endsInNewline: Bool {
+        switch self {
+        case .text(let value), .styledText(let value, _): value.last == "\n"
+        default: false
+        }
+    }
 }
 
 /// Bounded, Foundation-only parser used when the system HTML importer is skipped
@@ -257,6 +277,7 @@ enum NativeRichTextFallbackParser {
         var outputCharacters = 0
         var attachmentCount = 0
         var ignoredElements: [String] = []
+        var paragraphHasContent = false
         var cursor = html.startIndex
 
         func flushText() {
@@ -335,6 +356,7 @@ enum NativeRichTextFallbackParser {
                     run = .opaque(label: markerLabel(for: marker.kind), marker: marker.raw)
                 }
                 guard appendAttachment(run) else { return nil }
+                paragraphHasContent = true
                 continue
             }
 
@@ -358,8 +380,23 @@ enum NativeRichTextFallbackParser {
                             run = .opaque(label: "图片", marker: "[[NATIVE_RAW_HTML:\(payload)]]")
                         }
                         guard appendAttachment(run) else { return nil }
+                        paragraphHasContent = true
+                    } else if parsed.name == "br", !parsed.isClosing {
+                        // The writer uses <p><br></p> as an empty paragraph.
+                        if paragraphHasContent || !html[cursor...].hasPrefix("</p>") {
+                            guard appendText("\u{2028}") else { return nil }
+                            paragraphHasContent = true
+                        }
+                    } else if ["p", "h1", "h2"].contains(parsed.name) {
+                        if parsed.isClosing {
+                            if !appendText("\n") { return nil }
+                        } else {
+                            paragraphHasContent = false
+                        }
                     } else if isLineBreakTag(parsed) {
-                        if (textBuffer.last ?? "\0") != "\n", !appendText("\n") { return nil }
+                        let endedParagraph = textBuffer.last == "\n"
+                            || (textBuffer.isEmpty && runs.last?.endsInNewline == true)
+                        if !endedParagraph, !appendText("\n") { return nil }
                     }
                     if isFormattingTag(parsed, stack: formattingTags, cssRules: cssRules) {
                         flushText()
@@ -379,6 +416,7 @@ enum NativeRichTextFallbackParser {
             let character = html[cursor]
             cursor = html.index(after: cursor)
             if !appendText(String(character)) { return nil }
+            paragraphHasContent = true
         }
 
         guard ignoredElements.isEmpty else { return nil }
@@ -462,8 +500,8 @@ enum NativeRichTextFallbackParser {
         cssRules: [CSSRule]
     ) -> Bool {
         if tag.isClosing { return stack.contains(where: { $0.name == tag.name }) }
-        return ["strong", "b", "em", "i", "u", "span", "h1", "h2"].contains(tag.name)
-            || !inlineStyle(in: tag.raw).isEmpty
+        return ["strong", "b", "em", "i", "u", "span", "h1", "h2", "a"].contains(tag.name)
+            || !style(from: parseDeclarations(styleAttribute(in: tag.raw))).isEmpty
             || !cssStyle(for: tag, rules: cssRules).isEmpty
     }
 
@@ -486,28 +524,37 @@ enum NativeRichTextFallbackParser {
         case "strong", "b": activeStyle.insert(.bold)
         case "em", "i": activeStyle.insert(.italic)
         case "u": activeStyle.insert(.underline)
-        case "h1": activeStyle.formUnion([.heading1, .bold])
-        case "h2": activeStyle.formUnion([.heading2, .bold])
+        case "h1":
+            activeStyle.formUnion([.heading1, .bold])
+            activeStyle.pointSize = nil
+        case "h2":
+            activeStyle.formUnion([.heading2, .bold])
+            activeStyle.pointSize = nil
+        case "a": activeStyle.link = safeLink(in: tag.raw)
         case "span": break
         default: break
         }
-        activeStyle.formUnion(inlineStyle(in: tag.raw))
-        activeStyle.formUnion(cssStyle(for: tag, rules: cssRules))
+        activeStyle.merge(cssStyle(for: tag, rules: cssRules))
+        activeStyle.merge(style(from: parseDeclarations(styleAttribute(in: tag.raw))))
         stack.append(FormattingTagState(name: tag.name, previous: previous))
     }
 
-    private static func inlineStyle(in tag: String) -> NativeRichTextFallbackTextStyle {
+    private static func style(from declarations: [String: String]) -> NativeRichTextFallbackTextStyle {
         var style = NativeRichTextFallbackTextStyle()
-        let weightPattern = #"(?i)font-weight\s*:\s*(bold|[6-9]00)"#
-        if tag.range(of: weightPattern, options: .regularExpression) != nil { style.insert(.bold) }
-        if tag.range(of: #"(?i)font-style\s*:\s*italic"#, options: .regularExpression) != nil { style.insert(.italic) }
-        if tag.range(of: #"(?i)text-decoration(?:-line)?\s*:[^;]*underline"#, options: .regularExpression) != nil {
+        if let weight = declarations["font-weight"], weight == "bold" || (Int(weight) ?? 0) >= 600 {
+            style.insert(.bold)
+        }
+        if declarations["font-style"] == "italic" { style.insert(.italic) }
+        if declarations["text-decoration"]?.contains("underline") == true
+            || declarations["text-decoration-line"]?.contains("underline") == true {
             style.insert(.underline)
         }
-        if let fontSize = cssFontSize(in: tag) {
+        if let fontSize = declarations["font-size"].flatMap(fontSizeValue) {
+            style.pointSize = fontSize
             if fontSize >= 20 { style.insert(.heading1) }
             else if fontSize >= 17 { style.insert(.heading2) }
         }
+        style.color = declarations["color"].flatMap(hexColor)
         return style
     }
 
@@ -519,25 +566,22 @@ enum NativeRichTextFallbackParser {
         guard !classes.isEmpty else { return NativeRichTextFallbackTextStyle() }
         var style = NativeRichTextFallbackTextStyle()
         for rule in rules where rule.classes.isSubset(of: classes) {
-            if let weight = rule.declarations["font-weight"], weight == "bold" || (Int(weight) ?? 0) >= 600 {
-                style.insert(.bold)
-            }
-            if rule.declarations["font-style"] == "italic" { style.insert(.italic) }
-            if rule.declarations["text-decoration"]?.contains("underline") == true
-                || rule.declarations["text-decoration-line"]?.contains("underline") == true {
-                style.insert(.underline)
-            }
-            if let size = rule.declarations["font-size"].flatMap(fontSizeValue) {
-                if size >= 20 { style.insert(.heading1) }
-                else if size >= 17 { style.insert(.heading2) }
-            }
+            style.merge(Self.style(from: rule.declarations))
         }
         return style
     }
 
     private static func hasUnsupportedStyleMetadata(in html: String) -> Bool {
         let rules = cssRules(in: html)
-        let supported: Set<String> = ["font-weight", "font-style", "text-decoration", "text-decoration-line", "font-size", "font-family"]
+        let supported: Set<String> = ["font-weight", "font-style", "text-decoration", "text-decoration-line", "font-size", "font-family", "color"]
+        let layoutProperties: Set<String> = ["margin-top", "margin-bottom", "margin-left", "margin-right", "text-indent"]
+        func supports(_ declarations: [String: String], layout: Bool) -> Bool {
+            declarations.allSatisfy { key, value in
+                if key == "color" { return hexColor(value) != nil }
+                if key == "font-size" { return fontSizeValue(value) != nil }
+                return supported.contains(key) || (layout && layoutProperties.contains(key))
+            }
+        }
         var cursor = html.startIndex
         while cursor < html.endIndex {
             guard html[cursor] == "<", let scanned = scanTag(in: html, from: cursor) else {
@@ -546,14 +590,18 @@ enum NativeRichTextFallbackParser {
             }
             cursor = scanned.endIndex
             guard let tag = parseTag(scanned.raw), !tag.isClosing else { continue }
-            if tag.name == "a", attributeValue(named: "href", in: tag.raw) != nil { return true }
-            let inlineProperties = declarationProperties(in: styleAttribute(in: tag.raw))
-            if !inlineProperties.isSubset(of: supported) { return true }
+            if tag.name == "a", attributeValue(named: "href", in: tag.raw) != nil, safeLink(in: tag.raw) == nil { return true }
+            let isVersionedParagraph = ["p", "h1", "h2"].contains(tag.name)
+                && attributeValue(named: "data-note-layout-version", in: tag.raw) == "1"
+                && ["data-note-spacing-before", "data-note-spacing-after", "data-note-line-spacing"].allSatisfy {
+                    attributeValue(named: $0, in: tag.raw).flatMap { Double($0) }?.isFinite == true
+                }
+            if !supports(parseDeclarations(styleAttribute(in: tag.raw)), layout: isVersionedParagraph) { return true }
             let classes = classNames(in: tag.raw)
             guard !classes.isEmpty else { continue }
             let matchingRules = rules.filter { $0.classes.isSubset(of: classes) }
             guard !matchingRules.isEmpty else { return true }
-            if matchingRules.contains(where: { !$0.declarations.keys.allSatisfy(supported.contains) }) { return true }
+            if matchingRules.contains(where: { !supports($0.declarations, layout: false) }) { return true }
         }
         return false
     }
@@ -599,10 +647,6 @@ enum NativeRichTextFallbackParser {
         }
     }
 
-    private static func declarationProperties(in source: String) -> Set<String> {
-        Set(parseDeclarations(source).keys)
-    }
-
     private static func styleAttribute(in tag: String) -> String {
         attributeValue(named: "style", in: tag) ?? ""
     }
@@ -622,10 +666,17 @@ enum NativeRichTextFallbackParser {
         return nil
     }
 
-    private static func cssFontSize(in tag: String) -> CGFloat? {
-        guard let style = attributeValue(named: "style", in: tag) else { return nil }
-        let declarations = parseDeclarations(style)
-        return declarations["font-size"].flatMap(fontSizeValue)
+    private static func hexColor(_ value: String) -> UInt32? {
+        guard value.first == "#", value.utf8.count == 7 else { return nil }
+        return UInt32(value.dropFirst(), radix: 16)
+    }
+
+    private static func safeLink(in tag: String) -> URL? {
+        guard let value = attributeValue(named: "href", in: tag),
+              let url = URL(string: decodeEntities(value)),
+              let scheme = url.scheme?.lowercased(),
+              ["https", "http", "mailto", "tel"].contains(scheme) else { return nil }
+        return url
     }
 
     private static func fontSizeValue(_ value: String) -> CGFloat? {
@@ -633,7 +684,9 @@ enum NativeRichTextFallbackParser {
         guard let parsed = Double(digits), parsed.isFinite else { return nil }
         let unit = value.dropFirst(digits.count).trimmingCharacters(in: .whitespacesAndNewlines)
         guard unit.isEmpty || unit == "pt" || unit == "px" else { return nil }
-        return CGFloat(unit == "px" ? parsed * 0.75 : parsed)
+        let size = unit == "px" ? parsed * 0.75 : parsed
+        guard (1...144).contains(size) else { return nil }
+        return CGFloat(size)
     }
 
     private static func isLineBreakTag(_ tag: (name: String, isClosing: Bool, isSelfClosing: Bool, raw: String)) -> Bool {
@@ -752,6 +805,7 @@ enum NativeRichTextFallbackParser {
         value
             .replacingOccurrences(of: "&nbsp;", with: " ")
             .replacingOccurrences(of: "&#160;", with: " ")
+            .replacingOccurrences(of: "&#9;", with: "\t")
             .replacingOccurrences(of: "&lt;", with: "<")
             .replacingOccurrences(of: "&gt;", with: ">")
             .replacingOccurrences(of: "&quot;", with: "\"")

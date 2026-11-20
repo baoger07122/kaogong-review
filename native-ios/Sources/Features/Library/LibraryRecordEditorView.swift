@@ -166,7 +166,10 @@ struct LibraryRecordEditorView: View {
         if record == nil, kind == .errors, LibraryErrorTypeSubject(rawValue: initialDraft.subject) != nil {
             initialDraft.errorTypeID = preferredErrorTypeID
         }
-        if record == nil, !preferredType.isEmpty {
+        if record == nil, kind == .words {
+            let category = WordCategory(rawValue: preferredType) ?? .idiomDefinition
+            initialDraft.type = category.rawValue
+        } else if record == nil, !preferredType.isEmpty {
             initialDraft.type = preferredType
         }
         if record == nil, kind == .words,

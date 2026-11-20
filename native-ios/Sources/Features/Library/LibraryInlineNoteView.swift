@@ -943,18 +943,9 @@ struct LibraryInlineNoteView: View {
         }.value
         guard !Task.isCancelled else { return nil }
 
-        let editableSnapshot: NSAttributedString?
-        if parsed.supportsEditing,
-           NativeRichTextDisplayRenderer.supportsLosslessEditing(parsed.runs),
-           let editable = NativeRichTextDisplayRenderer.editableAttributedText(from: parsed.runs) {
-            editableSnapshot = NativeRichTextDisplayRenderer.applyingNoteFormatting(
-                to: NativeRichTextDisplayRenderResult(attributedText: editable, usedSafeFallback: true),
-                sourceHTML: html,
-                cleanLegacyInjectedSpacing: true
-            ).attributedText
-        } else {
-            editableSnapshot = nil
-        }
+        let editableSnapshot = parsed.supportsEditing
+            ? NativeRichTextDisplayRenderer.editableNoteSnapshot(from: parsed.runs, sourceHTML: html)
+            : nil
 
         let result: NativeRichTextDisplayRenderResult
         if let editableSnapshot {
@@ -1005,13 +996,13 @@ struct LibraryInlineNoteView: View {
                     requiresPreparedSnapshot: true,
                     onFallback: {
                         displayWarning = currentPreparedNote.editableAttributedText == nil
-                            ? "预览已降级；笔记过长或含有未闭合附件，当前仅保留原内容并以只读方式显示。"
+                            ? "当前无法完整还原笔记格式或附件，已保留原内容供查看。"
                             : "预览已切换为安全模式；编辑时会保留正文和已有附件。"
                     },
                     onTapTextOffset: { offset, snapshot, width in
                         guard !currentPreparedNote.result.usedSafeFallback
                                 || currentPreparedNote.editableAttributedText != nil else {
-                            displayWarning = "笔记超出安全编辑范围，原内容已保留为只读。"
+                            displayWarning = "当前无法完整还原笔记的格式或附件，已保留原内容供查看。"
                             return
                         }
                         beginEditing(

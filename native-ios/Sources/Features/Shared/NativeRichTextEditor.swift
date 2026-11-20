@@ -1422,31 +1422,36 @@ enum NativeRichTextDisplayRenderer {
                 attributed.append(NSAttributedString(string: text, attributes: fallbackTextAttributes(style, baseFont: baseFont)))
             case .imageWithMarker(let dataURL, let marker):
                 imagePayloadBytes += dataURL.utf8.count
-                if imagePayloadBytes <= maximumImagePayloadBytes,
-                   let attachment = NativeImageAttachment(dataURL: dataURL, marker: marker) {
-                    attributed.append(NSAttributedString(attachment: attachment))
-                } else {
-                    attributed.append(NSAttributedString(attachment: NativeOpaqueRichTextAttachment(label: "图片", marker: marker)))
-                }
+                guard imagePayloadBytes <= maximumImagePayloadBytes,
+                      let attachment = NativeImageAttachment(dataURL: dataURL, marker: marker) else { return nil }
+                attributed.append(NSAttributedString(attachment: attachment))
             case .tableWithMarker(let encoded, let marker):
-                if let table = fallbackTable(from: encoded) {
-                    attributed.append(NSAttributedString(attachment: NativeTableAttachment(table: table, marker: marker)))
-                } else {
-                    attributed.append(NSAttributedString(attachment: NativeOpaqueRichTextAttachment(label: "表格", marker: marker)))
-                }
+                guard let table = fallbackTable(from: encoded) else { return nil }
+                attributed.append(NSAttributedString(attachment: NativeTableAttachment(table: table, marker: marker)))
             case .formulaWithMarker(let encoded, let marker):
-                if let formula = fallbackFormula(from: encoded) {
-                    attributed.append(NSAttributedString(attachment: NativeFormulaAttachment(formula: formula, marker: marker)))
-                } else {
-                    attributed.append(NSAttributedString(attachment: NativeOpaqueRichTextAttachment(label: "公式", marker: marker)))
-                }
-            case .opaque(let label, let marker):
-                attributed.append(NSAttributedString(attachment: NativeOpaqueRichTextAttachment(label: label, marker: marker)))
-            case .image, .table, .formula, .placeholder:
+                guard let formula = fallbackFormula(from: encoded) else { return nil }
+                attributed.append(NSAttributedString(attachment: NativeFormulaAttachment(formula: formula, marker: marker)))
+            case .image, .table, .formula, .placeholder, .opaque:
                 return nil
             }
         }
         return attributed.copy() as? NSAttributedString ?? attributed
+    }
+
+    static func editableNoteSnapshot(from runs: [NativeRichTextFallbackRun], sourceHTML: String) -> NSAttributedString? {
+        guard let editable = editableAttributedText(from: runs) else { return nil }
+        let attributed = NSMutableAttributedString(attributedString: editable)
+        let metadata = RichTextTextView.alignedParagraphMetadata(in: sourceHTML, matching: attributed)
+        if metadata == nil, sourceHTML.localizedCaseInsensitiveContains("data-note-layout-version=") {
+            return nil
+        }
+        RichTextTextView.applyHTMLListMarkers(from: sourceHTML, to: attributed)
+        return RichTextTextView.applyingNoteParagraphFormatting(
+            to: attributed,
+            sourceHTML: sourceHTML,
+            cleanLegacyInjectedSpacing: true,
+            paragraphMetadata: metadata
+        )
     }
 
     /// Checks that the bounded fallback parser retained every attachment in a form
@@ -1563,9 +1568,10 @@ enum NativeRichTextDisplayRenderer {
         _ style: NativeRichTextFallbackTextStyle,
         baseFont: UIFont
     ) -> [NSAttributedString.Key: Any] {
-        let size: CGFloat = style.contains(.heading1)
+        let headingSize = style.contains(.heading1)
             ? RichTextMetrics.heading1Size
             : (style.contains(.heading2) ? RichTextMetrics.heading2Size : baseFont.pointSize)
+        let size = style.pointSize ?? headingSize
         let sizedFont = UIFont.systemFont(ofSize: size)
         var traits = sizedFont.fontDescriptor.symbolicTraits
         if style.contains(.bold) { traits.insert(.traitBold) }
@@ -1576,6 +1582,15 @@ enum NativeRichTextDisplayRenderer {
             .foregroundColor: UIColor.label
         ]
         if style.contains(.underline) { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+        if let color = style.color {
+            attributes[.foregroundColor] = UIColor(
+                red: CGFloat((color >> 16) & 255) / 255,
+                green: CGFloat((color >> 8) & 255) / 255,
+                blue: CGFloat(color & 255) / 255,
+                alpha: 1
+            )
+        }
+        if let link = style.link { attributes[.link] = link }
         return attributes
     }
 

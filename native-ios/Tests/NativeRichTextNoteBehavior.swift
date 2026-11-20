@@ -5,6 +5,7 @@ enum NativeRichTextNoteBehavior {
     static func main() throws {
         verifyInlineHTMLRoundTripKeepsMixedStyles()
         verifyInlineHTMLTextEscapingAndColor()
+        verifyAppExportedNoteRemainsEditable()
         verifyCSSDerivedBoldAndMissingCSSSafety()
         try verifyTableCellBoldRangesRoundTrip()
         verifyDefaultAndExplicitParagraphSpacing()
@@ -32,10 +33,13 @@ enum NativeRichTextNoteBehavior {
             to: "链接粗体"
         )
         precondition(linkedHTML.contains("href=\"https://example.com/a?x=1&amp;y=2\""))
-        precondition(
-            NativeRichTextFallbackParser.parseForEditing(linkedHTML) == nil,
-            "safe fallback must keep linked documents read-only when it cannot preserve href metadata"
-        )
+        guard let linkedRuns = NativeRichTextFallbackParser.parseForEditing(linkedHTML),
+              case let .styledText(_, linkedStyle)? = linkedRuns.first else {
+            preconditionFailure("the editor's HTTPS links must remain editable")
+        }
+        precondition(linkedStyle.link?.absoluteString == "https://example.com/a?x=1&y=2")
+        precondition(linkedStyle.contains(.bold))
+        precondition(NativeRichTextFallbackParser.parseForEditing("<a href=\"javascript:alert(1)\">链接</a>") == nil)
 
         let unlinkedHTML = NativeRichTextNoteInlineHTMLPolicy.applying(
             NativeRichTextNoteInlineHTMLStyle(bold: true, italic: true, underlined: true, fontSize: 18),
@@ -52,6 +56,34 @@ enum NativeRichTextNoteBehavior {
         precondition(styled.1.contains(.italic), "re-decoded note text must keep italic")
         precondition(styled.1.contains(.underline), "re-decoded note text must keep underline")
         precondition(styled.1.contains(.heading2), "re-decoded note text must keep heading-scale size")
+    }
+
+    private static func verifyAppExportedNoteRemainsEditable() {
+        let inline = NativeRichTextNoteInlineHTMLPolicy.applying(
+            NativeRichTextNoteInlineHTMLStyle(bold: true, fontSize: 18, colorHex: "#2A7BCD"),
+            to: "理由<br>补充"
+        )
+        let paragraph = NativeRichTextNoteParagraphHTMLPolicy.applying(
+            NativeRichTextNoteParagraphHTMLStyle(
+                spacingBefore: 4, spacingAfter: 8, lineSpacing: 3, fontSize: 18,
+                firstLineHeadIndent: 18, headIndent: 12
+            ),
+            to: "<p>\(inline)</p>"
+        )
+        let html = paragraph + "<p><br></p><p>下一段</p>"
+        guard let runs = NativeRichTextFallbackParser.parseForEditing(html),
+              case let .styledText(styled, style)? = runs.first else {
+            preconditionFailure("a note using the app's paragraph and inline styles must remain editable")
+        }
+        precondition(styled == "理由\u{2028}补充")
+        precondition(style.pointSize == 18 && style.color == 0x2A7BCD && style.contains(.bold))
+        let text = runs.compactMap { run -> String? in
+            switch run {
+            case .text(let value), .styledText(let value, _): value
+            default: nil
+            }
+        }.joined()
+        precondition(text == "理由\u{2028}补充\n\n下一段\n")
     }
 
     private static func verifyCSSDerivedBoldAndMissingCSSSafety() {

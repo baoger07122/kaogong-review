@@ -21,6 +21,13 @@ actor LibraryPayloadDecodeCoordinator {
     }
 
     private var flights: [LibraryPayloadDecodeKey: Flight] = [:]
+    private struct Completed {
+        let payload: Data
+        let decoded: LibraryDecodedJSONPayload
+    }
+
+    private var completed: [LibraryPayloadDecodeKey: Completed] = [:]
+    private var completedOrder: [LibraryPayloadDecodeKey] = []
 
     func decode(
         key: LibraryPayloadDecodeKey,
@@ -28,6 +35,9 @@ actor LibraryPayloadDecodeCoordinator {
         priority: TaskPriority
     ) async -> LibraryDecodedJSONPayload? {
         guard !Task.isCancelled else { return nil }
+        if let cached = completed[key], cached.payload == payload {
+            return cached.decoded
+        }
         let waiterID = UUID()
         let flightID: UUID
         let task: Task<LibraryDecodedJSONPayload?, Never>
@@ -55,6 +65,14 @@ actor LibraryPayloadDecodeCoordinator {
         }
         release(key: key, flightID: flightID, waiterID: waiterID)
         guard !Task.isCancelled else { return nil }
+        if let value, key.source == "payload", payload.count <= 512 * 1024 {
+            completedOrder.removeAll { $0 == key }
+            completedOrder.append(key)
+            completed[key] = Completed(payload: payload, decoded: value)
+            if completedOrder.count > 4 {
+                completed.removeValue(forKey: completedOrder.removeFirst())
+            }
+        }
         return value
     }
 
