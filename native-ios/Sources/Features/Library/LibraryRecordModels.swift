@@ -271,7 +271,7 @@ struct LibraryRecordSnapshot: Identifiable {
     let title: String
     let questionPrompt: String
     let summary: String
-    let wordCardBody: String
+    let wordCardPreview: String
     let stickyContent: String
     let stickyTag: String
     let tags: [String]
@@ -338,21 +338,32 @@ struct LibraryRecordSnapshot: Identifiable {
             .map(Self.plainText) ?? ""
         let categoryValue = Self.firstText(in: object, keys: ["category", "type"])
             ?? WordCategory.idiomDefinition.rawValue
-        let resolvedWordCardBody: String
+        let wordSearchBody: String
         if record.collection == "words" {
-            let wordCategory = WordCategory(rawValue: categoryValue) ?? .idiomDefinition
-            resolvedWordCardBody = LibraryComparisonDocumentProjection.wordContent(in: object, category: wordCategory)
+            let indexedCategory = LibraryWordMigrationPolicy.resolvedCategory(in: object)
+            let indexedMeaning = (object["meaning"] as? String) ?? ""
+            let wordObject = indexedCategory?.isComparison == false
+                && !indexedMeaning.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? object : (record.jsonObject ?? object)
+            let wordCategory = LibraryWordMigrationPolicy.resolvedCategory(in: wordObject)
+            let body = LibraryWordMigrationPolicy.originalPreview(in: wordObject, sourceCategory: wordCategory)
+            wordSearchBody = LibraryWordCardPreviewText.render(body)
+            wordCardPreview = LibraryWordCardPreviewText.cardSummary(
+                wordSearchBody,
+                title: title,
+                isComparison: wordCategory?.isComparison ?? false
+            )
         } else {
-            resolvedWordCardBody = ""
+            wordSearchBody = ""
+            wordCardPreview = ""
         }
-        wordCardBody = resolvedWordCardBody
         let isShenlun = record.collection == "errors"
             && (record.subject == "申论" || object["subject"] as? String == "申论" || (object["isShenlun"] as? Bool) == true)
         let summaryKeys = isShenlun
             ? ["question", "title"]
             : ["judgmentHint", "commonMeaning", "compareNote", "content", "note", "errorNote", "meaning", "myUnderstanding", "relation", "coreDifference", "question"]
         summary = record.collection == "words"
-            ? LibraryWordCardPreviewText.summary(resolvedWordCardBody)
+            ? LibraryWordCardPreviewText.summary(wordSearchBody)
             : (Self.firstText(in: object, keys: summaryKeys).map(Self.plainText) ?? "")
         stickyContent = record.collection == "stickies" ? object["content"] as? String ?? "" : ""
         stickyTag = record.collection == "stickies" ? object["tag"] as? String ?? "" : ""
@@ -508,7 +519,7 @@ struct LibraryRecordSnapshot: Identifiable {
 
         let searchableSource = reviewSource == .mock ? sourceExamTitle : questionSource
         var searchValues = record.collection == "words"
-            ? [title, LibraryWordCardPreviewText.render(wordCardBody)]
+            ? [title, wordSearchBody]
             : [title, summary, quantityStructure, dataAnalysisMaterialText, searchableSource, questionNumber, pitfall, reminder]
         if subject == "言语理解", module == "逻辑填空" {
             searchValues.append(dataAnalysisErrorCause)
@@ -666,14 +677,73 @@ struct LibraryRecordSnapshot: Identifiable {
 }
 
 enum LibraryWordCardPreviewText {
-    static func summary(_ source: String) -> String {
-        let normalized = render(source)
-            .split(whereSeparator: { $0.isWhitespace })
-            .joined(separator: " ")
-        guard !normalized.isEmpty else { return "" }
-        let characters = Array(normalized)
-        guard characters.count > 120 else { return normalized }
-        return String(characters.prefix(120)) + "…"
+    private static let definitionLabels: Set<String> = ["词义", "释义", "含义", "引申义", "引申含义"]
+    private static let secondaryDefinitionLabels: Set<String> = ["字面意思", "本义", "基本义", "核心侧重", "核心含义"]
+    private static let comparisonLabels: Set<String> = ["共同语义", "共同词义", "共同含义", "核心区别", "主要区别"]
+    private static let otherHeadings: Set<String> = [
+        "词义理解", "词义解释", "词义区别", "近义辨析", "成语辨析", "实词辨析", "具体情境", "同一情境下的具体区别",
+        "一眼判断", "判断提示", "统一情境", "情境", "例句", "注意", "用法", "常见搭配", "核心记忆", "可以说"
+    ]
+    private static let headings = definitionLabels.union(secondaryDefinitionLabels)
+        .union(comparisonLabels).union(otherHeadings)
+    private static let tableHeaderCells = headings.union(["成语", "词语", "实词", "词语名称", "侧重"])
+    private static let placeholders: Set<String> = [
+        "图片", "表格", "公式", "内容", "附件无法显示", "其余附件已省略", "…（预览已截断，原内容仍保留）"
+    ]
+
+    static func cardSummary(_ text: String, title: String, isComparison: Bool) -> String {
+        let lines = text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .map { $0.hasSuffix(" ·") ? String($0.dropLast(2)) : $0 }
+            .filter { !$0.isEmpty }
+        let fields = lines.map { line in
+            let parts = line.replacingOccurrences(
+                of: #"^(?:第?[一二三四五六七八九十]+[、.．）)]|[0-9]+[、.．）)])\s*"#,
+                with: "",
+                options: .regularExpression
+            )
+            .split(maxSplits: 1, omittingEmptySubsequences: false) { $0 == "：" || $0 == ":" }
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            return (label: parts.first ?? "", body: parts.dropFirst().first ?? "")
+        }
+
+        func isScaffolding(_ line: String) -> Bool {
+            if line == title || placeholders.contains(line) { return true }
+            let titleParts = line.split(maxSplits: 1) { $0 == "｜" || $0 == "|" }
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            if titleParts.count == 2, titleParts[1] == title,
+               ["成语积累", "词语积累", "实词积累"].contains(titleParts[0]) { return true }
+            let cells = line.split(separator: "·").map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            return cells.count > 1 && cells.allSatisfy { tableHeaderCells.contains($0) }
+        }
+
+        func value(for labels: Set<String>) -> String? {
+            for (index, field) in fields.enumerated() where labels.contains(field.label) {
+                if !field.body.isEmpty, !isScaffolding(field.body) { return field.body }
+                let nextIndex = index + 1
+                if nextIndex < lines.count, !headings.contains(fields[nextIndex].label),
+                   !isScaffolding(lines[nextIndex]) { return lines[nextIndex] }
+            }
+            return nil
+        }
+
+        if isComparison, let comparison = value(for: comparisonLabels) { return comparison }
+        if let definition = value(for: definitionLabels) ?? value(for: secondaryDefinitionLabels) {
+            return definition
+        }
+        guard let firstContent = lines.indices.first(where: { index in
+            let field = fields[index]
+            let isOnlyHeading = headings.contains(field.label) && field.body.isEmpty
+            return !isOnlyHeading && !isScaffolding(lines[index])
+        }) else { return "" }
+        return lines[firstContent]
+    }
+
+    static func summary(_ text: String) -> String {
+        let normalized = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let prefix = normalized.prefix(120)
+        return prefix.endIndex == normalized.endIndex ? normalized : String(prefix) + "…"
     }
 
     static func render(_ source: String) -> String {

@@ -315,8 +315,8 @@ struct LibraryRecordCard: View {
             }
 
             if kind == .words {
-                if !snapshot.wordCardBody.isEmpty, LibraryWordCardPreviewText.render(snapshot.wordCardBody) != snapshot.title {
-                    Text(verbatim: LibraryWordCardPreviewText.render(snapshot.wordCardBody))
+                if !snapshot.wordCardPreview.isEmpty {
+                    Text(verbatim: snapshot.wordCardPreview)
                         .font(AppTheme.auxiliaryFont)
                         .foregroundStyle(.secondary)
                         .lineLimit(size.questionLineLimit)
