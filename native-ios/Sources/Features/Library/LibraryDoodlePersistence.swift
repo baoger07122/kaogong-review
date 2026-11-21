@@ -10,6 +10,8 @@ private struct LibraryDoodlePreparedWrite: Sendable {
 
 @MainActor
 enum LibraryDoodlePersistence {
+    nonisolated static let flashcardDrawingsKey = "flashcardDoodleDrawings"
+
     @discardableResult
     static func saveSplitDrawings(
         record: StoredRecord,
@@ -17,19 +19,48 @@ enum LibraryDoodlePersistence {
         drawingValues: [String: String]
     ) async -> String? {
         guard !drawingValues.isEmpty else { return nil }
+        return await saveOverlayDrawing(record: record, context: context, splitDrawingValues: drawingValues)
+    }
+
+    static func saveFlashcardDrawing(
+        record: StoredRecord,
+        context: ModelContext,
+        diagramKey: String,
+        drawingData: String
+    ) async -> String? {
+        await saveOverlayDrawing(record: record, context: context, flashcardDrawing: (diagramKey, drawingData))
+    }
+
+    private static func saveOverlayDrawing(
+        record: StoredRecord,
+        context: ModelContext,
+        splitDrawingValues: [String: String]? = nil,
+        flashcardDrawing: (key: String, data: String)? = nil
+    ) async -> String? {
         for _ in 0..<3 {
+            guard record.modelContext != nil, !record.isDeleted else { return "涂鸦未保存：题目记录已不存在。" }
             let base = record.payload
-            guard let write = await prepareWrite(base: base, collection: record.collection, splitDrawingValues: drawingValues) else {
+            guard let write = await prepareWrite(
+                base: base,
+                collection: record.collection,
+                splitDrawingValues: splitDrawingValues,
+                flashcardDrawing: flashcardDrawing
+            ) else {
                 return "涂鸦数据格式无效，未保存。"
             }
+            guard record.modelContext != nil, !record.isDeleted else { return "涂鸦未保存：题目记录已不存在。" }
             guard record.payload == write.basePayload else { continue }
             guard write.changed else { return nil }
+            let previousIndex = record.indexPayload
+            let previousVersion = record.updatedAt
             record.replacePayload(write.payload, indexPayload: write.indexPayload)
             record.updatedAt = .now
             do {
                 try context.save()
                 return nil
             } catch {
+                record.replacePayload(base, indexPayload: previousIndex)
+                record.updatedAt = previousVersion
                 return "涂鸦未保存：\(error.localizedDescription)"
             }
         }
@@ -96,7 +127,8 @@ enum LibraryDoodlePersistence {
         collection: String,
         drawingData: String? = nil,
         legacyPreviewCleared: Bool = false,
-        splitDrawingValues: [String: String]? = nil
+        splitDrawingValues: [String: String]? = nil,
+        flashcardDrawing: (key: String, data: String)? = nil
     ) async -> LibraryDoodlePreparedWrite? {
         await Task.detached(priority: .userInitiated) {
             guard var object = (try? JSONSerialization.jsonObject(with: base)) as? [String: Any] else { return nil }
@@ -121,6 +153,15 @@ enum LibraryDoodlePersistence {
                 if changed {
                     if storedByLayout.isEmpty { object.removeValue(forKey: "splitDoodleDrawings") }
                     else { object["splitDoodleDrawings"] = storedByLayout }
+                }
+            }
+            if let flashcardDrawing {
+                let storageKey = LibraryDoodlePersistence.flashcardDrawingsKey
+                var drawings = (object[storageKey] as? [String: String]) ?? [:]
+                if (drawings[flashcardDrawing.key] ?? "") != flashcardDrawing.data {
+                    drawings[flashcardDrawing.key] = flashcardDrawing.data.isEmpty ? nil : flashcardDrawing.data
+                    object[storageKey] = drawings.isEmpty ? nil : drawings
+                    changed = true
                 }
             }
             if let drawingData {

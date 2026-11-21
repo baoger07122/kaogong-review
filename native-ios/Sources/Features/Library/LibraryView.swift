@@ -44,6 +44,7 @@ struct LibraryView: View {
     @State private var partitionStates: [LibraryReviewSource: LibraryPartitionState] = [:]
     @State private var showBulkSourcePicker = false
     @State private var sourceAssignmentError: String?
+    @State private var flashcardDoodleError: String?
     @State private var pendingEditorRouteKey: String?
     @State private var preparedEditDrafts: [String: LibraryRecordDraft] = [:]
     @State private var errorDetailWarmCache = LibraryErrorDetailWarmCache()
@@ -135,6 +136,12 @@ struct LibraryView: View {
         )) {
             Button("好", role: .cancel) { sourceAssignmentError = nil }
         } message: { Text(sourceAssignmentError ?? "") }
+        .alert("涂鸦未保存", isPresented: Binding(
+            get: { flashcardDoodleError != nil },
+            set: { if !$0 { flashcardDoodleError = nil } }
+        )) {
+            Button("好", role: .cancel) { flashcardDoodleError = nil }
+        } message: { Text(flashcardDoodleError ?? "") }
         .overlay {
             if showsKnowledgePointFilter {
                 LibraryKnowledgePointFilterDialog(
@@ -513,7 +520,7 @@ struct LibraryView: View {
                     } else if isGraphReasoningContext, selectedGraphDisplayMode == "flashcards" {
                         GraphReasoningFlashcardView(
                             records: visibleRecords,
-                            onEdit: { navigationPath.append(.editor(kind: kind, recordID: $0.record.recordID)) }
+                            onDoodleSaveError: { flashcardDoodleError = $0 }
                         )
                     } else {
                         LibraryMasonryGrid(
