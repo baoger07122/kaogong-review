@@ -449,7 +449,7 @@ struct NativeRichTextEditor: View {
             selectedTable = nil
             activeEditorSession.setAuxiliaryPanelPresented(false)
         }) { request in
-            RichTextTableEditor(initial: request.table) { updated, completion in
+            RichTextTableEditor(initial: request.table, appearance: tableAppearance) { updated, completion in
                 command = RichTextCommand(
                     kind: .table(updated),
                     tableCompletion: completion,
@@ -1131,6 +1131,7 @@ struct NativeRichTextDisplay: UIViewRepresentable {
         var lastTableAppearance: NativeRichTextTableAppearance = .system
         var lastNoteFormatting = false
         var lastRequiresPreparedSnapshot = false
+        var lastTableDisplayWidth: CGFloat?
         var fallbackReportedHTML: String?
 
         init(parent: NativeRichTextDisplay) {
@@ -1216,6 +1217,14 @@ struct NativeRichTextDisplay: UIViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
         guard let width = proposal.width, width.isFinite, width > 0 else { return nil }
+        let tableWidth = max(80, floor(width))
+        if noteFormatting, tableAppearance == .libraryContent,
+           context.coordinator.lastTableDisplayWidth != tableWidth, let content = uiView.attributedText {
+            context.coordinator.lastTableDisplayWidth = tableWidth
+            uiView.attributedText = NativeRichTextDisplayRenderer.applyingTableAppearance(
+                to: content, appearance: tableAppearance, displayWidth: tableWidth
+            )
+        }
         let fitting = uiView.sizeThatFits(CGSize(width: width, height: 65_536))
         let height = fitting.height.isFinite ? max(minHeight, ceil(fitting.height)) : minHeight
         return CGSize(width: width, height: height)
@@ -1238,7 +1247,11 @@ struct NativeRichTextDisplay: UIViewRepresentable {
                 cleanLegacyInjectedSpacing: noteFormatting
             )
         }
-        let styled = NativeRichTextDisplayRenderer.applyingTableAppearance(to: rendered.attributedText, appearance: tableAppearance)
+        let styled = NativeRichTextDisplayRenderer.applyingTableAppearance(
+            to: rendered.attributedText,
+            appearance: tableAppearance,
+            displayWidth: noteFormatting && tableAppearance == .libraryContent ? coordinator.lastTableDisplayWidth : nil
+        )
         view.attributedText = styled
         view.accessibilityLabel = styled.string
         guard rendered.usedSafeFallback, coordinator.fallbackReportedHTML != html else { return }
@@ -1308,14 +1321,18 @@ enum NativeRichTextDisplayRenderer {
 
     static func applyingTableAppearance(
         to source: NSAttributedString,
-        appearance: NativeRichTextTableAppearance
+        appearance: NativeRichTextTableAppearance,
+        displayWidth: CGFloat? = nil
     ) -> NSAttributedString {
-        let result = NSMutableAttributedString(attributedString: source)
         var replacements: [(NSRange, NativeTableAttachment)] = []
-        result.enumerateAttribute(.attachment, in: NSRange(location: 0, length: result.length)) { value, range, _ in
-            guard let table = value as? NativeTableAttachment, table.appearance != appearance else { return }
-            replacements.append((range, table.replacingAppearance(appearance)))
+        source.enumerateAttribute(.attachment, in: NSRange(location: 0, length: source.length)) { value, range, _ in
+            guard let table = value as? NativeTableAttachment else { return }
+            let width = displayWidth ?? table.displayWidth
+            guard table.appearance != appearance || abs(table.displayWidth - width) > 0.5 else { return }
+            replacements.append((range, table.replacingAppearance(appearance, displayWidth: width)))
         }
+        guard !replacements.isEmpty else { return source }
+        let result = NSMutableAttributedString(attributedString: source)
         for (range, table) in replacements.reversed() {
             result.replaceCharacters(in: range, with: NSAttributedString(attachment: table))
         }
@@ -1404,7 +1421,10 @@ enum NativeRichTextDisplayRenderer {
         )
     }
 
-    static func editableAttributedText(from runs: [NativeRichTextFallbackRun]) -> NSAttributedString? {
+    static func editableAttributedText(
+        from runs: [NativeRichTextFallbackRun],
+        tableAppearance: NativeRichTextTableAppearance = .system
+    ) -> NSAttributedString? {
         let attributed = NSMutableAttributedString(string: "")
         let attributes: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: RichTextMetrics.bodySize),
@@ -1427,7 +1447,9 @@ enum NativeRichTextDisplayRenderer {
                 attributed.append(NSAttributedString(attachment: attachment))
             case .tableWithMarker(let encoded, let marker):
                 guard let table = fallbackTable(from: encoded) else { return nil }
-                attributed.append(NSAttributedString(attachment: NativeTableAttachment(table: table, marker: marker)))
+                attributed.append(NSAttributedString(attachment: NativeTableAttachment(
+                    table: table, marker: marker, appearance: tableAppearance
+                )))
             case .formulaWithMarker(let encoded, let marker):
                 guard let formula = fallbackFormula(from: encoded) else { return nil }
                 attributed.append(NSAttributedString(attachment: NativeFormulaAttachment(formula: formula, marker: marker)))
@@ -1438,8 +1460,12 @@ enum NativeRichTextDisplayRenderer {
         return attributed.copy() as? NSAttributedString ?? attributed
     }
 
-    static func editableNoteSnapshot(from runs: [NativeRichTextFallbackRun], sourceHTML: String) -> NSAttributedString? {
-        guard let editable = editableAttributedText(from: runs) else { return nil }
+    static func editableNoteSnapshot(
+        from runs: [NativeRichTextFallbackRun],
+        sourceHTML: String,
+        tableAppearance: NativeRichTextTableAppearance = .system
+    ) -> NSAttributedString? {
+        guard let editable = editableAttributedText(from: runs, tableAppearance: tableAppearance) else { return nil }
         let attributed = NSMutableAttributedString(attributedString: editable)
         let metadata = RichTextTextView.alignedParagraphMetadata(in: sourceHTML, matching: attributed)
         if metadata == nil, sourceHTML.localizedCaseInsensitiveContains("data-note-layout-version=") {
@@ -4806,7 +4832,9 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
         NativeTableAttachment(table: table, marker: originalMarker, instanceID: instanceID, displayWidth: displayWidth, appearance: appearance)
     }
 
-    func replacingAppearance(_ appearance: NativeRichTextTableAppearance) -> NativeTableAttachment {
+    func replacingAppearance(
+        _ appearance: NativeRichTextTableAppearance, displayWidth: CGFloat
+    ) -> NativeTableAttachment {
         NativeTableAttachment(table: table, marker: originalMarker, instanceID: instanceID, displayWidth: displayWidth, appearance: appearance)
     }
 
@@ -5199,35 +5227,22 @@ private struct RichTextTableEditor: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @FocusState private var focusedCell: Int?
+    let appearance: NativeRichTextTableAppearance
     let onSave: (RichTextTable, @escaping (Result<Void, NativeRichTextEditorError>) -> Void) -> Void
 
     init(
         initial: RichTextTable,
+        appearance: NativeRichTextTableAppearance,
         onSave: @escaping (RichTextTable, @escaping (Result<Void, NativeRichTextEditorError>) -> Void) -> Void
     ) {
         _table = State(initialValue: initial)
+        self.appearance = appearance
         self.onSave = onSave
     }
 
     var body: some View {
         NavigationStack {
-            ScrollView([.horizontal, .vertical]) {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(table.cells.indices, id: \.self) { row in
-                        HStack(spacing: 7) {
-                            ForEach(table.cells[row].indices, id: \.self) { column in
-                                TextField("内容", text: cellBinding(row: row, column: column))
-                                    .font(AppTheme.inputFont)
-                                    .textFieldStyle(NativeTextFieldStyle())
-                                    .frame(width: 130)
-                                    .focused($focusedCell, equals: row * 8 + column)
-                                    .disabled(isSaving)
-                            }
-                        }
-                    }
-                }
-                .padding(20)
-            }
+            tableFields
             .navigationTitle("编辑表格")
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) {
@@ -5268,8 +5283,75 @@ private struct RichTextTableEditor: View {
         }
     }
 
+    private var tableFields: some View {
+        Group {
+            if appearance == .libraryContent {
+                GeometryReader { proxy in
+                    let availableWidth = max(0, proxy.size.width - 32)
+                    let columnWidth = max(108, availableWidth / CGFloat(max(1, table.columnCount)))
+                    documentTableFields(columnWidth: columnWidth)
+                }
+                .background(Color.white)
+            } else {
+                ScrollView([.horizontal, .vertical]) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(table.cells.indices, id: \.self) { row in
+                            HStack(spacing: 7) {
+                                ForEach(table.cells[row].indices, id: \.self) { column in
+                                    TextField("内容", text: cellBinding(row: row, column: column))
+                                        .font(AppTheme.inputFont)
+                                        .textFieldStyle(NativeTextFieldStyle())
+                                        .frame(width: 130)
+                                        .focused($focusedCell, equals: row * 8 + column)
+                                        .disabled(isSaving)
+                                }
+                            }
+                        }
+                    }
+                    .padding(20)
+                }
+            }
+        }
+    }
+
+    private func documentTableFields(columnWidth: CGFloat) -> some View {
+        ScrollView([.horizontal, .vertical]) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(table.cells.indices, id: \.self) { row in
+                    HStack(alignment: .top, spacing: 0) {
+                        ForEach(table.cells[row].indices, id: \.self) { column in
+                            TextField("内容", text: cellBinding(row: row, column: column), axis: .vertical)
+                                .font(.system(size: 12, weight: row == 0 ? .semibold : .regular))
+                                .textFieldStyle(.plain)
+                                .lineLimit(1...)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 7)
+                                .frame(width: columnWidth, alignment: .leading)
+                                .frame(minHeight: 34, alignment: .topLeading)
+                                .focused($focusedCell, equals: row * 8 + column)
+                                .disabled(isSaving)
+                        }
+                    }
+                    if row < table.rowCount - 1 {
+                        Rectangle()
+                            .fill(Color(uiColor: .separator).opacity(0.32))
+                            .frame(height: 0.5)
+                    }
+                }
+            }
+            .frame(width: columnWidth * CGFloat(max(1, table.columnCount)), alignment: .leading)
+            .padding(16)
+        }
+    }
+
     private func cellBinding(row: Int, column: Int) -> Binding<String> {
-        Binding(get: { table.cells[row][column] }, set: { table.cells[row][column] = $0 })
+        Binding {
+            guard table.cells.indices.contains(row), table.cells[row].indices.contains(column) else { return "" }
+            return table.cells[row][column]
+        } set: { value in
+            guard table.cells.indices.contains(row), table.cells[row].indices.contains(column) else { return }
+            table.cells[row][column] = value
+        }
     }
 
     private func save() {

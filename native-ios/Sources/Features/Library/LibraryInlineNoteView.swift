@@ -347,6 +347,10 @@ struct LibraryInlineNoteView: View {
 
     private let noteCanvasMinimumHeight: CGFloat = 360
 
+    private var tableAppearance: NativeRichTextTableAppearance {
+        commitMode == .explicit ? .libraryContent : .system
+    }
+
     init(
         record: StoredRecord,
         session: LibraryInlineNoteSession,
@@ -566,6 +570,7 @@ struct LibraryInlineNoteView: View {
                     documentStyle: true,
                     noteFormatting: true,
                     usesStabilizedInlineNoteMeasurement: commitMode == .explicit,
+                    tableAppearance: tableAppearance,
                     focusOnAppear: true,
                     initialSelectionOffset: initialSelectionOffset,
                     initialSelectionWidth: initialSelectionWidth,
@@ -944,7 +949,9 @@ struct LibraryInlineNoteView: View {
         guard !Task.isCancelled else { return nil }
 
         let editableSnapshot = parsed.supportsEditing
-            ? NativeRichTextDisplayRenderer.editableNoteSnapshot(from: parsed.runs, sourceHTML: html)
+            ? NativeRichTextDisplayRenderer.editableNoteSnapshot(
+                from: parsed.runs, sourceHTML: html, tableAppearance: tableAppearance
+            )
             : nil
 
         let result: NativeRichTextDisplayRenderResult
@@ -957,6 +964,7 @@ struct LibraryInlineNoteView: View {
             result = NativeRichTextDisplayRenderer.renderFallbackPreview(
                 parsed.runs,
                 sourceHTML: html,
+                tableAppearance: tableAppearance,
                 noteFormatting: true,
                 cleanLegacyInjectedSpacing: true
             )
@@ -991,6 +999,7 @@ struct LibraryInlineNoteView: View {
                     preparedSnapshot: currentPreparedNote.result,
                     renderVersion: currentPreparedNote.key.rendererVersion,
                     minHeight: noteCanvasMinimumHeight,
+                    tableAppearance: tableAppearance,
                     accessibilityIdentifier: "library-inline-note-display",
                     noteFormatting: true,
                     requiresPreparedSnapshot: true,
@@ -1059,6 +1068,7 @@ struct LibraryInlineNoteView: View {
                         preparedSnapshot: currentPreparedNote.result,
                         renderVersion: currentPreparedNote.key.rendererVersion,
                         minHeight: min(noteCanvasMinimumHeight, 160),
+                        tableAppearance: tableAppearance,
                         accessibilityIdentifier: "library-inline-note-current-version",
                         noteFormatting: true,
                         requiresPreparedSnapshot: true
@@ -1083,6 +1093,7 @@ struct LibraryInlineNoteView: View {
                     preparedSnapshot: preparedDraft.result,
                     renderVersion: preparedDraft.key.rendererVersion,
                     minHeight: noteCanvasMinimumHeight,
+                    tableAppearance: tableAppearance,
                     accessibilityIdentifier: "library-inline-note-pending-draft",
                     noteFormatting: true,
                     requiresPreparedSnapshot: true,
