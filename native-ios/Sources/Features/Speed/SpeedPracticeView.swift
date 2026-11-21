@@ -31,6 +31,7 @@ struct SpeedPracticeView: View {
     @State private var feedback: SpeedFeedbackMessage?
     @State private var finishedDuration: Double?
     @State private var showDoodle = false
+    @State private var isClosingDoodle = false
     @State private var drawingData = ""
     @State private var customRangeMinimumText = ""
     @State private var customRangeMaximumText = ""
@@ -148,7 +149,7 @@ struct SpeedPracticeView: View {
             if showDoodle {
                 ZStack {
                     Color.black.opacity(0.18).ignoresSafeArea().allowsHitTesting(false)
-                    NativePencilDrawingEditor(encodedData: $drawingData, transparentBackground: true, controller: doodleController, onClose: closeDoodle)
+                    NativePencilDrawingEditor(encodedData: $drawingData, transparentBackground: true, controller: doodleController)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -183,18 +184,14 @@ struct SpeedPracticeView: View {
     @ViewBuilder
     private var trailingControls: some View {
         if showDoodle {
-            NativeDoodleToolbarCapsule {
-                doodleButton("xmark", "退出涂鸦", action: closeDoodle)
-                    .accessibilityIdentifier("speed-doodle-close")
-                doodleButton(doodleController.eraser ? "eraser.fill" : "eraser", "橡皮擦", active: doodleController.eraser, action: doodleController.toggleEraser)
-                doodleButton("arrow.uturn.backward", "撤销", action: doodleController.undo)
-                doodleButton("trash", "清空涂鸦", action: doodleController.requestClear)
-                doodleButton("paintpalette", "画笔调节", active: doodleController.showSettings) { doodleController.showSettings.toggle() }
-                doodleButton(
-                    "hand.draw",
-                    doodleController.fingerDrawingEnabled ? "关闭手指涂鸦" : "开启手指涂鸦",
-                    active: doodleController.fingerDrawingEnabled
-                ) { doodleController.fingerDrawingEnabled.toggle() }
+            NativePencilDrawingToolbar(
+                controller: doodleController,
+                toolsEnabled: doodleController.canvasReady,
+                isClosing: isClosingDoodle,
+                closeIdentifier: "speed-doodle-close",
+                onClose: closeDoodle
+            ) {
+                EmptyView()
             }
         } else if screen == .practice || screen == .result || (screen == .history && selectedHistory != nil) {
             Button(action: openDoodle) {
@@ -202,6 +199,7 @@ struct SpeedPracticeView: View {
                     .frame(width: 36, height: 36)
                     .contentShape(Circle())
             }
+            .buttonStyle(NativeToolbarPressStyle(highlightDiameter: 30))
             .accessibilityLabel("涂鸦")
             .accessibilityIdentifier("speed-doodle-open")
         }
@@ -1168,6 +1166,7 @@ struct SpeedPracticeView: View {
         inputRevision = 0
         finishedDuration = nil
         showDoodle = false
+        isClosingDoodle = false
         drawingData = ""
         savedResultID = nil
     }
@@ -1188,32 +1187,26 @@ struct SpeedPracticeView: View {
     }
 
     private func openDoodle() {
-        guard !isSubmitting else { return }
+        guard !isSubmitting, !showDoodle, !isClosingDoodle else { return }
         doodleController.prepareForPresentation()
         setDoodleVisible(true)
     }
 
     private func closeDoodle() {
+        guard showDoodle, !isClosingDoodle else { return }
+        isClosingDoodle = true
         doodleController.showSettings = false
-        doodleController.commit { setDoodleVisible(false) }
+        doodleController.commit {
+            guard isClosingDoodle else { return }
+            isClosingDoodle = false
+            setDoodleVisible(false)
+        }
     }
 
     private func setDoodleVisible(_ visible: Bool) {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { showDoodle = visible }
-    }
-
-    private func doodleButton(_ symbol: String, _ label: String, active: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(active ? AppTheme.accent : Color.primary)
-                .frame(width: 32, height: 36)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
     }
 
     private func persistSettings() {

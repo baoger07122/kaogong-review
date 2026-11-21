@@ -25,7 +25,7 @@ struct LibraryReadingModeToggle: View {
                 )
                 .contentShape(Circle())
         }
-        .buttonStyle(LibraryToolbarPressStyle(highlightDiameter: 44))
+        .buttonStyle(NativeToolbarPressStyle(highlightDiameter: 44))
         .disabled(!isEnabled)
         .accessibilityLabel(isRedoPractice ? "切换到看题模式" : "切换到刷题模式")
     }
@@ -35,26 +35,5 @@ struct LibraryReadingModeToggle: View {
             return AppTheme.accent
         }
         return .secondary
-    }
-}
-
-struct LibraryToolbarPressStyle: ButtonStyle {
-    let highlightDiameter: CGFloat
-
-    @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeBody(configuration: Configuration) -> some View {
-        let pressed = isEnabled && configuration.isPressed
-        return configuration.label
-            .overlay {
-                Circle()
-                    .fill(AppTheme.accent.opacity(pressed ? 0.16 : 0))
-                    .frame(width: highlightDiameter, height: highlightDiameter)
-                    .allowsHitTesting(false)
-            }
-            .scaleEffect(pressed && !reduceMotion ? 0.9 : 1)
-            .offset(y: pressed && !reduceMotion ? 1 : 0)
-            .animation(pressed || reduceMotion ? nil : .easeOut(duration: 0.14), value: pressed)
     }
 }

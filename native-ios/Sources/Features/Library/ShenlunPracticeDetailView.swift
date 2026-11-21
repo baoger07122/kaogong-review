@@ -47,6 +47,7 @@ struct ShenlunPracticeDetailView: View {
     @State private var isEditingReferenceAnswer = false
     @State private var selectedReviewSection: ShenlunReviewSection = .answer
     @State private var isDoodling = false
+    @State private var isClosingDoodle = false
     @State private var drawingData = ""
     @State private var drawingPreviews: [String: UIImage] = [:]
     @State private var assetImage: UIImage?
@@ -152,7 +153,7 @@ struct ShenlunPracticeDetailView: View {
             let available = max(0, proxy.size.width - 1)
             let leftWidth = min(max(280, available * 0.55), max(280, available - 280))
             VStack(spacing: 0) {
-                topBar
+                topBar(windowWidth: proxy.size.width)
                 if dualPane {
                     HStack(spacing: 0) {
                         leftPane.frame(width: leftWidth)
@@ -216,88 +217,92 @@ struct ShenlunPracticeDetailView: View {
         .onChange(of: currentMaterial?.versionID) { _, _ in refreshTextPaperLayout() }
     }
 
-    private var topBar: some View {
-        HStack(spacing: 9) {
-            Button { dismiss() } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 17, weight: .semibold))
-                    .frame(width: 36, height: 42)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("返回申论列表")
+    private func topBar(windowWidth: CGFloat) -> some View {
+        let showsMaterialTools = !isRequirementsPage && currentMaterial != nil
+        let movesToolbarToSecondRow = windowWidth < 480 && isDoodling && showsMaterialTools
 
-            Text(practice.name)
-                .font(.system(size: 17, weight: .semibold))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity)
-                .accessibilityLabel(practice.name)
-
-            Menu {
-                if let currentQuestion {
-                    Button { onEditQuestion(currentQuestion.id) } label: { Label("编辑题目", systemImage: "pencil") }
+        return VStack(spacing: 0) {
+            HStack(spacing: 9) {
+                Button { dismiss() } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(width: 36, height: 42)
+                        .contentShape(Rectangle())
                 }
-                if practice.kind == .paper {
-                    Button(action: onAddQuestion) { Label("添加题目", systemImage: "plus") }
-                }
-                Button {
-                    selectMaterial(nil)
-                } label: { Label("查看作答要求", systemImage: "doc.text") }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 17, weight: .semibold))
-                    .frame(width: 36, height: 42)
-            }
-            .accessibilityLabel("更多操作")
+                .accessibilityLabel("返回申论列表")
 
-            if !isRequirementsPage, currentMaterial != nil {
-                Button { isShowingLayerMenu.toggle() } label: {
-                    Image(systemName: "square.3.layers.3d")
+                Text(practice.name)
+                    .font(.system(size: 17, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityLabel(practice.name)
+
+                Menu {
+                    if let currentQuestion {
+                        Button { onEditQuestion(currentQuestion.id) } label: { Label("编辑题目", systemImage: "pencil") }
+                    }
+                    if practice.kind == .paper {
+                        Button(action: onAddQuestion) { Label("添加题目", systemImage: "plus") }
+                    }
+                    Button {
+                        selectMaterial(nil)
+                    } label: { Label("查看作答要求", systemImage: "doc.text") }
+                } label: {
+                    Image(systemName: "ellipsis")
                         .font(.system(size: 17, weight: .semibold))
                         .frame(width: 36, height: 42)
                 }
-                .accessibilityLabel("批注图层")
-            }
+                .accessibilityLabel("更多操作")
 
-            if !isRequirementsPage, currentMaterial != nil {
-                NativeDoodleToolbarCapsule {
-                    Button {
-                        pencilController.selectPenTool()
-                        toggleDoodling()
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: isDoodling ? "xmark" : "pencil.tip.crop.circle")
-                            Text(isDoodling ? "收起" : "涂鸦")
+                if showsMaterialTools {
+                    Button { isShowingLayerMenu.toggle() } label: {
+                        Image(systemName: "square.3.layers.3d")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 36, height: 42)
+                    }
+                    .accessibilityLabel("批注图层")
+
+                    if !isDoodling {
+                        Button(action: openDoodling) {
+                            Label("涂鸦", systemImage: "pencil.tip.crop.circle")
+                                .font(.system(size: 12, weight: .semibold))
+                                .padding(.horizontal, 8)
+                                .frame(height: 40)
                         }
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(isDoodling ? AppTheme.accent : .primary)
-                        .padding(.horizontal, 8)
-                        .frame(height: 36)
+                        .buttonStyle(NativeToolbarPressStyle(highlightDiameter: 30))
+                        .disabled(activeLayer?.isVisible != true || currentMaterial?.showAllLayers != true)
+                    } else if !movesToolbarToSecondRow {
+                        drawingToolbar
                     }
-                    .disabled(activeLayer?.isVisible != true || currentMaterial?.showAllLayers != true)
-                    Button {
-                        pencilController.showSettings.toggle()
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(width: 30, height: 36)
-                    }
-                    .accessibilityLabel("画笔设置")
-                    .disabled(!isDoodling || currentMaterial?.showAllLayers != true)
-                    Button { pencilController.undo() } label: {
-                        Image(systemName: "arrow.uturn.backward")
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(width: 28, height: 36)
-                    }
-                    .accessibilityLabel("撤销当前页笔迹")
-                    .disabled(!isDoodling || activeLayer?.isVisible != true)
                 }
             }
+            .padding(.horizontal, 8)
+            .frame(height: 54)
+
+            if movesToolbarToSecondRow {
+                drawingToolbar
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
         }
-        .padding(.horizontal, 8)
-        .frame(height: 54)
         .background(Color.white)
-        .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.7) }
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.7)
+        }
+    }
+
+    private var drawingToolbar: some View {
+        NativePencilDrawingToolbar(
+            controller: pencilController,
+            toolsEnabled: pencilController.canvasReady && activeLayer?.isVisible == true && currentMaterial?.showAllLayers == true,
+            isClosing: isClosingDoodle,
+            closeIdentifier: "shenlun-doodle-close",
+            onClose: closeDoodling
+        ) {
+            EmptyView()
+        }
     }
 
     private var leftPane: some View {
@@ -1226,13 +1231,21 @@ struct ShenlunPracticeDetailView: View {
         }
     }
 
-    private func toggleDoodling() {
-        guard activeLayer?.isVisible == true else { return }
-        if isDoodling {
-            commitDrawingBeforeTransition { isDoodling = false; pencilController.showSettings = false }
-        } else {
-            pencilController.prepareForPresentation(preservingLoadedDrawing: true)
-            isDoodling = true
+    private func openDoodling() {
+        guard !isDoodling, !isClosingDoodle,
+              activeLayer?.isVisible == true, currentMaterial?.showAllLayers == true else { return }
+        pencilController.prepareForPresentation(preservingLoadedDrawing: true)
+        isDoodling = true
+    }
+
+    private func closeDoodling() {
+        guard isDoodling, !isClosingDoodle else { return }
+        isClosingDoodle = true
+        pencilController.commit {
+            isClosingDoodle = false
+            guard isDoodling, persistDrawingNow() else { return }
+            isDoodling = false
+            pencilController.showSettings = false
         }
     }
 

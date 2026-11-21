@@ -85,6 +85,33 @@ private struct RootPageTopLayout: ViewModifier {
     }
 }
 
+struct NativeToolbarPressStyle: ButtonStyle {
+    let highlightDiameter: CGFloat
+    let showsConfirmedPress: Bool
+
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(highlightDiameter: CGFloat, showsConfirmedPress: Bool = false) {
+        self.highlightDiameter = highlightDiameter
+        self.showsConfirmedPress = showsConfirmedPress
+    }
+
+    func makeBody(configuration: Configuration) -> some View {
+        let pressed = showsConfirmedPress || (isEnabled && configuration.isPressed)
+        return configuration.label
+            .overlay {
+                Circle()
+                    .fill(AppTheme.accent.opacity(pressed ? 0.16 : 0))
+                    .frame(width: highlightDiameter, height: highlightDiameter)
+                    .allowsHitTesting(false)
+            }
+            .scaleEffect(pressed && !reduceMotion ? 0.9 : 1)
+            .offset(y: pressed && !reduceMotion ? 1 : 0)
+            .animation(pressed || reduceMotion ? nil : .easeOut(duration: 0.14), value: pressed)
+    }
+}
+
 struct NativeDoodleToolbarCapsule<Content: View>: View {
     let content: Content
 

@@ -147,6 +147,16 @@ final class SpeedInteractionUITests: XCTestCase {
         let closeDoodle = app.buttons["speed-doodle-close"]
         XCTAssertTrue(closeDoodle.waitForExistence(timeout: 5))
         XCTAssertTrue(closeDoodle.isHittable)
+        let eraser = app.buttons["橡皮擦"]
+        let pen = app.buttons["画笔"]
+        XCTAssertTrue(pen.waitForExistence(timeout: 5))
+        let eraserReady = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == YES"), object: eraser)
+        XCTAssertEqual(XCTWaiter.wait(for: [eraserReady], timeout: 5), .completed)
+        eraser.tap()
+        XCTAssertTrue(eraser.isSelected)
+        pen.tap()
+        XCTAssertTrue(pen.isSelected)
+        XCTAssertFalse(eraser.isSelected)
         closeDoodle.tap()
         XCTAssertTrue(two.waitForExistence(timeout: 5))
         XCTAssertTrue(two.isHittable)

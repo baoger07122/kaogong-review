@@ -45,6 +45,14 @@ private enum PencilToolMemory {
         default: .black
         }
     }
+
+    static func settings(in defaults: UserDefaults) -> (color: UIColor, width: CGFloat, eraserWidth: CGFloat) {
+        (
+            color(defaults.string(forKey: color)),
+            CGFloat((defaults.object(forKey: width) as? NSNumber)?.doubleValue ?? 4),
+            CGFloat((defaults.object(forKey: eraserWidth) as? NSNumber)?.doubleValue ?? 28)
+        )
+    }
 }
 
 final class PencilDrawingController: ObservableObject {
@@ -75,15 +83,13 @@ final class PencilDrawingController: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        let savedColor = PencilToolMemory.color(defaults.string(forKey: PencilToolMemory.color))
-        let savedWidth = (defaults.object(forKey: PencilToolMemory.width) as? NSNumber)?.doubleValue ?? 4
-        let savedEraserWidth = (defaults.object(forKey: PencilToolMemory.eraserWidth) as? NSNumber)?.doubleValue ?? 28
-        color = savedColor
-        width = CGFloat(savedWidth)
-        eraserWidth = CGFloat(savedEraserWidth)
+        let saved = PencilToolMemory.settings(in: defaults)
+        color = saved.color
+        width = saved.width
+        eraserWidth = saved.eraserWidth
         eraser = defaults.string(forKey: PencilToolMemory.activeTool) == "eraser"
-        previousPenColor = savedColor
-        previousPenWidth = CGFloat(savedWidth)
+        previousPenColor = saved.color
+        previousPenWidth = saved.width
     }
 
     func selectPen(color value: UIColor) {
@@ -179,6 +185,10 @@ final class PencilDrawingController: ObservableObject {
         if !preservingLoadedDrawing { drawingLoadRevision += 1 }
         showSettings = false
         fingerDrawingEnabled = false
+        let saved = PencilToolMemory.settings(in: defaults)
+        previousPenColor = saved.color
+        previousPenWidth = saved.width
+        eraserWidth = saved.eraserWidth
         selectPenTool(persistSelection: persistToolSelection)
         legacyPreviewCleared = false
         restoreLegacyOnNextUndo = false
@@ -296,13 +306,13 @@ struct NativePencilDrawingEditor: View {
 
     @ViewBuilder private var editorContent: some View {
         if transparentBackground {
-            floatingEditor
+            canvasWithSettings
         } else {
             classicEditor
         }
     }
 
-    private var floatingEditor: some View {
+    private var canvasWithSettings: some View {
         canvas
             .overlay(alignment: .bottom) {
                 ZStack(alignment: .bottom) {
@@ -321,7 +331,7 @@ struct NativePencilDrawingEditor: View {
                 toolStrip
                 Divider()
             }
-            canvas
+            canvasWithSettings
             if decodedLegacyImage != nil, !controller.legacyPreviewCleared {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
@@ -379,86 +389,131 @@ struct NativePencilDrawingEditor: View {
     }
 
     private var toolStrip: some View {
-        HStack(spacing: 8) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach([UIColor.black, .systemRed, .systemBlue, .systemGreen], id: \.description) { value in
-                        Button {
-                            controller.selectPen(color: value)
-                        } label: {
-                            Circle().fill(Color(uiColor: value)).frame(width: 23, height: 23)
-                                .overlay(
-                                    Circle()
-                                        .stroke(!controller.eraser && controller.color == value ? AppTheme.accent : .clear, lineWidth: 2.5)
-                                        .padding(-3)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    Picker("粗细", selection: penWidthBinding) {
-                        Text("细").tag(CGFloat(2))
-                        Text("中").tag(CGFloat(4))
-                        Text("粗").tag(CGFloat(8))
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 120)
-                    Picker("橡皮擦", selection: eraserWidthBinding) {
-                        Text("小").tag(CGFloat(14))
-                        Text("中").tag(CGFloat(28))
-                        Text("大").tag(CGFloat(44))
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 120)
+        NativePencilDrawingToolbar(controller: controller, onClose: onClose) {
+            EmptyView()
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+}
+
+struct NativePencilDrawingToolbar<ContextControls: View>: View {
+    @ObservedObject var controller: PencilDrawingController
+    let toolsEnabled: Bool
+    let isClosing: Bool
+    let closeIdentifier: String
+    let onClose: (() -> Void)?
+    let contextControls: ContextControls
+
+    @State private var showsCloseFeedback = false
+
+    init(
+        controller: PencilDrawingController,
+        toolsEnabled: Bool = true,
+        isClosing: Bool = false,
+        closeIdentifier: String = "drawing-close",
+        onClose: (() -> Void)?,
+        @ViewBuilder contextControls: () -> ContextControls
+    ) {
+        self.controller = controller
+        self.toolsEnabled = toolsEnabled
+        self.isClosing = isClosing
+        self.closeIdentifier = closeIdentifier
+        self.onClose = onClose
+        self.contextControls = contextControls()
+    }
+
+    var body: some View {
+        NativeDoodleToolbarCapsule {
+            if onClose != nil {
+                tool("xmark", label: "退出涂鸦", showsConfirmedPress: showsCloseFeedback) {
+                    guard !showsCloseFeedback, !isClosing else { return }
+                    showsCloseFeedback = true
+                }
+                .disabled(showsCloseFeedback || isClosing)
+                .accessibilityIdentifier(closeIdentifier)
+            }
+
+            ViewThatFits(in: .horizontal) {
+                drawingTools.fixedSize(horizontal: true, vertical: false)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    drawingTools
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
-            Spacer(minLength: 4)
-            if let onClose {
-                toolButton("xmark", active: false, accessibilityLabel: "退出涂鸦", action: onClose)
+            .disabled(!toolsEnabled || showsCloseFeedback || isClosing)
+        }
+        .task(id: showsCloseFeedback) {
+            guard showsCloseFeedback else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(80))
+            } catch {
+                return
             }
-            toolButton(controller.eraser ? "eraser.fill" : "eraser", active: controller.eraser, accessibilityLabel: "橡皮擦") {
-                controller.toggleEraser()
+            guard !Task.isCancelled, !isClosing else {
+                showsCloseFeedback = false
+                return
             }
-            .accessibilityHint("只擦除橡皮擦范围内的笔迹")
-            toolButton("arrow.uturn.backward", active: false, accessibilityLabel: "撤销") {
-                controller.undo()
+            onClose?()
+            showsCloseFeedback = false
+        }
+        .onDisappear { showsCloseFeedback = false }
+    }
+
+    private var drawingTools: some View {
+        HStack(spacing: 2) {
+            contextControls
+            tool(controller.eraser ? "pencil.tip.crop.circle" : "pencil.tip.crop.circle.fill",
+                 label: "画笔", active: !controller.eraser) {
+                controller.selectPenTool()
             }
-            toolButton("trash", active: false, accessibilityLabel: "清空涂鸦") {
-                controller.requestClear()
+            tool(controller.eraser ? "eraser.fill" : "eraser",
+                 label: "橡皮擦", active: controller.eraser, action: controller.selectEraserTool)
+                .accessibilityHint("只擦除橡皮擦范围内的笔迹")
+            tool("arrow.uturn.backward", label: "撤销", action: controller.undo)
+            tool("trash", label: "清空涂鸦", action: controller.requestClear)
+            tool("paintpalette", label: controller.showSettings ? "收起画笔调节" : "展开画笔调节",
+                 active: controller.showSettings) {
+                controller.showSettings.toggle()
+            }
+            tool("hand.draw", label: controller.fingerDrawingEnabled ? "关闭手指涂鸦" : "开启手指涂鸦",
+                 active: controller.fingerDrawingEnabled) {
+                controller.fingerDrawingEnabled.toggle()
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
-        .background(.ultraThinMaterial)
     }
 
-    private var penWidthBinding: Binding<CGFloat> {
-        Binding(get: { controller.width }, set: { value in
-            controller.selectWidth(value)
-        })
-    }
-
-    private var eraserWidthBinding: Binding<CGFloat> {
-        Binding(get: { controller.eraserWidth }, set: { value in
-            controller.selectEraserWidth(value)
-        })
-    }
-
-    private func toolButton(
-        _ image: String,
-        active: Bool,
-        accessibilityLabel: String,
+    private func tool(
+        _ symbol: String,
+        label: String,
+        active: Bool = false,
+        showsConfirmedPress: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            Image(systemName: image)
+        Button {
+            let tapStart = ProcessInfo.processInfo.systemUptime
+            action()
+            LibraryPerformanceLog.mark("doodle.tool.tap-feedback", since: tapStart)
+        } label: {
+            Image(systemName: symbol)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(active ? Color.white : Color.primary)
-                .frame(width: 36, height: 34)
-                .background(active ? AppTheme.accent : Color.primary.opacity(0.07), in: Circle())
+                .foregroundStyle(active ? AppTheme.accent : Color.primary)
+                .frame(width: 32, height: 44)
+                .background {
+                    if active {
+                        Circle()
+                            .fill(AppTheme.accent.opacity(0.12))
+                            .overlay {
+                                Circle().strokeBorder(AppTheme.accent.opacity(0.35), lineWidth: 0.8)
+                            }
+                            .frame(width: 28, height: 28)
+                    }
+                }
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel)
+        .buttonStyle(NativeToolbarPressStyle(highlightDiameter: 30, showsConfirmedPress: showsConfirmedPress))
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 }
 

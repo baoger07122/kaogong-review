@@ -928,7 +928,7 @@ struct LibraryRecordDetailView: View {
     private var doodleToolbarButton: some View {
         Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
             .foregroundStyle(AppTheme.accent)
-            .buttonStyle(LibraryToolbarPressStyle(highlightDiameter: 30))
+            .buttonStyle(NativeToolbarPressStyle(highlightDiameter: 30))
             .accessibilityLabel("涂鸦")
             .disabled(!canOpenDoodle)
     }

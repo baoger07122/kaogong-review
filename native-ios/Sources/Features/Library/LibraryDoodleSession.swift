@@ -67,7 +67,7 @@ final class LibraryDoodleSession: ObservableObject {
     @Published private(set) var hasPendingSplitDrawingChanges = false
     let canvas = LibraryDoodleCanvasState()
     private var saveHandler: ((String, Bool, Int, Int) async -> String?)?
-    private var isDismissing = false
+    @Published private(set) var isDismissing = false
     private var splitDrawingBaseline: [String: String] = [:]
     private var drawingLoadFailed = false
     private var drawingLoadDataReceived = false
@@ -719,9 +719,13 @@ struct LibraryDoodleOverlay: View {
     }
 
     private var toolbar: some View {
-        NativeDoodleToolbarCapsule {
-            toolbarButton("xmark", label: "退出涂鸦", action: { session.dismiss() })
-                .accessibilityIdentifier("library-doodle-close")
+        NativePencilDrawingToolbar(
+            controller: controller,
+            toolsEnabled: session.isCanvasActivationReady,
+            isClosing: session.isDismissing,
+            closeIdentifier: "library-doodle-close",
+            onClose: { session.dismiss() }
+        ) {
             if session.isSplitDrawingSession {
                 splitPaneButton(.material, title: "材料")
                 splitPaneButton(.question, title: "题目")
@@ -730,38 +734,6 @@ struct LibraryDoodleOverlay: View {
                     .frame(width: 1, height: 20)
                     .padding(.horizontal, 2)
                     .accessibilityHidden(true)
-            }
-            toolbarButton(
-                controller.eraser ? "pencil.tip.crop.circle" : "pencil.tip.crop.circle.fill",
-                label: "画笔",
-                active: !controller.eraser,
-                disabled: !session.isCanvasActivationReady,
-                action: { controller.selectPenTool() }
-            )
-            toolbarButton(
-                controller.eraser ? "eraser.fill" : "eraser",
-                label: "橡皮擦",
-                active: controller.eraser,
-                disabled: !session.isCanvasActivationReady,
-                action: controller.selectEraserTool
-            )
-            toolbarButton("arrow.uturn.backward", label: "撤销", disabled: !session.isCanvasActivationReady, action: controller.undo)
-            toolbarButton("trash", label: "清空涂鸦", disabled: !session.isCanvasActivationReady, action: controller.requestClear)
-            toolbarButton(
-                "paintpalette",
-                label: controller.showSettings ? "收起画笔调节" : "展开画笔调节",
-                active: controller.showSettings,
-                disabled: !session.isCanvasActivationReady
-            ) {
-                controller.showSettings.toggle()
-            }
-            toolbarButton(
-                "hand.draw",
-                label: controller.fingerDrawingEnabled ? "关闭手指涂鸦" : "开启手指涂鸦",
-                active: controller.fingerDrawingEnabled,
-                disabled: !session.isCanvasActivationReady
-            ) {
-                controller.fingerDrawingEnabled.toggle()
             }
         }
     }
@@ -779,42 +751,11 @@ struct LibraryDoodleOverlay: View {
                 .background(isSelected ? AppTheme.accent.opacity(0.12) : .clear, in: Capsule())
                 .contentShape(Capsule())
         }
-        .buttonStyle(LibraryDoodleToolbarButtonStyle())
+        .buttonStyle(NativeToolbarPressStyle(highlightDiameter: 30))
         .disabled(!session.isCanvasActivationReady)
         .accessibilityLabel("涂鸦目标：\(title)")
         .accessibilityValue(isSelected ? "当前目标" : "未选择")
         .accessibilityIdentifier("library-doodle-target-\(pane.rawValue)")
-    }
-
-    private func toolbarButton(
-        _ systemImage: String,
-        label: String,
-        active: Bool = false,
-        disabled: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button {
-            let tapStart = ProcessInfo.processInfo.systemUptime
-            action()
-            LibraryPerformanceLog.mark("doodle.tool.tap-feedback", since: tapStart)
-        } label: {
-            Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(active ? AppTheme.accent : Color.primary)
-                .frame(width: 32, height: 44)
-                .background(active ? AppTheme.accent.opacity(0.12) : .clear, in: Circle())
-                .overlay {
-                    if active {
-                        Circle()
-                            .stroke(AppTheme.accent.opacity(0.35), lineWidth: 0.8)
-                            .frame(width: 28, height: 28)
-                    }
-                }
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(LibraryDoodleToolbarButtonStyle())
-        .disabled(disabled)
-        .accessibilityLabel(label)
     }
 
     private func statusMessage(_ value: String) -> some View {
@@ -848,18 +789,6 @@ struct LibraryDoodleOverlay: View {
 
     private var interactionShieldLabel: String {
         controller.canvasLoadError ?? "涂鸦交互遮罩"
-    }
-}
-
-struct LibraryDoodleToolbarButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background {
-                Circle()
-                    .fill(AppTheme.accent.opacity(configuration.isPressed ? 0.13 : 0))
-                    .frame(width: 30, height: 30)
-                    .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
-            }
     }
 }
 

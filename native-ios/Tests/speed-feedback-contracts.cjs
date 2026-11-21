@@ -151,8 +151,8 @@ const tests = {
     assert.match(result, /correct \? "✓" : "✗"/);
     assert.match(result, /correct \? green : red/);
     assert.match(page, /NativePencilDrawingEditor/);
-    assert.match(page, /NativeDoodleToolbarCapsule/);
-    assert.match(page, /accessibilityIdentifier\("speed-doodle-close"\)/);
+    assert.match(page, /NativePencilDrawingToolbar/);
+    assert.match(page, /closeIdentifier: "speed-doodle-close"/);
     assert.match(page, /accessibilityIdentifier\("speed-doodle-open"\)/);
     assert.match(page, /Group \{[\s\S]*?switch screen[\s\S]*?allowsHitTesting\(!showDoodle\)/);
     assert.match(page, /误差 ±3%   合格:/);

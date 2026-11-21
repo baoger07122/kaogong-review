@@ -116,8 +116,8 @@ const tests = {
     const open = detail.split('private func openDoodle()')[1].split('private func saveDrawing')[0];
     assert.match(open, /doodleSession\.present/);
     assert.match(doodle, /transaction\.disablesAnimations = true/);
-    assert.match(doodle, /NativeDoodleToolbarCapsule/);
-    assert.match(doodle, /accessibilityIdentifier\("library-doodle-close"\)/);
+    assert.match(doodle, /NativePencilDrawingToolbar/);
+    assert.match(doodle, /closeIdentifier: "library-doodle-close"/);
     assert.match(read('DesignSystem/NativeDocumentStyle.swift'), /background\(\.regularMaterial, in: Capsule\(\)\)/);
   },
   'root uses TabView with a fixed custom tab bar and unchanged tab symbols': () => {
