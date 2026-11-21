@@ -83,10 +83,6 @@ private struct LibraryStandardErrorEditorForm: View {
     @Binding var showQuantityWeaknessTags: Bool
     @Binding var questionImageWidthPreview: [String: Double]
 
-    private var isGraphReasoning: Bool {
-        draft.subject == "判断推理" && draft.module == "图形推理"
-    }
-
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 10) {
             if recordID != nil {
@@ -117,7 +113,7 @@ private struct LibraryStandardErrorEditorForm: View {
                 activeRelation: $activeRelation,
                 expandedAnswerField: $expandedAnswerField
             )
-            if isGraphReasoning {
+            if draft.isGraphReasoning {
                 LibraryGraphRuleSection(draft: $draft)
             }
             if recordID == nil {

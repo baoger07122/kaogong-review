@@ -111,6 +111,10 @@ struct LibraryRecordDraft {
     var wordEntryKind = WordEntryKind.word.rawValue
     var wordCompareTerms: [WordComparisonTermDraft] = []
 
+    var isGraphReasoning: Bool {
+        subject == "判断推理" && module == "图形推理"
+    }
+
     init(
         kind: LibraryContentKind,
         scope: LibraryScope,

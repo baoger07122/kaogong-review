@@ -88,6 +88,8 @@ enum ErrorAnswerField: Hashable {
 }
 
 struct LibraryRecordEditorView: View {
+    private static let defaultGraphOptions = ["A", "B", "C", "D"]
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
@@ -108,6 +110,7 @@ struct LibraryRecordEditorView: View {
     let onMigrateLegacyWord: (() -> Void)?
     @State private var draft: LibraryRecordDraft
     @State private var editBaseline: LibraryRecordDraft
+    @State private var canPrefillGraphOptions: Bool
     @State private var showDelete = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var restoredDraft = false
@@ -172,6 +175,7 @@ struct LibraryRecordEditorView: View {
         } else if record == nil, !preferredType.isEmpty {
             initialDraft.type = preferredType
         }
+        var canPrefillGraphOptions = record == nil && kind == .errors
         if record == nil, kind == .words,
            let saved = LibraryDraftStore.load(kind: kind, scope: scope, category: initialDraft.type) {
             saved.applying(to: &initialDraft)
@@ -180,7 +184,13 @@ struct LibraryRecordEditorView: View {
                   let saved = LibraryDraftStore.load(kind: kind, scope: scope) {
             saved.applying(to: &initialDraft)
             _restoredDraft = State(initialValue: true)
+            canPrefillGraphOptions = false
         }
+        if canPrefillGraphOptions, initialDraft.isGraphReasoning {
+            initialDraft.options = Self.defaultGraphOptions
+            canPrefillGraphOptions = false
+        }
+        _canPrefillGraphOptions = State(initialValue: canPrefillGraphOptions)
         if record == nil, let preferredSourceExamID {
             initialDraft.sourceExamID = preferredSourceExamID
             initialDraft.reviewSource = .mock
@@ -803,6 +813,7 @@ struct LibraryRecordEditorView: View {
                     draft.module = subject.name == "数量关系"
                         ? ""
                         : (subject.modules.first ?? "")
+                    prefillGraphOptionsIfNeeded()
                 }
             }
         } label: {
@@ -827,12 +838,20 @@ struct LibraryRecordEditorView: View {
                             draft.errorTypeID = nil
                         }
                         draft.module = module
+                        prefillGraphOptionsIfNeeded()
                     }
                 }
             } label: {
                 compactProperty(title: "模块", value: draft.module, image: "square.stack.3d.up")
             }
         }
+    }
+
+    private func prefillGraphOptionsIfNeeded() {
+        guard canPrefillGraphOptions, draft.isGraphReasoning else { return }
+        canPrefillGraphOptions = false
+        guard draft.options.allSatisfy(\.isEmpty), draft.optionImages.allSatisfy(\.isEmpty) else { return }
+        draft.options = Self.defaultGraphOptions
     }
 
     private var availableErrorTypes: [LibraryErrorType] {
