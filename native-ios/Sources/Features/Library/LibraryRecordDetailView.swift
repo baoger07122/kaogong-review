@@ -981,10 +981,6 @@ struct LibraryRecordDetailView: View {
     }
 
     private var questionActionsMenu: some View {
-        legacyQuestionActionsMenu
-    }
-
-    private var legacyQuestionActionsMenu: some View {
         Menu {
             Button {
                 requestEdit()
@@ -992,13 +988,6 @@ struct LibraryRecordDetailView: View {
                 Label("编辑错题", systemImage: "pencil")
             }
             .disabled(pendingEditorRequestID != nil)
-            if supportsRedoMode {
-                Button {
-                    toggleRedoMode()
-                } label: {
-                    Label(redoModeActionTitle, systemImage: redoModeActionImage)
-                }
-            }
             Button(role: .destructive) {
                 noteSession.finish { saved in
                     if saved { showDelete = true }
@@ -2207,19 +2196,6 @@ struct LibraryRecordDetailView: View {
         case "不会做": AppTheme.danger
         default: AppTheme.accent
         }
-    }
-
-    private var redoModeActionTitle: String {
-        redoPracticeEnabled ? "错题模式" : "重做模式"
-    }
-
-    private var redoModeActionImage: String { redoPracticeEnabled ? "doc.text" : "arrow.counterclockwise" }
-
-    private func toggleRedoMode() {
-        if !redoPracticeEnabled {
-            updateRedoAttempt(activeRecordID) { $0 = LibraryRedoAttempt() }
-        }
-        redoPracticeEnabled.toggle()
     }
 
     private func existingAttributeKey(_ keys: [String], fallback: String) -> String {
