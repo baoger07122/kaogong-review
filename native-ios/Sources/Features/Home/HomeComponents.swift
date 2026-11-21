@@ -138,37 +138,13 @@ struct HomeDailyTodoRuleRow: View {
     var body: some View {
         HStack(spacing: 10) {
             if isReordering {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(rule.title)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.primary)
-                    Text(detailText)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 28, height: 36)
-                    .accessibilityHidden(true)
+                ruleLabel
             } else {
-                Button(action: onEdit) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(rule.title)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.primary)
-                        Text(detailText)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
+                Button(action: onEdit) { ruleLabel }
+                    .buttonStyle(.plain)
 
                 Button(rule.isPaused ? "恢复" : "暂停", action: onTogglePause)
+                    .buttonStyle(.plain)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(rule.isPaused ? AppTheme.accent : .secondary)
                     .accessibilityLabel(rule.isPaused ? "恢复每日待办" : "暂停每日待办")
@@ -180,10 +156,21 @@ struct HomeDailyTodoRuleRow: View {
                 .accessibilityLabel("删除每日待办 \(rule.title)")
             }
         }
-        .padding(12)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 13))
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: isReordering ? .combine : .contain)
-        .accessibilityHint(isReordering ? "长按并拖动调整每日待办顺序" : "")
+    }
+
+    private var ruleLabel: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(rule.title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.primary)
+            Text(detailText)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var detailText: String {

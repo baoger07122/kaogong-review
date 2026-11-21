@@ -73,7 +73,7 @@ struct HomeView: View {
     @State private var saveErrorMessage: String?
     @State private var dailyDeleteTarget: DailyDeleteTarget?
     @State private var dailyTodoNoteTarget: DailyTodoNoteTarget?
-    @State private var isReorderingDailyRules = false
+    @State private var dailyRuleSortMode: EditMode = .inactive
     @State private var showsCompletedTodos = false
     @State private var wordReviewDay = Calendar.current.startOfDay(for: .now)
     @State private var wordReviewRestoreGeneration = 0
@@ -533,13 +533,13 @@ struct HomeView: View {
                         }
                         .buttonStyle(.plain)
 
-                        Button(isReorderingDailyRules ? "完成排序" : "管理次序") {
-                            isReorderingDailyRules.toggle()
+                        Button(dailyRuleSortMode.isEditing ? "完成排序" : "管理次序") {
+                            dailyRuleSortMode = dailyRuleSortMode.isEditing ? .inactive : .active
                         }
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(AppTheme.accent)
                         .frame(minWidth: 44, minHeight: 44)
-                        .disabled(dailyRules.count < 2 && !isReorderingDailyRules)
+                        .disabled(dailyRules.count < 2 && !dailyRuleSortMode.isEditing)
                     }
 
                     if dailyRules.isEmpty {
@@ -550,23 +550,9 @@ struct HomeView: View {
                             color: AppTheme.accent,
                             minimumHeight: 150
                         )
-                    } else if isReorderingDailyRules {
-                        HomeDailyTodoRuleReorderList(items: dailyRules, onReorder: saveDailyRuleOrder)
-                            .frame(height: listHeight)
                     } else {
-                        ScrollView {
-                            VStack(spacing: 8) {
-                                ForEach(dailyRules) { rule in
-                                    HomeDailyTodoRuleRow(
-                                        rule: rule,
-                                        onEdit: { beginDailyRule(rule) },
-                                        onTogglePause: { setDailyRulePaused(rule, paused: !rule.isPaused) },
-                                        onDelete: { dailyDeleteTarget = .rule(rule) }
-                                    )
-                                }
-                            }
-                        }
-                        .frame(height: listHeight)
+                        dailyRuleList
+                            .frame(height: listHeight)
                     }
                 }
                 .padding(20)
@@ -576,6 +562,42 @@ struct HomeView: View {
             }
         }
         .transition(.opacity)
+    }
+
+    private var dailyRuleList: some View {
+        let rules = dailyRules
+        return List {
+            ForEach(rules) { rule in
+                HomeDailyTodoRuleRow(
+                    rule: rule,
+                    onEdit: { beginDailyRule(rule) },
+                    onTogglePause: { setDailyRulePaused(rule, paused: !rule.isPaused) },
+                    onDelete: { dailyDeleteTarget = .rule(rule) },
+                    isReordering: dailyRuleSortMode.isEditing
+                )
+                .listRowInsets(EdgeInsets(top: 16, leading: 12, bottom: 16, trailing: 12))
+                .listRowSeparator(.hidden)
+                .listRowBackground(
+                    RoundedRectangle(cornerRadius: 13)
+                        .fill(Color.primary.opacity(0.035))
+                        .padding(.vertical, 4)
+                )
+            }
+            .onMove(perform: dailyRuleSortMode.isEditing ? { source, destination in
+                let displayedIDs = rules.map(\.id)
+                guard displayedIDs == dailyRules.map(\.id) else {
+                    saveErrorMessage = "每日待办列表已更新，请重新拖动排序。"
+                    return
+                }
+                var reordered = displayedIDs
+                reordered.move(fromOffsets: source, toOffset: destination)
+                saveDailyRuleOrder(reordered)
+            } : nil)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .contentMargins(.horizontal, 0, for: .scrollContent)
+        .environment(\.editMode, $dailyRuleSortMode)
     }
 
     private func stickyEditor(id: String?) -> some View {
@@ -718,7 +740,7 @@ struct HomeView: View {
 
     private func closeEditor() {
         dailyTodoNoteTarget = nil
-        isReorderingDailyRules = false
+        dailyRuleSortMode = .inactive
         withAnimation(.easeOut(duration: 0.16)) { editor = nil }
     }
 
@@ -963,13 +985,11 @@ struct HomeView: View {
         catch { saveErrorMessage = error.localizedDescription }
     }
 
-    private func saveDailyRuleOrder(_ ids: [String]) -> Bool {
+    private func saveDailyRuleOrder(_ ids: [String]) {
         do {
             try HomeRecordRepository.reorderDailyRules(ids, context: modelContext)
-            return true
         } catch {
             saveErrorMessage = error.localizedDescription
-            return false
         }
     }
 

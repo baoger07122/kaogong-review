@@ -68,6 +68,7 @@ struct LibraryErrorTypeManagerView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(filter: #Predicate<StoredRecord> { $0.collection == "keyvalue" }) private var records: [StoredRecord]
     @State private var isEditing = false
+    @State private var sortMode: EditMode = .inactive
     @State private var editingID: String?
     @State private var draftName = ""
     @FocusState private var isNameFocused: Bool
@@ -85,27 +86,35 @@ struct LibraryErrorTypeManagerView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Text(typeLabel).font(AppTheme.sectionTitleFont)
-                    Spacer()
-                    if canAddType {
-                        Button { beginEdit(nil) } label: { Label("新增\(typeLabel)", systemImage: "plus") }
-                            .font(AppTheme.inputFont.weight(.semibold))
-                    }
+        let entries = types
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Text(typeLabel).font(AppTheme.sectionTitleFont)
+                Spacer(minLength: 0)
+                Button(sortMode.isEditing ? "完成排序" : "调整顺序") {
+                    sortMode = sortMode.isEditing ? .inactive : .active
                 }
-                if types.isEmpty {
-                    NativeStatusCard(
-                        title: "暂无\(typeLabel)", detail: canAddType ? "点击新增建立第一项" : "",
-                        systemImage: "tag", color: AppTheme.accent
-                    )
-                } else {
-                    typeRows
+                .font(AppTheme.inputFont.weight(.semibold))
+                .lineLimit(1)
+                .disabled(entries.count < 2 && !sortMode.isEditing)
+                if canAddType {
+                    Button { beginEdit(nil) } label: { Label("新增\(typeLabel)", systemImage: "plus") }
+                        .font(AppTheme.inputFont.weight(.semibold))
+                        .lineLimit(1)
+                        .disabled(sortMode.isEditing)
                 }
             }
-            .padding(20)
+            if entries.isEmpty {
+                NativeStatusCard(
+                    title: "暂无\(typeLabel)", detail: canAddType ? "点击新增建立第一项" : "",
+                    systemImage: "tag", color: AppTheme.accent
+                )
+            } else {
+                typeRows(entries)
+            }
         }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.white)
         .navigationTitle(module ?? "原有通用类型")
         .navigationBarTitleDisplayMode(.inline)
@@ -145,6 +154,7 @@ struct LibraryErrorTypeManagerView: View {
         .onDisappear {
             isNameFocused = false
             isEditing = false
+            sortMode = .inactive
             editingID = nil
             draftName = ""
             deletingType = nil
@@ -152,33 +162,39 @@ struct LibraryErrorTypeManagerView: View {
         }
     }
 
-    private var typeRows: some View {
-        let entries = types
-        return VStack(spacing: 0) {
-            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+    private func typeRows(_ entries: [LibraryErrorType]) -> some View {
+        List {
+            ForEach(entries) { entry in
                 HStack(spacing: 10) {
                     Text(entry.name).font(AppTheme.bodyFont)
-                    Spacer()
-                    Button { move(from: index, to: index - 1) } label: { Image(systemName: "chevron.up") }
-                        .disabled(index == 0)
-                        .accessibilityLabel("上移\(entry.name)")
-                    Button { move(from: index, to: index + 1) } label: { Image(systemName: "chevron.down") }
-                        .disabled(index == entries.count - 1)
-                        .accessibilityLabel("下移\(entry.name)")
-                    Button { beginEdit(entry) } label: { Image(systemName: "pencil") }
+                    Spacer(minLength: 0)
+                    if !sortMode.isEditing {
+                        Button { beginEdit(entry) } label: {
+                            Image(systemName: "pencil").foregroundStyle(AppTheme.accent)
+                        }
                         .accessibilityLabel("编辑\(entry.name)")
-                    Button { deletingType = entry } label: {
-                        Image(systemName: "trash").foregroundStyle(AppTheme.danger)
+                        Button { deletingType = entry } label: {
+                            Image(systemName: "trash").foregroundStyle(AppTheme.danger)
+                        }
+                        .accessibilityLabel("删除\(entry.name)")
                     }
-                    .accessibilityLabel("删除\(entry.name)")
                 }
+                .buttonStyle(.borderless)
                 .font(.system(size: 12, weight: .medium))
                 .frame(minHeight: 44)
-                if index < entries.count - 1 { Divider() }
+                .listRowInsets(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14))
+                .listRowSeparator(entry.id == entries.last?.id ? .hidden : .visible, edges: .bottom)
+                .listRowBackground(AppTheme.secondaryBackground)
             }
+            .onMove(perform: sortMode.isEditing ? { source, destination in
+                move(source, to: destination, displayed: entries)
+            } : nil)
         }
-        .padding(.horizontal, 14)
-        .background(AppTheme.secondaryBackground, in: RoundedRectangle(cornerRadius: AppTheme.cardRadius))
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .contentMargins(.horizontal, 0, for: .scrollContent)
+        .environment(\.editMode, $sortMode)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardRadius))
     }
 
     private func beginEdit(_ type: LibraryErrorType?) {
@@ -217,11 +233,15 @@ struct LibraryErrorTypeManagerView: View {
         if save(entries) { finishEditing() }
     }
 
-    private func move(from source: Int, to destination: Int) {
-        var entries = types
-        guard entries.indices.contains(source), entries.indices.contains(destination) else { return }
-        entries.swapAt(source, destination)
-        _ = save(entries)
+    private func move(_ source: IndexSet, to destination: Int, displayed: [LibraryErrorType]) {
+        let current = types
+        guard displayed.map(\.id) == current.map(\.id) else {
+            errorMessage = "题型列表已更新，请重新拖动排序。"
+            return
+        }
+        var reordered = current
+        reordered.move(fromOffsets: source, toOffset: destination)
+        if reordered != current { _ = save(reordered) }
     }
 
     private func save(_ entries: [LibraryErrorType]) -> Bool {
