@@ -37,7 +37,7 @@ struct WordLibraryRecordDetailView: View {
                     NativeRichTextDisplay(
                         html: LibraryWordMigrationPolicy.originalPreview(in: object, sourceCategory: category),
                         minHeight: 34,
-                        tableAppearance: .libraryContent
+                        tableAppearance: .wordDetail
                     )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 8)

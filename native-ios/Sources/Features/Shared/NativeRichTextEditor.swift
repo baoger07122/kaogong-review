@@ -74,6 +74,10 @@ private struct InternalLinkPickerRequest: Identifiable { let id = UUID() }
 enum NativeRichTextTableAppearance: String, Equatable {
     case system
     case libraryContent
+    case wordDetail
+
+    fileprivate var usesHorizontalTableRules: Bool { self != .system }
+    fileprivate var tableCellVerticalInset: CGFloat { self == .wordDetail ? 8 : 7 }
 }
 
 private struct PendingRichTextTableMarker {
@@ -1077,6 +1081,10 @@ struct NativeRichTextDisplay: UIViewRepresentable {
     private var preparedSnapshot: NativeRichTextDisplayRenderResult?
     private var renderVersion: String?
 
+    private var sizesTablesToAvailableWidth: Bool {
+        tableAppearance == .wordDetail || (noteFormatting && tableAppearance == .libraryContent)
+    }
+
     init(
         html: String,
         minHeight: CGFloat = 0,
@@ -1217,8 +1225,11 @@ struct NativeRichTextDisplay: UIViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
         guard let width = proposal.width, width.isFinite, width > 0 else { return nil }
-        let tableWidth = max(80, floor(width))
-        if noteFormatting, tableAppearance == .libraryContent,
+        var tableWidth = max(80, floor(width))
+        if tableAppearance == .wordDetail {
+            tableWidth = min(tableWidth, NativeTableAttachment.defaultDisplayWidth)
+        }
+        if sizesTablesToAvailableWidth,
            context.coordinator.lastTableDisplayWidth != tableWidth, let content = uiView.attributedText {
             context.coordinator.lastTableDisplayWidth = tableWidth
             uiView.attributedText = NativeRichTextDisplayRenderer.applyingTableAppearance(
@@ -1247,13 +1258,16 @@ struct NativeRichTextDisplay: UIViewRepresentable {
                 cleanLegacyInjectedSpacing: noteFormatting
             )
         }
-        let styled = NativeRichTextDisplayRenderer.applyingTableAppearance(
+        let withTables = NativeRichTextDisplayRenderer.applyingTableAppearance(
             to: rendered.attributedText,
             appearance: tableAppearance,
-            displayWidth: noteFormatting && tableAppearance == .libraryContent ? coordinator.lastTableDisplayWidth : nil
+            displayWidth: sizesTablesToAvailableWidth ? coordinator.lastTableDisplayWidth : nil
         )
-        view.attributedText = styled
-        view.accessibilityLabel = styled.string
+        let displayed = tableAppearance == .wordDetail
+            ? NativeRichTextDisplayRenderer.applyingWordDetailSpacing(to: withTables, usedSafeFallback: rendered.usedSafeFallback)
+            : withTables
+        view.attributedText = displayed
+        view.accessibilityLabel = displayed.string
         guard rendered.usedSafeFallback, coordinator.fallbackReportedHTML != html else { return }
         coordinator.fallbackReportedHTML = html
         DispatchQueue.main.async { onFallback?() }
@@ -1282,21 +1296,66 @@ enum NativeRichTextDisplayRenderer {
                 ? applyingNoteFormatting(to: result, sourceHTML: html, cleanLegacyInjectedSpacing: cleanLegacyInjectedSpacing)
                 : result
         }
+        let source = tableAppearance == .wordDetail ? convertingSimpleWordTables(in: html) : html
         let attributed = applyingTableAppearance(
             to: RichTextTextView.attributed(
-                from: html,
+                from: source,
                 noteFormatting: noteFormatting,
                 cleanLegacyInjectedSpacing: cleanLegacyInjectedSpacing
             ),
             appearance: tableAppearance
         )
-        guard html.contains("<"), attributed.string == html else {
+        guard source.contains("<"), attributed.string == source else {
             return NativeRichTextDisplayRenderResult(attributedText: attributed, usedSafeFallback: false)
         }
-        let result = fallback(html, tableAppearance: tableAppearance)
+        let result = fallback(source, tableAppearance: tableAppearance)
         return noteFormatting
             ? applyingNoteFormatting(to: result, sourceHTML: html, cleanLegacyInjectedSpacing: cleanLegacyInjectedSpacing)
             : result
+    }
+
+    private static func convertingSimpleWordTables(in html: String) -> String {
+        guard let tables = NativeRichTextTablePasteParser.htmlTables(in: html), !tables.isEmpty else { return html }
+        let source = NSMutableString(string: html)
+        for parsed in tables.reversed() {
+            let tableHTML = source.substring(with: parsed.range)
+            // Keep cells with links, custom styles or other rich content in their original HTML.
+            let complexTag = #"<(?!/?(?:table|thead|tbody|tfoot|tr|td|th|p|div|b|strong|br)\s*/?>)"#
+            guard tableHTML.range(of: complexTag, options: [.regularExpression, .caseInsensitive]) == nil,
+                  !tableHTML.contains("[[NATIVE_") else { continue }
+            let table = RichTextTable(cells: parsed.cells, cellBoldRanges: parsed.boldRanges)
+            guard let data = try? JSONEncoder().encode(table) else { continue }
+            source.replaceCharacters(in: parsed.range, with: "<p>[[NATIVE_TABLE:\(data.base64EncodedString())]]</p>")
+        }
+        return source as String
+    }
+
+    static func applyingWordDetailSpacing(
+        to source: NSAttributedString,
+        usedSafeFallback: Bool
+    ) -> NSAttributedString {
+        let result = NSMutableAttributedString(attributedString: source)
+        let text = source.string as NSString
+        RichTextTextView.enumerateParagraphRanges(in: source.string) { paragraph, contents in
+            let content = text.substring(with: contents).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !content.isEmpty, content != "\u{FFFC}" else { return }
+
+            let attributes = source.attributes(at: paragraph.location, effectiveRange: nil)
+            let original = (attributes[.paragraphStyle] as? NSParagraphStyle) ?? NSParagraphStyle.default
+            guard let style = original.mutableCopy() as? NSMutableParagraphStyle else { return }
+            let font = attributes[.font] as? UIFont
+            let fallbackHeading = usedSafeFallback && (font?.pointSize ?? 0) >= RichTextMetrics.heading2Size
+                && font?.fontDescriptor.symbolicTraits.contains(.traitBold) == true
+            let isHeading = attributes[NativeRichTextPastePolicy.semanticHeadingParagraph] != nil || fallbackHeading
+
+            style.lineSpacing = max(style.lineSpacing, 3)
+            style.paragraphSpacing = max(style.paragraphSpacing, isHeading ? 5 : 4)
+            if isHeading {
+                style.paragraphSpacingBefore = max(style.paragraphSpacingBefore, 8)
+            }
+            result.addAttribute(.paragraphStyle, value: style, range: paragraph)
+        }
+        return result
     }
 
     static func applyingNoteFormatting(
@@ -1334,7 +1393,11 @@ enum NativeRichTextDisplayRenderer {
         guard !replacements.isEmpty else { return source }
         let result = NSMutableAttributedString(attributedString: source)
         for (range, table) in replacements.reversed() {
-            result.replaceCharacters(in: range, with: NSAttributedString(attachment: table))
+            if appearance == .wordDetail {
+                result.addAttribute(.attachment, value: table, range: range)
+            } else {
+                result.replaceCharacters(in: range, with: NSAttributedString(attachment: table))
+            }
         }
         return result.copy() as? NSAttributedString ?? result
     }
@@ -4253,7 +4316,7 @@ private struct RichTextTextView: UIViewRepresentable {
         }
     }
 
-    private static func enumerateParagraphRanges(
+    fileprivate static func enumerateParagraphRanges(
         in value: String,
         _ body: (NSRange, NSRange) -> Void
     ) {
@@ -4799,6 +4862,8 @@ private struct RichTextTextView: UIViewRepresentable {
 }
 
 private final class NativeTableAttachment: NSTextAttachment, NSCopying {
+    static let defaultDisplayWidth: CGFloat = 440
+
     let table: RichTextTable
     let instanceID: UUID
     let appearance: NativeRichTextTableAppearance
@@ -4809,7 +4874,7 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
         table: RichTextTable,
         marker: String? = nil,
         instanceID: UUID = UUID(),
-        displayWidth: CGFloat = 440,
+        displayWidth: CGFloat = defaultDisplayWidth,
         appearance: NativeRichTextTableAppearance = .system
     ) {
         var normalizedTable = table
@@ -4872,7 +4937,7 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
             let natural = table.cells.indices.compactMap { rowIndex -> CGFloat? in
                 guard table.cells[rowIndex].indices.contains(column) else { return nil }
                 let measured = cellAttributedString(table, row: rowIndex, column: column, appearance: appearance).size().width
-                    + (appearance == .libraryContent ? 14 : 18)
+                    + (appearance.usesHorizontalTableRules ? 14 : 18)
                 return min(220, max(72, measured))
             }.max() ?? 96
             return natural
@@ -4904,9 +4969,11 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
                     context: nil
                 )
                 let contentHeight = CGFloat(ceil(rect.height))
-                return appearance == .libraryContent
-                    ? max(CGFloat(34), contentHeight + 14)
-                    : max(CGFloat(20), contentHeight)
+                if appearance.usesHorizontalTableRules {
+                    let minimumRowHeight: CGFloat = appearance == .wordDetail ? 36 : 34
+                    return max(minimumRowHeight, contentHeight + 2 * appearance.tableCellVerticalInset)
+                }
+                return max(20, contentHeight)
             }.max() ?? CGFloat(20)
         }
         return TableLayout(columnWidths: columnWidths, rowHeights: rowHeights)
@@ -4920,7 +4987,7 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
     ) -> UIImage {
         let height = layout.rowHeights.reduce(0, +)
         return UIGraphicsImageRenderer(size: CGSize(width: width, height: height)).image { context in
-            let libraryStyle = appearance == .libraryContent
+            let libraryStyle = appearance.usesHorizontalTableRules
             let ink = libraryStyle
                 ? UIColor(red: 28.0 / 255.0, green: 28.0 / 255.0, blue: 30.0 / 255.0, alpha: 1)
                 : UIColor.label
@@ -4956,12 +5023,13 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
             for (rowIndex, row) in table.cells.enumerated() {
                 for (columnIndex, _) in row.enumerated() {
                     guard columnIndex < layout.columnWidths.count, rowIndex < layout.rowHeights.count else { continue }
-                    let bottomInset: CGFloat = appearance == .libraryContent ? 7 : 3
+                    let topInset = appearance.tableCellVerticalInset
+                    let bottomInset = libraryStyle ? topInset : 3
                     let rect = CGRect(
                         x: columnOrigins[columnIndex] + 7,
-                        y: rowOrigins[rowIndex] + 7,
+                        y: rowOrigins[rowIndex] + topInset,
                         width: max(1, layout.columnWidths[columnIndex] - 14),
-                        height: max(20, layout.rowHeights[rowIndex] - 7 - bottomInset)
+                        height: max(20, layout.rowHeights[rowIndex] - topInset - bottomInset)
                     )
                     cellAttributedString(table, row: rowIndex, column: columnIndex, appearance: appearance, foreground: ink).draw(
                         with: rect,
@@ -4984,10 +5052,12 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
             return NSAttributedString(string: "")
         }
         let isHeader = row == 0
-        let font = UIFont.systemFont(ofSize: 12, weight: isHeader ? .semibold : .regular)
+        let fontSize: CGFloat = appearance == .wordDetail ? 13 : 12
+        let font = UIFont.systemFont(ofSize: fontSize, weight: isHeader ? .semibold : .regular)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping
-        let ink = foreground ?? (appearance == .libraryContent
+        if appearance == .wordDetail { paragraph.lineSpacing = 2 }
+        let ink = foreground ?? (appearance.usesHorizontalTableRules
             ? UIColor(red: 28.0 / 255.0, green: 28.0 / 255.0, blue: 30.0 / 255.0, alpha: 1)
             : UIColor.label)
         let value = NSMutableAttributedString(
@@ -4999,7 +5069,7 @@ private final class NativeTableAttachment: NSTextAttachment, NSCopying {
                   range.location >= 0,
                   range.location <= value.length,
                   range.length <= value.length - range.location else { continue }
-            value.addAttribute(.font, value: UIFont.systemFont(ofSize: 12, weight: .bold), range: NSRange(location: range.location, length: range.length))
+            value.addAttribute(.font, value: UIFont.systemFont(ofSize: fontSize, weight: .bold), range: NSRange(location: range.location, length: range.length))
         }
         return value
     }

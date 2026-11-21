@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import XCTest
 @testable import KaogongReviewNative
 
@@ -103,5 +104,53 @@ final class LibraryDraftStoreTests: XCTestCase {
             LibraryWordCardPreviewText.cardSummary(table, title: "按部就班／循序渐进", isComparison: true),
             "按部就班 · 依照步骤进行 · 讲顺序"
         )
+    }
+
+    func testWordDetailSpacingPreservesFontsAndExistingLargerSpacing() throws {
+        let body = "正文第一段\n"
+        let heading = "二、具体情境"
+        let bodyFont = UIFont.systemFont(ofSize: 16)
+        let headingFont = UIFont.systemFont(ofSize: 18, weight: .semibold)
+        let source = NSMutableAttributedString(string: body, attributes: [.font: bodyFont])
+        let headingStyle = NSMutableParagraphStyle()
+        headingStyle.paragraphSpacingBefore = 11
+        source.append(NSAttributedString(string: heading, attributes: [
+            .font: headingFont,
+            .paragraphStyle: headingStyle,
+            NativeRichTextPastePolicy.semanticHeadingParagraph: 2
+        ]))
+
+        let displayed = NativeRichTextDisplayRenderer.applyingWordDetailSpacing(to: source, usedSafeFallback: false)
+        let headingOffset = body.utf16.count
+        let displayedBodyStyle = try XCTUnwrap(displayed.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
+        let displayedHeadingStyle = try XCTUnwrap(displayed.attribute(.paragraphStyle, at: headingOffset, effectiveRange: nil) as? NSParagraphStyle)
+
+        XCTAssertEqual(displayed.string, body + heading)
+        XCTAssertEqual(displayed.attribute(.font, at: 0, effectiveRange: nil) as? UIFont, bodyFont)
+        XCTAssertEqual(displayed.attribute(.font, at: headingOffset, effectiveRange: nil) as? UIFont, headingFont)
+        XCTAssertEqual(displayedBodyStyle.lineSpacing, 3)
+        XCTAssertEqual(displayedBodyStyle.paragraphSpacing, 4)
+        XCTAssertEqual(displayedHeadingStyle.paragraphSpacing, 5)
+        XCTAssertEqual(displayedHeadingStyle.paragraphSpacingBefore, 11)
+        XCTAssertNil(source.attribute(.paragraphStyle, at: 0, effectiveRange: nil))
+    }
+
+    func testWordDetailTableWrapsAtNarrowerDisplayWidth() throws {
+        let longMeaning = String(repeating: "形容人或事物纷纷到来。", count: 10)
+        let html = "<table><tr><th>成语</th><th>词义</th></tr>"
+            + "<tr><td>纷至沓来</td><td><strong>\(longMeaning)</strong></td></tr></table><p>后续说明</p>"
+        let original = NativeRichTextDisplayRenderer.render(html, tableAppearance: .wordDetail).attributedText
+        let tableOffset = (original.string as NSString).range(of: "\u{FFFC}").location
+        XCTAssertNotEqual(tableOffset, NSNotFound)
+        guard tableOffset != NSNotFound else { return }
+        let originalTable = try XCTUnwrap(original.attribute(.attachment, at: tableOffset, effectiveRange: nil) as? NSTextAttachment)
+
+        let narrowed = NativeRichTextDisplayRenderer.applyingTableAppearance(to: original, appearance: .wordDetail, displayWidth: 210)
+        let narrowTable = try XCTUnwrap(narrowed.attribute(.attachment, at: tableOffset, effectiveRange: nil) as? NSTextAttachment)
+
+        XCTAssertEqual(narrowed.string, original.string)
+        XCTAssertTrue(narrowed.string.contains("后续说明"))
+        XCTAssertEqual(narrowTable.bounds.width, 210)
+        XCTAssertGreaterThan(narrowTable.bounds.height, originalTable.bounds.height)
     }
 }
