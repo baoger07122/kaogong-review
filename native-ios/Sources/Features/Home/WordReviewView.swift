@@ -660,6 +660,7 @@ struct WordReviewWordDetailDestination: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var words: [StoredRecord]
     @State private var action: WordAction?
+    @State private var pendingMenuAction: Task<Void, Never>?
     @State private var deletionError: String?
 
     init(recordID: String, onDeleted: (() -> Void)? = nil) {
@@ -675,13 +676,13 @@ struct WordReviewWordDetailDestination: View {
             if let record = words.first {
                 WordLibraryRecordDetailView(
                     record: record,
-                    onEdit: { action = .edit },
+                    onEdit: { openAfterMenuDismissal(.edit) },
                     onDelete: { deleteWord() },
-                    onMigrateLegacyWord: { action = .migrate }
+                    onMigrateLegacyWord: { openAfterMenuDismissal(.migrate) }
                 )
                 .id(record.recordID)
             } else {
-                ContentUnavailableView("词条已删除", systemImage: "text.book.closed", description: Text("该词语组已从词语库移除。"))
+                unavailableWord
             }
         }
         .navigationDestination(item: $action) { action in
@@ -697,7 +698,13 @@ struct WordReviewWordDetailDestination: View {
                 case .migrate:
                     LibraryWordMigrationDetailView(record: record)
                 }
+            } else {
+                unavailableWord
             }
+        }
+        .onDisappear {
+            pendingMenuAction?.cancel()
+            pendingMenuAction = nil
         }
         .alert("删除词语失败", isPresented: Binding(
             get: { deletionError != nil },
@@ -706,6 +713,26 @@ struct WordReviewWordDetailDestination: View {
             Button("好", role: .cancel) { deletionError = nil }
         } message: {
             Text(deletionError ?? "")
+        }
+    }
+
+    private var unavailableWord: some View {
+        ContentUnavailableView(
+            "词条已删除",
+            systemImage: "text.book.closed",
+            description: Text("该词语组已从词语库移除。")
+        )
+    }
+
+    private func openAfterMenuDismissal(_ requestedAction: WordAction) {
+        guard action == nil, pendingMenuAction == nil else { return }
+        pendingMenuAction = Task { @MainActor in
+            // Match the library entry point's deferral of pushes initiated by a native Menu.
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            pendingMenuAction = nil
+            guard action == nil, words.first != nil else { return }
+            action = requestedAction
         }
     }
 
