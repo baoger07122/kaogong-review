@@ -46,8 +46,8 @@ struct LibraryView: View {
     @State private var sourceAssignmentError: String?
     @State private var pendingEditorRouteKey: String?
     @State private var preparedEditDrafts: [String: LibraryRecordDraft] = [:]
-    @State private var pendingErrorDetailID: String?
-    @State private var preparedErrorDetail: LibraryPreparedErrorDetail?
+    @State private var errorDetailWarmCache = LibraryErrorDetailWarmCache()
+    @State private var errorEntryPreview: LibraryErrorEntryPreview?
     @AppStorage("native.library.graphDisplayMode") private var graphDisplayMode = "cards"
     @AppStorage("native.library.legacyIndexMigrationVersion") private var legacyIndexMigrationVersion = 0
 
@@ -68,19 +68,14 @@ struct LibraryView: View {
         .background(AppTheme.groupedBackground)
         .stableRootNavigationBar()
         .onAppear { NativePerformanceLog.event("library onAppear") }
-        .onDisappear { pendingErrorDetailID = nil }
         .onReceive(NotificationCenter.default.publisher(for: .legacyBackupRestoreDidComplete)) { _ in
-            pendingErrorDetailID = nil
-            preparedErrorDetail = nil
+            errorDetailWarmCache.reset()
+            errorEntryPreview = nil
             snapshotCache.invalidate()
             recordListCache.invalidate()
             ReviewSourceMetadataCache.shared.removeAll()
         }
         .task { await runLegacyIndexMigrationIfNeeded() }
-        .task(id: pendingErrorDetailID) {
-            guard let recordID = pendingErrorDetailID else { return }
-            await prepareAndOpenErrorDetail(recordID: recordID)
-        }
         .onChange(of: quantityQuestionTypes) { _, values in
             if !selectedQuantityType.isEmpty,
                selectedQuantityType != "未分类",
@@ -94,11 +89,9 @@ struct LibraryView: View {
             }
         }
         .onChange(of: scope) { oldScope, newScope in
-            pendingErrorDetailID = nil
             guard oldScope.subject != newScope.subject || oldScope.module != newScope.module else { return }
             pruneKnowledgePointFiltersForCurrentScope()
         }
-        .onChange(of: kind) { _, _ in pendingErrorDetailID = nil }
         .onChange(of: selectedErrorType) { _, _ in pruneKnowledgePointFiltersForCurrentScope() }
         .onChange(of: selectedQuantityType) { _, _ in pruneKnowledgePointFiltersForCurrentScope() }
         .onChange(of: showsCategoryControl) { oldValue, newValue in
@@ -119,11 +112,10 @@ struct LibraryView: View {
             }
         }
         .onChange(of: navigationPath) { _, path in
-            if let preparedErrorDetail,
-               !path.contains(.detail(kind: .errors, recordID: preparedErrorDetail.recordID)) {
-                self.preparedErrorDetail = nil
+            if let errorEntryPreview,
+               !path.contains(.detail(kind: .errors, recordID: errorEntryPreview.recordID)) {
+                self.errorEntryPreview = nil
             }
-            if !path.isEmpty { pendingErrorDetailID = nil }
             let activeEditorKey: String? = path.last.flatMap { route in
                 guard case let .editor(kind, recordID) = route, let recordID else { return nil }
                 return "\(kind.collection)|\(recordID)"
@@ -305,7 +297,8 @@ struct LibraryView: View {
                         kind: kind,
                         scope: scope,
                         record: record,
-                        preparedErrorDetail: preparedErrorDetail,
+                        preparedErrorDetail: kind == .errors ? errorDetailWarmCache.prepared(for: record) : nil,
+                        errorEntryPreview: kind == .errors ? errorEntryPreview : nil,
                         onEdit: { activeRecordID in openEditorAfterMenuDismisses(kind: kind, recordID: activeRecordID) },
                         onEditPrepared: { activeRecordID, draft in
                             openEditorAfterMenuDismisses(kind: kind, recordID: activeRecordID, preparedDraft: draft)
@@ -537,6 +530,7 @@ struct LibraryView: View {
                             partitionKey: "\(kind.collection)|\(scope.subject ?? "")|\(scope.module ?? "")|\(scope.reviewSource.rawValue)|\(includesMasteredErrors)|\(selectedTag)|\(knowledgePointFilterCacheKey)|\(mistakeTagFilterCacheKey)|\(selectedQuantityType)|\(selectedErrorType)|\(searchText)|tag-display-\(tagDisplayPreferences.revision)|graph-mode-\(isGraphReasoningContext ? selectedGraphDisplayMode : "none")",
                             onOpen: { open($0) },
                             onDelete: { deleteTarget = LibraryDeleteTarget(kind: kind, recordID: $0.record.recordID) },
+                            onWarmDetail: warmErrorDetail,
                             hiddenTags: kind == .notes && !selectedTag.isEmpty ? [selectedTag] : [],
                             hidesQuantityTypeLabel: isQuantityContext
                                 && LibraryQuantityTypeSelectionPolicy.concreteType(
@@ -1887,10 +1881,7 @@ struct LibraryView: View {
     }
 
     private func open(_ snapshot: LibraryRecordSnapshot) {
-        if kind == .errors, !snapshot.record.isShenlunRecord, navigationPath.isEmpty {
-            pendingErrorDetailID = snapshot.record.recordID
-            return
-        }
+        errorEntryPreview = kind == .errors ? snapshot.errorEntryPreview : nil
         if kind == .errors || kind == .words || kind == .notes {
             navigationPath.append(.detail(kind: kind, recordID: snapshot.record.recordID))
         } else {
@@ -1898,37 +1889,11 @@ struct LibraryView: View {
         }
     }
 
-    private func prepareAndOpenErrorDetail(recordID: String) async {
-        guard navigationPath.isEmpty,
-              let record = records.first(where: { $0.collection == "errors" && $0.recordID == recordID }) else {
-            if pendingErrorDetailID == recordID { pendingErrorDetailID = nil }
-            return
-        }
-        let key = LibraryDetailPayloadKey(record: record)
-        let decodeKey = key.decodeKey
-        let payload = record.payload
-        let scopeAtTap = scope
-        await withTaskGroup(of: LibraryDecodedJSONPayload?.self) { group in
-            group.addTask {
-                await LibraryPayloadDecodeCoordinator.shared.decode(key: decodeKey, payload: payload, priority: .userInitiated)
-            }
-            group.addTask {
-                try? await Task.sleep(for: .milliseconds(180))
-                return nil
-            }
-            let decoded = await group.next() ?? nil
-            group.cancelAll()
-            guard !Task.isCancelled, pendingErrorDetailID == recordID,
-                  kind == .errors, scope == scopeAtTap, navigationPath.isEmpty else { return }
-            pendingErrorDetailID = nil
-            guard let currentRecord = records.first(where: { $0.collection == "errors" && $0.recordID == recordID }) else { return }
-            if let decoded,
-               LibraryDetailPayloadKey(record: currentRecord) == key,
-               currentRecord.payload == payload {
-                preparedErrorDetail = LibraryPreparedErrorDetail(recordID: recordID, key: key, object: decoded.object)
-            }
-            navigationPath.append(.detail(kind: .errors, recordID: recordID))
-        }
+    private func warmErrorDetail(_ snapshot: LibraryRecordSnapshot) async {
+        guard snapshot.subject != "申论", snapshot.imageValues.isEmpty else { return }
+        do { try await Task.sleep(for: .milliseconds(120)) } catch { return }
+        guard !Task.isCancelled, navigationPath.isEmpty, kind == .errors else { return }
+        await errorDetailWarmCache.warm(snapshot.record)
     }
 
     private func importWordSamples() {

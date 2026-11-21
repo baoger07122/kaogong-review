@@ -35,17 +35,59 @@ struct LibraryDetailPayloadKey: Equatable {
 }
 
 struct LibraryPreparedErrorDetail {
-    let recordID: String
     let key: LibraryDetailPayloadKey
     let object: [String: Any]
     fileprivate let imageSourceIdentities: [String: LibraryDetailImageSourceIdentity]
 
     @MainActor
-    init(recordID: String, key: LibraryDetailPayloadKey, object: [String: Any]) {
-        self.recordID = recordID
+    init(key: LibraryDetailPayloadKey, object: [String: Any]) {
         self.key = key
         self.object = object
         imageSourceIdentities = LibraryRecordDetailView.makeImageSourceIdentities(for: object)
+    }
+}
+
+final class LibraryErrorDetailWarmCache {
+    private struct Entry {
+        let payload: Data
+        let detail: LibraryPreparedErrorDetail
+    }
+
+    private var entries: [Entry] = []
+    private var reads: [String: UUID] = [:]
+
+    @MainActor
+    func prepared(for record: StoredRecord) -> LibraryPreparedErrorDetail? {
+        guard let entry = entries.first(where: {
+            $0.detail.key.recordID == record.compoundID && $0.detail.key.updatedAt == record.updatedAt
+        }), entry.payload == record.payload else { return nil }
+        return entry.detail
+    }
+
+    @MainActor
+    func warm(_ record: StoredRecord) async {
+        let recordID = record.compoundID
+        guard reads.count < 2, reads[recordID] == nil, prepared(for: record) == nil else { return }
+        let payload = record.payload
+        guard payload.count <= 512 * 1024 else { return }
+        let key = LibraryDetailPayloadKey(record: record)
+        let requestID = UUID()
+        reads[recordID] = requestID
+        defer {
+            if reads[recordID] == requestID { reads.removeValue(forKey: recordID) }
+        }
+        guard let decoded = await LibraryPayloadDecodeCoordinator.shared.decode(
+            key: key.decodeKey, payload: payload, priority: .utility
+        ), !Task.isCancelled, reads[recordID] == requestID else { return }
+        entries.removeAll { $0.detail.key.recordID == recordID }
+        entries.append(Entry(payload: payload, detail: LibraryPreparedErrorDetail(key: key, object: decoded.object)))
+        if entries.count > 6 { entries.removeFirst() }
+    }
+
+    @MainActor
+    func reset() {
+        entries.removeAll()
+        reads.removeAll()
     }
 }
 
@@ -108,6 +150,7 @@ struct LibraryRecordDetailView: View {
     }) private var records: [StoredRecord]
     let kind: LibraryContentKind
     let scope: LibraryScope
+    private let errorEntryPreview: LibraryErrorEntryPreview?
     let onEdit: (String) -> Void
     var onEditPrepared: ((String, LibraryRecordDraft?) -> Void)? = nil
     let onDelete: (String) -> Void
@@ -173,6 +216,7 @@ struct LibraryRecordDetailView: View {
         scope: LibraryScope,
         record: StoredRecord,
         preparedErrorDetail: LibraryPreparedErrorDetail? = nil,
+        errorEntryPreview: LibraryErrorEntryPreview? = nil,
         onEdit: @escaping (String) -> Void,
         onEditPrepared: ((String, LibraryRecordDraft?) -> Void)? = nil,
         onDelete: @escaping (String) -> Void,
@@ -183,6 +227,7 @@ struct LibraryRecordDetailView: View {
     ) {
         self.kind = kind
         self.scope = scope
+        self.errorEntryPreview = errorEntryPreview
         self.onEdit = onEdit
         self.onEditPrepared = onEditPrepared
         self.onDelete = onDelete
@@ -657,7 +702,11 @@ struct LibraryRecordDetailView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 } else if isWaitingForQuestionContent {
-                    questionLoadingPlaceholder
+                    if let entryQuestionText {
+                        questionTextView(entryQuestionText)
+                    } else {
+                        questionLoadingPlaceholder
+                    }
                 } else {
                     if kind == .errors {
                         errorClassificationAndMasteryRow
@@ -1290,26 +1339,38 @@ struct LibraryRecordDetailView: View {
     }
 
     @ViewBuilder private var questionBlock: some View {
-        if let rawQuestion = firstText(["question", "title", "name", "text", "content"]),
-           !clean(rawQuestion).isEmpty {
-            LibrarySelectableQuestionText(
-                text: cleanMultiline(rawQuestion),
-                identity: "\(questionSelectionIdentity)|stem",
-                font: .systemFont(ofSize: 14.5, weight: .regular),
-                lineSpacing: 5,
-                onInteractionStateChange: { hasActiveQuestionTextSelection = $0 }
-            )
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(webBorder, lineWidth: 0.8)
-                }
-                .accessibilityIdentifier(
-                    displayQuestionBankContext.map { "question-bank-detail-stem-\($0.question.id)" }
-                        ?? "library-record-detail-stem"
-                )
+        if let rawQuestion = firstText(["question", "title", "name", "text", "content"]) {
+            let text = cleanMultiline(rawQuestion)
+            if !text.isEmpty { questionTextView(text) }
         }
+    }
+
+    private var entryQuestionText: String? {
+        guard let errorEntryPreview, let record,
+              errorEntryPreview.recordID == record.recordID,
+              errorEntryPreview.updatedAt == record.updatedAt else { return nil }
+        let text = cleanMultiline(errorEntryPreview.rawQuestion)
+        return text.isEmpty ? nil : text
+    }
+
+    private func questionTextView(_ text: String) -> some View {
+        LibrarySelectableQuestionText(
+            text: text,
+            identity: "\(questionSelectionIdentity)|stem",
+            font: .systemFont(ofSize: 14.5, weight: .regular),
+            lineSpacing: 5,
+            onInteractionStateChange: { hasActiveQuestionTextSelection = $0 }
+        )
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(webBorder, lineWidth: 0.8)
+        }
+        .accessibilityIdentifier(
+            displayQuestionBankContext.map { "question-bank-detail-stem-\($0.question.id)" }
+                ?? "library-record-detail-stem"
+        )
     }
 
     @ViewBuilder private var optionsBlock: some View {

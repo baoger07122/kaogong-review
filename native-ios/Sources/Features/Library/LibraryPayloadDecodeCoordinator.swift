@@ -16,6 +16,7 @@ actor LibraryPayloadDecodeCoordinator {
 
     private struct Flight {
         let id: UUID
+        let payload: Data
         let task: Task<LibraryDecodedJSONPayload?, Never>
         var waiters: Set<UUID>
     }
@@ -42,7 +43,7 @@ actor LibraryPayloadDecodeCoordinator {
         let flightID: UUID
         let task: Task<LibraryDecodedJSONPayload?, Never>
 
-        if var flight = flights[key], !flight.task.isCancelled {
+        if var flight = flights[key], flight.payload == payload, !flight.task.isCancelled {
             flight.waiters.insert(waiterID)
             flightID = flight.id
             task = flight.task
@@ -55,7 +56,7 @@ actor LibraryPayloadDecodeCoordinator {
                       !Task.isCancelled else { return nil }
                 return LibraryDecodedJSONPayload(object: object)
             }
-            flights[key] = Flight(id: flightID, task: task, waiters: [waiterID])
+            flights[key] = Flight(id: flightID, payload: payload, task: task, waiters: [waiterID])
         }
 
         let value = await withTaskCancellationHandler {

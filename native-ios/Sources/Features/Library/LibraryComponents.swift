@@ -1211,6 +1211,7 @@ struct LibraryMasonryGrid: View {
     let partitionKey: String
     let onOpen: (LibraryRecordSnapshot) -> Void
     let onDelete: (LibraryRecordSnapshot) -> Void
+    var onWarmDetail: ((LibraryRecordSnapshot) async -> Void)?
     var hiddenTags: Set<String> = []
     var hidesQuantityTypeLabel = false
     var usesMemoryCardPresentation = false
@@ -1275,6 +1276,10 @@ struct LibraryMasonryGrid: View {
             }
         }
         .buttonStyle(LibraryCardPressStyle(animated: kind == .errors))
+        .task(id: record.record.updatedAt) {
+            guard kind == .errors, let onWarmDetail else { return }
+            await onWarmDetail(record)
+        }
     }
 
     private var columns: [[LibraryRecordSnapshot]] {

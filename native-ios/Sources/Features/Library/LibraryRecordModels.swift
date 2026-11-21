@@ -264,12 +264,19 @@ struct LibraryImageDisplaySetting: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+struct LibraryErrorEntryPreview {
+    let recordID: String
+    let updatedAt: Date?
+    let rawQuestion: String
+}
+
 struct LibraryRecordSnapshot: Identifiable {
     let record: StoredRecord
     let subject: String
     let module: String
     let title: String
     let questionPrompt: String
+    let errorEntryPreview: LibraryErrorEntryPreview?
     let summary: String
     let wordCardBody: String
     let stickyContent: String
@@ -332,8 +339,11 @@ struct LibraryRecordSnapshot: Identifiable {
         let titleKeys = record.collection == "errors"
             ? ["question", "title", "name", "text", "content"]
             : ["title", "question", "name", "words", "text", "content"]
-        title = Self.firstText(in: object, keys: titleKeys)
-            .map(Self.plainText) ?? "未命名记录"
+        let rawTitle = Self.firstText(in: object, keys: titleKeys)
+        title = rawTitle.map(Self.plainText) ?? "未命名记录"
+        errorEntryPreview = record.collection == "errors" ? rawTitle.map {
+            LibraryErrorEntryPreview(recordID: record.recordID, updatedAt: record.updatedAt, rawQuestion: $0)
+        } : nil
         questionPrompt = Self.firstText(in: object, keys: ["question"])
             .map(Self.plainText) ?? ""
         let categoryValue = Self.firstText(in: object, keys: ["category", "type"])
