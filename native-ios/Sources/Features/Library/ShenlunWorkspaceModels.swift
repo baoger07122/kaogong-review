@@ -254,7 +254,7 @@ struct ShenlunWorkspaceDrawing: Identifiable, Codable, Equatable, Sendable {
 
 enum ShenlunWorkspaceRoute: Hashable {
     case practice(id: String, selectedQuestionID: String?)
-    case editor(practiceID: String?, questionID: String?, kind: ShenlunWorkspaceKind)
+    case editor(practiceID: String?, questionID: String?, kind: ShenlunWorkspaceKind, preferredQuestionType: ShenlunWorkspaceQuestionType = .single)
     case legacy(recordID: String)
     case legacyAdaptation(recordID: String)
 }

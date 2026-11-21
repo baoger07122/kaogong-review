@@ -35,13 +35,15 @@ struct ShenlunWorkspaceEditorView: View {
         practiceID: String?,
         questionID: String?,
         kind: ShenlunWorkspaceKind,
+        preferredQuestionType: ShenlunWorkspaceQuestionType = .single,
         onSaved: @escaping (String, String) -> Void
     ) {
         self.practiceID = practiceID
         self.questionID = questionID
         self.kind = kind
         self.onSaved = onSaved
-        _question = State(initialValue: ShenlunWorkspaceQuestion(practiceID: practiceID ?? "", order: 0))
+        let initialType = practiceID == nil && questionID == nil && kind == .single ? preferredQuestionType : .single
+        _question = State(initialValue: ShenlunWorkspaceQuestion(practiceID: practiceID ?? "", order: 0, type: initialType))
     }
 
     private var isEditingQuestion: Bool { questionID != nil }

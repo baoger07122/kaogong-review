@@ -47,6 +47,33 @@ enum NativeFloatingActionPlacement {
     }
 }
 
+struct NativeFloatingCreateButton: View {
+    let windowWidth: CGFloat
+    let tabBarVisible: Bool
+    let label: String
+    let identifier: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "plus")
+                .font(.system(size: 23, weight: .medium))
+                .foregroundStyle(.white)
+                .frame(width: 54, height: 54)
+                .background(AppTheme.accent, in: Circle())
+                .shadow(color: AppTheme.accent.opacity(0.28), radius: 12, y: 5)
+        }
+        .buttonStyle(NativePressButtonStyle())
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
+        .padding(.trailing, 18)
+        .padding(.bottom, 8)
+        .offset(y: NativeFloatingActionPlacement.maySitAtTabBarTopEdge(
+            windowWidth: windowWidth, tabBarVisible: tabBarVisible
+        ) ? 34 : 0)
+    }
+}
+
 private struct RootPageTopLayout: ViewModifier {
     @Environment(\.rootWindowTopInset) private var windowTop
     func body(content: Content) -> some View {

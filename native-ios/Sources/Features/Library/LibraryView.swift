@@ -565,25 +565,14 @@ struct LibraryView: View {
         .overlay(alignment: .bottomTrailing) {
             GeometryReader { _ in
                 if canCreateRecord {
-                    Button {
-                        navigationPath.append(.editor(kind: kind, recordID: nil))
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 23, weight: .medium))
-                            .foregroundStyle(.white)
-                            .frame(width: 54, height: 54)
-                            .background(AppTheme.accent, in: Circle())
-                            .shadow(color: AppTheme.accent.opacity(0.28), radius: 12, y: 5)
-                    }
-                    .buttonStyle(NativePressButtonStyle())
-                    .accessibilityLabel("新增\(kind.rawValue)")
-                    .accessibilityIdentifier("library-add-record")
-                    .padding(.trailing, 18)
-                    .padding(.bottom, 8)
-                    .offset(y: NativeFloatingActionPlacement.maySitAtTabBarTopEdge(
+                    NativeFloatingCreateButton(
                         windowWidth: availableWindowWidth,
-                        tabBarVisible: navigationPath.isEmpty
-                    ) ? 34 : 0)
+                        tabBarVisible: navigationPath.isEmpty,
+                        label: "新增\(kind.rawValue)",
+                        identifier: "library-add-record"
+                    ) {
+                        navigationPath.append(.editor(kind: kind, recordID: nil))
+                    }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 }
             }
