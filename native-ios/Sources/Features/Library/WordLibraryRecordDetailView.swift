@@ -144,22 +144,27 @@ struct WordLibraryRecordDetailView: View {
     @ViewBuilder
     private func linkedErrorRow(_ error: StoredRecord) -> some View {
         let snapshot = LibraryRecordSnapshot(record: error)
-        let row = VStack(alignment: .leading, spacing: 4) {
-            Text(errorReferenceLine(snapshot))
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-            Text(snapshot.title)
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
+        let row = HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(errorReferenceLine(snapshot))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text(snapshot.title)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
             Image(systemName: "chevron.right")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .fixedSize()
+                .accessibilityHidden(true)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 7)
+        .frame(minHeight: 44)
         .contentShape(Rectangle())
 
         if let onOpenLinkedError {

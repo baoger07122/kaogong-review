@@ -61,7 +61,7 @@ struct HomeShortcutView: View {
     }
 }
 
-private struct HomeErrorDetailDestination: View {
+struct HomeErrorDetailDestination: View {
     let recordID: String
 
     @Environment(\.modelContext) private var modelContext
@@ -75,6 +75,10 @@ private struct HomeErrorDetailDestination: View {
     }) private var records: [StoredRecord]
     @State private var isShowingEditor = false
     @State private var isShowingAdaptation = false
+
+    init(recordID: String) {
+        self.recordID = recordID
+    }
 
     private var record: StoredRecord? {
         records.first { $0.collection == "errors" && $0.recordID == recordID }

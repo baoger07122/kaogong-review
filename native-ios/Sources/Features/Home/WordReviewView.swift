@@ -42,6 +42,7 @@ struct WordReviewView: View {
     @State private var activeSession: [SessionEntry] = []
     @State private var sessionIndex = 0
     @State private var revealedEntry: SessionEntry?
+    @State private var entryToAdvanceAfterDismissal: SessionEntry?
     @State private var sessionGeneration = UUID()
     @State private var submissionInProgressID: String?
     @State private var submissionErrorMessage: String?
@@ -101,7 +102,15 @@ struct WordReviewView: View {
         .navigationTitle("词语复习")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $revealedEntry) { entry in
-            reviewedWordDetail(entry)
+            WordReviewPresentedDetail { dismiss in
+                reviewedWordDetail(entry, dismiss: dismiss)
+            }
+        }
+        .onChange(of: revealedEntry) { _, visibleEntry in
+            guard visibleEntry == nil, let completedEntry = entryToAdvanceAfterDismissal else { return }
+            entryToAdvanceAfterDismissal = nil
+            guard currentEntry == completedEntry else { return }
+            advanceSession()
         }
         .toolbar {
             if !isReviewing {
@@ -360,10 +369,9 @@ struct WordReviewView: View {
         }
     }
 
-    private func reviewedWordDetail(_ entry: SessionEntry) -> some View {
+    private func reviewedWordDetail(_ entry: SessionEntry, dismiss: DismissAction) -> some View {
         WordReviewWordDetailDestination(recordID: entry.wordRecordID, onDeleted: {
-            guard currentEntry == entry else { return }
-            advanceSession()
+            dismissAndAdvance(entry, dismiss: dismiss)
         })
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if currentEntry == entry {
@@ -376,12 +384,12 @@ struct WordReviewView: View {
                             .foregroundStyle(.secondary)
                     }
                     if currentWordDetailKey == nil || (loadedGroupKey == currentWordDetailKey && currentGroup == nil) {
-                        Button("跳过此词") { advanceSession() }
+                        Button("跳过此词") { dismissAndAdvance(entry, dismiss: dismiss) }
                     } else {
                         HStack(spacing: 9) {
-                            feedbackButton(.unknown, entry: entry)
-                            feedbackButton(.fuzzy, entry: entry)
-                            feedbackButton(.mastered, entry: entry)
+                            feedbackButton(.unknown, entry: entry, dismiss: dismiss)
+                            feedbackButton(.fuzzy, entry: entry, dismiss: dismiss)
+                            feedbackButton(.mastered, entry: entry, dismiss: dismiss)
                         }
                         .disabled(currentGroup == nil || submissionInProgressID != nil)
                     }
@@ -391,6 +399,7 @@ struct WordReviewView: View {
                 .frame(maxWidth: 700)
                 .frame(maxWidth: .infinity)
                 .background(.white)
+                .disabled(entryToAdvanceAfterDismissal != nil)
             }
         }
         .alert("保存评价失败", isPresented: Binding(
@@ -423,9 +432,9 @@ struct WordReviewView: View {
         .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.7) }
     }
 
-    private func feedbackButton(_ feedback: WordReviewFeedback, entry: SessionEntry) -> some View {
+    private func feedbackButton(_ feedback: WordReviewFeedback, entry: SessionEntry, dismiss: DismissAction) -> some View {
         Button {
-            submit(feedback, for: entry)
+            submit(feedback, for: entry, dismiss: dismiss)
         } label: {
             Text(feedback.title)
                 .font(.system(size: 14, weight: .semibold))
@@ -577,15 +586,15 @@ struct WordReviewView: View {
         activeSession = entries
         sessionIndex = 0
         revealedEntry = nil
+        entryToAdvanceAfterDismissal = nil
         submissionErrorMessage = nil
         loadedGroup = nil
         loadedGroupKey = nil
     }
 
-    private func submit(_ feedback: WordReviewFeedback, for entry: SessionEntry) {
-        guard submissionInProgressID == nil,
-              currentEntry?.submissionID == entry.submissionID,
-              currentEntry?.id == entry.id,
+    private func submit(_ feedback: WordReviewFeedback, for entry: SessionEntry, dismiss: DismissAction) {
+        guard submissionInProgressID == nil, entryToAdvanceAfterDismissal == nil,
+              currentEntry == entry, revealedEntry == entry,
               let group = currentGroup,
               group.recordID == entry.wordRecordID else { return }
         let expectedSessionGeneration = sessionGeneration
@@ -607,8 +616,7 @@ struct WordReviewView: View {
                 }
                 return
             }
-            submissionInProgressID = nil
-            advanceSession()
+            dismissAndAdvance(entry, dismiss: dismiss)
         } catch {
             if submissionInProgressID == entry.submissionID {
                 submissionInProgressID = nil
@@ -617,10 +625,15 @@ struct WordReviewView: View {
         }
     }
 
+    private func dismissAndAdvance(_ entry: SessionEntry, dismiss: DismissAction) {
+        guard entryToAdvanceAfterDismissal == nil, currentEntry == entry, revealedEntry == entry else { return }
+        entryToAdvanceAfterDismissal = entry
+        dismiss()
+    }
+
     private func advanceSession() {
         sessionGeneration = UUID()
         submissionInProgressID = nil
-        revealedEntry = nil
         submissionErrorMessage = nil
         let availableIDs = Set(wordRecords.map(\.recordID))
         if let nextIndex = activeSession.indices.dropFirst(sessionIndex + 1).first(where: {
@@ -640,6 +653,7 @@ struct WordReviewView: View {
         activeSession = []
         sessionIndex = 0
         revealedEntry = nil
+        entryToAdvanceAfterDismissal = nil
         submissionErrorMessage = nil
         loadedGroup = nil
         loadedGroupKey = nil
@@ -648,10 +662,22 @@ struct WordReviewView: View {
 
 }
 
+private struct WordReviewPresentedDetail<Content: View>: View {
+    @Environment(\.dismiss) private var dismiss
+    let content: (DismissAction) -> Content
+
+    init(content: @escaping (DismissAction) -> Content) {
+        self.content = content
+    }
+
+    var body: some View { content(dismiss) }
+}
+
 struct WordReviewWordDetailDestination: View {
-    private enum WordAction: String, Hashable {
+    private enum WordAction: Hashable {
         case edit
         case migrate
+        case linkedError(String)
     }
 
     private let recordID: String
@@ -678,7 +704,11 @@ struct WordReviewWordDetailDestination: View {
                     record: record,
                     onEdit: { openAfterMenuDismissal(.edit) },
                     onDelete: { deleteWord() },
-                    onMigrateLegacyWord: { openAfterMenuDismissal(.migrate) }
+                    onMigrateLegacyWord: { openAfterMenuDismissal(.migrate) },
+                    onOpenLinkedError: { errorID in
+                        guard action == nil, pendingMenuAction == nil else { return }
+                        action = .linkedError(errorID)
+                    }
                 )
                 .id(record.recordID)
             } else {
@@ -686,20 +716,25 @@ struct WordReviewWordDetailDestination: View {
             }
         }
         .navigationDestination(item: $action) { action in
-            if let record = words.first {
-                switch action {
-                case .edit:
-                    LibraryRecordEditorView(
-                        kind: .words,
-                        scope: LibraryScope(subject: record.subject, module: record.module),
-                        record: record,
-                        onMigrateLegacyWord: { self.action = .migrate }
-                    )
-                case .migrate:
-                    LibraryWordMigrationDetailView(record: record)
+            switch action {
+            case let .linkedError(errorID):
+                HomeErrorDetailDestination(recordID: errorID)
+                    .secondaryPageTabBarHidden()
+            case .edit, .migrate:
+                if let record = words.first {
+                    if action == .edit {
+                        LibraryRecordEditorView(
+                            kind: .words,
+                            scope: LibraryScope(subject: record.subject, module: record.module),
+                            record: record,
+                            onMigrateLegacyWord: { self.action = .migrate }
+                        )
+                    } else {
+                        LibraryWordMigrationDetailView(record: record)
+                    }
+                } else {
+                    unavailableWord
                 }
-            } else {
-                unavailableWord
             }
         }
         .onDisappear {
