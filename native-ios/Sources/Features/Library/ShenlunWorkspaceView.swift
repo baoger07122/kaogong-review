@@ -24,15 +24,26 @@ struct ShenlunWorkspaceView: View {
     }
 
     private var singleRows: [ShenlunSingleQuestionListRow] {
-        practices.filter { $0.kind == .single }.flatMap { practice in
-            (questionsByPractice[practice.id] ?? []).map { question in
-                ShenlunSingleQuestionListRow(practice: practice, question: question, answer: answersByPractice[practice.id]?[question.id])
+        var rows: [ShenlunSingleQuestionListRow] = []
+        for practice in practices {
+            guard practice.kind == .single else { continue }
+            let questions: [ShenlunWorkspaceQuestion] = questionsByPractice[practice.id] ?? []
+            for question in questions {
+                let answer: ShenlunWorkspaceAnswer? = answersByPractice[practice.id]?[question.id]
+                rows.append(ShenlunSingleQuestionListRow(practice: practice, question: question, answer: answer))
             }
         }
-        .filter { row in
-            singleTypeFilter == nil || row.question.type == singleTypeFilter
+
+        if let selectedType = singleTypeFilter {
+            rows = rows.filter { row in
+                row.question.type == selectedType
+            }
         }
-        .sorted { $0.practice.updatedAt > $1.practice.updatedAt }
+
+        rows.sort { left, right in
+            left.practice.updatedAt > right.practice.updatedAt
+        }
+        return rows
     }
 
     var body: some View {
