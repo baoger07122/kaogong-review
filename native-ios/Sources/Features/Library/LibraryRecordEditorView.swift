@@ -88,7 +88,11 @@ enum ErrorAnswerField: Hashable {
 }
 
 struct LibraryRecordEditorView: View {
-    private static let defaultGraphStem = "从所给的四个选项中，选择最合适的一个填入问号处，使之呈现一定规律性："
+    private enum PlanarGraphStemPrefill {
+        case available, applied, unavailable
+    }
+
+    private static let defaultPlanarGraphStem = "从所给的四个选项中，选择最合适的一个填入问号处，使之呈现一定规律性："
     private static let defaultGraphOptions = ["A", "B", "C", "D"]
 
     @Environment(\.dismiss) private var dismiss
@@ -111,7 +115,8 @@ struct LibraryRecordEditorView: View {
     let onMigrateLegacyWord: (() -> Void)?
     @State private var draft: LibraryRecordDraft
     @State private var editBaseline: LibraryRecordDraft
-    @State private var canPrefillGraphDefaults: Bool
+    @State private var canPrefillGraphOptions: Bool
+    @State private var planarGraphStemPrefill: PlanarGraphStemPrefill
     @State private var showDelete = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var restoredDraft = false
@@ -176,7 +181,7 @@ struct LibraryRecordEditorView: View {
         } else if record == nil, !preferredType.isEmpty {
             initialDraft.type = preferredType
         }
-        var canPrefillGraphDefaults = record == nil && kind == .errors
+        var canPrefillGraphOptions = record == nil && kind == .errors
         if record == nil, kind == .words,
            let saved = LibraryDraftStore.load(kind: kind, scope: scope, category: initialDraft.type) {
             saved.applying(to: &initialDraft)
@@ -185,13 +190,14 @@ struct LibraryRecordEditorView: View {
                   let saved = LibraryDraftStore.load(kind: kind, scope: scope) {
             saved.applying(to: &initialDraft)
             _restoredDraft = State(initialValue: true)
-            canPrefillGraphDefaults = false
+            canPrefillGraphOptions = false
         }
-        if canPrefillGraphDefaults, initialDraft.isGraphReasoning {
-            Self.prefillGraphDefaults(in: &initialDraft)
-            canPrefillGraphDefaults = false
+        _planarGraphStemPrefill = State(initialValue: canPrefillGraphOptions ? .available : .unavailable)
+        if canPrefillGraphOptions, initialDraft.isGraphReasoning {
+            initialDraft.options = Self.defaultGraphOptions
+            canPrefillGraphOptions = false
         }
-        _canPrefillGraphDefaults = State(initialValue: canPrefillGraphDefaults)
+        _canPrefillGraphOptions = State(initialValue: canPrefillGraphOptions)
         if record == nil, let preferredSourceExamID {
             initialDraft.sourceExamID = preferredSourceExamID
             initialDraft.reviewSource = .mock
@@ -219,8 +225,14 @@ struct LibraryRecordEditorView: View {
                 transitionKey: "editor-appearance"
             )
         }
+        .onChange(of: isPlanarGraphTypeSelected, initial: true) { _, selected in
+            updatePlanarGraphStem(isSelected: selected)
+        }
         .onChange(of: recordID == nil ? draftSnapshot : nil) { _, snapshot in
             guard let snapshot else { return }
+            if planarGraphStemPrefill == .applied, snapshot.title != Self.defaultPlanarGraphStem {
+                planarGraphStemPrefill = .unavailable
+            }
             draftPersistenceCleared = false
             LibraryDraftStore.save(snapshot, kind: kind, scope: scope)
         }
@@ -814,7 +826,7 @@ struct LibraryRecordEditorView: View {
                     draft.module = subject.name == "数量关系"
                         ? ""
                         : (subject.modules.first ?? "")
-                    prefillGraphDefaultsIfNeeded()
+                    prefillGraphOptionsIfNeeded()
                 }
             }
         } label: {
@@ -839,7 +851,7 @@ struct LibraryRecordEditorView: View {
                             draft.errorTypeID = nil
                         }
                         draft.module = module
-                        prefillGraphDefaultsIfNeeded()
+                        prefillGraphOptionsIfNeeded()
                     }
                 }
             } label: {
@@ -848,18 +860,34 @@ struct LibraryRecordEditorView: View {
         }
     }
 
-    private func prefillGraphDefaultsIfNeeded() {
-        guard canPrefillGraphDefaults, draft.isGraphReasoning else { return }
-        canPrefillGraphDefaults = false
-        Self.prefillGraphDefaults(in: &draft)
+    private func prefillGraphOptionsIfNeeded() {
+        guard canPrefillGraphOptions, draft.isGraphReasoning else { return }
+        canPrefillGraphOptions = false
+        guard draft.options.allSatisfy(\.isEmpty), draft.optionImages.allSatisfy(\.isEmpty) else { return }
+        draft.options = Self.defaultGraphOptions
     }
 
-    private static func prefillGraphDefaults(in draft: inout LibraryRecordDraft) {
-        if draft.title.isEmpty {
-            draft.title = defaultGraphStem
-        }
-        if draft.options.allSatisfy(\.isEmpty), draft.optionImages.allSatisfy(\.isEmpty) {
-            draft.options = defaultGraphOptions
+    private var isPlanarGraphTypeSelected: Bool {
+        guard planarGraphStemPrefill != .unavailable, draft.isGraphReasoning,
+              let typeID = draft.errorTypeID else { return false }
+        return availableErrorTypes.contains { $0.id == typeID && $0.name == "平面图形" }
+    }
+
+    private func updatePlanarGraphStem(isSelected: Bool) {
+        if isSelected, planarGraphStemPrefill == .available {
+            guard draft.title.isEmpty else {
+                planarGraphStemPrefill = .unavailable
+                return
+            }
+            planarGraphStemPrefill = .applied
+            draft.title = Self.defaultPlanarGraphStem
+        } else if !isSelected, planarGraphStemPrefill == .applied {
+            if draft.title == Self.defaultPlanarGraphStem {
+                planarGraphStemPrefill = .available
+                draft.title = ""
+            } else {
+                planarGraphStemPrefill = .unavailable
+            }
         }
     }
 
