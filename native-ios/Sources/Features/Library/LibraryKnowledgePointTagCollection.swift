@@ -12,28 +12,38 @@ struct LibraryKnowledgePointTagItem: Identifiable, Hashable {
 struct LibraryKnowledgePointGroupBar: View {
     let groups: [LibraryKnowledgePointGroup]
     let selectedID: String?
-    let action: (String) -> Void
+    var includesGeneral = false
+    let action: (String?) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
+                if includesGeneral {
+                    tab(LibraryKnowledgePointGroupPolicy.generalGroupName, id: nil)
+                }
                 ForEach(groups) { group in
-                    Button { action(group.id) } label: {
-                        Text(group.name)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(selectedID == group.id ? AppTheme.accent : Color.primary)
-                            .padding(.horizontal, 10)
-                            .frame(height: 28)
-                            .background(
-                                selectedID == group.id ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045),
-                                in: Capsule()
-                            )
-                    }
-                    .buttonStyle(.plain)
+                    let title = includesGeneral
+                        ? LibraryKnowledgePointGroupPolicy.displayName(for: group, category: .knowledgePoint)
+                        : group.name
+                    tab(title, id: group.id)
                 }
             }
         }
         .frame(height: 28)
+    }
+
+    private func tab(_ title: String, id: String?) -> some View {
+        let isSelected = selectedID == id
+        return Button { action(id) } label: {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(isSelected ? AppTheme.accent : Color.primary)
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .background(isSelected ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

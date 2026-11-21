@@ -33,17 +33,13 @@ enum LibraryKnowledgePointGroupRepository {
         module: String,
         typeID: String? = nil,
         category: LibraryKnowledgePointGroupCategory = .knowledgePoint,
-        records: [StoredRecord]
+        records: [StoredRecord],
+        matching query: String = ""
     ) -> [String] {
         let allGroups = groups(subject: subject, module: module, typeID: typeID, category: category, records: records)
-        guard !allGroups.isEmpty else { return allNames }
-        if let groupID {
-            guard let group = allGroups.first(where: { $0.id == groupID }) else { return [] }
-            let members = Set(group.memberNames)
-            return allNames.filter(members.contains)
-        }
-        let assigned = Set(allGroups.flatMap(\.memberNames))
-        return allNames.filter { !assigned.contains($0) }
+        return LibraryKnowledgePointGroupPolicy.names(
+            in: groupID, allNames: allNames, groups: allGroups, matching: query
+        )
     }
 
     static func addGroup(

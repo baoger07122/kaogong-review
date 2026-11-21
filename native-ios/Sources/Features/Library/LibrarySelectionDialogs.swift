@@ -291,9 +291,14 @@ private struct LibraryKnowledgePointGroupMoveDialog: ViewModifier {
             ),
             titleVisibility: .visible
         ) {
-            Button("通用（不分组）") { move(to: nil) }
+            let category = target?.category ?? .knowledgePoint
+            Button(category == .knowledgePoint ? LibraryKnowledgePointGroupPolicy.generalGroupName : "通用（不分组）") {
+                move(to: nil)
+            }
             ForEach(target?.groups ?? []) { group in
-                Button(group.name) { move(to: group.id) }
+                Button(LibraryKnowledgePointGroupPolicy.displayName(for: group, category: category)) {
+                    move(to: group.id)
+                }
             }
             Button("取消", role: .cancel) { target = nil }
         } message: {
@@ -353,6 +358,21 @@ private enum LibraryKnowledgePointGroupMover {
 }
 
 /// Reuses the app's centered editor dialog, rather than embedding choices in the form.
+private func knowledgePointEmptyState(query: String, names: [String]) -> some View {
+    let text: String
+    if query.isEmpty {
+        text = "此分组暂无考点"
+    } else if names.contains(query) {
+        text = "同名考点已存在于其他分组"
+    } else {
+        text = "此分组没有匹配的考点"
+    }
+    return Text(text)
+        .font(.system(size: 12))
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+}
+
 struct LibraryTagSelectionDialog: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var records: [StoredRecord]
@@ -374,7 +394,6 @@ struct LibraryTagSelectionDialog: View {
     @State private var deleting: String?
     @State private var selectedGroupID: String?
     @State private var showsOrder = false
-    @State private var addDestinationTarget: LibraryKnowledgePointAddTarget?
     @State private var groupMoveTarget: LibraryKnowledgePointGroupMoveTarget?
 
     private var maximum: Int { maximumOverride ?? (kind == .knowledgePoint ? 3 : 1) }
@@ -404,10 +423,11 @@ struct LibraryTagSelectionDialog: View {
                     Text("当前范围 · \(module)")
                         .font(.system(size: 12, weight: .semibold)).lineLimit(1).frame(height: 20, alignment: .leading)
                     searchAndAdd
-                    if !knowledgePointGroups.isEmpty {
-                        LibraryKnowledgePointGroupBar(groups: knowledgePointGroups, selectedID: selectedGroupID) {
-                            selectedGroupID = $0
-                        }
+                    LibraryKnowledgePointGroupBar(
+                        groups: knowledgePointGroups, selectedID: selectedGroupID, includesGeneral: true
+                    ) {
+                        selectedGroupID = $0
+                        message = nil
                     }
                     ScrollView(.vertical, showsIndicators: false) { knowledgePointTagContents }
                         .frame(maxHeight: .infinity)
@@ -464,7 +484,7 @@ struct LibraryTagSelectionDialog: View {
             } else {
                 selected = selectionValues?.wrappedValue ?? split(selection)
             }
-            selectedGroupID = knowledgePointGroups.first?.id
+            selectedGroupID = nil
         }
         .alert("重命名标签", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("标签名称", text: $newName)
@@ -558,42 +578,19 @@ struct LibraryTagSelectionDialog: View {
             Button("新增", action: beginAddTag)
                 .font(.system(size: 12, weight: .semibold))
                 .disabled(query.isEmpty || names.contains(query))
-                .popover(item: $addDestinationTarget, arrowEdge: .top) { target in
-                    LibraryKnowledgePointAddDestinationPopover(
-                        target: target,
-                        groups: LibraryKnowledgePointGroupRepository.groups(
-                            subject: target.subject, module: target.module, records: records
-                        ),
-                        onCreate: { groupID in createKnowledgePoint(target, groupID: groupID) },
-                        onCancel: { addDestinationTarget = nil }
-                    )
-                    .presentationCompactAdaptation(.popover)
-                }
         }
     }
 
     @ViewBuilder
     private var knowledgePointTagContents: some View {
-        let filtered = names.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }
-        if !query.isEmpty || knowledgePointGroups.isEmpty {
-            knowledgePointTagCollection(filtered, groupID: selectedGroupID)
+        let visibleNames = LibraryKnowledgePointGroupRepository.names(
+            in: selectedGroupID, allNames: names, subject: subject, module: module,
+            records: records, matching: query
+        )
+        if visibleNames.isEmpty {
+            knowledgePointEmptyState(query: query, names: names)
         } else {
-            let selectedGroupNames = LibraryKnowledgePointGroupRepository.names(
-                in: selectedGroupID, allNames: names, subject: subject, module: module, records: records
-            )
-            if selectedGroupNames.isEmpty {
-                Text("暂无考点").font(.system(size: 12)).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                knowledgePointTagCollection(selectedGroupNames, groupID: selectedGroupID)
-            }
-            let ungrouped = LibraryKnowledgePointGroupRepository.names(
-                in: nil, allNames: names, subject: subject, module: module, records: records
-            )
-            if !ungrouped.isEmpty {
-                Text("未分组").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary).padding(.top, 2)
-                knowledgePointTagCollection(ungrouped, groupID: nil)
-            }
+            knowledgePointTagCollection(visibleNames, groupID: selectedGroupID)
         }
     }
 
@@ -651,35 +648,19 @@ struct LibraryTagSelectionDialog: View {
         guard kind == .knowledgePoint else { addTag(); return }
         let value = query
         guard !value.isEmpty, !names.contains(value) else { return }
-        let target = LibraryKnowledgePointAddTarget(name: value, subject: subject, module: module, typeID: nil)
-        if knowledgePointGroups.isEmpty {
-            if let error = createKnowledgePoint(target, groupID: nil) { message = error }
-        } else {
-            addDestinationTarget = target
-        }
-    }
-
-    private func createKnowledgePoint(_ target: LibraryKnowledgePointAddTarget, groupID: String?) -> String? {
-        let currentGroups = LibraryKnowledgePointGroupRepository.groups(
-            subject: target.subject, module: target.module, records: records
-        )
-        guard groupID == nil || currentGroups.contains(where: { $0.id == groupID }) else {
-            return "目标分组已变化，请重新选择。"
-        }
-        guard !target.name.isEmpty,
-              !TagLibraryRepository.tags(kind: .knowledgePoint, module: target.module, records: records).contains(target.name) else {
-            return "该来源中已有同名考点。"
+        guard selectedGroupID == nil || knowledgePointGroups.contains(where: { $0.id == selectedGroupID }) else {
+            message = "目标分组已变化，请重新选择。"
+            return
         }
         do {
             try TagLibraryRepository.add(
-                target.name, kind: .knowledgePoint, module: target.module, records: records,
-                context: modelContext, knowledgePointGroupID: groupID, subject: target.subject
+                value, kind: .knowledgePoint, module: module, records: records,
+                context: modelContext, knowledgePointGroupID: selectedGroupID, subject: subject
             )
-            if !selected.contains(target.name) { selected.append(target.name) }
+            toggle(value)
             search = ""
-            return nil
         } catch {
-            return "考点保存失败，请重试。"
+            message = "考点保存失败，请重试。"
         }
     }
 
@@ -689,9 +670,7 @@ struct LibraryTagSelectionDialog: View {
         guard !value.isEmpty, !names.contains(value) else { return }
         do {
             try TagLibraryRepository.add(
-                value, kind: kind, module: module, records: records, context: modelContext,
-                knowledgePointGroupID: kind == .knowledgePoint ? selectedGroupID : nil,
-                subject: subject
+                value, kind: kind, module: module, records: records, context: modelContext, subject: subject
             )
             toggle(value)
             search = ""
@@ -803,7 +782,6 @@ struct QuantityKnowledgePointSelectionDialog: View {
     @State private var selectedGroupID: String?
     @State private var managingType: String?
     @State private var orderTarget: LibraryKnowledgePointOrderTarget?
-    @State private var addDestinationTarget: LibraryKnowledgePointAddTarget?
     @State private var groupMoveTarget: LibraryKnowledgePointGroupMoveTarget?
 
     private var activeType: String { browsingType.isEmpty ? currentType : browsingType }
@@ -887,21 +865,11 @@ struct QuantityKnowledgePointSelectionDialog: View {
                     Button("新增", action: beginAddTag)
                         .font(.system(size: 12, weight: .semibold))
                         .disabled(query.isEmpty || activeType.isEmpty || names.contains(query))
-                        .popover(item: $addDestinationTarget, arrowEdge: .top) { target in
-                            LibraryKnowledgePointAddDestinationPopover(
-                                target: target,
-                                groups: LibraryKnowledgePointGroupRepository.groups(
-                                    subject: target.subject, module: target.module, records: records
-                                ),
-                                onCreate: { groupID in createKnowledgePoint(target, groupID: groupID) },
-                                onCancel: { addDestinationTarget = nil }
-                            )
-                            .presentationCompactAdaptation(.popover)
-                        }
                 }
 
-                if !groups.isEmpty {
-                    LibraryKnowledgePointGroupBar(groups: groups, selectedID: selectedGroupID) { selectedGroupID = $0 }
+                LibraryKnowledgePointGroupBar(groups: groups, selectedID: selectedGroupID, includesGeneral: true) {
+                    selectedGroupID = $0
+                    message = nil
                 }
                 ScrollView(.vertical, showsIndicators: false) { groupedTagContents }
                     .frame(maxHeight: .infinity)
@@ -923,9 +891,9 @@ struct QuantityKnowledgePointSelectionDialog: View {
                     LibraryKnowledgePointReference(module: currentType, name: $0)
                 }
             browsingType = currentType
-            selectedGroupID = groups.first?.id
+            selectedGroupID = nil
         }
-        .onChange(of: browsingType) { _, _ in selectedGroupID = groups.first?.id }
+        .onChange(of: browsingType) { _, _ in selectedGroupID = nil }
         .alert("重命名考点", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("考点名称", text: $newName)
                 .modifier(NativeDirectionalTextFieldNavigation())
@@ -991,26 +959,14 @@ struct QuantityKnowledgePointSelectionDialog: View {
 
     @ViewBuilder
     private var groupedTagContents: some View {
-        let available = names.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }
-        if !query.isEmpty || groups.isEmpty {
-            tagCollection(available, groupID: selectedGroupID)
+        let visibleNames = LibraryKnowledgePointGroupRepository.names(
+            in: selectedGroupID, allNames: names, subject: "数量关系", module: activeType,
+            records: records, matching: query
+        )
+        if visibleNames.isEmpty {
+            knowledgePointEmptyState(query: query, names: names)
         } else {
-            let selectedNames = LibraryKnowledgePointGroupRepository.names(
-                in: selectedGroupID, allNames: names, subject: "数量关系", module: activeType, records: records
-            )
-            if selectedNames.isEmpty {
-                Text("暂无考点").font(.system(size: 12)).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                tagCollection(selectedNames, groupID: selectedGroupID)
-            }
-            let ungrouped = LibraryKnowledgePointGroupRepository.names(
-                in: nil, allNames: names, subject: "数量关系", module: activeType, records: records
-            )
-            if !ungrouped.isEmpty {
-                Text("未分组").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary).padding(.top, 2)
-                tagCollection(ungrouped, groupID: nil)
-            }
+            tagCollection(visibleNames, groupID: selectedGroupID)
         }
     }
 
@@ -1081,42 +1037,24 @@ struct QuantityKnowledgePointSelectionDialog: View {
         return current + selected.filter { $0.module != activeType || !currentNames.contains($0.name) }
     }
 
-    private func addTag() {
-        beginAddTag()
-    }
-
     private func beginAddTag() {
-        guard !query.isEmpty, !activeType.isEmpty else { return }
-        let target = LibraryKnowledgePointAddTarget(
-            name: query, subject: "数量关系", module: activeType, typeID: nil
-        )
-        if groups.isEmpty {
-            if let error = createKnowledgePoint(target, groupID: nil) { message = error }
-        } else {
-            addDestinationTarget = target
+        let value = query
+        guard !value.isEmpty, !activeType.isEmpty, !names.contains(value) else { return }
+        guard selectedGroupID == nil || groups.contains(where: { $0.id == selectedGroupID }) else {
+            message = "目标分组已变化，请重新选择。"
+            return
         }
-    }
-
-    private func createKnowledgePoint(_ target: LibraryKnowledgePointAddTarget, groupID: String?) -> String? {
-        let currentGroups = LibraryKnowledgePointGroupRepository.groups(
-            subject: target.subject, module: target.module, records: records
-        )
-        guard groupID == nil || currentGroups.contains(where: { $0.id == groupID }) else {
-            return "目标分组已变化，请重新选择。"
-        }
-        let existingNames = TagLibraryRepository.tags(kind: .knowledgePoint, module: target.module, records: records)
-        guard !target.name.isEmpty, !existingNames.contains(target.name) else { return "该题型中已有同名考点。" }
         do {
             try TagLibraryRepository.add(
-                target.name, kind: .knowledgePoint, module: target.module, records: records,
-                context: modelContext, knowledgePointGroupID: groupID, subject: target.subject
+                value, kind: .knowledgePoint, module: activeType, records: records,
+                context: modelContext, knowledgePointGroupID: selectedGroupID, subject: "数量关系"
             )
-            let reference = LibraryKnowledgePointReference(module: target.module, name: target.name)
+            let reference = LibraryKnowledgePointReference(module: activeType, name: value)
             if !selected.contains(reference) { selected.append(reference) }
             search = ""
-            return nil
+            message = nil
         } catch {
-            return "考点保存失败，请重试。"
+            message = "考点保存失败，请重试。"
         }
     }
 
@@ -1391,50 +1329,19 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                         }
                 }
 
-                if !groups.isEmpty {
-                    LibraryKnowledgePointGroupBar(groups: groups, selectedID: selectedGroupID) {
+                if tagKind == .knowledgePoint || !groups.isEmpty {
+                    LibraryKnowledgePointGroupBar(
+                        groups: groups, selectedID: selectedGroupID, includesGeneral: tagKind == .knowledgePoint
+                    ) {
                         selectedGroupID = $0
+                        message = nil
                     }
                 }
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
-                        if !filteredNames.isEmpty {
-                            if !query.isEmpty || groups.isEmpty {
-                                tagCollection(filteredNames, groupID: selectedGroupID, typeID: activeCatalogTypeID)
-                            } else {
-                                let groupNames = LibraryKnowledgePointGroupRepository.names(
-                                    in: selectedGroupID, allNames: names, subject: subject, module: activeModule,
-                                    typeID: activeCatalogTypeID, category: tagKind.groupCategory ?? .knowledgePoint,
-                                    records: records
-                                )
-                                if groupNames.isEmpty {
-                                    Text("暂无考点").font(.system(size: 12)).foregroundStyle(.secondary)
-                                } else {
-                                    tagCollection(groupNames, groupID: selectedGroupID, typeID: activeCatalogTypeID)
-                                }
-                                let ungrouped = LibraryKnowledgePointGroupRepository.names(
-                                    in: nil, allNames: names, subject: subject, module: activeModule,
-                                    typeID: activeCatalogTypeID, category: tagKind.groupCategory ?? .knowledgePoint,
-                                    records: records
-                                )
-                                let selectedOnly = filteredNames.filter { !names.contains($0) }
-                                let ungroupedAndExisting = Array(Set(ungrouped + selectedOnly)).sorted {
-                                    let left = names.firstIndex(of: $0) ?? .max
-                                    let right = names.firstIndex(of: $1) ?? .max
-                                    return left == right ? $0 < $1 : left < right
-                                }
-                                if !ungroupedAndExisting.isEmpty {
-                                    Text("未分组").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
-                                    tagCollection(ungroupedAndExisting, groupID: nil, typeID: activeCatalogTypeID)
-                                }
-                            }
-                        }
-                        if !legacyNames.isEmpty {
-                            Text(tagKind == .mistakeTag ? "未分类" : "旧考点")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.secondary)
-                            legacyTagContents
-                        }
+                    if tagKind == .knowledgePoint {
+                        knowledgePointTagContents
+                    } else {
+                        mistakeTagContents
                     }
                 }
                 .frame(maxHeight: .infinity)
@@ -1458,9 +1365,9 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                 availableNames: available
             )
             browsingTypeSelection = currentTypeID ?? (isQuantityScope ? currentModule : Self.legacyTypeSelection)
-            selectedGroupID = groups.first?.id
+            selectedGroupID = tagKind == .knowledgePoint ? nil : groups.first?.id
         }
-        .onChange(of: browsingTypeSelection) { _, _ in selectedGroupID = groups.first?.id }
+        .onChange(of: browsingTypeSelection) { _, _ in selectedGroupID = tagKind == .knowledgePoint ? nil : groups.first?.id }
         .sheet(item: $orderTarget) { target in
             KnowledgePointOrderView(
                 subject: target.subject, module: target.module, typeID: target.typeID,
@@ -1578,6 +1485,62 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
     }
 
     @ViewBuilder
+    private var knowledgePointTagContents: some View {
+        let scopeNames = names
+        let visibleNames = LibraryKnowledgePointGroupRepository.names(
+            in: selectedGroupID, allNames: scopeNames, subject: subject,
+            module: activeModule, typeID: activeCatalogTypeID, records: records, matching: query
+        )
+        if visibleNames.isEmpty {
+            knowledgePointEmptyState(query: query, names: scopeNames)
+        } else {
+            tagCollection(visibleNames, groupID: selectedGroupID, typeID: activeCatalogTypeID)
+        }
+    }
+
+    private var mistakeTagContents: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !filteredNames.isEmpty {
+                if !query.isEmpty || groups.isEmpty {
+                    tagCollection(filteredNames, groupID: selectedGroupID, typeID: activeCatalogTypeID)
+                } else {
+                    let groupNames = LibraryKnowledgePointGroupRepository.names(
+                        in: selectedGroupID, allNames: names, subject: subject, module: activeModule,
+                        typeID: activeCatalogTypeID, category: tagKind.groupCategory ?? .knowledgePoint,
+                        records: records
+                    )
+                    if groupNames.isEmpty {
+                        Text("暂无考点").font(.system(size: 12)).foregroundStyle(.secondary)
+                    } else {
+                        tagCollection(groupNames, groupID: selectedGroupID, typeID: activeCatalogTypeID)
+                    }
+                    let ungrouped = LibraryKnowledgePointGroupRepository.names(
+                        in: nil, allNames: names, subject: subject, module: activeModule,
+                        typeID: activeCatalogTypeID, category: tagKind.groupCategory ?? .knowledgePoint,
+                        records: records
+                    )
+                    let selectedOnly = filteredNames.filter { !names.contains($0) }
+                    let ungroupedAndExisting = Array(Set(ungrouped + selectedOnly)).sorted {
+                        let left = names.firstIndex(of: $0) ?? .max
+                        let right = names.firstIndex(of: $1) ?? .max
+                        return left == right ? $0 < $1 : left < right
+                    }
+                    if !ungroupedAndExisting.isEmpty {
+                        Text("未分组").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                        tagCollection(ungroupedAndExisting, groupID: nil, typeID: activeCatalogTypeID)
+                    }
+                }
+            }
+            if !legacyNames.isEmpty {
+                Text(tagKind == .mistakeTag ? "未分类" : "旧考点")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                legacyTagContents
+            }
+        }
+    }
+
+    @ViewBuilder
     private var legacyTagContents: some View {
         if activeTypeID == nil, !groups.isEmpty {
             let groupedNames = LibraryKnowledgePointGroupRepository.names(
@@ -1636,16 +1599,14 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
         onClose()
     }
 
-    private func addTag() {
-        beginAddTag()
-    }
-
     private func beginAddTag() {
         guard !query.isEmpty, !activeModule.isEmpty, !names.contains(query) else { return }
         let target = LibraryKnowledgePointAddTarget(
             name: query, subject: subject, module: activeModule, typeID: activeCatalogTypeID, kind: tagKind
         )
-        if groups.isEmpty {
+        if tagKind == .knowledgePoint {
+            message = createKnowledgePoint(target, groupID: selectedGroupID)
+        } else if groups.isEmpty {
             if let error = createKnowledgePoint(target, groupID: nil) { message = error }
         } else {
             addDestinationTarget = target
@@ -1690,7 +1651,8 @@ struct VerbalReasoningKnowledgePointSelectionDialog: View {
                     context: modelContext, knowledgePointGroupID: groupID, subject: target.subject
                 )
             }
-            toggle(LibraryKnowledgePointReference(module: target.module, typeID: target.typeID, name: target.name))
+            let reference = LibraryKnowledgePointReference(module: target.module, typeID: target.typeID, name: target.name)
+            if !selected.contains(reference) { selected.append(reference) }
             search = ""
             return nil
         } catch {

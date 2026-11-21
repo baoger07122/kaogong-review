@@ -28,6 +28,40 @@ enum LibraryKnowledgePointPolicyBehavior {
         precondition(groups[1].memberNames == ["隔板法"], "deleting a group must not mutate the tag library")
 
         let fullOrder = ["相邻捆绑", "隔板法", "环形排列", "概率"]
+
+        precondition(LibraryKnowledgePointGroupPolicy.names(
+            in: nil, allNames: fullOrder, groups: groups
+        ) == ["概率"], "general contains the former ungrouped catalog tags")
+        precondition(LibraryKnowledgePointGroupPolicy.names(
+            in: groupA.id, allNames: fullOrder, groups: groups
+        ) == ["相邻捆绑", "环形排列"], "a group keeps catalog order and excludes general tags")
+        precondition(LibraryKnowledgePointGroupPolicy.names(
+            in: groupA.id, allNames: fullOrder, groups: groups, matching: "隔板"
+        ).isEmpty, "search must not include results from another group")
+        precondition(LibraryKnowledgePointGroupPolicy.names(
+            in: groupB.id, allNames: fullOrder, groups: groups, matching: "隔板"
+        ) == ["隔板法"])
+        precondition(LibraryKnowledgePointGroupPolicy.names(
+            in: nil, allNames: fullOrder, groups: []
+        ) == fullOrder, "a catalog with no custom groups is entirely general")
+        precondition(LibraryKnowledgePointGroupPolicy.names(
+            in: groupB.id, allNames: fullOrder, groups: deleted
+        ).isEmpty)
+        precondition(LibraryKnowledgePointGroupPolicy.names(
+            in: nil, allNames: fullOrder, groups: deleted
+        ) == ["隔板法", "概率"], "deleting a group returns its tags to general")
+        let customGeneral = LibraryKnowledgePointGroup(id: "custom", name: "通用", memberNames: ["概率"])
+        precondition(LibraryKnowledgePointGroupPolicy.displayName(
+            for: customGeneral, category: .knowledgePoint
+        ) == "通用（自建）")
+        let groupsWithCustomGeneral = groups + [customGeneral]
+        precondition(LibraryKnowledgePointGroupPolicy.names(
+            in: customGeneral.id, allNames: fullOrder, groups: groupsWithCustomGeneral
+        ) == ["概率"], "a custom group named general retains its own members")
+        precondition(LibraryKnowledgePointGroupPolicy.names(
+            in: nil, allNames: fullOrder, groups: groupsWithCustomGeneral
+        ).isEmpty)
+
         let reordered = LibraryKnowledgePointGroupPolicy.mergedOrder(
             fullOrder: fullOrder,
             groups: groups,

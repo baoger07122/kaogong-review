@@ -237,12 +237,15 @@ struct KnowledgePointManagerView: View {
                         .font(AppTheme.inputFont.weight(.semibold))
                 }
 
-                if kind.groupCategory != nil, !groups.isEmpty {
+                if let category = kind.groupCategory, kind == .knowledgePoint || !groups.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
+                            if category == .knowledgePoint {
+                                defaultGroupTab(LibraryKnowledgePointGroupPolicy.generalGroupName)
+                            }
                             ForEach(groups) { group in
                                 Button { selectedGroupID = group.id } label: {
-                                    Text(group.name)
+                                    Text(LibraryKnowledgePointGroupPolicy.displayName(for: group, category: category))
                                         .font(.system(size: 11, weight: .medium))
                                         .foregroundStyle(selectedGroupID == group.id ? AppTheme.accent : Color.primary)
                                         .padding(.horizontal, 10).frame(height: 28)
@@ -258,11 +261,9 @@ struct KnowledgePointManagerView: View {
                                     Button("删除分组", role: .destructive) { deletingGroup = group }
                                 }
                             }
-                            Button("未分组") { selectedGroupID = nil }
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(selectedGroupID == nil ? AppTheme.accent : Color.primary)
-                                .padding(.horizontal, 10).frame(height: 28)
-                                .background(selectedGroupID == nil ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045), in: Capsule())
+                            if category == .mistakeTag {
+                                defaultGroupTab("未分组")
+                            }
                         }
                     }
                 }
@@ -426,7 +427,7 @@ struct KnowledgePointManagerView: View {
                 if let deletingGroup {
                     NativeDeleteDialog(
                         title: "删除分组",
-                        message: "删除“\(deletingGroup.name)”后，分组中的标签会保留并变为未分组。",
+                        message: "删除“\(deletingGroup.name)”后，分组中的标签会保留并归入\(kind == .knowledgePoint ? "通用" : "未分组")。",
                         onDelete: { removeGroup(deletingGroup) },
                         onCancel: { self.deletingGroup = nil }
                     )
@@ -604,6 +605,19 @@ struct KnowledgePointManagerView: View {
         }
     }
 
+    private func defaultGroupTab(_ title: String) -> some View {
+        Button { selectedGroupID = nil } label: {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(selectedGroupID == nil ? AppTheme.accent : Color.primary)
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .background(selectedGroupID == nil ? AppTheme.accent.opacity(0.10) : Color.primary.opacity(0.045), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selectedGroupID == nil ? .isSelected : [])
+    }
+
     private func beginAdd() {
         errorMessage = nil
         draftName = ""
@@ -704,10 +718,7 @@ struct KnowledgePointManagerView: View {
     }
 
     private func selectDefaultGroupIfNeeded() {
-        selectedGroupID = LibraryKnowledgePointGroupRepository.groups(
-            subject: subject.name, module: module, typeID: selectedTypeID,
-            category: kind.groupCategory ?? .knowledgePoint, records: records
-        ).first?.id
+        selectedGroupID = kind == .knowledgePoint ? nil : groups.first?.id
     }
 
     private func saveGroup() {
@@ -1078,13 +1089,21 @@ private struct KnowledgePointGroupPopoverContent: View {
                 .padding(.vertical, 8)
             ScrollView(.vertical, showsIndicators: request.groups.count > 5) {
                 VStack(spacing: 0) {
+                    if request.category == .knowledgePoint {
+                        choiceRow(LibraryKnowledgePointGroupPolicy.generalGroupName, isSelected: request.currentGroupID == nil) {
+                            onSelect(nil)
+                        }
+                    }
                     ForEach(request.groups) { group in
-                        choiceRow(group.name, isSelected: request.currentGroupID == group.id) {
+                        let title = LibraryKnowledgePointGroupPolicy.displayName(for: group, category: request.category)
+                        choiceRow(title, isSelected: request.currentGroupID == group.id) {
                             onSelect(group.id)
                         }
                     }
-                    choiceRow("未分组", isSelected: request.currentGroupID == nil) {
-                        onSelect(nil)
+                    if request.category == .mistakeTag {
+                        choiceRow("未分组", isSelected: request.currentGroupID == nil) {
+                            onSelect(nil)
+                        }
                     }
                 }
             }

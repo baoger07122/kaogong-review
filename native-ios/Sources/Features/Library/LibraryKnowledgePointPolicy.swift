@@ -18,6 +18,37 @@ enum LibraryKnowledgePointGroupCategory: String, Codable, Hashable, Sendable {
 }
 
 enum LibraryKnowledgePointGroupPolicy {
+    static let generalGroupName = "通用"
+
+    static func displayName(
+        for group: LibraryKnowledgePointGroup,
+        category: LibraryKnowledgePointGroupCategory
+    ) -> String {
+        if category == .knowledgePoint, normalizedName(group.name) == generalGroupName {
+            return "\(generalGroupName)（自建）"
+        }
+        return group.name
+    }
+
+    static func names(
+        in groupID: String?,
+        allNames: [String],
+        groups: [LibraryKnowledgePointGroup],
+        matching query: String = ""
+    ) -> [String] {
+        let matches: [String]
+        if let groupID {
+            guard let group = groups.first(where: { $0.id == groupID }) else { return [] }
+            let members = Set(group.memberNames)
+            matches = allNames.filter(members.contains)
+        } else {
+            let assigned = Set(groups.flatMap(\.memberNames))
+            matches = allNames.filter { !assigned.contains($0) }
+        }
+        guard !query.isEmpty else { return matches }
+        return matches.filter { $0.localizedCaseInsensitiveContains(query) }
+    }
+
     static func scopeKey(
         subject: String = "",
         module: String,
