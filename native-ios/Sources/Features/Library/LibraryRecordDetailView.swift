@@ -18,10 +18,35 @@ private struct LibraryDetailAttribute: Identifiable {
     var id: String { key }
 }
 
-private struct LibraryDetailPayloadKey: Equatable {
+struct LibraryDetailPayloadKey: Equatable {
     let recordID: String
     let updatedAt: Date?
     let payloadCount: Int
+
+    init(record: StoredRecord) {
+        recordID = record.compoundID
+        updatedAt = record.updatedAt
+        payloadCount = record.payload.count
+    }
+
+    var decodeKey: LibraryPayloadDecodeKey {
+        LibraryPayloadDecodeKey(recordID: recordID, updatedAt: updatedAt, payloadByteCount: payloadCount, source: "payload")
+    }
+}
+
+struct LibraryPreparedErrorDetail {
+    let recordID: String
+    let key: LibraryDetailPayloadKey
+    let object: [String: Any]
+    fileprivate let imageSourceIdentities: [String: LibraryDetailImageSourceIdentity]
+
+    @MainActor
+    init(recordID: String, key: LibraryDetailPayloadKey, object: [String: Any]) {
+        self.recordID = recordID
+        self.key = key
+        self.object = object
+        imageSourceIdentities = LibraryRecordDetailView.makeImageSourceIdentities(for: object)
+    }
 }
 
 private struct LibraryDetailPageVersion: Equatable {
@@ -29,6 +54,7 @@ private struct LibraryDetailPageVersion: Equatable {
     let payloadKey: LibraryDetailPayloadKey?
     let revision: Int
     let isLoading: Bool
+    let showsLoadingHint: Bool
     let didFail: Bool
     let showsMaterial: Bool
     let splitDirection: LibraryDoodleLayoutDirection
@@ -99,6 +125,7 @@ struct LibraryRecordDetailView: View {
     @State private var payloadLoadState: LibraryDetailPayloadLoadState = .idle
     @State private var payloadRetryCount = 0
     @State private var payloadRetryKey: LibraryDetailPayloadKey?
+    @State private var questionLoadingHintTrigger: LibraryDetailLoadTrigger?
     @State private var payloadDecodeTask: Task<LibraryDecodedJSONPayload?, Never>?
     @State private var failedPreviewKey: LibraryDetailPayloadKey?
     @State private var failedPreviewText: String?
@@ -145,6 +172,7 @@ struct LibraryRecordDetailView: View {
         kind: LibraryContentKind,
         scope: LibraryScope,
         record: StoredRecord,
+        preparedErrorDetail: LibraryPreparedErrorDetail? = nil,
         onEdit: @escaping (String) -> Void,
         onEditPrepared: ((String, LibraryRecordDraft?) -> Void)? = nil,
         onDelete: @escaping (String) -> Void,
@@ -164,8 +192,19 @@ struct LibraryRecordDetailView: View {
         self.onOpenLinkedError = onOpenLinkedError
         _redoPracticeEnabled = State(initialValue: UserDefaults.standard.bool(forKey: "native.library.errors.redoMode"))
         _activeRecordKey = State(initialValue: record.recordID)
-        _loadedPayloadObject = State(initialValue: [:])
-        _imageSourceIdentities = State(initialValue: [:])
+        if let preparedErrorDetail,
+           preparedErrorDetail.key == LibraryDetailPayloadKey(record: record) {
+            let payload = preparedErrorDetail.object
+            _loadedPayloadObject = State(initialValue: payload)
+            _loadedPayloadKey = State(initialValue: preparedErrorDetail.key)
+            _payloadLoadState = State(initialValue: .loaded(key: preparedErrorDetail.key))
+            _imageSourceIdentities = State(initialValue: preparedErrorDetail.imageSourceIdentities)
+            _redoActionsAvailable = State(initialValue: kind == .errors && Self.permitsRedo(for: record, payload: payload))
+            _redoActionsRecordID = State(initialValue: record.compoundID)
+        } else {
+            _loadedPayloadObject = State(initialValue: [:])
+            _imageSourceIdentities = State(initialValue: [:])
+        }
     }
 
     var body: some View {
@@ -184,6 +223,15 @@ struct LibraryRecordDetailView: View {
                 await failPayloadLoadIfTimedOut(key: key, requestID: requestID)
             }
             .task(id: linkedQuestionContextKey) { loadLinkedQuestionContext() }
+            .task(id: activePayloadLoadTrigger) {
+                guard isWaitingForQuestionContent else { return }
+                let trigger = activePayloadLoadTrigger
+                try? await Task.sleep(for: .milliseconds(450))
+                guard !Task.isCancelled,
+                      activePayloadLoadTrigger == trigger,
+                      isWaitingForQuestionContent else { return }
+                questionLoadingHintTrigger = trigger
+            }
             .task(id: payloadDecodeFailed ? activePayloadKey : nil) {
                 await loadFailedPayloadPreview()
             }
@@ -388,6 +436,7 @@ struct LibraryRecordDetailView: View {
             payloadKey: activePayloadKey,
             revision: pageContentRevision,
             isLoading: isWaitingForQuestionContent,
+            showsLoadingHint: showsQuestionLoadingHint,
             didFail: payloadDecodeFailed,
             showsMaterial: showsDetachedDataAnalysisMaterial,
             splitDirection: splitDoodleLayoutDirection,
@@ -490,7 +539,13 @@ struct LibraryRecordDetailView: View {
             .overlay {
                 RoundedRectangle(cornerRadius: 8).stroke(webBorder, lineWidth: 0.8)
             }
+            .opacity(showsQuestionLoadingHint ? 1 : 0)
+            .accessibilityHidden(!showsQuestionLoadingHint)
             .accessibilityIdentifier("library-record-detail-payload-loading")
+    }
+
+    private var showsQuestionLoadingHint: Bool {
+        questionLoadingHintTrigger == activePayloadLoadTrigger
     }
 
     private func detailScrollView(availableWidth: CGFloat) -> some View {
@@ -873,7 +928,7 @@ struct LibraryRecordDetailView: View {
     private var doodleToolbarButton: some View {
         Button(action: openDoodle) { Image(systemName: "pencil.and.scribble") }
             .foregroundStyle(AppTheme.accent)
-            .buttonStyle(LibraryDoodleToolbarButtonStyle())
+            .buttonStyle(LibraryToolbarPressStyle(highlightDiameter: 30))
             .accessibilityLabel("涂鸦")
             .disabled(!canOpenDoodle)
     }
@@ -2728,11 +2783,7 @@ struct LibraryRecordDetailView: View {
 
     private var activePayloadKey: LibraryDetailPayloadKey? {
         guard let record else { return nil }
-        return LibraryDetailPayloadKey(
-            recordID: record.compoundID,
-            updatedAt: record.updatedAt,
-            payloadCount: record.payload.count
-        )
+        return LibraryDetailPayloadKey(record: record)
     }
 
     private var activePayloadLoadTrigger: LibraryDetailLoadTrigger {
@@ -2795,6 +2846,7 @@ struct LibraryRecordDetailView: View {
             return
         }
         if loadedPayloadKey == key {
+            updateRedoActionAvailability(for: record, payload: loadedPayloadObject)
             payloadLoadState = .loaded(key: key)
             return
         }
@@ -2932,16 +2984,19 @@ struct LibraryRecordDetailView: View {
     }
 
     private func updateRedoActionAvailability(for record: StoredRecord, payload: [String: Any]) {
+        redoActionsAvailable = kind == .errors && Self.permitsRedo(for: record, payload: payload)
+        redoActionsRecordID = record.compoundID
+    }
+
+    private static func permitsRedo(for record: StoredRecord, payload: [String: Any]) -> Bool {
         let recordSubject = record.subject?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let payloadSubject = (payload["subject"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let isShenlun = recordSubject == "申论"
             || payloadSubject == "申论"
             || (payload["isShenlun"] as? Bool) == true
-        redoActionsAvailable = kind == .errors
-            && !isShenlun
+        return !isShenlun
             && payload["questionBankPaperID"] == nil
             && payload["questionBankQuestionID"] == nil
-        redoActionsRecordID = record.compoundID
     }
 
     private var record: StoredRecord? {
@@ -2969,7 +3024,7 @@ struct LibraryRecordDetailView: View {
         pageContentRevision &+= 1
     }
 
-    private static func makeImageSourceIdentities(for object: [String: Any]) -> [String: LibraryDetailImageSourceIdentity] {
+    fileprivate static func makeImageSourceIdentities(for object: [String: Any]) -> [String: LibraryDetailImageSourceIdentity] {
         reconciledImageSourceIdentities(for: object, previous: [:])
     }
 
@@ -3065,7 +3120,7 @@ struct LibraryRecordDetailView: View {
 
 }
 
-private struct LibraryDetailImageSourceIdentity {
+fileprivate struct LibraryDetailImageSourceIdentity {
     let source: String
     let cacheToken: String
 }
